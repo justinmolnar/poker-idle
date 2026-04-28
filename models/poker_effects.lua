@@ -1,7 +1,7 @@
 -- models/poker_effects.lua
 --
 -- Poker-specific effect kind registrations. Lives in models/ (not services/)
--- because the kind names (`shove_rate_add`, `vs_aggressive_mult`, etc.) are
+-- because the kind names (`shove_rate_add`, `vs_fish_mult`, etc.) are
 -- poker-specific data — services/EffectsRegistry stays generic, just owning
 -- the registry mechanism.
 --
@@ -30,8 +30,20 @@ function PokerEffects.registerAll(reg)
         ctx.hands_per_min = (ctx.hands_per_min or 0) + e.value
     end)
 
-    reg:register("vs_aggressive_mult", function(e, ctx)
-        ctx.vs_aggressive = (ctx.vs_aggressive or 1) * e.value
+    -- Per-playstyle situational multipliers. Each style targeted independently
+    -- by catalog/run-upgrade items. Skill levels are not targetable — they're
+    -- a flat additive penalty per opponent (see opponent_types.lua).
+    reg:register("vs_fish_mult", function(e, ctx)
+        ctx.vs_fish = (ctx.vs_fish or 1) * e.value
+    end)
+    reg:register("vs_tag_mult", function(e, ctx)
+        ctx.vs_tag = (ctx.vs_tag or 1) * e.value
+    end)
+    reg:register("vs_lag_mult", function(e, ctx)
+        ctx.vs_lag = (ctx.vs_lag or 1) * e.value
+    end)
+    reg:register("vs_nit_mult", function(e, ctx)
+        ctx.vs_nit = (ctx.vs_nit or 1) * e.value
     end)
 
     reg:register("rep_decay_slow", function(e, ctx)

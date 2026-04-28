@@ -1,8 +1,8 @@
 -- data/catalog.lua
 --
--- The PP-shop catalog. Each item is a permanent room object that:
+-- The PP-shop catalog. Each item:
 --   • is bought with Poker Points (PP, the meta currency)
---   • appears visually in the room (deferred — VR slice uses list-only UI)
+--   • appears visually in the room (deferred — list-only UI for VR)
 --   • applies one or more effects via the EffectsRegistry
 --   • persists across prestiges forever
 --
@@ -16,12 +16,6 @@
 --     position    = { x = px, y = px },         -- room placement (deferred)
 --     effects     = { { kind = "...", value = ... }, ... }  -- see data/effects.lua
 --   }
---
--- The effects field is what the EffectsRegistry consumes. Adding a new
--- catalog item with an existing effect kind = pure data, no code change.
--- Different items can share a display name (intentional — Lucky Charm
--- exists as both a $20 run upgrade and a 25-PP catalog item; the kinds
--- and persistence model differ but the flavor name is the same).
 
 return {
 
@@ -53,22 +47,22 @@ return {
         effects     = { { kind = "shove_rate_add", value = 0.03 } },
     },
     {
-        id          = "lamp",
-        name        = "Lamp",
-        description = "+5 hands per minute",
-        sprite      = "lamp",
-        cost_pp     = 12,
-        position    = { x = 400, y = 200 },
-        effects     = { { kind = "hands_per_min_add", value = 5 } },
-    },
-    {
         id          = "mousepad",
         name        = "Mousepad",
-        description = "+5% vs aggressive opponents",
+        description = "+5% vs fish opponents",
         sprite      = "mousepad",
-        cost_pp     = 15,
+        cost_pp     = 12,
         position    = { x = 500, y = 200 },
-        effects     = { { kind = "vs_aggressive_mult", value = 1.05 } },
+        effects     = { { kind = "vs_fish_mult", value = 1.05 } },
+    },
+    {
+        id          = "lamp",
+        name        = "Lamp",
+        description = "+5% vs LAG opponents",
+        sprite      = "lamp",
+        cost_pp     = 15,
+        position    = { x = 400, y = 200 },
+        effects     = { { kind = "vs_lag_mult", value = 1.05 } },
     },
     {
         id          = "second_monitor",

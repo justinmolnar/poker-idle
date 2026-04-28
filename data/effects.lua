@@ -48,11 +48,28 @@ Effects.kinds = {
         affects     = "ctx.hands_per_min",
     },
 
-    -- Situational multiplier vs aggressive opponents.
-    vs_aggressive_mult = {
-        description = "Multiplier on win chance versus aggressive table types.",
+    -- Situational multipliers vs specific opponent playstyles. Targeted by
+    -- catalog and run upgrades — playstyle is the lateral axis (skill is
+    -- additive only, not exploitable). The kind name encodes the playstyle.
+    vs_fish_mult = {
+        description = "Multiplier on win chance versus loose-passive (fish) opponents.",
         value_shape = "number, e.g. 1.05 for +5%",
-        affects     = "ctx.vs_aggressive",
+        affects     = "ctx.vs_fish",
+    },
+    vs_tag_mult = {
+        description = "Multiplier on win chance versus tight-aggressive (TAG) opponents.",
+        value_shape = "number, e.g. 1.05 for +5%",
+        affects     = "ctx.vs_tag",
+    },
+    vs_lag_mult = {
+        description = "Multiplier on win chance versus loose-aggressive (LAG) opponents.",
+        value_shape = "number, e.g. 1.05 for +5%",
+        affects     = "ctx.vs_lag",
+    },
+    vs_nit_mult = {
+        description = "Multiplier on win chance versus ultra-tight (Nit) opponents.",
+        value_shape = "number, e.g. 1.05 for +5%",
+        affects     = "ctx.vs_nit",
     },
 
     -- Slows rep / burn meter rise during a run.

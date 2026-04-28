@@ -116,6 +116,15 @@ function love.mousemoved(x,y,dx,dy) Game.input_dispatcher:dispatch("mousemoved",
 function love.textinput(text)    Game.input_dispatcher:dispatch("textinput",    text)        end
 function love.wheelmoved(x, y)   Game.input_dispatcher:dispatch("wheelmoved",   x, y)        end
 
+function love.resize(w, h)
+    -- Forwards to the active state. States that own anchored layout (sidebar
+    -- Panels) implement :resize(w, h) to rebuild internal rects; states that
+    -- read getDimensions() per-frame ignore.
+    if Game and Game.state_machine then
+        Game.state_machine:resize(w, h)
+    end
+end
+
 function love.quit()
     -- No save on quit. Disk only changes through explicit F5 / F7 actions.
 end

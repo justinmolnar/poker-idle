@@ -35,4 +35,8 @@ return {
     gauntlet_won       = { file = "assets/audio/victory_fanfare.mp3", volume = 1.0 },
     gauntlet_lost      = { file = "assets/audio/game_over.mp3",       volume = 0.85 },
 
+    -- Grind table hand resolution
+    pot_won            = { file = "assets/audio/positive_ding.mp3",   volume = 0.55 },
+    pot_lost           = { file = "assets/audio/negative_buzz.mp3",   volume = 0.45 },
+
 }

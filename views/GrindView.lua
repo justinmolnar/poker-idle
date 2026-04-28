@@ -18,6 +18,7 @@ local Theme       = require("views.Theme")
 local Format      = require("utils.format")
 local Panel       = require("views.Panel")
 local CR          = require("views.ComponentRenderer")
+local TablePanel  = require("views.TablePanel")
 local Stakes      = require("data.stakes")
 local RunUpgrades = require("data.run_upgrades")
 local Catalog     = require("data.catalog")
@@ -276,7 +277,6 @@ function GrindView:_drawCenterGrid(W, H)
     local cap = self.controller:tableSlotsCap()
     local tables = self.controller.pool.tables
 
-    -- Render every slot up to cap (occupied + empty).
     local slots_to_show = math.min(cap, cols * rows)
     for i = 1, slots_to_show do
         local r = math.floor((i - 1) / cols)
@@ -285,136 +285,10 @@ function GrindView:_drawCenterGrid(W, H)
         local y = grid_y + r * (ph + MARGIN)
         local t = tables[i]
         if t then
-            self:_drawTablePanel(t, i, x, y, pw, ph)
+            TablePanel.draw(t, i, x, y, pw, ph, self.game, self.controller, self.hit_boxes)
         else
-            self:_drawEmptySlot(x, y, pw, ph)
+            TablePanel.drawEmpty(x, y, pw, ph, self.game.fonts)
         end
-    end
-end
-
-function GrindView:_drawEmptySlot(x, y, w, h)
-    Theme.setColor(Theme.bg.sunken, 0.4)
-    love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
-    Theme.setColor(Theme.border.soft)
-    love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
-    love.graphics.setFont(self.game.fonts.ui_small)
-    Theme.setColor(Theme.fg.faint)
-    love.graphics.printf("empty slot", x, y + h / 2 - 8, w, "center")
-end
-
--- Returns the next stake tier in order if it exists AND the player's
--- bankroll has unlocked it. Returns nil otherwise.
-function GrindView:_nextStakeAvailable(t)
-    local found = false
-    for _, s in ipairs(Stakes) do
-        if found then
-            if self.game.state.bankroll >= s.unlock_bankroll then
-                return s
-            end
-            return nil
-        end
-        if s.id == t.stake_id then found = true end
-    end
-    return nil
-end
-
-function GrindView:_drawTablePanel(t, idx, x, y, w, h)
-    -- Update screen-space center for floating text spawn.
-    t.x = x + w / 2
-    t.y = y + h / 2
-
-    local fonts = self.game.fonts
-    local stats = t:liveStats(self.controller.ctx or {})
-
-    -- Card background.
-    Theme.setColor(Theme.bg.widget)
-    love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
-    Theme.setColor(Theme.border.default)
-    love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
-
-    -- Header.
-    love.graphics.setFont(fonts.heading)
-    Theme.setColor(Theme.fg.heading)
-    love.graphics.print((stats and stats.stake_display) or "?", x + 12, y + 10)
-
-    love.graphics.setFont(fonts.ui_small)
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.print(t.hands_played .. " hands", x + 12, y + 36)
-
-    -- Remove [×] button (top right). Disabled if it's the last table.
-    local can_remove = self.controller.pool:count() > 1
-    local rb_x = x + w - 12 - PANEL_REMOVE_BTN_SIZE
-    local rb_y = y + 10
-    Theme.setColor(can_remove and Theme.bg.widget_hover or Theme.bg.sunken, 0.6)
-    love.graphics.rectangle("fill", rb_x, rb_y, PANEL_REMOVE_BTN_SIZE, PANEL_REMOVE_BTN_SIZE, Theme.space.radius)
-    Theme.setColor(can_remove and Theme.border.strong or Theme.border.soft)
-    love.graphics.rectangle("line", rb_x, rb_y, PANEL_REMOVE_BTN_SIZE, PANEL_REMOVE_BTN_SIZE, Theme.space.radius)
-    Theme.setColor(can_remove and Theme.fg.heading or Theme.fg.disabled)
-    love.graphics.setFont(fonts.ui)
-    love.graphics.printf("x", rb_x, rb_y + 3, PANEL_REMOVE_BTN_SIZE, "center")
-    if can_remove then
-        self.hit_boxes[#self.hit_boxes + 1] = {
-            x = rb_x, y = rb_y, w = PANEL_REMOVE_BTN_SIZE, h = PANEL_REMOVE_BTN_SIZE,
-            action = "remove_table", idx = idx,
-        }
-    end
-
-    -- Last-N results pill strip.
-    local strip_y = y + 64
-    local strip_x = x + 12
-    local n_pills = #t.last_results
-    local pill_w  = math.floor((w - 24 - (5 - 1) * PILL_GAP) / 5)
-    if pill_w < 24 then pill_w = 24 end
-    for i, r in ipairs(t.last_results) do
-        local px = strip_x + (i - 1) * (pill_w + PILL_GAP)
-        Theme.setColor(r.won and Theme.status.good or Theme.status.error, 0.30)
-        love.graphics.rectangle("fill", px, strip_y, pill_w, PILL_H, Theme.space.radius)
-        Theme.setColor(r.won and Theme.status.good or Theme.status.error)
-        love.graphics.rectangle("line", px, strip_y, pill_w, PILL_H, Theme.space.radius)
-
-        love.graphics.setFont(fonts.ui_small)
-        Theme.setColor(Theme.fg.heading)
-        local label = (r.won and "+" or "-") .. string.format("%.2f", math.abs(r.delta))
-        local lw = fonts.ui_small:getWidth(label)
-        love.graphics.print(label, px + (pill_w - lw) / 2, strip_y + 2)
-    end
-    if n_pills == 0 then
-        Theme.setColor(Theme.fg.faint)
-        love.graphics.setFont(fonts.ui_small)
-        love.graphics.print("waiting for first hand…", strip_x, strip_y + 2)
-    end
-
-    -- Live stat line.
-    love.graphics.setFont(fonts.ui_small)
-    Theme.setColor(Theme.fg.muted)
-    if stats then
-        local stat_text = string.format(
-            "win %s  ·  pot %s  ·  %d/min",
-            Format.percent(stats.win_rate, 1),
-            moneyText(stats.pot_size),
-            math.floor(stats.hands_per_min + 0.5)
-        )
-        love.graphics.print(stat_text, x + 12, strip_y + PILL_H + 8)
-    end
-
-    -- Stake-up button (bottom). Only when next stake exists AND is affordable.
-    local next_stake = self:_nextStakeAvailable(t)
-    if next_stake then
-        local btn_x = x + STAKE_UP_BTN_PAD
-        local btn_y = y + h - STAKE_UP_BTN_H - STAKE_UP_BTN_PAD
-        local btn_w = w - 2 * STAKE_UP_BTN_PAD
-        Theme.setColor(Theme.bg.widget_hover)
-        love.graphics.rectangle("fill", btn_x, btn_y, btn_w, STAKE_UP_BTN_H, Theme.space.radius)
-        Theme.setColor(Theme.border.strong)
-        love.graphics.rectangle("line", btn_x, btn_y, btn_w, STAKE_UP_BTN_H, Theme.space.radius)
-        Theme.setColor(Theme.fg.heading)
-        love.graphics.setFont(fonts.ui)
-        love.graphics.printf("UP -> " .. next_stake.display_name,
-            btn_x, btn_y + 5, btn_w, "center")
-        self.hit_boxes[#self.hit_boxes + 1] = {
-            x = btn_x, y = btn_y, w = btn_w, h = STAKE_UP_BTN_H,
-            action = "stake_up", idx = idx, next_stake_id = next_stake.id,
-        }
     end
 end
 
@@ -459,7 +333,16 @@ function GrindView:_drawFloatingText()
     local fonts = self.game.fonts
     love.graphics.setFont(fonts.heading)
     for _, t in ipairs(self.game.floating_text.getTexts()) do
-        local color = (t.text:sub(1, 1) == "+") and Theme.status.good or Theme.status.error
+        local color
+        if t.text:find(" PP", 1, true) then
+            -- PP-bounty awards (e.g. "+3 PP") in violet so the player reads
+            -- them as distinct from the green +$ / red -$ pot deltas.
+            color = Theme.data.violet
+        elseif t.text:sub(1, 1) == "+" then
+            color = Theme.status.good
+        else
+            color = Theme.status.error
+        end
         Theme.setColor(color, t.alpha or 1)
         love.graphics.print(t.text, t.x - 24, t.y)
     end
@@ -554,7 +437,9 @@ function GrindView:_handleSidebarButton(id)
 end
 
 function GrindView:_handleHitBox(hb)
-    if hb.action == "remove_table" then
+    if hb.action == "deal" then
+        self.controller:dealHand(hb.idx)
+    elseif hb.action == "remove_table" then
         self.controller:removeTable(hb.idx)
     elseif hb.action == "stake_up" then
         self.controller:changeTableStake(hb.idx, hb.next_stake_id)
@@ -575,6 +460,14 @@ function GrindView:wheelmoved(_, dy)
     elseif mx >= self.right_panel.x then
         self.right_panel:handleScroll(dy)
     end
+end
+
+-- Window resized — rebuild Panel objects so the right panel reanchors to
+-- the new right edge and both panels reflow their content/scroll heights.
+-- Per-tab scroll position is reset (cheap acceptable cost; per-tab UI is
+-- short enough that scroll mid-resize isn't load-bearing).
+function GrindView:resize(_w, _h)
+    self:_buildPanels()
 end
 
 return GrindView

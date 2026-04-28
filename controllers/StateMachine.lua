@@ -91,4 +91,10 @@ function StateMachine:wheelmoved(x, y)
     end
 end
 
+function StateMachine:resize(w, h)
+    if self.current_state and self.current_state.resize then
+        self.current_state:resize(w, h)
+    end
+end
+
 return StateMachine

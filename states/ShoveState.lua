@@ -97,8 +97,10 @@ function ShoveState:_onGauntletEnded()
     local result = self.gauntlet.result
     local state  = self.game.state
 
-    local pp_earned = math.floor(state.peak_bankroll / Constants.GAMEPLAY.PP_AWARD_DIVISOR)
-    state.pp = state.pp + pp_earned
+    -- PP isn't computed at bust anymore. It was banked into state.pp during
+    -- the run via GrindController on each first-win-at-stake. The modal just
+    -- reads state.pp_this_run for the display total.
+    local pp_banked = state.pp_this_run or 0
 
     if result.won then
         state.cleared = true
@@ -109,7 +111,7 @@ function ShoveState:_onGauntletEnded()
         self.game.state_machine:switch("credits")
     else
         self.prestige_modal = PrestigeModal:new(
-            self.game, state.peak_bankroll, pp_earned, result.busted_at)
+            self.game, state.peak_bankroll, pp_banked, result.busted_at)
         -- No auto-save. PP is in memory only until F5.
     end
 end

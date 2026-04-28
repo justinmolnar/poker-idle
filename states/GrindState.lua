@@ -46,7 +46,15 @@ function GrindState:draw()
     self.view:draw()
 end
 
-function GrindState:keypressed(_) end
+-- Phase 2 debug: H deals one hand on table 1. J deals every idle table.
+-- Both are temporary — Phase 3 brings click-to-deal via TablePanel buttons.
+function GrindState:keypressed(key)
+    if key == "h" then
+        self.controller:dealHand(1)
+    elseif key == "j" then
+        self.controller:dealAll()
+    end
+end
 
 function GrindState:mousepressed(x, y, b)
     self.view:mousepressed(x, y, b)
@@ -62,6 +70,10 @@ end
 
 function GrindState:wheelmoved(x, y)
     self.view:wheelmoved(x, y)
+end
+
+function GrindState:resize(w, h)
+    if self.view.resize then self.view:resize(w, h) end
 end
 
 return GrindState

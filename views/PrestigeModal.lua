@@ -15,11 +15,11 @@ PrestigeModal.__index = PrestigeModal
 local CARD_W = 480
 local CARD_H = 300
 
-function PrestigeModal:new(game, peak_bankroll, pp_earned, busted_at)
+function PrestigeModal:new(game, peak_bankroll, pp_banked, busted_at)
     return setmetatable({
         game          = game,
         peak_bankroll = peak_bankroll or 0,
-        pp_earned     = pp_earned or 0,
+        pp_banked     = pp_banked or 0,   -- PP earned this run (already in state.pp)
         busted_at     = busted_at or 0,
     }, PrestigeModal)
 end
@@ -69,13 +69,14 @@ function PrestigeModal:draw()
     love.graphics.printf(string.format("$%.2f", self.peak_bankroll),
         card_x, card_y + 130, CARD_W, "center")
 
-    -- PP earned (accent color so the takeaway lands).
+    -- PP banked this run (accent color so the takeaway lands). The PP was
+    -- earned per-stake-win during play; the modal celebrates the cumulative.
     love.graphics.setFont(fonts.ui_small)
     Theme.setColor(Theme.fg.muted)
-    love.graphics.printf("POKER POINTS EARNED", card_x, card_y + 180, CARD_W, "center")
+    love.graphics.printf("PP BANKED THIS RUN", card_x, card_y + 180, CARD_W, "center")
     love.graphics.setFont(fonts.kpi)
     Theme.setColor(Theme.status.good)
-    love.graphics.printf("+" .. tostring(self.pp_earned) .. " PP",
+    love.graphics.printf(tostring(self.pp_banked) .. " PP",
         card_x, card_y + 200, CARD_W, "center")
 
     -- Prompt.

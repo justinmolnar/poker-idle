@@ -28,16 +28,18 @@ function GameState:new(saved)
     local instance = setmetatable({}, GameState)
 
     -- Meta-side defaults (persisted forever).
-    instance.pp           = Constants.GAMEPLAY.INITIAL_PP
-    instance.owned_items  = {}
-    instance.cleared      = false  -- true once the gauntlet is beaten — gates the credits screen on boot
+    instance.pp          = Constants.GAMEPLAY.INITIAL_PP
+    instance.owned_items = {}
+    instance.cleared     = false   -- true once the gauntlet is beaten — gates the credits screen on boot
 
     -- Run-side defaults (wiped on prestige).
-    instance.bankroll          = Constants.GAMEPLAY.INITIAL_BANKROLL
-    instance.peak_bankroll     = Constants.GAMEPLAY.INITIAL_BANKROLL
-    instance.current_stake_id  = "nl2"
-    instance.run_upgrade_ids   = {}
-    instance.active_table_stakes = { "nl2" }  -- player starts with one nl2 table
+    instance.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
+    instance.peak_bankroll       = Constants.GAMEPLAY.INITIAL_BANKROLL
+    instance.current_stake_id    = "s001"
+    instance.run_upgrade_ids     = {}
+    instance.active_table_stakes = { "s001" }   -- player starts with one $0.01/$0.02 table
+    instance.stakes_won_this_run = {}           -- set keyed by stake_id; locks in PP bounties per run
+    instance.pp_this_run         = 0            -- running counter for the prestige modal display
 
     -- Transient stat cache, recomputed lazily.
     instance.effects_cache = nil
@@ -50,14 +52,16 @@ function GameState:new(saved)
 end
 
 -- Wipes run-side fields back to defaults. Called by the prestige flow after
--- a gauntlet bust (PP already awarded + meta saved separately). Meta-side
--- (pp, owned_items, cleared) is left untouched.
+-- a gauntlet bust. Meta-side (pp, owned_items, cleared) is left untouched —
+-- PP earned during the run was already banked to state.pp during play.
 function GameState:resetRun()
     self.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
     self.peak_bankroll       = Constants.GAMEPLAY.INITIAL_BANKROLL
-    self.current_stake_id    = "nl2"
+    self.current_stake_id    = "s001"
     self.run_upgrade_ids     = {}
-    self.active_table_stakes = { "nl2" }
+    self.active_table_stakes = { "s001" }
+    self.stakes_won_this_run = {}
+    self.pp_this_run         = 0
     self.effects_cache       = nil
 end
 
@@ -93,8 +97,8 @@ function GameState:serializeMeta()
     }
 end
 
--- Serialize run-only (bankroll, peak, stake, run upgrades, active tables).
--- For run.save. Wiped on prestige by `clearRun()`.
+-- Serialize run-only (bankroll, peak, stake, run upgrades, active tables,
+-- per-run PP bookkeeping). For run.save. Wiped on prestige by `clearRun()`.
 function GameState:serializeRun()
     return {
         bankroll             = self.bankroll,
@@ -102,6 +106,8 @@ function GameState:serializeRun()
         current_stake_id     = self.current_stake_id,
         run_upgrade_ids      = self.run_upgrade_ids,
         active_table_stakes  = self.active_table_stakes,
+        stakes_won_this_run  = self.stakes_won_this_run,
+        pp_this_run          = self.pp_this_run,
     }
 end
 
