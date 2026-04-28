@@ -1,6 +1,9 @@
 -- services/SpriteLoader.lua
--- Centralized sprite loading. Scans assets/sprites/ for PNGs at startup,
--- caches each as a love.Image, supports optional alias-JSON for renaming.
+-- Centralized sprite loading. Recursively scans assets/sprites/ for image
+-- files at startup, caches each as a love.Image. Sprite names are the file
+-- path relative to assets/sprites/ with the extension stripped — e.g.
+-- assets/sprites/cards/fronts/clubs/a.png → "cards/fronts/clubs/a".
+-- Optional aliases.json at the sprite root remaps lookup names.
 --
 -- API:
 --   sl = SpriteLoader:new()
@@ -16,11 +19,51 @@ local SpriteLoader = Object:extend('SpriteLoader')
 local SPRITE_DIR  = "assets/sprites/"
 local ALIASES_FILE = "assets/sprites/aliases.json"
 
+-- LÖVE's image decoders. .gif is intentionally excluded — newImage doesn't
+-- support animated GIFs and treating them as still frames is unreliable.
+local SUPPORTED_EXTS = { png = true, jpg = true, jpeg = true, bmp = true, tga = true }
+
 function SpriteLoader:init()
     self.sprites = {}
     self.loaded = false
     self.aliases = nil
     self._warned_missing = {}
+end
+
+local function isSupported(filename)
+    local ext = filename:match("%.([^%.]+)$")
+    return ext and SUPPORTED_EXTS[ext:lower()] or false
+end
+
+local function stripExt(filename)
+    return (filename:gsub("%.[^%.]+$", ""))
+end
+
+-- Recursive directory walk. Builds sprite names by joining the relative
+-- path components with '/'. dir is "" for the root scan, "cards/" for a
+-- nested call, etc.
+function SpriteLoader:_scan(rel_dir)
+    local full_dir = SPRITE_DIR .. rel_dir
+    local items = love.filesystem.getDirectoryItems(full_dir)
+    local count = 0
+    for _, item in ipairs(items) do
+        local item_path  = full_dir .. item
+        local rel_path   = rel_dir .. item
+        local info = love.filesystem.getInfo(item_path)
+        if info then
+            if info.type == "directory" then
+                count = count + self:_scan(rel_path .. "/")
+            elseif info.type == "file" and isSupported(item) then
+                local sprite_name = stripExt(rel_path)
+                local ok, image = pcall(love.graphics.newImage, item_path)
+                if ok and image then
+                    self.sprites[sprite_name] = image
+                    count = count + 1
+                end
+            end
+        end
+    end
+    return count
 end
 
 function SpriteLoader:loadAll()
@@ -34,17 +77,7 @@ function SpriteLoader:loadAll()
         return
     end
 
-    local files = love.filesystem.getDirectoryItems(SPRITE_DIR)
-    local sprite_count = 0
-
-    for _, filename in ipairs(files) do
-        local sprite_name = filename:match("^(.+)%.png$")
-        if sprite_name and sprite_name ~= "" then
-            self:loadSprite(sprite_name)
-            sprite_count = sprite_count + 1
-        end
-    end
-
+    local sprite_count = self:_scan("")
     self:loadAliases()
 
     print("[SpriteLoader] Loaded " .. sprite_count .. " sprites"
@@ -60,15 +93,6 @@ function SpriteLoader:loadAliases()
     local ok2, data = pcall(json.decode, contents)
     if ok2 and type(data) == "table" and data.aliases then
         self.aliases = data.aliases
-    end
-end
-
-function SpriteLoader:loadSprite(sprite_name)
-    if self.sprites[sprite_name] then return end
-    local file_path = SPRITE_DIR .. sprite_name .. ".png"
-    local success, image = pcall(love.graphics.newImage, file_path)
-    if success and image then
-        self.sprites[sprite_name] = image
     end
 end
 

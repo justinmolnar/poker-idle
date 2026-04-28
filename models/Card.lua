@@ -2,10 +2,10 @@
 --
 -- A single playing card. Pure data + view helpers — no game logic.
 --
--- The sprite name maps directly to the asset path under assets/sprites/cards/
--- fronts/<suit>/<rank>.png — call SpriteLoader:getSprite(card:spriteName())
--- to render. rankValue() converts the string rank to a numeric weight (a=14)
--- for the hand evaluator.
+-- spriteName() returns the path under assets/sprites/ that the SpriteLoader
+-- indexes by. Cards live at assets/sprites/cards/fronts/<suit>/<rank>.png,
+-- so a card's sprite name is "cards/fronts/<suit>/<rank>".
+-- rankValue() returns 2..14 (a = 14) for the hand evaluator.
 
 local Card = {}
 Card.__index = Card
@@ -24,7 +24,7 @@ function Card:new(suit, rank)
 end
 
 function Card:spriteName()
-    return self.suit .. "/" .. self.rank
+    return "cards/fronts/" .. self.suit .. "/" .. self.rank
 end
 
 function Card:rankValue()

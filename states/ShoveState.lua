@@ -35,7 +35,7 @@ function ShoveState:new(game)
         shove_rate  = 0,            -- debug-mutable; reseeded on enter
         gauntlet    = nil,
     }, ShoveState)
-    self.view    = ShoveView:new(game)
+    self.view    = ShoveView:new(game, self)
     self.overlay = Overlay:new(game, self)
     return self
 end

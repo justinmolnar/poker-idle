@@ -51,6 +51,33 @@ function HandEval.categoryName(cat)
     return CATEGORY_NAMES[cat] or "unknown"
 end
 
+local RANK_LABEL = {
+    [2]="2",[3]="3",[4]="4",[5]="5",[6]="6",[7]="7",[8]="8",[9]="9",
+    [10]="10",[11]="J",[12]="Q",[13]="K",[14]="A",
+}
+
+-- Player-readable description of a rank tuple. "pair of Aces", "trip 7s",
+-- "Jack-high straight", etc. Used by views to label the player + board hands.
+function HandEval.describe(rank_tuple)
+    if not rank_tuple then return "—" end
+    local cat  = rank_tuple[1]
+    local main = rank_tuple[2]
+    local sec  = rank_tuple[3]
+    local m = RANK_LABEL[main] or "?"
+    local s = RANK_LABEL[sec]  or "?"
+    if     cat == STRAIGHT_FLUSH then return m .. "-high straight flush"
+    elseif cat == QUADS          then return "quad " .. m .. "s"
+    elseif cat == FULL_HOUSE     then return m .. "s full of " .. s .. "s"
+    elseif cat == FLUSH          then return m .. "-high flush"
+    elseif cat == STRAIGHT       then return m .. "-high straight"
+    elseif cat == TRIPS          then return "trip " .. m .. "s"
+    elseif cat == TWO_PAIR       then return "two pair, " .. m .. "s and " .. s .. "s"
+    elseif cat == PAIR           then return "pair of " .. m .. "s"
+    elseif cat == HIGH_CARD      then return m .. "-high"
+    end
+    return CATEGORY_NAMES[cat] or "unknown"
+end
+
 local function sortDesc(t)
     table.sort(t, function(a, b) return a > b end)
 end
