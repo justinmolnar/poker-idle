@@ -47,6 +47,21 @@ function GrindState:draw()
 end
 
 function GrindState:keypressed(_) end
-function GrindState:mousepressed(_, _, _) end
+
+function GrindState:mousepressed(x, y, b)
+    self.view:mousepressed(x, y, b)
+end
+
+function GrindState:mousereleased(x, y, b)
+    self.view:mousereleased(x, y, b)
+end
+
+function GrindState:mousemoved(x, y, dx, dy)
+    self.view:mousemoved(x, y, dx, dy)
+end
+
+function GrindState:wheelmoved(x, y)
+    self.view:wheelmoved(x, y)
+end
 
 return GrindState
