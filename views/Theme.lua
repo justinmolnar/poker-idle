@@ -18,6 +18,7 @@ local PaletteData = require("data.theme")
 Theme.size  = PaletteData.size
 Theme.space = PaletteData.space
 Theme.font  = PaletteData.font
+Theme.debug = PaletteData.debug
 
 -- ─── Active-palette dispatch ────────────────────────────────────────
 -- Per-palette tables (bg/fg/border/data/status/tint) are repointed by

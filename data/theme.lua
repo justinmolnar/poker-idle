@@ -139,8 +139,19 @@ Theme.palettes = {
 -- Intentionally garish colors used to make missing-asset / debug-overlay
 -- conditions LOUD. Not chrome — these should never be seen by the player.
 Theme.debug = {
-    missing_fill   = { 1.0, 0.0, 1.0 },  -- magenta: missing sprite body
-    missing_border = { 0.0, 0.0, 0.0 },  -- black: missing sprite outline
+    missing_fill   = { 1.0, 0.0, 1.0 },          -- magenta: missing sprite body
+    missing_border = { 0.0, 0.0, 0.0 },          -- black: missing sprite outline
+
+    -- Shove prototype HUD — drawn over either palette. Picked for high
+    -- contrast against the shove palette (near-black bg) where the overlay
+    -- spends all its time during the prototype.
+    hud_bg     = { 0.00, 0.00, 0.00, 0.78 },     -- translucent black panel fill
+    hud_border = { 0.40, 0.40, 0.45, 0.85 },     -- thin grey panel outline
+    hud_text   = { 0.95, 0.95, 0.98 },           -- bone white
+    hud_dim    = { 0.62, 0.62, 0.68 },           -- secondary labels
+    hud_accent = { 0.40, 0.95, 0.55 },           -- lime: shove_rate, clear rate
+    hud_warn   = { 0.98, 0.55, 0.40 },           -- soft red: "natural outcome failed" flag
+    hud_hot    = { 0.55, 0.85, 1.00 },           -- cyan: hotkey legend keys
 }
 
 -- ─── Type scale (theme-invariant) ───────────────────────────────────
