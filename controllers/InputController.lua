@@ -31,6 +31,60 @@ function InputController:wire()
             sm:switch(next_name)
         end)
 
+    -- ── Manual save management (auto-save is disabled) ───────────────
+    --   F5 — save current in-memory state to disk
+    --   F6 — reload state from disk, wiping anything unsaved
+    --   F7 — delete both save slots and reset to a fresh game
+
+    dispatcher:on("keypressed",
+        function(key) return key == "f5" end,
+        function()
+            local state = game.state
+            game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
+            print(string.format(
+                "[save] F5 — saved.  bankroll=$%.2f  pp=%d  owned=%d  run_upgrades=%d",
+                state.bankroll, state.pp, #state.owned_items, #state.run_upgrade_ids))
+        end)
+
+    -- Walk the state-machine and tell each state to nuke its transient
+    -- mid-flow state (running gauntlet, prestige modal, animation timer,
+    -- etc.). Called from F6 / F7 so a reload-or-wipe doesn't leave stale
+    -- views in suspended states.
+    local function fullResetAllStates()
+        for _, st in pairs(sm.states) do
+            if type(st) == "table" and type(st.fullReset) == "function" then
+                st:fullReset()
+            end
+        end
+    end
+
+    dispatcher:on("keypressed",
+        function(key) return key == "f6" end,
+        function()
+            local state = game.state
+            state:wipeAll()
+            local saved = game.save_service:loadAll() or {}
+            state:applySaved(saved)
+            state.effects_cache = nil
+            fullResetAllStates()
+            -- Force grind re-enter so TablePool rebuilds + effects refresh.
+            sm:switch("grind")
+            print(string.format(
+                "[save] F6 — reloaded.  bankroll=$%.2f  pp=%d  owned=%d",
+                state.bankroll, state.pp, #state.owned_items))
+        end)
+
+    dispatcher:on("keypressed",
+        function(key) return key == "f7" end,
+        function()
+            local state = game.state
+            game.save_service:clearAll()
+            state:wipeAll()
+            fullResetAllStates()
+            sm:switch("grind")
+            print("[save] F7 — wiped.  fresh game.")
+        end)
+
     -- ESC: quit, dev convenience. Production builds will gate this behind a
     -- confirmation dialog; for the skeleton it's a fast exit.
     dispatcher:on("keypressed",

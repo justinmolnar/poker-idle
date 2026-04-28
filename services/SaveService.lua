@@ -103,4 +103,12 @@ function SaveService:clearRun()
     end
 end
 
+-- Wipe both slots. Used by the credits-screen reset and the F7 debug hotkey.
+function SaveService:clearAll()
+    self:clearRun()
+    if love.filesystem.getInfo(Constants.SAVE.META_FILE) then
+        love.filesystem.remove(Constants.SAVE.META_FILE)
+    end
+end
+
 return SaveService

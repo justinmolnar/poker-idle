@@ -20,6 +20,7 @@ local Panel       = require("views.Panel")
 local CR          = require("views.ComponentRenderer")
 local Stakes      = require("data.stakes")
 local RunUpgrades = require("data.run_upgrades")
+local Catalog     = require("data.catalog")
 local Constants   = require("data.constants")
 
 local GrindView = {}
@@ -59,6 +60,12 @@ function GrindView:_buildPanels()
         label    = "Tables",
         priority = 0,
         build    = function() return self:_buildTablesTabComponents() end,
+    })
+    self.left_panel:registerTab({
+        id       = "catalog",
+        label    = "Catalog",
+        priority = 1,
+        build    = function() return self:_buildCatalogTabComponents() end,
     })
 
     -- Right panel reserves space at the bottom for the SHOVE button.
@@ -116,6 +123,47 @@ function GrindView:_buildTablesTabComponents()
         text  = string.format("Active: %d / %d", active, cap),
         h     = 24,
     }
+
+    return components
+end
+
+function GrindView:_buildCatalogTabComponents()
+    local state = self.game.state
+    local owned = {}
+    for _, id in ipairs(state.owned_items) do owned[id] = true end
+
+    local components = {}
+    components[#components + 1] = { type = "label", style = "muted", text = "PP SHOP", h = 22 }
+    components[#components + 1] = {
+        type  = "label",
+        style = "small",
+        text  = string.format("you have %d PP", state.pp),
+        h     = 18,
+    }
+
+    for _, item in ipairs(Catalog) do
+        local is_owned    = owned[item.id]
+        local cant_afford = (not is_owned) and state.pp < item.cost_pp
+        local disabled    = is_owned or cant_afford
+
+        local cost_label
+        if is_owned then
+            cost_label = "OWNED"
+        else
+            cost_label = item.cost_pp .. " PP"
+        end
+
+        components[#components + 1] = {
+            type     = "button",
+            id       = "buy_catalog_" .. item.id,
+            disabled = disabled,
+            lines = {
+                { text = item.name, style = "heading" },
+                { text = item.description or "", style = "small" },
+                { text = cost_label, style = is_owned and "muted" or "body" },
+            },
+        }
+    end
 
     return components
 end
@@ -496,6 +544,11 @@ function GrindView:_handleSidebarButton(id)
     local up_id = id:match("^buy_runup_(.+)$")
     if up_id then
         self.controller:buyRunUpgrade(up_id)
+        return
+    end
+    local catalog_id = id:match("^buy_catalog_(.+)$")
+    if catalog_id then
+        self.controller:buyCatalogItem(catalog_id)
         return
     end
 end

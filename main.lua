@@ -36,9 +36,11 @@ local GameState    = require("models.GameState")
 local PokerEffects = require("models.poker_effects")
 local GrindState   = require("states.GrindState")
 local ShoveState   = require("states.ShoveState")
+local CreditsState = require("states.CreditsState")
 
 local Game = nil
-local autosave_timer = 0
+-- Auto-save was here. Disabled by request — manual F5/F6/F7 only so debug
+-- experiments don't get committed to disk between intentional saves.
 
 local function buildGame()
     local g = {
@@ -66,8 +68,9 @@ local function buildGame()
     PokerEffects.registerAll(g.effects)
 
     g.state_machine = StateMachine:new(g)
-    g.state_machine:register("grind", GrindState:new(g))
-    g.state_machine:register("shove", ShoveState:new(g))
+    g.state_machine:register("grind",   GrindState:new(g))
+    g.state_machine:register("shove",   ShoveState:new(g))
+    g.state_machine:register("credits", CreditsState:new(g))
 
     g.input_dispatcher = InputDispatcher:new()
     g.input_controller = InputController:new(g)
@@ -98,16 +101,7 @@ function love.update(dt)
     Game.time:update(dt)
     Game.state_machine:update(dt)
     Game.floating_text.update(dt)
-
-    -- Auto-save loop.
-    autosave_timer = autosave_timer + dt
-    if autosave_timer >= Constants.SAVE.AUTOSAVE_INTERVAL then
-        autosave_timer = 0
-        Game.save_service:saveAll(
-            Game.state:serializeMeta(),
-            Game.state:serializeRun()
-        )
-    end
+    -- No auto-save. Use F5 to save manually, F6 to reload, F7 to wipe.
 end
 
 function love.draw()
@@ -123,11 +117,5 @@ function love.textinput(text)    Game.input_dispatcher:dispatch("textinput",    
 function love.wheelmoved(x, y)   Game.input_dispatcher:dispatch("wheelmoved",   x, y)        end
 
 function love.quit()
-    -- Final save on clean exit.
-    if Game and Game.save_service and Game.state then
-        Game.save_service:saveAll(
-            Game.state:serializeMeta(),
-            Game.state:serializeRun()
-        )
-    end
+    -- No save on quit. Disk only changes through explicit F5 / F7 actions.
 end

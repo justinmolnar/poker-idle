@@ -61,6 +61,17 @@ function GameState:resetRun()
     self.effects_cache       = nil
 end
 
+-- Resets BOTH meta and run sides to fresh-game defaults. Called from the
+-- credits screen's reset action — wipes the player's progress entirely so
+-- they can play through again from zero. Caller is responsible for
+-- save_service:saveAll() afterwards to overwrite the disk slots.
+function GameState:wipeAll()
+    self.pp          = Constants.GAMEPLAY.INITIAL_PP
+    self.owned_items = {}
+    self.cleared     = false
+    self:resetRun()
+end
+
 -- Apply both meta and run payloads. Called from SaveService:loadAll wrapper
 -- (saved = { meta = ..., run = ... }).
 function GameState:applySaved(saved)
