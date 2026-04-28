@@ -25,18 +25,18 @@ local function unpackSpec(spec)
     return stake_id, gtype_id
 end
 
-function TablePool:new(state)
+function TablePool:new(state, ctx)
     local self = setmetatable({ state = state, tables = {} }, TablePool)
-    self:rebuildFromState()
+    self:rebuildFromState(ctx)
     return self
 end
 
-function TablePool:rebuildFromState()
+function TablePool:rebuildFromState(ctx)
     self.tables = {}
     for _, spec in ipairs(self.state.active_table_specs or {}) do
         local stake_id, gtype_id = unpackSpec(spec)
         if stake_id and gtype_id then
-            self.tables[#self.tables + 1] = Table:new(stake_id, gtype_id)
+            self.tables[#self.tables + 1] = Table:new(stake_id, gtype_id, ctx)
         end
     end
 end
@@ -53,8 +53,8 @@ function TablePool:count() return #self.tables end
 
 function TablePool:get(idx) return self.tables[idx] end
 
-function TablePool:addTable(stake_id, game_type_id)
-    self.tables[#self.tables + 1] = Table:new(stake_id, game_type_id)
+function TablePool:addTable(stake_id, game_type_id, ctx)
+    self.tables[#self.tables + 1] = Table:new(stake_id, game_type_id, ctx)
     self:_syncStateList()
 end
 
@@ -64,10 +64,10 @@ function TablePool:removeTable(idx)
     self:_syncStateList()
 end
 
-function TablePool:changeStake(idx, new_stake_id)
+function TablePool:changeStake(idx, new_stake_id, ctx)
     local t = self.tables[idx]
     if not t then return end
-    t:setStake(new_stake_id)
+    t:setStake(new_stake_id, ctx)
     self:_syncStateList()
 end
 

@@ -14,30 +14,39 @@
 
 return {
 
-    -- ── Skill levels (additive penalty; never targeted by upgrades) ──────
+    -- ── Skill levels (additive penalty; targetable via per-skill ctx_key) ──
+    -- ctx_key is the field on the player's effects ctx that softens this
+    -- skill tier's penalty. Catalog upgrades like Calm Hands write
+    -- ctx.vs_pro_penalty as a multiplier (e.g. 0.67 = 33% softer); the
+    -- win-rate fold reads ctx[skill_data.ctx_key] and multiplies the raw
+    -- penalty by it. No `if opp.skill == "pro"` chain — each skill is data.
     skills = {
         rec = {
             name    = "Recreational",
             short   = "Rec",
             penalty = 0.00,
+            ctx_key = "vs_rec_penalty",
             blurb   = "Plays for fun, no theory study, makes mistakes constantly.",
         },
         reg = {
             name    = "Regular",
             short   = "Reg",
-            penalty = -0.05,
+            penalty = -0.04,
+            ctx_key = "vs_reg_penalty",
             blurb   = "Knows the basics, plays solid most of the time.",
         },
         grind = {
             name    = "Grinder",
             short   = "Grind",
             penalty = -0.10,
+            ctx_key = "vs_grind_penalty",
             blurb   = "Volume-focused regular at this stake. Very hard to push around.",
         },
         pro = {
             name    = "Pro",
             short   = "Pro",
-            penalty = -0.18,
+            penalty = -0.20,
+            ctx_key = "vs_pro_penalty",
             blurb   = "Studies the game, exploits weaker players surgically.",
         },
     },

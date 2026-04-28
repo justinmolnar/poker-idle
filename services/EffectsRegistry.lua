@@ -53,6 +53,19 @@ function EffectsRegistry:applyAll(item, ctx)
     end
 end
 
+-- Apply every effect on an item N times. For stacking run upgrades — each
+-- "level" is one more application of the per-level effect block. Additive
+-- applicators sum to N×value; multiplicative applicators compound to value^N.
+-- The applicator function never has to know whether it's being stacked.
+function EffectsRegistry:applyN(item, ctx, n)
+    if not item or not item.effects or n <= 0 then return end
+    for _, e in ipairs(item.effects) do
+        for _ = 1, n do
+            self:apply(e, ctx)
+        end
+    end
+end
+
 -- Returns true if an applicator is registered for this kind.
 function EffectsRegistry:has(kind)
     return self.fns[kind] ~= nil

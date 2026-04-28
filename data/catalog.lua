@@ -1,10 +1,18 @@
 -- data/catalog.lua
 --
 -- The PP-shop catalog. Each item:
---   • is bought with Poker Points (PP, the meta currency)
---   • appears visually in the room (deferred — list-only UI for VR)
+--   • is bought ONCE with Poker Points (PP, the meta currency)
 --   • applies one or more effects via the EffectsRegistry
 --   • persists across prestiges forever
+--
+-- Items are unique — no buying seventeen Teddy Bears. Stacking-style
+-- progression lives in data/run_upgrades.lua, where the same item can be
+-- bought up to its max_level for compounding effect. Catalog items are
+-- meta-progression *perks* — start with more money, read opponents
+-- faster, cheaper buy-ins, free starter tables, harder pros punished
+-- less. A few flat % nudges are mixed in (Calculator / Pot Odds Master
+-- / Damage Control), but the slate is dominated by qualitatively
+-- different effects so each new perk feels like it changes the game.
 --
 -- Item schema:
 --   {
@@ -16,125 +24,179 @@
 --     position    = { x = px, y = px },         -- room placement (deferred)
 --     effects     = { { kind = "...", value = ... }, ... }  -- see data/effects.lua
 --   }
+--
+-- Curve intent:
+--   1-5 PP   — quick first-run buys; small but tangible boosts so the
+--              meta-progression has a *foothold* on a fresh player's
+--              first prestige cycle. Without these the cheapest item is
+--              8 PP and a brand-new player gets nothing for runs 1-2.
+--   6-15 PP  — the main mid-tier perks (start-bankroll, reveal-on-sit,
+--              earnings/loss buffs, buy-in discount, shove rate).
+--   20+ PP  — the run-changers: -20% run-upgrade costs, double PP
+--              bounties, soft pros, halved HU penalty.
 
 return {
 
+    -- ── Cheap-tier (1-5 PP) ───────────────────────────────────────────────
+
     {
-        id          = "teddy_bear",
-        name        = "Teddy Bear",
-        description = "+2% per-runout shove rate",
-        sprite      = "teddy_bear",
+        id          = "coaster",
+        name        = "Coaster",
+        description = "Start each run with +$1 bankroll",
+        sprite      = "coaster",
+        cost_pp     = 2,
+        position    = { x = 80,  y = 200 },
+        effects     = { { kind = "start_bankroll_add", value = 1 } },
+    },
+    {
+        id          = "sticky_note",
+        name        = "Sticky Note",
+        description = "+10% chance to read an opponent on showdown",
+        sprite      = "sticky_note",
+        cost_pp     = 3,
+        position    = { x = 130, y = 200 },
+        effects     = { { kind = "reveal_chance_add", value = 0.10 } },
+    },
+    {
+        id          = "calculator",
+        name        = "Calculator",
+        description = "+0.5% flat win rate",
+        sprite      = "calculator",
+        cost_pp     = 4,
+        position    = { x = 180, y = 200 },
+        effects     = { { kind = "win_rate_add", value = 0.005 } },
+    },
+    {
+        id          = "pen",
+        name        = "Pen",
+        description = "+25% PP earned from stake/game-type bounties",
+        sprite      = "pen",
+        cost_pp     = 4,
+        position    = { x = 230, y = 200 },
+        effects     = { { kind = "pp_award_mult", value = 1.25 } },
+    },
+    {
+        id          = "headphones",
+        name        = "Headphones",
+        description = "-5% on losing-hand deltas",
+        sprite      = "headphones",
         cost_pp     = 5,
-        position    = { x = 100, y = 200 },
-        effects     = { { kind = "shove_rate_add", value = 0.02 } },
+        position    = { x = 280, y = 200 },
+        effects     = { { kind = "loss_mult", value = 0.95 } },
     },
     {
-        id          = "better_mouse",
-        name        = "Better Mouse",
-        description = "+1 focus capacity",
-        sprite      = "better_mouse",
+        id          = "free_sit",
+        name        = "Free Sit",
+        description = "Start each run with one $0.01/$0.02 6-max table seated",
+        sprite      = "free_sit",
+        cost_pp     = 5,
+        position    = { x = 330, y = 200 },
+        effects     = { { kind = "start_table_count", value = 1 } },
+    },
+
+    -- ── Mid-tier (6-15 PP) ────────────────────────────────────────────────
+
+    {
+        id          = "pocket_cash",
+        name        = "Pocket Cash",
+        description = "Start each run with +$5 bankroll",
+        sprite      = "pocket_cash",
         cost_pp     = 8,
-        position    = { x = 150, y = 220 },
-        effects     = { { kind = "focus_capacity_add", value = 1 } },
+        position    = { x = 100, y = 300 },
+        effects     = { { kind = "start_bankroll_add", value = 5 } },
     },
     {
-        id          = "plant",
-        name        = "Plant",
-        description = "+5% bankroll earnings",
-        sprite      = "plant",
-        cost_pp     = 8,
-        position    = { x = 200, y = 200 },
-        effects     = { { kind = "earnings_mult", value = 1.05 } },
-    },
-    {
-        id          = "mug",
-        name        = "Mug",
-        description = "+3% per-runout shove rate",
-        sprite      = "mug",
+        id          = "eagle_eyes",
+        name        = "Eagle Eyes",
+        description = "+25% chance to read an opponent on showdown",
+        sprite      = "eagle_eyes",
         cost_pp     = 10,
-        position    = { x = 300, y = 200 },
-        effects     = { { kind = "shove_rate_add", value = 0.03 } },
+        position    = { x = 200, y = 300 },
+        effects     = { { kind = "reveal_chance_add", value = 0.25 } },
     },
     {
-        id          = "mousepad",
-        name        = "Mousepad",
-        description = "+5% vs fish opponents",
-        sprite      = "mousepad",
+        id          = "cold_read",
+        name        = "Cold Read",
+        description = "Fresh opponents start with 1 attribute already revealed",
+        sprite      = "cold_read",
         cost_pp     = 12,
-        position    = { x = 500, y = 200 },
-        effects     = { { kind = "vs_fish_mult", value = 1.05 } },
+        position    = { x = 300, y = 300 },
+        effects     = { { kind = "revealed_at_start_count", value = 1 } },
     },
     {
-        id          = "lamp",
-        name        = "Lamp",
-        description = "+5% vs LAG opponents",
-        sprite      = "lamp",
-        cost_pp     = 15,
-        position    = { x = 400, y = 200 },
-        effects     = { { kind = "vs_lag_mult", value = 1.05 } },
+        id          = "pot_odds_master",
+        name        = "Pot Odds Master",
+        description = "+10% earnings on winning hands",
+        sprite      = "pot_odds_master",
+        cost_pp     = 12,
+        position    = { x = 400, y = 300 },
+        effects     = { { kind = "earnings_mult", value = 1.10 } },
     },
     {
-        id          = "second_monitor",
-        name        = "Second Monitor",
-        description = "+2 focus capacity",
-        sprite      = "second_monitor",
-        cost_pp     = 20,
-        position    = { x = 600, y = 200 },
-        effects     = { { kind = "focus_capacity_add", value = 2 } },
+        id          = "damage_control",
+        name        = "Damage Control",
+        description = "-10% on losing-hand deltas",
+        sprite      = "damage_control",
+        cost_pp     = 12,
+        position    = { x = 500, y = 300 },
+        effects     = { { kind = "loss_mult", value = 0.90 } },
     },
     {
-        id          = "lucky_charm_pp",
+        id          = "discount_sits",
+        name        = "Discount Sits",
+        description = "-15% on table buy-ins",
+        sprite      = "discount_sits",
+        cost_pp     = 14,
+        position    = { x = 600, y = 300 },
+        effects     = { { kind = "buy_in_mult", value = 0.85 } },
+    },
+    {
+        id          = "lucky_charm",
         name        = "Lucky Charm",
         description = "+5% per-runout shove rate",
         sprite      = "lucky_charm",
-        cost_pp     = 25,
-        position    = { x = 100, y = 300 },
+        cost_pp     = 15,
+        position    = { x = 700, y = 300 },
         effects     = { { kind = "shove_rate_add", value = 0.05 } },
     },
+
+    -- ── Expensive-tier (20+ PP) ───────────────────────────────────────────
+
     {
-        id          = "ergonomic_chair",
-        name        = "Ergonomic Chair",
-        description = "+2 focus capacity",
-        sprite      = "ergonomic_chair",
+        id          = "cheap_coaching",
+        name        = "Cheap Coaching",
+        description = "-20% on run-upgrade level-up costs",
+        sprite      = "cheap_coaching",
+        cost_pp     = 22,
+        position    = { x = 100, y = 400 },
+        effects     = { { kind = "run_upgrade_cost_mult", value = 0.80 } },
+    },
+    {
+        id          = "endorsement_deal",
+        name        = "Endorsement Deal",
+        description = "+100% PP from bounties (stacks with Pen)",
+        sprite      = "endorsement_deal",
         cost_pp     = 25,
-        position    = { x = 250, y = 300 },
-        effects     = { { kind = "focus_capacity_add", value = 2 } },
+        position    = { x = 250, y = 400 },
+        effects     = { { kind = "pp_award_mult", value = 2.0 } },
     },
     {
-        id          = "hotkeys_mastery",
-        name        = "Hotkeys Mastery",
-        description = "-15% focus penalty per extra table",
-        sprite      = "hotkeys_mastery",
+        id          = "calm_hands",
+        name        = "Calm Hands",
+        description = "Pro-tier opponents are 33% less brutal",
+        sprite      = "calm_hands",
         cost_pp     = 30,
-        position    = { x = 400, y = 300 },
-        effects     = { { kind = "focus_penalty_reduce_mult", value = 0.85 } },
+        position    = { x = 400, y = 400 },
+        effects     = { { kind = "vs_pro_penalty_mult", value = 0.67 } },
     },
     {
-        id          = "lucky_coin",
-        name        = "Lucky Coin",
-        description = "+10% per-runout shove rate",
-        sprite      = "lucky_coin",
-        cost_pp     = 50,
-        position    = { x = 200, y = 300 },
-        effects     = { { kind = "shove_rate_add", value = 0.10 } },
-    },
-    {
-        id          = "dual_monitors",
-        name        = "Dual Monitors",
-        description = "+4 focus capacity",
-        sprite      = "dual_monitors",
-        cost_pp     = 60,
-        position    = { x = 550, y = 300 },
-        effects     = { { kind = "focus_capacity_add", value = 4 } },
-    },
-    {
-        id          = "pokertracker_hud",
-        name        = "PokerTracker HUD",
-        description = "+6 focus capacity",
-        sprite      = "pokertracker_hud",
-        cost_pp     = 120,
-        position    = { x = 700, y = 300 },
-        effects     = { { kind = "focus_capacity_add", value = 6 } },
+        id          = "hu_specialist",
+        name        = "HU Specialist",
+        description = "Halves the heads-up baseline penalty",
+        sprite      = "hu_specialist",
+        cost_pp     = 30,
+        position    = { x = 550, y = 400 },
+        effects     = { { kind = "gtype_offset_mult", value = 0.50 } },
     },
 
 }

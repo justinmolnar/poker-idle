@@ -62,6 +62,56 @@ function PokerEffects.registerAll(reg)
     reg:register("focus_penalty_reduce_mult", function(e, ctx)
         ctx.focus_penalty_reduce_mult = (ctx.focus_penalty_reduce_mult or 1) * e.value
     end)
+
+    -- Win-rate / pot math hooks. win_rate_add is the additive sharpen-reads
+    -- knob; loss_mult shrinks losing-hand deltas; the *_penalty_mult kinds
+    -- target a single skill tier via the skill entry's ctx_key (so calm_hands
+    -- lowers the pro penalty without an `if opp.skill == "pro"` chain).
+    -- gtype_offset_mult tames the game-type baseline offset (HU specialist).
+    reg:register("win_rate_add", function(e, ctx)
+        ctx.win_rate_add = (ctx.win_rate_add or 0) + e.value
+    end)
+    reg:register("loss_mult", function(e, ctx)
+        ctx.loss_mult = (ctx.loss_mult or 1) * e.value
+    end)
+    reg:register("vs_pro_penalty_mult", function(e, ctx)
+        ctx.vs_pro_penalty = (ctx.vs_pro_penalty or 1) * e.value
+    end)
+    reg:register("vs_grind_penalty_mult", function(e, ctx)
+        ctx.vs_grind_penalty = (ctx.vs_grind_penalty or 1) * e.value
+    end)
+    reg:register("gtype_offset_mult", function(e, ctx)
+        ctx.gtype_offset_mult = (ctx.gtype_offset_mult or 1) * e.value
+    end)
+
+    -- Discovery / opponent-reading hooks.
+    reg:register("reveal_chance_add", function(e, ctx)
+        ctx.reveal_chance_add = (ctx.reveal_chance_add or 0) + e.value
+    end)
+    reg:register("revealed_at_start_count", function(e, ctx)
+        ctx.revealed_at_start_count = (ctx.revealed_at_start_count or 0) + e.value
+    end)
+
+    -- Meta-progression perks. Consumed at well-defined seams:
+    --   start_bankroll_add / start_table_count → GameState:applyStartingPerks
+    --   buy_in_mult                            → GrindController:addTable
+    --   run_upgrade_cost_mult                  → GrindController:buyRunUpgrade
+    --   pp_award_mult                          → GrindController:update PP branch
+    reg:register("start_bankroll_add", function(e, ctx)
+        ctx.start_bankroll_add = (ctx.start_bankroll_add or 0) + e.value
+    end)
+    reg:register("start_table_count", function(e, ctx)
+        ctx.start_table_count = (ctx.start_table_count or 0) + e.value
+    end)
+    reg:register("buy_in_mult", function(e, ctx)
+        ctx.buy_in_mult = (ctx.buy_in_mult or 1) * e.value
+    end)
+    reg:register("run_upgrade_cost_mult", function(e, ctx)
+        ctx.run_upgrade_cost_mult = (ctx.run_upgrade_cost_mult or 1) * e.value
+    end)
+    reg:register("pp_award_mult", function(e, ctx)
+        ctx.pp_award_mult = (ctx.pp_award_mult or 1) * e.value
+    end)
 end
 
 return PokerEffects

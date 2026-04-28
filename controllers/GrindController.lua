@@ -33,8 +33,10 @@ GrindController.__index = GrindController
 
 function GrindController:new(game)
     local self = setmetatable({ game = game }, GrindController)
-    self.pool = TablePool:new(game.state)
+    -- Compute effects first so the initial pool rebuild gets ctx (matters
+    -- for Cold Read and other start-of-table catalog perks).
     self:invalidateEffects()
+    self.pool = TablePool:new(game.state, self.ctx)
     return self
 end
 
@@ -159,7 +161,11 @@ function GrindController:update(dt)
                 if not state.stakes_won_this_run[key] then
                     state.stakes_won_this_run[key] = true
                     local stake = findStake(tbl.stake_id)
-                    local award = stake and stake.pp_award or 0
+                    local base_award = stake and stake.pp_award or 0
+                    -- pp_award_mult (Endorsement Deal catalog item)
+                    -- doubles or otherwise scales bounty payouts.
+                    local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
+                    local award = math.floor(base_award * mult + 0.5)
                     if award > 0 then
                         state.pp          = state.pp          + award
                         state.pp_this_run = state.pp_this_run + award
@@ -175,23 +181,47 @@ end
 
 -- ─── Purchase intents (called from view button handlers) ─────────────────────
 
+-- Stacking run upgrade purchase. Each click bumps the upgrade's level by one
+-- (up to its max_level). Cost for the next level is item.costs[N+1], multiplied
+-- by ctx.run_upgrade_cost_mult so the cheap_coaching catalog perk discounts
+-- every run-upgrade buy. Returns true on a successful level-up.
 function GrindController:buyRunUpgrade(upgrade_id)
     local state = self.game.state
-    -- Already owned?
-    for _, owned in ipairs(state.run_upgrade_ids) do
-        if owned == upgrade_id then return false end
-    end
-    -- Find by id.
+    -- Find item by id.
     local upgrade
     for _, u in ipairs(RunUpgrades) do
         if u.id == upgrade_id then upgrade = u; break end
     end
     if not upgrade then return false end
-    if state.bankroll < upgrade.cost then return false end
-    state.bankroll = state.bankroll - upgrade.cost
-    state.run_upgrade_ids[#state.run_upgrade_ids + 1] = upgrade_id
+
+    local current = state.run_upgrade_levels[upgrade_id] or 0
+    local max_lvl = upgrade.max_level or 1
+    if current >= max_lvl then return false end
+
+    local cost_mult = (self.ctx and self.ctx.run_upgrade_cost_mult) or 1
+    local cost = (upgrade.costs and upgrade.costs[current + 1]) or 0
+    cost = cost * cost_mult
+    if state.bankroll < cost then return false end
+
+    state.bankroll = state.bankroll - cost
+    state.run_upgrade_levels[upgrade_id] = current + 1
     self:invalidateEffects()
     return true
+end
+
+-- View helper: returns the current owned level (0 = unowned) and the next
+-- level's discounted cost (for the BUY button label). Pass-through to data;
+-- views shouldn't reach into state.run_upgrade_levels directly.
+function GrindController:getRunUpgradeLevel(upgrade_id)
+    return self.game.state.run_upgrade_levels[upgrade_id] or 0
+end
+
+function GrindController:getRunUpgradeNextCost(upgrade)
+    if not upgrade then return nil end
+    local current = self.game.state.run_upgrade_levels[upgrade.id] or 0
+    if current >= (upgrade.max_level or 1) then return nil end
+    local cost = (upgrade.costs and upgrade.costs[current + 1]) or 0
+    return cost * ((self.ctx and self.ctx.run_upgrade_cost_mult) or 1)
 end
 
 function GrindController:buyCatalogItem(item_id)
@@ -212,16 +242,22 @@ function GrindController:buyCatalogItem(item_id)
 end
 
 -- Bankroll-cost-to-open. Adding a table deducts the stake's buy-in (100bb)
--- from bankroll. Game type doesn't change the buy-in. Returns false if
+-- from bankroll, optionally discounted by ctx.buy_in_mult (Discount Sits
+-- catalog perk). Game type doesn't change the buy-in. Returns false if
 -- not affordable / pool full / unknown stake-or-gametype.
 function GrindController:addTable(stake_id, game_type_id)
     if self.pool:count() >= self:tableSlotsCap() then return false end
     local stake = findStake(stake_id)
     if not stake then return false end
-    local cost = stake.buy_in or 0
+    local mult = (self.ctx and self.ctx.buy_in_mult) or 1
+    local cost = (stake.buy_in or 0) * mult
     if self.game.state.bankroll < cost then return false end
     self.game.state.bankroll = self.game.state.bankroll - cost
-    self.pool:addTable(stake_id, game_type_id or "six_max")
+    self.pool:addTable(stake_id, game_type_id or "six_max", self.ctx)
+    -- Any cash left on the table after the discount counts as the table's
+    -- starting stack — Table:new already seeds stack to stake.buy_in (the
+    -- 100bb cap), so the discount effectively lets the player keep the
+    -- difference in bankroll. Net: same stack value, less paid up front.
     return true
 end
 
@@ -250,20 +286,22 @@ function GrindController:removeTable(idx)
     return true
 end
 
--- Stake-up: cash out the current stack and pay the new buy-in. Net
--- cost = new.buy_in - current_stack. Bankroll must cover that delta.
--- Table:setStake then resets the table's stack to the new buy-in.
+-- Stake-up: cash out the current stack and pay the new buy-in (optionally
+-- discounted by ctx.buy_in_mult). Net cost = new_buy_in - current_stack.
+-- Bankroll must cover that delta. Table:setStake then resets the table's
+-- stack to the new buy-in.
 function GrindController:changeTableStake(idx, new_stake_id)
     local t = self.pool.tables[idx]
     if not t then return false end
     local new_stake = findStake(new_stake_id)
     if not new_stake then return false end
+    local mult   = (self.ctx and self.ctx.buy_in_mult) or 1
     local refund = t.stack or 0
-    local cost   = new_stake.buy_in or 0
+    local cost   = (new_stake.buy_in or 0) * mult
     local diff   = cost - refund
     if diff > 0 and self.game.state.bankroll < diff then return false end
     self.game.state.bankroll = self.game.state.bankroll - diff
-    self.pool:changeStake(idx, new_stake_id)
+    self.pool:changeStake(idx, new_stake_id, self.ctx)
     return true
 end
 

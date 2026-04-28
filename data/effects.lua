@@ -98,6 +98,82 @@ Effects.kinds = {
         affects     = "ctx.focus_penalty_reduce_mult",
     },
 
+    -- ── Win-rate / pot math (the difficulty-curve hooks) ──────────────────
+
+    win_rate_add = {
+        description = "Flat additive bonus to per-hand win rate before clamp.",
+        value_shape = "number, e.g. 0.015 for +1.5 percentage points",
+        affects     = "ctx.win_rate_add",
+    },
+    loss_mult = {
+        description = "Multiplier on the magnitude of losing-hand $ deltas (lower = smaller losses).",
+        value_shape = "number <1, e.g. 0.90 for 10% softer losses",
+        affects     = "ctx.loss_mult",
+    },
+    -- Skill-tier penalty multipliers. Skills are now targetable just like
+    -- playstyles via a ctx_key on the skill entry; these multiply the raw
+    -- penalty value before it folds into the win-rate sum. Lower values
+    -- soften the per-skill penalty (so calm_hands lowers vs_pro_penalty
+    -- to 0.67, making pros 33% less brutal).
+    vs_pro_penalty_mult = {
+        description = "Multiplier on the win-rate penalty from pro-tier opponents.",
+        value_shape = "number, e.g. 0.67 to soften pros by 33%",
+        affects     = "ctx.vs_pro_penalty",
+    },
+    vs_grind_penalty_mult = {
+        description = "Multiplier on the win-rate penalty from grinder-tier opponents.",
+        value_shape = "number, e.g. 0.75 to soften grinds by 25%",
+        affects     = "ctx.vs_grind_penalty",
+    },
+    -- Multiplier on the game-type win_rate_offset. HU's harsh -0.15 baseline
+    -- gets cut in half by hu_specialist (gtype_offset_mult: 0.50).
+    gtype_offset_mult = {
+        description = "Multiplier on the game-type win_rate_offset (HU/Zoom baseline shift).",
+        value_shape = "number, e.g. 0.50 to halve HU's penalty",
+        affects     = "ctx.gtype_offset_mult",
+    },
+
+    -- ── Discovery / opponent reading ──────────────────────────────────────
+
+    reveal_chance_add = {
+        description = "Bumps the per-showdown chance of flipping one opponent attribute.",
+        value_shape = "number, e.g. 0.25 for +25 percentage points (clamped 0..1)",
+        affects     = "ctx.reveal_chance_add",
+    },
+    revealed_at_start_count = {
+        description = "Number of attributes pre-revealed when an opponent first sits.",
+        value_shape = "integer, e.g. 1 to start with one attribute already known",
+        affects     = "ctx.revealed_at_start_count",
+    },
+
+    -- ── Meta-progression perks (catalog only, applied at run start) ───────
+
+    start_bankroll_add = {
+        description = "Bonus bankroll seeded at the start of every run.",
+        value_shape = "number $, e.g. 5 to start with $7 instead of $2",
+        affects     = "ctx.start_bankroll_add",
+    },
+    start_table_count = {
+        description = "Number of $0.01/$0.02 6-max tables auto-opened at run start (free).",
+        value_shape = "integer, e.g. 1 to start with one table already seated",
+        affects     = "ctx.start_table_count",
+    },
+    buy_in_mult = {
+        description = "Multiplier on table buy-in costs (lower = cheaper sits).",
+        value_shape = "number <1, e.g. 0.85 for 15% off buy-ins",
+        affects     = "ctx.buy_in_mult",
+    },
+    run_upgrade_cost_mult = {
+        description = "Multiplier on run-upgrade level-up costs.",
+        value_shape = "number <1, e.g. 0.80 for 20% cheaper run upgrades",
+        affects     = "ctx.run_upgrade_cost_mult",
+    },
+    pp_award_mult = {
+        description = "Multiplier on PP earned from per-(stake, game_type) bounties.",
+        value_shape = "number, e.g. 2.0 to double PP awards",
+        affects     = "ctx.pp_award_mult",
+    },
+
 }
 
 return Effects

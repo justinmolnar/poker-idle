@@ -237,22 +237,23 @@ end
 
 function GrindView:_buildUpgradesTabComponents()
     local state = self.game.state
-    local owned = {}
-    for _, id in ipairs(state.run_upgrade_ids) do owned[id] = true end
 
     local components = {}
     components[#components + 1] = { type = "label", style = "muted", text = "RUN UPGRADES", h = 22 }
 
     for _, up in ipairs(RunUpgrades) do
-        local is_owned    = owned[up.id]
-        local cant_afford = (not is_owned) and state.bankroll < up.cost
-        local disabled    = is_owned or cant_afford
+        local level   = self.controller:getRunUpgradeLevel(up.id)
+        local max_lvl = up.max_level or 1
+        local at_max  = level >= max_lvl
+        local next_cost = self.controller:getRunUpgradeNextCost(up)
+        local cant_afford = next_cost and state.bankroll < next_cost
+        local disabled    = at_max or cant_afford
 
         local cost_label
-        if is_owned then
-            cost_label = "OWNED"
+        if at_max then
+            cost_label = string.format("MAX  Lv %d/%d", level, max_lvl)
         else
-            cost_label = "$" .. tostring(up.cost)
+            cost_label = string.format("Lv %d/%d  ·  $%.2f", level, max_lvl, next_cost or 0)
         end
 
         components[#components + 1] = {
@@ -262,7 +263,7 @@ function GrindView:_buildUpgradesTabComponents()
             lines = {
                 { text = up.name, style = "heading" },
                 { text = up.description or "", style = "small" },
-                { text = cost_label, style = is_owned and "muted" or "body" },
+                { text = cost_label, style = at_max and "muted" or "body" },
             },
         }
     end

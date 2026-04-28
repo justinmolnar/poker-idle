@@ -119,6 +119,13 @@ end
 function ShoveState:_dismissPrestigeAndReturn()
     local state = self.game.state
     state:resetRun()
+    -- Apply meta-progression perks owned in the catalog (Pocket Cash,
+    -- Free Sit, ...). Run-side state was just reset, so the ctx is
+    -- catalog-only here. GrindState:enter will rebuild the pool with
+    -- the freshly seeded specs.
+    local meta_ctx = state:computeEffects(
+        self.game.effects, self.game.catalog, self.game.run_upgrades)
+    state:applyStartingPerks(meta_ctx)
     -- No auto-save. The reset run state lives in memory only until F5.
     self.gauntlet       = nil
     self.prestige_modal = nil

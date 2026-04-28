@@ -2,7 +2,7 @@
 --
 -- The single root model for player progression. Holds the dual-slot state:
 --   meta-side: pp, owned_items (persists forever)
---   run-side:  bankroll, current_stake_id, run_upgrade_ids (wiped on prestige)
+--   run-side:  bankroll, current_stake_id, run_upgrade_levels (wiped on prestige)
 --
 -- AutoSerializer-driven. Adding a new persistent field = adding the field;
 -- everything that's not in TRANSIENTS or REFS saves automatically.
@@ -19,8 +19,9 @@ GameState.__index = GameState
 GameState.TRANSIENTS = {
     effects_cache = true,   -- rolled-up stat ctx, recomputed from owned_items
 }
-GameState.REFS = {}         -- nothing yet — owned_items / run_upgrade_ids are
-                            -- already plain string ids, no ref resolution needed
+GameState.REFS = {}         -- nothing yet — owned_items (list) and
+                            -- run_upgrade_levels (id→level table) are already
+                            -- AutoSerializer-compatible plain data
 
 -- ── Construction ────────────────────────────────────────────────────
 
@@ -36,7 +37,9 @@ function GameState:new(saved)
     instance.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
     instance.peak_bankroll       = Constants.GAMEPLAY.INITIAL_BANKROLL
     instance.current_stake_id    = "s001"
-    instance.run_upgrade_ids     = {}
+    -- Stacking run upgrades: id → integer level. Absent / 0 = not owned.
+    -- Each level applies the item's effect block once (see EffectsRegistry:applyN).
+    instance.run_upgrade_levels  = {}
     -- active_table_specs: list of composite "<stake_id>:<game_type_id>"
     -- strings — one per active table. INITIAL_ACTIVE_TABLES = 0 by
     -- default (player buys their first table for the buy-in).
@@ -64,7 +67,7 @@ function GameState:resetRun()
     self.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
     self.peak_bankroll       = Constants.GAMEPLAY.INITIAL_BANKROLL
     self.current_stake_id    = "s001"
-    self.run_upgrade_ids     = {}
+    self.run_upgrade_levels  = {}
     self.active_table_specs = {}
     for _ = 1, Constants.GAMEPLAY.INITIAL_ACTIVE_TABLES do
         self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"
@@ -113,7 +116,7 @@ function GameState:serializeRun()
         bankroll             = self.bankroll,
         peak_bankroll        = self.peak_bankroll,
         current_stake_id     = self.current_stake_id,
-        run_upgrade_ids      = self.run_upgrade_ids,
+        run_upgrade_levels   = self.run_upgrade_levels,
         active_table_specs   = self.active_table_specs,
         stakes_won_this_run  = self.stakes_won_this_run,
         pp_this_run          = self.pp_this_run,
@@ -139,17 +142,40 @@ function GameState:computeEffects(registry, catalog, run_upgrades)
         end
     end
 
-    local upgrade_set = {}
-    for _, id in ipairs(self.run_upgrade_ids) do upgrade_set[id] = true end
-
+    -- Run upgrades stack: each level applies the item's effect block once.
+    -- additive applicators sum to N×value, multiplicative to value^N.
     for _, item in ipairs(run_upgrades) do
-        if upgrade_set[item.id] then
-            registry:applyAll(item, ctx)
+        local lvl = self.run_upgrade_levels[item.id] or 0
+        if lvl > 0 then
+            registry:applyN(item, ctx, lvl)
         end
     end
 
     self.effects_cache = ctx
     return ctx
+end
+
+-- Apply meta-progression catalog perks that fire at run start.
+-- Called by the prestige flow AFTER :resetRun() has cleared run state but
+-- BEFORE the controller rebuilds the table pool. Reads the catalog-only
+-- ctx (run_upgrade_levels is empty post-reset, so only owned_items feed in).
+--
+-- The two recognized fields:
+--   ctx.start_bankroll_add — added to the fresh INITIAL_BANKROLL
+--   ctx.start_table_count  — N s001:six_max tables auto-seeded (free, no buy-in)
+--
+-- Idempotency: this is meant to be called once per resetRun. Calling it
+-- twice would double-apply, so don't.
+function GameState:applyStartingPerks(ctx)
+    if (ctx.start_bankroll_add or 0) > 0 then
+        self.bankroll = self.bankroll + ctx.start_bankroll_add
+        if self.bankroll > self.peak_bankroll then
+            self.peak_bankroll = self.bankroll
+        end
+    end
+    for _ = 1, (ctx.start_table_count or 0) do
+        self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"
+    end
 end
 
 return GameState

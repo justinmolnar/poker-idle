@@ -31,8 +31,12 @@ function GrindState:enter()
     -- Rebuild the table pool from the current state — covers the case where
     -- the run was reset via prestige while we were in the shove state. The
     -- shove flow only mutates state directly; we rehydrate on re-enter.
-    self.controller.pool:rebuildFromState()
+    --
+    -- Effects ctx must be computed BEFORE the rebuild so freshly seeded
+    -- tables (e.g. start_table_count from Free Sit) pick up Cold Read's
+    -- pre-revealed attributes.
     self.controller:invalidateEffects()
+    self.controller.pool:rebuildFromState(self.controller.ctx)
 end
 
 function GrindState:exit() end

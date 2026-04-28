@@ -41,9 +41,13 @@ function InputController:wire()
         function()
             local state = game.state
             game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
+            local total_levels = 0
+            for _, lvl in pairs(state.run_upgrade_levels) do
+                total_levels = total_levels + lvl
+            end
             print(string.format(
-                "[save] F5 — saved.  bankroll=$%.2f  pp=%d  owned=%d  run_upgrades=%d",
-                state.bankroll, state.pp, #state.owned_items, #state.run_upgrade_ids))
+                "[save] F5 — saved.  bankroll=$%.2f  pp=%d  owned=%d  run_upgrade_levels=%d",
+                state.bankroll, state.pp, #state.owned_items, total_levels))
         end)
 
     -- Walk the state-machine and tell each state to nuke its transient
