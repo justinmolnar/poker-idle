@@ -89,6 +89,29 @@ function InputController:wire()
             print("[save] F7 — wiped.  fresh game.")
         end)
 
+    -- ── Debug bankroll grant (dev hotkeys) ──────────────────────────────
+    --   `-` removes $1,000 from bankroll (clamped at 0)
+    --   `=` adds    $1,000 to bankroll
+    -- Useful for skipping the grind while iterating on upgrade / shove flows.
+    -- Will be ripped before any release build.
+    dispatcher:on("keypressed",
+        function(key) return key == "-" end,
+        function()
+            local state = game.state
+            state.bankroll = math.max(0, state.bankroll - 1000)
+            print(string.format("[debug] bankroll -$1000 -> $%.2f", state.bankroll))
+        end)
+    dispatcher:on("keypressed",
+        function(key) return key == "=" end,
+        function()
+            local state = game.state
+            state.bankroll = state.bankroll + 1000
+            if state.bankroll > state.peak_bankroll then
+                state.peak_bankroll = state.bankroll
+            end
+            print(string.format("[debug] bankroll +$1000 -> $%.2f", state.bankroll))
+        end)
+
     -- ESC: quit, dev convenience. Production builds will gate this behind a
     -- confirmation dialog; for the skeleton it's a fast exit.
     dispatcher:on("keypressed",

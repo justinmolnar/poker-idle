@@ -150,11 +150,11 @@ function GrindController:update(dt)
         end
         self.game.floating_text.emit(label, r.x, r.y)
 
-        -- PP-bounty: first won hand at this (stake, game_type) combo
-        -- this run awards the stake's pp_award. Locked in until prestige
-        -- clears it. Losing hands and subsequent wins at the same combo
-        -- do nothing.
-        if r.delta > 0 then
+        -- PP-bounty: first jackpot-tier win at this (stake, game_type)
+        -- combo this run awards the stake's pp_award. Locked in until
+        -- prestige clears it. Non-jackpot wins, losing hands, and
+        -- subsequent jackpot wins at the same combo do nothing.
+        if r.delta > 0 and r.tier == "jackpot" then
             local tbl = self.pool.tables[r.table_idx]
             if tbl then
                 local key = bountyKey(tbl.stake_id, tbl.game_type_id)
@@ -167,10 +167,13 @@ function GrindController:update(dt)
                     local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
                     local award = math.floor(base_award * mult + 0.5)
                     if award > 0 then
-                        state.pp          = state.pp          + award
+                        -- Pending PP — commits to state.pp at SHOVE time.
+                        -- The float is the satisfying "you locked a bounty"
+                        -- signal; the top bar's PP figure stays static
+                        -- until shove pulls the trigger on banking.
                         state.pp_this_run = state.pp_this_run + award
                         self.game.floating_text.emit(
-                            string.format("+%d PP", award),
+                            string.format("+%d PP (run)", award),
                             r.x, (r.y or 0) - 28)
                     end
                 end

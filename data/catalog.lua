@@ -42,7 +42,7 @@ return {
     {
         id          = "coaster",
         name        = "Coaster",
-        description = "Start each run with +$1 bankroll",
+        description = "Start each run with $1 extra.",
         sprite      = "coaster",
         cost_pp     = 2,
         position    = { x = 80,  y = 200 },
@@ -51,7 +51,7 @@ return {
     {
         id          = "sticky_note",
         name        = "Sticky Note",
-        description = "+10% chance to read an opponent on showdown",
+        description = "Read opponents faster.",
         sprite      = "sticky_note",
         cost_pp     = 3,
         position    = { x = 130, y = 200 },
@@ -60,16 +60,16 @@ return {
     {
         id          = "calculator",
         name        = "Calculator",
-        description = "+0.5% flat win rate",
+        description = "Sharper reads, every hand.",
         sprite      = "calculator",
         cost_pp     = 4,
         position    = { x = 180, y = 200 },
-        effects     = { { kind = "win_rate_add", value = 0.005 } },
+        effects     = { { kind = "grid_shift", op = "lose_to_win", amount = 0.02 } },
     },
     {
         id          = "pen",
         name        = "Pen",
-        description = "+25% PP earned from stake/game-type bounties",
+        description = "More PP from bounties.",
         sprite      = "pen",
         cost_pp     = 4,
         position    = { x = 230, y = 200 },
@@ -78,7 +78,7 @@ return {
     {
         id          = "headphones",
         name        = "Headphones",
-        description = "-5% on losing-hand deltas",
+        description = "Soften your losses.",
         sprite      = "headphones",
         cost_pp     = 5,
         position    = { x = 280, y = 200 },
@@ -87,7 +87,7 @@ return {
     {
         id          = "free_sit",
         name        = "Free Sit",
-        description = "Start each run with one $0.01/$0.02 6-max table seated",
+        description = "Start each run with a table seated.",
         sprite      = "free_sit",
         cost_pp     = 5,
         position    = { x = 330, y = 200 },
@@ -99,7 +99,7 @@ return {
     {
         id          = "pocket_cash",
         name        = "Pocket Cash",
-        description = "Start each run with +$5 bankroll",
+        description = "Start each run with $5 extra.",
         sprite      = "pocket_cash",
         cost_pp     = 8,
         position    = { x = 100, y = 300 },
@@ -108,7 +108,7 @@ return {
     {
         id          = "eagle_eyes",
         name        = "Eagle Eyes",
-        description = "+25% chance to read an opponent on showdown",
+        description = "Read opponents much faster.",
         sprite      = "eagle_eyes",
         cost_pp     = 10,
         position    = { x = 200, y = 300 },
@@ -117,7 +117,7 @@ return {
     {
         id          = "cold_read",
         name        = "Cold Read",
-        description = "Fresh opponents start with 1 attribute already revealed",
+        description = "Spot one trait on every fresh opponent.",
         sprite      = "cold_read",
         cost_pp     = 12,
         position    = { x = 300, y = 300 },
@@ -126,7 +126,7 @@ return {
     {
         id          = "pot_odds_master",
         name        = "Pot Odds Master",
-        description = "+10% earnings on winning hands",
+        description = "Wins pay bigger.",
         sprite      = "pot_odds_master",
         cost_pp     = 12,
         position    = { x = 400, y = 300 },
@@ -135,7 +135,7 @@ return {
     {
         id          = "damage_control",
         name        = "Damage Control",
-        description = "-10% on losing-hand deltas",
+        description = "Losses cost less.",
         sprite      = "damage_control",
         cost_pp     = 12,
         position    = { x = 500, y = 300 },
@@ -144,7 +144,7 @@ return {
     {
         id          = "discount_sits",
         name        = "Discount Sits",
-        description = "-15% on table buy-ins",
+        description = "Cheaper buy-ins.",
         sprite      = "discount_sits",
         cost_pp     = 14,
         position    = { x = 600, y = 300 },
@@ -153,7 +153,7 @@ return {
     {
         id          = "lucky_charm",
         name        = "Lucky Charm",
-        description = "+5% per-runout shove rate",
+        description = "Better shove odds.",
         sprite      = "lucky_charm",
         cost_pp     = 15,
         position    = { x = 700, y = 300 },
@@ -165,7 +165,7 @@ return {
     {
         id          = "cheap_coaching",
         name        = "Cheap Coaching",
-        description = "-20% on run-upgrade level-up costs",
+        description = "Cheaper run upgrades.",
         sprite      = "cheap_coaching",
         cost_pp     = 22,
         position    = { x = 100, y = 400 },
@@ -174,7 +174,7 @@ return {
     {
         id          = "endorsement_deal",
         name        = "Endorsement Deal",
-        description = "+100% PP from bounties (stacks with Pen)",
+        description = "Big PP boost from bounties.",
         sprite      = "endorsement_deal",
         cost_pp     = 25,
         position    = { x = 250, y = 400 },
@@ -183,20 +183,20 @@ return {
     {
         id          = "calm_hands",
         name        = "Calm Hands",
-        description = "Pro-tier opponents are 33% less brutal",
+        description = "Pros are less brutal.",
         sprite      = "calm_hands",
         cost_pp     = 30,
         position    = { x = 400, y = 400 },
-        effects     = { { kind = "vs_pro_penalty_mult", value = 0.67 } },
+        effects     = { { kind = "grid_shift", op = "lose_to_win", amount = 0.10, skill = "pro" } },
     },
     {
         id          = "hu_specialist",
         name        = "HU Specialist",
-        description = "Halves the heads-up baseline penalty",
+        description = "Heads-up plays smoother.",
         sprite      = "hu_specialist",
         cost_pp     = 30,
         position    = { x = 550, y = 400 },
-        effects     = { { kind = "gtype_offset_mult", value = 0.50 } },
+        effects     = { { kind = "grid_shift", op = "lose_to_win", amount = 0.06, gtype = "hu" } },
     },
 
 }

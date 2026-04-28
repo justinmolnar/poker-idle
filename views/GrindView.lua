@@ -446,9 +446,14 @@ end
 
 function GrindView:_drawShoveButton()
     local sb = self:_shoveButtonRect()
-    local can_shove = self.game.state.bankroll >= Constants.GAMEPLAY.SHOVE_MIN_BANKROLL
+    local state = self.game.state
+    -- Shove is always allowed. No bankroll floor — softlocking the player
+    -- with a "you can't even surrender" gate was strictly worse than letting
+    -- them shove with nothing and bank whatever PP they earned.
+    local can_shove = true
     local ctx = self.controller.ctx or {}
     local rate = math.min(Constants.GAMEPLAY.SHOVE_RATE_CAP, ctx.shove_rate or 0)
+    local pending_pp = state.pp_this_run or 0
 
     Theme.setColor(can_shove and Theme.status.error or Theme.bg.sunken, can_shove and 0.85 or 0.4)
     love.graphics.rectangle("fill", sb.x, sb.y, sb.w, sb.h, Theme.space.radius)
@@ -459,12 +464,18 @@ function GrindView:_drawShoveButton()
 
     Theme.setColor(can_shove and Theme.fg.heading or Theme.fg.disabled)
     love.graphics.setFont(self.game.fonts.heading)
-    love.graphics.printf("SHOVE", sb.x, sb.y + 8, sb.w, "center")
+    love.graphics.printf("SHOVE", sb.x, sb.y + 4, sb.w, "center")
+
+    -- Pending PP — what the player banks if they pull the trigger now.
+    -- Violet matches the bounty floating-text so the connection is visible.
+    Theme.setColor(can_shove and Theme.data.violet or Theme.fg.faint)
+    love.graphics.setFont(self.game.fonts.ui_small)
+    love.graphics.printf(string.format("+%d PP banked", pending_pp),
+        sb.x, sb.y + 30, sb.w, "center")
 
     Theme.setColor(can_shove and Theme.fg.primary or Theme.fg.faint)
-    love.graphics.setFont(self.game.fonts.ui_small)
     love.graphics.printf(string.format("%.1f%% per runout", rate * 100),
-        sb.x, sb.y + 36, sb.w, "center")
+        sb.x, sb.y + 46, sb.w, "center")
 end
 
 -- ─── Floating text overlay ────────────────────────────────────────────
@@ -515,9 +526,13 @@ function GrindView:mousepressed(x, y, b)
     -- SHOVE button has priority — it's bottom-right and overlaps the right panel zone.
     local sb = self:_shoveButtonRect()
     if x >= sb.x and x < sb.x + sb.w and y >= sb.y and y < sb.y + sb.h then
-        if self.game.state.bankroll >= Constants.GAMEPLAY.SHOVE_MIN_BANKROLL then
-            self.game.state_machine:switch("shove")
-        end
+        -- Bank the run's pending PP at the moment of pulling the trigger.
+        -- Bounties locked during the run only convert to spendable PP if
+        -- the player actually shoves — F2 debug toggles bypass this, so
+        -- dev shortcuts don't grant free PP.
+        local state = self.game.state
+        state.pp = state.pp + (state.pp_this_run or 0)
+        self.game.state_machine:switch("shove")
         return
     end
 

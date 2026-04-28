@@ -28,7 +28,6 @@ C.GAMEPLAY = {
     INITIAL_ACTIVE_TABLES  = 0,        -- fresh save / resetRun: no tables opened. Player buys first for the buy-in ($2 at $0.01/$0.02).
     SHOVE_RATE_CAP         = 0.90,     -- 90% per-shove ceiling (design doc §)
     MAX_TABLES             = 32,       -- hard cap on concurrent tables (visual / sanity bound)
-    SHOVE_MIN_BANKROLL     = 0.50,     -- can't shove with effectively-zero bankroll
 
     -- Focus / efficiency mechanic. Multi-tabling beyond your capacity scales
     -- the per-hand $ delta down — split attention costs you value. Upgrades

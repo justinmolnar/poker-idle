@@ -33,6 +33,16 @@ local STAKE_UP_PAD    = 6
 local DEAL_BTN_W      = 140
 local DEAL_BTN_H      = 40
 
+-- EV gauge — thin colored strip at the bottom of every panel. Maps the
+-- table's EV-per-hand (in bb units) to a 0..1 marker position on a
+-- red→amber→green gradient. Replaces the old hover tooltip; always on,
+-- one per table, at-a-glance "which of my tables is bleeding right now."
+local GAUGE_H        = 6
+local GAUGE_PAD      = 3   -- gap between gauge and panel bottom
+local GAUGE_MARKER_W = 2
+local GAUGE_LERP     = 6.0 -- lerp speed; ~1/3 sec to close most of the gap
+local GAUGE_EV_SPAN  = 2.0 -- bb/hand mapped to gauge edges (±2 bb)
+
 -- Card sizes for the cramped grid panel.
 local OPP_CARD_W      = 14
 local OPP_CARD_H      = 20
@@ -224,16 +234,10 @@ end
 
 local function drawPotLabel(tbl, felt_x, label_y, felt_w, fonts)
     if tbl.state == "idle" then return end
-    local pot
-    if tbl.outcome_delta and tbl.outcome_won ~= nil then
-        if tbl.outcome_won then
-            pot = tbl.outcome_delta
-        else
-            pot = -tbl.outcome_delta * 2
-        end
-    else
-        pot = 0
-    end
+    -- Pot = total chips in the middle = your contribution + opponent's
+    -- contribution. Outcome model is symmetric: win/lose magnitudes match,
+    -- so 2 × |delta| is the right total-pot reading both ways.
+    local pot = (tbl.outcome_delta and math.abs(tbl.outcome_delta) * 2) or 0
     Theme.setColor(Theme.fg.muted)
     love.graphics.setFont(fonts.ui_small)
     love.graphics.printf("Pot: " .. moneyText(pot), felt_x, label_y, felt_w, "center")
@@ -309,6 +313,75 @@ local function drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx
             action = "stake_up", idx = idx, next_stake_id = next_stake.id,
         }
     end
+end
+
+-- ─── EV gauge ─────────────────────────────────────────────────────────
+
+-- Map ev_per_hand (in $) → 0..1 marker position. ev_bb = ev / stake.bb.
+-- Linear, clamped: ev_bb ≤ -GAUGE_EV_SPAN → 0, +GAUGE_EV_SPAN → 1.
+local function evToGaugePos(stake, ev_per_hand)
+    local bb = (stake and stake.bb) or 1
+    if bb <= 0 then bb = 1 end
+    local ev_bb = (ev_per_hand or 0) / bb
+    local pos = (ev_bb + GAUGE_EV_SPAN) / (2 * GAUGE_EV_SPAN)
+    if pos < 0 then return 0 end
+    if pos > 1 then return 1 end
+    return pos
+end
+
+local function drawGauge(tbl, x, y, w, h_panel, ctx)
+    if not tbl then return end
+    local stats = tbl:estimateStats(ctx)
+    if not stats then return end
+    local stake = findStake(tbl.stake_id)
+    local target = evToGaugePos(stake, stats.ev_per_hand)
+
+    local dt = love.timer and love.timer.getDelta() or 0
+    if tbl.gauge_pos == nil then
+        tbl.gauge_pos = target
+    else
+        local k = math.min(1, dt * GAUGE_LERP)
+        tbl.gauge_pos = tbl.gauge_pos + (target - tbl.gauge_pos) * k
+    end
+
+    local bx = x + FELT_INSET
+    local bw = w - 2 * FELT_INSET
+    if bw < 4 then return end
+    local by = y + h_panel - GAUGE_H - GAUGE_PAD
+
+    -- Vertex colors interpolate linearly across the mesh, so to land amber
+    -- at the midpoint we need two halves: red→amber, then amber→green.
+    local r = Theme.status.error
+    local a = Theme.status.warn
+    local g = Theme.status.good
+    local mid_x  = bx + bw * 0.5
+    local right_x = bx + bw
+    local bot_y  = by + GAUGE_H
+
+    local left_mesh = love.graphics.newMesh({
+        { bx,    by,    0, 0, r[1], r[2], r[3], 1 },
+        { mid_x, by,    0, 0, a[1], a[2], a[3], 1 },
+        { mid_x, bot_y, 0, 0, a[1], a[2], a[3], 1 },
+        { bx,    bot_y, 0, 0, r[1], r[2], r[3], 1 },
+    }, "fan", "static")
+    local right_mesh = love.graphics.newMesh({
+        { mid_x,   by,    0, 0, a[1], a[2], a[3], 1 },
+        { right_x, by,    0, 0, g[1], g[2], g[3], 1 },
+        { right_x, bot_y, 0, 0, g[1], g[2], g[3], 1 },
+        { mid_x,   bot_y, 0, 0, a[1], a[2], a[3], 1 },
+    }, "fan", "static")
+
+    Theme.assetTint(1)
+    love.graphics.draw(left_mesh)
+    love.graphics.draw(right_mesh)
+
+    -- Marker — narrow vertical bar at gauge_pos. Drawn slightly taller than
+    -- the strip so it visually breaks the gradient's top/bottom edges.
+    local mxp = bx + tbl.gauge_pos * bw
+    Theme.setColor(Theme.fg.heading)
+    love.graphics.rectangle("fill",
+        mxp - GAUGE_MARKER_W * 0.5, by - 1,
+        GAUGE_MARKER_W, GAUGE_H + 2)
 end
 
 -- ─── Public API ──────────────────────────────────────────────────────
@@ -416,6 +489,9 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         local next_s, diff, affordable = nextStakeInfo(tbl.stake_id, state.bankroll)
         drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx, next_s, diff, affordable)
     end
+
+    -- EV gauge — drawn last so it sits above the felt's bottom edge.
+    drawGauge(tbl, x, y, w, h, controller and controller.ctx)
 end
 
 -- Empty grid slot — placeholder when table_slots cap allows more tables

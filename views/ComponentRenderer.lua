@@ -17,16 +17,55 @@ local ICON_SIZE    = 64
 local ICON_SPACING = 12
 local ICON_ROW_H   = ICON_SIZE + 20
 
--- Line heights per style (must match font sizes in game.fonts).
+-- Single-row line heights per style. Used as the floor — when a line wraps
+-- to multiple visual rows, height becomes N * font:getHeight() instead.
 local LINE_H = { body = 20, small = 16, heading = 22, muted = 20 }
 local BTN_PAD = 8   -- total vertical padding inside a button (top+bottom)
 
-local function buttonH(comp)
+-- Resolve a style → font selection. Centralized so buttonH and _button
+-- agree on which font is used per line (otherwise wrap math drifts from
+-- render math).
+local function styleFont(style, game)
+    if style == "small" or style == "muted" then return game.fonts.ui_small end
+    return game.fonts.ui  -- body / heading / warning
+end
+
+local function lineIndent(style)
+    return (style == "body" or style == "heading" or style == "warning") and 4 or 10
+end
+
+-- How tall does this line render, given the available content width?
+-- Returns max(LINE_H[style], rows × font:getHeight()) so single-row lines
+-- keep their existing breathing room and wrapped lines grow honestly.
+local function lineRenderedHeight(line, game, content_w)
+    local style  = line.style or "body"
+    local font   = styleFont(style, game)
+    local indent = lineIndent(style)
+    local wrap_w = math.max(1, content_w - indent - 4)
+    local _, wrapped = font:getWrap(line.text or "", wrap_w)
+    local n  = math.max(1, #wrapped)
+    local fh = font:getHeight()
+    local floor_h = LINE_H[style] or fh
+    if n == 1 then return floor_h end
+    return n * fh
+end
+
+local function buttonH(comp, content_w, game)
     local lines = comp.lines
     if not lines or #lines == 0 then return 32 end
+    if not (game and game.fonts) then
+        -- Fallback: legacy estimate (sum LINE_H per style). Used if
+        -- caller didn't thread game through (shouldn't happen in normal
+        -- flow but keeps the function tolerant).
+        local h = BTN_PAD
+        for _, line in ipairs(lines) do
+            h = h + (LINE_H[line.style or "body"] or 20)
+        end
+        return h
+    end
     local h = BTN_PAD
     for _, line in ipairs(lines) do
-        h = h + (LINE_H[line.style or "body"] or 20)
+        h = h + lineRenderedHeight(line, game, content_w)
     end
     return h
 end
@@ -68,19 +107,6 @@ function CR._drawComp(comp, px, pw, p, y, game, scroll_view)
     return comp.h or 0
 end
 
-function CR._compHeight(comp, _game)
-    local t = comp.type
-    if t == "button" then
-        return buttonH(comp)
-    elseif t == "label"    then return comp.h or 24
-    elseif t == "icon_row" then return comp.h or ICON_ROW_H
-    elseif t == "divider"  then return comp.h or 6
-    elseif t == "spacer"   then return comp.h or 8
-    elseif t == "custom"   then return comp.h or 0
-    end
-    return comp.h or 0
-end
-
 function CR._label(comp, px, pw, p, y, game)
     local h     = comp.h or 24
     local style = comp.style or "body"
@@ -103,56 +129,51 @@ function CR._label(comp, px, pw, p, y, game)
 end
 
 function CR._button(comp, px, pw, p, y, game)
-    local h        = buttonH(comp)
-    local disabled = comp.disabled
-    local hovered  = (not disabled) and comp.id
+    local content_w = pw - p * 2
+    local h         = buttonH(comp, content_w, game)
+    local disabled  = comp.disabled
+    local hovered   = (not disabled) and comp.id
         and require("services.HoverService").is("button", comp.id)
 
     if disabled then
         Theme.setColor(Theme.bg.sunken, 0.6)
-        love.graphics.rectangle("fill", px + p, y, pw - p * 2, h)
+        love.graphics.rectangle("fill", px + p, y, content_w, h)
     elseif hovered then
         Theme.setColor(Theme.bg.widget_hover, 0.85)
-        love.graphics.rectangle("fill", px + p, y, pw - p * 2, h)
+        love.graphics.rectangle("fill", px + p, y, content_w, h)
     end
 
     Theme.setColor(disabled and Theme.border.soft
                   or hovered and Theme.border.strong
                   or Theme.border.default)
     love.graphics.setLineWidth(hovered and Theme.space.line_strong or Theme.space.hairline)
-    love.graphics.rectangle("line", px + p, y + 1, pw - p * 2, h - 2)
+    love.graphics.rectangle("line", px + p, y + 1, content_w, h - 2)
     love.graphics.setLineWidth(Theme.space.hairline)
 
     local cursor = y + 4
     for _, line in ipairs(comp.lines or {}) do
         local style = line.style or "body"
-        local lh    = LINE_H[style] or 20
+        local font  = styleFont(style, game)
+        love.graphics.setFont(font)
 
         local color
         if disabled then
-            love.graphics.setFont(style == "small" and game.fonts.ui_small or game.fonts.ui)
             color = Theme.fg.disabled
-        elseif style == "small" then
-            love.graphics.setFont(game.fonts.ui_small)
-            color = Theme.fg.muted
-        elseif style == "muted" then
-            love.graphics.setFont(game.fonts.ui_small)
+        elseif style == "small" or style == "muted" then
             color = Theme.fg.muted
         elseif style == "heading" then
-            love.graphics.setFont(game.fonts.ui)
             color = Theme.fg.heading
         elseif style == "warning" then
-            love.graphics.setFont(game.fonts.ui)
             color = Theme.status.warn
         else
-            love.graphics.setFont(game.fonts.ui)
             color = Theme.fg.primary
         end
         Theme.setColor(color)
 
-        local indent = (style == "body" or style == "heading" or style == "warning") and 4 or 10
-        love.graphics.printf(line.text or "", px + p + indent, cursor, pw - p * 2 - indent - 4, "left")
-        cursor = cursor + lh
+        local indent = lineIndent(style)
+        local printf_w = content_w - indent - 4
+        love.graphics.printf(line.text or "", px + p + indent, cursor, printf_w, "left")
+        cursor = cursor + lineRenderedHeight(line, game, content_w)
     end
 
     return h
@@ -191,7 +212,7 @@ end
 
 -- ─── Hit test ────────────────────────────────────────────────────────────────
 
-function CR.hitTest(components, panel_x, panel_w, cx, cy, _game)
+function CR.hitTest(components, panel_x, panel_w, cx, cy, game)
     if not components then return nil end
     local cursor_y = 0
     local p = 10
@@ -200,7 +221,7 @@ function CR.hitTest(components, panel_x, panel_w, cx, cy, _game)
         local h
 
         if comp.type == "button" then
-            h = buttonH(comp)
+            h = buttonH(comp, panel_w - p * 2, game)
             if not comp.disabled
             and cy >= cursor_y and cy < cursor_y + h
             and cx >= panel_x + p and cx < panel_x + panel_w - p then

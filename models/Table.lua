@@ -1,40 +1,37 @@
 -- models/Table.lua
 --
 -- A single ticking poker table. Per-hand state machine: the player clicks
--- DEAL, the outcome (win/loss + delta) is rolled at deal-time using the
--- table's stake distributions and the player's effects ctx, then cards are
--- constructed via rejection sampling so what's drawn matches the rolled
--- outcome. The animation timeline plays out over ~2.2 seconds, ending in
--- a settling phase that returns the resolution to the controller.
+-- DEAL, the outcome is rolled at deal-time from the table's outcome grid,
+-- then cards are constructed via rejection sampling so what's drawn matches
+-- the rolled win/lose. Animation timeline plays over ~2.2 seconds, ending
+-- in settling that returns the resolution to the controller.
 --
 -- ─── State machine ─────────────────────────────────────────────────────
---   idle      — waiting for click; DEAL button shown
---   dealing   — hole cards landing  (0.00 → 0.40)
---   flop      — three community cards landing (0.40 → 0.80)
---   turn      — fourth community card (0.80 → 1.10)
---   river     — fifth community card (1.10 → 1.40)
---   showdown  — opponent flips face-up (1.40 → 1.80)
---   settling  — pot moves to winner; resolution returned to controller
---               on the transition INTO this state (1.80 → 2.20)
---   → idle
+--   idle / dealing / flop / turn / river / showdown / settling → idle.
+--   Resolution returns on the transition INTO settling.
 --
--- ─── Math layer ────────────────────────────────────────────────────────
---   1. Sample one opponent uniformly from the seated opponents.
---   2. base_wr     = OPP.BASE_WIN_RATE
---      skill_pen   = skills[opp.skill].penalty * (ctx[skill.ctx_key] or 1)
---      style_mod   = playstyles[opp.style].modifier
---      style_mult  = ctx[playstyles[opp.style].ctx_key] or 1
---      stake_off   = stake.win_rate_offset
---      gt_off      = gtype.win_rate_offset * (ctx.gtype_offset_mult or 1)
---      bonus       = ctx.win_rate_add
---      win_rate    = clamp((base_wr + skill_pen + style_mod + stake_off + gt_off + bonus) * style_mult, 0.01, 0.99)
---   3. won = rng.chance(win_rate)
---   4. pot_bb / bet_bb sampled from a four-tier categorical (small / medium
---      / large / huge) for real poker variance, not flat per-stake numbers.
---   5. delta = won and pot_bb*bb*earnings_mult or -bet_bb*bb*loss_mult
---   6. Cards constructed (rejection sampling on a fresh deck) so that
---      best5(player_hole + community) strictly beats / strictly loses to
---      best5(opponent_hole + community), matching the rolled outcome.
+-- ─── Math layer (outcome grid) ─────────────────────────────────────────
+-- Per opponent there is an 8-cell grid (4 pot tiers × win/lose):
+--
+--       LOSE                   WIN
+--   Tiny    (tl)            Tiny    (tw)
+--   Small   (sl)            Small   (sw)
+--   Medium  (ml)            Medium  (mw)
+--   Jackpot (jl)            Jackpot (jw)
+--
+-- Each cell holds a probability; the grid sums to 1.0. The base grid is
+-- looked up by opp.skill in data/opponent_types.lua. A small additive
+-- per-style shift is applied next, then the game-type's grid_modifier,
+-- then any ctx.grid_shifts pushed by run upgrades / catalog perks. Any
+-- negative cells clamp at 0 and the grid renormalizes to sum=1.
+--
+-- Per hand:
+--   1. Pick opponent uniformly from seated.
+--   2. _buildGrid(opp, ctx) → grid.
+--   3. _sampleGrid(grid) → { tier, won, magnitude_bb }.
+--   4. delta = ±magnitude × stake.bb × (earnings_mult on win, loss_mult on lose).
+--   5. Construct cards (rejection sampling) so best5(player) beats / loses
+--      to best5(opp), matching the rolled `won`.
 
 local RNG           = require("utils.rng")
 local Deck          = require("models.Deck")
@@ -48,8 +45,8 @@ local OpTypes       = require("data.opponent_types")
 local Table = {}
 Table.__index = Table
 
-local LAST_RESULTS_CAP    = 5
-local CONSTRUCTION_CAP    = 200   -- rejection-sample retries before accepting natural
+local LAST_RESULTS_CAP = 5
+local CONSTRUCTION_CAP = 200
 
 -- State timeline (cumulative seconds since :deal()).
 local PHASE_DEAL_END     = 0.40
@@ -73,9 +70,6 @@ local function findGameType(id)
     end
 end
 
--- Multiply each weight in `dist` by the matching `modifier` entry (or 1
--- when missing) and renormalize to sum=1. modifier=nil → return dist
--- unchanged. Used to layer game-type tilts onto a stake's distribution.
 local function mergeDist(dist, modifier)
     if not dist then return nil end
     if not modifier then return dist end
@@ -91,14 +85,12 @@ local function mergeDist(dist, modifier)
     return out
 end
 
--- Sample a key from a {key=weight} distribution. Weights sum to 1 (or any
--- positive total — we re-normalise via the running sum).
 local function sampleDist(dist)
     if not dist then return nil end
     local total = 0
     for _, p in pairs(dist) do total = total + p end
     if total <= 0 then
-        for k in pairs(dist) do return k end  -- fallback
+        for k in pairs(dist) do return k end
     end
     local r = love.math.random() * total
     local acc = 0
@@ -106,26 +98,182 @@ local function sampleDist(dist)
         acc = acc + p
         if r <= acc then return k end
     end
-    -- Numerical fallback (FP error on the last bucket).
     for k in pairs(dist) do return k end
-end
-
--- Per-hand pot/bet roll. Returns (pot_bb, bet_bb) — both in big-blinds
--- units, multiplied by stake.bb at the call site to convert to dollars.
-local function rollPotBet()
-    local roll = love.math.random()
-    local pot_bb
-    if     roll < 0.40 then pot_bb = 1.5 + love.math.random() * 1.5    -- small  [1.5, 3]
-    elseif roll < 0.75 then pot_bb = 3.0 + love.math.random() * 5.0    -- medium [3, 8]
-    elseif roll < 0.95 then pot_bb = 8.0 + love.math.random() * 17.0   -- large  [8, 25]
-    else                    pot_bb = 25.0 + love.math.random() * 75.0  -- huge   [25, 100]
-    end
-    local bet_bb = pot_bb * (0.4 + love.math.random() * 0.2)           -- player's risk: 40-60% of pot
-    return pot_bb, bet_bb
 end
 
 local function pickRandomName()
     return NameData[love.math.random(1, #NameData)]
+end
+
+-- ─── Outcome grid ─────────────────────────────────────────────────────
+
+local CELL_KEYS = { "tl", "sl", "ml", "jl", "tw", "sw", "mw", "jw" }
+local LOSE_KEYS = { "tl", "sl", "ml", "jl" }
+local WIN_KEYS  = { "tw", "sw", "mw", "jw" }
+local TIER_KEYS = { "tiny", "small", "medium", "jackpot" }
+
+-- (tier → { lose_cell, win_cell }) — used by tier-row shifts and tooltip.
+local TIER_PAIRS = {
+    tiny    = { l = "tl", w = "tw" },
+    small   = { l = "sl", w = "sw" },
+    medium  = { l = "ml", w = "mw" },
+    jackpot = { l = "jl", w = "jw" },
+}
+
+-- Cascading order for shift_downward. tier_below[t] is where mass flows.
+local SHIFT_DOWN_CHAIN = {
+    { from = TIER_PAIRS.tiny,   to = TIER_PAIRS.small   },
+    { from = TIER_PAIRS.small,  to = TIER_PAIRS.medium  },
+    { from = TIER_PAIRS.medium, to = TIER_PAIRS.jackpot },
+}
+
+-- Grid utility helpers.
+local function gridCopy(src)
+    local g = {}
+    for _, k in ipairs(CELL_KEYS) do g[k] = src[k] or 0 end
+    return g
+end
+
+local function gridSum(g)
+    local s = 0
+    for _, k in ipairs(CELL_KEYS) do s = s + (g[k] or 0) end
+    return s
+end
+
+local function gridClampAndNormalize(g)
+    for _, k in ipairs(CELL_KEYS) do
+        if (g[k] or 0) < 0 then g[k] = 0 end
+    end
+    local s = gridSum(g)
+    if s <= 0 then return end
+    for _, k in ipairs(CELL_KEYS) do g[k] = g[k] / s end
+end
+
+-- Apply an additive shift table {cell_key=delta, ...} to the grid in place.
+local function applyAdditiveShift(g, shift)
+    if not shift then return end
+    for k, v in pairs(shift) do
+        g[k] = (g[k] or 0) + v
+    end
+end
+
+-- Apply a game-type's grid_modifier ({ tiny, small, medium, jackpot } row
+-- shifts). Each tier's amount is split evenly between its L and W cells.
+local function applyGtypeModifier(g, modifier)
+    if not modifier then return end
+    for tier, amount in pairs(modifier) do
+        local pair = TIER_PAIRS[tier]
+        if pair then
+            g[pair.l] = (g[pair.l] or 0) + amount * 0.5
+            g[pair.w] = (g[pair.w] or 0) + amount * 0.5
+        end
+    end
+end
+
+-- ── Grid-shift operations ──────────────────────────────────────────────
+-- Each op is a function. Dispatched by name from a table — no kind chain.
+
+-- Move `amount` × (current L cell mass) from each Lose cell to the same-tier
+-- Win cell. Sharper Reads / Calm Hands / Patience / Calculator.
+local function shiftLoseToWin(g, amount)
+    if amount <= 0 then return end
+    for _, t in ipairs(TIER_KEYS) do
+        local pair = TIER_PAIRS[t]
+        local moved = (g[pair.l] or 0) * amount
+        g[pair.l] = g[pair.l] - moved
+        g[pair.w] = (g[pair.w] or 0) + moved
+    end
+end
+
+-- Cascade `amount` × (current tier mass) downward: Tiny → Small → Medium →
+-- Jackpot. Donor mass scales L and W proportionally; receiver gets the
+-- moved mass split evenly between L and W. Big Pots.
+local function shiftDownward(g, amount)
+    if amount <= 0 then return end
+    for _, link in ipairs(SHIFT_DOWN_CHAIN) do
+        local from_l, from_w = link.from.l, link.from.w
+        local to_l,   to_w   = link.to.l,   link.to.w
+        local from_total = (g[from_l] or 0) + (g[from_w] or 0)
+        local moved = from_total * amount
+        if moved > 0 then
+            g[from_l] = g[from_l] * (1 - amount)
+            g[from_w] = g[from_w] * (1 - amount)
+            g[to_l]   = (g[to_l] or 0) + moved * 0.5
+            g[to_w]   = (g[to_w] or 0) + moved * 0.5
+        end
+    end
+end
+
+local SHIFT_OPS = {
+    lose_to_win    = shiftLoseToWin,
+    shift_downward = shiftDownward,
+}
+
+-- Returns true if the shift descriptor applies to (opp, gtype).
+local function shiftApplies(shift, opp, gtype)
+    if shift.skill and shift.skill ~= opp.skill then return false end
+    if shift.style and shift.style ~= opp.style then return false end
+    if shift.gtype and shift.gtype ~= gtype.id   then return false end
+    return true
+end
+
+-- Build the effective 8-cell grid for one opponent, given the player ctx.
+-- Returns a fresh table; caller may mutate freely.
+local function buildGrid(opp, ctx, gtype)
+    local base = OpTypes.skill_grids[opp.skill] or OpTypes.skill_grids.rec
+    local g = gridCopy(base)
+
+    -- Style shift (additive table; missing entries treated as 0).
+    applyAdditiveShift(g, OpTypes.style_shifts[opp.style])
+
+    -- Game-type tier shift (per-row, split evenly L/W).
+    applyGtypeModifier(g, gtype and gtype.grid_modifier)
+
+    -- ctx.grid_shifts (run upgrades + catalog perks), in order.
+    if ctx and ctx.grid_shifts then
+        for _, shift in ipairs(ctx.grid_shifts) do
+            if shiftApplies(shift, opp, gtype) then
+                local op = SHIFT_OPS[shift.op]
+                if op then op(g, shift.amount or 0) end
+            end
+        end
+    end
+
+    gridClampAndNormalize(g)
+    return g
+end
+
+-- Sample one cell from the grid. Returns (cell_key) — caller decodes
+-- tier / won / magnitude.
+local function sampleCell(g)
+    local total = gridSum(g)
+    if total <= 0 then return "tl" end
+    local r = love.math.random() * total
+    local acc = 0
+    for _, k in ipairs(CELL_KEYS) do
+        acc = acc + (g[k] or 0)
+        if r <= acc then return k end
+    end
+    return CELL_KEYS[#CELL_KEYS]
+end
+
+-- Decode a cell key to { tier, won }.
+local CELL_DECODE = {
+    tl = { tier = "tiny",    won = false },
+    sl = { tier = "small",   won = false },
+    ml = { tier = "medium",  won = false },
+    jl = { tier = "jackpot", won = false },
+    tw = { tier = "tiny",    won = true  },
+    sw = { tier = "small",   won = true  },
+    mw = { tier = "medium",  won = true  },
+    jw = { tier = "jackpot", won = true  },
+}
+
+-- Roll a magnitude (in bb) within the cell's tier range.
+local function rollTierMagnitude(tier)
+    local r = OpTypes.tier_bb_ranges[tier]
+    if not r then return 0 end
+    return r.lo + love.math.random() * (r.hi - r.lo)
 end
 
 -- ─── Construction ─────────────────────────────────────────────────────
@@ -139,37 +287,30 @@ function Table:new(stake_id, game_type_id, ctx)
         state         = "idle",
         state_timer   = 0,
         hands_played  = 0,
-        last_results  = {},     -- ring buffer of recent {won, delta} pairs
+        last_results  = {},
 
-        -- Per-table stack ($). Initialized to the stake's buy-in (100bb).
-        -- Wins push it up to the buy-in cap; overflow goes to bankroll.
-        -- Losses come out of the stack (clamped at 0). Removing a table
-        -- refunds whatever is currently here.
         stack = (stake and stake.buy_in) or 0,
 
-        -- Per-hand state — populated on :deal(), cleared on returning to idle.
         player_hole         = nil,
         opponent_hole       = nil,
-        opponent_idx        = nil,    -- which seat plays back at the player this hand
-        community           = nil,    -- list, populated to 5 by river
+        opponent_idx        = nil,
+        community           = nil,
         outcome_won         = nil,
         outcome_delta       = nil,
-        natural_outcome     = true,   -- false if construction-cap exhausted
+        outcome_tier        = nil,    -- "tiny" / "small" / "medium" / "jackpot"
+        natural_outcome     = true,
 
-        -- Layout. Filled by the view each frame so floating text spawns
-        -- at the right place when a resolution fires.
         x = 0, y = 0,
-
-        -- Set on the transition into "settling"; consumed by :update() once.
+        -- Animation state for the per-table EV gauge in TablePanel. Lerps
+        -- toward target each render frame; nil = snap on first read.
+        gauge_pos = nil,
         _pending_resolution = nil,
     }, Table)
     self:fillOpponents(ctx)
     return self
 end
 
--- Pre-flip up to `count` attributes per opponent. `count` is the catalog
--- ctx.revealed_at_start_count; the order (skill vs style) for the first
--- reveal is random so the player gets variety. count=2 reveals both.
+-- Pre-flip up to `count` attributes per opponent. count=2 reveals both.
 local function preRevealOpponents(opponents, count)
     count = math.max(0, math.floor(count or 0))
     if count <= 0 then return end
@@ -188,11 +329,6 @@ local function preRevealOpponents(opponents, count)
     end
 end
 
--- Re-roll the seated opponents from the stake's distributions, layered
--- with the game type's modifiers. The game type also dictates how many
--- opponents fill the felt (1 for HU, 5 for 6-max/Zoom, 8 for 9-max). If
--- ctx.revealed_at_start_count is set (Cold Read), seats start with that
--- many attributes pre-revealed.
 function Table:fillOpponents(ctx)
     self.opponents = {}
     local stake = findStake(self.stake_id)
@@ -215,57 +351,15 @@ end
 
 function Table:setStake(stake_id, ctx)
     self.stake_id = stake_id
-    -- Stake change = leave the old table, sit at a new one. Stack resets
-    -- to the new buy-in. The controller handles the bankroll math
-    -- (refund old stack, charge new buy-in) before calling this.
     local stake = findStake(stake_id)
     self.stack = (stake and stake.buy_in) or 0
     self.state = "idle"
     self.state_timer = 0
-    self:fillOpponents(ctx)  -- new opponents at the new tier; same game type
+    self:fillOpponents(ctx)
 end
 
 -- ─── Per-hand math ────────────────────────────────────────────────────
 
-local function winRateAgainst(opp, ctx, gtype, stake)
-    local skill_data = OpTypes.skills[opp.skill]      or {}
-    local style_data = OpTypes.playstyles[opp.style]  or {}
-    local skill_pen  = skill_data.penalty   or 0
-    local style_mod  = style_data.modifier  or 0
-    ctx = ctx or {}
-
-    -- Per-skill penalty multiplier (Calm Hands etc.). Skills now carry a
-    -- ctx_key just like playstyles, so a value <1 in ctx softens the tier
-    -- without an `if opp.skill == "pro"` chain.
-    if skill_data.ctx_key and ctx[skill_data.ctx_key] then
-        skill_pen = skill_pen * ctx[skill_data.ctx_key]
-    end
-
-    -- Playstyle ctx_key — vs_fish, vs_tag, etc. Existing mechanism.
-    local style_mult = 1
-    if style_data.ctx_key and ctx[style_data.ctx_key] then
-        style_mult = ctx[style_data.ctx_key]
-    end
-
-    -- Per-stake difficulty offset. Climbing tiers means a harder baseline
-    -- on top of the steeper skill distribution.
-    local stake_offset = (stake and stake.win_rate_offset) or 0
-
-    -- Game-type baseline shift, optionally softened by hu_specialist etc.
-    local gt_offset = (gtype and gtype.win_rate_offset) or 0
-    gt_offset = gt_offset * (ctx.gtype_offset_mult or 1)
-
-    local bonus = ctx.win_rate_add or 0
-
-    local raw = (OpTypes.BASE_WIN_RATE + skill_pen + style_mod
-                 + stake_offset + gt_offset + bonus) * style_mult
-    if raw < 0.01 then raw = 0.01 end
-    if raw > 0.99 then raw = 0.99 end
-    return raw
-end
-
--- Construct a hand layout consistent with `want_win`. Fresh deck each
--- attempt. Returns (player_hole, opponent_hole, community).
 local function constructHand(want_win)
     local p_hole, o_hole, board
     for _ = 1, CONSTRUCTION_CAP do
@@ -287,12 +381,9 @@ local function constructHand(want_win)
             return p_hole, o_hole, board, true
         end
     end
-    -- Cap exhausted — accept whatever the last attempt produced.
     return p_hole, o_hole, board, false
 end
 
--- Initiate a new hand. Only valid in idle state. Returns true if the deal
--- started; false if the state is busy.
 function Table:deal(ctx)
     if self.state ~= "idle" then return false end
     ctx = ctx or {}
@@ -301,38 +392,33 @@ function Table:deal(ctx)
     local gtype = findGameType(self.game_type_id)
     if not stake or not gtype then return false end
 
-    -- Zoom: rerolls opponents per hand. The point of Zoom is unreadable
-    -- pool — fresh players every hand mean revealed_skill / revealed_style
-    -- never accumulate, so you can't soul-read across hands.
     if gtype.rerolls_opponents then
         self:fillOpponents(ctx)
     end
 
-    -- Sample which seated opponent plays back this hand.
     local n_opps = #self.opponents
     if n_opps <= 0 then return false end
     self.opponent_idx = love.math.random(1, n_opps)
     local opp = self.opponents[self.opponent_idx]
     if not opp then return false end
 
-    local win_rate = winRateAgainst(opp, ctx, gtype, stake)
-    self.outcome_won = RNG.chance(win_rate)
+    -- Build this opponent's outcome grid and sample one cell.
+    local grid = buildGrid(opp, ctx, gtype)
+    local cell = sampleCell(grid)
+    local decoded = CELL_DECODE[cell] or { tier = "tiny", won = false }
+    local magnitude_bb = rollTierMagnitude(decoded.tier)
 
-    local pot_bb, bet_bb = rollPotBet()
-    -- pot_mult tilts the absolute pot/bet size for the game type. 9-max =
-    -- bigger pots; HU and Zoom = smaller. Ratio between pot and bet stays.
-    local pot_mult = gtype.pot_mult or 1
-    pot_bb = pot_bb * pot_mult
-    bet_bb = bet_bb * pot_mult
+    self.outcome_won  = decoded.won
+    self.outcome_tier = decoded.tier
 
-    -- earnings_mult scales winning deltas (Big Pots run upgrade, Pot Odds
-    -- Master catalog item). loss_mult shrinks losing deltas (Damage Control).
+    -- earnings_mult / loss_mult scale magnitude only — they don't reshape
+    -- the grid (Pot Odds Master, Damage Control, Headphones).
     local earnings_mult = ctx.earnings_mult or 1
     local loss_mult     = ctx.loss_mult     or 1
     if self.outcome_won then
-        self.outcome_delta = pot_bb * stake.bb * earnings_mult
+        self.outcome_delta = magnitude_bb * stake.bb * earnings_mult
     else
-        self.outcome_delta = -bet_bb * stake.bb * loss_mult
+        self.outcome_delta = -magnitude_bb * stake.bb * loss_mult
     end
 
     local p_hole, o_hole, board, natural = constructHand(self.outcome_won)
@@ -346,12 +432,8 @@ function Table:deal(ctx)
     return true
 end
 
--- Step animation. Returns a resolution table on the transition INTO
--- settling, else nil. The caller (controller) consumes it and applies
--- the bankroll delta + emits floating text.
--- Reveal one unrevealed attribute (skill or style) on the opponent. Base
--- 50% per showdown; Eagle Eyes (ctx.reveal_chance_add) bumps it. Discovery
--- feels like reads, not a bullet-pointed cheat sheet.
+-- ─── Animation tick ───────────────────────────────────────────────────
+
 local function maybeRevealAttribute(opp, ctx)
     if not opp then return end
     if opp.revealed_skill and opp.revealed_style then return end
@@ -372,10 +454,6 @@ end
 function Table:update(dt, ctx)
     if self.state == "idle" then return nil end
 
-    -- Per-game-type pacing. pace_mult > 1 = faster (HU/Zoom). 6-max sits
-    -- at 0.5 so the per-hand cinematic takes 4.4s rather than 2.2s — that
-    -- anchors the multi-tabling math (a single 6-max table is intentionally
-    -- slow enough that running 4 of them feels meaningfully better).
     local gtype = findGameType(self.game_type_id)
     local pace_mult = (gtype and gtype.pace_mult) or 1
     local effective_dt = (dt or 0) * pace_mult
@@ -387,16 +465,13 @@ function Table:update(dt, ctx)
     elseif self.state == "turn"     and self.state_timer >= PHASE_TURN_END     then self.state = "river"
     elseif self.state == "river"    and self.state_timer >= PHASE_RIVER_END    then
         self.state = "showdown"
-        -- Showdown lets the player learn something about the opponent
-        -- they faced this hand. Base 50% chance to flip one hidden
-        -- attribute; Eagle Eyes (ctx.reveal_chance_add) bumps it.
         maybeRevealAttribute(self.opponents[self.opponent_idx], ctx)
     elseif self.state == "showdown" and self.state_timer >= PHASE_SHOWDOWN_END then
         self.state = "settling"
-        -- Stash the resolution so the next return surfaces it.
         self._pending_resolution = {
             won   = self.outcome_won,
             delta = self.outcome_delta,
+            tier  = self.outcome_tier,
             x     = self.x,
             y     = self.y,
         }
@@ -404,6 +479,7 @@ function Table:update(dt, ctx)
         self.last_results[#self.last_results + 1] = {
             won   = self.outcome_won,
             delta = self.outcome_delta,
+            tier  = self.outcome_tier,
         }
         if #self.last_results > LAST_RESULTS_CAP then
             table.remove(self.last_results, 1)
@@ -425,31 +501,115 @@ function Table:update(dt, ctx)
 end
 
 -- Read-only summary the view header pulls each frame.
--- The `win_rate / pot_size / bet_size / hands_per_min` fields are legacy
--- pass-throughs from `data/stakes.lua` for the placeholder pill panel that
--- still ships in `views/GrindView`. Phase 3 replaces that panel with a
--- real TablePanel and these fields can come out.
 function Table:liveStats(_ctx)
     local stake = findStake(self.stake_id)
     local gtype = findGameType(self.game_type_id)
     if not stake then return nil end
     return {
-        stake_display = stake.display_name,
-        bb            = stake.bb,
-        buy_in        = stake.buy_in,
+        stake_display   = stake.display_name,
+        bb              = stake.bb,
+        buy_in          = stake.buy_in,
         game_type_id    = self.game_type_id,
         game_type_short = (gtype and gtype.short) or "",
         seats           = (gtype and gtype.seats) or #self.opponents,
-        win_rate      = stake.win_rate      or 0,
-        pot_size      = stake.pot_size      or 0,
-        bet_size      = stake.bet_size      or 0,
-        hands_per_min = stake.hands_per_min or 0,
     }
 end
 
--- True iff a hand is currently animating.
 function Table:isBusy()
     return self.state ~= "idle"
+end
+
+-- ─── Estimation (UI gauge) ────────────────────────────────────────────
+-- Build the *expected* 8-cell grid for this (stake, game_type, ctx) — the
+-- weighted average over the stake's skill × playstyle joint distribution
+-- (after the game-type's modifiers). We deliberately do NOT use the
+-- actually-seated opponents: with only 5 seats sampled from a 4-skill
+-- distribution, the per-skill EV swing is enormous (rec ≈ +6 bb, pro ≈
+-- -30 bb at s001 grids) and the gauge would jump 0%↔100% across fresh
+-- tables at the same stake. The gauge is meant to read "how is this
+-- stake/gtype going for me with my current upgrades" — stake-stable —
+-- not "what random seat composition did I draw this time."
+
+-- Average bb magnitude inside a tier (uniform over [lo, hi]).
+local function tierAvgBB(tier)
+    local r = OpTypes.tier_bb_ranges[tier]
+    if not r then return 0 end
+    return (r.lo + r.hi) * 0.5
+end
+
+function Table:tableGrid(ctx)
+    local stake = findStake(self.stake_id)
+    local gtype = findGameType(self.game_type_id)
+    if not stake or not gtype then return nil end
+
+    local skill_dist = mergeDist(stake.skill_distribution,     gtype.skill_modifier)
+    local style_dist = mergeDist(stake.playstyle_distribution, gtype.playstyle_modifier)
+    if not skill_dist or not style_dist then return nil end
+
+    local out = {}
+    for _, k in ipairs(CELL_KEYS) do out[k] = 0 end
+    local total_w = 0
+    for skill, sp in pairs(skill_dist) do
+        for style, yp in pairs(style_dist) do
+            local w = sp * yp
+            if w > 0 then
+                local proxy = { skill = skill, style = style }
+                local g = buildGrid(proxy, ctx or {}, gtype)
+                for _, k in ipairs(CELL_KEYS) do
+                    out[k] = out[k] + (g[k] or 0) * w
+                end
+                total_w = total_w + w
+            end
+        end
+    end
+    if total_w <= 0 then return nil end
+    for _, k in ipairs(CELL_KEYS) do out[k] = out[k] / total_w end
+    return out
+end
+
+function Table:estimateStats(ctx)
+    local stake = findStake(self.stake_id)
+    local gtype = findGameType(self.game_type_id)
+    if not stake or not gtype then return nil end
+    if #self.opponents == 0 then return nil end
+
+    ctx = ctx or {}
+    local grid = self:tableGrid(ctx)
+    if not grid then return nil end
+
+    -- Win chance = sum of the W column.
+    local win_chance = 0
+    for _, k in ipairs(WIN_KEYS) do win_chance = win_chance + (grid[k] or 0) end
+
+    -- Per-tier total mass (L+W).
+    local tier_pcts = {}
+    for _, t in ipairs(TIER_KEYS) do
+        local pair = TIER_PAIRS[t]
+        tier_pcts[t] = (grid[pair.l] or 0) + (grid[pair.w] or 0)
+    end
+
+    -- Headline jackpot-win % — the "watch it tick up" number.
+    local jackpot_win_pct = grid.jw or 0
+
+    -- EV per hand. Each cell contributes p × magnitude × (em or lm) × bb.
+    local em = ctx.earnings_mult or 1
+    local lm = ctx.loss_mult     or 1
+    local bb = stake.bb
+    local ev = 0
+    for _, t in ipairs(TIER_KEYS) do
+        local pair = TIER_PAIRS[t]
+        local avg = tierAvgBB(t)
+        ev = ev + (grid[pair.w] or 0) * avg * bb * em
+        ev = ev - (grid[pair.l] or 0) * avg * bb * lm
+    end
+
+    return {
+        win_chance      = win_chance,
+        tier_pcts       = tier_pcts,
+        jackpot_win_pct = jackpot_win_pct,
+        ev_per_hand     = ev,
+        grid            = grid,
+    }
 end
 
 return Table
