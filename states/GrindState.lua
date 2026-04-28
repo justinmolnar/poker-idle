@@ -1,32 +1,44 @@
 -- states/GrindState.lua
 --
--- Grind mode: the room, tables, bankroll grind, catalog UI. The player
--- spends most of their time here.
+-- Grind mode: tables ticking, bankroll growing, run upgrades + catalog UI
+-- in the sidebars (Phase 4+), the SHOVE button as exit. Owns:
+--   • a GrindController (runs the TablePool, applies bankroll deltas, emits
+--     floating text, validates purchases)
+--   • a GrindView (renders top bar, table grid, sidebars, floating text)
 --
--- For the skeleton, this is a near-empty shell that activates the room
--- palette and renders RoomView. Game logic (table ticks, hand resolution,
--- catalog interactions) goes here.
+-- The controller is exposed on `game.grind` so other states (notably the
+-- shove-state's prestige flow) can call into it post-bust to invalidate
+-- effects after a `:resetRun()`.
 
-local Theme    = require("views.Theme")
-local RoomView = require("views.RoomView")
+local Theme           = require("views.Theme")
+local GrindView       = require("views.GrindView")
+local GrindController = require("controllers.GrindController")
 
 local GrindState = {}
 GrindState.__index = GrindState
 
 function GrindState:new(game)
-    return setmetatable({
+    local self = setmetatable({
         game = game,
-        view = RoomView:new(game),
     }, GrindState)
+    self.controller = GrindController:new(game)
+    self.view       = GrindView:new(game, self.controller)
+    return self
 end
 
 function GrindState:enter()
     Theme.setActive("room")
+    -- Rebuild the table pool from the current state — covers the case where
+    -- the run was reset via prestige while we were in the shove state. The
+    -- shove flow only mutates state directly; we rehydrate on re-enter.
+    self.controller.pool:rebuildFromState()
+    self.controller:invalidateEffects()
 end
 
 function GrindState:exit() end
 
 function GrindState:update(dt)
+    self.controller:update(dt)
     self.view:update(dt)
 end
 

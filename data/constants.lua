@@ -23,9 +23,12 @@ C.DEBUG = {
 }
 
 C.GAMEPLAY = {
-    INITIAL_BANKROLL = 100,         -- starting $ each run
-    INITIAL_PP       = 0,           -- meta currency starts at zero
-    SHOVE_RATE_CAP   = 0.90,        -- 90% per-shove ceiling (design doc §)
+    INITIAL_BANKROLL    = 100,         -- starting $ each run
+    INITIAL_PP          = 0,           -- meta currency starts at zero
+    SHOVE_RATE_CAP      = 0.90,        -- 90% per-shove ceiling (design doc §)
+    MAX_TABLES          = 6,           -- hard cap on concurrent tables
+    PP_AWARD_DIVISOR    = 50,          -- PP = floor(peak_bankroll / 50)
+    SHOVE_MIN_BANKROLL  = 5,           -- can't shove with effectively-zero bankroll
 }
 
 C.GAUNTLET = {

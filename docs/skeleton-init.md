@@ -180,14 +180,19 @@ JSON. The decoder coerces integer-ish string keys back to numbers (lifted from C
 | `views/Theme.lua` | CC | rewritten — separated dispatch from data |
 | `views/Scrollbar.lua` | CC | only require path changed |
 | `views/RoomView.lua` | — | fresh placeholder |
-| `views/ShoveView.lua` | — | fresh placeholder |
+| `views/ShoveView.lua` | — | fresh — built out fully during the shove prototype (timeline-driven reveal, dealer hole cards, best-5 highlighting) |
+| `views/ShoveDebugOverlay.lua` | — | fresh — added during shove prototype; live HUD over the shove screen for math verification |
 | `models/GameState.lua` | — | fresh |
+| `models/Card.lua` | — | fresh — built during shove prototype |
+| `models/Deck.lua` | — | fresh — built during shove prototype |
+| `models/Gauntlet.lua` | — | fresh — built during shove prototype (lives in models/, not services/, per the engine-agnostic rule) |
 | `states/GrindState.lua` | — | fresh |
-| `states/ShoveState.lua` | — | fresh |
+| `states/ShoveState.lua` | — | fresh — fleshed out during shove prototype (input routing, gauntlet ownership, debug-mutable shove_rate) |
 | `utils/format.lua` | — | fresh |
 | `utils/rng.lua` | — | fresh (pattern from CC TripGenerator) |
-| `utils/hand_eval.lua` | — | stub |
+| `utils/hand_eval.lua` | — | fresh — implemented during shove prototype (brute-force best-5-of-N + tuple-based rank comparison) |
 | `data/*.lua` | — | fresh |
+| `assets/audio/*.mp3` | 10K (sfx/games/memory + sfx/shared/default) | lifted during shove prototype |
 | `main.lua` | CC (structure) | rewritten for poker-idle scope |
 | `conf.lua` | — | fresh |
 | `.vscode/tasks.json` | CC | verbatim |
@@ -211,7 +216,7 @@ When the catalog UI gets built (post-shove-prototype), lift them then. Should be
 
 ## Stubs With Documented APIs
 
-- **`utils/hand_eval.lua`** — three functions stubbed (`rank`, `compare`, `bestFiveOfSeven`), each `error()`s on call so accidental use is loud. The shove prototype implements this first — `what-to-pull.md` flagged it as "build from scratch / pull a small Lua hold'em evaluator (~150 lines)."
+None remaining. `utils/hand_eval.lua` was implemented during the shove prototype — it now exposes `rank(cards)` (rank-tuple for any 5-card hand), `compare(a, b)` (-1/0/+1), `bestFiveOfN(cards)` (brute-force enumeration over up to 9 cards), and `categoryName` / `describe` helpers for player-readable labels.
 
 ---
 
@@ -231,28 +236,41 @@ Not yet verified (deferred to actual feature work):
 
 ---
 
+## What's Been Built Since (shove prototype)
+
+The shove prototype landed across five phases (commits on `main`):
+
+- **Phase A** — `models/Card`, `models/Deck`, full `utils/hand_eval` (brute-force best-5-of-N, all 9 categories, wheel-straight handling).
+- **Phase B** — `models/Gauntlet` (rolls outcomes, jointly rejection-samples cards) and `views/ShoveDebugOverlay` (live HUD with shove_rate, attempts, clear rate vs. expected, per-runout pass counts, hotkey legend).
+- **Phase C** — `views/ShoveView` rewritten to render cards (card sprites loaded by recursive scan in `services/SpriteLoader`).
+- **Phase D** — Cinematic timeline-driven reveal: dealer hole cards added (math now player-vs-dealer, not player-vs-board), NLHE flop-turn-river pacing, best-5 highlighting, SPACE-to-skip.
+- **Phase E** — File-based audio playback in `services/SoundService`, sounds wired through the gauntlet timeline (assets lifted from 10K's `sfx/games/memory` + `sfx/shared/default`).
+
+Notable architecture choices:
+- The original plan called for `services/GauntletOrchestrator.lua`. Per the engine-agnostic rule (services/ stays generic) it landed as `models/Gauntlet.lua` instead — Gauntlet is poker-specific stateful gameplay logic, which is a model.
+- `shove_rate` is the single tunable knob driving outcomes. Cards are constructed (not derived) to match rolled outcomes — see `models/Gauntlet.lua` math contract.
+
+Boot directly into shove with `Constants.DEBUG.START_IN_SHOVE = true` in `data/constants.lua`.
+
 ## Next Steps
 
-Per the MVP doc (`docs/mvp.md`) and the user's stated plan: build the **shove prototype** first.
+Per `docs/mvp.md`, the post-shove milestones in order:
 
-What's already wired and waiting for it:
-- `ShoveState` activates the `shove` palette on enter (sparse, high-contrast, dramatic).
-- `AnimationSystem.create("card_flip" / "card_bounce_in" / "shove_fade_in" / "pot_pulse")` — animation presets pre-registered.
-- `SoundService.playNamed("shove_initiated" / "runout_resolved" / "cheat_card_dealt" / "gauntlet_lost" / "gauntlet_won")` — sound names pre-registered.
-- `FloatingTextSystem.emit(text, x, y)` — for any per-runout payout/effect text.
-- `self.game.state.shove_rate` is wired through the EffectsRegistry; for now it's always 0 since no items are owned.
+1. **Catalog UI** — first time we'll need real chrome. This is when to lift `Panel` / `ComponentRenderer` / `Modal` from cosmic courier (deliberately skipped at skeleton init for being unused-stub code).
+2. **Grind tables** — `RoomView` flesh-out. Same `rng.chance(per_hand_win_rate)` primitive as the gauntlet drives hand resolution, but resolved instantly with `+/-$X` floating text instead of card animation.
+3. **Stake progression curve** — `data/stakes.lua` wiring + UI for stake selection.
+4. **Run upgrades** — bankroll-spend currency-vs-progression decisions.
+5. **Prestige loop** — wire gauntlet completion to bankroll reset + PP award + meta-save persistence.
+6. **Tone / polish** — audio replacement (current shove sounds are 10K placeholders), the mundane-job opener, ambient room sound.
 
-What the prototype needs to add:
-- `models/Card.lua` (suit + rank).
-- `models/Deck.lua` (shuffle, deal).
-- `utils/hand_eval.lua` implementation (replace the stub).
-- `services/GauntletOrchestrator.lua` (drives the 3 runouts + cheat reveal).
-- Real `views/ShoveView.lua` content (cinematic card layout).
-
-To boot directly into shove for iteration: set `Constants.DEBUG.START_IN_SHOVE = true` in `data/constants.lua`.
+Pre-existing tech debt to clean up before catalog work:
+- `services/EffectsRegistry.registerDefaults` registers poker-specific kind names (`shove_rate_add`, `vs_aggressive_mult`, etc.) inside `services/`. The registry mechanism stays in services/, but the registrations should move to a `models/` file (`models/poker_effects.lua` or as part of `GameState`) per the engine-agnostic rule.
 
 ---
 
 ## Where The Plan Lives
 
-`C:\Users\chate\.claude\plans\misty-sleeping-lampson.md` — the approved implementation plan with full context. Rules, conventions, file-by-file lift table, verification steps. Read it if you need to know *why* a decision was made.
+`C:\Users\chate\.claude\plans\misty-sleeping-lampson.md` — the original skeleton plan.
+`C:\Users\chate\.claude\plans\ok-now-what-do-compiled-wand.md` — the shove prototype plan.
+
+Going forward, this doc is a historical snapshot; current state lives in `git log` and the conventions are enforced by the four audit greps above.

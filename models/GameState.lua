@@ -27,14 +27,17 @@ GameState.REFS = {}         -- nothing yet — owned_items / run_upgrade_ids are
 function GameState:new(saved)
     local instance = setmetatable({}, GameState)
 
-    -- Meta-side defaults.
+    -- Meta-side defaults (persisted forever).
     instance.pp           = Constants.GAMEPLAY.INITIAL_PP
     instance.owned_items  = {}
+    instance.cleared      = false  -- true once the gauntlet is beaten — gates the credits screen on boot
 
-    -- Run-side defaults.
-    instance.bankroll        = Constants.GAMEPLAY.INITIAL_BANKROLL
-    instance.current_stake_id = "nl2"
-    instance.run_upgrade_ids = {}
+    -- Run-side defaults (wiped on prestige).
+    instance.bankroll          = Constants.GAMEPLAY.INITIAL_BANKROLL
+    instance.peak_bankroll     = Constants.GAMEPLAY.INITIAL_BANKROLL
+    instance.current_stake_id  = "nl2"
+    instance.run_upgrade_ids   = {}
+    instance.active_table_stakes = { "nl2" }  -- player starts with one nl2 table
 
     -- Transient stat cache, recomputed lazily.
     instance.effects_cache = nil
@@ -44,6 +47,18 @@ function GameState:new(saved)
     end
 
     return instance
+end
+
+-- Wipes run-side fields back to defaults. Called by the prestige flow after
+-- a gauntlet bust (PP already awarded + meta saved separately). Meta-side
+-- (pp, owned_items, cleared) is left untouched.
+function GameState:resetRun()
+    self.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
+    self.peak_bankroll       = Constants.GAMEPLAY.INITIAL_BANKROLL
+    self.current_stake_id    = "nl2"
+    self.run_upgrade_ids     = {}
+    self.active_table_stakes = { "nl2" }
+    self.effects_cache       = nil
 end
 
 -- Apply both meta and run payloads. Called from SaveService:loadAll wrapper
@@ -58,20 +73,24 @@ function GameState:applySaved(saved)
     self.effects_cache = nil
 end
 
--- Serialize meta-only (PP, owned items). For meta.save.
+-- Serialize meta-only (PP, owned items, cleared flag). For meta.save.
 function GameState:serializeMeta()
     return {
         pp          = self.pp,
         owned_items = self.owned_items,
+        cleared     = self.cleared,
     }
 end
 
--- Serialize run-only (bankroll, stake, upgrades). For run.save.
+-- Serialize run-only (bankroll, peak, stake, run upgrades, active tables).
+-- For run.save. Wiped on prestige by `clearRun()`.
 function GameState:serializeRun()
     return {
-        bankroll          = self.bankroll,
-        current_stake_id  = self.current_stake_id,
-        run_upgrade_ids   = self.run_upgrade_ids,
+        bankroll             = self.bankroll,
+        peak_bankroll        = self.peak_bankroll,
+        current_stake_id     = self.current_stake_id,
+        run_upgrade_ids      = self.run_upgrade_ids,
+        active_table_stakes  = self.active_table_stakes,
     }
 end
 

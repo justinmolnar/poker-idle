@@ -1,11 +1,13 @@
 -- data/effects.lua
 --
 -- The CANONICAL list of effect kinds. Documentation only — no logic.
--- Application functions live in services/EffectsRegistry.lua.
+-- Application functions live in models/poker_effects.lua (the registry
+-- mechanism itself lives in services/EffectsRegistry.lua but the
+-- poker-specific registrations are in the model layer).
 --
 -- Adding a new effect kind:
 --   1. Add an entry to this table with a short description and the value shape.
---   2. Add a single `:register(kind, fn)` call in EffectsRegistry's bootstrap.
+--   2. Add a single `:register(kind, fn)` call in models/poker_effects.lua.
 --   3. Use the kind in a catalog item, run upgrade, or anywhere that emits effects.
 --
 -- THERE IS NO if/elseif chain on `kind` strings ANYWHERE. If you find yourself
@@ -58,6 +60,15 @@ Effects.kinds = {
         description = "Multiplies the rate at which rep accumulates.",
         value_shape = "number, e.g. 0.85 for 15% slower decay",
         affects     = "ctx.rep_decay",
+    },
+
+    -- Additive integer table-slot bonus. Base is 1; each +1 from this kind
+    -- raises the cap on concurrent tables (clamped to MAX_TABLES = 6).
+    -- Catalog only — Second Monitor is the canonical source.
+    table_slots_add = {
+        description = "Adds extra concurrent table slots beyond the base of 1.",
+        value_shape = "integer, e.g. 1 for +1 slot",
+        affects     = "ctx.table_slots",
     },
 
 }

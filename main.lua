@@ -23,15 +23,19 @@ local SpriteLoader    = require("services.SpriteLoader")
 local AnimationSystem = require("services.AnimationSystem")
 local FloatingText    = require("services.FloatingTextSystem")
 local EffectsRegistry = require("services.EffectsRegistry")
+local FontService     = require("services.FontService")
+local HoverService    = require("services.HoverService")
 
 local Theme         = require("views.Theme")
+local ThemeData     = require("data.theme")
 
 local StateMachine    = require("controllers.StateMachine")
 local InputController = require("controllers.InputController")
 
-local GameState = require("models.GameState")
-local GrindState = require("states.GrindState")
-local ShoveState = require("states.ShoveState")
+local GameState    = require("models.GameState")
+local PokerEffects = require("models.poker_effects")
+local GrindState   = require("states.GrindState")
+local ShoveState   = require("states.ShoveState")
 
 local Game = nil
 local autosave_timer = 0
@@ -44,6 +48,7 @@ local function buildGame()
     }
 
     g.theme           = Theme
+    g.fonts           = FontService.build(ThemeData.font)
     g.event_bus       = EventBus
     g.time            = Time:new()
     g.camera          = Camera:new(0, 0, 1)
@@ -51,13 +56,14 @@ local function buildGame()
     g.sounds          = SoundService
     g.animations      = AnimationSystem
     g.floating_text   = FloatingText
+    g.hover           = HoverService
 
     g.save_service    = SaveService:new()
     local saved       = g.save_service:loadAll()
     g.state           = GameState:new(saved)
 
     g.effects = EffectsRegistry:new()
-    EffectsRegistry.registerDefaults(g.effects)
+    PokerEffects.registerAll(g.effects)
 
     g.state_machine = StateMachine:new(g)
     g.state_machine:register("grind", GrindState:new(g))
@@ -84,6 +90,11 @@ function love.load()
 end
 
 function love.update(dt)
+    -- Reset per-frame hover state before any hit-tests run. Things that own
+    -- hoverable regions (Panel:updateHover, ComponentRenderer.hitTest) write
+    -- to it during this update; draws read it after.
+    HoverService.clear()
+
     Game.time:update(dt)
     Game.state_machine:update(dt)
     Game.floating_text.update(dt)

@@ -12,15 +12,17 @@
 -- looks up the applicator function for each effect's kind and lets it
 -- mutate ctx.
 --
--- THE RULE: there is no `if kind == "shove_rate_add" then ... elseif ...`
+-- THE RULE: there is no `if kind == "..." then ... elseif kind == "..."`
 -- chain ANYWHERE in the codebase. If you find yourself writing one, you're
 -- doing it wrong. Register a function instead.
 --
 -- ── Registering ──────────────────────────────────────────────────────────
 --
--- The skeleton bootstrap calls `EffectsRegistry.registerDefaults(reg)` which
--- wires up every kind listed in data/effects.lua. Adding a new effect = one
--- entry in data/effects.lua + one .register() call here. Two-touch.
+-- The registry mechanism is engine-agnostic — it lives here in services/.
+-- Poker-specific kind registrations live in `models/poker_effects.lua` and
+-- are wired in `main.lua` via `PokerEffects.registerAll(reg)`. Two-touch:
+-- one entry in data/effects.lua (documentation) + one .register() call in
+-- models/poker_effects.lua.
 
 local EffectsRegistry = {}
 EffectsRegistry.__index = EffectsRegistry
@@ -54,34 +56,6 @@ end
 -- Returns true if an applicator is registered for this kind.
 function EffectsRegistry:has(kind)
     return self.fns[kind] ~= nil
-end
-
--- ── Default applicators ──────────────────────────────────────────────────
--- One function per kind. Each reads `effect.value` and mutates ctx.
--- Adding a new kind:
---   1. Document it in data/effects.lua.
---   2. Add a .register() line below.
-
-function EffectsRegistry.registerDefaults(reg)
-    reg:register("shove_rate_add", function(e, ctx)
-        ctx.shove_rate = (ctx.shove_rate or 0) + e.value
-    end)
-
-    reg:register("earnings_mult", function(e, ctx)
-        ctx.earnings_mult = (ctx.earnings_mult or 1) * e.value
-    end)
-
-    reg:register("hands_per_min_add", function(e, ctx)
-        ctx.hands_per_min = (ctx.hands_per_min or 0) + e.value
-    end)
-
-    reg:register("vs_aggressive_mult", function(e, ctx)
-        ctx.vs_aggressive = (ctx.vs_aggressive or 1) * e.value
-    end)
-
-    reg:register("rep_decay_slow", function(e, ctx)
-        ctx.rep_decay = (ctx.rep_decay or 1) * e.value
-    end)
 end
 
 return EffectsRegistry
