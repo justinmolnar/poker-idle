@@ -96,56 +96,69 @@ function ShoveView:onGauntletBegin()
         return function() self.chip_visible[i] = true end
     end
 
-    local function add(at, fn)
-        self.timeline[#self.timeline + 1] = { at = at, fire = fn }
+    -- Each timeline event has fire (state mutation, always run) and an
+    -- optional sound (skipped on fast-forward to avoid an audio flood).
+    local function add(at, fn, sound)
+        self.timeline[#self.timeline + 1] = { at = at, fire = fn, sound = sound }
+    end
+
+    -- Pick the right resolution sound for runout i: gauntlet-final win/loss
+    -- supersedes the per-runout chime so the moment lands.
+    local function chipSound(i)
+        local out = r.outcomes[i]
+        if out == false then return "gauntlet_lost" end       -- any bust ends the gauntlet
+        if i == 3   and out then return "gauntlet_won" end    -- full clear
+        return "runout_won"                                   -- R1/R2 win, more to come
     end
 
     local t = 0
 
+    -- Shove kickoff sound (deck shuffle) at t=0.
+    add(t, function() end, "shove_initiated")
+
     -- Deal four hole cards face-down (player first, then dealer, staggered).
-    add(t,        startAnim("ph_1", "card_deal_slide"))
-    add(t + 0.08, startAnim("ph_2", "card_deal_slide"))
-    add(t + 0.20, startAnim("dh_1", "card_deal_slide"))
-    add(t + 0.28, startAnim("dh_2", "card_deal_slide"))
+    add(t,        startAnim("ph_1", "card_deal_slide"), "card_dealt")
+    add(t + 0.08, startAnim("ph_2", "card_deal_slide"), "card_dealt")
+    add(t + 0.20, startAnim("dh_1", "card_deal_slide"), "card_dealt")
+    add(t + 0.28, startAnim("dh_2", "card_deal_slide"), "card_dealt")
     t = t + 0.65
 
-    -- Showdown — all four hole cards flip together. Single shared flip
-    -- animation; both _drawHoleCard helpers check it.
-    add(t, startAnim("hole_flip", "hole_card_flip"))
+    -- Showdown — all four hole cards flip together.
+    add(t, startAnim("hole_flip", "hole_card_flip"), "hole_card_flip")
     t = t + 0.55
 
     -- Flop: 3 cards in quick succession.
-    add(t,                startAnim("board_1", "card_deal_slide"))
-    add(t + DEAL_INTERVAL,        startAnim("board_2", "card_deal_slide"))
-    add(t + 2 * DEAL_INTERVAL,    startAnim("board_3", "card_deal_slide"))
+    add(t,                     startAnim("board_1", "card_deal_slide"), "card_dealt")
+    add(t + DEAL_INTERVAL,     startAnim("board_2", "card_deal_slide"), "card_dealt")
+    add(t + 2 * DEAL_INTERVAL, startAnim("board_3", "card_deal_slide"), "card_dealt")
     t = t + 2 * DEAL_INTERVAL + 0.40
 
-    -- Turn: pause, single card.
+    -- Turn.
     t = t + 0.50
-    add(t, startAnim("board_4", "card_deal_slide"))
+    add(t, startAnim("board_4", "card_deal_slide"), "card_dealt")
     t = t + 0.40
 
-    -- River: pause, single card.
+    -- River.
     t = t + 0.50
-    add(t, startAnim("board_5", "card_deal_slide"))
+    add(t, startAnim("board_5", "card_deal_slide"), "card_dealt")
     t = t + 0.45
 
     -- R1 resolution.
-    add(t, showChip(1))
+    add(t, showChip(1), chipSound(1))
 
     if r.outcomes[1] then
         t = t + RUNOUT_PAUSE + CHEAT_PAUSE
-        add(t, startAnim("board_6", "cheat_card_dealt"))
+        add(t, startAnim("board_6", "cheat_card_dealt"), "cheat_card_dealt")
         t = t + 0.75
 
-        add(t, showChip(2))
+        add(t, showChip(2), chipSound(2))
 
         if r.outcomes[2] then
             t = t + RUNOUT_PAUSE + CHEAT_PAUSE
-            add(t, startAnim("board_7", "cheat_card_dealt"))
+            add(t, startAnim("board_7", "cheat_card_dealt"), "cheat_card_dealt")
             t = t + 0.75
 
-            add(t, showChip(3))
+            add(t, showChip(3), chipSound(3))
         end
     end
 
@@ -167,6 +180,8 @@ end
 
 function ShoveView:skip()
     if not self.timeline then return end
+    -- Fire all remaining events but suppress sounds — otherwise mashing
+    -- SPACE during a multi-runout reveal triggers a stack of chimes.
     while self.next_event_idx <= #self.timeline do
         self.timeline[self.next_event_idx].fire()
         self.next_event_idx = self.next_event_idx + 1
@@ -185,6 +200,9 @@ function ShoveView:update(dt)
         local ev = self.timeline[self.next_event_idx]
         if self.elapsed >= ev.at then
             ev.fire()
+            if ev.sound then
+                self.game.sounds.playNamed(ev.sound)
+            end
             self.next_event_idx = self.next_event_idx + 1
         else
             break

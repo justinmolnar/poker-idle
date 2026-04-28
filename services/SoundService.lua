@@ -1,11 +1,17 @@
 -- services/SoundService.lua
--- Programmatic sound effects via PCM tone synthesis. No external audio files.
+-- Sound effects. Two backends:
+--   • PCM synth — built-in `kind`s (beep, chime, horn, warning, success, fail)
+--     synthesized once and cached. No external audio files.
+--   • File playback — load a sound file (.mp3, .wav, .ogg) once and clone the
+--     source per play so successive triggers don't cut each other off.
 --
 -- Two interaction modes:
---   • SoundService.play("beep", 0.5) — direct play of a built-in synth `kind`.
---   • SoundService.playNamed("hand_won") — looks up data/sounds.lua, which
---     maps a semantic name → { kind, volume }. This is the preferred path
---     for game code so call sites don't hardcode synthesis details.
+--   • SoundService.play("beep", 0.5)         — direct synth play.
+--   • SoundService.playFile("a/b.mp3", 0.7)  — direct file play.
+--   • SoundService.playNamed("shove_init")    — looks up data/sounds.lua,
+--     which maps a semantic name → { file=…, volume } OR { kind=…, volume }.
+--     This is the preferred path for game code so call sites don't hardcode
+--     synthesis details or asset paths.
 
 local SoundService = {}
 
@@ -13,8 +19,9 @@ local Sounds = require("data.sounds")
 
 -- ── State ────────────────────────────────────────────────────────────────────
 
-local _sources = {}   -- { [kind] = love.audio.Source }
-local _master  = 1.0  -- master volume 0–1
+local _sources      = {}   -- { [kind] = love.audio.Source }   for synth
+local _file_sources = {}   -- { [path] = love.audio.Source }   prototype/cloned per play
+local _master       = 1.0  -- master volume 0–1
 
 -- ── Tone generators ──────────────────────────────────────────────────────────
 
@@ -99,16 +106,41 @@ function SoundService.play(kind, volume_mult)
     src:play()
 end
 
--- Look up a semantic name in data/sounds.lua and play it. This is what game
--- code should call: `SoundService.playNamed("hand_won")`.
+-- Play a file-based sound. The base source is cached by path; each play
+-- clones it so overlapping triggers (e.g. successive card-deal beats) don't
+-- cut each other off. Cheap — clone reuses the same SoundData.
+function SoundService.playFile(path, volume_mult)
+    if not path then return end
+    local base = _file_sources[path]
+    if not base then
+        local ok, src = pcall(love.audio.newSource, path, "static")
+        if not ok or not src then return end
+        _file_sources[path] = src
+        base = src
+    end
+    local s = base:clone()
+    s:setVolume(math.max(0, math.min(1, (volume_mult or 1.0) * _master)))
+    s:play()
+end
+
+-- Look up a semantic name in data/sounds.lua and play it. The entry can
+-- specify either `file` (real audio asset) or `kind` (built-in synth).
+-- File takes precedence when both are present.
 function SoundService.playNamed(name)
     local def = Sounds[name]
     if not def then return end
-    SoundService.play(def.kind, def.volume)
+    if def.file then
+        SoundService.playFile(def.file, def.volume)
+    elseif def.kind then
+        SoundService.play(def.kind, def.volume)
+    end
 end
 
 function SoundService.stopAll()
     for _, src in pairs(_sources) do
+        if src:isPlaying() then src:stop() end
+    end
+    for _, src in pairs(_file_sources) do
         if src:isPlaying() then src:stop() end
     end
 end
