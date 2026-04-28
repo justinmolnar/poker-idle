@@ -62,11 +62,15 @@ end
 
 function ShoveState:keypressed(key)
     if key == "space" then
-        -- Begin a new gauntlet. If one is already finished, replace it.
-        if not self.gauntlet or self.gauntlet.state == "finished" then
+        -- Three-way: skip animation if mid-reveal; otherwise begin a fresh
+        -- gauntlet (replacing any finished previous one).
+        if self.view:isAnimating() then
+            self.view:skip()
+        elseif not self.gauntlet or self.gauntlet.state == "finished" then
             self.gauntlet = Gauntlet:new(self.game, self.shove_rate)
             local result = self.gauntlet:begin()
             self.overlay:recordAttempt(result)
+            self.view:onGauntletBegin()
 
             -- Console echo for hand-verification. The HUD has the live
             -- aggregate; this dump is the copy-pasteable record per attempt.
@@ -83,6 +87,7 @@ function ShoveState:keypressed(key)
             print("[shove] stats cleared")
         else
             self.gauntlet = nil
+            self.view:resetTimeline()
             print("[shove] gauntlet reset (press SPACE to deal a new one)")
         end
 

@@ -54,4 +54,33 @@ return {
         height   = 6,
     },
 
+    -- ── Shove cinematic ─────────────────────────────────────────────
+    -- Per-card reveal as cards land on the felt. card_deal_slide is the
+    -- normal pace for the flop / turn / river. cheat_card_dealt is the
+    -- slow, weighty pace used for the 6th and 7th board cards — the
+    -- dealer's cheat. The duration delta IS the visual emphasis.
+    card_deal_slide = {
+        type     = "fade",
+        duration = 0.25,
+        from     = 0,
+        to       = 1,
+    },
+
+    cheat_card_dealt = {
+        type     = "fade",
+        duration = 0.7,
+        from     = 0,
+        to       = 1,
+    },
+
+    -- Hole-card face-down → face-up. Progress-curve drives a horizontal
+    -- scale flip (1 → 0 → 1) with the texture swap happening at the
+    -- midpoint (progress = 0.5) when the card is edge-on.
+    hole_card_flip = {
+        type      = "progress",
+        duration  = 0.5,
+        direction = 1,
+        initial   = 0,
+    },
+
 }
