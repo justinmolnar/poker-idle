@@ -1,0 +1,18 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+
+# LÖVE build artifacts
+*.love
+
+# Logs / crash dumps
+crash.log
+*.log
+*.stackdump
