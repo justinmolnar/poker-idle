@@ -37,7 +37,13 @@ function GameState:new(saved)
     instance.peak_bankroll       = Constants.GAMEPLAY.INITIAL_BANKROLL
     instance.current_stake_id    = "s001"
     instance.run_upgrade_ids     = {}
-    instance.active_table_stakes = { "s001" }   -- player starts with one $0.01/$0.02 table
+    -- active_table_specs: list of composite "<stake_id>:<game_type_id>"
+    -- strings — one per active table. INITIAL_ACTIVE_TABLES = 0 by
+    -- default (player buys their first table for the buy-in).
+    instance.active_table_specs = {}
+    for _ = 1, Constants.GAMEPLAY.INITIAL_ACTIVE_TABLES do
+        instance.active_table_specs[#instance.active_table_specs + 1] = "s001:six_max"
+    end
     instance.stakes_won_this_run = {}           -- set keyed by stake_id; locks in PP bounties per run
     instance.pp_this_run         = 0            -- running counter for the prestige modal display
 
@@ -59,7 +65,10 @@ function GameState:resetRun()
     self.peak_bankroll       = Constants.GAMEPLAY.INITIAL_BANKROLL
     self.current_stake_id    = "s001"
     self.run_upgrade_ids     = {}
-    self.active_table_stakes = { "s001" }
+    self.active_table_specs = {}
+    for _ = 1, Constants.GAMEPLAY.INITIAL_ACTIVE_TABLES do
+        self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"
+    end
     self.stakes_won_this_run = {}
     self.pp_this_run         = 0
     self.effects_cache       = nil
@@ -105,7 +114,7 @@ function GameState:serializeRun()
         peak_bankroll        = self.peak_bankroll,
         current_stake_id     = self.current_stake_id,
         run_upgrade_ids      = self.run_upgrade_ids,
-        active_table_stakes  = self.active_table_stakes,
+        active_table_specs   = self.active_table_specs,
         stakes_won_this_run  = self.stakes_won_this_run,
         pp_this_run          = self.pp_this_run,
     }

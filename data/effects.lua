@@ -79,13 +79,23 @@ Effects.kinds = {
         affects     = "ctx.rep_decay",
     },
 
-    -- Additive integer table-slot bonus. Base is 1; each +1 from this kind
-    -- raises the cap on concurrent tables (clamped to MAX_TABLES = 6).
-    -- Catalog only — Second Monitor is the canonical source.
-    table_slots_add = {
-        description = "Adds extra concurrent table slots beyond the base of 1.",
-        value_shape = "integer, e.g. 1 for +1 slot",
-        affects     = "ctx.table_slots",
+    -- Focus capacity — how many tables the player can run before the
+    -- per-hand focus_mult starts shaving the $ delta down. Default base
+    -- is FOCUS_BASE_CAPACITY (4). Upgrades stack additively. Catalog +
+    -- run-upgrade items both target this kind.
+    focus_capacity_add = {
+        description = "Raises focus capacity (tables you can run before the focus penalty kicks in).",
+        value_shape = "integer, e.g. 1 for +1 capacity",
+        affects     = "ctx.focus_capacity",
+    },
+
+    -- Reduces the per-extra-table focus penalty multiplicatively. Effective
+    -- penalty = FOCUS_BASE_PENALTY * ctx.focus_penalty_reduce_mult. Lower
+    -- values = softer penalty curve = larger viable multi-tabling.
+    focus_penalty_reduce_mult = {
+        description = "Multiplies the focus penalty per extra table (lower = softer curve).",
+        value_shape = "number <1, e.g. 0.85 for 15% softer penalty",
+        affects     = "ctx.focus_penalty_reduce_mult",
     },
 
 }

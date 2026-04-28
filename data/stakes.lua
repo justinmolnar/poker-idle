@@ -11,7 +11,7 @@
 --     sb              = number ($),
 --     bb              = number ($),
 --     buy_in          = number ($)       -- 100bb, the cash you need to sit
---     unlock_bankroll = number ($)       -- gate to make this tier addable
+--     unlock_bankroll = retired — buy_in (100bb) is the only gate. If you can sit, you can play.
 --     pp_award        = integer          -- one-time per-run PP bounty for first win at this stake
 --
 --     -- Distributions for the new opponent-driven win-rate model:
@@ -33,7 +33,6 @@ return {
         sb              = 0.01,
         bb              = 0.02,
         buy_in          = 2.00,
-        unlock_bankroll = 0,
         pp_award        = 1,
         skill_distribution     = { rec = 0.70, reg = 0.20, grind = 0.08, pro = 0.02 },
         playstyle_distribution = { fish = 0.55, tag = 0.20, lag = 0.10, nit = 0.15 },
@@ -50,7 +49,6 @@ return {
         sb              = 0.02,
         bb              = 0.05,
         buy_in          = 5.00,
-        unlock_bankroll = 5,
         pp_award        = 2,
         skill_distribution     = { rec = 0.55, reg = 0.30, grind = 0.12, pro = 0.03 },
         playstyle_distribution = { fish = 0.45, tag = 0.28, lag = 0.10, nit = 0.17 },
@@ -67,7 +65,6 @@ return {
         sb              = 0.05,
         bb              = 0.10,
         buy_in          = 10.00,
-        unlock_bankroll = 15,
         pp_award        = 3,
         skill_distribution     = { rec = 0.40, reg = 0.35, grind = 0.20, pro = 0.05 },
         playstyle_distribution = { fish = 0.35, tag = 0.35, lag = 0.12, nit = 0.18 },
@@ -84,7 +81,6 @@ return {
         sb              = 0.10,
         bb              = 0.25,
         buy_in          = 25.00,
-        unlock_bankroll = 40,
         pp_award        = 4,
         skill_distribution     = { rec = 0.25, reg = 0.35, grind = 0.30, pro = 0.10 },
         playstyle_distribution = { fish = 0.28, tag = 0.40, lag = 0.14, nit = 0.18 },
@@ -101,7 +97,6 @@ return {
         sb              = 0.25,
         bb              = 0.50,
         buy_in          = 50.00,
-        unlock_bankroll = 100,
         pp_award        = 5,
         skill_distribution     = { rec = 0.15, reg = 0.30, grind = 0.40, pro = 0.15 },
         playstyle_distribution = { fish = 0.22, tag = 0.45, lag = 0.15, nit = 0.18 },
@@ -118,7 +113,6 @@ return {
         sb              = 0.50,
         bb              = 1.00,
         buy_in          = 100.00,
-        unlock_bankroll = 250,
         pp_award        = 6,
         skill_distribution     = { rec = 0.08, reg = 0.22, grind = 0.50, pro = 0.20 },
         playstyle_distribution = { fish = 0.18, tag = 0.50, lag = 0.15, nit = 0.17 },

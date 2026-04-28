@@ -23,11 +23,21 @@ C.DEBUG = {
 }
 
 C.GAMEPLAY = {
-    INITIAL_BANKROLL   = 2,           -- starting $ each run (just barely covers a $0.01/$0.02 buy-in)
-    INITIAL_PP         = 0,           -- meta currency starts at zero
-    SHOVE_RATE_CAP     = 0.90,        -- 90% per-shove ceiling (design doc §)
-    MAX_TABLES         = 6,           -- hard cap on concurrent tables
-    SHOVE_MIN_BANKROLL = 0.50,        -- can't shove with effectively-zero bankroll
+    INITIAL_BANKROLL       = 2,        -- starting $ each run (just barely covers a $0.01/$0.02 buy-in)
+    INITIAL_PP             = 0,        -- meta currency starts at zero
+    INITIAL_ACTIVE_TABLES  = 0,        -- fresh save / resetRun: no tables opened. Player buys first for the buy-in ($2 at $0.01/$0.02).
+    SHOVE_RATE_CAP         = 0.90,     -- 90% per-shove ceiling (design doc §)
+    MAX_TABLES             = 32,       -- hard cap on concurrent tables (visual / sanity bound)
+    SHOVE_MIN_BANKROLL     = 0.50,     -- can't shove with effectively-zero bankroll
+
+    -- Focus / efficiency mechanic. Multi-tabling beyond your capacity scales
+    -- the per-hand $ delta down — split attention costs you value. Upgrades
+    -- raise the capacity (focus_capacity_add) and / or reduce the per-extra
+    -- penalty (focus_penalty_reduce_mult) so larger multi-tabling becomes
+    -- viable as the player progresses.
+    FOCUS_BASE_CAPACITY    = 4,        -- below this many tables, no penalty
+    FOCUS_BASE_PENALTY     = 0.05,     -- per extra table over capacity
+    FOCUS_FLOOR            = 0.05,     -- floor on focus_mult; running too many is actively bad
     -- PP_AWARD_DIVISOR removed — PP comes from per-stake first-win bounties,
     -- not from a peak-bankroll formula on bust.
 }

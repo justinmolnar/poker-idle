@@ -20,6 +20,7 @@
 local Theme       = require("views.Theme")
 local Constants   = require("data.constants")
 local Stakes      = require("data.stakes")
+local OpTypes     = require("data.opponent_types")
 
 local TablePanel = {}
 
@@ -40,7 +41,7 @@ local COMM_CARD_H     = 38
 local PLAYER_CARD_W   = 36
 local PLAYER_CARD_H   = 50
 
-local OPP_COUNT = 5
+-- Opponent count comes from the table's game type now (`#tbl.opponents`).
 
 -- ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -50,14 +51,20 @@ local function findStake(id)
     end
 end
 
-local function nextStakeUnlocked(current_id, bankroll)
+-- Returns (next_stake, diff_cost, affordable). next_stake is nil if there
+-- is no next tier. The only gate is the buy-in difference — having 100bb
+-- of the new stake's bb is the entry. The button is rendered (greyed)
+-- when not affordable so the player can see what's coming up next.
+local function nextStakeInfo(current_id, bankroll)
+    local current
     local found = false
     for _, s in ipairs(Stakes) do
         if found then
-            if bankroll >= s.unlock_bankroll then return s end
-            return nil
+            local diff = (s.buy_in or 0) - ((current and current.buy_in) or 0)
+            local affordable = bankroll >= diff
+            return s, diff, affordable
         end
-        if s.id == current_id then found = true end
+        if s.id == current_id then found = true; current = s end
     end
     return nil
 end
@@ -119,7 +126,11 @@ end
 -- ─── Sub-panels ──────────────────────────────────────────────────────
 
 local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove)
-    local stake_disp = (tbl:liveStats() or {}).stake_display or "?"
+    local stats = tbl:liveStats() or {}
+    local header_text = stats.stake_display or "?"
+    if stats.game_type_short and stats.game_type_short ~= "" then
+        header_text = header_text .. " · " .. stats.game_type_short
+    end
     Theme.setColor(Theme.bg.chrome)
     love.graphics.rectangle("fill", x, y, w, HEADER_H, Theme.space.radius)
     Theme.setColor(Theme.border.default)
@@ -127,7 +138,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove)
 
     love.graphics.setFont(fonts.ui_small)
     Theme.setColor(Theme.fg.heading)
-    love.graphics.print(stake_disp, x + 8, y + 5)
+    love.graphics.print(header_text, x + 8, y + 5)
 
     -- Hands played (right-aligned, before [x]).
     Theme.setColor(Theme.fg.muted)
@@ -155,19 +166,33 @@ end
 local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts)
     if not opp then return end
 
+    -- Name (always shown).
     Theme.setColor(Theme.fg.primary, 0.85)
     love.graphics.setFont(fonts.ui_small)
     local name = opp.name or "?"
-    -- Truncate by glyph budget (cheap — assume monospace-ish).
     if #name > 8 then name = name:sub(1, 7) .. "…" end
     love.graphics.printf(name, x, y, w, "center")
 
+    -- Tag line — reveals accumulate at showdown. Each hand against an
+    -- opponent has a 50% chance to flip ONE unrevealed attribute. Until
+    -- revealed, the slot reads "?". The line is hidden entirely if
+    -- nothing's revealed yet — keeps fresh seats clean.
+    if opp.revealed_skill or opp.revealed_style then
+        local skill_data = OpTypes.skills[opp.skill]     or {}
+        local style_data = OpTypes.playstyles[opp.style] or {}
+        local sk = opp.revealed_skill and (skill_data.short or "?") or "?"
+        local st = opp.revealed_style and (style_data.name  or "?") or "?"
+        Theme.setColor(Theme.fg.muted, 0.85)
+        love.graphics.printf(sk .. " · " .. st, x, y + 11, w, "center")
+    end
+
     -- Two face-down cards (or face-up if showdown and this is the revealed opp).
-    local cards_y = y + 12
+    -- Pushed down to make room for the tag line above.
+    local cards_y  = y + 22
     local card_gap = 3
-    local cards_w = OPP_CARD_W * 2 + card_gap
-    local cards_x = x + math.floor((w - cards_w) / 2)
-    local face_up = opponentFaceUp(tbl.state) and tbl.opponent_idx == opp_idx
+    local cards_w  = OPP_CARD_W * 2 + card_gap
+    local cards_x  = x + math.floor((w - cards_w) / 2)
+    local face_up  = opponentFaceUp(tbl.state) and tbl.opponent_idx == opp_idx
     if face_up and tbl.opponent_hole then
         drawCardFront(sl, tbl.opponent_hole[1], cards_x, cards_y, OPP_CARD_W, OPP_CARD_H, 1)
         drawCardFront(sl, tbl.opponent_hole[2], cards_x + OPP_CARD_W + card_gap, cards_y, OPP_CARD_W, OPP_CARD_H, 1)
@@ -175,48 +200,46 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts)
         drawCardBack(sl, cards_x, cards_y, OPP_CARD_W, OPP_CARD_H, 1)
         drawCardBack(sl, cards_x + OPP_CARD_W + card_gap, cards_y, OPP_CARD_W, OPP_CARD_H, 1)
     end
-
-    -- Stack ($) below cards.
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.setFont(fonts.ui_small)
-    love.graphics.printf(moneyText(opp.stack), x, cards_y + OPP_CARD_H + 1, w, "center")
+    -- Opponent stacks were rendered here previously — dropped to make
+    -- room for the reveal tag line above. Stacks weren't load-bearing
+    -- info at multi-tabling scale; the felt's pot label is what matters.
 end
 
-local function drawCommunity(tbl, felt_x, felt_y, felt_w, sl)
+local function drawCommunity(tbl, felt_x, row_y, felt_w, sl, card_w, card_h)
+    card_w = card_w or COMM_CARD_W
+    card_h = card_h or COMM_CARD_H
     local count = communityCardCount(tbl.state)
-    local total_w = COMM_CARD_W * 5 + 4 * 4
+    local total_w = card_w * 5 + 4 * 4
     local row_x = felt_x + math.floor((felt_w - total_w) / 2)
-    local row_y = felt_y + 56
 
     for i = 1, 5 do
-        local cx = row_x + (i - 1) * (COMM_CARD_W + 4)
+        local cx = row_x + (i - 1) * (card_w + 4)
         if i <= count and tbl.community and tbl.community[i] then
-            drawCardFront(sl, tbl.community[i], cx, row_y, COMM_CARD_W, COMM_CARD_H, 1)
+            drawCardFront(sl, tbl.community[i], cx, row_y, card_w, card_h, 1)
         else
-            drawCardSlot(cx, row_y, COMM_CARD_W, COMM_CARD_H)
+            drawCardSlot(cx, row_y, card_w, card_h)
         end
     end
 end
 
-local function drawPotLabel(tbl, felt_x, felt_y, felt_w, fonts)
-    -- Show the pending pot value during dealing → showdown phases.
+local function drawPotLabel(tbl, felt_x, label_y, felt_w, fonts)
     if tbl.state == "idle" then return end
     local pot
     if tbl.outcome_delta and tbl.outcome_won ~= nil then
         if tbl.outcome_won then
-            pot = tbl.outcome_delta              -- player wins this much
+            pot = tbl.outcome_delta
         else
-            pot = -tbl.outcome_delta * 2         -- approx pot when losing (player's risk doubled)
+            pot = -tbl.outcome_delta * 2
         end
     else
         pot = 0
     end
     Theme.setColor(Theme.fg.muted)
     love.graphics.setFont(fonts.ui_small)
-    love.graphics.printf("Pot: " .. moneyText(pot), felt_x, felt_y + 42, felt_w, "center")
+    love.graphics.printf("Pot: " .. moneyText(pot), felt_x, label_y, felt_w, "center")
 end
 
-local function drawPlayerSeat(tbl, x, y, w, sl, fonts, bankroll)
+local function drawPlayerSeat(tbl, x, y, w, sl, fonts)
     -- Hole cards centered.
     local cards_w = PLAYER_CARD_W * 2 + 4
     local cards_x = x + math.floor((w - cards_w) / 2)
@@ -230,49 +253,62 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, bankroll)
         drawCardSlot(cards_x + PLAYER_CARD_W + 4, cards_y, PLAYER_CARD_W, PLAYER_CARD_H, 1)
     end
 
-    -- Label below cards: YOU + bankroll.
+    -- Label below cards: YOU + this table's stack (the chips at *this*
+    -- felt). Wins/losses move the stack; cashing out refunds it. Bankroll
+    -- is the off-table reading on the top bar.
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.ui_small)
-    love.graphics.printf("YOU  " .. moneyText(bankroll),
+    love.graphics.printf("YOU  " .. moneyText(tbl.stack or 0),
         x, cards_y + PLAYER_CARD_H + 2, w, "center")
 end
 
 local function drawDealOverlay(x, y, w, h, fonts, hit_boxes, idx)
-    -- Translucent bar across the felt with "DEAL" centered, hit-targeted.
-    local bx = x + math.floor((w - DEAL_BTN_W) / 2)
-    local by = y + math.floor((h - DEAL_BTN_H) / 2)
+    -- Translucent button across the felt with "DEAL" centered. Sizes clamp
+    -- to the available cell so the button stays clickable at tiny cells.
+    local btn_w = math.min(DEAL_BTN_W, w - 16)
+    local btn_h = math.min(DEAL_BTN_H, h - 8)
+    if btn_w < 40 then btn_w = math.max(20, w - 4) end
+    if btn_h < 18 then btn_h = math.max(14, h - 4) end
+    local bx = x + math.floor((w - btn_w) / 2)
+    local by = y + math.floor((h - btn_h) / 2)
     Theme.setColor(Theme.status.good, 0.85)
-    love.graphics.rectangle("fill", bx, by, DEAL_BTN_W, DEAL_BTN_H, Theme.space.radius)
+    love.graphics.rectangle("fill", bx, by, btn_w, btn_h, Theme.space.radius)
     Theme.setColor(Theme.fg.heading, 0.95)
     love.graphics.setLineWidth(Theme.space.line_strong)
-    love.graphics.rectangle("line", bx, by, DEAL_BTN_W, DEAL_BTN_H, Theme.space.radius)
+    love.graphics.rectangle("line", bx, by, btn_w, btn_h, Theme.space.radius)
     love.graphics.setLineWidth(1)
     Theme.setColor(Theme.bg.window)
-    love.graphics.setFont(fonts.heading)
-    love.graphics.printf("DEAL", bx, by + 9, DEAL_BTN_W, "center")
+    -- Pick a font that fits — heading on full-size buttons, ui_small on
+    -- the tiny ones so "DEAL" doesn't clip.
+    local font = (btn_h >= 28) and fonts.heading or fonts.ui_small
+    love.graphics.setFont(font)
+    local text_y = by + math.floor((btn_h - font:getHeight()) / 2)
+    love.graphics.printf("DEAL", bx, text_y, btn_w, "center")
     hit_boxes[#hit_boxes + 1] = {
-        x = bx, y = by, w = DEAL_BTN_W, h = DEAL_BTN_H,
+        x = bx, y = by, w = btn_w, h = btn_h,
         action = "deal", idx = idx,
     }
 end
 
-local function drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx, next_stake)
+local function drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx, next_stake, diff, affordable)
     if not next_stake then return end
     local bw = felt_w - 2 * STAKE_UP_PAD
     local bx = felt_x + STAKE_UP_PAD
     local by = felt_y + felt_h - STAKE_UP_H - STAKE_UP_PAD
-    Theme.setColor(Theme.bg.widget_hover, 0.85)
+    Theme.setColor(affordable and Theme.bg.widget_hover or Theme.bg.sunken, 0.85)
     love.graphics.rectangle("fill", bx, by, bw, STAKE_UP_H, Theme.space.radius)
-    Theme.setColor(Theme.border.strong)
+    Theme.setColor(affordable and Theme.border.strong or Theme.border.soft)
     love.graphics.rectangle("line", bx, by, bw, STAKE_UP_H, Theme.space.radius)
-    Theme.setColor(Theme.fg.heading)
+    Theme.setColor(affordable and Theme.fg.heading or Theme.fg.disabled)
     love.graphics.setFont(fonts.ui_small)
-    love.graphics.printf("UP -> " .. next_stake.display_name,
-        bx, by + 4, bw, "center")
-    hit_boxes[#hit_boxes + 1] = {
-        x = bx, y = by, w = bw, h = STAKE_UP_H,
-        action = "stake_up", idx = idx, next_stake_id = next_stake.id,
-    }
+    local label = string.format("UP -> %s  (+$%.2f)", next_stake.display_name, diff or 0)
+    love.graphics.printf(label, bx, by + 4, bw, "center")
+    if affordable then
+        hit_boxes[#hit_boxes + 1] = {
+            x = bx, y = by, w = bw, h = STAKE_UP_H,
+            action = "stake_up", idx = idx, next_stake_id = next_stake.id,
+        }
+    end
 end
 
 -- ─── Public API ──────────────────────────────────────────────────────
@@ -298,9 +334,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     Theme.setColor(Theme.border.default)
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
 
-    -- Header.
-    local can_remove = controller and controller.pool and (controller.pool:count() > 1) or false
-    drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove)
+    -- Header. Removing always allowed now that buy-ins are refundable —
+    -- the previous "keep at least one table" gate was a leftover from
+    -- before cost-to-open and trapped the player's bankroll.
+    drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, true)
 
     -- Felt area.
     local felt_x = x + FELT_INSET
@@ -312,33 +349,72 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     Theme.setColor(Theme.border.soft)
     love.graphics.rectangle("line", felt_x, felt_y, felt_w, felt_h, Theme.space.radius)
 
-    -- Opponents row across the top of the felt.
-    local opp_row_y = felt_y + 4
-    local opp_w    = math.floor(felt_w / OPP_COUNT)
-    for i = 1, OPP_COUNT do
-        local opp = tbl.opponents and tbl.opponents[i]
-        local ox  = felt_x + (i - 1) * opp_w
-        drawOpponentSeat(opp, i, tbl, ox, opp_row_y, opp_w, 50, sl, fonts)
+    -- Layout degradation thresholds. Small cells (high table count) drop
+    -- elements progressively so the panel stays readable.
+    local skip_opponents    = h < 170
+    local skip_player_cards = h < 120
+    local mini              = h < 90    -- only header + DEAL + pot label
+
+    -- Resolve y offsets for each section based on which are present.
+    local content_top   = skip_opponents and (felt_y + 4) or (felt_y + 56)
+    local comm_card_w   = mini and 14 or COMM_CARD_W
+    local comm_card_h   = mini and 20 or COMM_CARD_H
+    local pot_y         = content_top - 14
+    local comm_y        = content_top
+
+    -- Opponents row across the top of the felt (full mode only). Count
+    -- comes from the table's actual opponent list, which the model fills
+    -- based on game_type.seats — 1 (HU), 5 (6-max / Zoom), 8 (9-max).
+    if not skip_opponents then
+        local opp_row_y = felt_y + 4
+        local n_opps    = #tbl.opponents
+        if n_opps > 0 then
+            -- HU: single seat centered, capped width so it doesn't sprawl
+            -- across the whole felt. Other game types: even-distribute.
+            if n_opps == 1 then
+                local seat_w = math.min(felt_w, 100)
+                local ox     = felt_x + math.floor((felt_w - seat_w) / 2)
+                drawOpponentSeat(tbl.opponents[1], 1, tbl, ox, opp_row_y, seat_w, 50, sl, fonts)
+            else
+                local opp_w = math.floor(felt_w / n_opps)
+                for i = 1, n_opps do
+                    local ox = felt_x + (i - 1) * opp_w
+                    drawOpponentSeat(tbl.opponents[i], i, tbl, ox, opp_row_y, opp_w, 50, sl, fonts)
+                end
+            end
+        end
     end
 
-    -- Pot label + community.
-    drawPotLabel(tbl, felt_x, felt_y, felt_w, fonts)
-    drawCommunity(tbl, felt_x, felt_y, felt_w, sl)
+    -- Pot label + community cards.
+    drawPotLabel(tbl, felt_x, pot_y, felt_w, fonts)
+    drawCommunity(tbl, felt_x, comm_y, felt_w, sl, comm_card_w, comm_card_h)
 
     -- Player seat at bottom.
-    local player_y = felt_y + felt_h - PLAYER_CARD_H - 18
-    drawPlayerSeat(tbl, felt_x, player_y, felt_w, sl, fonts, state.bankroll)
+    if not skip_player_cards then
+        local player_y = felt_y + felt_h - PLAYER_CARD_H - 18
+        drawPlayerSeat(tbl, felt_x, player_y, felt_w, sl, fonts)
+    elseif not mini then
+        -- Compact mode: no hole-card sprites, just a YOU $X.XX text strip
+        -- (stack on this table, not global bankroll).
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.setFont(fonts.ui_small)
+        love.graphics.printf("YOU  " .. moneyText(tbl.stack or 0),
+            felt_x, felt_y + felt_h - 16, felt_w, "center")
+    end
 
-    -- DEAL overlay (only when idle).
+    -- DEAL overlay (only when idle). The overlay area shrinks alongside
+    -- the felt so the button stays clickable even at tiny cell sizes.
     if tbl.state == "idle" then
         drawDealOverlay(felt_x, felt_y, felt_w, felt_h - STAKE_UP_H - STAKE_UP_PAD,
             fonts, hit_boxes, idx)
     end
 
-    -- Stake-up button (only if next stake exists + affordable AND table is idle).
-    if tbl.state == "idle" then
-        local next_s = nextStakeUnlocked(tbl.stake_id, state.bankroll)
-        drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx, next_s)
+    -- Stake-up button (only if next tier exists at all AND table is idle).
+    -- Renders greyed when the player can't afford the diff so they can
+    -- see what's coming next.
+    if tbl.state == "idle" and not mini then
+        local next_s, diff, affordable = nextStakeInfo(tbl.stake_id, state.bankroll)
+        drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx, next_s, diff, affordable)
     end
 end
 

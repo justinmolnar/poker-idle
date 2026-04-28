@@ -21,6 +21,12 @@ function Opponent:new(skill, style, name, stack)
         style = style,
         name  = name  or "Unnamed",
         stack = stack or 0,
+        -- Discovery flags. Players don't see opponent skill/style at the
+        -- jump — Table:update flips one at a time on showdown so reads
+        -- accumulate over hands. Zoom resets these per hand (rerolling
+        -- opponents) so its pool is genuinely unreadable.
+        revealed_skill = false,
+        revealed_style = false,
     }, Opponent)
 end
 

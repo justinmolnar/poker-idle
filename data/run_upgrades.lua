@@ -42,6 +42,20 @@ return {
         effects     = { { kind = "earnings_mult", value = 1.10 } },
     },
     {
+        id          = "focus_drink",
+        name        = "Focus Drink",
+        description = "+2 focus capacity (this run)",
+        cost        = 1.00,
+        effects     = { { kind = "focus_capacity_add", value = 2 } },
+    },
+    {
+        id          = "single_session",
+        name        = "Single Session",
+        description = "-10% focus penalty per extra table (this run)",
+        cost        = 2.50,
+        effects     = { { kind = "focus_penalty_reduce_mult", value = 0.90 } },
+    },
+    {
         id          = "concentration",
         name        = "Concentration",
         description = "+5% vs TAG opponents",

@@ -20,6 +20,7 @@ local Panel       = require("views.Panel")
 local CR          = require("views.ComponentRenderer")
 local TablePanel  = require("views.TablePanel")
 local Stakes      = require("data.stakes")
+local GameTypes   = require("data.game_types")
 local RunUpgrades = require("data.run_upgrades")
 local Catalog     = require("data.catalog")
 local Constants   = require("data.constants")
@@ -46,6 +47,7 @@ function GrindView:new(game, controller)
         game       = game,
         controller = controller,
         hit_boxes  = {},   -- per-frame click targets for non-Panel UI (table buttons, SHOVE)
+        selected_gtype = "six_max",  -- which game-type sub-tab is showing in the Tables tab
     }, GrindView)
 
     self:_buildPanels()
@@ -82,6 +84,53 @@ end
 
 -- ─── Panel content builders (called every frame by Panel:draw) ────────────
 
+-- Game-type sub-tab strip — 4 horizontal buttons at the top of the Tables
+-- tab. Selecting one swaps which set of stake-add buttons render below.
+-- Built as a `custom` ComponentRenderer entry so the row layout sits in
+-- one component instead of stacking 4 separate buttons vertically.
+function GrindView:_makeGameTypeStrip()
+    local STRIP_H = 32
+    local self_ref = self
+    return {
+        type = "custom",
+        h    = STRIP_H,
+        draw_fn = function(px, y, pw, _, game)
+            local fonts = game.fonts
+            local pad   = 6
+            local strip_x = px + pad
+            local strip_w = pw - pad * 2
+            local n = #GameTypes
+            local btn_w = strip_w / n
+            love.graphics.setFont(fonts.ui_small)
+            for i, gt in ipairs(GameTypes) do
+                local bx = strip_x + (i - 1) * btn_w
+                local active = (gt.id == self_ref.selected_gtype)
+                Theme.setColor(active and Theme.bg.widget_hover or Theme.bg.chrome)
+                love.graphics.rectangle("fill", bx, y, btn_w - 2, STRIP_H - 4, Theme.space.radius)
+                Theme.setColor(active and Theme.border.strong or Theme.border.default)
+                love.graphics.rectangle("line", bx, y, btn_w - 2, STRIP_H - 4, Theme.space.radius)
+                Theme.setColor(active and Theme.fg.heading or Theme.fg.muted)
+                love.graphics.printf(gt.short or gt.name, bx, y + 8, btn_w - 2, "center")
+            end
+        end,
+        hit_fn = function(px, y, pw, _, cx, cy)
+            local pad = 6
+            local strip_x = px + pad
+            local strip_w = pw - pad * 2
+            local n = #GameTypes
+            local btn_w = strip_w / n
+            for i, gt in ipairs(GameTypes) do
+                local bx = strip_x + (i - 1) * btn_w
+                if cx >= bx and cx < bx + btn_w - 2
+                   and cy >= y and cy < y + STRIP_H - 4 then
+                    return { id = "gtype:" .. gt.id }
+                end
+            end
+            return nil
+        end,
+    }
+end
+
 function GrindView:_buildTablesTabComponents()
     local state  = self.game.state
     local cap    = self.controller:tableSlotsCap()
@@ -90,24 +139,31 @@ function GrindView:_buildTablesTabComponents()
     local components = {}
     components[#components + 1] = { type = "label", style = "muted", text = "ADD TABLE", h = 22 }
 
+    -- Game-type sub-tab strip.
+    components[#components + 1] = self:_makeGameTypeStrip()
+    components[#components + 1] = { type = "spacer", h = 4 }
+
+    -- Stake-add buttons for the currently selected game type. Button id
+    -- is composite "add_table:<stake>:<gtype>" so the dispatcher routes
+    -- to controller:addTable(stake_id, game_type_id).
+    local gtype_id = self.selected_gtype
     for _, stake in ipairs(Stakes) do
-        local locked   = state.bankroll < stake.unlock_bankroll
-        local full     = active >= cap
-        local disabled = locked or full
+        local full         = active >= cap
+        local cant_afford  = state.bankroll < (stake.buy_in or 0)
+        local disabled     = full or cant_afford
 
         local sub
-        if locked then
-            sub = "unlocks at $" .. tostring(stake.unlock_bankroll)
-        elseif full then
-            sub = "all slots filled"
+        if full then
+            sub = "tables full (max " .. cap .. ")"
+        elseif cant_afford then
+            sub = string.format("buy-in $%.2f  (need more)", stake.buy_in or 0)
         else
-            sub = string.format("win %.0f%%  ·  pot $%.2f",
-                stake.win_rate * 100, stake.pot_size)
+            sub = string.format("buy-in $%.2f", stake.buy_in or 0)
         end
 
         components[#components + 1] = {
             type     = "button",
-            id       = "add_table_" .. stake.id,
+            id       = "add_table:" .. stake.id .. ":" .. gtype_id,
             disabled = disabled,
             lines = {
                 { text = "+ " .. stake.display_name, style = "heading" },
@@ -118,11 +174,21 @@ function GrindView:_buildTablesTabComponents()
 
     components[#components + 1] = { type = "spacer", h = 8 }
     components[#components + 1] = { type = "divider", h = 6 }
+
+    -- Live focus stats.
+    local focus_cap = self.controller:currentFocusCapacity()
+    local focus_pct = math.floor(self.controller:currentFocusMult() * 100 + 0.5)
+    components[#components + 1] = {
+        type  = "label",
+        style = "body",
+        text  = string.format("Tables: %d  ·  Focus: %d%%", active, focus_pct),
+        h     = 20,
+    }
     components[#components + 1] = {
         type  = "label",
         style = "small",
-        text  = string.format("Active: %d / %d", active, cap),
-        h     = 24,
+        text  = string.format("Capacity: %d  (max %d tables)", focus_cap, cap),
+        h     = 18,
     }
 
     return components
@@ -246,23 +312,82 @@ function GrindView:_drawTopBar(W)
     local fonts = self.game.fonts
     local state = self.game.state
 
+    -- BANKROLL = spendable / off-table money. The big number — that's
+    -- what the player actually buys upgrades with.
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.kpi)
     love.graphics.print(moneyText(state.bankroll), 16, 8)
 
+    local tied_up = self.controller:tiedUp()
+    local total   = state.bankroll + tied_up
+    local n_tables  = self.controller.pool:count()
+    local focus_pct = math.floor(self.controller:currentFocusMult() * 100 + 0.5)
+
     love.graphics.setFont(fonts.ui_small)
     Theme.setColor(Theme.fg.muted)
-    love.graphics.print("PP",   260, 6)
-    love.graphics.print("PEAK", 380, 6)
+    love.graphics.print("TIED UP", 200, 6)
+    love.graphics.print("TOTAL",   300, 6)
+    love.graphics.print("PP",      400, 6)
+    love.graphics.print("PEAK",    470, 6)
+    love.graphics.print("TABLES",  580, 6)
+    love.graphics.print("FOCUS",   660, 6)
 
     love.graphics.setFont(fonts.heading)
-    Theme.setColor(Theme.fg.heading)
-    love.graphics.print(ppText(state.pp), 260, 22)
+    Theme.setColor(Theme.fg.muted)
+    love.graphics.print(moneyText(tied_up), 200, 22)
     Theme.setColor(Theme.fg.primary)
-    love.graphics.print(moneyText(state.peak_bankroll), 380, 22)
+    love.graphics.print(moneyText(total), 300, 22)
+    Theme.setColor(Theme.fg.heading)
+    love.graphics.print(ppText(state.pp), 400, 22)
+    Theme.setColor(Theme.fg.primary)
+    love.graphics.print(moneyText(state.peak_bankroll), 470, 22)
+    love.graphics.print(tostring(n_tables), 580, 22)
+
+    -- Focus % color-coded: green = 100% (no penalty), amber = 70–99%,
+    -- red = <70%.
+    local focus_color
+    if focus_pct >= 100     then focus_color = Theme.status.good
+    elseif focus_pct >= 70  then focus_color = Theme.status.warn
+    else                         focus_color = Theme.status.error end
+    Theme.setColor(focus_color)
+    love.graphics.print(focus_pct .. "%", 660, 22)
 end
 
 -- ─── Center grid ──────────────────────────────────────────────────────
+
+-- Target aspect for each table panel — wider than tall so the felt reads
+-- as a poker table, not a vertical billboard. Picked 4:3; tweak here if
+-- the felt feels off at large table counts.
+local PANEL_ASPECT = 4 / 3
+
+-- Pick the (cols, rows) split that gives the biggest 4:3 cell within the
+-- available grid area. Trying every cols ∈ [1..n] is cheap (n ≤ 32) and
+-- handles the asymmetric grid (wide-but-shortish) cleanly: for n=2 in a
+-- wide area it'll pick 2×1, but each cell renders at 4:3 instead of
+-- stretching to fill the full grid height.
+local function bestGridLayout(n, grid_w, grid_h)
+    local best = { cols = 1, rows = n, pw = 0, ph = 0, area = -1 }
+    for cols = 1, n do
+        local rows = math.ceil(n / cols)
+        local pw_avail = (grid_w - (cols - 1) * MARGIN) / cols
+        local ph_avail = (grid_h - (rows - 1) * MARGIN) / rows
+        if pw_avail > 8 and ph_avail > 8 then
+            local pw, ph
+            if pw_avail / ph_avail > PANEL_ASPECT then
+                ph = ph_avail
+                pw = ph * PANEL_ASPECT
+            else
+                pw = pw_avail
+                ph = pw / PANEL_ASPECT
+            end
+            local area = pw * ph
+            if area > best.area then
+                best = { cols = cols, rows = rows, pw = pw, ph = ph, area = area }
+            end
+        end
+    end
+    return best
+end
 
 function GrindView:_drawCenterGrid(W, H)
     local grid_x = LEFT_W + MARGIN
@@ -270,25 +395,39 @@ function GrindView:_drawCenterGrid(W, H)
     local grid_w = W - LEFT_W - RIGHT_W - 2 * MARGIN
     local grid_h = H - TOP_BAR_H - 2 * MARGIN
 
-    local cols, rows = 2, 3
-    local pw = (grid_w - (cols - 1) * MARGIN) / cols
-    local ph = (grid_h - (rows - 1) * MARGIN) / rows
-
-    local cap = self.controller:tableSlotsCap()
     local tables = self.controller.pool.tables
+    local n = #tables
+    if n <= 0 then
+        -- Empty-state hint: prompt the player toward the sidebar add-table
+        -- buttons. Without this, fresh-save players get a blank center.
+        love.graphics.setFont(self.game.fonts.heading)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.printf("No tables open.",
+            grid_x, grid_y + math.floor(grid_h / 2) - 24, grid_w, "center")
+        love.graphics.setFont(self.game.fonts.ui)
+        Theme.setColor(Theme.fg.faint)
+        love.graphics.printf("Click an ADD TABLE button in the left sidebar.",
+            grid_x, grid_y + math.floor(grid_h / 2) + 4, grid_w, "center")
+        return
+    end
 
-    local slots_to_show = math.min(cap, cols * rows)
-    for i = 1, slots_to_show do
+    local layout = bestGridLayout(n, grid_w, grid_h)
+    local cols, rows, pw, ph = layout.cols, layout.rows, layout.pw, layout.ph
+
+    -- Center the cell block within the available grid area so leftover
+    -- space (from aspect-clamping) sits as symmetric padding instead of
+    -- pushing everything to the top-left.
+    local block_w = cols * pw + (cols - 1) * MARGIN
+    local block_h = rows * ph + (rows - 1) * MARGIN
+    local origin_x = grid_x + math.floor((grid_w - block_w) / 2)
+    local origin_y = grid_y + math.floor((grid_h - block_h) / 2)
+
+    for i = 1, n do
         local r = math.floor((i - 1) / cols)
         local c = (i - 1) % cols
-        local x = grid_x + c * (pw + MARGIN)
-        local y = grid_y + r * (ph + MARGIN)
-        local t = tables[i]
-        if t then
-            TablePanel.draw(t, i, x, y, pw, ph, self.game, self.controller, self.hit_boxes)
-        else
-            TablePanel.drawEmpty(x, y, pw, ph, self.game.fonts)
-        end
+        local x = origin_x + c * (pw + MARGIN)
+        local y = origin_y + r * (ph + MARGIN)
+        TablePanel.draw(tables[i], i, x, y, pw, ph, self.game, self.controller, self.hit_boxes)
     end
 end
 
@@ -419,9 +558,17 @@ function GrindView:mousepressed(x, y, b)
 end
 
 function GrindView:_handleSidebarButton(id)
-    local stake_id = id:match("^add_table_(.+)$")
-    if stake_id then
-        self.controller:addTable(stake_id)
+    -- Game-type sub-tab selection.
+    local gtype = id:match("^gtype:(.+)$")
+    if gtype then
+        self.selected_gtype = gtype
+        return
+    end
+    -- Composite "add_table:<stake>:<gtype>" — non-greedy on the first
+    -- group so stake_ids with underscores still parse.
+    local stake_id, gtype_id = id:match("^add_table:(.-):(.+)$")
+    if stake_id and gtype_id then
+        self.controller:addTable(stake_id, gtype_id)
         return
     end
     local up_id = id:match("^buy_runup_(.+)$")

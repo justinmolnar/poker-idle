@@ -50,10 +50,17 @@ function PokerEffects.registerAll(reg)
         ctx.rep_decay = (ctx.rep_decay or 1) * e.value
     end)
 
-    -- Additive integer slots beyond the base of 1. Catalog item Second
-    -- Monitor adds +1; subsequent +slot items can stack up to MAX_TABLES.
-    reg:register("table_slots_add", function(e, ctx)
-        ctx.table_slots = (ctx.table_slots or 0) + e.value
+    -- Focus / efficiency mechanic. focus_capacity_add raises the table
+    -- count below which no focus penalty applies (default base is
+    -- Constants.GAMEPLAY.FOCUS_BASE_CAPACITY, seeded by GrindController
+    -- when it reads ctx). focus_penalty_reduce_mult shrinks the
+    -- per-extra-table penalty so capacity-light / penalty-light builds
+    -- diverge.
+    reg:register("focus_capacity_add", function(e, ctx)
+        ctx.focus_capacity = (ctx.focus_capacity or 0) + e.value
+    end)
+    reg:register("focus_penalty_reduce_mult", function(e, ctx)
+        ctx.focus_penalty_reduce_mult = (ctx.focus_penalty_reduce_mult or 1) * e.value
     end)
 end
 

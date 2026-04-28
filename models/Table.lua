@@ -33,19 +33,19 @@
 --      best5(player_hole + community) strictly beats / strictly loses to
 --      best5(opponent_hole + community), matching the rolled outcome.
 
-local RNG        = require("utils.rng")
-local Deck       = require("models.Deck")
-local Opponent   = require("models.Opponent")
-local HandEval   = require("utils.hand_eval")
-local StakesData = require("data.stakes")
-local NameData   = require("data.opponent_names")
-local OpTypes    = require("data.opponent_types")
+local RNG           = require("utils.rng")
+local Deck          = require("models.Deck")
+local Opponent      = require("models.Opponent")
+local HandEval      = require("utils.hand_eval")
+local StakesData    = require("data.stakes")
+local GameTypesData = require("data.game_types")
+local NameData      = require("data.opponent_names")
+local OpTypes       = require("data.opponent_types")
 
 local Table = {}
 Table.__index = Table
 
 local LAST_RESULTS_CAP    = 5
-local OPPONENT_COUNT      = 5     -- 6-max → 5 opponents around the player
 local CONSTRUCTION_CAP    = 200   -- rejection-sample retries before accepting natural
 
 -- State timeline (cumulative seconds since :deal()).
@@ -62,6 +62,30 @@ local function findStake(id)
     for _, s in ipairs(StakesData) do
         if s.id == id then return s end
     end
+end
+
+local function findGameType(id)
+    for _, gt in ipairs(GameTypesData) do
+        if gt.id == id then return gt end
+    end
+end
+
+-- Multiply each weight in `dist` by the matching `modifier` entry (or 1
+-- when missing) and renormalize to sum=1. modifier=nil → return dist
+-- unchanged. Used to layer game-type tilts onto a stake's distribution.
+local function mergeDist(dist, modifier)
+    if not dist then return nil end
+    if not modifier then return dist end
+    local out = {}
+    local total = 0
+    for k, v in pairs(dist) do
+        local nv = v * (modifier[k] or 1)
+        out[k] = nv
+        total = total + nv
+    end
+    if total <= 0 then return dist end
+    for k, v in pairs(out) do out[k] = v / total end
+    return out
 end
 
 -- Sample a key from a {key=weight} distribution. Weights sum to 1 (or any
@@ -103,14 +127,22 @@ end
 
 -- ─── Construction ─────────────────────────────────────────────────────
 
-function Table:new(stake_id)
+function Table:new(stake_id, game_type_id)
+    local stake = findStake(stake_id)
     local self = setmetatable({
         stake_id      = stake_id,
+        game_type_id  = game_type_id or "six_max",
         opponents     = {},
         state         = "idle",
         state_timer   = 0,
         hands_played  = 0,
         last_results  = {},     -- ring buffer of recent {won, delta} pairs
+
+        -- Per-table stack ($). Initialized to the stake's buy-in (100bb).
+        -- Wins push it up to the buy-in cap; overflow goes to bankroll.
+        -- Losses come out of the stack (clamped at 0). Removing a table
+        -- refunds whatever is currently here.
+        stack = (stake and stake.buy_in) or 0,
 
         -- Per-hand state — populated on :deal(), cleared on returning to idle.
         player_hole         = nil,
@@ -132,16 +164,21 @@ function Table:new(stake_id)
     return self
 end
 
--- Re-roll the 5 opponents from the table's stake distributions. Called on
--- construction and after a stake change so the seated players match the
--- new tier.
+-- Re-roll the seated opponents from the stake's distributions, layered
+-- with the game type's modifiers. The game type also dictates how many
+-- opponents fill the felt (1 for HU, 5 for 6-max/Zoom, 8 for 9-max).
 function Table:fillOpponents()
     self.opponents = {}
     local stake = findStake(self.stake_id)
-    if not stake then return end
-    for i = 1, OPPONENT_COUNT do
-        local skill = sampleDist(stake.skill_distribution) or "rec"
-        local style = sampleDist(stake.playstyle_distribution) or "fish"
+    local gtype = findGameType(self.game_type_id)
+    if not stake or not gtype then return end
+
+    local skill_dist = mergeDist(stake.skill_distribution,     gtype.skill_modifier)
+    local style_dist = mergeDist(stake.playstyle_distribution, gtype.playstyle_modifier)
+
+    for i = 1, gtype.seats do
+        local skill = sampleDist(skill_dist) or "rec"
+        local style = sampleDist(style_dist) or "fish"
         local name  = pickRandomName()
         local stack = stake.buy_in or 0
         self.opponents[i] = Opponent:new(skill, style, name, stack)
@@ -150,14 +187,19 @@ end
 
 function Table:setStake(stake_id)
     self.stake_id = stake_id
+    -- Stake change = leave the old table, sit at a new one. Stack resets
+    -- to the new buy-in. The controller handles the bankroll math
+    -- (refund old stack, charge new buy-in) before calling this.
+    local stake = findStake(stake_id)
+    self.stack = (stake and stake.buy_in) or 0
     self.state = "idle"
     self.state_timer = 0
-    self:fillOpponents()
+    self:fillOpponents()  -- new opponents at the new tier; same game type
 end
 
 -- ─── Per-hand math ────────────────────────────────────────────────────
 
-local function winRateAgainst(opp, ctx)
+local function winRateAgainst(opp, ctx, gtype)
     local skill_data = OpTypes.skills[opp.skill]      or {}
     local style_data = OpTypes.playstyles[opp.style]  or {}
     local skill_pen  = skill_data.penalty   or 0
@@ -166,7 +208,11 @@ local function winRateAgainst(opp, ctx)
     if style_data.ctx_key and ctx and ctx[style_data.ctx_key] then
         style_mult = ctx[style_data.ctx_key]
     end
-    local raw = (OpTypes.BASE_WIN_RATE + skill_pen + style_mod) * style_mult
+    -- Game-type baseline shift. HU is significantly negative — pool is
+    -- pro-heavy enough that an unbuilt player should expect to lose. Zoom
+    -- nudges positive — recreational pool means an easier baseline.
+    local gt_offset = (gtype and gtype.win_rate_offset) or 0
+    local raw = (OpTypes.BASE_WIN_RATE + skill_pen + style_mod + gt_offset) * style_mult
     if raw < 0.01 then raw = 0.01 end
     if raw > 0.99 then raw = 0.99 end
     return raw
@@ -206,17 +252,33 @@ function Table:deal(ctx)
     ctx = ctx or {}
 
     local stake = findStake(self.stake_id)
-    if not stake then return false end
+    local gtype = findGameType(self.game_type_id)
+    if not stake or not gtype then return false end
+
+    -- Zoom: rerolls opponents per hand. The point of Zoom is unreadable
+    -- pool — fresh players every hand mean revealed_skill / revealed_style
+    -- never accumulate, so you can't soul-read across hands.
+    if gtype.rerolls_opponents then
+        self:fillOpponents()
+    end
 
     -- Sample which seated opponent plays back this hand.
-    self.opponent_idx = love.math.random(1, OPPONENT_COUNT)
+    local n_opps = #self.opponents
+    if n_opps <= 0 then return false end
+    self.opponent_idx = love.math.random(1, n_opps)
     local opp = self.opponents[self.opponent_idx]
     if not opp then return false end
 
-    local win_rate = winRateAgainst(opp, ctx)
+    local win_rate = winRateAgainst(opp, ctx, gtype)
     self.outcome_won = RNG.chance(win_rate)
 
     local pot_bb, bet_bb = rollPotBet()
+    -- pot_mult tilts the absolute pot/bet size for the game type. 9-max =
+    -- bigger pots; HU and Zoom = smaller. Ratio between pot and bet stays.
+    local pot_mult = gtype.pot_mult or 1
+    pot_bb = pot_bb * pot_mult
+    bet_bb = bet_bb * pot_mult
+
     local earnings_mult = ctx.earnings_mult or 1
     if self.outcome_won then
         self.outcome_delta = pot_bb * stake.bb * earnings_mult
@@ -238,15 +300,45 @@ end
 -- Step animation. Returns a resolution table on the transition INTO
 -- settling, else nil. The caller (controller) consumes it and applies
 -- the bankroll delta + emits floating text.
+-- Reveal one unrevealed attribute (skill or style) on the opponent. 50%
+-- chance per call to actually reveal anything — the user wants discovery
+-- to feel like reads, not bullet-pointed info.
+local function maybeRevealAttribute(opp)
+    if not opp then return end
+    if opp.revealed_skill and opp.revealed_style then return end
+    if love.math.random() >= 0.5 then return end
+    if not opp.revealed_skill and not opp.revealed_style then
+        if love.math.random() < 0.5 then opp.revealed_skill = true
+        else                            opp.revealed_style = true end
+    elseif not opp.revealed_skill then
+        opp.revealed_skill = true
+    else
+        opp.revealed_style = true
+    end
+end
+
 function Table:update(dt, _ctx)
     if self.state == "idle" then return nil end
 
-    self.state_timer = self.state_timer + (dt or 0)
+    -- Per-game-type pacing. pace_mult > 1 = faster (HU/Zoom). 6-max sits
+    -- at 0.5 so the per-hand cinematic takes 4.4s rather than 2.2s — that
+    -- anchors the multi-tabling math (a single 6-max table is intentionally
+    -- slow enough that running 4 of them feels meaningfully better).
+    local gtype = findGameType(self.game_type_id)
+    local pace_mult = (gtype and gtype.pace_mult) or 1
+    local effective_dt = (dt or 0) * pace_mult
+
+    self.state_timer = self.state_timer + effective_dt
 
     if     self.state == "dealing"  and self.state_timer >= PHASE_DEAL_END     then self.state = "flop"
     elseif self.state == "flop"     and self.state_timer >= PHASE_FLOP_END     then self.state = "turn"
     elseif self.state == "turn"     and self.state_timer >= PHASE_TURN_END     then self.state = "river"
-    elseif self.state == "river"    and self.state_timer >= PHASE_RIVER_END    then self.state = "showdown"
+    elseif self.state == "river"    and self.state_timer >= PHASE_RIVER_END    then
+        self.state = "showdown"
+        -- Showdown lets the player learn something about the opponent
+        -- they faced this hand. 50% chance one previously-hidden
+        -- attribute (skill or style) flips to revealed.
+        maybeRevealAttribute(self.opponents[self.opponent_idx])
     elseif self.state == "showdown" and self.state_timer >= PHASE_SHOWDOWN_END then
         self.state = "settling"
         -- Stash the resolution so the next return surfaces it.
@@ -287,11 +379,15 @@ end
 -- real TablePanel and these fields can come out.
 function Table:liveStats(_ctx)
     local stake = findStake(self.stake_id)
+    local gtype = findGameType(self.game_type_id)
     if not stake then return nil end
     return {
         stake_display = stake.display_name,
         bb            = stake.bb,
         buy_in        = stake.buy_in,
+        game_type_id    = self.game_type_id,
+        game_type_short = (gtype and gtype.short) or "",
+        seats           = (gtype and gtype.seats) or #self.opponents,
         win_rate      = stake.win_rate      or 0,
         pot_size      = stake.pot_size      or 0,
         bet_size      = stake.bet_size      or 0,
