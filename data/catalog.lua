@@ -199,4 +199,28 @@ return {
         effects     = { { kind = "win_chance_shift", amount = 0.06, gtype = "hu" } },
     },
 
+    -- ── Cursor swarm (idle layer) ───────────────────────────────────────
+    -- The unlock and the first cursor are intentionally separate buys —
+    -- owning the system without an assistant in it is fine; the player
+    -- decides whether to spend the second PP block on a cursor or other
+    -- mid-tier perks.
+    {
+        id          = "cursor_pool",
+        name        = "Cursor Pool",
+        description = "Hire assistants to click for you.",
+        sprite      = "cursor_pool",
+        cost_pp     = 20,
+        position    = { x = 100, y = 500 },
+        effects     = { { kind = "cursor_unlocked" } },
+    },
+    {
+        id          = "first_cursor",
+        name        = "Trained Cursor",
+        description = "Your first assistant pointer.",
+        sprite      = "first_cursor",
+        cost_pp     = 15,
+        position    = { x = 200, y = 500 },
+        effects     = { { kind = "cursor_count_add", value = 1 } },
+    },
+
 }

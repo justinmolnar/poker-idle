@@ -135,7 +135,7 @@ end
 
 -- ─── Sub-panels ──────────────────────────────────────────────────────
 
-local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove)
+local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, cursor_on)
     local stats = tbl:liveStats() or {}
     local header_text = stats.stake_display or "?"
     if stats.game_type_short and stats.game_type_short ~= "" then
@@ -150,13 +150,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove)
     Theme.setColor(Theme.fg.heading)
     love.graphics.print(header_text, x + 8, y + 5)
 
-    -- Hands played (right-aligned, before [x]).
-    Theme.setColor(Theme.fg.muted)
-    local hands = string.format("%d hands", tbl.hands_played or 0)
-    local hw = fonts.ui_small:getWidth(hands)
-    love.graphics.print(hands, x + w - hw - 6 - REMOVE_BTN_SIZE - 4, y + 5)
-
-    -- [x] remove
+    -- [x] remove (right edge).
     local rb_x = x + w - REMOVE_BTN_SIZE - 4
     local rb_y = y + 3
     Theme.setColor(can_remove and Theme.bg.widget_hover or Theme.bg.sunken, 0.6)
@@ -171,6 +165,39 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove)
             action = "remove_table", idx = idx,
         }
     end
+
+    -- Cursor mute toggle "C" — only shown once the cursor system is unlocked.
+    -- Filled when active (cursors target this table); dimmed when muted.
+    local hands_right_offset = REMOVE_BTN_SIZE + 4 + 4
+    if cursor_on then
+        local cb_x = rb_x - REMOVE_BTN_SIZE - 4
+        local cb_y = y + 3
+        local muted = tbl.cursor_muted == true
+        Theme.setColor(muted and Theme.bg.sunken or Theme.bg.widget_hover, 0.6)
+        love.graphics.rectangle("fill", cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, Theme.space.radius)
+        Theme.setColor(muted and Theme.border.soft or Theme.border.strong)
+        love.graphics.rectangle("line", cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, Theme.space.radius)
+        Theme.setColor(muted and Theme.fg.disabled or Theme.fg.heading)
+        love.graphics.printf("C", cb_x, cb_y + 3, REMOVE_BTN_SIZE, "center")
+        if muted then
+            -- strike-through: a horizontal line across the badge
+            love.graphics.setLineWidth(1)
+            Theme.setColor(Theme.fg.disabled)
+            love.graphics.line(cb_x + 3, cb_y + REMOVE_BTN_SIZE / 2,
+                               cb_x + REMOVE_BTN_SIZE - 3, cb_y + REMOVE_BTN_SIZE / 2)
+        end
+        hit_boxes[#hit_boxes + 1] = {
+            x = cb_x, y = cb_y, w = REMOVE_BTN_SIZE, h = REMOVE_BTN_SIZE,
+            action = "toggle_cursor", idx = idx,
+        }
+        hands_right_offset = hands_right_offset + REMOVE_BTN_SIZE + 4
+    end
+
+    -- Hands played (right-aligned, shifted past [x] and the cursor badge).
+    Theme.setColor(Theme.fg.muted)
+    local hands = string.format("%d hands", tbl.hands_played or 0)
+    local hw = fonts.ui_small:getWidth(hands)
+    love.graphics.print(hands, x + w - hw - hands_right_offset, y + 5)
 end
 
 local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts)
@@ -516,7 +543,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- Header. Removing always allowed now that buy-ins are refundable —
     -- the previous "keep at least one table" gate was a leftover from
     -- before cost-to-open and trapped the player's bankroll.
-    drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, true)
+    -- The "C" cursor mute toggle only renders once the cursor system is
+    -- catalog-unlocked.
+    local cursor_on = (controller and controller.ctx and controller.ctx.cursor_unlocked) or false
+    drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, true, cursor_on)
 
     -- Felt area.
     local felt_x = x + FELT_INSET
@@ -599,6 +629,14 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             drawFeltButton(felt_x, felt_y, felt_w, btn_area_h,
                 fonts, hit_boxes, idx, "DEAL", "deal",
                 Theme.status.good, true)
+            -- Tag the just-pushed DEAL hit_box so CursorPool can skip
+            -- this table when the player has muted it. Mouse-click hit
+            -- testing in GrindView ignores this field — muted tables
+            -- stay hand-clickable.
+            local last = hit_boxes[#hit_boxes]
+            if last and last.action == "deal" then
+                last.cursor_muted = tbl.cursor_muted == true
+            end
         end
     end
 

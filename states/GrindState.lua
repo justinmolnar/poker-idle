@@ -13,6 +13,7 @@
 local Theme           = require("views.Theme")
 local GrindView       = require("views.GrindView")
 local GrindController = require("controllers.GrindController")
+local CursorPool      = require("services.CursorPool")
 
 local GrindState = {}
 GrindState.__index = GrindState
@@ -44,10 +45,24 @@ function GrindState:exit() end
 function GrindState:update(dt)
     self.controller:update(dt)
     self.view:update(dt)
+    -- Cursor swarm steps after the controller/view tick. Hit-boxes were
+    -- populated by last frame's draw — 1-frame stale, invisible at 60fps.
+    -- The dispatcher closure routes a synthetic click through the same
+    -- handler the mouse uses (GrindView:_handleHitBox).
+    local view = self.view
+    CursorPool.update(dt, view.hit_boxes, self.controller.ctx,
+        function(hb) view:_handleHitBox(hb) end)
 end
 
 function GrindState:draw()
     self.view:draw()
+end
+
+-- Called by InputController F6/F7 handlers via the fullResetAllStates
+-- sweep. Wipes the cursor swarm so a fresh game / reload doesn't carry
+-- dangling pointers.
+function GrindState:fullReset()
+    CursorPool.reset()
 end
 
 -- Phase 2 debug: H deals one hand on table 1. J deals every idle table.

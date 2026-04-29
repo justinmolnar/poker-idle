@@ -60,7 +60,7 @@ return {
         win_dist          = { tiny = 0.45, small = 0.34, medium = 0.20, jackpot = 0.01 },
         win_dist_capped   = { tiny = 0.10, small = 0.15, medium = 0.25, jackpot = 0.50 },
         loss_dist         = { tiny = 0.45, small = 0.34, medium = 0.20, jackpot = 0.01 },
-        loss_dist_capped  = { tiny = 0.55, small = 0.25, medium = 0.19, jackpot = 0.01 },
+        loss_dist_capped  = { tiny = 0.85, small = 0.10, medium = 0.04, jackpot = 0.01 },
         fill_window       = { start = 0, complete = 5 },
     },
     {
@@ -76,7 +76,7 @@ return {
         win_dist          = { tiny = 0.50, small = 0.30, medium = 0.18, jackpot = 0.02 },
         win_dist_capped   = { tiny = 0.10, small = 0.15, medium = 0.25, jackpot = 0.50 },
         loss_dist         = { tiny = 0.35, small = 0.30, medium = 0.30, jackpot = 0.05 },
-        loss_dist_capped  = { tiny = 0.55, small = 0.25, medium = 0.17, jackpot = 0.03 },
+        loss_dist_capped  = { tiny = 0.80, small = 0.12, medium = 0.05, jackpot = 0.03 },
         fill_window       = { start = 3, complete = 8 },
     },
     {
@@ -92,7 +92,7 @@ return {
         win_dist          = { tiny = 0.55, small = 0.30, medium = 0.13, jackpot = 0.02 },
         win_dist_capped   = { tiny = 0.10, small = 0.15, medium = 0.25, jackpot = 0.50 },
         loss_dist         = { tiny = 0.25, small = 0.30, medium = 0.35, jackpot = 0.10 },
-        loss_dist_capped  = { tiny = 0.55, small = 0.20, medium = 0.18, jackpot = 0.07 },
+        loss_dist_capped  = { tiny = 0.75, small = 0.13, medium = 0.05, jackpot = 0.07 },
         fill_window       = { start = 6, complete = 11 },
     },
     {
@@ -108,7 +108,7 @@ return {
         win_dist          = { tiny = 0.40, small = 0.40, medium = 0.20, jackpot = 0.00 },
         win_dist_capped   = { tiny = 0.15, small = 0.20, medium = 0.20, jackpot = 0.45 },
         loss_dist         = { tiny = 0.15, small = 0.25, medium = 0.40, jackpot = 0.20 },
-        loss_dist_capped  = { tiny = 0.50, small = 0.20, medium = 0.17, jackpot = 0.13 },
+        loss_dist_capped  = { tiny = 0.65, small = 0.15, medium = 0.07, jackpot = 0.13 },
         fill_window       = { start = 9, complete = 14 },
     },
     {
@@ -124,7 +124,7 @@ return {
         win_dist          = { tiny = 0.50, small = 0.40, medium = 0.10, jackpot = 0.00 },
         win_dist_capped   = { tiny = 0.20, small = 0.20, medium = 0.20, jackpot = 0.40 },
         loss_dist         = { tiny = 0.10, small = 0.20, medium = 0.40, jackpot = 0.30 },
-        loss_dist_capped  = { tiny = 0.45, small = 0.20, medium = 0.15, jackpot = 0.20 },
+        loss_dist_capped  = { tiny = 0.50, small = 0.15, medium = 0.15, jackpot = 0.20 },
         fill_window       = { start = 12, complete = 17 },
     },
     {

@@ -19,6 +19,7 @@ local Format      = require("utils.format")
 local Panel       = require("views.Panel")
 local CR          = require("views.ComponentRenderer")
 local TablePanel  = require("views.TablePanel")
+local CursorPool  = require("services.CursorPool")
 local Stakes      = require("data.stakes")
 local GameTypes   = require("data.game_types")
 local RunUpgrades = require("data.run_upgrades")
@@ -517,6 +518,11 @@ function GrindView:draw()
     self:_drawShoveButton()
     self:_drawFloatingText()
 
+    -- Cursor swarm — drawn above panels / sidebars / shove / floating text
+    -- so the swarm is always visible. Renders BEFORE the debug tooltip so
+    -- that tooltip stays on top of everything (including cursors).
+    CursorPool.draw()
+
     -- Backtick debug tooltip — flushed last so it draws above every other
     -- view layer (sidebar panels, shove button, floating text included).
     TablePanel.flushDebugOverlay(self.game)
@@ -612,6 +618,8 @@ function GrindView:_handleHitBox(hb)
         self.controller:removeTable(hb.idx)
     elseif hb.action == "stake_up" then
         self.controller:changeTableStake(hb.idx, hb.next_stake_id)
+    elseif hb.action == "toggle_cursor" then
+        self.controller:toggleCursorMute(hb.idx)
     end
 end
 

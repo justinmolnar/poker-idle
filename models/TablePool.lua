@@ -33,20 +33,25 @@ end
 
 function TablePool:rebuildFromState(ctx)
     self.tables = {}
-    for _, spec in ipairs(self.state.active_table_specs or {}) do
+    local mutes = self.state.active_table_mutes or {}
+    for i, spec in ipairs(self.state.active_table_specs or {}) do
         local stake_id, gtype_id = unpackSpec(spec)
         if stake_id and gtype_id then
-            self.tables[#self.tables + 1] = Table:new(stake_id, gtype_id, ctx)
+            local t = Table:new(stake_id, gtype_id, ctx)
+            t.cursor_muted = mutes[i] == true
+            self.tables[#self.tables + 1] = t
         end
     end
 end
 
 function TablePool:_syncStateList()
-    local list = {}
-    for _, t in ipairs(self.tables) do
-        list[#list + 1] = packSpec(t.stake_id, t.game_type_id)
+    local specs, mutes = {}, {}
+    for i, t in ipairs(self.tables) do
+        specs[i] = packSpec(t.stake_id, t.game_type_id)
+        mutes[i] = t.cursor_muted == true
     end
-    self.state.active_table_specs = list
+    self.state.active_table_specs = specs
+    self.state.active_table_mutes = mutes
 end
 
 function TablePool:count() return #self.tables end

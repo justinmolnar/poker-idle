@@ -158,6 +158,28 @@ Effects.kinds = {
         affects     = "ctx.rep_decay",
     },
 
+    -- ── Cursor swarm (autonomous DEAL-clickers) ─────────────────────────
+    -- The cursor system is gated by a flag perk; without `cursor_unlocked`
+    -- the CursorPool runs no cursors regardless of count. Catalog and run
+    -- upgrades both feed `cursor_count_add` (additive) and may scale speed
+    -- via `cursor_speed_mult`. See services/CursorPool.lua.
+
+    cursor_unlocked = {
+        description = "Flag perk — unlocks the autonomous cursor swarm system.",
+        value_shape = "no field (presence sets ctx.cursor_unlocked = true)",
+        affects     = "ctx.cursor_unlocked",
+    },
+    cursor_count_add = {
+        description = "Adds N to the autonomous cursor pool size.",
+        value_shape = "integer, e.g. 1 for +1 cursor",
+        affects     = "ctx.cursor_count",
+    },
+    cursor_speed_mult = {
+        description = "Multiplies the cursor pool's travel speed.",
+        value_shape = "number, e.g. 1.25 for +25% per level",
+        affects     = "ctx.cursor_speed_mult",
+    },
+
     -- ── Focus / efficiency mechanic ─────────────────────────────────────
     focus_capacity_add = {
         description = "Raises focus capacity (tables you can run before the focus penalty kicks in).",

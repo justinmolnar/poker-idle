@@ -119,6 +119,18 @@ function PokerEffects.registerAll(reg)
         ctx.pp_award_mult = (ctx.pp_award_mult or 1) * e.value
     end)
 
+    -- ── Cursor swarm (autonomous DEAL-clickers) ────────────────────────
+    -- Flag perk: presence in owned_items sets ctx.cursor_unlocked = true.
+    reg:register("cursor_unlocked", function(_e, ctx)
+        ctx.cursor_unlocked = true
+    end)
+    reg:register("cursor_count_add", function(e, ctx)
+        ctx.cursor_count = (ctx.cursor_count or 0) + (e.value or 0)
+    end)
+    reg:register("cursor_speed_mult", function(e, ctx)
+        ctx.cursor_speed_mult = (ctx.cursor_speed_mult or 1) * (e.value or 1)
+    end)
+
     -- ── Focus mechanic ──────────────────────────────────────────────────
     reg:register("focus_capacity_add", function(e, ctx)
         ctx.focus_capacity = (ctx.focus_capacity or 0) + e.value

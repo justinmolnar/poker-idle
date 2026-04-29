@@ -282,6 +282,11 @@ function Table:new(stake_id, game_type_id, ctx)
         outcome_tier        = nil,    -- "tiny" / "small" / "medium" / "jackpot"
         natural_outcome     = true,
 
+        -- When true, the autonomous cursor swarm (services/CursorPool)
+        -- ignores this table's DEAL button. Mouse clicks still work.
+        -- Persisted parallel to active_table_specs in GameState.
+        cursor_muted        = false,
+
         x = 0, y = 0,
         -- Animation state for the per-table EV gauge in TablePanel. Lerps
         -- toward target each render frame; nil = snap on first read.

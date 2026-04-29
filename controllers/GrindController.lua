@@ -308,6 +308,16 @@ function GrindController:changeTableStake(idx, new_stake_id)
     return true
 end
 
+-- Toggle a table's autonomous-cursor opt-out flag. Persists via
+-- TablePool's _syncStateList → state.active_table_mutes.
+function GrindController:toggleCursorMute(idx)
+    local t = self.pool:get(idx)
+    if not t then return false end
+    t.cursor_muted = not (t.cursor_muted == true)
+    self.pool:_syncStateList()
+    return true
+end
+
 -- Click-to-deal entry point. Triggers the per-hand state machine on a
 -- specific table. Returns false if the table is already animating a hand
 -- or doesn't exist.

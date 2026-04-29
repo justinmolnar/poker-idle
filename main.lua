@@ -25,6 +25,7 @@ local FloatingText    = require("services.FloatingTextSystem")
 local EffectsRegistry = require("services.EffectsRegistry")
 local FontService     = require("services.FontService")
 local HoverService    = require("services.HoverService")
+local CursorPool      = require("services.CursorPool")
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
@@ -63,6 +64,7 @@ local function buildGame()
     g.animations      = AnimationSystem
     g.floating_text   = FloatingText
     g.hover           = HoverService
+    g.cursor_pool     = CursorPool
 
     g.save_service    = SaveService:new()
     local saved       = g.save_service:loadAll()

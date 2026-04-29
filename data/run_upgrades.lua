@@ -124,7 +124,38 @@ return {
         },
     },
 
-    -- ── 6. Focus — throughput ──────────────────────────────────────────
+    -- ── 6. Hire — more cursors in the swarm ───────────────────────────
+    -- Adds 1 cursor per level. Requires the catalog `cursor_pool` unlock
+    -- + at least one cursor (catalog or run) to do anything visible.
+    -- 12 levels.
+    {
+        id          = "hire",
+        name        = "Hire",
+        description = "Pay an assistant for the night.",
+        max_level   = 12,
+        costs       = {
+            3, 10, 30, 100, 300,
+            900, 3000, 9000, 27000, 80000,
+            240000, 720000,
+        },
+        effects     = { { kind = "cursor_count_add", value = 1 } },
+    },
+
+    -- ── 7. Cursor Speed — they click faster ────────────────────────────
+    -- 8 levels, +25% multiplicative each. Caps at ~6× base speed.
+    {
+        id          = "cursor_speed",
+        name        = "Cursor Speed",
+        description = "They click faster.",
+        max_level   = 8,
+        costs       = {
+            5, 25, 125, 625, 3000,
+            15000, 75000, 375000,
+        },
+        effects     = { { kind = "cursor_speed_mult", value = 1.25 } },
+    },
+
+    -- ── 8. Focus — throughput ──────────────────────────────────────────
     -- +1 focus capacity per level. Same effect kind as before. 10 levels.
     {
         id          = "focus",

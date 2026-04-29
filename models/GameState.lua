@@ -47,6 +47,10 @@ function GameState:new(saved)
     for _ = 1, Constants.GAMEPLAY.INITIAL_ACTIVE_TABLES do
         instance.active_table_specs[#instance.active_table_specs + 1] = "s001:six_max"
     end
+    -- Parallel array to active_table_specs — cursor mute flag per table.
+    -- Indexed identically; true = autonomous cursor swarm skips this table.
+    -- Persisted across saves; reset on prestige (since tables die anyway).
+    instance.active_table_mutes  = {}
     instance.stakes_won_this_run = {}           -- set keyed by stake_id; locks in PP bounties per run
     instance.pp_this_run         = 0            -- running counter for the prestige modal display
 
@@ -72,6 +76,7 @@ function GameState:resetRun()
     for _ = 1, Constants.GAMEPLAY.INITIAL_ACTIVE_TABLES do
         self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"
     end
+    self.active_table_mutes  = {}
     self.stakes_won_this_run = {}
     self.pp_this_run         = 0
     self.effects_cache       = nil
@@ -118,6 +123,7 @@ function GameState:serializeRun()
         current_stake_id     = self.current_stake_id,
         run_upgrade_levels   = self.run_upgrade_levels,
         active_table_specs   = self.active_table_specs,
+        active_table_mutes   = self.active_table_mutes,
         stakes_won_this_run  = self.stakes_won_this_run,
         pp_this_run          = self.pp_this_run,
     }
