@@ -11,7 +11,10 @@
 
 local CR = {}
 
-local Theme = require("views.Theme")
+local Theme       = require("views.Theme")
+local Button      = require("views.Button")
+local HoverSvc    = require("services.HoverService")
+local ClickFlash  = require("services.ClickFlash")
 
 local ICON_SIZE    = 64
 local ICON_SPACING = 12
@@ -21,6 +24,9 @@ local ICON_ROW_H   = ICON_SIZE + 20
 -- to multiple visual rows, height becomes N * font:getHeight() instead.
 local LINE_H = { body = 20, small = 16, heading = 22, muted = 20 }
 local BTN_PAD = 8   -- total vertical padding inside a button (top+bottom)
+-- Sidebar buttons render as chunky pushable buttons via views/Button.lua.
+-- Allocation = content_h + BTN_DEPTH + lift; the face inside is content_h.
+local BTN_DEPTH = 5
 
 -- Resolve a style → font selection. Centralized so buttonH and _button
 -- agree on which font is used per line (otherwise wrap math drifts from
@@ -50,13 +56,11 @@ local function lineRenderedHeight(line, game, content_w)
     return n * fh
 end
 
-local function buttonH(comp, content_w, game)
+-- Inner content height (face content size only, no chrome/depth).
+local function contentH(comp, content_w, game)
     local lines = comp.lines
     if not lines or #lines == 0 then return 32 end
     if not (game and game.fonts) then
-        -- Fallback: legacy estimate (sum LINE_H per style). Used if
-        -- caller didn't thread game through (shouldn't happen in normal
-        -- flow but keeps the function tolerant).
         local h = BTN_PAD
         for _, line in ipairs(lines) do
             h = h + (LINE_H[line.style or "body"] or 20)
@@ -68,6 +72,11 @@ local function buttonH(comp, content_w, game)
         h = h + lineRenderedHeight(line, game, content_w)
     end
     return h
+end
+
+-- Total allocation: face content + chunky depth + hover lift.
+local function buttonH(comp, content_w, game)
+    return Button.allocatedH(contentH(comp, content_w, game), BTN_DEPTH)
 end
 
 -- ─── Draw ────────────────────────────────────────────────────────────────────
@@ -130,64 +139,64 @@ end
 
 function CR._button(comp, px, pw, p, y, game)
     local content_w = pw - p * 2
-    local h         = buttonH(comp, content_w, game)
+    local total_h   = buttonH(comp, content_w, game)
     local disabled  = comp.disabled
-    local hovered   = (not disabled) and comp.id
-        and require("services.HoverService").is("button", comp.id)
+    local hovered   = (not disabled) and comp.id and HoverSvc.is("button", comp.id)
+    local press     = (comp.id and ClickFlash.alpha("button", comp.id)) or 0
 
+    -- Resolve face / border colours based on state. The chunky chrome,
+    -- hover lift, press depth, and juice scale are all applied by
+    -- Button.draw — we just pick the right colour tokens.
+    local fill, border
     if disabled then
-        Theme.setColor(Theme.bg.sunken, 0.6)
-        love.graphics.rectangle("fill", px + p, y, content_w, h)
+        fill   = Theme.bg.sunken
+        border = Theme.border.soft
     elseif hovered then
-        Theme.setColor(Theme.bg.widget_hover, 0.85)
-        love.graphics.rectangle("fill", px + p, y, content_w, h)
+        fill   = Theme.bg.widget_hover
+        border = Theme.border.strong
+    else
+        fill   = Theme.bg.chrome
+        border = Theme.border.default
     end
 
-    Theme.setColor(disabled and Theme.border.soft
-                  or hovered and Theme.border.strong
-                  or Theme.border.default)
-    love.graphics.setLineWidth(hovered and Theme.space.line_strong or Theme.space.hairline)
-    love.graphics.rectangle("line", px + p, y + 1, content_w, h - 2)
-    love.graphics.setLineWidth(Theme.space.hairline)
+    Button.draw(px + p, y, content_w, total_h, {
+        fill_color   = fill,
+        border_color = border,
+        hovered      = hovered,
+        press_alpha  = press,
+        disabled     = disabled,
+        depth        = BTN_DEPTH,
+    }, function(fx, fy, fw, fh)
+        -- Render line stack inside the (post-press) face rect so labels
+        -- move with the button.
+        local cursor = fy + (BTN_PAD * 0.5)
+        for _, line in ipairs(comp.lines or {}) do
+            local style = line.style or "body"
+            local font  = styleFont(style, game)
+            love.graphics.setFont(font)
 
-    -- Click-flash press tint (services/ClickFlash). Drawn AFTER the chrome
-    -- but BEFORE the text so the press reads as a quick darken without
-    -- covering the label. Lazy require to keep the load order tolerant.
-    if comp.id then
-        local flash = require("services.ClickFlash").alpha("button", comp.id)
-        if flash > 0 then
-            Theme.setColor(Theme.bg.sunken, flash * 0.65)
-            love.graphics.rectangle("fill", px + p, y, content_w, h)
+            local color
+            if disabled then
+                color = Theme.fg.disabled
+            elseif style == "small" or style == "muted" then
+                color = Theme.fg.muted
+            elseif style == "heading" then
+                color = Theme.fg.heading
+            elseif style == "warning" then
+                color = Theme.status.warn
+            else
+                color = Theme.fg.primary
+            end
+            Theme.setColor(color)
+
+            local indent = lineIndent(style)
+            local printf_w = fw - indent - 4
+            love.graphics.printf(line.text or "", fx + indent, cursor, printf_w, "left")
+            cursor = cursor + lineRenderedHeight(line, game, fw)
         end
-    end
+    end)
 
-    local cursor = y + 4
-    for _, line in ipairs(comp.lines or {}) do
-        local style = line.style or "body"
-        local font  = styleFont(style, game)
-        love.graphics.setFont(font)
-
-        local color
-        if disabled then
-            color = Theme.fg.disabled
-        elseif style == "small" or style == "muted" then
-            color = Theme.fg.muted
-        elseif style == "heading" then
-            color = Theme.fg.heading
-        elseif style == "warning" then
-            color = Theme.status.warn
-        else
-            color = Theme.fg.primary
-        end
-        Theme.setColor(color)
-
-        local indent = lineIndent(style)
-        local printf_w = content_w - indent - 4
-        love.graphics.printf(line.text or "", px + p + indent, cursor, printf_w, "left")
-        cursor = cursor + lineRenderedHeight(line, game, content_w)
-    end
-
-    return h
+    return total_h
 end
 
 -- icon_row uses an `emoji_ui` font in CC. Poker-idle has no emoji font yet,

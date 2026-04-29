@@ -25,22 +25,8 @@ local Chips       = require("views.Chips")
 local ChipData    = require("data.chips")
 local ClickFlash  = require("services.ClickFlash")
 local Hover       = require("services.HoverService")
-
--- Hover + press tint helpers, applied on top of an already-rendered button.
--- Hovered buttons get a subtle bright wash; pressed buttons get a darker
--- press tint that fades over ~0.5 s (ClickFlash decay).
-local function tintHover(x, y, w, h, ns, id, radius)
-    if Hover.is(ns, id) then
-        Theme.setColor(Theme.fg.heading, 0.10)
-        love.graphics.rectangle("fill", x, y, w, h, radius or Theme.space.radius)
-    end
-end
-local function tintPress(x, y, w, h, ns, id, radius)
-    local a = ClickFlash.alpha(ns, id)
-    if a <= 0 then return end
-    Theme.setColor(Theme.bg.sunken, a * 0.65)
-    love.graphics.rectangle("fill", x, y, w, h, radius or Theme.space.radius)
-end
+local Button      = require("views.Button")
+local Ghosts      = require("services.Ghosts")
 
 local TablePanel = {}
 
@@ -170,22 +156,33 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     Theme.setColor(Theme.fg.heading)
     love.graphics.print(header_text, x + 8, y + 5)
 
-    -- [x] remove (right edge).
+    -- [x] remove (right edge). Chunky button via views/Button.
     local rb_x = x + w - REMOVE_BTN_SIZE - 4
     local rb_y = y + 3
-    Theme.setColor(can_remove and Theme.bg.widget_hover or Theme.bg.sunken, 0.6)
-    love.graphics.rectangle("fill", rb_x, rb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, Theme.space.radius)
-    Theme.setColor(can_remove and Theme.border.strong or Theme.border.soft)
-    love.graphics.rectangle("line", rb_x, rb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, Theme.space.radius)
-    Theme.setColor(can_remove and Theme.fg.heading or Theme.fg.disabled)
-    love.graphics.printf("x", rb_x, rb_y + 3, REMOVE_BTN_SIZE, "center")
+    do
+        local rid     = "remove_table:" .. idx
+        local hovered = can_remove and Hover.is("hit", rid)
+        local press   = can_remove and ClickFlash.alpha("hit", rid) or 0
+        Button.draw(rb_x, rb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, {
+            fill_color   = can_remove and Theme.bg.widget_hover or Theme.bg.sunken,
+            border_color = can_remove and Theme.border.strong   or Theme.border.soft,
+            hovered      = hovered,
+            press_alpha  = press,
+            disabled     = not can_remove,
+            depth        = 2,
+        }, function(fx, fy, fw, fh)
+            Theme.setColor(can_remove and Theme.fg.heading or Theme.fg.disabled)
+            love.graphics.setFont(fonts.ui_small)
+            love.graphics.printf("x", fx, fy + (fh - fonts.ui_small:getHeight()) * 0.5,
+                                 fw, "center")
+        end)
+    end
     if can_remove then
-        local rid = "remove_table:" .. idx
-        tintHover(rb_x, rb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, "hit", rid)
-        tintPress(rb_x, rb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, "hit", rid)
         hit_boxes[#hit_boxes + 1] = {
             x = rb_x, y = rb_y, w = REMOVE_BTN_SIZE, h = REMOVE_BTN_SIZE,
             action = "remove_table", idx = idx,
+            label = "x",
+            fill_color = Theme.bg.widget_hover,
             tooltip = "Close this table — refunds the current stack.",
         }
     end
@@ -197,22 +194,27 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
         local cb_x = rb_x - REMOVE_BTN_SIZE - 4
         local cb_y = y + 3
         local muted = tbl.cursor_muted == true
-        Theme.setColor(muted and Theme.bg.sunken or Theme.bg.widget_hover, 0.6)
-        love.graphics.rectangle("fill", cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, Theme.space.radius)
-        Theme.setColor(muted and Theme.border.soft or Theme.border.strong)
-        love.graphics.rectangle("line", cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, Theme.space.radius)
-        Theme.setColor(muted and Theme.fg.disabled or Theme.fg.heading)
-        love.graphics.printf("C", cb_x, cb_y + 3, REMOVE_BTN_SIZE, "center")
-        if muted then
-            -- strike-through: a horizontal line across the badge
-            love.graphics.setLineWidth(1)
-            Theme.setColor(Theme.fg.disabled)
-            love.graphics.line(cb_x + 3, cb_y + REMOVE_BTN_SIZE / 2,
-                               cb_x + REMOVE_BTN_SIZE - 3, cb_y + REMOVE_BTN_SIZE / 2)
-        end
-        local cid = "toggle_cursor:" .. idx
-        tintHover(cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, "hit", cid)
-        tintPress(cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, "hit", cid)
+        local cid     = "toggle_cursor:" .. idx
+        local hovered = Hover.is("hit", cid)
+        local press   = ClickFlash.alpha("hit", cid)
+        Button.draw(cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, {
+            fill_color   = muted and Theme.bg.sunken or Theme.bg.widget_hover,
+            border_color = muted and Theme.border.soft or Theme.border.strong,
+            hovered      = hovered,
+            press_alpha  = press,
+            depth        = 2,
+        }, function(fx, fy, fw, fh)
+            Theme.setColor(muted and Theme.fg.disabled or Theme.fg.heading)
+            love.graphics.setFont(fonts.ui_small)
+            love.graphics.printf("C", fx, fy + (fh - fonts.ui_small:getHeight()) * 0.5,
+                                 fw, "center")
+            if muted then
+                love.graphics.setLineWidth(1)
+                Theme.setColor(Theme.fg.disabled)
+                love.graphics.line(fx + 3, fy + fh / 2,
+                                   fx + fw - 3, fy + fh / 2)
+            end
+        end)
         hit_boxes[#hit_boxes + 1] = {
             x = cb_x, y = cb_y, w = REMOVE_BTN_SIZE, h = REMOVE_BTN_SIZE,
             action = "toggle_cursor", idx = idx,
@@ -366,6 +368,30 @@ end
 
 -- Shared felt-overlay button (DEAL when stacked, REBUY $X when busted).
 -- The variant is decided in :draw based on tbl.stack; this just renders.
+local DEAL_BTN_DEPTH = 4
+
+-- Render the chunky DEAL/REBUY button at (bx, by, btn_w, btn_h). Used both
+-- by the live render path and by the press-then-vanish ghost path, so the
+-- ghost matches the live button pixel-for-pixel.
+local function _renderFeltButton(bx, by, btn_w, btn_h, fonts, label, fill_color,
+                                  enabled, hovered, press)
+    Button.draw(bx, by, btn_w, btn_h, {
+        fill_color   = fill_color,
+        border_color = enabled and Theme.fg.heading or Theme.border.soft,
+        line_width   = Theme.space.line_strong,
+        hovered      = hovered,
+        press_alpha  = press,
+        disabled     = not enabled,
+        depth        = DEAL_BTN_DEPTH,
+    }, function(fx, fy, fw, fh)
+        local font = (fh >= 28) and fonts.heading or fonts.ui_small
+        love.graphics.setFont(font)
+        Theme.setColor(enabled and Theme.bg.window or Theme.fg.disabled)
+        local text_y = fy + math.floor((fh - font:getHeight()) * 0.5)
+        love.graphics.printf(label, fx, text_y, fw, "center")
+    end)
+end
+
 local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, fill_color, enabled)
     local btn_w = math.min(DEAL_BTN_W, w - 16)
     local btn_h = math.min(DEAL_BTN_H, h - 8)
@@ -373,24 +399,19 @@ local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, 
     if btn_h < 18 then btn_h = math.max(14, h - 4) end
     local bx = x + math.floor((w - btn_w) / 2)
     local by = y + math.floor((h - btn_h) / 2)
-    Theme.setColor(enabled and fill_color or Theme.bg.sunken, enabled and 0.85 or 0.5)
-    love.graphics.rectangle("fill", bx, by, btn_w, btn_h, Theme.space.radius)
-    Theme.setColor(enabled and Theme.fg.heading or Theme.border.soft, 0.95)
-    love.graphics.setLineWidth(Theme.space.line_strong)
-    love.graphics.rectangle("line", bx, by, btn_w, btn_h, Theme.space.radius)
-    love.graphics.setLineWidth(1)
-    Theme.setColor(enabled and Theme.bg.window or Theme.fg.disabled)
-    local font = (btn_h >= 28) and fonts.heading or fonts.ui_small
-    love.graphics.setFont(font)
-    local text_y = by + math.floor((btn_h - font:getHeight()) / 2)
-    love.graphics.printf(label, bx, text_y, btn_w, "center")
+    local fid     = action .. ":" .. idx
+    local hovered = enabled and Hover.is("hit", fid)
+    local press   = enabled and ClickFlash.alpha("hit", fid) or 0
+
+    _renderFeltButton(bx, by, btn_w, btn_h, fonts, label, fill_color,
+                      enabled, hovered, press)
+
     if enabled then
-        local fid = action .. ":" .. idx
-        tintHover(bx, by, btn_w, btn_h, "hit", fid)
-        tintPress(bx, by, btn_w, btn_h, "hit", fid)
         hit_boxes[#hit_boxes + 1] = {
             x = bx, y = by, w = btn_w, h = btn_h,
             action = action, idx = idx,
+            label = label,
+            fill_color = fill_color,
             tooltip = (action == "deal")
                   and "Deal a hand at this table."
                   or  "Refill the stack to 100bb to keep playing.",
@@ -398,23 +419,36 @@ local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, 
     end
 end
 
+-- Drop the unused inline ghost factory; TablePanel.makeGhostFor below is
+-- the public entry point for ephemeral-button ghost-rendering.
+
+local STAKE_UP_DEPTH = 2
+
 local function drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx, next_stake, diff, affordable)
     if not next_stake then return end
     local bw = felt_w - 2 * STAKE_UP_PAD
     local bx = felt_x + STAKE_UP_PAD
     local by = felt_y + felt_h - STAKE_UP_H - STAKE_UP_PAD
-    Theme.setColor(affordable and Theme.bg.widget_hover or Theme.bg.sunken, 0.85)
-    love.graphics.rectangle("fill", bx, by, bw, STAKE_UP_H, Theme.space.radius)
-    Theme.setColor(affordable and Theme.border.strong or Theme.border.soft)
-    love.graphics.rectangle("line", bx, by, bw, STAKE_UP_H, Theme.space.radius)
-    Theme.setColor(affordable and Theme.fg.heading or Theme.fg.disabled)
-    love.graphics.setFont(fonts.ui_small)
-    local label = string.format("UP -> %s  (+$%.2f)", next_stake.display_name, diff or 0)
-    love.graphics.printf(label, bx, by + 4, bw, "center")
+    local sid     = "stake_up:" .. idx
+    local hovered = affordable and Hover.is("hit", sid)
+    local press   = affordable and ClickFlash.alpha("hit", sid) or 0
+    local label   = string.format("UP -> %s  (+$%.2f)", next_stake.display_name, diff or 0)
+
+    Button.draw(bx, by, bw, STAKE_UP_H, {
+        fill_color   = affordable and Theme.bg.widget_hover or Theme.bg.sunken,
+        border_color = affordable and Theme.border.strong   or Theme.border.soft,
+        hovered      = hovered,
+        press_alpha  = press,
+        disabled     = not affordable,
+        depth        = STAKE_UP_DEPTH,
+    }, function(fx, fy, fw, fh)
+        Theme.setColor(affordable and Theme.fg.heading or Theme.fg.disabled)
+        love.graphics.setFont(fonts.ui_small)
+        local text_y = fy + math.floor((fh - fonts.ui_small:getHeight()) * 0.5)
+        love.graphics.printf(label, fx, text_y, fw, "center")
+    end)
+
     if affordable then
-        local sid = "stake_up:" .. idx
-        tintHover(bx, by, bw, STAKE_UP_H, "hit", sid)
-        tintPress(bx, by, bw, STAKE_UP_H, "hit", sid)
         hit_boxes[#hit_boxes + 1] = {
             x = bx, y = by, w = bw, h = STAKE_UP_H,
             action = "stake_up", idx = idx, next_stake_id = next_stake.id,
@@ -636,6 +670,54 @@ local function drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
     Theme.setColor(color, a * VIGNETTE_MAX_ALPHA)
     love.graphics.rectangle("fill", felt_x, felt_y, felt_w, felt_h,
                             Theme.space.radius)
+end
+
+-- ─── Ghost factory (press-then-vanish for ephemeral buttons) ─────────
+-- Builds a Ghosts.add render closure for a hit_box that's about to vanish
+-- (DEAL→dealing state, REBUY→stack refilled, [×]→table removed). The
+-- closure captures the rect + label + fill so the ghost matches the live
+-- button exactly, and replays the press rise-out animation while the
+-- underlying render path is gone.
+--
+-- Returns nil for actions that don't need ghost-fade (stake-up, [C], etc.
+-- — those persist after click and animate via the live ClickFlash path).
+function TablePanel.makeGhostFor(hb, fonts)
+    if not (hb and hb.action and hb.label) then return nil end
+
+    local depth, label_color
+    if hb.action == "deal" or hb.action == "rebuy" then
+        depth       = 4
+        label_color = Theme.bg.window
+    elseif hb.action == "remove_table" then
+        depth       = 2
+        label_color = Theme.fg.heading
+    else
+        return nil
+    end
+
+    local rx, ry, rw, rh = hb.x, hb.y, hb.w, hb.h
+    local label, fill   = hb.label, hb.fill_color or Theme.bg.widget_hover
+    local border_color  = Theme.fg.heading
+
+    return function(alpha)
+        -- Ghosts decays alpha 1 → 0 over ~0.5 s. Mapping straight to
+        -- press_alpha gives the rise-out animation: press_alpha=1 at click
+        -- (face flat), press_alpha=0 at despawn (face at rest, then ghost
+        -- removed). No fade — the rise IS the visual, then it just stops.
+        Button.draw(rx, ry, rw, rh, {
+            fill_color   = fill,
+            border_color = border_color,
+            press_alpha  = alpha,
+            depth        = depth,
+        }, function(fx, fy, fw, fh)
+            local font = (fh >= 28) and fonts.heading or fonts.ui_small
+            love.graphics.setFont(font)
+            Theme.setColor(label_color)
+            love.graphics.printf(label, fx,
+                                 fy + math.floor((fh - font:getHeight()) * 0.5),
+                                 fw, "center")
+        end)
+    end
 end
 
 -- ─── Public API ──────────────────────────────────────────────────────

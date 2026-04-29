@@ -16,6 +16,7 @@ local GrindController  = require("controllers.GrindController")
 local CursorPool       = require("services.CursorPool")
 local ChipFlightSystem = require("services.ChipFlightSystem")
 local ClickFlash       = require("services.ClickFlash")
+local Ghosts           = require("services.Ghosts")
 
 local GrindState = {}
 GrindState.__index = GrindState
@@ -67,6 +68,7 @@ function GrindState:fullReset()
     CursorPool.reset()
     ChipFlightSystem.clear()
     ClickFlash.clear()
+    Ghosts.clear()
 end
 
 -- Phase 2 debug: H deals one hand on table 1. J deals every idle table.

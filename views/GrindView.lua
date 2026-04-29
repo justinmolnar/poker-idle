@@ -25,6 +25,8 @@ local ChipData    = require("data.chips")
 local ChipFlight  = require("services.ChipFlightSystem")
 local ClickFlash  = require("services.ClickFlash")
 local TooltipSvc  = require("services.Tooltip")
+local Button      = require("views.Button")
+local Ghosts      = require("services.Ghosts")
 local Stakes      = require("data.stakes")
 local GameTypes   = require("data.game_types")
 local RunUpgrades = require("data.run_upgrades")
@@ -141,34 +143,31 @@ function GrindView:_makeGameTypeStrip()
             local strip_w = pw - pad * 2
             local n = #GameTypes
             local btn_w = strip_w / n
-            love.graphics.setFont(fonts.ui_small)
             for i, gt in ipairs(GameTypes) do
                 local bx = strip_x + (i - 1) * btn_w
                 local rect_w, rect_h = btn_w - 2, STRIP_H - 4
                 local active = (gt.id == self_ref.selected_gtype)
                 local id     = "gtype:" .. gt.id
-                local hov    = game.hover.is("button", id)
-                Theme.setColor(active and Theme.bg.widget_hover or Theme.bg.chrome)
-                love.graphics.rectangle("fill", bx, y, rect_w, rect_h, Theme.space.radius)
-                Theme.setColor(active and Theme.border.strong
-                              or hov  and Theme.border.strong
-                              or Theme.border.default)
-                love.graphics.rectangle("line", bx, y, rect_w, rect_h, Theme.space.radius)
-                Theme.setColor(active and Theme.fg.heading
-                              or hov  and Theme.fg.heading
-                              or Theme.fg.muted)
-                love.graphics.printf(gt.short or gt.name, bx, y + 8, rect_w, "center")
-
-                -- Hover wash + press tint, same shape as TablePanel buttons.
-                if hov and not active then
-                    Theme.setColor(Theme.fg.heading, 0.10)
-                    love.graphics.rectangle("fill", bx, y, rect_w, rect_h, Theme.space.radius)
-                end
-                local flash = ClickFlash.alpha("button", id)
-                if flash > 0 then
-                    Theme.setColor(Theme.bg.sunken, flash * 0.65)
-                    love.graphics.rectangle("fill", bx, y, rect_w, rect_h, Theme.space.radius)
-                end
+                local hov    = game.hover.is("button", id) and not active
+                local press  = ClickFlash.alpha("button", id)
+                local label  = gt.short or gt.name
+                Button.draw(bx, y, rect_w, rect_h, {
+                    fill_color   = active and Theme.bg.widget_hover or Theme.bg.chrome,
+                    border_color = active and Theme.border.strong
+                                  or hov  and Theme.border.strong
+                                  or Theme.border.default,
+                    hovered      = hov,
+                    press_alpha  = press,
+                    depth        = 3,
+                }, function(fx, fy, fw, fh)
+                    Theme.setColor(active and Theme.fg.heading
+                                  or hov  and Theme.fg.heading
+                                  or Theme.fg.muted)
+                    love.graphics.setFont(fonts.ui_small)
+                    love.graphics.printf(label, fx,
+                        fy + math.floor((fh - fonts.ui_small:getHeight()) * 0.5),
+                        fw, "center")
+                end)
             end
         end,
         hit_fn = function(px, y, pw, _, cx, cy)
@@ -572,39 +571,34 @@ function GrindView:_drawShoveButton()
     local rate = math.min(Constants.GAMEPLAY.SHOVE_RATE_CAP, ctx.shove_rate or 0)
     local pending_pp = state.pp_this_run or 0
 
-    Theme.setColor(can_shove and Theme.status.error or Theme.bg.sunken, can_shove and 0.85 or 0.4)
-    love.graphics.rectangle("fill", sb.x, sb.y, sb.w, sb.h, Theme.space.radius)
-    Theme.setColor(can_shove and Theme.status.error or Theme.border.soft)
-    love.graphics.setLineWidth(Theme.space.line_strong)
-    love.graphics.rectangle("line", sb.x, sb.y, sb.w, sb.h, Theme.space.radius)
-    love.graphics.setLineWidth(1)
-
-    Theme.setColor(can_shove and Theme.fg.heading or Theme.fg.disabled)
-    love.graphics.setFont(self.game.fonts.heading)
-    love.graphics.printf("SHOVE", sb.x, sb.y + 4, sb.w, "center")
-
-    -- Pending PP — what the player banks if they pull the trigger now.
-    -- Violet matches the bounty floating-text so the connection is visible.
-    Theme.setColor(can_shove and Theme.data.violet or Theme.fg.faint)
-    love.graphics.setFont(self.game.fonts.ui_small)
-    love.graphics.printf(string.format("+%d PP banked", pending_pp),
-        sb.x, sb.y + 30, sb.w, "center")
-
-    Theme.setColor(can_shove and Theme.fg.primary or Theme.fg.faint)
-    love.graphics.printf(string.format("%.1f%% per runout", rate * 100),
-        sb.x, sb.y + 46, sb.w, "center")
-
-    -- Hover wash + click-flash press-tint. Fade lasts ~0.5 s.
     local mx, my = love.mouse.getPosition()
-    if mx >= sb.x and mx < sb.x + sb.w and my >= sb.y and my < sb.y + sb.h then
-        Theme.setColor(Theme.fg.heading, 0.10)
-        love.graphics.rectangle("fill", sb.x, sb.y, sb.w, sb.h, Theme.space.radius)
-    end
-    local flash = ClickFlash.alpha("shove", "shove")
-    if flash > 0 then
-        Theme.setColor(Theme.bg.sunken, flash * 0.65)
-        love.graphics.rectangle("fill", sb.x, sb.y, sb.w, sb.h, Theme.space.radius)
-    end
+    local hovered = can_shove and mx >= sb.x and mx < sb.x + sb.w
+                                and my >= sb.y and my < sb.y + sb.h
+    local press   = ClickFlash.alpha("shove", "shove")
+
+    Button.draw(sb.x, sb.y, sb.w, sb.h, {
+        fill_color   = can_shove and Theme.status.error or Theme.bg.sunken,
+        border_color = can_shove and Theme.fg.heading   or Theme.border.soft,
+        line_width   = Theme.space.line_strong,
+        hovered      = hovered,
+        press_alpha  = press,
+        disabled     = not can_shove,
+        depth        = 5,
+    }, function(fx, fy, fw, fh)
+        local fonts = self.game.fonts
+        Theme.setColor(can_shove and Theme.fg.heading or Theme.fg.disabled)
+        love.graphics.setFont(fonts.heading)
+        love.graphics.printf("SHOVE", fx, fy + 4, fw, "center")
+
+        Theme.setColor(can_shove and Theme.data.violet or Theme.fg.faint)
+        love.graphics.setFont(fonts.ui_small)
+        love.graphics.printf(string.format("+%d PP banked", pending_pp),
+            fx, fy + 30, fw, "center")
+
+        Theme.setColor(can_shove and Theme.fg.primary or Theme.fg.faint)
+        love.graphics.printf(string.format("%.1f%% per runout", rate * 100),
+            fx, fy + 46, fw, "center")
+    end)
 end
 
 -- ─── Floating text overlay ────────────────────────────────────────────
@@ -683,6 +677,10 @@ function GrindView:draw()
     -- Cursor swarm — drawn above flying chips so cursors remain readable
     -- against the chip fountain.
     CursorPool.draw()
+
+    -- Press-then-vanish ghosts for DEAL / REBUY / [×] click animations.
+    -- Drawn above panels so they sit visually where the live button was.
+    Ghosts.draw()
 
     -- Hover tooltip — sits above gameplay layers but below the backtick
     -- debug overlay (which is the absolute top).
@@ -785,6 +783,15 @@ function GrindView:_handleHitBox(hb)
     -- share a flash bucket and tint each other on click.
     if hb.action and hb.idx then
         ClickFlash.flash("hit", hb.action .. ":" .. hb.idx)
+    end
+
+    -- Press-then-vanish: ephemeral buttons (DEAL / REBUY / [×]) stop
+    -- being rendered the moment the click fires (state changes, table
+    -- removed). Snapshot a ghost into Ghosts so the rise-out press
+    -- animation plays out for ~0.5 s before despawning.
+    if hb.action == "deal" or hb.action == "rebuy" or hb.action == "remove_table" then
+        local ghost = TablePanel.makeGhostFor(hb, self.game.fonts)
+        if ghost then Ghosts.add(ghost) end
     end
 
     if hb.action == "deal" then

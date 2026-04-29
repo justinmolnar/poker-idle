@@ -29,6 +29,7 @@ local CursorPool      = require("services.CursorPool")
 local ChipFlightSystem = require("services.ChipFlightSystem")
 local ClickFlash      = require("services.ClickFlash")
 local Tooltip         = require("services.Tooltip")
+local Ghosts          = require("services.Ghosts")
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
@@ -71,6 +72,7 @@ local function buildGame()
     g.chip_flight     = ChipFlightSystem
     g.click_flash     = ClickFlash
     g.tooltip         = Tooltip
+    g.ghosts          = Ghosts
 
     g.save_service    = SaveService:new()
     local saved       = g.save_service:loadAll()
@@ -117,6 +119,7 @@ function love.update(dt)
     Game.floating_text.update(dt)
     ChipFlightSystem.update(dt)
     ClickFlash.update(dt)
+    Ghosts.update(dt)
     -- No auto-save. Use F5 to save manually, F6 to reload, F7 to wipe.
 end
 
