@@ -11,7 +11,7 @@
 --   Resolution returns on the transition INTO settling.
 --
 -- ─── Math layer (outcome grid) ─────────────────────────────────────────
--- Per opponent there is an 8-cell grid (4 pot tiers × win/lose):
+-- Each hand resolves through an 8-cell outcome grid (4 pot tiers × W/L):
 --
 --       LOSE                   WIN
 --   Tiny    (tl)            Tiny    (tw)
@@ -19,16 +19,21 @@
 --   Medium  (ml)            Medium  (mw)
 --   Jackpot (jl)            Jackpot (jw)
 --
--- Each cell holds a probability; the grid sums to 1.0. The base grid is
--- looked up by opp.skill in data/opponent_types.lua. A small additive
--- per-style shift is applied next, then the game-type's grid_modifier,
--- then any ctx.grid_shifts pushed by run upgrades / catalog perks. Any
--- negative cells clamp at 0 and the grid renormalizes to sum=1.
+-- Cells hold probabilities summing to 1.0. The grid is built per-hand by
+-- buildGrid(opp, ctx, gtype, stake) which layers, in order:
+--   1. data/base_grid.lua           — universal symmetric ~50/50 baseline
+--   2. stake.difficulty             — per-stake shift (the difficulty curve)
+--   3. gtype.grid_modifier          — per-gtype tier-shape texture
+--   4. OpTypes.skill_shifts[skill]  — small per-skill modulation
+--   5. OpTypes.style_shifts[style]  — additive per-style cell shifts
+--   6. ctx.grid_shifts              — run upgrades + catalog perks; some
+--                                     filter on opp tags / gtype
+-- Negative cells clamp to 0 and the grid renormalizes to sum=1.
 --
 -- Per hand:
 --   1. Pick opponent uniformly from seated.
---   2. _buildGrid(opp, ctx) → grid.
---   3. _sampleGrid(grid) → { tier, won, magnitude_bb }.
+--   2. buildGrid(opp, ctx, gtype, stake) → grid.
+--   3. sampleCell(grid) → cell key, decoded to { tier, won, magnitude_bb }.
 --   4. delta = ±magnitude × stake.bb × (earnings_mult on win, loss_mult on lose).
 --   5. Construct cards (rejection sampling) so best5(player) beats / loses
 --      to best5(opp), matching the rolled `won`.
@@ -41,6 +46,7 @@ local StakesData    = require("data.stakes")
 local GameTypesData = require("data.game_types")
 local NameData      = require("data.opponent_names")
 local OpTypes       = require("data.opponent_types")
+local BaseGrid      = require("data.base_grid")
 
 local Table = {}
 Table.__index = Table
@@ -70,21 +76,6 @@ local function findGameType(id)
     end
 end
 
-local function mergeDist(dist, modifier)
-    if not dist then return nil end
-    if not modifier then return dist end
-    local out = {}
-    local total = 0
-    for k, v in pairs(dist) do
-        local nv = v * (modifier[k] or 1)
-        out[k] = nv
-        total = total + nv
-    end
-    if total <= 0 then return dist end
-    for k, v in pairs(out) do out[k] = v / total end
-    return out
-end
-
 local function sampleDist(dist)
     if not dist then return nil end
     local total = 0
@@ -108,7 +99,6 @@ end
 -- ─── Outcome grid ─────────────────────────────────────────────────────
 
 local CELL_KEYS = { "tl", "sl", "ml", "jl", "tw", "sw", "mw", "jw" }
-local LOSE_KEYS = { "tl", "sl", "ml", "jl" }
 local WIN_KEYS  = { "tw", "sw", "mw", "jw" }
 local TIER_KEYS = { "tiny", "small", "medium", "jackpot" }
 
@@ -174,7 +164,7 @@ end
 -- Each op is a function. Dispatched by name from a table — no kind chain.
 
 -- Move `amount` × (current L cell mass) from each Lose cell to the same-tier
--- Win cell. Sharper Reads / Calm Hands / Patience / Calculator.
+-- Win cell. Sharper Reads / Calm Hands / Patience / Calculator / rec skill.
 local function shiftLoseToWin(g, amount)
     if amount <= 0 then return end
     for _, t in ipairs(TIER_KEYS) do
@@ -182,6 +172,19 @@ local function shiftLoseToWin(g, amount)
         local moved = (g[pair.l] or 0) * amount
         g[pair.l] = g[pair.l] - moved
         g[pair.w] = (g[pair.w] or 0) + moved
+    end
+end
+
+-- Inverse of shiftLoseToWin — move `amount` × (current W cell mass) from
+-- each Win cell to the same-tier Lose cell. Per-stake difficulty / pro
+-- skill use this to make hands harder.
+local function shiftWinToLose(g, amount)
+    if amount <= 0 then return end
+    for _, t in ipairs(TIER_KEYS) do
+        local pair = TIER_PAIRS[t]
+        local moved = (g[pair.w] or 0) * amount
+        g[pair.w] = g[pair.w] - moved
+        g[pair.l] = (g[pair.l] or 0) + moved
     end
 end
 
@@ -206,8 +209,20 @@ end
 
 local SHIFT_OPS = {
     lose_to_win    = shiftLoseToWin,
+    win_to_lose    = shiftWinToLose,
     shift_downward = shiftDownward,
 }
+
+local function applyShift(g, shift)
+    if not shift or not shift.op then return end
+    local op = SHIFT_OPS[shift.op]
+    if op then op(g, shift.amount or 0) end
+end
+
+local function applyShifts(g, shifts)
+    if not shifts then return end
+    for _, shift in ipairs(shifts) do applyShift(g, shift) end
+end
 
 -- Returns true if the shift descriptor applies to (opp, gtype).
 local function shiftApplies(shift, opp, gtype)
@@ -218,23 +233,39 @@ local function shiftApplies(shift, opp, gtype)
 end
 
 -- Build the effective 8-cell grid for one opponent, given the player ctx.
+-- Pipeline:
+--   1. Copy BaseGrid (universal symmetric ~50/50 starting point).
+--   2. Apply stake.difficulty (list of grid_shifts; harder stakes shift
+--      mass W → L via win_to_lose).
+--   3. Apply gtype.grid_modifier (additive per-tier shift, split L/W).
+--   4. Apply OpTypes.skill_shifts[opp.skill] (single shift; rec slightly
+--      easier, pro slightly harder, reg neutral).
+--   5. Apply OpTypes.style_shifts[opp.style] (additive cell shifts).
+--   6. Apply ctx.grid_shifts that match this opp's tags / gtype, then
+--      general (untargeted) ones.
+--   7. Clamp negatives to 0 and renormalize to sum=1.
 -- Returns a fresh table; caller may mutate freely.
-local function buildGrid(opp, ctx, gtype)
-    local base = OpTypes.skill_grids[opp.skill] or OpTypes.skill_grids.rec
-    local g = gridCopy(base)
+local function buildGrid(opp, ctx, gtype, stake)
+    local g = gridCopy(BaseGrid)
 
-    -- Style shift (additive table; missing entries treated as 0).
-    applyAdditiveShift(g, OpTypes.style_shifts[opp.style])
+    -- Per-stake difficulty (the dominant source of stake-to-stake variance).
+    if stake then applyShifts(g, stake.difficulty) end
 
-    -- Game-type tier shift (per-row, split evenly L/W).
+    -- Game-type tier shape (per-row, split evenly L/W).
     applyGtypeModifier(g, gtype and gtype.grid_modifier)
 
-    -- ctx.grid_shifts (run upgrades + catalog perks), in order.
+    -- Per-skill shift (rec / reg / pro — small).
+    applyShift(g, OpTypes.skill_shifts[opp.skill])
+
+    -- Per-style additive shift (variance shape — flavor).
+    applyAdditiveShift(g, OpTypes.style_shifts[opp.style])
+
+    -- ctx.grid_shifts (run upgrades + catalog perks), in order. Shifts
+    -- with skill / style / gtype filters only fire when matching.
     if ctx and ctx.grid_shifts then
         for _, shift in ipairs(ctx.grid_shifts) do
             if shiftApplies(shift, opp, gtype) then
-                local op = SHIFT_OPS[shift.op]
-                if op then op(g, shift.amount or 0) end
+                applyShift(g, shift)
             end
         end
     end
@@ -335,12 +366,14 @@ function Table:fillOpponents(ctx)
     local gtype = findGameType(self.game_type_id)
     if not stake or not gtype then return end
 
-    local skill_dist = mergeDist(stake.skill_distribution,     gtype.skill_modifier)
-    local style_dist = mergeDist(stake.playstyle_distribution, gtype.playstyle_modifier)
+    -- Uniform pool across all stakes — opponents are flavor + the targets
+    -- upgrades latch onto, NOT the source of per-stake difficulty.
+    local skill_dist = OpTypes.default_distributions.skills
+    local style_dist = OpTypes.default_distributions.playstyles
 
     for i = 1, gtype.seats do
-        local skill = sampleDist(skill_dist) or "rec"
-        local style = sampleDist(style_dist) or "fish"
+        local skill = sampleDist(skill_dist) or "reg"
+        local style = sampleDist(style_dist) or "tag"
         local name  = pickRandomName()
         local stack = stake.buy_in or 0
         self.opponents[i] = Opponent:new(skill, style, name, stack)
@@ -403,7 +436,7 @@ function Table:deal(ctx)
     if not opp then return false end
 
     -- Build this opponent's outcome grid and sample one cell.
-    local grid = buildGrid(opp, ctx, gtype)
+    local grid = buildGrid(opp, ctx, gtype, stake)
     local cell = sampleCell(grid)
     local decoded = CELL_DECODE[cell] or { tier = "tiny", won = false }
     local magnitude_bb = rollTierMagnitude(decoded.tier)
@@ -542,9 +575,8 @@ function Table:tableGrid(ctx)
     local gtype = findGameType(self.game_type_id)
     if not stake or not gtype then return nil end
 
-    local skill_dist = mergeDist(stake.skill_distribution,     gtype.skill_modifier)
-    local style_dist = mergeDist(stake.playstyle_distribution, gtype.playstyle_modifier)
-    if not skill_dist or not style_dist then return nil end
+    local skill_dist = OpTypes.default_distributions.skills
+    local style_dist = OpTypes.default_distributions.playstyles
 
     local out = {}
     for _, k in ipairs(CELL_KEYS) do out[k] = 0 end
@@ -554,7 +586,7 @@ function Table:tableGrid(ctx)
             local w = sp * yp
             if w > 0 then
                 local proxy = { skill = skill, style = style }
-                local g = buildGrid(proxy, ctx or {}, gtype)
+                local g = buildGrid(proxy, ctx or {}, gtype, stake)
                 for _, k in ipairs(CELL_KEYS) do
                     out[k] = out[k] + (g[k] or 0) * w
                 end

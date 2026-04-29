@@ -1,30 +1,48 @@
 -- data/opponent_types.lua
 --
--- Opponent classification: every seated opponent is a (skill, playstyle)
--- compound. Skill is the dominant axis on the 8-cell outcome grid; playstyle
--- is a small additive nudge layered on top.
+-- Opponent tags + per-tag grid shifts. Every seated opponent is a
+-- (skill, playstyle) compound. Under the post-refactor model, the
+-- *base difficulty* of any (stake, gtype) combination is set by the
+-- per-stake difficulty shift (see data/stakes.lua) and the per-gtype
+-- modifier (see data/game_types.lua), NOT by the opponent skills.
+-- Opponent tags are texture: a small modulation around the base, plus
+-- the targets that upgrades (Calm Hands, Patience, etc.) latch onto.
 --
--- The 8 cells are arranged: 4 pot tiers (Tiny / Small / Medium / Jackpot)
--- × 2 columns (Lose / Win). Each cell holds a probability; columns sum
--- to 1.0. Per hand, models/Table.lua:_buildGrid takes the per-skill grid,
--- applies the style modifier, applies the game-type grid_modifier, applies
--- ctx.grid_shifts (run upgrades + catalog perks), and renormalizes — then
--- :_sampleGrid picks one cell.
+-- Skill tiers (3): rec / reg / pro.
+--   rec applies a small "lose_to_win" shift  → slightly easier
+--   reg is the neutral baseline              → no shift
+--   pro applies a small "win_to_lose" shift  → slightly harder
+-- These are intentionally small (~5%) so the per-stake curve does the
+-- heavy lifting; a fresh-save player at s001 hits ~50/50 regardless of
+-- whether the opponent is rec or pro, then watches the curve drop fast
+-- as they climb stakes.
 --
--- Magnitudes per tier (in big-blinds; rolled uniformly within the range):
+-- Playstyles (4): fish / tag / lag / nit.
+--   No built-in EV difference between styles — they're flavor + the
+--   targets for style-specific upgrades (Patience vs fish/nit). Subtle
+--   additive cell shifts redistribute mass across tiers (variance shape)
+--   without moving the W/L balance much.
+--
+-- Default distributions are uniform across all stakes — the opponent
+-- pool you face is the same at $0.02 and $1000. The stake's difficulty
+-- shift is what changes; recs aren't artificially more common at low
+-- stakes because that would re-implement difficulty through the back
+-- door (which is exactly what we just refactored away from).
+--
+-- ─── Pot-tier magnitude bands ──────────────────────────────────────
+-- Magnitudes per tier (in big-blinds; rolled uniformly within range):
 --   Tiny    1.0 –  3.0
 --   Small   5.0 – 15.0
 --   Medium  18.0 – 45.0
 --   Jackpot 80.0 – 120.0      (≈ full buy-in — stack-off win or loss)
 --
--- The cell magnitudes live in models/Table.lua so the data here stays pure
--- distribution. Pure data; no logic.
+-- Pure data; no logic.
 
 return {
 
-    -- ── Pot-tier magnitude bands (used by Table:_sampleGrid). Listed here
-    --    so the tooltip / EV math has a single source of truth alongside
-    --    the cell distributions.
+    -- ── Pot-tier magnitude bands (used by Table:_sampleGrid). Listed
+    --    here so EV math has a single source of truth alongside the
+    --    grid distributions in data/base_grid.lua.
     tier_bb_ranges = {
         tiny    = { lo = 1.0,  hi = 3.0   },
         small   = { lo = 5.0,  hi = 15.0  },
@@ -32,46 +50,30 @@ return {
         jackpot = { lo = 80.0, hi = 120.0 },
     },
 
-    -- ── Per-skill base grids ────────────────────────────────────────────
-    -- Probability mass per cell, by opponent skill. Each grid sums to 1.0.
-    -- The shape is brutal-by-default at the top: a naked player can grind
-    -- rec/reg, but grind/pro are essentially unwinnable until upgrades stack.
-    --
-    --   vs rec   ≈ 70% Win — soft pool, strongly +EV
-    --   vs reg   ≈ 30% Win — net -EV; you bleed without reads
-    --   vs grind ≈  5% Win — strongly -EV; needs upgrades to break even
-    --   vs pro   ≈  1% Win — catastrophic; needs Calm Hands + stacked perks
-    --
-    -- Pro's L column also leans heavier on Medium / Jackpot tiers, modeling
-    -- "they stack you when they have it" — losses against pros aren't just
-    -- frequent, they're large. Sharper Reads etc. shift mass back into the
-    -- W column via lose_to_win shifts.
-    --
-    -- Field naming: tl = tiny lose, tw = tiny win, etc.
-    skill_grids = {
-        rec = {
-            tl = 0.15, sl = 0.08,  ml = 0.04,  jl = 0.03,
-            tw = 0.30, sw = 0.25,  mw = 0.10,  jw = 0.05,
-        },
-        reg = {
-            tl = 0.30, sl = 0.20,  ml = 0.13,  jl = 0.07,
-            tw = 0.18, sw = 0.06,  mw = 0.03,  jw = 0.03,
-        },
-        grind = {
-            tl = 0.30, sl = 0.30,  ml = 0.20,  jl = 0.15,
-            tw = 0.020, sw = 0.015, mw = 0.005, jw = 0.010,
-        },
-        pro = {
-            tl = 0.30, sl = 0.25,  ml = 0.25,  jl = 0.19,
-            tw = 0.005, sw = 0.002, mw = 0.001, jw = 0.002,
-        },
+    -- ── Default opponent distributions ──────────────────────────────
+    -- Uniform across all stakes / game types. Read by Table:fillOpponents
+    -- (per-seat sampling) and Table:tableGrid (gauge expectation math).
+    -- Numbers are weights, not probabilities; sampleDist normalizes.
+    default_distributions = {
+        skills     = { rec = 1, reg = 1, pro = 1 },
+        playstyles = { fish = 1, tag = 1, lag = 1, nit = 1 },
     },
 
-    -- ── Skill metadata (display name, shortcut, blurb, ctx_key) ─────────
-    -- ctx_key is the field on the player's effects ctx that *targets* this
-    -- skill tier with grid-shift effects (e.g. Calm Hands shifts mass on
-    -- pro cells specifically). The applicator reads opp.skill, looks up the
-    -- skill's ctx_key, then checks for matching shifts in ctx.grid_shifts.
+    -- ── Per-skill shifts ────────────────────────────────────────────
+    -- A single grid_shift descriptor per skill, applied in the buildGrid
+    -- pipeline after stake/gtype but before ctx shifts. nil = no shift.
+    -- Magnitudes intentionally small so skill is texture, not the curve.
+    skill_shifts = {
+        rec = { op = "lose_to_win", amount = 0.05 },
+        reg = nil,
+        pro = { op = "win_to_lose", amount = 0.05 },
+    },
+
+    -- ── Skill metadata (display name, shortcut, blurb, ctx_key) ─────
+    -- ctx_key is the field name on a player's effects ctx that *targets*
+    -- this skill tier with grid-shift effects (e.g. Calm Hands shifts
+    -- mass on pro cells specifically). The applicator reads opp.skill,
+    -- looks up the skill's ctx_key, then checks for matching shifts.
     skills = {
         rec = {
             name    = "Recreational",
@@ -85,12 +87,6 @@ return {
             ctx_key = "vs_reg",
             blurb   = "Knows the basics, plays solid most of the time.",
         },
-        grind = {
-            name    = "Grinder",
-            short   = "Grind",
-            ctx_key = "vs_grind",
-            blurb   = "Volume-focused regular at this stake. Very hard to push around.",
-        },
         pro = {
             name    = "Pro",
             short   = "Pro",
@@ -99,10 +95,10 @@ return {
         },
     },
 
-    -- ── Per-style additive grid shifts ──────────────────────────────────
-    -- Applied after the skill grid is selected, before any ctx shifts.
-    -- Cells listed get added to (negative cells clamp at 0), then the
-    -- whole grid renormalizes to sum=1.
+    -- ── Per-style additive grid shifts ──────────────────────────────
+    -- Applied as additive cell deltas after the skill shift. Cells listed
+    -- get added to (negative cells clamp at 0); the whole grid renormalizes
+    -- to sum=1 at the end of buildGrid.
     --
     --   fish — pays you off (mass into MW + JW from TL + TW)
     --   tag  — neutral (no shift)
@@ -115,7 +111,7 @@ return {
         nit  = { tw =  0.03, tl =  0.03, jw = -0.03, mw = -0.03 },
     },
 
-    -- ── Playstyle metadata (display + blurbs) ───────────────────────────
+    -- ── Playstyle metadata (display + blurbs) ───────────────────────
     playstyles = {
         fish = {
             name  = "Fish",

@@ -314,7 +314,26 @@ end
 function GrindController:dealHand(idx)
     local t = self.pool:get(idx)
     if not t or t:isBusy() then return false end
+    -- Stack must be positive to play. Hitting 0 means the table is busted
+    -- and the player must :rebuyTable before dealing again.
+    if (t.stack or 0) <= 0 then return false end
     return t:deal(self.ctx)
+end
+
+-- Refill a busted table's stack to a fresh 100bb buy-in by spending from
+-- bankroll. No-op if the table isn't actually busted, or if the player
+-- can't afford the rebuy.
+function GrindController:rebuyTable(idx)
+    local t = self.pool:get(idx)
+    if not t then return false end
+    if (t.stack or 0) > 0 then return false end
+    local stake = findStake(t.stake_id)
+    local cost  = (stake and stake.buy_in) or 0
+    local state = self.game.state
+    if state.bankroll < cost then return false end
+    state.bankroll = state.bankroll - cost
+    t.stack = cost
+    return true
 end
 
 -- Map per-hand state-machine transitions to sound names. Called from
@@ -340,7 +359,7 @@ end
 function GrindController:dealAll()
     local n = 0
     for _, t in ipairs(self.pool.tables) do
-        if not t:isBusy() then
+        if not t:isBusy() and (t.stack or 0) > 0 then
             if t:deal(self.ctx) then n = n + 1 end
         end
     end

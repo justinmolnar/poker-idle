@@ -1,6 +1,6 @@
 -- data/game_types.lua
 --
--- Game type definitions. Each layers on top of a stake:
+-- Game type definitions. Each layers on top of a stake's base difficulty:
 --
 --   • seats              — number of opponents at the felt
 --   • pace_mult          — multiplier on the per-hand cinematic. >1 = faster.
@@ -14,15 +14,18 @@
 --                          a tier moves probability mass *into* that row,
 --                          split evenly between the W and L columns; the
 --                          grid is renormalized to sum=1 afterward. nil =
---                          no shift (6-max baseline). Used to make HU feel
---                          like an all-in fest, Zoom feel like fold city,
---                          9-max feel tighter than 6-max.
---   • skill_modifier     — multiplicative offsets into stake.skill_distribution
---                          (then renormalized). nil = use stake's as-is.
---   • playstyle_modifier — same shape, but for stake.playstyle_distribution.
+--                          no shift (6-max baseline). Used to give each
+--                          game type its tier shape — HU = deeper, Zoom =
+--                          fold city, 9-max = tighter than 6-max.
 --   • rerolls_opponents  — true for Zoom; opponents reroll per hand and
 --                          their revealed-skill / revealed-style flags reset
 --                          (you never learn a Zoom pool).
+--
+-- The post-refactor model deliberately drops the per-gtype skill_modifier
+-- and playstyle_modifier — pool reweighting through game type is what
+-- caused HU to become a pro-only nightmare at any stake. Per-gtype texture
+-- now lives ONLY in grid_modifier (which doesn't change W/L balance, just
+-- tier shape) and pace_mult (which changes throughput, not per-hand EV).
 --
 -- Pure data — no logic.
 
@@ -34,10 +37,8 @@ return {
         short = "6-MAX",
         seats = 5,
         pace_mult = 0.5,        -- baseline slow — 4.4s/hand. Anchors all multi-tabling math.
-        grid_modifier = nil,    -- baseline grid; no shift
-        skill_modifier     = nil,
-        playstyle_modifier = nil,
-        rerolls_opponents  = false,
+        grid_modifier = nil,    -- baseline; no shift
+        rerolls_opponents = false,
     },
     {
         id   = "nine_max",
@@ -48,9 +49,7 @@ return {
         -- Tighter ranges, more pre-flop folds. Mass moves into Tiny rows
         -- and out of Medium/Jackpot. Less drama per hand than 6-max.
         grid_modifier = { tiny = 0.05, small = 0.00, medium = -0.03, jackpot = -0.02 },
-        skill_modifier     = nil,
-        playstyle_modifier = { fish = 0.7, tag = 1.3, lag = 0.6, nit = 1.6 },
-        rerolls_opponents  = false,
+        rerolls_opponents = false,
     },
     {
         id   = "hu",
@@ -58,14 +57,13 @@ return {
         short = "HU",
         seats = 1,
         pace_mult = 1.0,        -- fast — 2.2s/hand
-        -- Heads-up depth = every hand goes deeper. Mass moves *out* of
-        -- Tiny (no folding around the table) and *into* Medium and
-        -- Jackpot rows. Each hand is a real hand.
-        grid_modifier = { tiny = -0.10, small = -0.05, medium = 0.08, jackpot = 0.07 },
-        -- HU pool is brutally pro-heavy. Recreationals don't sit at HU.
-        skill_modifier     = { rec = 0.1, reg = 0.3, grind = 2.5, pro = 5.0 },
-        playstyle_modifier = nil,
-        rerolls_opponents  = false,
+        -- Heads-up depth = every hand goes deeper. Mass moves slightly
+        -- *out* of Tiny/Small and *into* Medium/Jackpot. Amplifies the
+        -- per-stake difficulty modestly because the bigger tiers carry
+        -- the bulk of the magnitude. Halved from the pre-refactor values
+        -- so HU is "slightly harder" not "two stakes harder."
+        grid_modifier = { tiny = -0.04, small = -0.025, medium = 0.04, jackpot = 0.025 },
+        rerolls_opponents = false,
     },
     {
         id   = "zoom",
@@ -77,10 +75,7 @@ return {
         -- Tiny, out of bigger pots. Lots of small ±1bb decisions, rare
         -- big hands.
         grid_modifier = { tiny = 0.08, small = -0.02, medium = -0.03, jackpot = -0.03 },
-        -- Recreational + fishy pool. Easier than 6-max at the same stake.
-        skill_modifier     = { rec = 1.5, reg = 1.0, grind = 0.6, pro = 0.3 },
-        playstyle_modifier = { fish = 1.4, tag = 0.7, lag = 0.6, nit = 1.2 },
-        rerolls_opponents  = true,
+        rerolls_opponents = true,
     },
 
 }

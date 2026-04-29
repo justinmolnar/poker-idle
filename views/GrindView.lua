@@ -602,6 +602,8 @@ end
 function GrindView:_handleHitBox(hb)
     if hb.action == "deal" then
         self.controller:dealHand(hb.idx)
+    elseif hb.action == "rebuy" then
+        self.controller:rebuyTable(hb.idx)
     elseif hb.action == "remove_table" then
         self.controller:removeTable(hb.idx)
     elseif hb.action == "stake_up" then

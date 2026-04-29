@@ -266,32 +266,32 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts)
         x, cards_y + PLAYER_CARD_H + 2, w, "center")
 end
 
-local function drawDealOverlay(x, y, w, h, fonts, hit_boxes, idx)
-    -- Translucent button across the felt with "DEAL" centered. Sizes clamp
-    -- to the available cell so the button stays clickable at tiny cells.
+-- Shared felt-overlay button (DEAL when stacked, REBUY $X when busted).
+-- The variant is decided in :draw based on tbl.stack; this just renders.
+local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, fill_color, enabled)
     local btn_w = math.min(DEAL_BTN_W, w - 16)
     local btn_h = math.min(DEAL_BTN_H, h - 8)
     if btn_w < 40 then btn_w = math.max(20, w - 4) end
     if btn_h < 18 then btn_h = math.max(14, h - 4) end
     local bx = x + math.floor((w - btn_w) / 2)
     local by = y + math.floor((h - btn_h) / 2)
-    Theme.setColor(Theme.status.good, 0.85)
+    Theme.setColor(enabled and fill_color or Theme.bg.sunken, enabled and 0.85 or 0.5)
     love.graphics.rectangle("fill", bx, by, btn_w, btn_h, Theme.space.radius)
-    Theme.setColor(Theme.fg.heading, 0.95)
+    Theme.setColor(enabled and Theme.fg.heading or Theme.border.soft, 0.95)
     love.graphics.setLineWidth(Theme.space.line_strong)
     love.graphics.rectangle("line", bx, by, btn_w, btn_h, Theme.space.radius)
     love.graphics.setLineWidth(1)
-    Theme.setColor(Theme.bg.window)
-    -- Pick a font that fits — heading on full-size buttons, ui_small on
-    -- the tiny ones so "DEAL" doesn't clip.
+    Theme.setColor(enabled and Theme.bg.window or Theme.fg.disabled)
     local font = (btn_h >= 28) and fonts.heading or fonts.ui_small
     love.graphics.setFont(font)
     local text_y = by + math.floor((btn_h - font:getHeight()) / 2)
-    love.graphics.printf("DEAL", bx, text_y, btn_w, "center")
-    hit_boxes[#hit_boxes + 1] = {
-        x = bx, y = by, w = btn_w, h = btn_h,
-        action = "deal", idx = idx,
-    }
+    love.graphics.printf(label, bx, text_y, btn_w, "center")
+    if enabled then
+        hit_boxes[#hit_boxes + 1] = {
+            x = bx, y = by, w = btn_w, h = btn_h,
+            action = action, idx = idx,
+        }
+    end
 end
 
 local function drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx, next_stake, diff, affordable)
@@ -475,17 +475,32 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             felt_x, felt_y + felt_h - 16, felt_w, "center")
     end
 
-    -- DEAL overlay (only when idle). The overlay area shrinks alongside
-    -- the felt so the button stays clickable even at tiny cell sizes.
+    -- DEAL / REBUY overlay (only when idle). Stack > 0 → DEAL. Stack at
+    -- 0 means the player busted out and must rebuy the buy-in to keep
+    -- playing; the green DEAL button is replaced by a red REBUY $X.XX
+    -- button gated on bankroll.
     if tbl.state == "idle" then
-        drawDealOverlay(felt_x, felt_y, felt_w, felt_h - STAKE_UP_H - STAKE_UP_PAD,
-            fonts, hit_boxes, idx)
+        local btn_area_h = felt_h - STAKE_UP_H - STAKE_UP_PAD
+        if (tbl.stack or 0) <= 0 then
+            local stake = findStake(tbl.stake_id)
+            local cost  = (stake and stake.buy_in) or 0
+            local can_rebuy = state.bankroll >= cost
+            local label = string.format("REBUY %s", moneyText(cost))
+            drawFeltButton(felt_x, felt_y, felt_w, btn_area_h,
+                fonts, hit_boxes, idx, label, "rebuy",
+                Theme.status.error, can_rebuy)
+        else
+            drawFeltButton(felt_x, felt_y, felt_w, btn_area_h,
+                fonts, hit_boxes, idx, "DEAL", "deal",
+                Theme.status.good, true)
+        end
     end
 
     -- Stake-up button (only if next tier exists at all AND table is idle).
     -- Renders greyed when the player can't afford the diff so they can
-    -- see what's coming next.
-    if tbl.state == "idle" and not mini then
+    -- see what's coming next. Hidden when busted — rebuy is the only
+    -- meaningful action at $0 stack.
+    if tbl.state == "idle" and not mini and (tbl.stack or 0) > 0 then
         local next_s, diff, affordable = nextStakeInfo(tbl.stake_id, state.bankroll)
         drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx, next_s, diff, affordable)
     end
