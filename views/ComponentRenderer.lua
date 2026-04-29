@@ -150,6 +150,17 @@ function CR._button(comp, px, pw, p, y, game)
     love.graphics.rectangle("line", px + p, y + 1, content_w, h - 2)
     love.graphics.setLineWidth(Theme.space.hairline)
 
+    -- Click-flash press tint (services/ClickFlash). Drawn AFTER the chrome
+    -- but BEFORE the text so the press reads as a quick darken without
+    -- covering the label. Lazy require to keep the load order tolerant.
+    if comp.id then
+        local flash = require("services.ClickFlash").alpha("button", comp.id)
+        if flash > 0 then
+            Theme.setColor(Theme.bg.sunken, flash * 0.65)
+            love.graphics.rectangle("fill", px + p, y, content_w, h)
+        end
+    end
+
     local cursor = y + 4
     for _, line in ipairs(comp.lines or {}) do
         local style = line.style or "body"
@@ -227,6 +238,14 @@ function CR.hitTest(components, panel_x, panel_w, cx, cy, game)
             and cx >= panel_x + p and cx < panel_x + panel_w - p then
                 if comp.id then
                     require("services.HoverService").set("button", comp.id)
+                end
+                -- Stash the tooltip if the component carries one. The
+                -- raw screen-space mouse position is what the Tooltip
+                -- service wants for anchoring; the caller passes panel-
+                -- content-space `cy`, but `cx` is screen-space.
+                if comp.tooltip then
+                    local mx, my = love.mouse.getPosition()
+                    require("services.Tooltip").set(comp.tooltip, mx, my)
                 end
                 return comp
             end

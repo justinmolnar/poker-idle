@@ -23,6 +23,8 @@ local CursorPool  = require("services.CursorPool")
 local Chips       = require("views.Chips")
 local ChipData    = require("data.chips")
 local ChipFlight  = require("services.ChipFlightSystem")
+local ClickFlash  = require("services.ClickFlash")
+local TooltipSvc  = require("services.Tooltip")
 local Stakes      = require("data.stakes")
 local GameTypes   = require("data.game_types")
 local RunUpgrades = require("data.run_upgrades")
@@ -51,15 +53,35 @@ local PILL_GAP             = 4
 -- ─── Construction ─────────────────────────────────────────────────────
 
 function GrindView:new(game, controller)
+    local state = game.state
     local self = setmetatable({
         game       = game,
         controller = controller,
         hit_boxes  = {},   -- per-frame click targets for non-Panel UI (table buttons, SHOVE)
         selected_gtype = "six_max",  -- which game-type sub-tab is showing in the Tables tab
+
+        -- Tweened display values for the top-bar. Each frame these lerp
+        -- toward their state.* targets so wins/losses flow smoothly instead
+        -- of snapping the number. Initialised to current state so a first
+        -- frame doesn't tween from 0.
+        displayed_bankroll = state.bankroll       or 0,
+        displayed_pp       = state.pp             or 0,
+        displayed_tied     = controller:tiedUp(),
+        displayed_peak     = state.peak_bankroll  or 0,
     }, GrindView)
 
     self:_buildPanels()
     return self
+end
+
+-- Smooth lerp helper for the top-bar number tween. ~95% catch-up in 0.4 s
+-- with k = dt * 8; snaps when within a hundredth-cent so the displayed
+-- value doesn't jitter forever near the target.
+local function tweenNumber(curr, target, dt)
+    local k = math.min(1, (dt or 0) * 8)
+    local out = curr + (target - curr) * k
+    if math.abs(target - out) < 0.005 then out = target end
+    return out
 end
 
 function GrindView:_buildPanels()
@@ -99,6 +121,16 @@ end
 function GrindView:_makeGameTypeStrip()
     local STRIP_H = 32
     local self_ref = self
+    -- Per-gtype short blurb for the hover tooltip. Hardcoded next to
+    -- where the strip is built so callers don't have to juggle a string
+    -- table; the data file (data/game_types.lua) only carries gameplay
+    -- knobs (seats, pace, dist_shifts), not UI copy.
+    local GTYPE_BLURB = {
+        six_max  = "6-max — standard pace, 5 seated opponents.",
+        nine_max = "9-max — tighter pool, slower pace, 8 opponents.",
+        hu       = "Heads-Up — fast, deeper pots, 1 opponent.",
+        zoom     = "Zoom — opponents reroll every hand. Tiny pots, no reads.",
+    }
     return {
         type = "custom",
         h    = STRIP_H,
@@ -112,13 +144,31 @@ function GrindView:_makeGameTypeStrip()
             love.graphics.setFont(fonts.ui_small)
             for i, gt in ipairs(GameTypes) do
                 local bx = strip_x + (i - 1) * btn_w
+                local rect_w, rect_h = btn_w - 2, STRIP_H - 4
                 local active = (gt.id == self_ref.selected_gtype)
+                local id     = "gtype:" .. gt.id
+                local hov    = game.hover.is("button", id)
                 Theme.setColor(active and Theme.bg.widget_hover or Theme.bg.chrome)
-                love.graphics.rectangle("fill", bx, y, btn_w - 2, STRIP_H - 4, Theme.space.radius)
-                Theme.setColor(active and Theme.border.strong or Theme.border.default)
-                love.graphics.rectangle("line", bx, y, btn_w - 2, STRIP_H - 4, Theme.space.radius)
-                Theme.setColor(active and Theme.fg.heading or Theme.fg.muted)
-                love.graphics.printf(gt.short or gt.name, bx, y + 8, btn_w - 2, "center")
+                love.graphics.rectangle("fill", bx, y, rect_w, rect_h, Theme.space.radius)
+                Theme.setColor(active and Theme.border.strong
+                              or hov  and Theme.border.strong
+                              or Theme.border.default)
+                love.graphics.rectangle("line", bx, y, rect_w, rect_h, Theme.space.radius)
+                Theme.setColor(active and Theme.fg.heading
+                              or hov  and Theme.fg.heading
+                              or Theme.fg.muted)
+                love.graphics.printf(gt.short or gt.name, bx, y + 8, rect_w, "center")
+
+                -- Hover wash + press tint, same shape as TablePanel buttons.
+                if hov and not active then
+                    Theme.setColor(Theme.fg.heading, 0.10)
+                    love.graphics.rectangle("fill", bx, y, rect_w, rect_h, Theme.space.radius)
+                end
+                local flash = ClickFlash.alpha("button", id)
+                if flash > 0 then
+                    Theme.setColor(Theme.bg.sunken, flash * 0.65)
+                    love.graphics.rectangle("fill", bx, y, rect_w, rect_h, Theme.space.radius)
+                end
             end
         end,
         hit_fn = function(px, y, pw, _, cx, cy)
@@ -131,7 +181,16 @@ function GrindView:_makeGameTypeStrip()
                 local bx = strip_x + (i - 1) * btn_w
                 if cx >= bx and cx < bx + btn_w - 2
                    and cy >= y and cy < y + STRIP_H - 4 then
-                    return { id = "gtype:" .. gt.id }
+                    local id = "gtype:" .. gt.id
+                    -- Set hover + tooltip here so the dispatch flow reaches
+                    -- both even though custom components don't have generic
+                    -- post-hit-test logic in ComponentRenderer.
+                    require("services.HoverService").set("button", id)
+                    if GTYPE_BLURB[gt.id] then
+                        local mx, my = love.mouse.getPosition()
+                        TooltipSvc.set(GTYPE_BLURB[gt.id], mx, my)
+                    end
+                    return { id = id }
                 end
             end
             return nil
@@ -173,6 +232,8 @@ function GrindView:_buildTablesTabComponents()
             type     = "button",
             id       = "add_table:" .. stake.id .. ":" .. gtype_id,
             disabled = disabled,
+            tooltip  = string.format("Open a %s %s table — costs the buy-in.",
+                                     stake.display_name, gtype_id:gsub("_", "-")),
             lines = {
                 { text = "+ " .. stake.display_name, style = "heading" },
                 { text = sub, style = "small" },
@@ -232,6 +293,8 @@ function GrindView:_buildCatalogTabComponents()
             type     = "button",
             id       = "buy_catalog_" .. item.id,
             disabled = disabled,
+            tooltip  = is_owned and (item.description or item.name)
+                                or  (item.description or item.name),
             lines = {
                 { text = item.name, style = "heading" },
                 { text = item.description or "", style = "small" },
@@ -268,6 +331,7 @@ function GrindView:_buildUpgradesTabComponents()
             type     = "button",
             id       = "buy_runup_" .. up.id,
             disabled = disabled,
+            tooltip  = up.description or up.name,
             lines = {
                 { text = up.name, style = "heading" },
                 { text = up.description or "", style = "small" },
@@ -281,14 +345,15 @@ end
 
 -- ─── Per-frame update + hover ─────────────────────────────────────────────
 
-function GrindView:update(_)
+function GrindView:update(dt)
     local mx, my = love.mouse.getPosition()
     self.left_panel:update(my)
     self.right_panel:update(my)
     self.left_panel:updateHover(mx, my, self.game)
     self.right_panel:updateHover(mx, my, self.game)
 
-    -- Hit-test components for hover (writes "button" namespace into HoverService).
+    -- Hit-test components for hover (writes "button" namespace into
+    -- HoverService AND stashes any comp.tooltip via Tooltip.set).
     for _, panel in ipairs({ self.left_panel, self.right_panel }) do
         local comps = panel:getComponents()
         if comps then
@@ -296,6 +361,36 @@ function GrindView:update(_)
             CR.hitTest(comps, panel.x, panel.w, mx, cy, self.game)
         end
     end
+
+    -- Center-grid hit_boxes: same hover-walk for tooltips AND for the
+    -- "hit" HoverService namespace so TablePanel button renderers can
+    -- light up on hover (mirroring how ComponentRenderer treats sidebar
+    -- buttons). The hit_boxes list is populated by the previous frame's
+    -- draw — 1-frame stale, invisible at 60 fps. Last hit_box wins.
+    for _, hb in ipairs(self.hit_boxes) do
+        if mx >= hb.x and mx < hb.x + hb.w
+           and my >= hb.y and my < hb.y + hb.h then
+            if hb.action and hb.idx then
+                self.game.hover.set("hit", hb.action .. ":" .. hb.idx)
+            end
+            if hb.tooltip then
+                TooltipSvc.set(hb.tooltip, mx, my)
+            end
+        end
+    end
+
+    -- SHOVE button hover tooltip (direct rect — no hit_box entry).
+    local sb = self:_shoveButtonRect()
+    if mx >= sb.x and mx < sb.x + sb.w and my >= sb.y and my < sb.y + sb.h then
+        TooltipSvc.set("Shove all-in: bank pending PP and prestige.", mx, my)
+    end
+
+    -- Tween top-bar numbers toward live state values.
+    local state = self.game.state
+    self.displayed_bankroll = tweenNumber(self.displayed_bankroll, state.bankroll,            dt)
+    self.displayed_pp       = tweenNumber(self.displayed_pp,       state.pp,                  dt)
+    self.displayed_tied     = tweenNumber(self.displayed_tied,     self.controller:tiedUp(),  dt)
+    self.displayed_peak     = tweenNumber(self.displayed_peak,     state.peak_bankroll,       dt)
 end
 
 -- ─── Top bar ───────────────────────────────────────────────────────────
@@ -321,14 +416,28 @@ function GrindView:_drawTopBar(W)
     local fonts = self.game.fonts
     local state = self.game.state
 
+    -- Tweened display values (set in :update each frame). Reading these
+    -- instead of state.* gives a smooth count-up/down after a hand.
+    local d_bank = self.displayed_bankroll or state.bankroll
+    local d_pp   = self.displayed_pp       or state.pp
+    local d_tied = self.displayed_tied     or self.controller:tiedUp()
+    local d_peak = self.displayed_peak     or state.peak_bankroll
+
+    -- Tint the bankroll while a tween is in progress: green when counting
+    -- up (target > displayed), red when counting down.
+    local bankroll_tint = Theme.fg.heading
+    local diff_bank = (state.bankroll or 0) - d_bank
+    if math.abs(diff_bank) > 0.01 then
+        bankroll_tint = (diff_bank > 0) and Theme.status.good or Theme.status.error
+    end
+
     -- BANKROLL = spendable / off-table money. The big number — that's
     -- what the player actually buys upgrades with.
-    Theme.setColor(Theme.fg.heading)
+    Theme.setColor(bankroll_tint)
     love.graphics.setFont(fonts.kpi)
-    love.graphics.print(moneyText(state.bankroll), 16, 8)
+    love.graphics.print(moneyText(d_bank), 16, 8)
 
-    local tied_up = self.controller:tiedUp()
-    local total   = state.bankroll + tied_up
+    local total     = d_bank + d_tied
     local n_tables  = self.controller.pool:count()
     local focus_pct = math.floor(self.controller:currentFocusMult() * 100 + 0.5)
 
@@ -343,13 +452,13 @@ function GrindView:_drawTopBar(W)
 
     love.graphics.setFont(fonts.heading)
     Theme.setColor(Theme.fg.muted)
-    love.graphics.print(moneyText(tied_up), 200, 22)
+    love.graphics.print(moneyText(d_tied), 200, 22)
     Theme.setColor(Theme.fg.primary)
     love.graphics.print(moneyText(total), 300, 22)
     Theme.setColor(Theme.fg.heading)
-    love.graphics.print(ppText(state.pp), 400, 22)
+    love.graphics.print(ppText(d_pp), 400, 22)
     Theme.setColor(Theme.fg.primary)
-    love.graphics.print(moneyText(state.peak_bankroll), 470, 22)
+    love.graphics.print(moneyText(d_peak), 470, 22)
     love.graphics.print(tostring(n_tables), 580, 22)
 
     -- Focus % color-coded: green = 100% (no penalty), amber = 70–99%,
@@ -484,6 +593,18 @@ function GrindView:_drawShoveButton()
     Theme.setColor(can_shove and Theme.fg.primary or Theme.fg.faint)
     love.graphics.printf(string.format("%.1f%% per runout", rate * 100),
         sb.x, sb.y + 46, sb.w, "center")
+
+    -- Hover wash + click-flash press-tint. Fade lasts ~0.5 s.
+    local mx, my = love.mouse.getPosition()
+    if mx >= sb.x and mx < sb.x + sb.w and my >= sb.y and my < sb.y + sb.h then
+        Theme.setColor(Theme.fg.heading, 0.10)
+        love.graphics.rectangle("fill", sb.x, sb.y, sb.w, sb.h, Theme.space.radius)
+    end
+    local flash = ClickFlash.alpha("shove", "shove")
+    if flash > 0 then
+        Theme.setColor(Theme.bg.sunken, flash * 0.65)
+        love.graphics.rectangle("fill", sb.x, sb.y, sb.w, sb.h, Theme.space.radius)
+    end
 end
 
 -- ─── Floating text overlay ────────────────────────────────────────────
@@ -560,13 +681,16 @@ function GrindView:draw()
     ChipFlight.draw()
 
     -- Cursor swarm — drawn above flying chips so cursors remain readable
-    -- against the chip fountain. Renders BEFORE the debug tooltip so that
-    -- tooltip stays on top of everything.
+    -- against the chip fountain.
     CursorPool.draw()
+
+    -- Hover tooltip — sits above gameplay layers but below the backtick
+    -- debug overlay (which is the absolute top).
+    TooltipSvc.draw(self.game.fonts.ui_small)
 
     -- Backtick debug tooltip — flushed last so it draws above every other
     -- view layer (sidebar panels, shove button, floating text, chips,
-    -- cursors all included).
+    -- cursors, hover tooltip all included).
     TablePanel.flushDebugOverlay(self.game)
 end
 
@@ -578,6 +702,7 @@ function GrindView:mousepressed(x, y, b)
     -- SHOVE button has priority — it's bottom-right and overlaps the right panel zone.
     local sb = self:_shoveButtonRect()
     if x >= sb.x and x < sb.x + sb.w and y >= sb.y and y < sb.y + sb.h then
+        ClickFlash.flash("shove", "shove")
         -- Bank the run's pending PP at the moment of pulling the trigger.
         -- Bounties locked during the run only convert to spendable PP if
         -- the player actually shoves — F2 debug toggles bypass this, so
@@ -626,6 +751,8 @@ function GrindView:mousepressed(x, y, b)
 end
 
 function GrindView:_handleSidebarButton(id)
+    ClickFlash.flash("button", id)
+
     -- Game-type sub-tab selection.
     local gtype = id:match("^gtype:(.+)$")
     if gtype then
@@ -652,6 +779,14 @@ function GrindView:_handleSidebarButton(id)
 end
 
 function GrindView:_handleHitBox(hb)
+    -- Click-feedback flash. Single trigger point catches mouse-driven and
+    -- cursor-swarm dispatches alike (cursor pool routes through here).
+    -- Key by (action + idx) so [x] / [C] / DEAL on the same table don't
+    -- share a flash bucket and tint each other on click.
+    if hb.action and hb.idx then
+        ClickFlash.flash("hit", hb.action .. ":" .. hb.idx)
+    end
+
     if hb.action == "deal" then
         self.controller:dealHand(hb.idx)
     elseif hb.action == "rebuy" then

@@ -23,6 +23,24 @@ local Stakes      = require("data.stakes")
 local OpTypes     = require("data.opponent_types")
 local Chips       = require("views.Chips")
 local ChipData    = require("data.chips")
+local ClickFlash  = require("services.ClickFlash")
+local Hover       = require("services.HoverService")
+
+-- Hover + press tint helpers, applied on top of an already-rendered button.
+-- Hovered buttons get a subtle bright wash; pressed buttons get a darker
+-- press tint that fades over ~0.5 s (ClickFlash decay).
+local function tintHover(x, y, w, h, ns, id, radius)
+    if Hover.is(ns, id) then
+        Theme.setColor(Theme.fg.heading, 0.10)
+        love.graphics.rectangle("fill", x, y, w, h, radius or Theme.space.radius)
+    end
+end
+local function tintPress(x, y, w, h, ns, id, radius)
+    local a = ClickFlash.alpha(ns, id)
+    if a <= 0 then return end
+    Theme.setColor(Theme.bg.sunken, a * 0.65)
+    love.graphics.rectangle("fill", x, y, w, h, radius or Theme.space.radius)
+end
 
 local TablePanel = {}
 
@@ -162,9 +180,13 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     Theme.setColor(can_remove and Theme.fg.heading or Theme.fg.disabled)
     love.graphics.printf("x", rb_x, rb_y + 3, REMOVE_BTN_SIZE, "center")
     if can_remove then
+        local rid = "remove_table:" .. idx
+        tintHover(rb_x, rb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, "hit", rid)
+        tintPress(rb_x, rb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, "hit", rid)
         hit_boxes[#hit_boxes + 1] = {
             x = rb_x, y = rb_y, w = REMOVE_BTN_SIZE, h = REMOVE_BTN_SIZE,
             action = "remove_table", idx = idx,
+            tooltip = "Close this table — refunds the current stack.",
         }
     end
 
@@ -188,9 +210,14 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
             love.graphics.line(cb_x + 3, cb_y + REMOVE_BTN_SIZE / 2,
                                cb_x + REMOVE_BTN_SIZE - 3, cb_y + REMOVE_BTN_SIZE / 2)
         end
+        local cid = "toggle_cursor:" .. idx
+        tintHover(cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, "hit", cid)
+        tintPress(cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, "hit", cid)
         hit_boxes[#hit_boxes + 1] = {
             x = cb_x, y = cb_y, w = REMOVE_BTN_SIZE, h = REMOVE_BTN_SIZE,
             action = "toggle_cursor", idx = idx,
+            tooltip = muted and "Unmute: allow cursors to deal at this table."
+                            or  "Mute: stop the cursor swarm from dealing at this table.",
         }
         hands_right_offset = hands_right_offset + REMOVE_BTN_SIZE + 4
     end
@@ -358,9 +385,15 @@ local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, 
     local text_y = by + math.floor((btn_h - font:getHeight()) / 2)
     love.graphics.printf(label, bx, text_y, btn_w, "center")
     if enabled then
+        local fid = action .. ":" .. idx
+        tintHover(bx, by, btn_w, btn_h, "hit", fid)
+        tintPress(bx, by, btn_w, btn_h, "hit", fid)
         hit_boxes[#hit_boxes + 1] = {
             x = bx, y = by, w = btn_w, h = btn_h,
             action = action, idx = idx,
+            tooltip = (action == "deal")
+                  and "Deal a hand at this table."
+                  or  "Refill the stack to 100bb to keep playing.",
         }
     end
 end
@@ -379,9 +412,13 @@ local function drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx
     local label = string.format("UP -> %s  (+$%.2f)", next_stake.display_name, diff or 0)
     love.graphics.printf(label, bx, by + 4, bw, "center")
     if affordable then
+        local sid = "stake_up:" .. idx
+        tintHover(bx, by, bw, STAKE_UP_H, "hit", sid)
+        tintPress(bx, by, bw, STAKE_UP_H, "hit", sid)
         hit_boxes[#hit_boxes + 1] = {
             x = bx, y = by, w = bw, h = STAKE_UP_H,
             action = "stake_up", idx = idx, next_stake_id = next_stake.id,
+            tooltip = string.format("Move this table up to %s.", next_stake.display_name),
         }
     end
 end

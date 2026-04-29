@@ -27,6 +27,8 @@ local FontService     = require("services.FontService")
 local HoverService    = require("services.HoverService")
 local CursorPool      = require("services.CursorPool")
 local ChipFlightSystem = require("services.ChipFlightSystem")
+local ClickFlash      = require("services.ClickFlash")
+local Tooltip         = require("services.Tooltip")
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
@@ -67,6 +69,8 @@ local function buildGame()
     g.hover           = HoverService
     g.cursor_pool     = CursorPool
     g.chip_flight     = ChipFlightSystem
+    g.click_flash     = ClickFlash
+    g.tooltip         = Tooltip
 
     g.save_service    = SaveService:new()
     local saved       = g.save_service:loadAll()
@@ -101,15 +105,18 @@ function love.load()
 end
 
 function love.update(dt)
-    -- Reset per-frame hover state before any hit-tests run. Things that own
-    -- hoverable regions (Panel:updateHover, ComponentRenderer.hitTest) write
-    -- to it during this update; draws read it after.
+    -- Reset per-frame hover + tooltip state before any hit-tests run. Things
+    -- that own hoverable regions (Panel:updateHover, ComponentRenderer.hitTest,
+    -- GrindView's hit_box walk) write to these during this update; draws
+    -- read them after.
     HoverService.clear()
+    Tooltip.clear()
 
     Game.time:update(dt)
     Game.state_machine:update(dt)
     Game.floating_text.update(dt)
     ChipFlightSystem.update(dt)
+    ClickFlash.update(dt)
     -- No auto-save. Use F5 to save manually, F6 to reload, F7 to wipe.
 end
 
