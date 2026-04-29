@@ -54,8 +54,6 @@ function PokerEffects.registerAll(reg)
         ctx.win_chance_fills = ctx.win_chance_fills or {}
         ctx.win_chance_fills[#ctx.win_chance_fills + 1] = {
             strength = e.strength or 1,
-            skill    = e.skill,
-            style    = e.style,
             gtype    = e.gtype,
         }
     end)
@@ -65,8 +63,6 @@ function PokerEffects.registerAll(reg)
         ctx.win_dist_fills = ctx.win_dist_fills or {}
         ctx.win_dist_fills[#ctx.win_dist_fills + 1] = {
             strength = e.strength or 1,
-            skill    = e.skill,
-            style    = e.style,
             gtype    = e.gtype,
         }
     end)
@@ -76,8 +72,6 @@ function PokerEffects.registerAll(reg)
         ctx.loss_dist_fills = ctx.loss_dist_fills or {}
         ctx.loss_dist_fills[#ctx.loss_dist_fills + 1] = {
             strength = e.strength or 1,
-            skill    = e.skill,
-            style    = e.style,
             gtype    = e.gtype,
         }
     end)
@@ -88,18 +82,8 @@ function PokerEffects.registerAll(reg)
         ctx.win_chance_shifts = ctx.win_chance_shifts or {}
         ctx.win_chance_shifts[#ctx.win_chance_shifts + 1] = {
             amount = e.amount or e.value or 0,
-            skill  = e.skill,
-            style  = e.style,
             gtype  = e.gtype,
         }
-    end)
-
-    -- ── Discovery / opponent-reading ────────────────────────────────────
-    reg:register("reveal_chance_add", function(e, ctx)
-        ctx.reveal_chance_add = (ctx.reveal_chance_add or 0) + e.value
-    end)
-    reg:register("revealed_at_start_count", function(e, ctx)
-        ctx.revealed_at_start_count = (ctx.revealed_at_start_count or 0) + e.value
     end)
 
     -- ── Meta-progression perks ──────────────────────────────────────────

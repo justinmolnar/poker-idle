@@ -20,7 +20,6 @@
 local Theme       = require("views.Theme")
 local Constants   = require("data.constants")
 local Stakes      = require("data.stakes")
-local OpTypes     = require("data.opponent_types")
 local Chips       = require("views.Chips")
 local ChipData    = require("data.chips")
 local ClickFlash  = require("services.ClickFlash")
@@ -241,21 +240,7 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts)
     if #name > 8 then name = name:sub(1, 7) .. "…" end
     love.graphics.printf(name, x, y, w, "center")
 
-    -- Tag line — reveals accumulate at showdown. Each hand against an
-    -- opponent has a 50% chance to flip ONE unrevealed attribute. Until
-    -- revealed, the slot reads "?". The line is hidden entirely if
-    -- nothing's revealed yet — keeps fresh seats clean.
-    if opp.revealed_skill or opp.revealed_style then
-        local skill_data = OpTypes.skills[opp.skill]     or {}
-        local style_data = OpTypes.playstyles[opp.style] or {}
-        local sk = opp.revealed_skill and (skill_data.short or "?") or "?"
-        local st = opp.revealed_style and (style_data.name  or "?") or "?"
-        Theme.setColor(Theme.fg.muted, 0.85)
-        love.graphics.printf(sk .. " · " .. st, x, y + 11, w, "center")
-    end
-
     -- Two face-down cards (or face-up if showdown and this is the revealed opp).
-    -- Pushed down to make room for the tag line above.
     local cards_y  = y + 22
     local card_gap = 3
     local cards_w  = OPP_CARD_W * 2 + card_gap
@@ -609,17 +594,6 @@ local function renderDebugTooltip(tbl, mx, my, game, controller)
         fmtPct(stats.pool.loss_dist.medium),
         fmtPct(stats.pool.loss_dist.jackpot),
         fmtBB(stats.pool.loss_avg_bb))
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = string.format("Opponents (%d):", #stats.opponents)
-    for i, o in ipairs(stats.opponents) do
-        local name  = (o.name or "?")
-        if #name > 10 then name = name:sub(1, 9) .. "…" end
-        local skill = (OpTypes.skills[o.skill]     and OpTypes.skills[o.skill].short)     or "?"
-        local style = (OpTypes.playstyles[o.style] and OpTypes.playstyles[o.style].name)  or "?"
-        if #style > 4 then style = style:sub(1, 4) end
-        lines[#lines + 1] = string.format(" %d. %-10s %3s/%-4s  WC %s  EV $%s",
-            i, name, skill, style, fmtPct(o.win_chance), fmtEV(o.ev_per_hand))
-    end
 
     local screen_w, screen_h = love.graphics.getDimensions()
     local tip_h = DEBUG_TIP_PAD * 2 + DEBUG_TIP_LINE_H * #lines
@@ -790,6 +764,12 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     if not skip_opponents then
         local opp_row_y = felt_y + 4
         local n_opps    = #tbl.opponents
+        -- Cache each opponent's seat-center on the table so chip-flight
+        -- emission can target the winner's cards on a loss. Cards sit
+        -- ~22 px below the seat top with OPP_CARD_H = 20, so the card
+        -- center is roughly opp_row_y + 32.
+        tbl._opp_xy = tbl._opp_xy or {}
+        for k in pairs(tbl._opp_xy) do tbl._opp_xy[k] = nil end
         if n_opps > 0 then
             -- HU: single seat centered, capped width so it doesn't sprawl
             -- across the whole felt. Other game types: even-distribute.
@@ -797,11 +777,13 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
                 local seat_w = math.min(felt_w, 100)
                 local ox     = felt_x + math.floor((felt_w - seat_w) / 2)
                 drawOpponentSeat(tbl.opponents[1], 1, tbl, ox, opp_row_y, seat_w, 50, sl, fonts)
+                tbl._opp_xy[1] = { ox + seat_w * 0.5, opp_row_y + 32 }
             else
                 local opp_w = math.floor(felt_w / n_opps)
                 for i = 1, n_opps do
                     local ox = felt_x + (i - 1) * opp_w
                     drawOpponentSeat(tbl.opponents[i], i, tbl, ox, opp_row_y, opp_w, 50, sl, fonts)
+                    tbl._opp_xy[i] = { ox + opp_w * 0.5, opp_row_y + 32 }
                 end
             end
         end

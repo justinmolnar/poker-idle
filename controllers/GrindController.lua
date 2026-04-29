@@ -446,9 +446,16 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
                              { arrival_sound = "chip_land_you" })
     elseif r.delta < 0 then
         local chips = Chips.breakdown(-r.delta, palette, r.tier or "small")
-        local off_xy = { pot_xy[1], love.graphics.getHeight() + 80 }
-        -- No arrival sound on losses; chips have left the table.
-        ChipFlight.emitBurst(pot_xy, off_xy, chips)
+        -- Loss → chips fly to the winning opponent's seat (their cards).
+        -- Falls back to off-screen if the panel hasn't drawn yet (first
+        -- frame after table add) so the burst still has a destination.
+        local target_xy
+        if tbl._opp_xy and tbl.opponent_idx then
+            target_xy = tbl._opp_xy[tbl.opponent_idx]
+        end
+        target_xy = target_xy or { pot_xy[1], love.graphics.getHeight() + 80 }
+        ChipFlight.emitBurst(pot_xy, target_xy, chips,
+                             { arrival_sound = "chip_land_pot" })
     end
 
     if overflow_amount and overflow_amount > 0 then

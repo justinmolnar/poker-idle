@@ -1,32 +1,21 @@
 -- models/Opponent.lua
 --
--- One seated opponent at a table. Compound type: skill (additive penalty)
--- + playstyle (lateral modifier targeted by upgrades). Pure data + display
--- helpers; no per-hand state lives here — the Table model owns the deck,
--- community cards, pot, and per-hand math.
+-- One seated opponent at a table. Pure data — visual identity (name) and
+-- a per-table stack value. Per-hand state (cards, pot, etc.) lives on the
+-- Table model.
 --
--- skill   — string key into data/opponent_types.skills      (e.g. "rec")
--- style   — string key into data/opponent_types.playstyles  (e.g. "fish")
--- name    — display string drawn from data/opponent_names
--- stack   — current chip count ($). Static for the slice (= buy-in at the
---           stake the table sits at). Polish later: stacks fluctuate as
---           hands resolve.
+-- name   — display string drawn from data/opponent_names
+-- stack  — current chip count ($). Static for the slice (= buy-in at the
+--          stake the table sits at). Polish later: stacks fluctuate as
+--          hands resolve.
 
 local Opponent = {}
 Opponent.__index = Opponent
 
-function Opponent:new(skill, style, name, stack)
+function Opponent:new(name, stack)
     return setmetatable({
-        skill = skill,
-        style = style,
         name  = name  or "Unnamed",
         stack = stack or 0,
-        -- Discovery flags. Players don't see opponent skill/style at the
-        -- jump — Table:update flips one at a time on showdown so reads
-        -- accumulate over hands. Zoom resets these per hand (rerolling
-        -- opponents) so its pool is genuinely unreadable.
-        revealed_skill = false,
-        revealed_style = false,
     }, Opponent)
 end
 

@@ -85,46 +85,12 @@ return {
         },
     },
 
-    -- ── 4. Patience — vs predictable styles ────────────────────────────
-    -- Adds 0.3-strength WC fill per level when opp is fish OR nit. Helps
-    -- fill the WC window faster vs targeted opps but caps with universal
-    -- lerp at run-cap; doesn't break the 0.95 absolute ceiling.
-    -- 12 levels.
-    {
-        id          = "patience",
-        name        = "Patience",
-        description = "Patient against passive players.",
-        max_level   = 12,
-        costs       = {
-            1, 3, 9, 27, 81,
-            243, 729, 2200, 6600, 20000,
-            59000, 177000,
-        },
-        effects     = {
-            { kind = "win_chance_fill", strength = 0.3, style = "fish" },
-            { kind = "win_chance_fill", strength = 0.3, style = "nit"  },
-        },
-    },
+    -- (Patience and Iron Nerves were removed when player types were
+    -- ripped — both relied on style/skill filtering. If a future "Pro"
+    -- mechanic returns as an opt-in variant, deliberate replacement
+    -- upgrades can come with it.)
 
-    -- ── 5. Iron Nerves — vs pros (endgame) ─────────────────────────────
-    -- 0.3-strength WC fill per level when opp.skill is pro. $100 base
-    -- gates this as a mid-T2+ purchase, becomes critical at T4+. 12 levels.
-    {
-        id          = "iron_nerves",
-        name        = "Iron Nerves",
-        description = "Cool head against pros.",
-        max_level   = 12,
-        costs       = {
-            100, 300, 900, 2700, 8100,
-            24000, 73000, 220000, 660000, 2000000,
-            6000000, 18000000,
-        },
-        effects     = {
-            { kind = "win_chance_fill", strength = 0.3, skill = "pro" },
-        },
-    },
-
-    -- ── 6. Hire — more cursors in the swarm ───────────────────────────
+    -- ── Hire — more cursors in the swarm ──────────────────────────────
     -- Adds 1 cursor per level. Requires the catalog `cursor_pool` unlock
     -- + at least one cursor (catalog or run) to do anything visible.
     -- 12 levels.

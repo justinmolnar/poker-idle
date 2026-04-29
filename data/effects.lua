@@ -17,12 +17,12 @@
 --   { kind = "<kind>", value = <number> }
 -- or for the outcome-model effects (run upgrades — fill kinds):
 --   { kind = "win_chance_fill" | "win_dist_fill" | "loss_dist_fill",
---     strength = <number, 1.0 universal / 0.3 targeted>,
---     skill = <skill_id>?, style = <style_id>?, gtype = <gtype_id>? }
+--     strength = <number>,
+--     gtype    = <gtype_id>? }
 -- or for catalog flat additive on WC:
 --   { kind = "win_chance_shift",
 --     amount = <number>,
---     skill = <skill_id>?, style = <style_id>?, gtype = <gtype_id>? }
+--     gtype  = <gtype_id>? }
 --
 -- The applicator function signature is:
 --   function(effect_entry, ctx)
@@ -81,24 +81,24 @@ Effects.kinds = {
     -- absolute 0.95 WC ceiling.
 
     -- Run-upgrade WC fill. Each application contributes `strength` units
-    -- (1.0 universal, 0.3 targeted) to the matching opp's WC fill total.
+    -- (1.0 universal) to the WC fill total. Optional gtype filter.
     win_chance_fill = {
         description = "Pushes a win_chance fill descriptor onto ctx.win_chance_fills.",
-        value_shape = "{ strength, skill?, style?, gtype? }",
+        value_shape = "{ strength, gtype? }",
         affects     = "ctx.win_chance_fills (ordered list)",
     },
 
     -- Run-upgrade win_dist fill — same mechanism on the win-tier dist.
     win_dist_fill = {
         description = "Pushes a win_dist fill descriptor onto ctx.win_dist_fills.",
-        value_shape = "{ strength, skill?, style?, gtype? }",
+        value_shape = "{ strength, gtype? }",
         affects     = "ctx.win_dist_fills (ordered list)",
     },
 
     -- Run-upgrade loss_dist fill — same mechanism on the loss-tier dist.
     loss_dist_fill = {
         description = "Pushes a loss_dist fill descriptor onto ctx.loss_dist_fills.",
-        value_shape = "{ strength, skill?, style?, gtype? }",
+        value_shape = "{ strength, gtype? }",
         affects     = "ctx.loss_dist_fills (ordered list)",
     },
 
@@ -106,21 +106,8 @@ Effects.kinds = {
     -- beyond run-capped toward the absolute 0.95 ceiling.
     win_chance_shift = {
         description = "Pushes a win_chance shift descriptor onto ctx.win_chance_shifts.",
-        value_shape = "{ amount, skill?, style?, gtype? }",
+        value_shape = "{ amount, gtype? }",
         affects     = "ctx.win_chance_shifts (ordered list)",
-    },
-
-    -- ── Discovery / opponent reading ────────────────────────────────────
-
-    reveal_chance_add = {
-        description = "Bumps the per-showdown chance of flipping one opponent attribute.",
-        value_shape = "number, e.g. 0.25 for +25 percentage points (clamped 0..1)",
-        affects     = "ctx.reveal_chance_add",
-    },
-    revealed_at_start_count = {
-        description = "Number of attributes pre-revealed when an opponent first sits.",
-        value_shape = "integer, e.g. 1 to start with one attribute already known",
-        affects     = "ctx.revealed_at_start_count",
     },
 
     -- ── Meta-progression perks (catalog only, applied at run start) ─────
