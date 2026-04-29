@@ -178,13 +178,15 @@ return {
         effects     = { { kind = "cursor_unlocked" } },
     },
     {
-        id          = "first_cursor",
-        name        = "Trained Cursor",
-        description = "Your first assistant pointer.",
-        sprite      = "first_cursor",
-        cost_pp     = 15,
-        position    = { x = 200, y = 500 },
-        effects     = { { kind = "cursor_count_add", value = 1 } },
+        id            = "first_cursor",
+        name          = "Trained Cursor",
+        description   = "Your first assistant pointer.",
+        sprite        = "first_cursor",
+        cost_pp       = 15,
+        requires      = "cursor_pool",
+        requires_hide = true,
+        position      = { x = 200, y = 500 },
+        effects       = { { kind = "cursor_count_add", value = 1 } },
     },
 
 }

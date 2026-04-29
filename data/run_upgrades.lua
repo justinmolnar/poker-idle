@@ -95,10 +95,12 @@ return {
     -- + at least one cursor (catalog or run) to do anything visible.
     -- 12 levels.
     {
-        id          = "hire",
-        name        = "Hire",
-        description = "Pay an assistant for the night.",
-        max_level   = 12,
+        id            = "hire",
+        name          = "Hire",
+        description   = "Pay an assistant for the night.",
+        requires      = "cursor_pool",
+        requires_hide = true,
+        max_level     = 12,
         costs       = {
             3, 10, 30, 100, 300,
             900, 3000, 9000, 27000, 80000,
@@ -110,10 +112,12 @@ return {
     -- ── 7. Cursor Speed — they click faster ────────────────────────────
     -- 8 levels, +25% multiplicative each. Caps at ~6× base speed.
     {
-        id          = "cursor_speed",
-        name        = "Cursor Speed",
-        description = "They click faster.",
-        max_level   = 8,
+        id            = "cursor_speed",
+        name          = "Cursor Speed",
+        description   = "They click faster.",
+        requires      = "cursor_pool",
+        requires_hide = true,
+        max_level     = 8,
         costs       = {
             5, 25, 125, 625, 3000,
             15000, 75000, 375000,

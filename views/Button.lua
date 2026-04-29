@@ -51,7 +51,11 @@ function Button.draw(x, y, w, h, opts, label_fn)
     local line_width   = opts.line_width or Theme.space.hairline
     local disabled     = opts.disabled
     local hovered      = opts.hovered and not disabled
-    local press_alpha  = (not disabled) and (opts.press_alpha or 0) or 0
+    -- Press animation continues even when the button transitions to
+    -- disabled mid-rise (e.g. a buy that drains the bankroll into the
+    -- can't-afford state). The fill colour swaps to bg.sunken via the
+    -- branch below, but the depth animation plays out naturally.
+    local press_alpha  = opts.press_alpha or 0
 
     -- Geometry: face_h is fixed; press shifts face_y down, side_h shrinks.
     local face_h = h - depth - LIFT_PX

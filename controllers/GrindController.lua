@@ -222,6 +222,16 @@ end
 -- (up to its max_level). Cost for the next level is item.costs[N+1], multiplied
 -- by ctx.run_upgrade_cost_mult so the cheap_coaching catalog perk discounts
 -- every run-upgrade buy. Returns true on a successful level-up.
+-- True if the optional `requires` field on a catalog/run-upgrade item is
+-- met by the player's owned_items list. nil/missing → unconditional.
+function GrindController:_requirementMet(requires_id)
+    if not requires_id then return true end
+    for _, owned_id in ipairs(self.game.state.owned_items) do
+        if owned_id == requires_id then return true end
+    end
+    return false
+end
+
 function GrindController:buyRunUpgrade(upgrade_id)
     local state = self.game.state
     -- Find item by id.
@@ -230,6 +240,7 @@ function GrindController:buyRunUpgrade(upgrade_id)
         if u.id == upgrade_id then upgrade = u; break end
     end
     if not upgrade then return false end
+    if not self:_requirementMet(upgrade.requires) then return false end
 
     local current = state.run_upgrade_levels[upgrade_id] or 0
     local max_lvl = upgrade.max_level or 1
@@ -272,6 +283,7 @@ function GrindController:buyCatalogItem(item_id)
         if it.id == item_id then item = it; break end
     end
     if not item then return false end
+    if not self:_requirementMet(item.requires) then return false end
     if state.pp < item.cost_pp then return false end
     state.pp = state.pp - item.cost_pp
     state.owned_items[#state.owned_items + 1] = item_id

@@ -262,6 +262,15 @@ function GrindView:_buildTablesTabComponents()
     return components
 end
 
+-- Look up the display name of a catalog item id (for "Requires X" labels).
+local function catalogName(item_id)
+    if not item_id then return nil end
+    for _, item in ipairs(Catalog) do
+        if item.id == item_id then return item.name end
+    end
+    return item_id
+end
+
 function GrindView:_buildCatalogTabComponents()
     local state = self.game.state
     local owned = {}
@@ -277,29 +286,40 @@ function GrindView:_buildCatalogTabComponents()
     }
 
     for _, item in ipairs(Catalog) do
-        local is_owned    = owned[item.id]
-        local cant_afford = (not is_owned) and state.pp < item.cost_pp
-        local disabled    = is_owned or cant_afford
+        local is_owned = owned[item.id]
+        local locked   = item.requires and not owned[item.requires]
+        -- Items flagged `requires_hide` vanish from the list entirely
+        -- when locked. Without the flag, locked items render greyed-out
+        -- with a "Requires X" label so the player can see what to buy.
+        if not (locked and item.requires_hide) then
+            local cant_afford = (not is_owned) and state.pp < item.cost_pp
+            local disabled    = is_owned or cant_afford or locked
 
-        local cost_label
-        if is_owned then
-            cost_label = "OWNED"
-        else
-            cost_label = item.cost_pp .. " PP"
+            local cost_label, tooltip
+            if is_owned then
+                cost_label = "OWNED"
+                tooltip    = item.description or item.name
+            elseif locked then
+                local req = catalogName(item.requires)
+                cost_label = "Requires " .. req
+                tooltip    = string.format("Locked. Buy %s in the catalog first.", req)
+            else
+                cost_label = item.cost_pp .. " PP"
+                tooltip    = item.description or item.name
+            end
+
+            components[#components + 1] = {
+                type     = "button",
+                id       = "buy_catalog_" .. item.id,
+                disabled = disabled,
+                tooltip  = tooltip,
+                lines = {
+                    { text = item.name, style = "heading" },
+                    { text = item.description or "", style = "small" },
+                    { text = cost_label, style = (is_owned or locked) and "muted" or "body" },
+                },
+            }
         end
-
-        components[#components + 1] = {
-            type     = "button",
-            id       = "buy_catalog_" .. item.id,
-            disabled = disabled,
-            tooltip  = is_owned and (item.description or item.name)
-                                or  (item.description or item.name),
-            lines = {
-                { text = item.name, style = "heading" },
-                { text = item.description or "", style = "small" },
-                { text = cost_label, style = is_owned and "muted" or "body" },
-            },
-        }
     end
 
     return components
@@ -307,36 +327,47 @@ end
 
 function GrindView:_buildUpgradesTabComponents()
     local state = self.game.state
+    local owned = {}
+    for _, id in ipairs(state.owned_items) do owned[id] = true end
 
     local components = {}
     components[#components + 1] = { type = "label", style = "muted", text = "RUN UPGRADES", h = 22 }
 
     for _, up in ipairs(RunUpgrades) do
-        local level   = self.controller:getRunUpgradeLevel(up.id)
-        local max_lvl = up.max_level or 1
-        local at_max  = level >= max_lvl
-        local next_cost = self.controller:getRunUpgradeNextCost(up)
-        local cant_afford = next_cost and state.bankroll < next_cost
-        local disabled    = at_max or cant_afford
+        local locked = up.requires and not owned[up.requires]
+        if not (locked and up.requires_hide) then
+            local level     = self.controller:getRunUpgradeLevel(up.id)
+            local max_lvl   = up.max_level or 1
+            local at_max    = level >= max_lvl
+            local next_cost = self.controller:getRunUpgradeNextCost(up)
+            local cant_afford = next_cost and state.bankroll < next_cost
+            local disabled  = at_max or cant_afford or locked
 
-        local cost_label
-        if at_max then
-            cost_label = string.format("MAX  Lv %d/%d", level, max_lvl)
-        else
-            cost_label = string.format("Lv %d/%d  ·  $%.2f", level, max_lvl, next_cost or 0)
+            local cost_label, tooltip
+            if locked then
+                local req = catalogName(up.requires)
+                cost_label = "Requires " .. req
+                tooltip    = string.format("Locked. Buy %s in the catalog first.", req)
+            elseif at_max then
+                cost_label = string.format("MAX  Lv %d/%d", level, max_lvl)
+                tooltip    = up.description or up.name
+            else
+                cost_label = string.format("Lv %d/%d  ·  $%.2f", level, max_lvl, next_cost or 0)
+                tooltip    = up.description or up.name
+            end
+
+            components[#components + 1] = {
+                type     = "button",
+                id       = "buy_runup_" .. up.id,
+                disabled = disabled,
+                tooltip  = tooltip,
+                lines = {
+                    { text = up.name, style = "heading" },
+                    { text = up.description or "", style = "small" },
+                    { text = cost_label, style = (at_max or locked) and "muted" or "body" },
+                },
+            }
         end
-
-        components[#components + 1] = {
-            type     = "button",
-            id       = "buy_runup_" .. up.id,
-            disabled = disabled,
-            tooltip  = up.description or up.name,
-            lines = {
-                { text = up.name, style = "heading" },
-                { text = up.description or "", style = "small" },
-                { text = cost_label, style = at_max and "muted" or "body" },
-            },
-        }
     end
 
     return components
