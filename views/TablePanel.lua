@@ -384,6 +384,112 @@ local function drawGauge(tbl, x, y, w, h_panel, ctx)
         GAUGE_MARKER_W, GAUGE_H + 2)
 end
 
+-- ─── Debug tooltip ────────────────────────────────────────────────────
+-- Toggled by backtick (see controllers/InputController). When game.debug
+-- .overlay is on AND mouse is inside the panel rect, render a tooltip
+-- with the table's pool-avg outcome stats and per-seated-opponent
+-- breakdown. Off by default — purely a math-tuning aid.
+
+local DEBUG_TIP_W       = 340
+local DEBUG_TIP_PAD     = 8
+local DEBUG_TIP_LINE_H  = 14
+
+local function fmtPct(p)   return string.format("%5.1f%%", (p or 0) * 100) end
+local function fmtBB(b)    return string.format("%5.1f",   b or 0) end
+local function fmtEV(n)
+    n = n or 0
+    if math.abs(n) < 100 then
+        return string.format("%+0.3f", n)
+    elseif math.abs(n) < 10000 then
+        return string.format("%+0.2f", n)
+    end
+    return string.format("%+0.0f", n)
+end
+
+-- Stash the (tbl, ctx) for the panel currently under the mouse cursor.
+-- TablePanel.flushDebugOverlay (called once per frame, after the panel loop)
+-- consumes the stash and renders the tooltip on top of all panels — fixing
+-- the z-order issue where panel N+1 would overdraw panel N's tooltip.
+local function stashDebugTooltipIfHover(tbl, panel_x, panel_y, panel_w, panel_h, game, controller)
+    if not tbl then return end
+    local dbg = game and game.debug
+    if not dbg or not dbg.overlay then return end
+
+    local mx, my = love.mouse.getPosition()
+    if mx < panel_x or mx > panel_x + panel_w
+        or my < panel_y or my > panel_y + panel_h then
+        return
+    end
+    dbg._tooltip_pending = { tbl = tbl, controller = controller, mx = mx, my = my }
+end
+
+local function renderDebugTooltip(tbl, mx, my, game, controller)
+    local stats = tbl:debugStats(controller and controller.ctx)
+    if not stats then return end
+
+    local fonts = game.fonts
+    local font  = fonts.ui_small
+    love.graphics.setFont(font)
+
+    local bb = (stats.stake and stats.stake.bb) or 1
+    if bb <= 0 then bb = 1 end
+
+    local lines = {}
+    lines[#lines + 1] = string.format("%s · %s   (pool avg)",
+        stats.stake.display_name or stats.stake.id or "?",
+        stats.gtype.short or stats.gtype.id or "?")
+    lines[#lines + 1] = string.format("WC %s   EV $%s  (%s bb/h)",
+        fmtPct(stats.pool.win_chance),
+        fmtEV(stats.pool.ev_per_hand),
+        fmtEV((stats.pool.ev_per_hand or 0) / bb))
+    lines[#lines + 1] = string.format("WIN  T %s S %s M %s J %s   avg %s bb",
+        fmtPct(stats.pool.win_dist.tiny),
+        fmtPct(stats.pool.win_dist.small),
+        fmtPct(stats.pool.win_dist.medium),
+        fmtPct(stats.pool.win_dist.jackpot),
+        fmtBB(stats.pool.win_avg_bb))
+    lines[#lines + 1] = string.format("LOSS T %s S %s M %s J %s   avg %s bb",
+        fmtPct(stats.pool.loss_dist.tiny),
+        fmtPct(stats.pool.loss_dist.small),
+        fmtPct(stats.pool.loss_dist.medium),
+        fmtPct(stats.pool.loss_dist.jackpot),
+        fmtBB(stats.pool.loss_avg_bb))
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = string.format("Opponents (%d):", #stats.opponents)
+    for i, o in ipairs(stats.opponents) do
+        local name  = (o.name or "?")
+        if #name > 10 then name = name:sub(1, 9) .. "…" end
+        local skill = (OpTypes.skills[o.skill]     and OpTypes.skills[o.skill].short)     or "?"
+        local style = (OpTypes.playstyles[o.style] and OpTypes.playstyles[o.style].name)  or "?"
+        if #style > 4 then style = style:sub(1, 4) end
+        lines[#lines + 1] = string.format(" %d. %-10s %3s/%-4s  WC %s  EV $%s",
+            i, name, skill, style, fmtPct(o.win_chance), fmtEV(o.ev_per_hand))
+    end
+
+    local screen_w, screen_h = love.graphics.getDimensions()
+    local tip_h = DEBUG_TIP_PAD * 2 + DEBUG_TIP_LINE_H * #lines
+    local tip_x = mx + 16
+    local tip_y = my + 8
+    if tip_x + DEBUG_TIP_W > screen_w then
+        tip_x = mx - DEBUG_TIP_W - 16
+    end
+    if tip_x < 0 then tip_x = 4 end
+    if tip_y + tip_h > screen_h then tip_y = screen_h - tip_h - 4 end
+    if tip_y < 0 then tip_y = 4 end
+
+    Theme.setColor(Theme.bg.window, 0.95)
+    love.graphics.rectangle("fill", tip_x, tip_y, DEBUG_TIP_W, tip_h, Theme.space.radius)
+    Theme.setColor(Theme.border.strong)
+    love.graphics.rectangle("line", tip_x, tip_y, DEBUG_TIP_W, tip_h, Theme.space.radius)
+
+    Theme.setColor(Theme.fg.heading)
+    for i, line in ipairs(lines) do
+        love.graphics.print(line,
+            tip_x + DEBUG_TIP_PAD,
+            tip_y + DEBUG_TIP_PAD + (i - 1) * DEBUG_TIP_LINE_H)
+    end
+end
+
 -- ─── Public API ──────────────────────────────────────────────────────
 
 -- Draw one panel and append any clickable hit-zones to hit_boxes.
@@ -507,6 +613,25 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
 
     -- EV gauge — drawn last so it sits above the felt's bottom edge.
     drawGauge(tbl, x, y, w, h, controller and controller.ctx)
+
+    -- Backtick-toggled debug tooltip — only stashes the hovered panel's
+    -- (tbl, ctx). Actual render happens in TablePanel.flushDebugOverlay
+    -- AFTER the caller has drawn every panel, so the tooltip is never
+    -- overdrawn by adjacent panels.
+    stashDebugTooltipIfHover(tbl, x, y, w, h, game, controller)
+end
+
+-- Render the deferred debug tooltip, if any. Call once per frame after the
+-- whole panel grid has been drawn.
+function TablePanel.flushDebugOverlay(game)
+    local dbg = game and game.debug
+    if not dbg or not dbg.overlay then return end
+    local p = dbg._tooltip_pending
+    if not p then return end
+    dbg._tooltip_pending = nil
+    if p.tbl then
+        renderDebugTooltip(p.tbl, p.mx, p.my, game, p.controller)
+    end
 end
 
 -- Empty grid slot — placeholder when table_slots cap allows more tables

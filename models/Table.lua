@@ -1,41 +1,48 @@
 -- models/Table.lua
 --
 -- A single ticking poker table. Per-hand state machine: the player clicks
--- DEAL, the outcome is rolled at deal-time from the table's outcome grid,
--- then cards are constructed via rejection sampling so what's drawn matches
--- the rolled win/lose. Animation timeline plays over ~2.2 seconds, ending
--- in settling that returns the resolution to the controller.
+-- DEAL, the outcome is rolled at deal-time from the 3-distribution outcome
+-- model, then cards are constructed via rejection sampling so what's drawn
+-- matches the rolled win/lose. Animation timeline plays over ~2.2 seconds,
+-- ending in settling that returns the resolution to the controller.
 --
 -- ─── State machine ─────────────────────────────────────────────────────
 --   idle / dealing / flop / turn / river / showdown / settling → idle.
 --   Resolution returns on the transition INTO settling.
 --
--- ─── Math layer (outcome grid) ─────────────────────────────────────────
--- Each hand resolves through an 8-cell outcome grid (4 pot tiers × W/L):
+-- ─── Math layer (3-distribution outcome model) ─────────────────────────
+-- Each hand resolves through three independent dimensions:
 --
---       LOSE                   WIN
---   Tiny    (tl)            Tiny    (tw)
---   Small   (sl)            Small   (sw)
---   Medium  (ml)            Medium  (mw)
---   Jackpot (jl)            Jackpot (jw)
+--   • win_chance — single probability ∈ [0, 1] that the hand is a Win
+--   • win_dist   — { tiny, small, medium, jackpot } sums to 1; sampled
+--                  when winning
+--   • loss_dist  — { tiny, small, medium, jackpot } sums to 1; sampled
+--                  when losing
 --
--- Cells hold probabilities summing to 1.0. The grid is built per-hand by
--- buildGrid(opp, ctx, gtype, stake) which layers, in order:
---   1. data/base_grid.lua           — universal symmetric ~50/50 baseline
---   2. stake.difficulty             — per-stake shift (the difficulty curve)
---   3. gtype.grid_modifier          — per-gtype tier-shape texture
---   4. OpTypes.skill_shifts[skill]  — small per-skill modulation
---   5. OpTypes.style_shifts[style]  — additive per-style cell shifts
---   6. ctx.grid_shifts              — run upgrades + catalog perks; some
---                                     filter on opp tags / gtype
--- Negative cells clamp to 0 and the grid renormalizes to sum=1.
+-- Each stake declares both naked AND run-capped values for these three.
+-- Run upgrades push fill descriptors onto ctx lists; the sum of matching
+-- descriptor strengths becomes "fill units" that lerp the dimension from
+-- naked toward run-capped via the stake's fill_window. Catalog perks add
+-- flat additive bumps on top — the only mechanism for crossing run-capped
+-- toward the absolute 0.95 WC ceiling.
+--
+-- Pipeline (buildOutcome(opp, ctx, gtype, stake)):
+--   1. Sum fill units per dimension (only descriptors that match opp/gtype).
+--   2. Convert units → fill ratio via stake.fill_window {start, complete}.
+--   3. Lerp naked → run-capped per dimension.
+--   4. Skill bump on WC (additive).
+--   5. Style additive shape on dists.
+--   6. Gtype additive shape on dists.
+--   7. Catalog ctx.win_chance_shifts (additive on top of lerp).
+--   8. Clamp WC to [0, 0.95]. Clamp dist cells ≥0 and renormalize.
 --
 -- Per hand:
 --   1. Pick opponent uniformly from seated.
---   2. buildGrid(opp, ctx, gtype, stake) → grid.
---   3. sampleCell(grid) → cell key, decoded to { tier, won, magnitude_bb }.
---   4. delta = ±magnitude × stake.bb × (earnings_mult on win, loss_mult on lose).
---   5. Construct cards (rejection sampling) so best5(player) beats / loses
+--   2. buildOutcome → (win_chance, win_dist, loss_dist).
+--   3. sampleOutcome → (won, tier).
+--   4. magnitude_bb = uniform(tier_bb_ranges[tier]).
+--   5. delta = ±magnitude × stake.bb × (earnings_mult on win, loss_mult on lose).
+--   6. Construct cards (rejection sampling) so best5(player) beats / loses
 --      to best5(opp), matching the rolled `won`.
 
 local RNG           = require("utils.rng")
@@ -46,7 +53,6 @@ local StakesData    = require("data.stakes")
 local GameTypesData = require("data.game_types")
 local NameData      = require("data.opponent_names")
 local OpTypes       = require("data.opponent_types")
-local BaseGrid      = require("data.base_grid")
 
 local Table = {}
 Table.__index = Table
@@ -96,135 +102,47 @@ local function pickRandomName()
     return NameData[love.math.random(1, #NameData)]
 end
 
--- ─── Outcome grid ─────────────────────────────────────────────────────
+-- ─── Outcome model ────────────────────────────────────────────────────
 
-local CELL_KEYS = { "tl", "sl", "ml", "jl", "tw", "sw", "mw", "jw" }
-local WIN_KEYS  = { "tw", "sw", "mw", "jw" }
 local TIER_KEYS = { "tiny", "small", "medium", "jackpot" }
 
--- (tier → { lose_cell, win_cell }) — used by tier-row shifts and tooltip.
-local TIER_PAIRS = {
-    tiny    = { l = "tl", w = "tw" },
-    small   = { l = "sl", w = "sw" },
-    medium  = { l = "ml", w = "mw" },
-    jackpot = { l = "jl", w = "jw" },
-}
-
--- Cascading order for shift_downward. tier_below[t] is where mass flows.
-local SHIFT_DOWN_CHAIN = {
-    { from = TIER_PAIRS.tiny,   to = TIER_PAIRS.small   },
-    { from = TIER_PAIRS.small,  to = TIER_PAIRS.medium  },
-    { from = TIER_PAIRS.medium, to = TIER_PAIRS.jackpot },
-}
-
--- Grid utility helpers.
-local function gridCopy(src)
-    local g = {}
-    for _, k in ipairs(CELL_KEYS) do g[k] = src[k] or 0 end
-    return g
+-- ── Distribution helpers ──
+local function distCopy(src)
+    local d = {}
+    if src then
+        for _, t in ipairs(TIER_KEYS) do d[t] = src[t] or 0 end
+    else
+        for _, t in ipairs(TIER_KEYS) do d[t] = 0 end
+    end
+    return d
 end
 
-local function gridSum(g)
+local function distAddInPlace(dst, delta)
+    if not delta then return end
+    for k, v in pairs(delta) do
+        dst[k] = (dst[k] or 0) + v
+    end
+end
+
+local function distClampAndNormalize(d)
+    for _, t in ipairs(TIER_KEYS) do
+        if (d[t] or 0) < 0 then d[t] = 0 end
+    end
     local s = 0
-    for _, k in ipairs(CELL_KEYS) do s = s + (g[k] or 0) end
-    return s
-end
-
-local function gridClampAndNormalize(g)
-    for _, k in ipairs(CELL_KEYS) do
-        if (g[k] or 0) < 0 then g[k] = 0 end
+    for _, t in ipairs(TIER_KEYS) do s = s + (d[t] or 0) end
+    if s <= 0 then
+        d.tiny, d.small, d.medium, d.jackpot = 1, 0, 0, 0
+        return
     end
-    local s = gridSum(g)
-    if s <= 0 then return end
-    for _, k in ipairs(CELL_KEYS) do g[k] = g[k] / s end
+    for _, t in ipairs(TIER_KEYS) do d[t] = d[t] / s end
 end
 
--- Apply an additive shift table {cell_key=delta, ...} to the grid in place.
-local function applyAdditiveShift(g, shift)
-    if not shift then return end
-    for k, v in pairs(shift) do
-        g[k] = (g[k] or 0) + v
-    end
-end
+-- ── Pipeline helpers ──
 
--- Apply a game-type's grid_modifier ({ tiny, small, medium, jackpot } row
--- shifts). Each tier's amount is split evenly between its L and W cells.
-local function applyGtypeModifier(g, modifier)
-    if not modifier then return end
-    for tier, amount in pairs(modifier) do
-        local pair = TIER_PAIRS[tier]
-        if pair then
-            g[pair.l] = (g[pair.l] or 0) + amount * 0.5
-            g[pair.w] = (g[pair.w] or 0) + amount * 0.5
-        end
-    end
-end
+local WC_ABSOLUTE_CAP = 0.95   -- final WC ceiling regardless of fill/shifts
 
--- ── Grid-shift operations ──────────────────────────────────────────────
--- Each op is a function. Dispatched by name from a table — no kind chain.
-
--- Move `amount` × (current L cell mass) from each Lose cell to the same-tier
--- Win cell. Sharper Reads / Calm Hands / Patience / Calculator / rec skill.
-local function shiftLoseToWin(g, amount)
-    if amount <= 0 then return end
-    for _, t in ipairs(TIER_KEYS) do
-        local pair = TIER_PAIRS[t]
-        local moved = (g[pair.l] or 0) * amount
-        g[pair.l] = g[pair.l] - moved
-        g[pair.w] = (g[pair.w] or 0) + moved
-    end
-end
-
--- Inverse of shiftLoseToWin — move `amount` × (current W cell mass) from
--- each Win cell to the same-tier Lose cell. Per-stake difficulty / pro
--- skill use this to make hands harder.
-local function shiftWinToLose(g, amount)
-    if amount <= 0 then return end
-    for _, t in ipairs(TIER_KEYS) do
-        local pair = TIER_PAIRS[t]
-        local moved = (g[pair.w] or 0) * amount
-        g[pair.w] = g[pair.w] - moved
-        g[pair.l] = (g[pair.l] or 0) + moved
-    end
-end
-
--- Cascade `amount` × (current tier mass) downward: Tiny → Small → Medium →
--- Jackpot. Donor mass scales L and W proportionally; receiver gets the
--- moved mass split evenly between L and W. Big Pots.
-local function shiftDownward(g, amount)
-    if amount <= 0 then return end
-    for _, link in ipairs(SHIFT_DOWN_CHAIN) do
-        local from_l, from_w = link.from.l, link.from.w
-        local to_l,   to_w   = link.to.l,   link.to.w
-        local from_total = (g[from_l] or 0) + (g[from_w] or 0)
-        local moved = from_total * amount
-        if moved > 0 then
-            g[from_l] = g[from_l] * (1 - amount)
-            g[from_w] = g[from_w] * (1 - amount)
-            g[to_l]   = (g[to_l] or 0) + moved * 0.5
-            g[to_w]   = (g[to_w] or 0) + moved * 0.5
-        end
-    end
-end
-
-local SHIFT_OPS = {
-    lose_to_win    = shiftLoseToWin,
-    win_to_lose    = shiftWinToLose,
-    shift_downward = shiftDownward,
-}
-
-local function applyShift(g, shift)
-    if not shift or not shift.op then return end
-    local op = SHIFT_OPS[shift.op]
-    if op then op(g, shift.amount or 0) end
-end
-
-local function applyShifts(g, shifts)
-    if not shifts then return end
-    for _, shift in ipairs(shifts) do applyShift(g, shift) end
-end
-
--- Returns true if the shift descriptor applies to (opp, gtype).
+-- Returns true if the descriptor's filters match (opp, gtype). Shared by
+-- fill descriptors AND legacy shift descriptors (both carry skill/style/gtype).
 local function shiftApplies(shift, opp, gtype)
     if shift.skill and shift.skill ~= opp.skill then return false end
     if shift.style and shift.style ~= opp.style then return false end
@@ -232,73 +150,106 @@ local function shiftApplies(shift, opp, gtype)
     return true
 end
 
--- Build the effective 8-cell grid for one opponent, given the player ctx.
--- Pipeline:
---   1. Copy BaseGrid (universal symmetric ~50/50 starting point).
---   2. Apply stake.difficulty (list of grid_shifts; harder stakes shift
---      mass W → L via win_to_lose).
---   3. Apply gtype.grid_modifier (additive per-tier shift, split L/W).
---   4. Apply OpTypes.skill_shifts[opp.skill] (single shift; rec slightly
---      easier, pro slightly harder, reg neutral).
---   5. Apply OpTypes.style_shifts[opp.style] (additive cell shifts).
---   6. Apply ctx.grid_shifts that match this opp's tags / gtype, then
---      general (untargeted) ones.
---   7. Clamp negatives to 0 and renormalize to sum=1.
--- Returns a fresh table; caller may mutate freely.
-local function buildGrid(opp, ctx, gtype, stake)
-    local g = gridCopy(BaseGrid)
+-- Sum strength across descriptors matching this (opp, gtype).
+local function sumFills(list, opp, gtype)
+    if not list then return 0 end
+    local total = 0
+    for _, d in ipairs(list) do
+        if shiftApplies(d, opp, gtype) then
+            total = total + (d.strength or 1)
+        end
+    end
+    return total
+end
 
-    -- Per-stake difficulty (the dominant source of stake-to-stake variance).
-    if stake then applyShifts(g, stake.difficulty) end
+-- Convert fill units to a [0, 1] ratio via the stake's fill_window.
+-- Below window.start: 0 (warmup). At window.complete: 1. Linear in between.
+local function fillRatio(units, window)
+    if not window then return 1 end
+    local start    = window.start    or 0
+    local complete = window.complete or (start + 1)
+    local span     = complete - start
+    if span <= 0 then return units >= complete and 1 or 0 end
+    local r = (units - start) / span
+    if r < 0 then return 0 end
+    if r > 1 then return 1 end
+    return r
+end
 
-    -- Game-type tier shape (per-row, split evenly L/W).
-    applyGtypeModifier(g, gtype and gtype.grid_modifier)
+-- Linear interpolation between two distributions (per-tier).
+local function lerpDist(naked, capped, t)
+    local d = {}
+    for _, k in ipairs(TIER_KEYS) do
+        local a = (naked  and naked[k])  or 0
+        local b = (capped and capped[k]) or a
+        d[k] = a + (b - a) * t
+    end
+    return d
+end
 
-    -- Per-skill shift (rec / reg / pro — small).
-    applyShift(g, OpTypes.skill_shifts[opp.skill])
+-- Build the effective (win_chance, win_dist, loss_dist) tuple for one
+-- opponent, given the player ctx. Returns three fresh values; caller may
+-- mutate the dist tables freely.
+local function buildOutcome(opp, ctx, gtype, stake)
+    -- 1. Sum fill units per dimension (filtered by opp/gtype).
+    local wc_units = sumFills(ctx and ctx.win_chance_fills, opp, gtype)
+    local wd_units = sumFills(ctx and ctx.win_dist_fills,   opp, gtype)
+    local ld_units = sumFills(ctx and ctx.loss_dist_fills,  opp, gtype)
 
-    -- Per-style additive shift (variance shape — flavor).
-    applyAdditiveShift(g, OpTypes.style_shifts[opp.style])
+    -- 2. Convert to fill ratio via stake's window.
+    local window = stake and stake.fill_window
+    local wc_fill = fillRatio(wc_units, window)
+    local wd_fill = fillRatio(wd_units, window)
+    local ld_fill = fillRatio(ld_units, window)
 
-    -- ctx.grid_shifts (run upgrades + catalog perks), in order. Shifts
-    -- with skill / style / gtype filters only fire when matching.
-    if ctx and ctx.grid_shifts then
-        for _, shift in ipairs(ctx.grid_shifts) do
+    -- 3. Lerp naked → run-capped on each dimension.
+    local naked_wc  = (stake and stake.win_chance)        or 0
+    local capped_wc = (stake and stake.win_chance_capped) or naked_wc
+    local win_chance = naked_wc + (capped_wc - naked_wc) * wc_fill
+    local win_dist   = lerpDist(stake and stake.win_dist,  stake and stake.win_dist_capped,  wd_fill)
+    local loss_dist  = lerpDist(stake and stake.loss_dist, stake and stake.loss_dist_capped, ld_fill)
+
+    -- 4. Per-skill win_chance bump (rec / reg / pro — small flavor).
+    win_chance = win_chance + (OpTypes.skill_shifts[opp.skill] or 0)
+
+    -- 5. Per-style additive shape on win_dist / loss_dist.
+    local style_shift = OpTypes.style_dist_shifts[opp.style]
+    if style_shift then
+        distAddInPlace(win_dist,  style_shift.win_dist)
+        distAddInPlace(loss_dist, style_shift.loss_dist)
+    end
+
+    -- 6. Per-gtype additive shape on both dists (depth/pace texture).
+    if gtype and gtype.dist_shifts then
+        distAddInPlace(win_dist,  gtype.dist_shifts.win_dist)
+        distAddInPlace(loss_dist, gtype.dist_shifts.loss_dist)
+    end
+
+    -- 7. Catalog ctx.win_chance_shifts — flat additive ON TOP of the lerp.
+    --    The only mechanism for crossing run-capped toward the absolute cap.
+    if ctx and ctx.win_chance_shifts then
+        for _, shift in ipairs(ctx.win_chance_shifts) do
             if shiftApplies(shift, opp, gtype) then
-                applyShift(g, shift)
+                win_chance = win_chance + (shift.amount or 0)
             end
         end
     end
 
-    gridClampAndNormalize(g)
-    return g
+    -- 8. Final clamps. Absolute WC ceiling (no 100% wins).
+    if     win_chance < 0                 then win_chance = 0
+    elseif win_chance > WC_ABSOLUTE_CAP   then win_chance = WC_ABSOLUTE_CAP end
+    distClampAndNormalize(win_dist)
+    distClampAndNormalize(loss_dist)
+
+    return win_chance, win_dist, loss_dist
 end
 
--- Sample one cell from the grid. Returns (cell_key) — caller decodes
--- tier / won / magnitude.
-local function sampleCell(g)
-    local total = gridSum(g)
-    if total <= 0 then return "tl" end
-    local r = love.math.random() * total
-    local acc = 0
-    for _, k in ipairs(CELL_KEYS) do
-        acc = acc + (g[k] or 0)
-        if r <= acc then return k end
-    end
-    return CELL_KEYS[#CELL_KEYS]
+-- Sample (won, tier) from the 3-distribution outcome.
+local function sampleOutcome(win_chance, win_dist, loss_dist)
+    local won = love.math.random() < win_chance
+    local tier = sampleDist(won and win_dist or loss_dist) or "tiny"
+    return won, tier
 end
-
--- Decode a cell key to { tier, won }.
-local CELL_DECODE = {
-    tl = { tier = "tiny",    won = false },
-    sl = { tier = "small",   won = false },
-    ml = { tier = "medium",  won = false },
-    jl = { tier = "jackpot", won = false },
-    tw = { tier = "tiny",    won = true  },
-    sw = { tier = "small",   won = true  },
-    mw = { tier = "medium",  won = true  },
-    jw = { tier = "jackpot", won = true  },
-}
 
 -- Roll a magnitude (in bb) within the cell's tier range.
 local function rollTierMagnitude(tier)
@@ -435,26 +386,25 @@ function Table:deal(ctx)
     local opp = self.opponents[self.opponent_idx]
     if not opp then return false end
 
-    -- Build this opponent's outcome grid and sample one cell.
-    local grid = buildGrid(opp, ctx, gtype, stake)
-    local cell = sampleCell(grid)
-    local decoded = CELL_DECODE[cell] or { tier = "tiny", won = false }
-    local magnitude_bb = rollTierMagnitude(decoded.tier)
+    -- Build this opponent's outcome and sample.
+    local wc, wd, ld = buildOutcome(opp, ctx, gtype, stake)
+    local won, tier = sampleOutcome(wc, wd, ld)
+    local magnitude_bb = rollTierMagnitude(tier)
 
-    self.outcome_won  = decoded.won
-    self.outcome_tier = decoded.tier
+    self.outcome_won  = won
+    self.outcome_tier = tier
 
     -- earnings_mult / loss_mult scale magnitude only — they don't reshape
-    -- the grid (Pot Odds Master, Damage Control, Headphones).
+    -- the dists (Pot Odds Master, Damage Control, Headphones).
     local earnings_mult = ctx.earnings_mult or 1
     local loss_mult     = ctx.loss_mult     or 1
-    if self.outcome_won then
+    if won then
         self.outcome_delta = magnitude_bb * stake.bb * earnings_mult
     else
         self.outcome_delta = -magnitude_bb * stake.bb * loss_mult
     end
 
-    local p_hole, o_hole, board, natural = constructHand(self.outcome_won)
+    local p_hole, o_hole, board, natural = constructHand(won)
     self.player_hole     = p_hole
     self.opponent_hole   = o_hole
     self.community       = board
@@ -553,15 +503,14 @@ function Table:isBusy()
 end
 
 -- ─── Estimation (UI gauge) ────────────────────────────────────────────
--- Build the *expected* 8-cell grid for this (stake, game_type, ctx) — the
+-- Build the *expected* outcome tuple for this (stake, game_type, ctx) — the
 -- weighted average over the stake's skill × playstyle joint distribution
 -- (after the game-type's modifiers). We deliberately do NOT use the
--- actually-seated opponents: with only 5 seats sampled from a 4-skill
--- distribution, the per-skill EV swing is enormous (rec ≈ +6 bb, pro ≈
--- -30 bb at s001 grids) and the gauge would jump 0%↔100% across fresh
--- tables at the same stake. The gauge is meant to read "how is this
--- stake/gtype going for me with my current upgrades" — stake-stable —
--- not "what random seat composition did I draw this time."
+-- actually-seated opponents: with only a few seats sampled from the pool,
+-- the per-skill EV swing is enormous and the gauge would jump 0%↔100%
+-- across fresh tables at the same stake. The gauge is meant to read "how
+-- is this stake/gtype going for me with my current upgrades" — stake-stable
+-- — not "what random seat composition did I draw this time."
 
 -- Average bb magnitude inside a tier (uniform over [lo, hi]).
 local function tierAvgBB(tier)
@@ -570,7 +519,7 @@ local function tierAvgBB(tier)
     return (r.lo + r.hi) * 0.5
 end
 
-function Table:tableGrid(ctx)
+function Table:tableOutcome(ctx)
     local stake = findStake(self.stake_id)
     local gtype = findGameType(self.game_type_id)
     if not stake or not gtype then return nil end
@@ -578,25 +527,93 @@ function Table:tableGrid(ctx)
     local skill_dist = OpTypes.default_distributions.skills
     local style_dist = OpTypes.default_distributions.playstyles
 
-    local out = {}
-    for _, k in ipairs(CELL_KEYS) do out[k] = 0 end
+    local wc_acc = 0
+    local wd_acc = { tiny = 0, small = 0, medium = 0, jackpot = 0 }
+    local ld_acc = { tiny = 0, small = 0, medium = 0, jackpot = 0 }
     local total_w = 0
     for skill, sp in pairs(skill_dist) do
         for style, yp in pairs(style_dist) do
             local w = sp * yp
             if w > 0 then
                 local proxy = { skill = skill, style = style }
-                local g = buildGrid(proxy, ctx or {}, gtype, stake)
-                for _, k in ipairs(CELL_KEYS) do
-                    out[k] = out[k] + (g[k] or 0) * w
+                local wc, wd, ld = buildOutcome(proxy, ctx or {}, gtype, stake)
+                wc_acc = wc_acc + wc * w
+                for _, t in ipairs(TIER_KEYS) do
+                    wd_acc[t] = wd_acc[t] + (wd[t] or 0) * w
+                    ld_acc[t] = ld_acc[t] + (ld[t] or 0) * w
                 end
                 total_w = total_w + w
             end
         end
     end
     if total_w <= 0 then return nil end
-    for _, k in ipairs(CELL_KEYS) do out[k] = out[k] / total_w end
-    return out
+    wc_acc = wc_acc / total_w
+    for _, t in ipairs(TIER_KEYS) do
+        wd_acc[t] = wd_acc[t] / total_w
+        ld_acc[t] = ld_acc[t] / total_w
+    end
+    return wc_acc, wd_acc, ld_acc
+end
+
+-- Debug-only: pool-average + per-seated-opponent breakdown of the
+-- (win_chance, win_dist, loss_dist, ev_per_hand) tuple. Used by the
+-- backtick debug tooltip in views/TablePanel. Not on the per-frame path.
+function Table:debugStats(ctx)
+    local stake = findStake(self.stake_id)
+    local gtype = findGameType(self.game_type_id)
+    if not stake or not gtype then return nil end
+
+    ctx = ctx or {}
+    local em = ctx.earnings_mult or 1
+    local lm = ctx.loss_mult     or 1
+    local bb = stake.bb
+
+    local function evFor(wc, wd, ld)
+        local win_avg, loss_avg = 0, 0
+        for _, t in ipairs(TIER_KEYS) do
+            win_avg  = win_avg  + (wd[t] or 0) * tierAvgBB(t)
+            loss_avg = loss_avg + (ld[t] or 0) * tierAvgBB(t)
+        end
+        local ev = wc * win_avg * bb * em - (1 - wc) * loss_avg * bb * lm
+        return ev, win_avg, loss_avg
+    end
+
+    local pool_wc, pool_wd, pool_ld = self:tableOutcome(ctx)
+    if not pool_wc then return nil end
+    local pool_ev, pool_win_avg, pool_loss_avg = evFor(pool_wc, pool_wd, pool_ld)
+
+    local opps = {}
+    for i, opp in ipairs(self.opponents) do
+        local wc, wd, ld = buildOutcome(opp, ctx, gtype, stake)
+        local ev, win_avg, loss_avg = evFor(wc, wd, ld)
+        opps[i] = {
+            name           = opp.name,
+            skill          = opp.skill,
+            style          = opp.style,
+            revealed_skill = opp.revealed_skill,
+            revealed_style = opp.revealed_style,
+            win_chance     = wc,
+            win_dist       = wd,
+            loss_dist      = ld,
+            ev_per_hand    = ev,
+            win_avg_bb     = win_avg,
+            loss_avg_bb    = loss_avg,
+        }
+    end
+
+    return {
+        stake = stake,
+        gtype = gtype,
+        pool = {
+            win_chance  = pool_wc,
+            win_dist    = pool_wd,
+            loss_dist   = pool_ld,
+            ev_per_hand = pool_ev,
+            win_avg_bb  = pool_win_avg,
+            loss_avg_bb = pool_loss_avg,
+        },
+        opponents = opps,
+    }
 end
 
 function Table:estimateStats(ctx)
@@ -606,41 +623,27 @@ function Table:estimateStats(ctx)
     if #self.opponents == 0 then return nil end
 
     ctx = ctx or {}
-    local grid = self:tableGrid(ctx)
-    if not grid then return nil end
+    local wc, wd, ld = self:tableOutcome(ctx)
+    if not wc then return nil end
 
-    -- Win chance = sum of the W column.
-    local win_chance = 0
-    for _, k in ipairs(WIN_KEYS) do win_chance = win_chance + (grid[k] or 0) end
-
-    -- Per-tier total mass (L+W).
-    local tier_pcts = {}
-    for _, t in ipairs(TIER_KEYS) do
-        local pair = TIER_PAIRS[t]
-        tier_pcts[t] = (grid[pair.l] or 0) + (grid[pair.w] or 0)
-    end
-
-    -- Headline jackpot-win % — the "watch it tick up" number.
-    local jackpot_win_pct = grid.jw or 0
-
-    -- EV per hand. Each cell contributes p × magnitude × (em or lm) × bb.
+    -- EV per hand. win_chance × E[win_magnitude] - (1-win_chance) × E[loss_magnitude].
     local em = ctx.earnings_mult or 1
     local lm = ctx.loss_mult     or 1
     local bb = stake.bb
-    local ev = 0
+
+    local win_avg, loss_avg = 0, 0
     for _, t in ipairs(TIER_KEYS) do
-        local pair = TIER_PAIRS[t]
-        local avg = tierAvgBB(t)
-        ev = ev + (grid[pair.w] or 0) * avg * bb * em
-        ev = ev - (grid[pair.l] or 0) * avg * bb * lm
+        win_avg  = win_avg  + (wd[t] or 0) * tierAvgBB(t)
+        loss_avg = loss_avg + (ld[t] or 0) * tierAvgBB(t)
     end
 
+    local ev = wc * win_avg * bb * em - (1 - wc) * loss_avg * bb * lm
+
     return {
-        win_chance      = win_chance,
-        tier_pcts       = tier_pcts,
-        jackpot_win_pct = jackpot_win_pct,
-        ev_per_hand     = ev,
-        grid            = grid,
+        ev_per_hand = ev,
+        win_chance  = wc,
+        win_dist    = wd,
+        loss_dist   = ld,
     }
 end
 

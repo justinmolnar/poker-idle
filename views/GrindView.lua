@@ -516,6 +516,10 @@ function GrindView:draw()
     self.right_panel:draw(self.game)
     self:_drawShoveButton()
     self:_drawFloatingText()
+
+    -- Backtick debug tooltip — flushed last so it draws above every other
+    -- view layer (sidebar panels, shove button, floating text included).
+    TablePanel.flushDebugOverlay(self.game)
 end
 
 -- ─── Mouse routing ────────────────────────────────────────────────────

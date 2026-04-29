@@ -1,7 +1,7 @@
 -- models/poker_effects.lua
 --
 -- Poker-specific effect kind registrations. Lives in models/ (not services/)
--- because the kind names (`shove_rate_add`, `grid_shift`, etc.) are
+-- because the kind names (`shove_rate_add`, `win_chance_fill`, etc.) are
 -- poker-specific data — services/EffectsRegistry stays generic, just owning
 -- the registry mechanism.
 --
@@ -22,13 +22,14 @@ function PokerEffects.registerAll(reg)
         ctx.shove_rate = (ctx.shove_rate or 0) + e.value
     end)
 
-    -- Magnitude scaling on the win column (Pot Odds Master, Big Pots
-    -- legacy slot — kept as magnitude-only since it scales $ not grid mass).
+    -- Magnitude scaling on the win column (Pot Odds Master). Magnitude-only
+    -- — does not reshape win_dist.
     reg:register("earnings_mult", function(e, ctx)
         ctx.earnings_mult = (ctx.earnings_mult or 1) * e.value
     end)
 
     -- Magnitude scaling on the lose column (Damage Control, Headphones).
+    -- Magnitude-only — does not reshape loss_dist.
     reg:register("loss_mult", function(e, ctx)
         ctx.loss_mult = (ctx.loss_mult or 1) * e.value
     end)
@@ -41,21 +42,51 @@ function PokerEffects.registerAll(reg)
         ctx.rep_decay = (ctx.rep_decay or 1) * e.value
     end)
 
-    -- ── Outcome-grid shift ──────────────────────────────────────────────
-    -- Pushes a transform descriptor onto ctx.grid_shifts. models/Table.lua's
-    -- :_buildGrid walks this list in order, applying each shift before the
-    -- final renormalization. The descriptor's `op` field is read by the
-    -- single shift-applicator inside _buildGrid (no kind chain — `op` is a
-    -- data field, dispatched via a small applicator table).
-    --
-    -- Effect entry shape:
-    --   { kind = "grid_shift", op = "lose_to_win" | "shift_downward",
-    --     amount = 0..1,
-    --     skill = "<id>"?, style = "<id>"?, gtype = "<id>"? }
-    reg:register("grid_shift", function(e, ctx)
-        ctx.grid_shifts = ctx.grid_shifts or {}
-        ctx.grid_shifts[#ctx.grid_shifts + 1] = {
-            op     = e.op,
+    -- ── Outcome-model effects ───────────────────────────────────────────
+    -- Three "fill" kinds (run upgrades) and one "shift" kind (catalog).
+    -- Each fill applicator pushes one descriptor per application. With
+    -- EffectsRegistry:applyN, an N-level upgrade pushes N descriptors —
+    -- buildOutcome sums their strengths into "fill units" then lerps
+    -- naked → run-capped via the stake's fill_window.
+
+    -- WC fill: each level adds `strength` units toward closing the WC gap.
+    reg:register("win_chance_fill", function(e, ctx)
+        ctx.win_chance_fills = ctx.win_chance_fills or {}
+        ctx.win_chance_fills[#ctx.win_chance_fills + 1] = {
+            strength = e.strength or 1,
+            skill    = e.skill,
+            style    = e.style,
+            gtype    = e.gtype,
+        }
+    end)
+
+    -- win_dist fill: closes the gap from naked to win_dist_capped.
+    reg:register("win_dist_fill", function(e, ctx)
+        ctx.win_dist_fills = ctx.win_dist_fills or {}
+        ctx.win_dist_fills[#ctx.win_dist_fills + 1] = {
+            strength = e.strength or 1,
+            skill    = e.skill,
+            style    = e.style,
+            gtype    = e.gtype,
+        }
+    end)
+
+    -- loss_dist fill: closes the gap from naked to loss_dist_capped.
+    reg:register("loss_dist_fill", function(e, ctx)
+        ctx.loss_dist_fills = ctx.loss_dist_fills or {}
+        ctx.loss_dist_fills[#ctx.loss_dist_fills + 1] = {
+            strength = e.strength or 1,
+            skill    = e.skill,
+            style    = e.style,
+            gtype    = e.gtype,
+        }
+    end)
+
+    -- Catalog flat additive on WC. Applied AFTER the lerp in buildOutcome
+    -- — the only mechanism for pushing WC beyond run-capped.
+    reg:register("win_chance_shift", function(e, ctx)
+        ctx.win_chance_shifts = ctx.win_chance_shifts or {}
+        ctx.win_chance_shifts[#ctx.win_chance_shifts + 1] = {
             amount = e.amount or e.value or 0,
             skill  = e.skill,
             style  = e.style,

@@ -89,6 +89,19 @@ function InputController:wire()
             print("[save] F7 — wiped.  fresh game.")
         end)
 
+    -- ── Debug overlay toggle ────────────────────────────────────────────
+    -- Backtick toggles a per-table tooltip showing exact win_chance /
+    -- win_dist / loss_dist / EV-per-hand for the table the mouse is over,
+    -- plus per-seated-opponent numbers. Off by default; see
+    -- views/TablePanel:flushDebugOverlay (deferred so the tooltip draws on
+    -- top of every panel in the grid, not just the panel that triggered it).
+    dispatcher:on("keypressed",
+        function(key) return key == "`" end,
+        function()
+            game.debug.overlay = not game.debug.overlay
+            print(string.format("[debug] overlay = %s", tostring(game.debug.overlay)))
+        end)
+
     -- ── Debug bankroll grant (dev hotkeys) ──────────────────────────────
     --   `-` removes $1,000 from bankroll (clamped at 0)
     --   `=` adds    $1,000 to bankroll

@@ -51,6 +51,10 @@ local function buildGame()
 
     g.theme           = Theme
     g.fonts           = FontService.build(ThemeData.font)
+
+    -- Transient debug toggles (not persisted). Backtick (`) toggles
+    -- the per-table tooltip overlay; see InputController and TablePanel.
+    g.debug = { overlay = false }
     g.event_bus       = EventBus
     g.time            = Time:new()
     g.camera          = Camera:new(0, 0, 1)

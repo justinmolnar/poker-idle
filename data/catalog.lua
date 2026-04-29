@@ -64,7 +64,7 @@ return {
         sprite      = "calculator",
         cost_pp     = 4,
         position    = { x = 180, y = 200 },
-        effects     = { { kind = "grid_shift", op = "lose_to_win", amount = 0.02 } },
+        effects     = { { kind = "win_chance_shift", amount = 0.02 } },
     },
     {
         id          = "pen",
@@ -187,7 +187,7 @@ return {
         sprite      = "calm_hands",
         cost_pp     = 30,
         position    = { x = 400, y = 400 },
-        effects     = { { kind = "grid_shift", op = "lose_to_win", amount = 0.10, skill = "pro" } },
+        effects     = { { kind = "win_chance_shift", amount = 0.10, skill = "pro" } },
     },
     {
         id          = "hu_specialist",
@@ -196,7 +196,7 @@ return {
         sprite      = "hu_specialist",
         cost_pp     = 30,
         position    = { x = 550, y = 400 },
-        effects     = { { kind = "grid_shift", op = "lose_to_win", amount = 0.06, gtype = "hu" } },
+        effects     = { { kind = "win_chance_shift", amount = 0.06, gtype = "hu" } },
     },
 
 }

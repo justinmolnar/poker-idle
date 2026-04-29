@@ -4,30 +4,45 @@
 -- is genuinely dramatic ($2 buy-in → $100k buy-in across the run). The
 -- 10× jumps mean each stake is its own "scratch card": the prior stake
 -- feels maxed out, the next stake feels brutal, until you grind upgrades
--- that reshape the outcome grid.
+-- that reshape win_chance / win_dist / loss_dist.
 --
--- Difficulty model (post-refactor):
---   Each stake owns a `difficulty` list of grid_shifts that the buildGrid
---   pipeline applies to the universal base grid (data/base_grid.lua).
---   This is the dominant source of stake-to-stake difficulty variance —
---   opponents are uniform across stakes (same pool, same distribution).
---   Curve targets (naked, no upgrades, no game-type modifier):
---     s001 ≈ 50% Win  s002 ≈ 30%  s003 ≈ 10%
---     s004 ≈  5%      s005 ≈  2%  s006 ≈  0.5%
---   The win_to_lose amount X collapses base W mass to 0.50 × (1-X), so
---   X ladders 0 / 0.40 / 0.80 / 0.90 / 0.96 / 0.99 hits those targets
---   approximately. Tune in playtest.
+-- Outcome model — three independent dimensions per stake, each with a
+-- *naked* and *run-capped* value. Run upgrades fill the gap between them.
+-- Catalog perks layer ON TOP of run-capped (additive), pushing toward an
+-- absolute 0.95 WC ceiling enforced in buildOutcome.
+--
+--   win_chance        — naked probability ∈ [0, 1] of a Win
+--   win_chance_capped — value reached when run-upgrade fill = 1
+--   win_dist          — naked tier dist sampled when winning (sums to 1)
+--   win_dist_capped   — fully-filled tier dist (also sums to 1)
+--   loss_dist         — naked tier dist sampled when losing
+--   loss_dist_capped  — fully-filled loss tier dist
+--   fill_window       — { start, complete } level window for run upgrades
+--                       at fill_units < start: dimension stays naked
+--                       at fill_units >= complete: dimension at run-capped
+--                       linear in between
+--
+--   Span 5, offset 3 across stakes — predictable progression. T1 fills in
+--   levels 1-5; T2 starts at L4 (warmup), completes at L8; T6 starts at
+--   L16, completes at L20 (PB/PC max=14 cannot reach T6, SR max=18 reaches
+--   60% of the way — catalog perks bridge the rest).
 --
 -- Tier schema:
 --   {
---     id              = "s00N",         -- semantic, ordered
---     name            = "long display",  -- "$0.01/$0.02 NLHE"
---     display_name    = "$0.01/$0.02",   -- compact label for table panel headers
+--     id              = "s00N",
+--     name            = "long display",
+--     display_name    = "$0.01/$0.02",
 --     sb              = number ($),
 --     bb              = number ($),
---     buy_in          = number ($)       -- 100bb, the cash you need to sit
---     pp_award        = integer          -- one-time per-run PP bounty for first jackpot win
---     difficulty      = { {op="...", amount=...}, ... }  -- empty for s001
+--     buy_in          = number ($)            -- 100bb
+--     pp_award        = integer               -- one-time per-run PP bounty
+--     win_chance      = number 0..1           -- naked
+--     win_chance_capped = number 0..1
+--     win_dist        = { tiny, small, medium, jackpot }  -- naked, sums to 1
+--     win_dist_capped = same shape, sums to 1
+--     loss_dist       = same shape, naked
+--     loss_dist_capped= same shape
+--     fill_window     = { start = N, complete = M }
 --   }
 
 return {
@@ -40,7 +55,13 @@ return {
         bb           = 0.02,
         buy_in       = 2.00,
         pp_award     = 1,
-        difficulty   = {},
+        win_chance        = 0.50,
+        win_chance_capped = 0.75,
+        win_dist          = { tiny = 0.45, small = 0.34, medium = 0.20, jackpot = 0.01 },
+        win_dist_capped   = { tiny = 0.10, small = 0.15, medium = 0.25, jackpot = 0.50 },
+        loss_dist         = { tiny = 0.45, small = 0.34, medium = 0.20, jackpot = 0.01 },
+        loss_dist_capped  = { tiny = 0.55, small = 0.25, medium = 0.19, jackpot = 0.01 },
+        fill_window       = { start = 0, complete = 5 },
     },
     {
         id           = "s002",
@@ -50,9 +71,13 @@ return {
         bb           = 0.25,
         buy_in       = 25.00,
         pp_award     = 2,
-        difficulty   = {
-            { op = "win_to_lose", amount = 0.40 },
-        },
+        win_chance        = 0.30,
+        win_chance_capped = 0.65,
+        win_dist          = { tiny = 0.50, small = 0.30, medium = 0.18, jackpot = 0.02 },
+        win_dist_capped   = { tiny = 0.10, small = 0.15, medium = 0.25, jackpot = 0.50 },
+        loss_dist         = { tiny = 0.35, small = 0.30, medium = 0.30, jackpot = 0.05 },
+        loss_dist_capped  = { tiny = 0.55, small = 0.25, medium = 0.17, jackpot = 0.03 },
+        fill_window       = { start = 3, complete = 8 },
     },
     {
         id           = "s003",
@@ -62,9 +87,13 @@ return {
         bb           = 1.00,
         buy_in       = 100.00,
         pp_award     = 3,
-        difficulty   = {
-            { op = "win_to_lose", amount = 0.80 },
-        },
+        win_chance        = 0.15,
+        win_chance_capped = 0.55,
+        win_dist          = { tiny = 0.55, small = 0.30, medium = 0.13, jackpot = 0.02 },
+        win_dist_capped   = { tiny = 0.10, small = 0.15, medium = 0.25, jackpot = 0.50 },
+        loss_dist         = { tiny = 0.25, small = 0.30, medium = 0.35, jackpot = 0.10 },
+        loss_dist_capped  = { tiny = 0.55, small = 0.20, medium = 0.18, jackpot = 0.07 },
+        fill_window       = { start = 6, complete = 11 },
     },
     {
         id           = "s004",
@@ -74,9 +103,13 @@ return {
         bb           = 10,
         buy_in       = 1000,
         pp_award     = 4,
-        difficulty   = {
-            { op = "win_to_lose", amount = 0.90 },
-        },
+        win_chance        = 0.10,
+        win_chance_capped = 0.45,
+        win_dist          = { tiny = 0.40, small = 0.40, medium = 0.20, jackpot = 0.00 },
+        win_dist_capped   = { tiny = 0.15, small = 0.20, medium = 0.20, jackpot = 0.45 },
+        loss_dist         = { tiny = 0.15, small = 0.25, medium = 0.40, jackpot = 0.20 },
+        loss_dist_capped  = { tiny = 0.50, small = 0.20, medium = 0.17, jackpot = 0.13 },
+        fill_window       = { start = 9, complete = 14 },
     },
     {
         id           = "s005",
@@ -86,9 +119,13 @@ return {
         bb           = 100,
         buy_in       = 10000,
         pp_award     = 5,
-        difficulty   = {
-            { op = "win_to_lose", amount = 0.96 },
-        },
+        win_chance        = 0.05,
+        win_chance_capped = 0.35,
+        win_dist          = { tiny = 0.50, small = 0.40, medium = 0.10, jackpot = 0.00 },
+        win_dist_capped   = { tiny = 0.20, small = 0.20, medium = 0.20, jackpot = 0.40 },
+        loss_dist         = { tiny = 0.10, small = 0.20, medium = 0.40, jackpot = 0.30 },
+        loss_dist_capped  = { tiny = 0.45, small = 0.20, medium = 0.15, jackpot = 0.20 },
+        fill_window       = { start = 12, complete = 17 },
     },
     {
         id           = "s006",
@@ -98,9 +135,13 @@ return {
         bb           = 1000,
         buy_in       = 100000,
         pp_award     = 6,
-        difficulty   = {
-            { op = "win_to_lose", amount = 0.99 },
-        },
+        win_chance        = 0.005,
+        win_chance_capped = 0.25,
+        win_dist          = { tiny = 0.60, small = 0.40, medium = 0.00, jackpot = 0.00 },
+        win_dist_capped   = { tiny = 0.20, small = 0.25, medium = 0.20, jackpot = 0.35 },
+        loss_dist         = { tiny = 0.05, small = 0.15, medium = 0.30, jackpot = 0.50 },
+        loss_dist_capped  = { tiny = 0.35, small = 0.20, medium = 0.10, jackpot = 0.35 },
+        fill_window       = { start = 15, complete = 20 },
     },
 
 }

@@ -15,9 +15,13 @@
 --
 -- Effect entry shape that callers (catalog.lua, run_upgrades.lua) emit:
 --   { kind = "<kind>", value = <number> }
--- or for grid_shift:
---   { kind = "grid_shift", op = "lose_to_win" | "shift_downward",
---     amount = <number 0..1>,
+-- or for the outcome-model effects (run upgrades — fill kinds):
+--   { kind = "win_chance_fill" | "win_dist_fill" | "loss_dist_fill",
+--     strength = <number, 1.0 universal / 0.3 targeted>,
+--     skill = <skill_id>?, style = <style_id>?, gtype = <gtype_id>? }
+-- or for catalog flat additive on WC:
+--   { kind = "win_chance_shift",
+--     amount = <number>,
 --     skill = <skill_id>?, style = <style_id>?, gtype = <gtype_id>? }
 --
 -- The applicator function signature is:
@@ -38,14 +42,14 @@ Effects.kinds = {
 
     -- Multiplicative bankroll earnings on winning hands.
     earnings_mult = {
-        description = "Multiplies the $ delta on winning hands. Magnitude-only — does not reshape the outcome grid.",
+        description = "Multiplies the $ delta on winning hands. Magnitude-only — does not reshape the outcome model.",
         value_shape = "number, e.g. 1.10 for +10%",
         affects     = "ctx.earnings_mult",
     },
 
     -- Multiplicative scaling on losing-hand magnitudes.
     loss_mult = {
-        description = "Multiplies the magnitude of losing-hand $ deltas. Magnitude-only — does not reshape the grid.",
+        description = "Multiplies the magnitude of losing-hand $ deltas. Magnitude-only — does not reshape the outcome model.",
         value_shape = "number <1, e.g. 0.90 for 10% softer losses",
         affects     = "ctx.loss_mult",
     },
@@ -58,24 +62,52 @@ Effects.kinds = {
         affects     = "ctx.hands_per_min",
     },
 
-    -- ── The grid-shift effect ────────────────────────────────────────────
-    -- The single registered applicator pushes a transform descriptor onto
-    -- ctx.grid_shifts. models/Table.lua:_buildGrid walks the list in
-    -- registered order, applies each transform to the per-opponent grid,
-    -- and renormalizes once at the end.
+    -- ── Outcome-model effects ────────────────────────────────────────────
+    -- The outcome model has three independent dimensions per hand:
+    --   • win_chance — single probability ∈ [0, 1] that the hand is a Win
+    --   • win_dist   — { tiny, small, medium, jackpot }, sums to 1, sampled
+    --                  when winning
+    --   • loss_dist  — same shape, sampled when losing
     --
-    -- Recognized `op` values:
-    --   • "lose_to_win" — moves `amount` mass from each Lose cell to the
-    --     same-tier Win cell (TL→TW, SL→SW, ML→MW, JL→JW). When skill /
-    --     style / gtype is set, the shift only applies if the sampled
-    --     opponent / table game-type matches.
-    --   • "shift_downward" — moves `amount` mass *downward* by one tier
-    --     (Tiny → Small → Medium → Jackpot), splitting evenly between W
-    --     and L columns. Targets the variance / pot-size axis.
-    grid_shift = {
-        description = "Reshapes the per-opponent outcome grid via a transform descriptor.",
-        value_shape = "{ op = 'lose_to_win' | 'shift_downward', amount, skill?, style?, gtype? }",
-        affects     = "ctx.grid_shifts (ordered list)",
+    -- Each stake declares both a *naked* and *run-capped* value for these
+    -- dimensions. Run upgrades fill the gap between them via the three
+    -- *_fill kinds below — each level pushes one fill descriptor; the sum
+    -- of matching descriptor strengths becomes "fill units" that lerp the
+    -- dimension toward run-capped. Filters (skill / style / gtype) gate
+    -- which descriptors count for a given (opp, gtype).
+    --
+    -- Catalog perks use win_chance_shift (flat additive) — applied AFTER
+    -- the lerp, the only mechanism for crossing run-capped toward the
+    -- absolute 0.95 WC ceiling.
+
+    -- Run-upgrade WC fill. Each application contributes `strength` units
+    -- (1.0 universal, 0.3 targeted) to the matching opp's WC fill total.
+    win_chance_fill = {
+        description = "Pushes a win_chance fill descriptor onto ctx.win_chance_fills.",
+        value_shape = "{ strength, skill?, style?, gtype? }",
+        affects     = "ctx.win_chance_fills (ordered list)",
+    },
+
+    -- Run-upgrade win_dist fill — same mechanism on the win-tier dist.
+    win_dist_fill = {
+        description = "Pushes a win_dist fill descriptor onto ctx.win_dist_fills.",
+        value_shape = "{ strength, skill?, style?, gtype? }",
+        affects     = "ctx.win_dist_fills (ordered list)",
+    },
+
+    -- Run-upgrade loss_dist fill — same mechanism on the loss-tier dist.
+    loss_dist_fill = {
+        description = "Pushes a loss_dist fill descriptor onto ctx.loss_dist_fills.",
+        value_shape = "{ strength, skill?, style?, gtype? }",
+        affects     = "ctx.loss_dist_fills (ordered list)",
+    },
+
+    -- Catalog flat additive on WC. Layered AFTER the lerp; pushes WC
+    -- beyond run-capped toward the absolute 0.95 ceiling.
+    win_chance_shift = {
+        description = "Pushes a win_chance shift descriptor onto ctx.win_chance_shifts.",
+        value_shape = "{ amount, skill?, style?, gtype? }",
+        affects     = "ctx.win_chance_shifts (ordered list)",
     },
 
     -- ── Discovery / opponent reading ────────────────────────────────────
