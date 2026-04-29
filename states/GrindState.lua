@@ -10,10 +10,11 @@
 -- shove-state's prestige flow) can call into it post-bust to invalidate
 -- effects after a `:resetRun()`.
 
-local Theme           = require("views.Theme")
-local GrindView       = require("views.GrindView")
-local GrindController = require("controllers.GrindController")
-local CursorPool      = require("services.CursorPool")
+local Theme            = require("views.Theme")
+local GrindView        = require("views.GrindView")
+local GrindController  = require("controllers.GrindController")
+local CursorPool       = require("services.CursorPool")
+local ChipFlightSystem = require("services.ChipFlightSystem")
 
 local GrindState = {}
 GrindState.__index = GrindState
@@ -59,10 +60,11 @@ function GrindState:draw()
 end
 
 -- Called by InputController F6/F7 handlers via the fullResetAllStates
--- sweep. Wipes the cursor swarm so a fresh game / reload doesn't carry
--- dangling pointers.
+-- sweep. Wipes the cursor swarm and any in-flight chips so a fresh game
+-- / reload doesn't carry dangling pointers or sprites.
 function GrindState:fullReset()
     CursorPool.reset()
+    ChipFlightSystem.clear()
 end
 
 -- Phase 2 debug: H deals one hand on table 1. J deals every idle table.

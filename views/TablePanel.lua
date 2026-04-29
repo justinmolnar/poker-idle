@@ -21,6 +21,8 @@ local Theme       = require("views.Theme")
 local Constants   = require("data.constants")
 local Stakes      = require("data.stakes")
 local OpTypes     = require("data.opponent_types")
+local Chips       = require("views.Chips")
+local ChipData    = require("data.chips")
 
 local TablePanel = {}
 
@@ -259,15 +261,37 @@ local function drawCommunity(tbl, felt_x, row_y, felt_w, sl, card_w, card_h)
     end
 end
 
-local function drawPotLabel(tbl, felt_x, label_y, felt_w, fonts)
+local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_chips)
     if tbl.state == "idle" then return end
     -- Pot = total chips in the middle = your contribution + opponent's
     -- contribution. Outcome model is symmetric: win/lose magnitudes match,
     -- so 2 × |delta| is the right total-pot reading both ways.
     local pot = (tbl.outcome_delta and math.abs(tbl.outcome_delta) * 2) or 0
+    if pot <= 0 then return end
+
+    local center_x = felt_x + felt_w * 0.5
+    local center_y = felt_y + felt_h * 0.5    -- visual middle of the felt
+
+    -- Chip pile when room permits — uses outcome_tier so jackpot pots
+    -- visibly dwarf tiny ones. Falls back to text-only on mini panels.
+    if allow_chips then
+        local palette = ChipData.stake_palettes[tbl.stake_id]
+                        or ChipData.full_palette
+        local tier    = tbl.outcome_tier or "small"
+        local chips   = Chips.breakdown(pot, palette, tier)
+        -- Stack base anchored at felt center; chips grow upward via the
+        -- stack-offset, label below the pile.
+        Chips.drawStack(center_x, center_y + 6, chips, { align = "center" })
+        tbl.pot_x = center_x
+        tbl.pot_y = center_y + 6
+    end
+
     Theme.setColor(Theme.fg.muted)
     love.graphics.setFont(fonts.ui_small)
-    love.graphics.printf("Pot: " .. moneyText(pot), felt_x, label_y, felt_w, "center")
+    -- Text sits below the chip pile (or, in mini-panel fallback, at the
+    -- felt center).
+    local text_y = allow_chips and (center_y + 12) or (center_y - 6)
+    love.graphics.printf("Pot: " .. moneyText(pot), felt_x, text_y, felt_w, "center")
 end
 
 local function drawPlayerSeat(tbl, x, y, w, sl, fonts)
@@ -284,13 +308,33 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts)
         drawCardSlot(cards_x + PLAYER_CARD_W + 4, cards_y, PLAYER_CARD_W, PLAYER_CARD_H, 1)
     end
 
-    -- Label below cards: YOU + this table's stack (the chips at *this*
-    -- felt). Wins/losses move the stack; cashing out refunds it. Bankroll
-    -- is the off-table reading on the top bar.
+    -- Stack chip pile to the LEFT of the cards (small, ~8-12 chips), and
+    -- "YOU $X.XX" label to the RIGHT for the precise read. Caches the
+    -- chip-pile center on tbl so chip-flight emission can anchor here.
+    local stack = tbl.stack or 0
+    local label_y = cards_y + PLAYER_CARD_H + 2
+
+    if stack > 0 then
+        local palette = ChipData.stake_palettes[tbl.stake_id]
+                        or ChipData.full_palette
+        -- Always render player stack at "small" target (~10 chips) so the
+        -- pile stays compact regardless of stake — pot/bankroll are where
+        -- magnitude flexes via tier hints.
+        local chips = Chips.breakdown(stack, palette, "small")
+        local pile_anchor_x = cards_x - 8   -- right edge of pile
+        local pile_y        = cards_y + PLAYER_CARD_H - 4
+        Chips.drawStack(pile_anchor_x, pile_y, chips, { align = "right" })
+        tbl.you_x = pile_anchor_x - 18
+        tbl.you_y = pile_y
+    else
+        tbl.you_x = cards_x - 26
+        tbl.you_y = cards_y + PLAYER_CARD_H - 4
+    end
+
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.ui_small)
-    love.graphics.printf("YOU  " .. moneyText(tbl.stack or 0),
-        x, cards_y + PLAYER_CARD_H + 2, w, "center")
+    love.graphics.print("YOU  " .. moneyText(stack),
+        cards_x + cards_w + 8, label_y - 12)
 end
 
 -- Shared felt-overlay button (DEAL when stacked, REBUY $X when busted).
@@ -469,6 +513,19 @@ local function renderDebugTooltip(tbl, mx, my, game, controller)
         fmtPct(stats.pool.win_chance),
         fmtEV(stats.pool.ev_per_hand),
         fmtEV((stats.pool.ev_per_hand or 0) / bb))
+
+    -- Focus penalty — applied multiplicatively to all $ deltas in the
+    -- resolution loop. The base EV above is pre-focus; the line below
+    -- shows the effective EV the player actually realizes.
+    if controller and controller.currentFocusMult then
+        local fmult   = controller:currentFocusMult()
+        local fcap    = controller:currentFocusCapacity()
+        local n_open  = controller.pool and controller.pool:count() or 0
+        local eff_ev  = (stats.pool.ev_per_hand or 0) * fmult
+        lines[#lines + 1] = string.format(
+            "Focus %d / %d cap   x%.2f  ->  eff EV $%s  (%s bb/h)",
+            n_open, fcap, fmult, fmtEV(eff_ev), fmtEV(eff_ev / bb))
+    end
     lines[#lines + 1] = string.format("WIN  T %s S %s M %s J %s   avg %s bb",
         fmtPct(stats.pool.win_dist.tiny),
         fmtPct(stats.pool.win_dist.small),
@@ -594,9 +651,18 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         end
     end
 
-    -- Pot label + community cards.
-    drawPotLabel(tbl, felt_x, pot_y, felt_w, fonts)
+    -- Community cards first, pot chips painted on TOP at the felt center
+    -- (mimics the real-table look where chips pile under/around community
+    -- cards). Mini panels still get the text-only fallback.
     drawCommunity(tbl, felt_x, comm_y, felt_w, sl, comm_card_w, comm_card_h)
+    drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, not mini)
+
+    -- Default chip-flight anchors for this table (overridden by
+    -- drawPlayerSeat / drawPotLabel below if those render).
+    tbl.you_x = tbl.you_x or (felt_x + felt_w * 0.5)
+    tbl.you_y = tbl.you_y or (felt_y + felt_h - 12)
+    tbl.pot_x = tbl.pot_x or (felt_x + felt_w * 0.5)
+    tbl.pot_y = tbl.pot_y or (felt_y + felt_h * 0.45)
 
     -- Player seat at bottom.
     if not skip_player_cards then

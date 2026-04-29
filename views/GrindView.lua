@@ -20,6 +20,9 @@ local Panel       = require("views.Panel")
 local CR          = require("views.ComponentRenderer")
 local TablePanel  = require("views.TablePanel")
 local CursorPool  = require("services.CursorPool")
+local Chips       = require("views.Chips")
+local ChipData    = require("data.chips")
+local ChipFlight  = require("services.ChipFlightSystem")
 local Stakes      = require("data.stakes")
 local GameTypes   = require("data.game_types")
 local RunUpgrades = require("data.run_upgrades")
@@ -35,6 +38,10 @@ local LEFT_W               = 280
 local RIGHT_W              = 250
 local MARGIN               = 12
 local SHOVE_BTN_H          = 64
+-- Reserved band at the bottom of the center column for the bankroll
+-- chip pile. Center grid shrinks vertically by this much. Sidebars are
+-- unaffected — they keep running their full height.
+local BOTTOM_BAND_H        = 90
 local PANEL_REMOVE_BTN_SIZE = 22
 local STAKE_UP_BTN_H       = 26
 local STAKE_UP_BTN_PAD     = 8
@@ -395,7 +402,7 @@ function GrindView:_drawCenterGrid(W, H)
     local grid_x = LEFT_W + MARGIN
     local grid_y = TOP_BAR_H + MARGIN
     local grid_w = W - LEFT_W - RIGHT_W - 2 * MARGIN
-    local grid_h = H - TOP_BAR_H - 2 * MARGIN
+    local grid_h = H - TOP_BAR_H - BOTTOM_BAND_H - 2 * MARGIN
 
     local tables = self.controller.pool.tables
     local n = #tables
@@ -500,6 +507,31 @@ function GrindView:_drawFloatingText()
     end
 end
 
+-- ─── Bankroll chip pile (bottom-middle band) ──────────────────────────
+-- Renders the player's bankroll as a procedural chip pile in the center
+-- column's bottom band. The numeric bankroll reading stays in the top
+-- bar — the chip pile is visual flavor + animation anchor for chip-flight
+-- emissions. Stashes the screen-space anchor on game.bankroll_xy so
+-- emission code (controllers) can find this pile without reaching into
+-- the view layer directly.
+function GrindView:_drawBankrollChips(W, H)
+    local band_x = LEFT_W + MARGIN
+    local band_w = W - LEFT_W - RIGHT_W - 2 * MARGIN
+    local band_y = H - BOTTOM_BAND_H
+    local center_x = band_x + band_w * 0.5
+    local stack_y  = band_y + BOTTOM_BAND_H - 22
+
+    -- Stash for emission code (1-frame stale, fine).
+    self.game.bankroll_xy = { center_x, stack_y }
+
+    local bankroll = self.game.state.bankroll or 0
+    if bankroll <= 0 then return end
+
+    local tier = Chips.tierFromAmount(bankroll)
+    local chips = Chips.breakdown(bankroll, ChipData.full_palette, tier)
+    Chips.drawStack(center_x, stack_y, chips, { align = "center" })
+end
+
 -- ─── Composite draw ───────────────────────────────────────────────────
 
 function GrindView:draw()
@@ -518,13 +550,23 @@ function GrindView:draw()
     self:_drawShoveButton()
     self:_drawFloatingText()
 
-    -- Cursor swarm — drawn above panels / sidebars / shove / floating text
-    -- so the swarm is always visible. Renders BEFORE the debug tooltip so
-    -- that tooltip stays on top of everything (including cursors).
+    -- Bankroll chip pile in the bottom-middle band. Sets game.bankroll_xy
+    -- as the screen-space anchor flying-chip emission can target.
+    self:_drawBankrollChips(W, H)
+
+    -- Flying chips between source and destination (pot ↔ player ↔
+    -- bankroll). Renders above panels and the bankroll pile but below
+    -- the cursor swarm so cursors visibly land on the buttons.
+    ChipFlight.draw()
+
+    -- Cursor swarm — drawn above flying chips so cursors remain readable
+    -- against the chip fountain. Renders BEFORE the debug tooltip so that
+    -- tooltip stays on top of everything.
     CursorPool.draw()
 
     -- Backtick debug tooltip — flushed last so it draws above every other
-    -- view layer (sidebar panels, shove button, floating text included).
+    -- view layer (sidebar panels, shove button, floating text, chips,
+    -- cursors all included).
     TablePanel.flushDebugOverlay(self.game)
 end
 

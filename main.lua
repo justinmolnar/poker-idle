@@ -26,6 +26,7 @@ local EffectsRegistry = require("services.EffectsRegistry")
 local FontService     = require("services.FontService")
 local HoverService    = require("services.HoverService")
 local CursorPool      = require("services.CursorPool")
+local ChipFlightSystem = require("services.ChipFlightSystem")
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
@@ -65,6 +66,7 @@ local function buildGame()
     g.floating_text   = FloatingText
     g.hover           = HoverService
     g.cursor_pool     = CursorPool
+    g.chip_flight     = ChipFlightSystem
 
     g.save_service    = SaveService:new()
     local saved       = g.save_service:loadAll()
@@ -107,6 +109,7 @@ function love.update(dt)
     Game.time:update(dt)
     Game.state_machine:update(dt)
     Game.floating_text.update(dt)
+    ChipFlightSystem.update(dt)
     -- No auto-save. Use F5 to save manually, F6 to reload, F7 to wipe.
 end
 

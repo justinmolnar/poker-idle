@@ -14,6 +14,9 @@ local Catalog     = require("data.catalog")
 local RunUpgrades = require("data.run_upgrades")
 local Stakes      = require("data.stakes")
 local Constants   = require("data.constants")
+local ChipData    = require("data.chips")
+local Chips       = require("views.Chips")
+local ChipFlight  = require("services.ChipFlightSystem")
 
 local function findStake(id)
     for _, s in ipairs(Stakes) do
@@ -88,11 +91,23 @@ function GrindController:update(dt)
 
     local resolutions = self.pool:update(dt, self.ctx)
 
-    -- Sound triggers on state transitions.
+    -- Sound triggers on state transitions. (The idle → dealing chip-flight
+    -- emission lives in :dealHand instead — that transition happens
+    -- between frames, before the snapshot above can see it.)
     for i, t in ipairs(self.pool.tables) do
         local prev = prev_states[i]
         if prev and prev ~= t.state then
             self:_playStateTransitionSound(prev, t.state, t)
+        end
+    end
+
+    -- Pending buy-in bursts: addTable / first-frame-after-add can't emit
+    -- because the new table has no panel position yet. Resolve once the
+    -- view has populated `tbl.you_x`.
+    for _, t in ipairs(self.pool.tables) do
+        if t._pending_buyin and t.you_x and self.game.bankroll_xy then
+            self:_emitBuyInChips(t, t._pending_buyin)
+            t._pending_buyin = nil
         end
     end
 
@@ -114,12 +129,13 @@ function GrindController:update(dt)
         local tbl   = self.pool.tables[r.table_idx]
         local stake = tbl and findStake(tbl.stake_id)
         local cap   = (stake and stake.buy_in) or 0
+        local overflow_amount = 0
         if tbl then
             local new_stack = tbl.stack + r.delta
             if new_stack > cap then
-                local overflow = new_stack - cap
+                overflow_amount = new_stack - cap
                 tbl.stack = cap
-                state.bankroll = state.bankroll + overflow
+                state.bankroll = state.bankroll + overflow_amount
             elseif new_stack < 0 then
                 r.delta = -tbl.stack
                 tbl.stack = 0
@@ -149,6 +165,12 @@ function GrindController:update(dt)
             label = string.format("-$%.2f", -r.delta)
         end
         self.game.floating_text.emit(label, r.x, r.y)
+
+        -- Chip-flight burst on resolution. Three flavors:
+        --   • win  → pot to YOU stack
+        --   • loss → pot off-screen (chips fly off the bottom)
+        --   • overflow (YOU stack hit cap) → YOU to bankroll pile
+        self:_emitResolutionChips(r, tbl, overflow_amount)
 
         -- PP-bounty: first jackpot-tier win at this (stake, game_type)
         -- combo this run awards the stake's pp_award. Locked in until
@@ -261,6 +283,11 @@ function GrindController:addTable(stake_id, game_type_id)
     -- starting stack — Table:new already seeds stack to stake.buy_in (the
     -- 100bb cap), so the discount effectively lets the player keep the
     -- difference in bankroll. Net: same stack value, less paid up front.
+
+    -- Stash a pending bankroll → YOU chip burst on the just-added table;
+    -- :update emits it once the view has populated panel positions.
+    local new_tbl = self.pool.tables[#self.pool.tables]
+    if new_tbl then new_tbl._pending_buyin = cost end
     return true
 end
 
@@ -284,6 +311,8 @@ function GrindController:removeTable(idx)
     local t = self.pool.tables[idx]
     if not t then return false end
     local refund = t.stack or 0
+    -- YOU stack → bankroll chip burst BEFORE removal (positions still valid).
+    self:_emitCashOutChips(t, refund)
     self.pool:removeTable(idx)
     self.game.state.bankroll = self.game.state.bankroll + refund
     return true
@@ -327,7 +356,79 @@ function GrindController:dealHand(idx)
     -- Stack must be positive to play. Hitting 0 means the table is busted
     -- and the player must :rebuyTable before dealing again.
     if (t.stack or 0) <= 0 then return false end
-    return t:deal(self.ctx)
+    local ok = t:deal(self.ctx)
+    if ok then self:_emitDealChips(t) end
+    return ok
+end
+
+-- ── Chip-flight emission helpers (Phase B) ───────────────────────────
+-- Each helper composes a chip breakdown via views/Chips and pushes a
+-- staggered burst into services/ChipFlightSystem. Anchors come from
+-- positions stashed on the table by views/TablePanel during draw.
+
+local function _paletteForStake(stake_id)
+    return ChipData.stake_palettes[stake_id] or ChipData.full_palette
+end
+
+function GrindController:_emitDealChips(t)
+    if not t or not t.you_x or not t.pot_x then return end
+    local amount = math.abs(t.outcome_delta or 0)
+    if amount <= 0 then return end
+    local chips = Chips.breakdown(amount, _paletteForStake(t.stake_id),
+                                  t.outcome_tier or "small")
+    ChipFlight.emitBurst(
+        { t.you_x, t.you_y },
+        { t.pot_x, t.pot_y },
+        chips)
+end
+
+function GrindController:_emitBuyInChips(t, amount)
+    if not t or not t.you_x or amount <= 0 then return end
+    local bank_xy = self.game.bankroll_xy
+    if not bank_xy then return end
+    local stake   = findStake(t.stake_id)
+    local bb      = (stake and stake.bb) or 1
+    local palette = _paletteForStake(t.stake_id)
+    local tier    = Chips.tierFromBB(amount / bb)
+    local chips   = Chips.breakdown(amount, palette, tier)
+    ChipFlight.emitBurst(bank_xy, { t.you_x, t.you_y }, chips)
+end
+
+function GrindController:_emitCashOutChips(t, amount)
+    if not t or not t.you_x or amount <= 0 then return end
+    local bank_xy = self.game.bankroll_xy
+    if not bank_xy then return end
+    local stake   = findStake(t.stake_id)
+    local bb      = (stake and stake.bb) or 1
+    local palette = _paletteForStake(t.stake_id)
+    local tier    = Chips.tierFromBB(amount / bb)
+    local chips   = Chips.breakdown(amount, palette, tier)
+    ChipFlight.emitBurst({ t.you_x, t.you_y }, bank_xy, chips)
+end
+
+function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
+    if not tbl or not tbl.you_x or not tbl.pot_x then return end
+    local palette = _paletteForStake(tbl.stake_id)
+    local you_xy  = { tbl.you_x, tbl.you_y }
+    local pot_xy  = { tbl.pot_x, tbl.pot_y }
+
+    if r.delta > 0 then
+        local chips = Chips.breakdown(r.delta, palette, r.tier or "small")
+        ChipFlight.emitBurst(pot_xy, you_xy, chips)
+    elseif r.delta < 0 then
+        local chips = Chips.breakdown(-r.delta, palette, r.tier or "small")
+        local off_xy = { pot_xy[1], love.graphics.getHeight() + 80 }
+        ChipFlight.emitBurst(pot_xy, off_xy, chips)
+    end
+
+    if overflow_amount and overflow_amount > 0 then
+        local bank_xy = self.game.bankroll_xy
+                        or { love.graphics.getWidth() * 0.5,
+                             love.graphics.getHeight() - 30 }
+        local chips = Chips.breakdown(overflow_amount, ChipData.full_palette,
+                                      Chips.tierFromAmount(overflow_amount))
+        ChipFlight.emitBurst(you_xy, bank_xy, chips)
+    end
 end
 
 -- Refill a busted table's stack to a fresh 100bb buy-in by spending from
@@ -343,6 +444,9 @@ function GrindController:rebuyTable(idx)
     if state.bankroll < cost then return false end
     state.bankroll = state.bankroll - cost
     t.stack = cost
+    -- Bankroll → YOU stack chip burst (table positions are already known
+    -- because the table has been on screen long enough to bust).
+    self:_emitBuyInChips(t, cost)
     return true
 end
 
