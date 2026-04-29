@@ -15,11 +15,17 @@
 -- chaos endgame (32 tables, cursors clicking, payouts firing) can't
 -- balloon frame time without bound.
 
-local Chips = require("views.Chips")
+local Chips        = require("views.Chips")
+local SoundService = require("services.SoundService")
 
 local ChipFlightSystem = {}
 
-local _flying = {}
+local _flying           = {}
+-- Parallel queue of pending arrival-sound playbacks. Each burst can schedule
+-- exactly one entry (see emitBurst); we play it just before the last chip in
+-- the burst lands, so the player hears one thunk per emission, regardless of
+-- chip count.
+local _scheduled_sounds = {}
 
 -- ── Tunables ────────────────────────────────────────────────────────
 local MAX_IN_FLIGHT       = 300     -- soft cap; drop-oldest beyond
@@ -75,10 +81,15 @@ end
 -- renders as ≤ 7 chips so high-stakes wins don't fountain 1000+
 -- chips at once. Caller is responsible for the breakdown that produced
 -- the list; we just sample it.
+--
+-- options.arrival_sound (string, optional) — semantic name dispatched
+-- through SoundService.playNamed at burst-end time. One thunk per burst,
+-- regardless of chip count.
 function ChipFlightSystem.emitBurst(start_xy, end_xy, chip_indices, options)
     if not chip_indices or #chip_indices == 0 then return end
     options = options or {}
-    local stagger = options.stagger or DEFAULT_STAGGER
+    local stagger  = options.stagger  or DEFAULT_STAGGER
+    local duration = options.duration or DEFAULT_DURATION
 
     -- Sample down to MAX_CHIPS_PER_EVENT, preserving the original order
     -- so the showcase chip (always at index 1 from breakdown) leads.
@@ -88,9 +99,19 @@ function ChipFlightSystem.emitBurst(start_xy, end_xy, chip_indices, options)
         local src_idx = math.max(1, math.floor((i - 1) * step + 1))
         ChipFlightSystem.emit(start_xy, end_xy, chip_indices[src_idx], {
             delay      = (i - 1) * stagger,
-            duration   = options.duration,
+            duration   = duration,
             arc_height = options.arc_height,
         })
+    end
+
+    -- Schedule a single arrival thunk just before the last chip lands.
+    if options.arrival_sound then
+        local at = (count - 1) * stagger + duration - 0.04
+        if at < 0 then at = 0 end
+        _scheduled_sounds[#_scheduled_sounds + 1] = {
+            t    = at,
+            name = options.arrival_sound,
+        }
     end
 end
 
@@ -110,6 +131,16 @@ function ChipFlightSystem.update(dt)
             end
         end
     end
+
+    -- Advance scheduled arrival sounds; play and pop on expiry.
+    for i = #_scheduled_sounds, 1, -1 do
+        local s = _scheduled_sounds[i]
+        s.t = s.t - dt
+        if s.t <= 0 then
+            SoundService.playNamed(s.name)
+            table.remove(_scheduled_sounds, i)
+        end
+    end
 end
 
 function ChipFlightSystem.draw()
@@ -121,7 +152,8 @@ function ChipFlightSystem.draw()
 end
 
 function ChipFlightSystem.clear()
-    _flying = {}
+    _flying           = {}
+    _scheduled_sounds = {}
 end
 
 -- For debug overlays / introspection.

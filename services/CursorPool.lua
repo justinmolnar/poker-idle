@@ -18,8 +18,9 @@
 -- string. It targets only `action == "deal"` for v1, but the constant
 -- could be parameterized later. No knowledge of poker.
 
-local Cursor = require("models.Cursor")
-local Theme  = require("views.Theme")
+local Cursor       = require("models.Cursor")
+local Theme        = require("views.Theme")
+local SoundService = require("services.SoundService")
 
 local CursorPool = {}
 
@@ -95,6 +96,13 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
 
     for _, c in ipairs(_cursors) do
         c:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher)
+        -- Play the cursor-tap sound for cursors that just dispatched. The
+        -- flag is set inside Cursor:update at the click site; consume here
+        -- so it only fires once per click.
+        if c._just_dispatched then
+            c._just_dispatched = nil
+            SoundService.playNamed("cursor_tap")
+        end
     end
 end
 

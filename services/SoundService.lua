@@ -123,17 +123,30 @@ function SoundService.playFile(path, volume_mult)
     s:play()
 end
 
--- Look up a semantic name in data/sounds.lua and play it. The entry can
--- specify either `file` (real audio asset) or `kind` (built-in synth).
--- File takes precedence when both are present.
-function SoundService.playNamed(name)
-    local def = Sounds[name]
-    if not def then return end
-    if def.file then
-        SoundService.playFile(def.file, def.volume)
-    elseif def.kind then
-        SoundService.play(def.kind, def.volume)
+-- Recursive playback of a sound-table entry. Entry shapes accepted:
+--   { file = "path",                    volume = v }   -- single file
+--   { files = { "p1", "p2", ... },      volume = v }   -- random pick per play
+--   { kind = "beep" | "chime" | ...,    volume = v }   -- built-in synth
+-- Any of the above may carry `layer = { ...sub-entry... }` for a secondary
+-- sound played alongside (e.g. coins layered on a chip drop for jackpot).
+-- Recursion lets layers themselves carry layers, but in practice we only use
+-- a single level of nesting.
+local function playEntry(entry)
+    if not entry then return end
+    if entry.files and #entry.files > 0 then
+        local pick = entry.files[love.math.random(1, #entry.files)]
+        SoundService.playFile(pick, entry.volume)
+    elseif entry.file then
+        SoundService.playFile(entry.file, entry.volume)
+    elseif entry.kind then
+        SoundService.play(entry.kind, entry.volume)
     end
+    if entry.layer then playEntry(entry.layer) end
+end
+
+-- Look up a semantic name in data/sounds.lua and play it.
+function SoundService.playNamed(name)
+    playEntry(Sounds[name])
 end
 
 function SoundService.stopAll()

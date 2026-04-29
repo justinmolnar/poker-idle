@@ -114,6 +114,9 @@ function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher)
             local dx, dy = self.target_x - self.x, self.target_y - self.y
             if (dx * dx + dy * dy) <= (CLICK_RADIUS * CLICK_RADIUS) then
                 if dispatcher then dispatcher(hb) end
+                -- Transient flag the pool consumes this same frame to play
+                -- the cursor-tap sound (distinct from the human-mouse path).
+                self._just_dispatched = true
                 claims[self.target_idx] = nil
                 self:releaseTarget()
                 pickWanderPoint(self, W, H)

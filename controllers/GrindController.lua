@@ -172,6 +172,18 @@ function GrindController:update(dt)
         --   • overflow (YOU stack hit cap) → YOU to bankroll pile
         self:_emitResolutionChips(r, tbl, overflow_amount)
 
+        -- Jackpot FX: per-table screen shake + colored vignette. Triggered
+        -- ONLY on jackpot tier so the moment stays special. Trauma uses the
+        -- trauma² model (Table:update decays it); vignette is a simple
+        -- alpha-decay overlay tinted by win vs loss.
+        if r.tier == "jackpot" and tbl then
+            local is_win = r.delta > 0
+            tbl.shake_trauma   = math.max(tbl.shake_trauma or 0,
+                                          is_win and 0.75 or 0.65)
+            tbl.vignette_kind  = is_win and "good" or "bad"
+            tbl.vignette_alpha = is_win and 0.70 or 0.65
+        end
+
         -- PP-bounty: first jackpot-tier win at this (stake, game_type)
         -- combo this run awards the stake's pp_award. Locked in until
         -- prestige clears it. Non-jackpot wins, losing hands, and
@@ -231,6 +243,7 @@ function GrindController:buyRunUpgrade(upgrade_id)
     state.bankroll = state.bankroll - cost
     state.run_upgrade_levels[upgrade_id] = current + 1
     self:invalidateEffects()
+    self:_playNamed("upgrade_purchased")
     return true
 end
 
@@ -263,6 +276,7 @@ function GrindController:buyCatalogItem(item_id)
     state.pp = state.pp - item.cost_pp
     state.owned_items[#state.owned_items + 1] = item_id
     self:invalidateEffects()
+    self:_playNamed("upgrade_purchased")
     return true
 end
 
@@ -288,6 +302,7 @@ function GrindController:addTable(stake_id, game_type_id)
     -- :update emits it once the view has populated panel positions.
     local new_tbl = self.pool.tables[#self.pool.tables]
     if new_tbl then new_tbl._pending_buyin = cost end
+    self:_playNamed("table_added")
     return true
 end
 
@@ -315,6 +330,9 @@ function GrindController:removeTable(idx)
     self:_emitCashOutChips(t, refund)
     self.pool:removeTable(idx)
     self.game.state.bankroll = self.game.state.bankroll + refund
+    -- Cash-out reuses the rebuy clack (a chip-rack thump); no dedicated
+    -- sound for "table closed" since the chip-flight thunk on the bankroll
+    -- already covers the audible feedback. Skip a redundant cue.
     return true
 end
 
@@ -334,6 +352,7 @@ function GrindController:changeTableStake(idx, new_stake_id)
     if diff > 0 and self.game.state.bankroll < diff then return false end
     self.game.state.bankroll = self.game.state.bankroll - diff
     self.pool:changeStake(idx, new_stake_id, self.ctx)
+    self:_playNamed("stake_up_flourish")
     return true
 end
 
@@ -361,6 +380,12 @@ function GrindController:dealHand(idx)
     return ok
 end
 
+-- Defensive sound dispatch — single line so each call site stays terse.
+function GrindController:_playNamed(name)
+    local sounds = self.game.sounds
+    if sounds and sounds.playNamed then sounds.playNamed(name) end
+end
+
 -- ── Chip-flight emission helpers (Phase B) ───────────────────────────
 -- Each helper composes a chip breakdown via views/Chips and pushes a
 -- staggered burst into services/ChipFlightSystem. Anchors come from
@@ -379,7 +404,8 @@ function GrindController:_emitDealChips(t)
     ChipFlight.emitBurst(
         { t.you_x, t.you_y },
         { t.pot_x, t.pot_y },
-        chips)
+        chips,
+        { arrival_sound = "chip_land_pot" })
 end
 
 function GrindController:_emitBuyInChips(t, amount)
@@ -391,7 +417,8 @@ function GrindController:_emitBuyInChips(t, amount)
     local palette = _paletteForStake(t.stake_id)
     local tier    = Chips.tierFromBB(amount / bb)
     local chips   = Chips.breakdown(amount, palette, tier)
-    ChipFlight.emitBurst(bank_xy, { t.you_x, t.you_y }, chips)
+    ChipFlight.emitBurst(bank_xy, { t.you_x, t.you_y }, chips,
+                         { arrival_sound = "chip_land_you" })
 end
 
 function GrindController:_emitCashOutChips(t, amount)
@@ -403,7 +430,8 @@ function GrindController:_emitCashOutChips(t, amount)
     local palette = _paletteForStake(t.stake_id)
     local tier    = Chips.tierFromBB(amount / bb)
     local chips   = Chips.breakdown(amount, palette, tier)
-    ChipFlight.emitBurst({ t.you_x, t.you_y }, bank_xy, chips)
+    ChipFlight.emitBurst({ t.you_x, t.you_y }, bank_xy, chips,
+                         { arrival_sound = "chip_land_bankroll" })
 end
 
 function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
@@ -414,10 +442,12 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
 
     if r.delta > 0 then
         local chips = Chips.breakdown(r.delta, palette, r.tier or "small")
-        ChipFlight.emitBurst(pot_xy, you_xy, chips)
+        ChipFlight.emitBurst(pot_xy, you_xy, chips,
+                             { arrival_sound = "chip_land_you" })
     elseif r.delta < 0 then
         local chips = Chips.breakdown(-r.delta, palette, r.tier or "small")
         local off_xy = { pot_xy[1], love.graphics.getHeight() + 80 }
+        -- No arrival sound on losses; chips have left the table.
         ChipFlight.emitBurst(pot_xy, off_xy, chips)
     end
 
@@ -427,7 +457,8 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
                              love.graphics.getHeight() - 30 }
         local chips = Chips.breakdown(overflow_amount, ChipData.full_palette,
                                       Chips.tierFromAmount(overflow_amount))
-        ChipFlight.emitBurst(you_xy, bank_xy, chips)
+        ChipFlight.emitBurst(you_xy, bank_xy, chips,
+                             { arrival_sound = "chip_land_bankroll" })
     end
 end
 
@@ -447,6 +478,7 @@ function GrindController:rebuyTable(idx)
     -- Bankroll → YOU stack chip burst (table positions are already known
     -- because the table has been on screen long enough to bust).
     self:_emitBuyInChips(t, cost)
+    self:_playNamed("rebuy_clack")
     return true
 end
 
@@ -464,7 +496,12 @@ function GrindController:_playStateTransitionSound(_prev, new_state, t)
     elseif new_state == "showdown" then
         sounds.playNamed("hole_card_flip")
     elseif new_state == "settling" then
-        sounds.playNamed(t.outcome_won and "pot_won" or "pot_lost")
+        -- Tier-keyed pot sound: a tiny win clicks like one chip; a jackpot
+        -- lands like a stack with coins layered. data/sounds.lua defines all
+        -- 8 entries (4 tiers × win/loss).
+        local tier = t.outcome_tier or "small"
+        local key  = (t.outcome_won and "pot_won_" or "pot_lost_") .. tier
+        sounds.playNamed(key)
     end
 end
 

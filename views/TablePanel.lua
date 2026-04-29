@@ -574,6 +574,33 @@ local function renderDebugTooltip(tbl, mx, my, game, controller)
     end
 end
 
+-- ─── Jackpot FX (shake + vignette) ───────────────────────────────────
+-- Per-table screen shake and colored vignette on jackpot resolutions.
+-- Both are bounded so adjacent panels in the grid don't get encroached on.
+
+local SHAKE_MAX_PX        = 4   -- amplitude at trauma=1; trauma² scaling
+                                -- means typical max ≈ 2-3 px. Stays inside
+                                -- panel margins.
+local VIGNETTE_MAX_ALPHA  = 0.55  -- final alpha = vignette_alpha * this
+
+local function shakeOffset(tbl)
+    local trauma = tbl.shake_trauma or 0
+    if trauma <= 0 then return 0, 0 end
+    local amp = SHAKE_MAX_PX * trauma * trauma
+    return (love.math.random() * 2 - 1) * amp,
+           (love.math.random() * 2 - 1) * amp
+end
+
+local function drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
+    local a = tbl.vignette_alpha or 0
+    if a <= 0.001 or not tbl.vignette_kind then return end
+    local color = (tbl.vignette_kind == "good") and Theme.status.good
+                                                  or Theme.status.error
+    Theme.setColor(color, a * VIGNETTE_MAX_ALPHA)
+    love.graphics.rectangle("fill", felt_x, felt_y, felt_w, felt_h,
+                            Theme.space.radius)
+end
+
 -- ─── Public API ──────────────────────────────────────────────────────
 
 -- Draw one panel and append any clickable hit-zones to hit_boxes.
@@ -581,6 +608,16 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     if not tbl then
         TablePanel.drawEmpty(x, y, w, h, game.fonts)
         return
+    end
+
+    -- Per-table jackpot shake — applied to the entire panel render. The
+    -- shake offset is computed once per frame so all sub-elements move
+    -- together (chrome + felt + cards + chips), keeping the shake coherent.
+    local shake_x, shake_y = shakeOffset(tbl)
+    local shaking = (shake_x ~= 0 or shake_y ~= 0)
+    if shaking then
+        love.graphics.push()
+        love.graphics.translate(shake_x, shake_y)
     end
 
     -- Update screen-space center for floating-text spawn.
@@ -717,6 +754,18 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
 
     -- EV gauge — drawn last so it sits above the felt's bottom edge.
     drawGauge(tbl, x, y, w, h, controller and controller.ctx)
+
+    -- Jackpot vignette — colored wash over the felt area when a jackpot
+    -- resolution is fading. Drawn AFTER the gauge so the colored tint
+    -- sits over everything inside the panel.
+    drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
+
+    -- Close the shake transform before the hover-hit-test stash, so the
+    -- mouse-vs-panel rect calculation in the debug tooltip uses the
+    -- panel's actual (non-shaken) screen rect.
+    if shaking then
+        love.graphics.pop()
+    end
 
     -- Backtick-toggled debug tooltip — only stashes the hovered panel's
     -- (tbl, ctx). Actual render happens in TablePanel.flushDebugOverlay

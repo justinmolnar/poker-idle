@@ -292,6 +292,16 @@ function Table:new(stake_id, game_type_id, ctx)
         -- toward target each render frame; nil = snap on first read.
         gauge_pos = nil,
         _pending_resolution = nil,
+
+        -- Jackpot FX state. shake_trauma uses the trauma² model — per-frame
+        -- amplitude = SHAKE_MAX × trauma² × random — so the shake feels
+        -- organic and decays smoothly. vignette_kind ∈ {"good", "bad", nil}
+        -- with vignette_alpha decaying alongside. All three are 0 / nil
+        -- by default; GrindController bumps them on jackpot resolutions
+        -- and Table:update decays them.
+        shake_trauma   = 0,
+        vignette_kind  = nil,
+        vignette_alpha = 0,
     }, Table)
     self:fillOpponents(ctx)
     return self
@@ -439,7 +449,21 @@ local function maybeRevealAttribute(opp, ctx)
     end
 end
 
+-- Decay rates for jackpot FX (per-second). Tuned to fade over ~0.5 s so the
+-- punch is visible without lingering or fighting the next hand's animation.
+local SHAKE_DECAY_RATE    = 1.6
+local VIGNETTE_DECAY_RATE = 1.5
+
 function Table:update(dt, ctx)
+    -- Decay jackpot FX every frame regardless of table state.
+    if (self.shake_trauma or 0) > 0 then
+        self.shake_trauma = math.max(0, self.shake_trauma - (dt or 0) * SHAKE_DECAY_RATE)
+    end
+    if (self.vignette_alpha or 0) > 0 then
+        self.vignette_alpha = math.max(0, self.vignette_alpha - (dt or 0) * VIGNETTE_DECAY_RATE)
+        if self.vignette_alpha <= 0 then self.vignette_kind = nil end
+    end
+
     if self.state == "idle" then return nil end
 
     local gtype = findGameType(self.game_type_id)
