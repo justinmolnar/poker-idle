@@ -40,31 +40,18 @@ return {
         rerolls_opponents = false,
     },
     {
-        id   = "nine_max",
-        name = "9-max",
-        short = "9-MAX",
-        seats = 8,
-        pace_mult = 0.30,       -- meaningfully slower — more decisions per hand
-        -- Tighter ranges, more pre-flop folds. Mass moves into Tiny and out
-        -- of Medium/Jackpot on both dists. Less drama per hand than 6-max.
-        dist_shifts = {
-            win_dist  = { tiny = 0.05, medium = -0.03, jackpot = -0.02 },
-            loss_dist = { tiny = 0.05, medium = -0.03, jackpot = -0.02 },
-        },
-        rerolls_opponents = false,
-    },
-    {
         id   = "hu",
         name = "Heads-Up",
         short = "HU",
         seats = 1,
-        pace_mult = 1.0,        -- fast — 2.2s/hand
-        -- Heads-up depth = every hand goes deeper. Mass moves slightly *out*
-        -- of Tiny/Small and *into* Medium/Jackpot on both dists. Bigger
-        -- pots in both directions; doesn't change W/L balance.
+        pace_mult = 1.0,        -- fast — 2.6s/hand (longer showdown beat)
+        -- HU = the duel. WIN side compresses (small wins, less reach for
+        -- jackpot); LOSS side fans out (deeper losses, real jackpot risk).
+        -- Identity: "small wins, big losses." Pairs with the duel visual:
+        -- one rival, they take big pots off you, you scrape together small.
         dist_shifts = {
-            win_dist  = { tiny = -0.04, small = -0.025, medium = 0.04, jackpot = 0.025 },
-            loss_dist = { tiny = -0.04, small = -0.025, medium = 0.04, jackpot = 0.025 },
+            win_dist  = { tiny =  0.20, small =  0.10, medium = -0.10, jackpot = -0.20 },
+            loss_dist = { tiny = -0.20, small = -0.05, medium =  0.10, jackpot =  0.15 },
         },
         rerolls_opponents = false,
     },
@@ -73,15 +60,39 @@ return {
         name = "Zoom",
         short = "ZOOM",
         seats = 5,
-        pace_mult = 1.4,        -- very fast — ~1.57s/hand
-        -- Zoom = fold-button-spam. Pool insta-folds bad hands. Mass into
-        -- Tiny on both dists, out of bigger pots. Lots of small ±1bb
-        -- decisions, rare big hands.
+        pace_mult = 1.4,        -- very fast — most hands ~0.57s with the
+                                -- zoom:tiny cinematic-skip in cinematic_timelines.
+        -- Zoom = fold-spam. Hard shift toward tiny on both sides — most
+        -- Zoom hands are 1-2 bb preflop spats. Jackpot mass is nearly
+        -- extinct. The cinematic-skip on tiny outcomes (data/cinematic_
+        -- timelines.lua) makes most hands resolve in <1s.
         dist_shifts = {
-            win_dist  = { tiny = 0.08, small = -0.02, medium = -0.03, jackpot = -0.03 },
-            loss_dist = { tiny = 0.08, small = -0.02, medium = -0.03, jackpot = -0.03 },
+            win_dist  = { tiny = 0.40, small =  0.05, medium = -0.10, jackpot = -0.35 },
+            loss_dist = { tiny = 0.10, small = -0.02, medium = -0.03, jackpot = -0.05 },
         },
         rerolls_opponents = true,
+        anonymous_opponents = true,
+    },
+    {
+        id   = "mtt",
+        name = "Tournament",
+        short = "MTT",
+        seats = 5,
+        pace_mult = 1.0,        -- 6-max-baseline cinematics, 8 hands in sequence
+        -- MTT inherits 6-max baseline distributions. Magnitudes don't
+        -- matter under binary_outcome — only the per-hand win/lose roll
+        -- decides advance vs end. Identity is structural (auto-deal +
+        -- 8-hand cap + payout ladder), not magnitude-shaped.
+        dist_shifts       = nil,
+        rerolls_opponents = false,
+        -- Tournament knobs:
+        --   hand_count      — auto-deal stops at this many cleared hands
+        --   auto_deal       — fire :deal again on settling-end (no clicks)
+        --   binary_outcome  — outcome_delta forced to 0 in :deal; only
+        --                     `won` matters for advance-or-end
+        hand_count     = 8,
+        auto_deal      = true,
+        binary_outcome = true,
     },
 
 }

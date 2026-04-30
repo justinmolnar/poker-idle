@@ -189,4 +189,31 @@ return {
         effects       = { { kind = "cursor_count_add", value = 1 } },
     },
 
+    -- ── Tournament cash-tier perks ────────────────────────────────────
+    -- These bump the 6-cleared and 7-cleared payout tiers in MTT
+    -- (data/mtt_payouts.lua). The 8-clear stays at 20× across all tiers
+    -- intentionally — perks raise the floor (consolation cashes), not
+    -- the ceiling. Engraved Plaque requires Plastic Trophy because the
+    -- effect kind max-stacks (only the higher level applies).
+
+    {
+        id          = "plastic_trophy",
+        name        = "Plastic Trophy",
+        description = "Cash deeper in tournaments.",
+        sprite      = "plastic_trophy",
+        cost_pp     = 12,
+        position    = { x = 350, y = 300 },
+        effects     = { { kind = "mtt_payout_boost", value = 1 } },
+    },
+    {
+        id          = "engraved_plaque",
+        name        = "Engraved Plaque",
+        description = "Maxed tournament cashes.",
+        sprite      = "engraved_plaque",
+        cost_pp     = 25,
+        requires    = "plastic_trophy",
+        position    = { x = 450, y = 400 },
+        effects     = { { kind = "mtt_payout_boost", value = 2 } },
+    },
+
 }

@@ -131,9 +131,9 @@ function GrindView:_makeGameTypeStrip()
     -- knobs (seats, pace, dist_shifts), not UI copy.
     local GTYPE_BLURB = {
         six_max  = "6-max — standard pace, 5 seated opponents.",
-        nine_max = "9-max — tighter pool, slower pace, 8 opponents.",
-        hu       = "Heads-Up — fast, deeper pots, 1 opponent.",
-        zoom     = "Zoom — opponents reroll every hand. Tiny pots, no reads.",
+        hu       = "Heads-Up — long showdowns; small wins, big losses.",
+        zoom     = "Zoom — anonymous pool, fold-spam. Tiny pots, no reads.",
+        mtt      = "Tournament — pay buy-in once, play 8 hands. Cash 6+ to win.",
     }
     return {
         type = "custom",

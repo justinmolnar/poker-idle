@@ -121,6 +121,28 @@ function GrindController:update(dt)
         end
     end
 
+    -- Tournament payout drain. _endTournament stashes a $ amount on the
+    -- table; we apply it to bankroll, emit a chip burst, and reset the
+    -- per-tournament counter so the player can rebuy for another run.
+    for _, t in ipairs(self.pool.tables) do
+        if t.mtt_pending_payout ~= nil then
+            local payout = t.mtt_pending_payout
+            t.mtt_pending_payout = nil
+            if payout > 0 then
+                self.game.state.bankroll = self.game.state.bankroll + payout
+                local total_wealth = self.game.state.bankroll + self:tiedUp()
+                if total_wealth > self.game.state.peak_bankroll then
+                    self.game.state.peak_bankroll = total_wealth
+                end
+                self.game.floating_text.emit(
+                    string.format("+$%.2f", payout),
+                    t.x or 0, t.y or 0)
+                self:_emitMttPayoutChips(t, payout)
+            end
+            t.mtt_hands_won = 0
+        end
+    end
+
     if #resolutions == 0 then return end
 
     local state      = self.game.state
@@ -224,6 +246,12 @@ function GrindController:update(dt)
             end
         end
     end
+
+    -- Resolutions just mutated per-table state (incl. mtt_hands_won /
+    -- mtt_state on tournament tables). Resync so a save mid-MTT-run
+    -- captures the latest hand counter. Cheap (4 array writes per
+    -- table; bounded by MAX_TABLES).
+    self.pool:_syncStateList()
 end
 
 -- ─── Purchase intents (called from view button handlers) ─────────────────────
@@ -439,6 +467,18 @@ local function _paletteForStake(stake_id)
     return ChipData.stake_palettes[stake_id] or ChipData.full_palette
 end
 
+-- Build an array of render closures from a chip-index breakdown. Each
+-- closure captures its denomination and renders one chip at the bezier-
+-- interpolated position the ChipFlightSystem hands back. This is the
+-- caller-side adapter that keeps ChipFlightSystem domain-agnostic.
+local function _renderFns(chip_indices)
+    local fns = {}
+    for i, idx in ipairs(chip_indices) do
+        fns[i] = function(x, y) Chips.drawChip(x, y, idx, 1, true) end
+    end
+    return fns
+end
+
 function GrindController:_emitDealChips(t)
     if not t or not t.you_x or not t.pot_x then return end
     local amount = math.abs(t.outcome_delta or 0)
@@ -448,7 +488,7 @@ function GrindController:_emitDealChips(t)
     ChipFlight.emitBurst(
         { t.you_x, t.you_y },
         { t.pot_x, t.pot_y },
-        chips,
+        _renderFns(chips),
         { arrival_sound = "chip_land_pot" })
 end
 
@@ -461,7 +501,7 @@ function GrindController:_emitBuyInChips(t, amount)
     local palette = _paletteForStake(t.stake_id)
     local tier    = Chips.tierFromBB(amount / bb)
     local chips   = Chips.breakdown(amount, palette, tier)
-    ChipFlight.emitBurst(bank_xy, { t.you_x, t.you_y }, chips,
+    ChipFlight.emitBurst(bank_xy, { t.you_x, t.you_y }, _renderFns(chips),
                          { arrival_sound = "chip_land_you" })
 end
 
@@ -474,7 +514,26 @@ function GrindController:_emitCashOutChips(t, amount)
     local palette = _paletteForStake(t.stake_id)
     local tier    = Chips.tierFromBB(amount / bb)
     local chips   = Chips.breakdown(amount, palette, tier)
-    ChipFlight.emitBurst({ t.you_x, t.you_y }, bank_xy, chips,
+    ChipFlight.emitBurst({ t.you_x, t.you_y }, bank_xy, _renderFns(chips),
+                         { arrival_sound = "chip_land_bankroll" })
+end
+
+-- Tournament cash-out: pot/center → bankroll pile. Same shape as cash-out
+-- but anchored to the table's pot center (the chip pile from the final
+-- hand) so the burst visually originates from where the action ended.
+function GrindController:_emitMttPayoutChips(t, amount)
+    if not t or amount <= 0 then return end
+    local bank_xy = self.game.bankroll_xy
+    if not bank_xy then return end
+    local source = (t.pot_x and t.pot_y) and { t.pot_x, t.pot_y }
+                   or { t.x or love.graphics.getWidth() * 0.5,
+                        t.y or love.graphics.getHeight() * 0.5 }
+    local stake   = findStake(t.stake_id)
+    local bb      = (stake and stake.bb) or 1
+    local palette = _paletteForStake(t.stake_id)
+    local tier    = Chips.tierFromBB(amount / bb)
+    local chips   = Chips.breakdown(amount, palette, tier)
+    ChipFlight.emitBurst(source, bank_xy, _renderFns(chips),
                          { arrival_sound = "chip_land_bankroll" })
 end
 
@@ -486,7 +545,7 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
 
     if r.delta > 0 then
         local chips = Chips.breakdown(r.delta, palette, r.tier or "small")
-        ChipFlight.emitBurst(pot_xy, you_xy, chips,
+        ChipFlight.emitBurst(pot_xy, you_xy, _renderFns(chips),
                              { arrival_sound = "chip_land_you" })
     elseif r.delta < 0 then
         local chips = Chips.breakdown(-r.delta, palette, r.tier or "small")
@@ -498,7 +557,7 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
             target_xy = tbl._opp_xy[tbl.opponent_idx]
         end
         target_xy = target_xy or { pot_xy[1], love.graphics.getHeight() + 80 }
-        ChipFlight.emitBurst(pot_xy, target_xy, chips,
+        ChipFlight.emitBurst(pot_xy, target_xy, _renderFns(chips),
                              { arrival_sound = "chip_land_pot" })
     end
 
@@ -508,7 +567,7 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
                              love.graphics.getHeight() - 30 }
         local chips = Chips.breakdown(overflow_amount, ChipData.full_palette,
                                       Chips.tierFromAmount(overflow_amount))
-        ChipFlight.emitBurst(you_xy, bank_xy, chips,
+        ChipFlight.emitBurst(you_xy, bank_xy, _renderFns(chips),
                              { arrival_sound = "chip_land_bankroll" })
     end
 end
@@ -526,6 +585,13 @@ function GrindController:rebuyTable(idx)
     if state.bankroll < cost then return false end
     state.bankroll = state.bankroll - cost
     t.stack = cost
+    -- Tournament tables: rebuy is also "register again" — reset the
+    -- per-tournament counter so the next DEAL starts a fresh 8-hand run.
+    -- Sync the parallel save arrays in case the player F5s before the
+    -- next resolution lands.
+    t.mtt_hands_won = 0
+    t.mtt_state     = nil
+    self.pool:_syncStateList()
     -- Bankroll → YOU stack chip burst (table positions are already known
     -- because the table has been on screen long enough to bust).
     self:_emitBuyInChips(t, cost)

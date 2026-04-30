@@ -20,6 +20,8 @@
 local Theme       = require("views.Theme")
 local Constants   = require("data.constants")
 local Stakes      = require("data.stakes")
+local GameTypes   = require("data.game_types")
+local MttPayouts  = require("data.mtt_payouts")
 local Chips       = require("views.Chips")
 local ChipData    = require("data.chips")
 local ClickFlash  = require("services.ClickFlash")
@@ -63,6 +65,12 @@ local PLAYER_CARD_H   = 50
 local function findStake(id)
     for _, s in ipairs(Stakes) do
         if s.id == id then return s end
+    end
+end
+
+local function findGameType(id)
+    for _, gt in ipairs(GameTypes) do
+        if gt.id == id then return gt end
     end
 end
 
@@ -240,25 +248,50 @@ end
 local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts)
     if not opp then return end
 
-    -- Name (always shown).
-    Theme.setColor(Theme.fg.primary, 0.85)
-    love.graphics.setFont(fonts.ui_small)
-    local name = opp.name or "?"
-    if #name > 8 then name = name:sub(1, 7) .. "…" end
-    love.graphics.printf(name, x, y, w, "center")
+    local gtype = findGameType(tbl.game_type_id)
+
+    -- HU seat is the duel — the opponent gets a heading-font name and
+    -- 2× cards so they read as A Rival, not a generic seat. Single
+    -- boolean check on the gtype id, not a kind chain.
+    local big      = tbl.game_type_id == "hu"
+    local card_w   = big and (OPP_CARD_W * 2) or OPP_CARD_W
+    local card_h   = big and (OPP_CARD_H * 2) or OPP_CARD_H
+    local card_gap = big and 6 or 3
+    local name_font = big and fonts.heading or fonts.ui_small
+    local cards_y_offset = big and 30 or 22
+    local name_max = big and 14 or 8
+
+    -- Anonymous pool (Zoom): show "Seat N" instead of the rolled name.
+    -- The data file flips the flag; the view consumes it. Reroll-flash
+    -- adds a brief fade-in so the player visibly sees the swap each hand.
+    local anonymous = gtype and gtype.anonymous_opponents
+    local label     = anonymous and ("Seat " .. opp_idx)
+                      or (opp.name or "?")
+    if #label > name_max then label = label:sub(1, name_max - 1) .. "…" end
+
+    -- Reroll-flash alpha multiplier. flash_t decays 0.4 → 0 over ~0.4 s
+    -- (set by Table:fillOpponents); we map that to alpha 0 → 1 so seats
+    -- pulse-fade-in on each new hand.
+    local flash_t = tbl.reroll_flash_t or 0
+    local seat_alpha = (flash_t > 0) and (1 - flash_t / 0.4) or 1
+    if seat_alpha < 0.15 then seat_alpha = 0.15 end
+
+    -- Name / label (always shown).
+    Theme.setColor(Theme.fg.primary, 0.85 * seat_alpha)
+    love.graphics.setFont(name_font)
+    love.graphics.printf(label, x, y, w, "center")
 
     -- Two face-down cards (or face-up if showdown and this is the revealed opp).
-    local cards_y  = y + 22
-    local card_gap = 3
-    local cards_w  = OPP_CARD_W * 2 + card_gap
+    local cards_y  = y + cards_y_offset
+    local cards_w  = card_w * 2 + card_gap
     local cards_x  = x + math.floor((w - cards_w) / 2)
     local face_up  = opponentFaceUp(tbl.state) and tbl.opponent_idx == opp_idx
     if face_up and tbl.opponent_hole then
-        drawCardFront(sl, tbl.opponent_hole[1], cards_x, cards_y, OPP_CARD_W, OPP_CARD_H, 1)
-        drawCardFront(sl, tbl.opponent_hole[2], cards_x + OPP_CARD_W + card_gap, cards_y, OPP_CARD_W, OPP_CARD_H, 1)
+        drawCardFront(sl, tbl.opponent_hole[1], cards_x, cards_y, card_w, card_h, seat_alpha)
+        drawCardFront(sl, tbl.opponent_hole[2], cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
     elseif holeVisible(tbl.state) then
-        drawCardBack(sl, cards_x, cards_y, OPP_CARD_W, OPP_CARD_H, 1)
-        drawCardBack(sl, cards_x + OPP_CARD_W + card_gap, cards_y, OPP_CARD_W, OPP_CARD_H, 1)
+        drawCardBack(sl, cards_x, cards_y, card_w, card_h, seat_alpha)
+        drawCardBack(sl, cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
     end
     -- Opponent stacks were rendered here previously — dropped to make
     -- room for the reveal tag line above. Stacks weren't load-bearing
@@ -315,7 +348,84 @@ local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_ch
     love.graphics.printf("Pot: " .. moneyText(pot), felt_x, text_y, felt_w, "center")
 end
 
-local function drawPlayerSeat(tbl, x, y, w, sl, fonts)
+-- Tournament bottom-band: hand counter + payout ladder. Replaces the
+-- stack/YOU strip when the gtype carries hand_count. Lives in the same
+-- vertical slot, so panel layout is unchanged between cash and MTT.
+local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
+    local hands_won = tbl.mtt_hands_won or 0
+    local hand_cap  = gtype.hand_count or 8
+
+    -- Counter line — current hand on top.
+    Theme.setColor(Theme.fg.heading)
+    love.graphics.setFont(fonts.heading)
+    local counter_label = string.format("HAND %d / %d", hands_won, hand_cap)
+    love.graphics.printf(counter_label, x, y, w, "center")
+
+    -- Pip strip with payout multipliers underneath.
+    local boost  = (ctx and ctx.mtt_payout_boost) or 0
+    local payout_table = MttPayouts[boost] or MttPayouts[0]
+
+    -- Ordered ascending — collect threshold keys present in the table.
+    local thresholds = {}
+    for k in pairs(payout_table) do thresholds[#thresholds + 1] = k end
+    table.sort(thresholds)
+
+    local pip_h     = 16
+    local pip_gap   = 6
+    local n         = #thresholds
+    local pip_w     = math.floor((w - (n - 1) * pip_gap - 16) / n)
+    if pip_w < 28 then pip_w = 28 end
+    local strip_w   = pip_w * n + (n - 1) * pip_gap
+    local strip_x   = x + math.floor((w - strip_w) / 2)
+    local strip_y   = y + 22
+
+    love.graphics.setFont(fonts.ui_small)
+    for i, th in ipairs(thresholds) do
+        local px = strip_x + (i - 1) * (pip_w + pip_gap)
+
+        -- State coloring:
+        --   cleared      → good (already past this threshold; payout locked)
+        --   next-to-reach → warn (this is the next milestone in line)
+        --   distant       → faint (still possible if you keep winning, but
+        --                          not the immediate target)
+        local cleared    = hands_won >= th
+        local is_next    = (not cleared) and (th == thresholds[1] or hands_won >= th - (th - thresholds[1]))
+        -- "is_next" approximates: the lowest uncleared threshold.
+        is_next = (not cleared)
+        for _, t2 in ipairs(thresholds) do
+            if (not cleared) and t2 < th and hands_won < t2 then
+                is_next = false
+                break
+            end
+        end
+
+        local fill = cleared and Theme.status.good
+                     or is_next and Theme.status.warn
+                     or Theme.bg.sunken
+        local text_color = cleared and Theme.bg.window
+                           or is_next and Theme.bg.window
+                           or Theme.fg.faint
+
+        Theme.setColor(fill)
+        love.graphics.rectangle("fill", px, strip_y, pip_w, pip_h, Theme.space.radius)
+        Theme.setColor(Theme.border.soft)
+        love.graphics.rectangle("line", px, strip_y, pip_w, pip_h, Theme.space.radius)
+
+        Theme.setColor(text_color)
+        local pip_label = string.format("%d:%dx", th, payout_table[th] or 0)
+        love.graphics.printf(pip_label, px,
+            strip_y + math.floor((pip_h - fonts.ui_small:getHeight()) * 0.5),
+            pip_w, "center")
+    end
+
+    -- Anchor for chip-flight loss target (loss in MTT == tournament end;
+    -- the current hand's pot still flies somewhere). Anchor at the
+    -- center of the strip so the visual still reads as "chips leave."
+    tbl.you_x = x + math.floor(w * 0.5)
+    tbl.you_y = strip_y + pip_h * 0.5
+end
+
+local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx)
     -- Hole cards centered.
     local cards_w = PLAYER_CARD_W * 2 + 4
     local cards_x = x + math.floor((w - cards_w) / 2)
@@ -327,6 +437,15 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts)
     else
         drawCardSlot(cards_x, cards_y, PLAYER_CARD_W, PLAYER_CARD_H)
         drawCardSlot(cards_x + PLAYER_CARD_W + 4, cards_y, PLAYER_CARD_W, PLAYER_CARD_H, 1)
+    end
+
+    -- Tournament tables swap the bottom band for a hand-counter + payout
+    -- ladder; cash tables show the stack chip pile + "YOU $X.XX" label.
+    local gtype = findGameType(tbl.game_type_id)
+    if gtype and gtype.hand_count then
+        local ladder_y = cards_y + PLAYER_CARD_H + 4
+        drawTournamentLadder(tbl, gtype, ctx, x, ladder_y, w, fonts)
+        return
     end
 
     -- Stack chip pile to the LEFT of the cards (small, ~8-12 chips), and
@@ -759,7 +878,12 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     local mini              = h < 90    -- only header + DEAL + pot label
 
     -- Resolve y offsets for each section based on which are present.
-    local content_top   = skip_opponents and (felt_y + 4) or (felt_y + 56)
+    -- HU's "duel" seat is taller (80 px vs 6-max's 50 px) so push the
+    -- community-card row down to make room. Single boolean check on
+    -- gtype id, not a kind chain.
+    local hu_layout     = tbl.game_type_id == "hu"
+    local opp_band_h    = hu_layout and 86 or 56
+    local content_top   = skip_opponents and (felt_y + 4) or (felt_y + opp_band_h)
     local comm_card_w   = mini and 14 or COMM_CARD_W
     local comm_card_h   = mini and 20 or COMM_CARD_H
     local pot_y         = content_top - 14
@@ -781,10 +905,16 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             -- HU: single seat centered, capped width so it doesn't sprawl
             -- across the whole felt. Other game types: even-distribute.
             if n_opps == 1 then
-                local seat_w = math.min(felt_w, 100)
+                -- HU's "duel" seat — wider + taller than 6-max seats so the
+                -- single rival has visible presence. Bumped from 100×50 to
+                -- 180×80 to fit the heading-font name + 2× cards drawn by
+                -- drawOpponentSeat's `big` branch.
+                local seat_w = math.min(felt_w, 180)
                 local ox     = felt_x + math.floor((felt_w - seat_w) / 2)
-                drawOpponentSeat(tbl.opponents[1], 1, tbl, ox, opp_row_y, seat_w, 50, sl, fonts)
-                tbl._opp_xy[1] = { ox + seat_w * 0.5, opp_row_y + 32 }
+                drawOpponentSeat(tbl.opponents[1], 1, tbl, ox, opp_row_y, seat_w, 80, sl, fonts)
+                -- Chip-flight target: card center sits ~30+40/2=50 px below
+                -- the seat top under the `big` layout.
+                tbl._opp_xy[1] = { ox + seat_w * 0.5, opp_row_y + 50 }
             else
                 local opp_w = math.floor(felt_w / n_opps)
                 for i = 1, n_opps do
@@ -812,7 +942,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- Player seat at bottom.
     if not skip_player_cards then
         local player_y = felt_y + felt_h - PLAYER_CARD_H - 18
-        drawPlayerSeat(tbl, felt_x, player_y, felt_w, sl, fonts)
+        local ctx = controller and controller.ctx
+        drawPlayerSeat(tbl, felt_x, player_y, felt_w, sl, fonts, ctx)
     elseif not mini then
         -- Compact mode: no hole-card sprites, just a YOU $X.XX text strip
         -- (stack on this table, not global bankroll).

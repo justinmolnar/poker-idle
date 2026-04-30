@@ -122,6 +122,14 @@ function PokerEffects.registerAll(reg)
     reg:register("focus_penalty_reduce_mult", function(e, ctx)
         ctx.focus_penalty_reduce_mult = (ctx.focus_penalty_reduce_mult or 1) * e.value
     end)
+
+    -- ── Tournament payout boost ─────────────────────────────────────────
+    -- Integer level; max-stacks rather than compounding so a perk pair
+    -- (Plastic Trophy lvl=1, Engraved Plaque lvl=2) selects the highest
+    -- tier in data/mtt_payouts.lua, not their sum.
+    reg:register("mtt_payout_boost", function(e, ctx)
+        ctx.mtt_payout_boost = math.max(ctx.mtt_payout_boost or 0, e.value or 0)
+    end)
 end
 
 return PokerEffects

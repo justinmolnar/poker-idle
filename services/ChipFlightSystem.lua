@@ -1,35 +1,38 @@
 -- services/ChipFlightSystem.lua
 --
--- Self-contained flying-chip system. Mirrors services/FloatingTextSystem
+-- Self-contained flying-projectile system. Mirrors services/FloatingTextSystem
 -- — stateless module, file-local queue, emit/update/draw/clear.
 --
--- Each emission is a procedural chip travelling along a quadratic
+-- Each emission is a procedural projectile travelling along a quadratic
 -- bezier from a start to an end point with a random arc height. Bursts
--- (e.g., a payout) stagger N chips over ~30 ms each so they FLOW
+-- (e.g., a payout) stagger N projectiles over ~30 ms each so they FLOW
 -- visually rather than teleport-as-one.
 --
--- Engine-agnostic — operates on opaque denomination indices passed in
--- from the poker layer (via views/Chips and data/chips).
+-- Engine-agnostic — operates on opaque render callbacks. Each flying
+-- entity stores a `render_fn(x, y)` closure; the system invokes it at the
+-- entity's bezier-interpolated position. No domain knowledge: the chip
+-- breakdown / colour palette / sprite atlas all live caller-side. The
+-- caller wraps each individual chip (or coin, or particle, or whatever)
+-- in a closure and hands the array to emitBurst.
 --
--- Soft cap: MAX_IN_FLIGHT chips total. Drop-oldest at overflow so the
+-- Soft cap: MAX_IN_FLIGHT entities total. Drop-oldest at overflow so the
 -- chaos endgame (32 tables, cursors clicking, payouts firing) can't
 -- balloon frame time without bound.
 
-local Chips        = require("views.Chips")
 local SoundService = require("services.SoundService")
 
 local ChipFlightSystem = {}
 
 local _flying           = {}
 -- Parallel queue of pending arrival-sound playbacks. Each burst can schedule
--- exactly one entry (see emitBurst); we play it just before the last chip in
--- the burst lands, so the player hears one thunk per emission, regardless of
--- chip count.
+-- exactly one entry (see emitBurst); we play it just before the last entity
+-- in the burst lands, so the player hears one thunk per emission, regardless
+-- of entity count.
 local _scheduled_sounds = {}
 
 -- ── Tunables ────────────────────────────────────────────────────────
 local MAX_IN_FLIGHT       = 300     -- soft cap; drop-oldest beyond
-local MAX_CHIPS_PER_EVENT = 7       -- a $50k win shows 7 chips, not 500
+local MAX_PER_EVENT       = 7       -- a $50k win shows 7 chips, not 500
 local DEFAULT_DURATION    = 0.55    -- seconds from launch to arrival
 local DEFAULT_STAGGER     = 0.03    -- 30 ms between staggered launches
 local DEFAULT_ARC         = 60      -- baseline arc height in px
@@ -44,15 +47,18 @@ local function bezierAt(p0, p1, p2, t)
            uu * p0[2] + 2 * u * t * p1[2] + tt * p2[2]
 end
 
--- Push one chip onto the flight queue.
+-- Push one entity onto the flight queue.
 --   start_xy / end_xy: { x, y } tables in screen coords
---   denom_idx:         index into data/chips.lua denominations
---   options.delay:     seconds before this chip "launches" (renders at
+--   render_fn:         function(x, y) — opaque render callback. Called
+--                      once per draw-frame at the entity's interpolated
+--                      bezier position.
+--   options.delay:     seconds before this entity "launches" (renders at
 --                      start until then)
 --   options.arc_height: bezier control-point Y-offset
---   options.duration:   seconds in flight after launch
-function ChipFlightSystem.emit(start_xy, end_xy, denom_idx, options)
+--   options.duration:  seconds in flight after launch
+function ChipFlightSystem.emit(start_xy, end_xy, render_fn, options)
     options = options or {}
+    if not render_fn then return end
     if #_flying >= MAX_IN_FLIGHT then
         table.remove(_flying, 1)
     end
@@ -70,41 +76,41 @@ function ChipFlightSystem.emit(start_xy, end_xy, denom_idx, options)
         t         = 0,
         duration  = options.duration or DEFAULT_DURATION,
         delay     = options.delay    or 0,
-        denom_idx = denom_idx,
+        render_fn = render_fn,
         x         = start_xy[1],
         y         = start_xy[2],
     }
 end
 
--- Convenience: emit a list of denominations as a staggered burst.
--- Caps total chips at MAX_CHIPS_PER_EVENT — a payout of ANY value
--- renders as ≤ 7 chips so high-stakes wins don't fountain 1000+
--- chips at once. Caller is responsible for the breakdown that produced
--- the list; we just sample it.
+-- Convenience: emit a list of render callbacks as a staggered burst.
+-- Caps total entities at MAX_PER_EVENT — a payout of ANY value
+-- renders as ≤ 7 entities so high-stakes wins don't fountain 1000+
+-- at once. Caller is responsible for the breakdown that produced the
+-- list; we just sample it.
 --
 -- options.arrival_sound (string, optional) — semantic name dispatched
 -- through SoundService.playNamed at burst-end time. One thunk per burst,
--- regardless of chip count.
-function ChipFlightSystem.emitBurst(start_xy, end_xy, chip_indices, options)
-    if not chip_indices or #chip_indices == 0 then return end
+-- regardless of entity count.
+function ChipFlightSystem.emitBurst(start_xy, end_xy, render_fns, options)
+    if not render_fns or #render_fns == 0 then return end
     options = options or {}
     local stagger  = options.stagger  or DEFAULT_STAGGER
     local duration = options.duration or DEFAULT_DURATION
 
-    -- Sample down to MAX_CHIPS_PER_EVENT, preserving the original order
-    -- so the showcase chip (always at index 1 from breakdown) leads.
-    local count = math.min(#chip_indices, MAX_CHIPS_PER_EVENT)
-    local step  = #chip_indices / count
+    -- Sample down to MAX_PER_EVENT, preserving the original order
+    -- so the showcase entity (always at index 1 from breakdown) leads.
+    local count = math.min(#render_fns, MAX_PER_EVENT)
+    local step  = #render_fns / count
     for i = 1, count do
         local src_idx = math.max(1, math.floor((i - 1) * step + 1))
-        ChipFlightSystem.emit(start_xy, end_xy, chip_indices[src_idx], {
+        ChipFlightSystem.emit(start_xy, end_xy, render_fns[src_idx], {
             delay      = (i - 1) * stagger,
             duration   = duration,
             arc_height = options.arc_height,
         })
     end
 
-    -- Schedule a single arrival thunk just before the last chip lands.
+    -- Schedule a single arrival thunk just before the last entity lands.
     if options.arrival_sound then
         local at = (count - 1) * stagger + duration - 0.04
         if at < 0 then at = 0 end
@@ -145,9 +151,8 @@ end
 
 function ChipFlightSystem.draw()
     if #_flying == 0 then return end
-    -- Each flying chip is solitary, so always draw with its label visible.
     for _, f in ipairs(_flying) do
-        Chips.drawChip(f.x, f.y, f.denom_idx, 1, true)
+        f.render_fn(f.x, f.y)
     end
 end
 

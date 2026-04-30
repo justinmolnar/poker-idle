@@ -179,6 +179,15 @@ Effects.kinds = {
         affects     = "ctx.focus_penalty_reduce_mult",
     },
 
+    -- ── Tournament payouts ──────────────────────────────────────────────
+    -- Integer-level boost into data/mtt_payouts.lua. Max-stacks (the
+    -- higher-tier perk wins outright; doesn't compound on the lower one).
+    mtt_payout_boost = {
+        description = "Bumps MTT cash-tier multipliers (max-stacking, not multiplicative).",
+        value_shape = "integer 1 or 2 — selects the tier in data/mtt_payouts.lua",
+        affects     = "ctx.mtt_payout_boost",
+    },
+
 }
 
 return Effects

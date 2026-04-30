@@ -52,6 +52,8 @@ local StakesData    = require("data.stakes")
 local GameTypesData = require("data.game_types")
 local NameData      = require("data.opponent_names")
 local PotTiers      = require("data.pot_tiers")
+local Timelines     = require("data.cinematic_timelines")
+local MttPayouts    = require("data.mtt_payouts")
 
 local Table = {}
 Table.__index = Table
@@ -59,13 +61,15 @@ Table.__index = Table
 local LAST_RESULTS_CAP = 5
 local CONSTRUCTION_CAP = 200
 
--- State timeline (cumulative seconds since :deal()).
-local PHASE_DEAL_END     = 0.40
-local PHASE_FLOP_END     = 0.80
-local PHASE_TURN_END     = 1.10
-local PHASE_RIVER_END    = 1.40
-local PHASE_SHOWDOWN_END = 1.80
-local PHASE_SETTLE_END   = 2.20
+-- Cinematic timeline lookup. Per-(gtype, tier) lists of {state, duration}
+-- live in data/cinematic_timelines.lua; we resolve at deal-time and walk
+-- the list by index in :update.
+local function resolveTimeline(gtype_id, tier)
+    local key = (gtype_id or "") .. ":" .. (tier or "")
+    return Timelines.overrides[key]
+        or Timelines.overrides[gtype_id]
+        or Timelines.default
+end
 
 -- ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -299,6 +303,16 @@ function Table:new(stake_id, game_type_id, ctx)
         -- hand. The controller's update loop finalises the close (chip
         -- flight + pool removal) once the table returns to idle.
         pending_close  = false,
+
+        -- Tournament bookkeeping (only meaningful when the gtype carries
+        -- binary_outcome=true — i.e. MTT). hands_won counts cleared hands
+        -- this run; mtt_state ∈ {nil, "playing"} marks "currently inside
+        -- a tournament sequence" so :_finalizeHand knows whether to
+        -- auto-deal the next one. mtt_pending_payout is a one-shot $
+        -- amount drained by GrindController:update on tournament end.
+        mtt_hands_won       = 0,
+        mtt_state           = nil,
+        mtt_pending_payout  = nil,
     }, Table)
     self:fillOpponents(ctx)
     return self
@@ -315,6 +329,11 @@ function Table:fillOpponents(_ctx)
     for i = 1, gtype.seats do
         self.opponents[i] = Opponent:new(pickRandomName(), stake.buy_in or 0)
     end
+
+    -- Visible cue when an anonymous-pool gtype rerolls between hands —
+    -- the seat row briefly fades in so the player sees "the pool changed."
+    -- Decayed in :update; consumed by drawOpponentSeat for an alpha multi.
+    self.reroll_flash_t = 0.4
 end
 
 function Table:setStake(stake_id, ctx)
@@ -355,6 +374,10 @@ end
 function Table:deal(ctx)
     if self.state ~= "idle" then return false end
     ctx = ctx or {}
+    -- Stash ctx so the timeline walker's tournament auto-advance hook
+    -- (in :_finalizeHand → :deal / :_endTournament) has the latest
+    -- effects rollup without needing to thread ctx through every call.
+    self._last_ctx = ctx
 
     local stake = findStake(self.stake_id)
     local gtype = findGameType(self.game_type_id)
@@ -378,14 +401,22 @@ function Table:deal(ctx)
     self.outcome_won  = won
     self.outcome_tier = tier
 
-    -- earnings_mult / loss_mult scale magnitude only — they don't reshape
-    -- the dists (Pot Odds Master, Damage Control, Headphones).
-    local earnings_mult = ctx.earnings_mult or 1
-    local loss_mult     = ctx.loss_mult     or 1
-    if won then
-        self.outcome_delta = magnitude_bb * stake.bb * earnings_mult
+    -- Binary-outcome (MTT): magnitude doesn't matter; only the win/loss
+    -- bit affects state. Skip the $-delta math entirely and force the
+    -- delta to 0 so the controller's stack/bankroll mutators no-op.
+    if gtype.binary_outcome then
+        self.outcome_delta = 0
+        if not self.mtt_state then self.mtt_state = "playing" end
     else
-        self.outcome_delta = -magnitude_bb * stake.bb * loss_mult
+        -- earnings_mult / loss_mult scale magnitude only — they don't reshape
+        -- the dists (Pot Odds Master, Damage Control, Headphones).
+        local earnings_mult = ctx.earnings_mult or 1
+        local loss_mult     = ctx.loss_mult     or 1
+        if won then
+            self.outcome_delta = magnitude_bb * stake.bb * earnings_mult
+        else
+            self.outcome_delta = -magnitude_bb * stake.bb * loss_mult
+        end
     end
 
     local p_hole, o_hole, board, natural = constructHand(won)
@@ -394,7 +425,11 @@ function Table:deal(ctx)
     self.community       = board
     self.natural_outcome = natural
 
-    self.state       = "dealing"
+    -- Resolve the cinematic shape for this (gtype, tier). Walker advances
+    -- index in :update; phase[1] is the entry state ("dealing" by default).
+    self.timeline    = resolveTimeline(gtype.id, tier)
+    self.phase_idx   = 1
+    self.state       = self.timeline[1][1]
     self.state_timer = 0
     return true
 end
@@ -407,6 +442,9 @@ local SHAKE_DECAY_RATE    = 1.6
 local VIGNETTE_DECAY_RATE = 1.5
 
 function Table:update(dt, ctx)
+    -- Stash latest ctx for the auto-deal path on tournament tables.
+    if ctx then self._last_ctx = ctx end
+
     -- Decay jackpot FX every frame regardless of table state.
     if (self.shake_trauma or 0) > 0 then
         self.shake_trauma = math.max(0, self.shake_trauma - (dt or 0) * SHAKE_DECAY_RATE)
@@ -414,6 +452,11 @@ function Table:update(dt, ctx)
     if (self.vignette_alpha or 0) > 0 then
         self.vignette_alpha = math.max(0, self.vignette_alpha - (dt or 0) * VIGNETTE_DECAY_RATE)
         if self.vignette_alpha <= 0 then self.vignette_kind = nil end
+    end
+
+    -- Reroll flash decay (Zoom's anonymous-seat fade-in). Linear over 0.4s.
+    if (self.reroll_flash_t or 0) > 0 then
+        self.reroll_flash_t = math.max(0, self.reroll_flash_t - (dt or 0))
     end
 
     if self.state == "idle" then return nil end
@@ -424,35 +467,33 @@ function Table:update(dt, ctx)
 
     self.state_timer = self.state_timer + effective_dt
 
-    if     self.state == "dealing"  and self.state_timer >= PHASE_DEAL_END     then self.state = "flop"
-    elseif self.state == "flop"     and self.state_timer >= PHASE_FLOP_END     then self.state = "turn"
-    elseif self.state == "turn"     and self.state_timer >= PHASE_TURN_END     then self.state = "river"
-    elseif self.state == "river"    and self.state_timer >= PHASE_RIVER_END    then
-        self.state = "showdown"
-    elseif self.state == "showdown" and self.state_timer >= PHASE_SHOWDOWN_END then
-        self.state = "settling"
-        self._pending_resolution = {
-            won   = self.outcome_won,
-            delta = self.outcome_delta,
-            tier  = self.outcome_tier,
-            x     = self.x,
-            y     = self.y,
-        }
-    elseif self.state == "settling" and self.state_timer >= PHASE_SETTLE_END then
-        self.last_results[#self.last_results + 1] = {
-            won   = self.outcome_won,
-            delta = self.outcome_delta,
-            tier  = self.outcome_tier,
-        }
-        if #self.last_results > LAST_RESULTS_CAP then
-            table.remove(self.last_results, 1)
+    -- Walk the cinematic timeline. Each entry is {state_name, duration};
+    -- when the timer crosses the current phase's duration we advance and
+    -- spend the leftover on the next phase (preserves smoothness when a
+    -- single dt exceeds a short phase). Past the last phase, finalize.
+    local phase = self.timeline and self.timeline[self.phase_idx]
+    while phase and self.state_timer >= phase[2] do
+        self.state_timer = self.state_timer - phase[2]
+        self.phase_idx   = self.phase_idx + 1
+        local next_phase = self.timeline[self.phase_idx]
+        if next_phase then
+            self.state = next_phase[1]
+            -- Resolution dict pushed on entering "settling", regardless
+            -- of which phases preceded it (Zoom+tiny skips most phases).
+            if next_phase[1] == "settling" then
+                self._pending_resolution = {
+                    won   = self.outcome_won,
+                    delta = self.outcome_delta,
+                    tier  = self.outcome_tier,
+                    x     = self.x,
+                    y     = self.y,
+                }
+            end
+            phase = next_phase
+        else
+            self:_finalizeHand()
+            phase = nil
         end
-        self.hands_played = self.hands_played + 1
-        self.state         = "idle"
-        self.state_timer   = 0
-        self.player_hole   = nil
-        self.opponent_hole = nil
-        self.community     = nil
     end
 
     if self._pending_resolution then
@@ -461,6 +502,62 @@ function Table:update(dt, ctx)
         return r
     end
     return nil
+end
+
+-- Settling-phase end: log the result, increment hands_played, drop hole
+-- and community cards, return to idle. Extracted so the timeline walker
+-- has one tidy call site at end-of-list.
+function Table:_finalizeHand()
+    self.last_results[#self.last_results + 1] = {
+        won   = self.outcome_won,
+        delta = self.outcome_delta,
+        tier  = self.outcome_tier,
+    }
+    if #self.last_results > LAST_RESULTS_CAP then
+        table.remove(self.last_results, 1)
+    end
+    self.hands_played  = self.hands_played + 1
+    self.state         = "idle"
+    self.state_timer   = 0
+    self.timeline      = nil
+    self.phase_idx     = nil
+    self.player_hole   = nil
+    self.opponent_hole = nil
+    self.community     = nil
+
+    -- Tournament auto-advance. Win = bump hands_won and re-deal; loss
+    -- = end the tournament. Cleared all 8 = end with the top payout.
+    -- We re-use the latest ctx stashed on :update / :deal so the new
+    -- hand samples WC against the player's current effects rollup —
+    -- magnitudes don't matter (binary_outcome forces delta=0).
+    local gtype = findGameType(self.game_type_id)
+    if gtype and gtype.auto_deal and self.mtt_state == "playing" then
+        if self.outcome_won then
+            self.mtt_hands_won = (self.mtt_hands_won or 0) + 1
+            if self.mtt_hands_won >= (gtype.hand_count or 0) then
+                self:_endTournament()
+            else
+                self:deal(self._last_ctx)
+            end
+        else
+            self:_endTournament()
+        end
+    end
+end
+
+-- Compute the tournament payout for the current mtt_hands_won and stash
+-- it on self.mtt_pending_payout for GrindController:update to drain into
+-- bankroll on the next tick. Resets mtt_state to nil so the next :deal
+-- starts a fresh tournament. Sets stack=0 so the panel renders REBUY.
+function Table:_endTournament()
+    local stake = findStake(self.stake_id)
+    local boost = (self._last_ctx and self._last_ctx.mtt_payout_boost) or 0
+    local tier  = MttPayouts[boost] or MttPayouts[0]
+    local mult  = (tier and tier[self.mtt_hands_won]) or 0
+    local buy_in = (stake and stake.buy_in) or 0
+    self.mtt_pending_payout = mult * buy_in
+    self.mtt_state          = nil
+    self.stack              = 0  -- triggers REBUY rendering in TablePanel
 end
 
 -- Read-only summary the view header pulls each frame.

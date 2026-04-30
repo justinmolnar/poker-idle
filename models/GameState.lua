@@ -51,6 +51,12 @@ function GameState:new(saved)
     -- Indexed identically; true = autonomous cursor swarm skips this table.
     -- Persisted across saves; reset on prestige (since tables die anyway).
     instance.active_table_mutes  = {}
+    -- Parallel arrays to active_table_specs — per-tournament-table state
+    -- so a save mid-MTT-sequence resumes at the right hand on reload.
+    -- Both are runtime-resilient: cash-game tables write 0 / nil and
+    -- ignore them on read.
+    instance.active_table_mtt_hands_won = {}
+    instance.active_table_mtt_state     = {}
     instance.stakes_won_this_run = {}           -- set keyed by stake_id; locks in PP bounties per run
     instance.pp_this_run         = 0            -- running counter for the prestige modal display
 
@@ -77,6 +83,8 @@ function GameState:resetRun()
         self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"
     end
     self.active_table_mutes  = {}
+    self.active_table_mtt_hands_won = {}
+    self.active_table_mtt_state     = {}
     self.stakes_won_this_run = {}
     self.pp_this_run         = 0
     self.effects_cache       = nil
@@ -118,14 +126,16 @@ end
 -- per-run PP bookkeeping). For run.save. Wiped on prestige by `clearRun()`.
 function GameState:serializeRun()
     return {
-        bankroll             = self.bankroll,
-        peak_bankroll        = self.peak_bankroll,
-        current_stake_id     = self.current_stake_id,
-        run_upgrade_levels   = self.run_upgrade_levels,
-        active_table_specs   = self.active_table_specs,
-        active_table_mutes   = self.active_table_mutes,
-        stakes_won_this_run  = self.stakes_won_this_run,
-        pp_this_run          = self.pp_this_run,
+        bankroll                   = self.bankroll,
+        peak_bankroll              = self.peak_bankroll,
+        current_stake_id           = self.current_stake_id,
+        run_upgrade_levels         = self.run_upgrade_levels,
+        active_table_specs         = self.active_table_specs,
+        active_table_mutes         = self.active_table_mutes,
+        active_table_mtt_hands_won = self.active_table_mtt_hands_won,
+        active_table_mtt_state     = self.active_table_mtt_state,
+        stakes_won_this_run        = self.stakes_won_this_run,
+        pp_this_run                = self.pp_this_run,
     }
 end
 

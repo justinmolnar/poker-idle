@@ -8,7 +8,18 @@
 -- Update tick collects resolutions from each table and returns them for the
 -- controller to act on (apply to bankroll, emit floating text, etc.).
 
-local Table = require("models.Table")
+local Table     = require("models.Table")
+local GameTypes = require("data.game_types")
+
+-- Fallback gtype for unknown ids in a saved spec (e.g. a deprecated mode
+-- from a prior build). Six-max is the safe baseline — same buy-in, same
+-- panel layout, no missing dist_shifts.
+local function gtypeExists(id)
+    for _, gt in ipairs(GameTypes) do
+        if gt.id == id then return true end
+    end
+    return false
+end
 
 local TablePool = {}
 TablePool.__index = TablePool
@@ -34,11 +45,22 @@ end
 function TablePool:rebuildFromState(ctx)
     self.tables = {}
     local mutes = self.state.active_table_mutes or {}
+    local hands = self.state.active_table_mtt_hands_won or {}
+    local mstate = self.state.active_table_mtt_state or {}
     for i, spec in ipairs(self.state.active_table_specs or {}) do
         local stake_id, gtype_id = unpackSpec(spec)
         if stake_id and gtype_id then
+            -- Save-safe degrade: an unknown gtype (e.g. a deprecated mode
+            -- from a pre-rip build) silently downgrades to six_max so the
+            -- table can still be reconstructed.
+            if not gtypeExists(gtype_id) then gtype_id = "six_max" end
             local t = Table:new(stake_id, gtype_id, ctx)
-            t.cursor_muted = mutes[i] == true
+            t.cursor_muted   = mutes[i] == true
+            -- Tournament continuity: reload-mid-run drops the player back
+            -- at "table idle, click DEAL to fire the next hand of N".
+            -- Cash tables ignore these.
+            t.mtt_hands_won  = hands[i] or 0
+            t.mtt_state      = mstate[i]
             self.tables[#self.tables + 1] = t
         end
     end
@@ -46,12 +68,17 @@ end
 
 function TablePool:_syncStateList()
     local specs, mutes = {}, {}
+    local hands, mstate = {}, {}
     for i, t in ipairs(self.tables) do
-        specs[i] = packSpec(t.stake_id, t.game_type_id)
-        mutes[i] = t.cursor_muted == true
+        specs[i]  = packSpec(t.stake_id, t.game_type_id)
+        mutes[i]  = t.cursor_muted == true
+        hands[i]  = t.mtt_hands_won or 0
+        mstate[i] = t.mtt_state
     end
-    self.state.active_table_specs = specs
-    self.state.active_table_mutes = mutes
+    self.state.active_table_specs         = specs
+    self.state.active_table_mutes         = mutes
+    self.state.active_table_mtt_hands_won = hands
+    self.state.active_table_mtt_state     = mstate
 end
 
 function TablePool:count() return #self.tables end
