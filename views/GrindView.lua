@@ -32,6 +32,7 @@ local GameTypes   = require("data.game_types")
 local RunUpgrades = require("data.run_upgrades")
 local Catalog     = require("data.catalog")
 local Constants   = require("data.constants")
+local ShoveRate   = require("models.shove_rate")
 
 local GrindView = {}
 GrindView.__index = GrindView
@@ -229,6 +230,19 @@ function GrindView:_buildTablesTabComponents()
             sub = string.format("buy-in $%.2f", stake.buy_in or 0)
         end
 
+        -- PP-bounty status line. Shows whether this (stake, gtype) combo
+        -- has banked PP this run (locked in) or how much is still up
+        -- for grabs. Helps the player skip combos they've already won.
+        local banked = self.controller:bountyBanked(stake.id, gtype_id)
+        local pp_line
+        if banked then
+            pp_line = { text = "PP banked this run", style = "muted" }
+        else
+            local award = self.controller:bountyAward(stake.id)
+            pp_line = { text = string.format("PP +%d on jackpot win", award),
+                        style = "small" }
+        end
+
         components[#components + 1] = {
             type     = "button",
             id       = "add_table:" .. stake.id .. ":" .. gtype_id,
@@ -238,6 +252,7 @@ function GrindView:_buildTablesTabComponents()
             lines = {
                 { text = "+ " .. stake.display_name, style = "heading" },
                 { text = sub, style = "small" },
+                pp_line,
             },
         }
     end
@@ -411,10 +426,19 @@ function GrindView:update(dt)
         end
     end
 
-    -- SHOVE button hover tooltip (direct rect — no hit_box entry).
+    -- SHOVE button hover tooltip (direct rect — no hit_box entry). Same
+    -- breakdown the top-bar column shows, plus a final "click to lock"
+    -- line so the player understands the rate freezes at click time.
     local sb = self:_shoveButtonRect()
     if mx >= sb.x and mx < sb.x + sb.w and my >= sb.y and my < sb.y + sb.h then
-        TooltipSvc.set("Shove all-in: bank pending PP and prestige.", mx, my)
+        local state = self.game.state
+        local ctx = (self.controller and self.controller.ctx) or {}
+        local _, breakdown = ShoveRate.compute(ctx,
+            state.bankroll or 0,
+            state.pp_this_run or 0)
+        local lines = ShoveRate.formatBreakdown(breakdown)
+        lines[#lines + 1] = "Click to lock this rate."
+        TooltipSvc.set(lines, mx, my)
     end
 
     -- Cash-Out-All button hover tooltip. Same direct-rect treatment as
@@ -426,6 +450,18 @@ function GrindView:update(dt)
         TooltipSvc.set(
             "Cash out all tables — busy tables finish their hand first.",
             mx, my)
+    end
+
+    -- Top-bar SHOVE column hover tooltip. The rect spans both the label
+    -- and the value (y=2..46) so a hover anywhere on the column lands.
+    -- Width covers the readout + a small comfort margin.
+    if mx >= 716 and mx < 800 and my >= 2 and my < 46 then
+        local state = self.game.state
+        local ctx = (self.controller and self.controller.ctx) or {}
+        local _, breakdown = ShoveRate.compute(ctx,
+            state.bankroll or 0,
+            state.pp_this_run or 0)
+        TooltipSvc.set(ShoveRate.formatBreakdown(breakdown), mx, my)
     end
 
     -- Tween top-bar numbers toward live state values.
@@ -492,6 +528,7 @@ function GrindView:_drawTopBar(W)
     love.graphics.print("PEAK",    470, 6)
     love.graphics.print("TABLES",  580, 6)
     love.graphics.print("FOCUS",   660, 6)
+    love.graphics.print("SHOVE",   720, 6)
 
     love.graphics.setFont(fonts.heading)
     Theme.setColor(Theme.fg.muted)
@@ -512,6 +549,23 @@ function GrindView:_drawTopBar(W)
     else                         focus_color = Theme.status.error end
     Theme.setColor(focus_color)
     love.graphics.print(focus_pct .. "%", 660, 22)
+
+    -- SHOVE: live shove-rate readout. Same compute the gauntlet locks
+    -- in at click time — players see the grind feed the rate in real
+    -- time. Tinted by rate breakpoints: red below 20%, amber 20-50%,
+    -- green at 50%+. Hover tooltip (set in :update) shows the
+    -- breakdown (base, bankroll mult, pp bonus).
+    local ctx = (self.controller and self.controller.ctx) or {}
+    local rate = ShoveRate.compute(ctx,
+        state.bankroll or 0,
+        state.pp_this_run or 0)
+    local rate_color
+    if     rate < 0.20 then rate_color = Theme.status.error
+    elseif rate < 0.50 then rate_color = Theme.status.warn
+    else                    rate_color = Theme.status.good
+    end
+    Theme.setColor(rate_color)
+    love.graphics.print(string.format("%.1f%%", rate * 100), 720, 22)
 end
 
 -- ─── Cash-Out-All button (top bar, right side) ───────────────────────
@@ -676,7 +730,11 @@ function GrindView:_drawShoveButton()
     -- them shove with nothing and bank whatever PP they earned.
     local can_shove = true
     local ctx = self.controller.ctx or {}
-    local rate = math.min(Constants.GAMEPLAY.SHOVE_RATE_CAP, ctx.shove_rate or 0)
+    -- Live rate matches the top-bar column. The math-reality clamp lives
+    -- inside ShoveRate.compute so we don't double-clamp here.
+    local rate = ShoveRate.compute(ctx,
+        state.bankroll or 0,
+        state.pp_this_run or 0)
     local pending_pp = state.pp_this_run or 0
 
     local mx, my = love.mouse.getPosition()
@@ -821,12 +879,9 @@ function GrindView:mousepressed(x, y, b)
     local sb = self:_shoveButtonRect()
     if x >= sb.x and x < sb.x + sb.w and y >= sb.y and y < sb.y + sb.h then
         ClickFlash.flash("shove", "shove")
-        -- Bank the run's pending PP at the moment of pulling the trigger.
-        -- Bounties locked during the run only convert to spendable PP if
-        -- the player actually shoves — F2 debug toggles bypass this, so
-        -- dev shortcuts don't grant free PP.
-        local state = self.game.state
-        state.pp = state.pp + (state.pp_this_run or 0)
+        -- The PP-bank is now done inside ShoveState:enter so the rate
+        -- sample sees the un-banked pp_this_run for the bonus
+        -- calculation (the formula adds pp_banked × 0.5%).
         self.game.state_machine:switch("shove")
         return
     end

@@ -230,6 +230,13 @@ local function buildOutcome(ctx, gtype, stake)
         end
     end
 
+    -- 6. Per-gtype WC shift — gives modes a real win-rate identity (Zoom
+    --    higher, HU lower) instead of only shaping dists. Treated as
+    --    additive on top of catalog shifts so HU Specialist still works.
+    if gtype and gtype.win_chance_shift then
+        win_chance = win_chance + gtype.win_chance_shift
+    end
+
     -- 8. Final clamps. Absolute WC ceiling (no 100% wins).
     if     win_chance < 0                 then win_chance = 0
     elseif win_chance > WC_ABSOLUTE_CAP   then win_chance = WC_ABSOLUTE_CAP end

@@ -103,7 +103,17 @@ function Overlay:draw()
 
     love.graphics.setFont(self.font_main)
     Theme.setColor(Theme.debug.hud_dim)
-    love.graphics.print(string.format("cap %.2f", Constants.GAMEPLAY.SHOVE_RATE_CAP),
+    -- At-shove-time breakdown: base × mult + pp = total. Pulled from
+    -- the snapshot ShoveState locked in at :enter (self.ss.shove_breakdown).
+    local b = self.ss.shove_breakdown
+    local breakdown_line
+    if b then
+        breakdown_line = string.format("%.0f%% × %d + %.1f%% pp = %.1f%%",
+            b.base * 100, b.tier.mult, b.pp_bonus * 100, b.total * 100)
+    else
+        breakdown_line = "(no breakdown)"
+    end
+    love.graphics.print(breakdown_line,
         lx + pad, ly + pad + 14 + Theme.font.size_kpi + 2)
 
     Theme.setColor(Theme.debug.hud_text)

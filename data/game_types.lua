@@ -45,13 +45,14 @@ return {
         short = "HU",
         seats = 1,
         pace_mult = 1.0,        -- fast — 2.6s/hand (longer showdown beat)
-        -- HU = the duel. WIN side compresses (small wins, less reach for
-        -- jackpot); LOSS side fans out (deeper losses, real jackpot risk).
-        -- Identity: "small wins, big losses." Pairs with the duel visual:
-        -- one rival, they take big pots off you, you scrape together small.
+        -- HU = the duel. Low win rate (-0.10 WC vs other modes), but
+        -- when pots happen they're DEEP — both wins AND losses skew
+        -- away from tiny/small toward medium/jackpot. Identity: "lose
+        -- often, but pots are big both ways."
+        win_chance_shift = -0.10,
         dist_shifts = {
-            win_dist  = { tiny =  0.20, small =  0.10, medium = -0.10, jackpot = -0.20 },
-            loss_dist = { tiny = -0.20, small = -0.05, medium =  0.10, jackpot =  0.15 },
+            win_dist  = { tiny = -0.20, small = -0.10, medium = 0.10, jackpot = 0.20 },
+            loss_dist = { tiny = -0.20, small = -0.05, medium = 0.10, jackpot = 0.15 },
         },
         rerolls_opponents = false,
     },
@@ -62,12 +63,16 @@ return {
         seats = 5,
         pace_mult = 1.4,        -- very fast — most hands ~0.57s with the
                                 -- zoom:tiny cinematic-skip in cinematic_timelines.
-        -- Zoom = fold-spam. Hard shift toward tiny on both sides — most
-        -- Zoom hands are 1-2 bb preflop spats. Jackpot mass is nearly
-        -- extinct. The cinematic-skip on tiny outcomes (data/cinematic_
-        -- timelines.lua) makes most hands resolve in <1s.
+        -- Zoom = fold-spam firehose. High WC (+0.05) — most hands are
+        -- preflop spats you're ahead in. Low pot sizes — heavy tiny
+        -- mass. Jackpots are reachable but rare: -0.40 jackpot shift
+        -- means you need substantial Pot Building before Zoom jackpots
+        -- show up at all (lands ~10% jackpot mass at full upgrades, 0%
+        -- below ~80% fill). The cinematic-skip on tiny outcomes
+        -- (data/cinematic_timelines.lua) makes most hands resolve in <1s.
+        win_chance_shift = 0.05,
         dist_shifts = {
-            win_dist  = { tiny = 0.40, small =  0.05, medium = -0.10, jackpot = -0.35 },
+            win_dist  = { tiny = 0.40, small =  0.05, medium = -0.05, jackpot = -0.40 },
             loss_dist = { tiny = 0.10, small = -0.02, medium = -0.03, jackpot = -0.05 },
         },
         rerolls_opponents = true,

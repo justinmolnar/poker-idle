@@ -26,7 +26,9 @@ C.GAMEPLAY = {
     INITIAL_BANKROLL       = 2,        -- starting $ each run (just barely covers a $0.01/$0.02 buy-in)
     INITIAL_PP             = 0,        -- meta currency starts at zero
     INITIAL_ACTIVE_TABLES  = 0,        -- fresh save / resetRun: no tables opened. Player buys first for the buy-in ($2 at $0.01/$0.02).
-    SHOVE_RATE_CAP         = 0.90,     -- 90% per-shove ceiling (design doc §)
+    -- The old 0.90 shove-rate soft cap is gone. Shove rate now multi-
+    -- plies catalog × bankroll-tier (see models/shove_rate.lua) with a
+    -- single math-reality clamp at 1.0. The curve is the ceiling.
     MAX_TABLES             = 32,       -- hard cap on concurrent tables (visual / sanity bound)
 
     -- Focus / efficiency mechanic. Multi-tabling beyond your capacity scales

@@ -130,7 +130,11 @@ return {
         sprite      = "lucky_charm",
         cost_pp     = 15,
         position    = { x = 700, y = 300 },
-        effects     = { { kind = "shove_rate_add", value = 0.05 } },
+        -- Base value 0.02 multiplied by the bankroll-tier mult: solo
+        -- contribution is 2% at T1 → 14% at T7. Future shove items
+        -- target 0.01–0.03; the multiplier carries the load, not the
+        -- per-item base.
+        effects     = { { kind = "shove_rate_add", value = 0.02 } },
     },
 
     -- ── Expensive-tier (20+ PP) ───────────────────────────────────────────

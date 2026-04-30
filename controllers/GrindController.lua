@@ -270,6 +270,26 @@ function GrindController:_requirementMet(requires_id)
     return false
 end
 
+-- True if the player has already banked the (stake, gtype) PP bounty
+-- this run. Mirrors the bountyKey format used by the resolution loop —
+-- keep both writers using the same key format.
+function GrindController:bountyBanked(stake_id, game_type_id)
+    local key = bountyKey(stake_id, game_type_id)
+    return self.game.state.stakes_won_this_run
+        and self.game.state.stakes_won_this_run[key] == true
+end
+
+-- The PP that WOULD bank if the player hits a jackpot win at (stake,
+-- gtype) — base stake.pp_award scaled by ctx.pp_award_mult (Pen,
+-- Endorsement Deal). Used for the "PP +N available" indicator in the
+-- Tables tab.
+function GrindController:bountyAward(stake_id)
+    local stake = findStake(stake_id)
+    if not stake then return 0 end
+    local mult = (self.ctx and self.ctx.pp_award_mult) or 1
+    return math.floor((stake.pp_award or 0) * mult + 0.5)
+end
+
 function GrindController:buyRunUpgrade(upgrade_id)
     local state = self.game.state
     -- Find item by id.

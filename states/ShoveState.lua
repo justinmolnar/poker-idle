@@ -22,6 +22,7 @@ local Gauntlet      = require("models.Gauntlet")
 local Catalog       = require("data.catalog")
 local RunUpgrades   = require("data.run_upgrades")
 local Constants     = require("data.constants")
+local ShoveRate     = require("models.shove_rate")
 
 local ShoveState = {}
 ShoveState.__index = ShoveState
@@ -62,10 +63,28 @@ end
 
 function ShoveState:enter()
     Theme.setActive("shove")
-    -- Reseed shove_rate from current effects every enter (catalog purchases
-    -- between shoves count toward the next attempt).
-    local ctx = self.game.state:computeEffects(self.game.effects, Catalog, RunUpgrades)
-    self.shove_rate = ctx.shove_rate or 0
+    -- Lock in the shove rate from the current effects + bankroll +
+    -- pp-banked snapshot. This is the freeze moment — once the
+    -- gauntlet begins, mutating bankroll / PP doesn't affect rolls.
+    -- Catalog purchases between shoves count toward the next attempt
+    -- because computeEffects rebuilds ctx fresh each :enter.
+    --
+    -- We bank pp_this_run AFTER reading it for the rate sample so the
+    -- bonus reflects what the player earned this run. The view's
+    -- click-handler used to do the bank pre-switch; that ordering
+    -- zeroed the bonus before we could read it. Bank-here keeps the
+    -- "shove begins" mutation in one place.
+    local state = self.game.state
+    local ctx = state:computeEffects(self.game.effects, Catalog, RunUpgrades)
+    local rate, breakdown = ShoveRate.compute(ctx,
+        state.bankroll or 0,
+        state.pp_this_run or 0)
+    self.shove_rate = rate
+    self.shove_breakdown = breakdown
+
+    -- Bank pending PP into total PP and zero the per-run counter.
+    state.pp = state.pp + (state.pp_this_run or 0)
+    state.pp_this_run = 0
 
     -- Auto-start a gauntlet on entry when none is active. Carries the
     -- player straight into the cinematic instead of requiring SPACE.
