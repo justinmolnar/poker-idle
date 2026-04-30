@@ -42,6 +42,8 @@ local LEFT_W               = 280
 local RIGHT_W              = 250
 local MARGIN               = 12
 local SHOVE_BTN_H          = 64
+local CASH_OUT_BTN_W       = 110
+local CASH_OUT_BTN_H       = 36
 -- Reserved band at the bottom of the center column for the bankroll
 -- chip pile. Center grid shrinks vertically by this much. Sidebars are
 -- unaffected — they keep running their full height.
@@ -415,6 +417,17 @@ function GrindView:update(dt)
         TooltipSvc.set("Shove all-in: bank pending PP and prestige.", mx, my)
     end
 
+    -- Cash-Out-All button hover tooltip. Same direct-rect treatment as
+    -- SHOVE — sits in the top bar above the panels, not a hit_box entry.
+    local cb = self:_cashOutButtonRect()
+    if self.controller.pool:count() > 0
+       and mx >= cb.x and mx < cb.x + cb.w
+       and my >= cb.y and my < cb.y + cb.h then
+        TooltipSvc.set(
+            "Cash out all tables — busy tables finish their hand first.",
+            mx, my)
+    end
+
     -- Tween top-bar numbers toward live state values.
     local state = self.game.state
     self.displayed_bankroll = tweenNumber(self.displayed_bankroll, state.bankroll,            dt)
@@ -501,6 +514,47 @@ function GrindView:_drawTopBar(W)
     love.graphics.print(focus_pct .. "%", 660, 22)
 end
 
+-- ─── Cash-Out-All button (top bar, right side) ───────────────────────
+
+function GrindView:_cashOutButtonRect()
+    local W = love.graphics.getWidth()
+    -- Anchor to the right panel's left edge so the button never overlaps
+    -- the upgrades panel. y centers within the top bar with room for the
+    -- chunky-button depth + lift.
+    return {
+        x = W - RIGHT_W - MARGIN - CASH_OUT_BTN_W,
+        y = math.floor((TOP_BAR_H - CASH_OUT_BTN_H) / 2),
+        w = CASH_OUT_BTN_W,
+        h = CASH_OUT_BTN_H,
+    }
+end
+
+function GrindView:_drawCashOutButton()
+    local rect    = self:_cashOutButtonRect()
+    local n       = self.controller.pool:count()
+    local enabled = n > 0
+    local mx, my  = love.mouse.getPosition()
+    local hovered = enabled
+                    and mx >= rect.x and mx < rect.x + rect.w
+                    and my >= rect.y and my < rect.y + rect.h
+    local press   = ClickFlash.alpha("cash_out", "cash_out")
+
+    Button.draw(rect.x, rect.y, rect.w, rect.h, {
+        fill_color   = enabled and Theme.status.warn or Theme.bg.sunken,
+        border_color = enabled and Theme.fg.heading   or Theme.border.soft,
+        hovered      = hovered,
+        press_alpha  = press,
+        disabled     = not enabled,
+        depth        = 4,
+    }, function(fx, fy, fw, fh)
+        local fonts = self.game.fonts
+        Theme.setColor(enabled and Theme.bg.window or Theme.fg.disabled)
+        love.graphics.setFont(fonts.ui_small)
+        local text_y = fy + math.floor((fh - fonts.ui_small:getHeight()) * 0.5)
+        love.graphics.printf("CASH OUT", fx, text_y, fw, "center")
+    end)
+end
+
 -- ─── Center grid ──────────────────────────────────────────────────────
 
 -- Target aspect for each table panel — wider than tall so the felt reads
@@ -556,10 +610,33 @@ function GrindView:_drawCenterGrid(W, H)
         Theme.setColor(Theme.fg.faint)
         love.graphics.printf("Click an ADD TABLE button in the left sidebar.",
             grid_x, grid_y + math.floor(grid_h / 2) + 4, grid_w, "center")
+        self.frozen_grid = nil
         return
     end
 
-    local layout = bestGridLayout(n, grid_w, grid_h)
+    -- Freeze layout while the mouse is stationary so closing multiple
+    -- tables in a row doesn't reflow cell sizes/positions under the
+    -- cursor — successive [×] clicks land at the same spot. Frozen
+    -- layout is invalidated on `mousemoved` (or count grew past the
+    -- frozen cell count, or the window was resized).
+    local frozen = self.frozen_grid
+    local use_frozen = frozen
+        and frozen.grid_w == grid_w
+        and frozen.grid_h == grid_h
+        and n <= frozen.n
+
+    local layout
+    if use_frozen then
+        layout = frozen.layout
+    else
+        layout = bestGridLayout(n, grid_w, grid_h)
+        self.frozen_grid = {
+            layout = layout, n = n, grid_w = grid_w, grid_h = grid_h,
+            -- Anchor for the mousemoved deadzone — small jitters around
+            -- this point keep the freeze alive.
+            anchor_x = love.mouse.getX(), anchor_y = love.mouse.getY(),
+        }
+    end
     local cols, rows, pw, ph = layout.cols, layout.rows, layout.pw, layout.ph
 
     -- Center the cell block within the available grid area so leftover
@@ -690,6 +767,7 @@ function GrindView:draw()
     self.hit_boxes = {}
 
     self:_drawTopBar(W)
+    self:_drawCashOutButton()
     self:_drawCenterGrid(W, H)
     self.left_panel:draw(self.game)
     self.right_panel:draw(self.game)
@@ -727,6 +805,17 @@ end
 
 function GrindView:mousepressed(x, y, b)
     if b ~= 1 then return end
+
+    -- Cash-Out-All button (top bar). Checked first so the right-side hit
+    -- doesn't fall through to the right panel's tab-strip / scroll zone.
+    local cb = self:_cashOutButtonRect()
+    if self.controller.pool:count() > 0
+       and x >= cb.x and x < cb.x + cb.w
+       and y >= cb.y and y < cb.y + cb.h then
+        ClickFlash.flash("cash_out", "cash_out")
+        self.controller:cashOutAll()
+        return
+    end
 
     -- SHOVE button has priority — it's bottom-right and overlaps the right panel zone.
     local sb = self:_shoveButtonRect()
@@ -820,7 +909,16 @@ function GrindView:_handleHitBox(hb)
     -- being rendered the moment the click fires (state changes, table
     -- removed). Snapshot a ghost into Ghosts so the rise-out press
     -- animation plays out for ~0.5 s before despawning.
-    if hb.action == "deal" or hb.action == "rebuy" or hb.action == "remove_table" then
+    --
+    -- [×] on a busy table is a *deferred* close — the live button keeps
+    -- rendering (now warn-tinted to flag the queued state). Skip the
+    -- ghost in that case so we don't double-render the press animation
+    -- with a colour mismatch.
+    local tbl_for_ghost = self.controller.pool.tables[hb.idx]
+    local defer_remove  = hb.action == "remove_table"
+                          and tbl_for_ghost and tbl_for_ghost.state ~= "idle"
+    if (hb.action == "deal" or hb.action == "rebuy"
+        or hb.action == "remove_table") and not defer_remove then
         local ghost = TablePanel.makeGhostFor(hb, self.game.fonts)
         if ghost then Ghosts.add(ghost) end
     end
@@ -843,7 +941,23 @@ function GrindView:mousereleased(_, _, _)
     self.right_panel:handleMouseUp()
 end
 
-function GrindView:mousemoved(_, _, _, _) end
+-- Deadzone radius (px) for the grid-layout freeze. Real hand jitter on a
+-- mouse is typically 1-3 px between clicks; 8 px swallows that without
+-- letting an actual nudge toward a different button stay frozen.
+local FREEZE_DEADZONE_PX = 8
+
+function GrindView:mousemoved(x, y, _, _)
+    -- Mouse-stationary freeze on the center grid (see _drawCenterGrid).
+    -- Movement past the deadzone releases the freeze; tiny jitters are
+    -- ignored so closing tables in a streak doesn't reflow.
+    local f = self.frozen_grid
+    if not f or not f.anchor_x then return end
+    local dx = x - f.anchor_x
+    local dy = y - f.anchor_y
+    if dx * dx + dy * dy > FREEZE_DEADZONE_PX * FREEZE_DEADZONE_PX then
+        self.frozen_grid = nil
+    end
+end
 
 function GrindView:wheelmoved(_, dy)
     local mx, _ = love.mouse.getPosition()

@@ -111,6 +111,16 @@ function GrindController:update(dt)
         end
     end
 
+    -- Pending cash-outs: tables flagged for close while mid-hand. Finalise
+    -- the moment they return to idle. Iterate in reverse so removal-driven
+    -- index shifts don't skip entries.
+    for i = #self.pool.tables, 1, -1 do
+        local t = self.pool.tables[i]
+        if t and t.pending_close and t.state == "idle" then
+            self:_finalizeRemove(i)
+        end
+    end
+
     if #resolutions == 0 then return end
 
     local state      = self.game.state
@@ -334,17 +344,39 @@ end
 -- Removing a table refunds the *current stack* (cash-out semantics).
 -- Lost it all? You get $0 back. Sitting on a freshly bought-in table
 -- with no hands played? Full buy-in returns.
-function GrindController:removeTable(idx)
+-- Internal: actual pool removal + chip-flight + bankroll refund. Used by
+-- both the synchronous removeTable path (when idle) and the deferred path
+-- in :update when a pending_close table returns to idle.
+function GrindController:_finalizeRemove(idx)
     local t = self.pool.tables[idx]
     if not t then return false end
     local refund = t.stack or 0
-    -- YOU stack → bankroll chip burst BEFORE removal (positions still valid).
     self:_emitCashOutChips(t, refund)
     self.pool:removeTable(idx)
     self.game.state.bankroll = self.game.state.bankroll + refund
-    -- Cash-out reuses the rebuy clack (a chip-rack thump); no dedicated
-    -- sound for "table closed" since the chip-flight thunk on the bankroll
-    -- already covers the audible feedback. Skip a redundant cue.
+    return true
+end
+
+function GrindController:removeTable(idx)
+    local t = self.pool.tables[idx]
+    if not t then return false end
+    -- Mid-hand → defer close until the hand resolves and we're idle again.
+    -- The update loop scans for pending_close + idle each frame.
+    if t.state ~= "idle" then
+        t.pending_close = true
+        return true
+    end
+    return self:_finalizeRemove(idx)
+end
+
+-- Cash out every active table. Idle tables close now; busy tables get
+-- their pending_close flag set and finalise once they return to idle.
+function GrindController:cashOutAll()
+    if self.pool:count() == 0 then return false end
+    -- Reverse iteration: synchronous closes shift indices.
+    for i = #self.pool.tables, 1, -1 do
+        self:removeTable(i)
+    end
     return true
 end
 

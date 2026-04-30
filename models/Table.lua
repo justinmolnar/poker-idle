@@ -293,6 +293,12 @@ function Table:new(stake_id, game_type_id, ctx)
         shake_trauma   = 0,
         vignette_kind  = nil,
         vignette_alpha = 0,
+
+        -- Cash-out gate. Set to true by GrindController:removeTable /
+        -- :cashOutAll when the player asks to close a table that's mid-
+        -- hand. The controller's update loop finalises the close (chip
+        -- flight + pool removal) once the table returns to idle.
+        pending_close  = false,
     }, Table)
     self:fillOpponents(ctx)
     return self

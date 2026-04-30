@@ -155,22 +155,27 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     Theme.setColor(Theme.fg.heading)
     love.graphics.print(header_text, x + 8, y + 5)
 
-    -- [x] remove (right edge). Chunky button via views/Button.
+    -- [x] remove (right edge). Chunky button via views/Button. Warn-
+    -- tinted while pending_close so the player can see a click on a busy
+    -- table was queued and will fire when the hand finishes.
     local rb_x = x + w - REMOVE_BTN_SIZE - 4
     local rb_y = y + 3
+    local pending_close = tbl.pending_close == true
+    local rb_fill       = pending_close and Theme.status.warn
+                          or (can_remove and Theme.bg.widget_hover or Theme.bg.sunken)
     do
         local rid     = "remove_table:" .. idx
         local hovered = can_remove and Hover.is("hit", rid)
         local press   = can_remove and ClickFlash.alpha("hit", rid) or 0
         Button.draw(rb_x, rb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, {
-            fill_color   = can_remove and Theme.bg.widget_hover or Theme.bg.sunken,
-            border_color = can_remove and Theme.border.strong   or Theme.border.soft,
+            fill_color   = rb_fill,
+            border_color = (can_remove or pending_close) and Theme.border.strong or Theme.border.soft,
             hovered      = hovered,
             press_alpha  = press,
             disabled     = not can_remove,
             depth        = 2,
         }, function(fx, fy, fw, fh)
-            Theme.setColor(can_remove and Theme.fg.heading or Theme.fg.disabled)
+            Theme.setColor((can_remove or pending_close) and Theme.fg.heading or Theme.fg.disabled)
             love.graphics.setFont(fonts.ui_small)
             love.graphics.printf("x", fx, fy + (fh - fonts.ui_small:getHeight()) * 0.5,
                                  fw, "center")
@@ -181,8 +186,10 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
             x = rb_x, y = rb_y, w = REMOVE_BTN_SIZE, h = REMOVE_BTN_SIZE,
             action = "remove_table", idx = idx,
             label = "x",
-            fill_color = Theme.bg.widget_hover,
-            tooltip = "Close this table — refunds the current stack.",
+            fill_color = rb_fill,
+            tooltip = pending_close
+                  and "Closing after this hand finishes."
+                   or "Close this table — refunds the current stack.",
         }
     end
 
