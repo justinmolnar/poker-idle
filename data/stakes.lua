@@ -55,11 +55,17 @@ return {
         bb           = 0.02,
         buy_in       = 2.00,
         pp_award     = 1,
+        -- T1 naked WC stays at 0.50 (it's the demo's coinflip baseline).
+        -- The slight tilt comes from magnitude asymmetry only: wins lean
+        -- a touch off Tiny toward Small/Medium, losses lean a touch onto
+        -- Tiny. Avg win 13.3bb vs avg loss 9.5bb at the same 50/50 → EV
+        -- ≈ +1.9 bb/hand at T1. "More likely to make a bit than not"
+        -- without inflating the headline win-rate number.
         win_chance        = 0.50,
         win_chance_capped = 0.75,
-        win_dist          = { tiny = 0.45, small = 0.34, medium = 0.20, jackpot = 0.01 },
+        win_dist          = { tiny = 0.40, small = 0.36, medium = 0.22, jackpot = 0.02 },
         win_dist_capped   = { tiny = 0.10, small = 0.15, medium = 0.25, jackpot = 0.50 },
-        loss_dist         = { tiny = 0.45, small = 0.34, medium = 0.20, jackpot = 0.01 },
+        loss_dist         = { tiny = 0.55, small = 0.30, medium = 0.14, jackpot = 0.01 },
         loss_dist_capped  = { tiny = 0.85, small = 0.10, medium = 0.04, jackpot = 0.01 },
         fill_window       = { start = 0, complete = 5 },
     },

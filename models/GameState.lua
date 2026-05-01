@@ -149,11 +149,24 @@ end
 function GameState:computeEffects(registry, catalog, run_upgrades)
     local ctx = {}
 
+    -- Pass 1: seed owned_set from explicit owned_items, plus any
+    -- `granted_at_start` phantoms (handicap, future debuffs).
     local owned_set = {}
     for _, id in ipairs(self.owned_items) do owned_set[id] = true end
-
     for _, item in ipairs(catalog) do
-        if owned_set[item.id] then
+        if item.granted_at_start then
+            owned_set[item.id] = true
+        end
+    end
+
+    -- Pass 2: apply effects. `removed_by` is enforced HERE, uniformly —
+    -- it doesn't matter whether the entry got into owned_set via owned_items
+    -- or via granted_at_start. The handicap's removed_by="poker_poster"
+    -- always wins as soon as the Poster is owned. (Engine-neutral mechanism
+    -- — handicaps / debuffs / anti-perks / lift to a service unchanged.)
+    for _, item in ipairs(catalog) do
+        if owned_set[item.id]
+           and not (item.removed_by and owned_set[item.removed_by]) then
             registry:applyAll(item, ctx)
         end
     end
@@ -171,23 +184,53 @@ function GameState:computeEffects(registry, catalog, run_upgrades)
     return ctx
 end
 
+-- Spend PP on a catalog item: validates affordability + non-duplicate +
+-- requires-prereq, applies the mutation, invalidates the effects cache.
+-- Returns true on success. Centralised so both grind-time and post-bust
+-- catalog UIs route through one mutation point — no view mutates state.pp
+-- directly. Caller-side concerns (sound, ctx recompute) remain on the
+-- caller; this is just the model-side guarded write.
+function GameState:tryBuyCatalogItem(item)
+    if not item or item.cost_pp == nil then return false end
+    for _, owned_id in ipairs(self.owned_items) do
+        if owned_id == item.id then return false end
+    end
+    if item.requires then
+        local met = false
+        for _, owned_id in ipairs(self.owned_items) do
+            if owned_id == item.requires then met = true; break end
+        end
+        if not met then return false end
+    end
+    if self.pp < item.cost_pp then return false end
+    self.pp = self.pp - item.cost_pp
+    self.owned_items[#self.owned_items + 1] = item.id
+    self.effects_cache = nil
+    return true
+end
+
 -- Apply meta-progression catalog perks that fire at run start.
 -- Called by the prestige flow AFTER :resetRun() has cleared run state but
 -- BEFORE the controller rebuilds the table pool. Reads the catalog-only
 -- ctx (run_upgrade_levels is empty post-reset, so only owned_items feed in).
 --
--- The two recognized fields:
---   ctx.start_bankroll_add — added to the fresh INITIAL_BANKROLL
---   ctx.start_table_count  — N s001:six_max tables auto-seeded (free, no buy-in)
+-- Recognized fields:
+--   ctx.start_bankroll_add  — added to the fresh INITIAL_BANKROLL (flat $)
+--   ctx.start_bankroll_pct  — additive % on INITIAL_BANKROLL (Lucky Coin)
+--   ctx.start_table_count   — N s001:six_max tables auto-seeded (free)
 --
 -- Idempotency: this is meant to be called once per resetRun. Calling it
 -- twice would double-apply, so don't.
 function GameState:applyStartingPerks(ctx)
     if (ctx.start_bankroll_add or 0) > 0 then
         self.bankroll = self.bankroll + ctx.start_bankroll_add
-        if self.bankroll > self.peak_bankroll then
-            self.peak_bankroll = self.bankroll
-        end
+    end
+    if (ctx.start_bankroll_pct or 0) > 0 then
+        self.bankroll = self.bankroll
+            + Constants.GAMEPLAY.INITIAL_BANKROLL * ctx.start_bankroll_pct
+    end
+    if self.bankroll > self.peak_bankroll then
+        self.peak_bankroll = self.bankroll
     end
     for _ = 1, (ctx.start_table_count or 0) do
         self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"

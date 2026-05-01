@@ -17,13 +17,14 @@
 -- in models/Table — flop shows 3, turn 4, river+ 5; opponent's hole flips
 -- face-up only on showdown and settling.
 
-local Theme       = require("views.Theme")
-local Constants   = require("data.constants")
-local Stakes      = require("data.stakes")
-local GameTypes   = require("data.game_types")
-local MttPayouts  = require("data.mtt_payouts")
-local Chips       = require("views.Chips")
-local ChipData    = require("data.chips")
+local Theme         = require("views.Theme")
+local Constants     = require("data.constants")
+local Stakes        = require("data.stakes")
+local GameTypes     = require("data.game_types")
+local MttPayouts    = require("data.mtt_payouts")
+local Chips         = require("views.Chips")
+local ChipBreakdown = require("services.ChipBreakdown")
+local ChipData      = require("data.chips")
 local ClickFlash  = require("services.ClickFlash")
 local Hover       = require("services.HoverService")
 local Button      = require("views.Button")
@@ -35,20 +36,14 @@ local TablePanel = {}
 local HEADER_H        = 24
 local FELT_INSET      = 6
 local REMOVE_BTN_SIZE = 18
-local STAKE_UP_H      = 22
-local STAKE_UP_PAD    = 6
 local DEAL_BTN_W      = 140
 local DEAL_BTN_H      = 40
 
--- EV gauge — thin colored strip at the bottom of every panel. Maps the
--- table's EV-per-hand (in bb units) to a 0..1 marker position on a
--- red→amber→green gradient. Replaces the old hover tooltip; always on,
--- one per table, at-a-glance "which of my tables is bleeding right now."
-local GAUGE_H        = 6
-local GAUGE_PAD      = 3   -- gap between gauge and panel bottom
-local GAUGE_MARKER_W = 2
-local GAUGE_LERP     = 6.0 -- lerp speed; ~1/3 sec to close most of the gap
-local GAUGE_EV_SPAN  = 2.0 -- bb/hand mapped to gauge edges (±2 bb)
+-- EV readout — bottom-of-panel "+/- N.N bb/h" text colored green / red by
+-- sign. Hover the readout for the full pool-stat breakdown (same content
+-- as the backtick debug overlay, sourced through buildEvBreakdownLines).
+local EV_READOUT_PAD_BOTTOM = 4   -- gap between readout baseline and panel bottom
+local EV_READOUT_HIT_PAD    = 4   -- hit-rect padding around the text
 
 -- Card sizes for the cramped grid panel.
 local OPP_CARD_W      = 14
@@ -72,24 +67,6 @@ local function findGameType(id)
     for _, gt in ipairs(GameTypes) do
         if gt.id == id then return gt end
     end
-end
-
--- Returns (next_stake, diff_cost, affordable). next_stake is nil if there
--- is no next tier. The only gate is the buy-in difference — having 100bb
--- of the new stake's bb is the entry. The button is rendered (greyed)
--- when not affordable so the player can see what's coming up next.
-local function nextStakeInfo(current_id, bankroll)
-    local current
-    local found = false
-    for _, s in ipairs(Stakes) do
-        if found then
-            local diff = (s.buy_in or 0) - ((current and current.buy_in) or 0)
-            local affordable = bankroll >= diff
-            return s, diff, affordable
-        end
-        if s.id == current_id then found = true; current = s end
-    end
-    return nil
 end
 
 local function communityCardCount(state)
@@ -332,7 +309,7 @@ local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_ch
         local palette = ChipData.stake_palettes[tbl.stake_id]
                         or ChipData.full_palette
         local tier    = tbl.outcome_tier or "small"
-        local chips   = Chips.breakdown(pot, palette, tier)
+        local chips   = ChipBreakdown.breakdown(pot, palette, tier)
         -- Stack base anchored at felt center; chips grow upward via the
         -- stack-offset, label below the pile.
         Chips.drawStack(center_x, center_y + 6, chips, { align = "center" })
@@ -460,7 +437,7 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx)
         -- Always render player stack at "small" target (~10 chips) so the
         -- pile stays compact regardless of stake — pot/bankroll are where
         -- magnitude flexes via tier hints.
-        local chips = Chips.breakdown(stack, palette, "small")
+        local chips = ChipBreakdown.breakdown(stack, palette, "small")
         local pile_anchor_x = cards_x - 8   -- right edge of pile
         local pile_y        = cards_y + PLAYER_CARD_H - 4
         Chips.drawStack(pile_anchor_x, pile_y, chips, { align = "right" })
@@ -503,6 +480,12 @@ local function _renderFeltButton(bx, by, btn_w, btn_h, fonts, label, fill_color,
     end)
 end
 
+-- Felt-overlay button: visual button stays centered for affordance (still
+-- chunky and obviously clickable), but the hit_box now covers the entire
+-- felt rect — so the player can click anywhere on the table to fire the
+-- DEAL / REBUY action. The CursorPool still finds the same `action="deal"`
+-- entries and clicks at the rect's center, which sits over the visual
+-- button so the click animation feels natural.
 local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, fill_color, enabled)
     local btn_w = math.min(DEAL_BTN_W, w - 16)
     local btn_h = math.min(DEAL_BTN_H, h - 8)
@@ -519,13 +502,19 @@ local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, 
 
     if enabled then
         hit_boxes[#hit_boxes + 1] = {
-            x = bx, y = by, w = btn_w, h = btn_h,
+            -- Full felt rect — click-anywhere semantics. Visual button
+            -- stays centered above for affordance.
+            x = x, y = y, w = w, h = h,
+            -- Visual rect (where the chunky button sits) so ghost-fade
+            -- animations on click can render the button shape correctly
+            -- after the hit_box vanishes.
+            visual_x = bx, visual_y = by, visual_w = btn_w, visual_h = btn_h,
             action = action, idx = idx,
             label = label,
             fill_color = fill_color,
             tooltip = (action == "deal")
                   and "Deal a hand at this table."
-                  or  "Refill the stack to 100bb to keep playing.",
+                  or  "Refill the stack and deal the next hand.",
         }
     end
 end
@@ -533,109 +522,11 @@ end
 -- Drop the unused inline ghost factory; TablePanel.makeGhostFor below is
 -- the public entry point for ephemeral-button ghost-rendering.
 
-local STAKE_UP_DEPTH = 2
-
-local function drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx, next_stake, diff, affordable)
-    if not next_stake then return end
-    local bw = felt_w - 2 * STAKE_UP_PAD
-    local bx = felt_x + STAKE_UP_PAD
-    local by = felt_y + felt_h - STAKE_UP_H - STAKE_UP_PAD
-    local sid     = "stake_up:" .. idx
-    local hovered = affordable and Hover.is("hit", sid)
-    local press   = affordable and ClickFlash.alpha("hit", sid) or 0
-    local label   = string.format("UP -> %s  (+$%.2f)", next_stake.display_name, diff or 0)
-
-    Button.draw(bx, by, bw, STAKE_UP_H, {
-        fill_color   = affordable and Theme.bg.widget_hover or Theme.bg.sunken,
-        border_color = affordable and Theme.border.strong   or Theme.border.soft,
-        hovered      = hovered,
-        press_alpha  = press,
-        disabled     = not affordable,
-        depth        = STAKE_UP_DEPTH,
-    }, function(fx, fy, fw, fh)
-        Theme.setColor(affordable and Theme.fg.heading or Theme.fg.disabled)
-        love.graphics.setFont(fonts.ui_small)
-        local text_y = fy + math.floor((fh - fonts.ui_small:getHeight()) * 0.5)
-        love.graphics.printf(label, fx, text_y, fw, "center")
-    end)
-
-    if affordable then
-        hit_boxes[#hit_boxes + 1] = {
-            x = bx, y = by, w = bw, h = STAKE_UP_H,
-            action = "stake_up", idx = idx, next_stake_id = next_stake.id,
-            tooltip = string.format("Move this table up to %s.", next_stake.display_name),
-        }
-    end
-end
-
--- ─── EV gauge ─────────────────────────────────────────────────────────
-
--- Map ev_per_hand (in $) → 0..1 marker position. ev_bb = ev / stake.bb.
--- Linear, clamped: ev_bb ≤ -GAUGE_EV_SPAN → 0, +GAUGE_EV_SPAN → 1.
-local function evToGaugePos(stake, ev_per_hand)
-    local bb = (stake and stake.bb) or 1
-    if bb <= 0 then bb = 1 end
-    local ev_bb = (ev_per_hand or 0) / bb
-    local pos = (ev_bb + GAUGE_EV_SPAN) / (2 * GAUGE_EV_SPAN)
-    if pos < 0 then return 0 end
-    if pos > 1 then return 1 end
-    return pos
-end
-
-local function drawGauge(tbl, x, y, w, h_panel, ctx)
-    if not tbl then return end
-    local stats = tbl:estimateStats(ctx)
-    if not stats then return end
-    local stake = findStake(tbl.stake_id)
-    local target = evToGaugePos(stake, stats.ev_per_hand)
-
-    local dt = love.timer and love.timer.getDelta() or 0
-    if tbl.gauge_pos == nil then
-        tbl.gauge_pos = target
-    else
-        local k = math.min(1, dt * GAUGE_LERP)
-        tbl.gauge_pos = tbl.gauge_pos + (target - tbl.gauge_pos) * k
-    end
-
-    local bx = x + FELT_INSET
-    local bw = w - 2 * FELT_INSET
-    if bw < 4 then return end
-    local by = y + h_panel - GAUGE_H - GAUGE_PAD
-
-    -- Vertex colors interpolate linearly across the mesh, so to land amber
-    -- at the midpoint we need two halves: red→amber, then amber→green.
-    local r = Theme.status.error
-    local a = Theme.status.warn
-    local g = Theme.status.good
-    local mid_x  = bx + bw * 0.5
-    local right_x = bx + bw
-    local bot_y  = by + GAUGE_H
-
-    local left_mesh = love.graphics.newMesh({
-        { bx,    by,    0, 0, r[1], r[2], r[3], 1 },
-        { mid_x, by,    0, 0, a[1], a[2], a[3], 1 },
-        { mid_x, bot_y, 0, 0, a[1], a[2], a[3], 1 },
-        { bx,    bot_y, 0, 0, r[1], r[2], r[3], 1 },
-    }, "fan", "static")
-    local right_mesh = love.graphics.newMesh({
-        { mid_x,   by,    0, 0, a[1], a[2], a[3], 1 },
-        { right_x, by,    0, 0, g[1], g[2], g[3], 1 },
-        { right_x, bot_y, 0, 0, g[1], g[2], g[3], 1 },
-        { mid_x,   bot_y, 0, 0, a[1], a[2], a[3], 1 },
-    }, "fan", "static")
-
-    Theme.assetTint(1)
-    love.graphics.draw(left_mesh)
-    love.graphics.draw(right_mesh)
-
-    -- Marker — narrow vertical bar at gauge_pos. Drawn slightly taller than
-    -- the strip so it visually breaks the gradient's top/bottom edges.
-    local mxp = bx + tbl.gauge_pos * bw
-    Theme.setColor(Theme.fg.heading)
-    love.graphics.rectangle("fill",
-        mxp - GAUGE_MARKER_W * 0.5, by - 1,
-        GAUGE_MARKER_W, GAUGE_H + 2)
-end
+-- ─── EV readout ───────────────────────────────────────────────────────
+-- The render function is defined further down (after the fmt* helpers and
+-- buildEvBreakdownLines, so it can call them). Forward-declare here so
+-- the panel-draw call site near the bottom of the file can reach it.
+local drawEvReadout
 
 -- ─── Debug tooltip ────────────────────────────────────────────────────
 -- Toggled by backtick (see controllers/InputController). When game.debug
@@ -676,13 +567,13 @@ local function stashDebugTooltipIfHover(tbl, panel_x, panel_y, panel_w, panel_h,
     dbg._tooltip_pending = { tbl = tbl, controller = controller, mx = mx, my = my }
 end
 
-local function renderDebugTooltip(tbl, mx, my, game, controller)
+-- Build the pool-breakdown line list. Single source of truth shared by the
+-- bottom-of-panel EV readout's hover tooltip AND the backtick-toggled
+-- debug overlay (renderDebugTooltip). Returns nil if the table doesn't
+-- have stats yet (no opponents seated).
+local function buildEvBreakdownLines(tbl, controller)
     local stats = tbl:debugStats(controller and controller.ctx)
-    if not stats then return end
-
-    local fonts = game.fonts
-    local font  = fonts.ui_small
-    love.graphics.setFont(font)
+    if not stats then return nil end
 
     local bb = (stats.stake and stats.stake.bb) or 1
     if bb <= 0 then bb = 1 end
@@ -720,6 +611,65 @@ local function renderDebugTooltip(tbl, mx, my, game, controller)
         fmtPct(stats.pool.loss_dist.medium),
         fmtPct(stats.pool.loss_dist.jackpot),
         fmtBB(stats.pool.loss_avg_bb))
+
+    return lines
+end
+
+-- Bottom-of-panel "+1.9 bb/h" readout. Replaces the old red→green gauge.
+-- Color-coded by sign (green positive / red negative / muted near zero).
+-- Pushes a hit_box carrying buildEvBreakdownLines so the tooltip service
+-- surfaces the full breakdown on hover. Forward-declared above.
+drawEvReadout = function(tbl, x, y, w, h_panel, controller, fonts, hit_boxes)
+    if not tbl then return end
+    local ctx = controller and controller.ctx
+    local stats = tbl:estimateStats(ctx)
+    if not stats then return end
+    local stake = findStake(tbl.stake_id)
+    local bb = (stake and stake.bb) or 1
+    if bb <= 0 then bb = 1 end
+
+    local ev_bb = (stats.ev_per_hand or 0) / bb
+    local label = string.format("%+0.1f bb/h", ev_bb)
+
+    local font = fonts.ui_small
+    love.graphics.setFont(font)
+    local text_w = font:getWidth(label)
+    local text_h = font:getHeight()
+    local tx = x + math.floor((w - text_w) / 2)
+    local ty = y + h_panel - text_h - EV_READOUT_PAD_BOTTOM
+
+    local color
+    if ev_bb > 0.05 then
+        color = Theme.status.good
+    elseif ev_bb < -0.05 then
+        color = Theme.status.error
+    else
+        color = Theme.fg.muted
+    end
+    Theme.setColor(color)
+    love.graphics.print(label, tx, ty)
+
+    if hit_boxes then
+        local lines = buildEvBreakdownLines(tbl, controller)
+        if lines then
+            hit_boxes[#hit_boxes + 1] = {
+                x = tx - EV_READOUT_HIT_PAD,
+                y = ty - EV_READOUT_HIT_PAD,
+                w = text_w + EV_READOUT_HIT_PAD * 2,
+                h = text_h + EV_READOUT_HIT_PAD * 2,
+                tooltip = lines,
+            }
+        end
+    end
+end
+
+local function renderDebugTooltip(tbl, mx, my, game, controller)
+    local lines = buildEvBreakdownLines(tbl, controller)
+    if not lines then return end
+
+    local fonts = game.fonts
+    local font  = fonts.ui_small
+    love.graphics.setFont(font)
 
     local screen_w, screen_h = love.graphics.getDimensions()
     local tip_h = DEBUG_TIP_PAD * 2 + DEBUG_TIP_LINE_H * #lines
@@ -795,7 +745,14 @@ function TablePanel.makeGhostFor(hb, fonts)
         return nil
     end
 
-    local rx, ry, rw, rh = hb.x, hb.y, hb.w, hb.h
+    -- DEAL / REBUY hit_boxes carry visual_* fields for the actual button
+    -- rect (which sits centered inside the full felt — the felt is the
+    -- click area, the button is the visual). Fall back to hb.x/y/w/h for
+    -- other actions (remove_table) that don't split the two.
+    local rx = hb.visual_x or hb.x
+    local ry = hb.visual_y or hb.y
+    local rw = hb.visual_w or hb.w
+    local rh = hb.visual_h or hb.h
     local label, fill   = hb.label, hb.fill_color or Theme.bg.widget_hover
     local border_color  = Theme.fg.heading
 
@@ -958,17 +915,16 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- playing; the green DEAL button is replaced by a red REBUY $X.XX
     -- button gated on bankroll.
     if tbl.state == "idle" then
-        local btn_area_h = felt_h - STAKE_UP_H - STAKE_UP_PAD
         if (tbl.stack or 0) <= 0 then
             local stake = findStake(tbl.stake_id)
             local cost  = (stake and stake.buy_in) or 0
             local can_rebuy = state.bankroll >= cost
             local label = string.format("REBUY %s", moneyText(cost))
-            drawFeltButton(felt_x, felt_y, felt_w, btn_area_h,
+            drawFeltButton(felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, label, "rebuy",
                 Theme.status.error, can_rebuy)
         else
-            drawFeltButton(felt_x, felt_y, felt_w, btn_area_h,
+            drawFeltButton(felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, "DEAL", "deal",
                 Theme.status.good, true)
             -- Tag the just-pushed DEAL hit_box so CursorPool can skip
@@ -982,17 +938,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         end
     end
 
-    -- Stake-up button (only if next tier exists at all AND table is idle).
-    -- Renders greyed when the player can't afford the diff so they can
-    -- see what's coming next. Hidden when busted — rebuy is the only
-    -- meaningful action at $0 stack.
-    if tbl.state == "idle" and not mini and (tbl.stack or 0) > 0 then
-        local next_s, diff, affordable = nextStakeInfo(tbl.stake_id, state.bankroll)
-        drawStakeUp(felt_x, felt_y, felt_w, felt_h, fonts, hit_boxes, idx, next_s, diff, affordable)
-    end
-
-    -- EV gauge — drawn last so it sits above the felt's bottom edge.
-    drawGauge(tbl, x, y, w, h, controller and controller.ctx)
+    -- EV readout — bottom-of-panel "+/- N.N bb/h" text. Hover-tooltip
+    -- carries the full pool-stat breakdown via the buildEvBreakdownLines
+    -- helper (shared with the backtick debug overlay).
+    drawEvReadout(tbl, x, y, w, h, controller, fonts, hit_boxes)
 
     -- Jackpot vignette — colored wash over the felt area when a jackpot
     -- resolution is fading. Drawn AFTER the gauge so the colored tint

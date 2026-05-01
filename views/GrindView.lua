@@ -14,25 +14,27 @@
 --
 -- Mutation goes through GrindController. View hit-tests, dispatches intents.
 
-local Theme       = require("views.Theme")
-local Format      = require("utils.format")
-local Panel       = require("views.Panel")
-local CR          = require("views.ComponentRenderer")
-local TablePanel  = require("views.TablePanel")
-local CursorPool  = require("services.CursorPool")
-local Chips       = require("views.Chips")
-local ChipData    = require("data.chips")
-local ChipFlight  = require("services.ChipFlightSystem")
-local ClickFlash  = require("services.ClickFlash")
-local TooltipSvc  = require("services.Tooltip")
-local Button      = require("views.Button")
-local Ghosts      = require("services.Ghosts")
-local Stakes      = require("data.stakes")
-local GameTypes   = require("data.game_types")
-local RunUpgrades = require("data.run_upgrades")
-local Catalog     = require("data.catalog")
-local Constants   = require("data.constants")
-local ShoveRate   = require("models.shove_rate")
+local Theme          = require("views.Theme")
+local Format         = require("utils.format")
+local Panel          = require("views.Panel")
+local CR             = require("views.ComponentRenderer")
+local TablePanel     = require("views.TablePanel")
+local CursorPool     = require("services.CursorPool")
+local Chips          = require("views.Chips")
+local ChipBreakdown  = require("services.ChipBreakdown")
+local ChipData       = require("data.chips")
+local FlightSystem   = require("services.FlightSystem")
+local ClickFlash     = require("services.ClickFlash")
+local TooltipSvc     = require("services.Tooltip")
+local AnchorRegistry = require("services.AnchorRegistry")
+local Button         = require("views.Button")
+local Ghosts         = require("services.Ghosts")
+local Stakes         = require("data.stakes")
+local GameTypes      = require("data.game_types")
+local RunUpgrades    = require("data.run_upgrades")
+local Catalog        = require("data.catalog")
+local Constants      = require("data.constants")
+local ShoveRate      = require("models.shove_rate")
 
 local GrindView = {}
 GrindView.__index = GrindView
@@ -50,8 +52,6 @@ local CASH_OUT_BTN_H       = 36
 -- unaffected — they keep running their full height.
 local BOTTOM_BAND_H        = 90
 local PANEL_REMOVE_BTN_SIZE = 22
-local STAKE_UP_BTN_H       = 26
-local STAKE_UP_BTN_PAD     = 8
 local PILL_H               = 18
 local PILL_GAP             = 4
 
@@ -99,12 +99,8 @@ function GrindView:_buildPanels()
         priority = 0,
         build    = function() return self:_buildTablesTabComponents() end,
     })
-    self.left_panel:registerTab({
-        id       = "catalog",
-        label    = "Catalog",
-        priority = 1,
-        build    = function() return self:_buildCatalogTabComponents() end,
-    })
+    -- Catalog tab removed — purchases now happen in views/CatalogModal.lua
+    -- after each bust. The PP shop is only accessible between runs.
 
     -- Right panel reserves space at the bottom for the SHOVE button.
     local right_panel_h = H - TOP_BAR_H - SHOVE_BTN_H - 2 * MARGIN
@@ -288,60 +284,6 @@ local function catalogName(item_id)
     return item_id
 end
 
-function GrindView:_buildCatalogTabComponents()
-    local state = self.game.state
-    local owned = {}
-    for _, id in ipairs(state.owned_items) do owned[id] = true end
-
-    local components = {}
-    components[#components + 1] = { type = "label", style = "muted", text = "PP SHOP", h = 22 }
-    components[#components + 1] = {
-        type  = "label",
-        style = "small",
-        text  = string.format("you have %d PP", state.pp),
-        h     = 18,
-    }
-
-    for _, item in ipairs(Catalog) do
-        local is_owned = owned[item.id]
-        local locked   = item.requires and not owned[item.requires]
-        -- Items flagged `requires_hide` vanish from the list entirely
-        -- when locked. Without the flag, locked items render greyed-out
-        -- with a "Requires X" label so the player can see what to buy.
-        if not (locked and item.requires_hide) then
-            local cant_afford = (not is_owned) and state.pp < item.cost_pp
-            local disabled    = is_owned or cant_afford or locked
-
-            local cost_label, tooltip
-            if is_owned then
-                cost_label = "OWNED"
-                tooltip    = item.description or item.name
-            elseif locked then
-                local req = catalogName(item.requires)
-                cost_label = "Requires " .. req
-                tooltip    = string.format("Locked. Buy %s in the catalog first.", req)
-            else
-                cost_label = item.cost_pp .. " PP"
-                tooltip    = item.description or item.name
-            end
-
-            components[#components + 1] = {
-                type     = "button",
-                id       = "buy_catalog_" .. item.id,
-                disabled = disabled,
-                tooltip  = tooltip,
-                lines = {
-                    { text = item.name, style = "heading" },
-                    { text = item.description or "", style = "small" },
-                    { text = cost_label, style = (is_owned or locked) and "muted" or "body" },
-                },
-            }
-        end
-    end
-
-    return components
-end
-
 function GrindView:_buildUpgradesTabComponents()
     local state = self.game.state
     local owned = {}
@@ -433,8 +375,8 @@ function GrindView:update(dt)
     if mx >= sb.x and mx < sb.x + sb.w and my >= sb.y and my < sb.y + sb.h then
         local state = self.game.state
         local ctx = (self.controller and self.controller.ctx) or {}
-        local _, breakdown = ShoveRate.compute(ctx, state.bankroll or 0)
-        local lines = ShoveRate.formatBreakdown(breakdown)
+        local rates = ShoveRate.compute(ctx, state.bankroll or 0)
+        local lines = ShoveRate.formatBreakdown(rates)
         lines[#lines + 1] = "Click to lock this rate."
         TooltipSvc.set(lines, mx, my)
     end
@@ -456,8 +398,8 @@ function GrindView:update(dt)
     if mx >= 716 and mx < 800 and my >= 2 and my < 46 then
         local state = self.game.state
         local ctx = (self.controller and self.controller.ctx) or {}
-        local _, breakdown = ShoveRate.compute(ctx, state.bankroll or 0)
-        TooltipSvc.set(ShoveRate.formatBreakdown(breakdown), mx, my)
+        local rates = ShoveRate.compute(ctx, state.bankroll or 0)
+        TooltipSvc.set(ShoveRate.formatBreakdown(rates), mx, my)
     end
 
     -- Tween top-bar numbers toward live state values.
@@ -546,20 +488,23 @@ function GrindView:_drawTopBar(W)
     Theme.setColor(focus_color)
     love.graphics.print(focus_pct .. "%", 660, 22)
 
-    -- SHOVE: live shove-rate readout. Same compute the gauntlet locks
-    -- in at click time — players see the grind feed the rate in real
-    -- time. Tinted by rate breakpoints: red below 20%, amber 20-50%,
-    -- green at 50%+. Hover tooltip (set in :update) shows the
-    -- breakdown (base × bankroll mult).
+    -- SHOVE: live gauntlet-clear readout. Same compute the gauntlet
+    -- locks in at click time — players see the grind feed the rate in
+    -- real time. The headline number is `clear` (= r1·r2·r3) — what the
+    -- player is actually risking. Tinted by clear-rate breakpoints from
+    -- math.md's per-tier table: <5% red (T3 territory), 5–30% amber
+    -- (T4–T5), 30%+ green (T6 reachable). Hover tooltip (set in :update)
+    -- shows the per-runout breakdown.
     local ctx = (self.controller and self.controller.ctx) or {}
-    local rate = ShoveRate.compute(ctx, state.bankroll or 0)
+    local rates = ShoveRate.compute(ctx, state.bankroll or 0)
+    local clear = rates.clear
     local rate_color
-    if     rate < 0.20 then rate_color = Theme.status.error
-    elseif rate < 0.50 then rate_color = Theme.status.warn
-    else                    rate_color = Theme.status.good
+    if     clear < 0.05 then rate_color = Theme.status.error
+    elseif clear < 0.30 then rate_color = Theme.status.warn
+    else                     rate_color = Theme.status.good
     end
     Theme.setColor(rate_color)
-    love.graphics.print(string.format("%.1f%%", rate * 100), 720, 22)
+    love.graphics.print(string.format("%.1f%%", clear * 100), 720, 22)
 end
 
 -- ─── Cash-Out-All button (top bar, right side) ───────────────────────
@@ -615,6 +560,13 @@ local PANEL_ASPECT = 4 / 3
 -- handles the asymmetric grid (wide-but-shortish) cleanly: for n=2 in a
 -- wide area it'll pick 2×1, but each cell renders at 4:3 instead of
 -- stretching to fill the full grid height.
+--
+-- Clamped by PANEL_MAX_W / PANEL_MAX_H so a single table doesn't blow up
+-- to fullscreen — even with one table open, the felt stays at a
+-- reasonable size and the surrounding grid area renders as empty space.
+local PANEL_MAX_W = 520
+local PANEL_MAX_H = 390   -- = PANEL_MAX_W / PANEL_ASPECT (4/3)
+
 local function bestGridLayout(n, grid_w, grid_h)
     local best = { cols = 1, rows = n, pw = 0, ph = 0, area = -1 }
     for cols = 1, n do
@@ -629,6 +581,15 @@ local function bestGridLayout(n, grid_w, grid_h)
             else
                 pw = pw_avail
                 ph = pw / PANEL_ASPECT
+            end
+            -- Clamp to max panel size, preserving aspect ratio.
+            if pw > PANEL_MAX_W then
+                pw = PANEL_MAX_W
+                ph = pw / PANEL_ASPECT
+            end
+            if ph > PANEL_MAX_H then
+                ph = PANEL_MAX_H
+                pw = ph * PANEL_ASPECT
             end
             local area = pw * ph
             if area > best.area then
@@ -724,9 +685,9 @@ function GrindView:_drawShoveButton()
     -- them shove with nothing and bank whatever PP they earned.
     local can_shove = true
     local ctx = self.controller.ctx or {}
-    -- Live rate matches the top-bar column. The math-reality clamp lives
-    -- inside ShoveRate.compute so we don't double-clamp here.
-    local rate = ShoveRate.compute(ctx, state.bankroll or 0)
+    -- Live rates match the top-bar column. Headline is gauntlet-clear
+    -- (r1·r2·r3); the math-reality clamps live inside ShoveRate.compute.
+    local rates = ShoveRate.compute(ctx, state.bankroll or 0)
     local pending_pp = state.pp_this_run or 0
 
     local mx, my = love.mouse.getPosition()
@@ -754,7 +715,7 @@ function GrindView:_drawShoveButton()
             fx, fy + 30, fw, "center")
 
         Theme.setColor(can_shove and Theme.fg.primary or Theme.fg.faint)
-        love.graphics.printf(string.format("%.1f%% per runout", rate * 100),
+        love.graphics.printf(string.format("%.1f%% gauntlet clear", rates.clear * 100),
             fx, fy + 46, fw, "center")
     end)
 end
@@ -784,7 +745,7 @@ end
 -- Renders the player's bankroll as a procedural chip pile in the center
 -- column's bottom band. The numeric bankroll reading stays in the top
 -- bar — the chip pile is visual flavor + animation anchor for chip-flight
--- emissions. Stashes the screen-space anchor on game.bankroll_xy so
+-- emissions. Registers the screen-space anchor with AnchorRegistry so
 -- emission code (controllers) can find this pile without reaching into
 -- the view layer directly.
 function GrindView:_drawBankrollChips(W, H)
@@ -795,13 +756,13 @@ function GrindView:_drawBankrollChips(W, H)
     local stack_y  = band_y + BOTTOM_BAND_H - 22
 
     -- Stash for emission code (1-frame stale, fine).
-    self.game.bankroll_xy = { center_x, stack_y }
+    AnchorRegistry.set("bankroll", center_x, stack_y)
 
     local bankroll = self.game.state.bankroll or 0
     if bankroll <= 0 then return end
 
-    local tier = Chips.tierFromAmount(bankroll)
-    local chips = Chips.breakdown(bankroll, ChipData.full_palette, tier)
+    local tier = ChipBreakdown.tierFromAmount(bankroll)
+    local chips = ChipBreakdown.breakdown(bankroll, ChipData.full_palette, tier)
     Chips.drawStack(center_x, stack_y, chips, { align = "center" })
 end
 
@@ -824,14 +785,14 @@ function GrindView:draw()
     self:_drawShoveButton()
     self:_drawFloatingText()
 
-    -- Bankroll chip pile in the bottom-middle band. Sets game.bankroll_xy
-    -- as the screen-space anchor flying-chip emission can target.
+    -- Bankroll chip pile in the bottom-middle band. Registers the
+    -- screen-space anchor (via AnchorRegistry) flying-chip emission targets.
     self:_drawBankrollChips(W, H)
 
     -- Flying chips between source and destination (pot ↔ player ↔
     -- bankroll). Renders above panels and the bankroll pile but below
     -- the cursor swarm so cursors visibly land on the buttons.
-    ChipFlight.draw()
+    FlightSystem.draw()
 
     -- Cursor swarm — drawn above flying chips so cursors remain readable
     -- against the chip fountain.
@@ -871,16 +832,7 @@ function GrindView:mousepressed(x, y, b)
     local sb = self:_shoveButtonRect()
     if x >= sb.x and x < sb.x + sb.w and y >= sb.y and y < sb.y + sb.h then
         ClickFlash.flash("shove", "shove")
-        -- Bank the run's pending PP at the moment of pulling the trigger.
-        -- Bounties locked during the run only convert to spendable PP if
-        -- the player actually shoves — F2 debug toggles bypass this so
-        -- dev shortcuts don't grant free PP. pp_this_run is NOT zeroed
-        -- here — the prestige modal reads it post-gauntlet to display
-        -- "you banked N PP this run." resetRun() (after modal dismiss)
-        -- does the actual zero.
-        local state = self.game.state
-        state.pp = state.pp + (state.pp_this_run or 0)
-        self.game.state_machine:switch("shove")
+        self.controller:initiateShove()
         return
     end
 
@@ -942,11 +894,8 @@ function GrindView:_handleSidebarButton(id)
         self.controller:buyRunUpgrade(up_id)
         return
     end
-    local catalog_id = id:match("^buy_catalog_(.+)$")
-    if catalog_id then
-        self.controller:buyCatalogItem(catalog_id)
-        return
-    end
+    -- buy_catalog_ removed — catalog purchases now happen in the post-bust
+    -- CatalogModal (see views/CatalogModal.lua).
 end
 
 function GrindView:_handleHitBox(hb)
@@ -982,8 +931,6 @@ function GrindView:_handleHitBox(hb)
         self.controller:rebuyTable(hb.idx)
     elseif hb.action == "remove_table" then
         self.controller:removeTable(hb.idx)
-    elseif hb.action == "stake_up" then
-        self.controller:changeTableStake(hb.idx, hb.next_stake_id)
     elseif hb.action == "toggle_cursor" then
         self.controller:toggleCursorMute(hb.idx)
     end

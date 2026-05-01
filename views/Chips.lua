@@ -5,10 +5,9 @@
 -- top-down chips for now — `drawChip` is the single seam to swap in
 -- sprite art later.
 --
--- The breakdown algorithm picks a chip composition that signals
--- *magnitude* (target chip count from tier hint) rather than minimizing
--- chip count. A T1 jackpot's $2 yields a pile of ~35 chips on the
--- felt, not 2 × $1, because the player needs to *see* the win is big.
+-- Pure breakdown logic (amount → ordered chip-index list, tier inference)
+-- lives in services/ChipBreakdown so non-view callers can compose
+-- breakdowns without reaching across layers.
 
 local ChipData = require("data.chips")
 local Theme    = require("views.Theme")
@@ -31,101 +30,6 @@ local function getLabelFont()
         _label_font = love.graphics.newFont(LABEL_FONT_PX)
     end
     return _label_font
-end
-
--- ── Tier inference for surfaces without an explicit tier hint ────────
--- Used by the bankroll pile and resting player stacks (no per-hand
--- outcome_tier). Maps amount-in-bb to the same four buckets the outcome
--- model uses: tiny < 5 bb, small < 18, medium < 80, jackpot >= 80.
-function Chips.tierFromBB(magnitude_bb)
-    if magnitude_bb < 5  then return "tiny"    end
-    if magnitude_bb < 18 then return "small"   end
-    if magnitude_bb < 80 then return "medium"  end
-    return "jackpot"
-end
-
--- For surfaces without a stake context (the bankroll pile), bucket by
--- log10(amount) so a $5 bankroll reads "tiny" and a $5M reads "jackpot".
-function Chips.tierFromAmount(amount)
-    if amount <= 0 then return "tiny" end
-    local mag = math.log10(amount)
-    if mag < 1 then return "tiny"    end   -- < $10
-    if mag < 3 then return "small"   end   -- < $1k
-    if mag < 5 then return "medium"  end   -- < $100k
-    return "jackpot"
-end
-
--- ── Breakdown: amount → ordered chip-index list ──────────────────────
--- `palette_indices` is a list of indices into ChipData.denominations
--- (e.g., a stake's `stake_palettes` entry, or `full_palette` for bankroll).
--- `tier_hint` ∈ {"tiny","small","medium","jackpot"} biases the result
--- toward a target chip count for visual heft. Optional — falls back to
--- "small" if omitted.
-function Chips.breakdown(amount, palette_indices, tier_hint)
-    if amount <= 0 or not palette_indices or #palette_indices == 0 then
-        return {}
-    end
-
-    -- Sort palette by descending value so we walk largest-first.
-    local denoms = {}
-    for _, idx in ipairs(palette_indices) do
-        denoms[#denoms + 1] = {
-            idx   = idx,
-            value = ChipData.denominations[idx].value,
-        }
-    end
-    table.sort(denoms, function(a, b) return a.value > b.value end)
-
-    local target_count = ChipData.tier_chip_target[tier_hint or "small"] or 8
-
-    -- Pick the primary denomination — the one whose count would land
-    -- closest to target. Soft preference for being >= target ("chunkier"
-    -- piles read richer).
-    local primary_idx = #denoms   -- default to smallest if nothing fits well
-    local best_score  = math.huge
-    for i, d in ipairs(denoms) do
-        local count = math.floor(amount / d.value + 1e-9)
-        if count >= 1 then
-            local diff = count - target_count
-            -- Penalize being below target more than being above.
-            local score = (diff < 0) and (-diff * 1.5) or diff
-            if score < best_score then
-                best_score  = score
-                primary_idx = i
-            end
-        end
-    end
-
-    local primary = denoms[primary_idx]
-    local chips   = {}
-    local remaining = amount
-
-    -- Showcase chip (medium / jackpot only) — one chip of the next-larger
-    -- denomination on top of the pile, signalling "this is a big one."
-    if (tier_hint == "medium" or tier_hint == "jackpot") and primary_idx > 1 then
-        local showcase = denoms[primary_idx - 1]
-        if showcase.value <= remaining + 1e-9 then
-            chips[#chips + 1] = showcase.idx
-            remaining = remaining - showcase.value
-        end
-    end
-
-    -- Fill primary.
-    while remaining >= primary.value - 1e-9 do
-        chips[#chips + 1] = primary.idx
-        remaining = remaining - primary.value
-    end
-
-    -- Greedy change with smaller denominations.
-    for i = primary_idx + 1, #denoms do
-        local d = denoms[i]
-        while remaining >= d.value - 1e-9 do
-            chips[#chips + 1] = d.idx
-            remaining = remaining - d.value
-        end
-    end
-
-    return chips
 end
 
 -- ── Single chip render (the seam for sprite art later) ───────────────
@@ -159,6 +63,23 @@ function Chips.drawChip(x, y, denom_idx, alpha, with_label)
         love.graphics.print(d.label, x - fw * 0.5, y - fh * 0.5)
         if prev_font then love.graphics.setFont(prev_font) end
     end
+end
+
+-- Build deferred-render closures for a chip-index list. Each closure
+-- captures its denomination and renders one chip at the (x, y) the
+-- caller (e.g. FlightSystem) hands back at draw time.
+--
+-- Lives here, not in the controller, so the controller never has to
+-- name a draw function; it just hands the resulting closure list to
+-- FlightSystem.emitBurst. Keeps the view layer the only producer of
+-- render callbacks.
+function Chips.makeRenderFns(chip_indices)
+    local fns = {}
+    if not chip_indices then return fns end
+    for i, idx in ipairs(chip_indices) do
+        fns[i] = function(x, y) Chips.drawChip(x, y, idx, 1, true) end
+    end
+    return fns
 end
 
 -- Approximate footprint of a stack render, for layout hit-testing if

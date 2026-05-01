@@ -71,7 +71,7 @@ return {
         layer = { file = "assets/audio/negative_buzz.mp3", volume = 0.55 },
     },
 
-    -- ── Chip-flight arrival thunks (one per burst, fired by ChipFlightSystem) ─
+    -- ── Chip-flight arrival thunks (one per burst, fired by FlightSystem) ──
     -- Destination dictates the weight: pot/YOU = light click, bankroll = heavy.
     chip_land_pot       = { files = CHIP_1ON1,    volume = 0.25 },
     chip_land_you       = { files = CHIP_2ON1,    volume = 0.30 },

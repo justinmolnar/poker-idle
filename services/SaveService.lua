@@ -1,10 +1,10 @@
 -- services/SaveService.lua
 --
 -- Dual-slot persistence:
---   meta.save  — PP, owned catalog items. Persists FOREVER (across prestige).
---   run.save   — bankroll, current stake, run upgrades. Wiped on prestige.
+--   meta.save  — persistent slot. Survives a run reset.
+--   run.save   — per-run slot. Wiped by clearRun().
 --
--- The two slots are saved separately so a prestige is just `delete run.save`
+-- The two slots are saved separately so a run reset is just `delete run.save`
 -- without touching meta. The save format is JSON; AutoSerializer handles the
 -- per-model serialization, this service handles the file layer.
 --
@@ -96,7 +96,7 @@ function SaveService:saveAll(meta_payload, run_payload)
     if run_payload  then self:write(Constants.SAVE.RUN_FILE,  run_payload)  end
 end
 
--- Wipe the run slot. Called on prestige (after the gauntlet loss).
+-- Wipe the run slot. Called by game-side reset paths.
 function SaveService:clearRun()
     if love.filesystem.getInfo(Constants.SAVE.RUN_FILE) then
         love.filesystem.remove(Constants.SAVE.RUN_FILE)

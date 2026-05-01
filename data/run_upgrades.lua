@@ -21,12 +21,12 @@
 -- on a single run — multi-prestige climb mandatory, with Cheap Coaching
 -- (catalog) compounding across cycles to make it tractable.
 --
--- Outcome-model contribution: each level of SR/PB/PC pushes a fill
--- descriptor with strength=1 (universal). Patience / Iron Nerves push
--- strength=0.3 with a filter (style or skill) — they help fill targeted
--- opponents' windows faster but don't break the absolute 0.95 WC ceiling.
--- The stake's fill_window converts unit count → fill ratio → lerp toward
--- the stake's *_capped values.
+-- Outcome-model contribution: each level of Sharper Reads pushes a WC
+-- fill descriptor (strength=1, universal); each level of Pot Control
+-- pushes BOTH a win_dist fill AND a loss_dist fill (also strength=1) —
+-- one upgrade reshapes both magnitude tracks together. The stake's
+-- fill_window converts unit count → fill ratio → lerp toward the
+-- stake's *_capped values.
 
 return {
 
@@ -49,31 +49,16 @@ return {
         },
     },
 
-    -- ── 2. Pot Building — bigger wins ──────────────────────────────────
-    -- Fills win_dist toward win_dist_capped. Doesn't change loss side.
+    -- ── 2. Pot Control — bigger wins, smaller losses ──────────────────
+    -- Pushes BOTH win_dist and loss_dist fills per level. Was previously
+    -- two upgrades (Pot Building + Pot Control); consolidated into one
+    -- because the player buys them in lockstep anyway and the doubled
+    -- per-level cost reflects the doubled outcome-model fill.
     -- 14 levels; reaches T1-T4 fully, 40% of T5, none of T6.
-    {
-        id          = "pot_building",
-        name        = "Pot Building",
-        description = "Wins run bigger.",
-        max_level   = 14,
-        costs       = {
-            1.50, 4.50, 14, 40, 113,
-            375, 1100, 3000, 9000, 30000,
-            90000, 263000, 800000, 2400000,
-        },
-        effects     = {
-            { kind = "win_dist_fill", strength = 1.0 },
-        },
-    },
-
-    -- ── 3. Pot Control — smaller losses ────────────────────────────────
-    -- Fills loss_dist toward loss_dist_capped. Doesn't change win side.
-    -- 14 levels, costs mirror Pot Building exactly.
     {
         id          = "pot_control",
         name        = "Pot Control",
-        description = "Losses run smaller.",
+        description = "Bigger wins, smaller losses.",
         max_level   = 14,
         costs       = {
             1.50, 4.50, 14, 40, 113,
@@ -81,6 +66,7 @@ return {
             90000, 263000, 800000, 2400000,
         },
         effects     = {
+            { kind = "win_dist_fill",  strength = 1.0 },
             { kind = "loss_dist_fill", strength = 1.0 },
         },
     },

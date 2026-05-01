@@ -62,6 +62,15 @@ Effects.kinds = {
         affects     = "ctx.hands_per_min",
     },
 
+    -- Multiplicative speedup on hand-cinematic pace, composing with the
+    -- gtype.pace_mult baseline. Used by Energy Drink (×1.25). Bigger =
+    -- faster hands. Sits in models/Table.lua's effective_dt computation.
+    hand_pace_mult = {
+        description = "Multiplies the hand-cinematic pace (composes with gtype.pace_mult).",
+        value_shape = "number >1 for faster, e.g. 1.25 for +25% pace",
+        affects     = "ctx.hand_pace_mult (multiplicative)",
+    },
+
     -- ── Outcome-model effects ────────────────────────────────────────────
     -- The outcome model has three independent dimensions per hand:
     --   • win_chance — single probability ∈ [0, 1] that the hand is a Win
@@ -108,6 +117,65 @@ Effects.kinds = {
         description = "Pushes a win_chance shift descriptor onto ctx.win_chance_shifts.",
         value_shape = "{ amount, gtype? }",
         affects     = "ctx.win_chance_shifts (ordered list)",
+    },
+
+    -- Multiplicative scaling on the FINAL win chance (after fills, shifts,
+    -- and gtype shift). Used by the no-poster handicap to knock T1's 50%
+    -- naked WC down to ~20% before the player owns the Poker Poster. Stays
+    -- engine-neutral — any future "skill discount" effect could reuse it.
+    wc_mult = {
+        description = "Multiplies the final win_chance after all additive shifts.",
+        value_shape = "number, e.g. 0.4 for a 60% knockdown",
+        affects     = "ctx.wc_mult (multiplicative)",
+    },
+
+    -- Catalog additive shape on the loss_dist (mirror of gtype.dist_shifts
+    -- on the loss side). Pushes mass between buckets — applied alongside
+    -- gtype dist_shifts, before the final clamp/normalize. Used by the
+    -- no-poster handicap to skew Run-0 losses toward Medium+.
+    loss_dist_shift = {
+        description = "Pushes a loss_dist additive-shape descriptor onto ctx.loss_dist_shifts.",
+        value_shape = "{ shift = { tiny=±X, small=±X, medium=±X, jackpot=±X }, gtype? }",
+        affects     = "ctx.loss_dist_shifts (ordered list)",
+    },
+
+    -- ── Tier re-roll shifts ─────────────────────────────────────────────
+    -- After sampleOutcome picks a tier, an optional re-roll bumps the tier
+    -- up (win path) or down (loss path) with a configured chance. Different
+    -- mechanism from win_dist_fill / loss_dist_fill (which reshape the
+    -- pre-sample distribution); these fire AFTER the sample, conditional
+    -- on the picked tier. Used by Self-Help Book / Lava Lamp (win-side)
+    -- and Stress Ball / Worry Stone (loss-side).
+
+    win_tier_shift = {
+        description = "Push a post-sample win-tier upgrade descriptor onto ctx.win_tier_shifts.",
+        value_shape = "{ from = 'tiny'|'small'|'medium', to = 'small'|'medium'|'jackpot', chance = 0..1, gtype? }",
+        affects     = "ctx.win_tier_shifts (ordered list)",
+    },
+
+    loss_tier_shift = {
+        description = "Push a post-sample loss-tier downgrade descriptor onto ctx.loss_tier_shifts.",
+        value_shape = "{ from = 'small'|'medium'|'jackpot', to = 'tiny'|'small'|'medium', chance = 0..1, gtype? }",
+        affects     = "ctx.loss_tier_shifts (ordered list)",
+    },
+
+    -- Multiplies jackpot-tier WIN magnitudes (Branded Hat). Magnitude-only;
+    -- doesn't reshape the dist. Pairs with earnings_mult — earnings_mult
+    -- scales every win, jackpot_mult scales only jackpots.
+    jackpot_mult = {
+        description = "Multiplies the magnitude of jackpot-tier wins.",
+        value_shape = "number, e.g. 1.20 for +20% jackpot payouts",
+        affects     = "ctx.jackpot_mult (multiplicative)",
+    },
+
+    -- Additive percentage on starting bankroll (Lucky Coin = +50%). Sits
+    -- next to start_bankroll_add: that's a flat $ add, this is a %.
+    -- Computed against Constants.GAMEPLAY.INITIAL_BANKROLL in
+    -- GameState:applyStartingPerks.
+    start_bankroll_pct = {
+        description = "Adds (pct × initial bankroll) to the seeded bankroll at run start.",
+        value_shape = "number, e.g. 0.5 for +50% of the base seed",
+        affects     = "ctx.start_bankroll_pct (additive)",
     },
 
     -- ── Meta-progression perks (catalog only, applied at run start) ─────

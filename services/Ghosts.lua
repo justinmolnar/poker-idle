@@ -1,7 +1,7 @@
 -- services/Ghosts.lua
 --
 -- Press-then-vanish ghost-button registry. Stateless module mirroring
--- HoverService / ClickFlash / ChipFlightSystem. When an ephemeral button
+-- HoverService / ClickFlash / FlightSystem. When an ephemeral button
 -- (DEAL / REBUY / [×]) is clicked, the underlying render path stops
 -- because the table state changes (or the table itself is removed). To
 -- keep the press-in animation visible for a beat after the click, the

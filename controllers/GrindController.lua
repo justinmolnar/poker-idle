@@ -9,18 +9,27 @@
 -- controller. Effects context is cached and only recomputed when an item is
 -- bought or run state changes (cheap, since we're not doing it per-frame).
 
-local TablePool   = require("models.TablePool")
-local Catalog     = require("data.catalog")
-local RunUpgrades = require("data.run_upgrades")
-local Stakes      = require("data.stakes")
-local Constants   = require("data.constants")
-local ChipData    = require("data.chips")
-local Chips       = require("views.Chips")
-local ChipFlight  = require("services.ChipFlightSystem")
+local TablePool      = require("models.TablePool")
+local Catalog        = require("data.catalog")
+local RunUpgrades    = require("data.run_upgrades")
+local Stakes         = require("data.stakes")
+local GameTypes      = require("data.game_types")
+local Constants      = require("data.constants")
+local ChipData       = require("data.chips")
+local ChipBreakdown  = require("services.ChipBreakdown")
+local Chips          = require("views.Chips")            -- only for makeRenderFns (deferred-draw closures)
+local FlightSystem   = require("services.FlightSystem")
+local AnchorRegistry = require("services.AnchorRegistry")
 
 local function findStake(id)
     for _, s in ipairs(Stakes) do
         if s.id == id then return s end
+    end
+end
+
+local function findGameType(id)
+    for _, gt in ipairs(GameTypes) do
+        if gt.id == id then return gt end
     end
 end
 
@@ -105,7 +114,7 @@ function GrindController:update(dt)
     -- because the new table has no panel position yet. Resolve once the
     -- view has populated `tbl.you_x`.
     for _, t in ipairs(self.pool.tables) do
-        if t._pending_buyin and t.you_x and self.game.bankroll_xy then
+        if t._pending_buyin and t.you_x and AnchorRegistry.get("bankroll") then
             self:_emitBuyInChips(t, t._pending_buyin)
             t._pending_buyin = nil
         end
@@ -127,6 +136,7 @@ function GrindController:update(dt)
     for _, t in ipairs(self.pool.tables) do
         if t.mtt_pending_payout ~= nil then
             local payout = t.mtt_pending_payout
+            local hands_cleared = t.mtt_hands_won or 0
             t.mtt_pending_payout = nil
             if payout > 0 then
                 self.game.state.bankroll = self.game.state.bankroll + payout
@@ -139,6 +149,34 @@ function GrindController:update(dt)
                     t.x or 0, t.y or 0)
                 self:_emitMttPayoutChips(t, payout)
             end
+
+            -- PP bounty for MTT: full clear (hands_cleared == hand_count)
+            -- is the jackpot-equivalent for tournament tables. The cash
+            -- path (GrindController :update line 223) gates on
+            -- r.tier == "jackpot", which never fires for MTT because
+            -- binary_outcome forces delta=0. Mirror the same gating
+            -- (first clear per (stake, gtype) combo, scaled by
+            -- pp_award_mult) here so the bounty actually banks.
+            local gtype = findGameType(t.game_type_id)
+            local cap   = (gtype and gtype.hand_count) or 0
+            if cap > 0 and hands_cleared >= cap then
+                local state = self.game.state
+                local key   = bountyKey(t.stake_id, t.game_type_id)
+                if not state.stakes_won_this_run[key] then
+                    state.stakes_won_this_run[key] = true
+                    local stake = findStake(t.stake_id)
+                    local base_award = stake and stake.pp_award or 0
+                    local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
+                    local award = math.floor(base_award * mult + 0.5)
+                    if award > 0 then
+                        state.pp_this_run = state.pp_this_run + award
+                        self.game.floating_text.emit(
+                            string.format("+%d PP (run)", award),
+                            t.x or 0, (t.y or 0) - 28)
+                    end
+                end
+            end
+
             t.mtt_hands_won = 0
         end
     end
@@ -332,19 +370,11 @@ function GrindController:getRunUpgradeNextCost(upgrade)
 end
 
 function GrindController:buyCatalogItem(item_id)
-    local state = self.game.state
-    for _, owned in ipairs(state.owned_items) do
-        if owned == item_id then return false end
-    end
     local item
     for _, it in ipairs(Catalog) do
         if it.id == item_id then item = it; break end
     end
-    if not item then return false end
-    if not self:_requirementMet(item.requires) then return false end
-    if state.pp < item.cost_pp then return false end
-    state.pp = state.pp - item.cost_pp
-    state.owned_items[#state.owned_items + 1] = item_id
+    if not self.game.state:tryBuyCatalogItem(item) then return false end
     self:invalidateEffects()
     self:_playNamed("upgrade_purchased")
     return true
@@ -479,63 +509,60 @@ function GrindController:_playNamed(name)
 end
 
 -- ── Chip-flight emission helpers (Phase B) ───────────────────────────
--- Each helper composes a chip breakdown via views/Chips and pushes a
--- staggered burst into services/ChipFlightSystem. Anchors come from
--- positions stashed on the table by views/TablePanel during draw.
+-- Each helper composes a chip breakdown via services/ChipBreakdown and
+-- pushes a staggered burst into services/FlightSystem. Anchors come from
+-- positions stashed on the table by views/TablePanel during draw, plus
+-- the bankroll-pile anchor the view registers via AnchorRegistry.
 
 local function _paletteForStake(stake_id)
     return ChipData.stake_palettes[stake_id] or ChipData.full_palette
 end
 
--- Build an array of render closures from a chip-index breakdown. Each
--- closure captures its denomination and renders one chip at the bezier-
--- interpolated position the ChipFlightSystem hands back. This is the
--- caller-side adapter that keeps ChipFlightSystem domain-agnostic.
-local function _renderFns(chip_indices)
-    local fns = {}
-    for i, idx in ipairs(chip_indices) do
-        fns[i] = function(x, y) Chips.drawChip(x, y, idx, 1, true) end
-    end
-    return fns
+-- Bottom-edge fallback for "this thing has no anchor yet" cases (first
+-- frame after table add — the view hasn't drawn yet so positions aren't
+-- known). Reads viewport from DI rather than poking love.graphics.
+function GrindController:_offscreenAnchor(x_hint)
+    local v = self.game.viewport or { w = 0, h = 0 }
+    return { x_hint or (v.w * 0.5), v.h + 80 }
 end
 
 function GrindController:_emitDealChips(t)
     if not t or not t.you_x or not t.pot_x then return end
     local amount = math.abs(t.outcome_delta or 0)
     if amount <= 0 then return end
-    local chips = Chips.breakdown(amount, _paletteForStake(t.stake_id),
-                                  t.outcome_tier or "small")
-    ChipFlight.emitBurst(
+    local chips = ChipBreakdown.breakdown(amount, _paletteForStake(t.stake_id),
+                                          t.outcome_tier or "small")
+    FlightSystem.emitBurst(
         { t.you_x, t.you_y },
         { t.pot_x, t.pot_y },
-        _renderFns(chips),
+        Chips.makeRenderFns(chips),
         { arrival_sound = "chip_land_pot" })
 end
 
 function GrindController:_emitBuyInChips(t, amount)
     if not t or not t.you_x or amount <= 0 then return end
-    local bank_xy = self.game.bankroll_xy
+    local bank_xy = AnchorRegistry.get("bankroll")
     if not bank_xy then return end
     local stake   = findStake(t.stake_id)
     local bb      = (stake and stake.bb) or 1
     local palette = _paletteForStake(t.stake_id)
-    local tier    = Chips.tierFromBB(amount / bb)
-    local chips   = Chips.breakdown(amount, palette, tier)
-    ChipFlight.emitBurst(bank_xy, { t.you_x, t.you_y }, _renderFns(chips),
-                         { arrival_sound = "chip_land_you" })
+    local tier    = ChipBreakdown.tierFromUnit(amount / bb)
+    local chips   = ChipBreakdown.breakdown(amount, palette, tier)
+    FlightSystem.emitBurst(bank_xy, { t.you_x, t.you_y }, Chips.makeRenderFns(chips),
+                           { arrival_sound = "chip_land_you" })
 end
 
 function GrindController:_emitCashOutChips(t, amount)
     if not t or not t.you_x or amount <= 0 then return end
-    local bank_xy = self.game.bankroll_xy
+    local bank_xy = AnchorRegistry.get("bankroll")
     if not bank_xy then return end
     local stake   = findStake(t.stake_id)
     local bb      = (stake and stake.bb) or 1
     local palette = _paletteForStake(t.stake_id)
-    local tier    = Chips.tierFromBB(amount / bb)
-    local chips   = Chips.breakdown(amount, palette, tier)
-    ChipFlight.emitBurst({ t.you_x, t.you_y }, bank_xy, _renderFns(chips),
-                         { arrival_sound = "chip_land_bankroll" })
+    local tier    = ChipBreakdown.tierFromUnit(amount / bb)
+    local chips   = ChipBreakdown.breakdown(amount, palette, tier)
+    FlightSystem.emitBurst({ t.you_x, t.you_y }, bank_xy, Chips.makeRenderFns(chips),
+                           { arrival_sound = "chip_land_bankroll" })
 end
 
 -- Tournament cash-out: pot/center → bankroll pile. Same shape as cash-out
@@ -543,18 +570,18 @@ end
 -- hand) so the burst visually originates from where the action ended.
 function GrindController:_emitMttPayoutChips(t, amount)
     if not t or amount <= 0 then return end
-    local bank_xy = self.game.bankroll_xy
+    local bank_xy = AnchorRegistry.get("bankroll")
     if not bank_xy then return end
-    local source = (t.pot_x and t.pot_y) and { t.pot_x, t.pot_y }
-                   or { t.x or love.graphics.getWidth() * 0.5,
-                        t.y or love.graphics.getHeight() * 0.5 }
+    local v       = self.game.viewport or { w = 0, h = 0 }
+    local source  = (t.pot_x and t.pot_y) and { t.pot_x, t.pot_y }
+                    or { t.x or v.w * 0.5, t.y or v.h * 0.5 }
     local stake   = findStake(t.stake_id)
     local bb      = (stake and stake.bb) or 1
     local palette = _paletteForStake(t.stake_id)
-    local tier    = Chips.tierFromBB(amount / bb)
-    local chips   = Chips.breakdown(amount, palette, tier)
-    ChipFlight.emitBurst(source, bank_xy, _renderFns(chips),
-                         { arrival_sound = "chip_land_bankroll" })
+    local tier    = ChipBreakdown.tierFromUnit(amount / bb)
+    local chips   = ChipBreakdown.breakdown(amount, palette, tier)
+    FlightSystem.emitBurst(source, bank_xy, Chips.makeRenderFns(chips),
+                           { arrival_sound = "chip_land_bankroll" })
 end
 
 function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
@@ -564,11 +591,11 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
     local pot_xy  = { tbl.pot_x, tbl.pot_y }
 
     if r.delta > 0 then
-        local chips = Chips.breakdown(r.delta, palette, r.tier or "small")
-        ChipFlight.emitBurst(pot_xy, you_xy, _renderFns(chips),
-                             { arrival_sound = "chip_land_you" })
+        local chips = ChipBreakdown.breakdown(r.delta, palette, r.tier or "small")
+        FlightSystem.emitBurst(pot_xy, you_xy, Chips.makeRenderFns(chips),
+                               { arrival_sound = "chip_land_you" })
     elseif r.delta < 0 then
-        local chips = Chips.breakdown(-r.delta, palette, r.tier or "small")
+        local chips = ChipBreakdown.breakdown(-r.delta, palette, r.tier or "small")
         -- Loss → chips fly to the winning opponent's seat (their cards).
         -- Falls back to off-screen if the panel hasn't drawn yet (first
         -- frame after table add) so the burst still has a destination.
@@ -576,19 +603,19 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
         if tbl._opp_xy and tbl.opponent_idx then
             target_xy = tbl._opp_xy[tbl.opponent_idx]
         end
-        target_xy = target_xy or { pot_xy[1], love.graphics.getHeight() + 80 }
-        ChipFlight.emitBurst(pot_xy, target_xy, _renderFns(chips),
-                             { arrival_sound = "chip_land_pot" })
+        target_xy = target_xy or self:_offscreenAnchor(pot_xy[1])
+        FlightSystem.emitBurst(pot_xy, target_xy, Chips.makeRenderFns(chips),
+                               { arrival_sound = "chip_land_pot" })
     end
 
     if overflow_amount and overflow_amount > 0 then
-        local bank_xy = self.game.bankroll_xy
-                        or { love.graphics.getWidth() * 0.5,
-                             love.graphics.getHeight() - 30 }
-        local chips = Chips.breakdown(overflow_amount, ChipData.full_palette,
-                                      Chips.tierFromAmount(overflow_amount))
-        ChipFlight.emitBurst(you_xy, bank_xy, _renderFns(chips),
-                             { arrival_sound = "chip_land_bankroll" })
+        local v = self.game.viewport or { w = 0, h = 0 }
+        local bank_xy = AnchorRegistry.get("bankroll")
+                        or { v.w * 0.5, v.h - 30 }
+        local chips = ChipBreakdown.breakdown(overflow_amount, ChipData.full_palette,
+                                              ChipBreakdown.tierFromAmount(overflow_amount))
+        FlightSystem.emitBurst(you_xy, bank_xy, Chips.makeRenderFns(chips),
+                               { arrival_sound = "chip_land_bankroll" })
     end
 end
 
@@ -616,6 +643,10 @@ function GrindController:rebuyTable(idx)
     -- because the table has been on screen long enough to bust).
     self:_emitBuyInChips(t, cost)
     self:_playNamed("rebuy_clack")
+    -- Auto-deal the first hand so REBUY is a one-click flow (was two:
+    -- click REBUY, then click DEAL). The cursor swarm picks up subsequent
+    -- hands as usual.
+    self:dealHand(idx)
     return true
 end
 
@@ -640,6 +671,18 @@ function GrindController:_playStateTransitionSound(_prev, new_state, t)
         local key  = (t.outcome_won and "pot_won_" or "pot_lost_") .. tier
         sounds.playNamed(key)
     end
+end
+
+-- SHOVE-button intent. Banks the run's pending PP (locked-in bounties
+-- only convert to spendable PP if the player actually pulls the trigger)
+-- and flips the state machine to the gauntlet. The view dispatches this
+-- on click; pp_this_run is NOT zeroed here — the shove state reads it
+-- post-gauntlet for the "you banked N PP this run" readout, and the
+-- post-modal reset zeros it.
+function GrindController:initiateShove()
+    local state = self.game.state
+    state.pp = state.pp + (state.pp_this_run or 0)
+    self.game.state_machine:switch("shove")
 end
 
 -- Convenience: deal every idle table in one call. Useful as a future

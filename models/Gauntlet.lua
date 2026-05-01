@@ -10,10 +10,13 @@
 -- + community). A draw is a loss — the player must STRICTLY beat the
 -- dealer.
 --
--- shove_rate is the GROUND TRUTH. Outcomes are rolled up front:
---     outcomes[1] = chance(shove_rate)
---     outcomes[2] = (only rolled if outcomes[1])  chance(shove_rate)
---     outcomes[3] = (only rolled if outcomes[2])  chance(shove_rate)
+-- The rate STRUCT (r1, r2, r3, clear) is the GROUND TRUTH — see
+-- models/shove_rate.lua and docs/math.md for derivation. Each runout uses
+-- its own rate; the dealer's two cheats halve different multiplicative
+-- factors so r1 > r2 > r3. Outcomes are rolled up front:
+--     outcomes[1] = chance(rates.r1)
+--     outcomes[2] = (only rolled if outcomes[1])  chance(rates.r2)
+--     outcomes[3] = (only rolled if outcomes[2])  chance(rates.r3)
 -- Cards are then constructed JOINTLY — we redeal player_hole + dealer_hole
 -- + 5-board until we can find a 6th community card AND (if needed) a 7th
 -- that together produce all three rolled outcomes.
@@ -45,10 +48,10 @@ local Constants = require("data.constants")
 local Gauntlet = {}
 Gauntlet.__index = Gauntlet
 
-function Gauntlet:new(game, shove_rate)
+function Gauntlet:new(game, rates)
     return setmetatable({
         game        = game,
-        shove_rate  = shove_rate or 0,
+        rates       = rates or { r1 = 0, r2 = 0, r3 = 0, clear = 0 },
         state       = "idle",          -- idle | running | finished
         deck        = nil,
         player_hole = nil,             -- {Card, Card}
@@ -64,11 +67,11 @@ end
 function Gauntlet:begin()
     self.state = "running"
 
-    self.outcomes[1] = RNG.chance(self.shove_rate)
+    self.outcomes[1] = RNG.chance(self.rates.r1)
     if self.outcomes[1] then
-        self.outcomes[2] = RNG.chance(self.shove_rate)
+        self.outcomes[2] = RNG.chance(self.rates.r2)
         if self.outcomes[2] then
-            self.outcomes[3] = RNG.chance(self.shove_rate)
+            self.outcomes[3] = RNG.chance(self.rates.r3)
         end
     end
 
@@ -225,7 +228,7 @@ function Gauntlet:_buildResult()
         dealer_hole = self.dealer_hole,
         board       = self.board,
         evals       = self.evals,
-        shove_rate  = self.shove_rate,
+        rates       = self.rates,
     }
 end
 
@@ -249,12 +252,16 @@ end
 function Gauntlet.formatResult(result, attempt_n)
     local lines = {}
     local header
+    local r = result.rates or {}
     if result.won then
-        header = string.format("[gauntlet #%d] rate=%.2f  result=WON",
-            attempt_n or 0, result.shove_rate)
+        header = string.format(
+            "[gauntlet #%d] r1=%.2f r2=%.2f r3=%.2f clear=%.2f  result=WON",
+            attempt_n or 0, r.r1 or 0, r.r2 or 0, r.r3 or 0, r.clear or 0)
     else
-        header = string.format("[gauntlet #%d] rate=%.2f  result=LOST@R%d",
-            attempt_n or 0, result.shove_rate, result.busted_at or 0)
+        header = string.format(
+            "[gauntlet #%d] r1=%.2f r2=%.2f r3=%.2f clear=%.2f  result=LOST@R%d",
+            attempt_n or 0, r.r1 or 0, r.r2 or 0, r.r3 or 0, r.clear or 0,
+            result.busted_at or 0)
     end
     lines[#lines + 1] = header
     lines[#lines + 1] = "  player hole: " .. cardsStr(result.player_hole)

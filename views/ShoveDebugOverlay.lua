@@ -1,13 +1,14 @@
 -- views/ShoveDebugOverlay.lua
 --
--- Always-on HUD during the shove prototype. Surfaces the live shove_rate,
--- the rolling clear-rate vs. the math-expected (shove_rate^3), per-runout
--- pass counts, last-result summary, and a hotkey legend. The point: the
--- prototype is verifiable end-to-end from the LÖVE window — no console.
+-- Always-on HUD during the shove prototype. Surfaces the live rate struct
+-- (r1/r2/r3/clear), the rolling clear-rate vs. the math-expected
+-- (r1·r2·r3), per-runout pass counts, last-result summary, and a hotkey
+-- legend. The point: the prototype is verifiable end-to-end from the LÖVE
+-- window — no console.
 --
--- Reads shove_rate from the ShoveState (which owns the debug-controllable
--- value). Stats live on the overlay itself; they're session-only and reset
--- on D-toggle / Shift+R / state re-entry.
+-- Reads shove_rates from the ShoveState (which owns the debug-controllable
+-- struct). Stats live on the overlay itself; they're session-only and
+-- reset on D-toggle / Shift+R / state re-entry.
 
 local Theme     = require("views.Theme")
 local Constants = require("data.constants")
@@ -96,20 +97,21 @@ function Overlay:draw()
     Theme.setColor(Theme.debug.hud_dim)
     love.graphics.print("LIVE STATE", lx + pad, ly + pad)
 
+    local r = self.ss.shove_rates
     love.graphics.setFont(self.font_big)
     Theme.setColor(Theme.debug.hud_accent)
-    love.graphics.print(string.format("shove_rate %.2f", self.ss.shove_rate),
+    love.graphics.print(
+        string.format("clear %.2f%%", (r and r.clear or 0) * 100),
         lx + pad, ly + pad + 14)
 
     love.graphics.setFont(self.font_main)
     Theme.setColor(Theme.debug.hud_dim)
-    -- At-shove-time breakdown: base × mult = total. Pulled from the
-    -- snapshot ShoveState locked in at :enter (self.ss.shove_breakdown).
-    local b = self.ss.shove_breakdown
+    -- Per-runout breakdown locked in at :enter. R3 is always the wall —
+    -- math.md: "The drama lives there at every tier."
     local breakdown_line
-    if b then
-        breakdown_line = string.format("%.0f%% × %d = %.1f%%",
-            b.base * 100, b.tier.mult, b.total * 100)
+    if r then
+        breakdown_line = string.format("R1 %.0f%% · R2 %.0f%% · R3 %.0f%%  (cat %.0f%% × %d×)",
+            r.r1 * 100, r.r2 * 100, r.r3 * 100, r.catalog * 100, r.mult)
     else
         breakdown_line = "(no breakdown)"
     end
@@ -154,8 +156,11 @@ function Overlay:draw()
     love.graphics.print(string.format("clear rate: %s", pct(self.wins, self.attempts)),
         rx + pad, cy); cy = cy + rowh
     Theme.setColor(Theme.debug.hud_dim)
-    local expected = self.ss.shove_rate ^ 3
-    love.graphics.print(string.format("expected:   %.1f%%  (shove_rate^3)", expected * 100),
+    -- Expected = r1*r2*r3 (the "clear" field from the rate struct). Old
+    -- model was rate^3 because all three runouts shared one rate; the
+    -- gauntlet halving made each runout's rate distinct.
+    local expected = (self.ss.shove_rates and self.ss.shove_rates.clear) or 0
+    love.graphics.print(string.format("expected:   %.1f%%  (r1·r2·r3)", expected * 100),
         rx + pad, cy); cy = cy + rowh + 4
 
     Theme.setColor(Theme.debug.hud_text)
@@ -187,7 +192,7 @@ function Overlay:draw()
     local segments = {
         { "SPACE", "begin/advance" },
         { "R",     "reset gauntlet" },
-        { "[ / ]", "shove_rate ±0.05" },
+        { "[ / ]", "catalog ±0.05" },
         { "Shift+R", "clear stats" },
         { "D",     "toggle overlay" },
         { "F2",    "toggle grind" },

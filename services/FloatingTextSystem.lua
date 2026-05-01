@@ -1,5 +1,5 @@
 -- services/FloatingTextSystem.lua
--- Self-contained system for floating payout text popups ("+$500", "+12 PP").
+-- Self-contained system for floating text popups (e.g. "+$500", "-3").
 -- Owns the list, update logic, and exposes it for rendering.
 
 local FloatingTextSystem = {}

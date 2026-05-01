@@ -212,7 +212,7 @@ function AnimationSystem.create(_, preset_name, overrides)
 end
 
 -- Direct-factory escape hatches for cases that genuinely need a one-off
--- (cinematic shove sequence, dynamically-tuned curves). Prefer .create() above.
+-- (cinematic sequences, dynamically-tuned curves). Prefer .create() above.
 AnimationSystem.createFlipAnimation     = createFlip
 AnimationSystem.createBounceAnimation   = createBounce
 AnimationSystem.createFadeAnimation     = createFade

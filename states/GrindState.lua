@@ -10,13 +10,13 @@
 -- shove-state's prestige flow) can call into it post-bust to invalidate
 -- effects after a `:resetRun()`.
 
-local Theme            = require("views.Theme")
-local GrindView        = require("views.GrindView")
-local GrindController  = require("controllers.GrindController")
-local CursorPool       = require("services.CursorPool")
-local ChipFlightSystem = require("services.ChipFlightSystem")
-local ClickFlash       = require("services.ClickFlash")
-local Ghosts           = require("services.Ghosts")
+local Theme           = require("views.Theme")
+local GrindView       = require("views.GrindView")
+local GrindController = require("controllers.GrindController")
+local CursorPool      = require("services.CursorPool")
+local FlightSystem    = require("services.FlightSystem")
+local ClickFlash      = require("services.ClickFlash")
+local Ghosts          = require("services.Ghosts")
 
 local GrindState = {}
 GrindState.__index = GrindState
@@ -66,7 +66,7 @@ end
 -- / reload doesn't carry dangling pointers or sprites.
 function GrindState:fullReset()
     CursorPool.reset()
-    ChipFlightSystem.clear()
+    FlightSystem.clear()
     ClickFlash.clear()
     Ghosts.clear()
 end

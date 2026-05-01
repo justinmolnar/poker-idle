@@ -37,7 +37,7 @@ C.GAMEPLAY = {
     -- penalty (focus_penalty_reduce_mult) so larger multi-tabling becomes
     -- viable as the player progresses.
     FOCUS_BASE_CAPACITY    = 4,        -- below this many tables, no penalty
-    FOCUS_BASE_PENALTY     = 0.05,     -- per extra table over capacity
+    FOCUS_BASE_PENALTY     = 0.15,     -- per extra table over capacity (5 over → floor)
     FOCUS_FLOOR            = 0.05,     -- floor on focus_mult; running too many is actively bad
     -- PP_AWARD_DIVISOR removed — PP comes from per-stake first-win bounties,
     -- not from a peak-bankroll formula on bust.

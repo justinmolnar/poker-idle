@@ -26,10 +26,11 @@ local EffectsRegistry = require("services.EffectsRegistry")
 local FontService     = require("services.FontService")
 local HoverService    = require("services.HoverService")
 local CursorPool      = require("services.CursorPool")
-local ChipFlightSystem = require("services.ChipFlightSystem")
+local FlightSystem    = require("services.FlightSystem")
 local ClickFlash      = require("services.ClickFlash")
 local Tooltip         = require("services.Tooltip")
 local Ghosts          = require("services.Ghosts")
+local AnchorRegistry  = require("services.AnchorRegistry")
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
@@ -69,10 +70,18 @@ local function buildGame()
     g.floating_text   = FloatingText
     g.hover           = HoverService
     g.cursor_pool     = CursorPool
-    g.chip_flight     = ChipFlightSystem
+    g.flight_system   = FlightSystem
     g.click_flash     = ClickFlash
     g.tooltip         = Tooltip
     g.ghosts          = Ghosts
+    g.anchors         = AnchorRegistry
+
+    -- Viewport dimensions, refreshed in love.resize. Non-view layers
+    -- (controllers, services) read from here instead of querying
+    -- love.graphics directly so the rendering subsystem isn't a
+    -- silent global dependency for non-rendering code.
+    local vw, vh      = love.graphics.getDimensions()
+    g.viewport        = { w = vw, h = vh }
 
     g.save_service    = SaveService:new()
     local saved       = g.save_service:loadAll()
@@ -117,9 +126,9 @@ function love.update(dt)
     Game.time:update(dt)
     Game.state_machine:update(dt)
     Game.floating_text.update(dt)
-    ChipFlightSystem.update(dt)
-    ClickFlash.update(dt)
-    Ghosts.update(dt)
+    Game.flight_system.update(dt)
+    Game.click_flash.update(dt)
+    Game.ghosts.update(dt)
     -- No auto-save. Use F5 to save manually, F6 to reload, F7 to wipe.
 end
 
@@ -139,8 +148,13 @@ function love.resize(w, h)
     -- Forwards to the active state. States that own anchored layout (sidebar
     -- Panels) implement :resize(w, h) to rebuild internal rects; states that
     -- read getDimensions() per-frame ignore.
-    if Game and Game.state_machine then
-        Game.state_machine:resize(w, h)
+    if Game then
+        if Game.viewport then
+            Game.viewport.w, Game.viewport.h = w, h
+        end
+        if Game.state_machine then
+            Game.state_machine:resize(w, h)
+        end
     end
 end
 

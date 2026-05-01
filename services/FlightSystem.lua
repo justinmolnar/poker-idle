@@ -1,27 +1,26 @@
--- services/ChipFlightSystem.lua
+-- services/FlightSystem.lua
 --
 -- Self-contained flying-projectile system. Mirrors services/FloatingTextSystem
 -- — stateless module, file-local queue, emit/update/draw/clear.
 --
 -- Each emission is a procedural projectile travelling along a quadratic
 -- bezier from a start to an end point with a random arc height. Bursts
--- (e.g., a payout) stagger N projectiles over ~30 ms each so they FLOW
--- visually rather than teleport-as-one.
+-- stagger N projectiles over ~30 ms each so they FLOW visually rather
+-- than teleport-as-one.
 --
 -- Engine-agnostic — operates on opaque render callbacks. Each flying
 -- entity stores a `render_fn(x, y)` closure; the system invokes it at the
--- entity's bezier-interpolated position. No domain knowledge: the chip
+-- entity's bezier-interpolated position. No domain knowledge: the visual
 -- breakdown / colour palette / sprite atlas all live caller-side. The
--- caller wraps each individual chip (or coin, or particle, or whatever)
--- in a closure and hands the array to emitBurst.
+-- caller wraps each individual entity (chip, coin, particle, droplet,
+-- whatever) in a closure and hands the array to emitBurst.
 --
--- Soft cap: MAX_IN_FLIGHT entities total. Drop-oldest at overflow so the
--- chaos endgame (32 tables, cursors clicking, payouts firing) can't
--- balloon frame time without bound.
+-- Soft cap: MAX_IN_FLIGHT entities total. Drop-oldest at overflow so
+-- many simultaneous bursts can't balloon frame time without bound.
 
 local SoundService = require("services.SoundService")
 
-local ChipFlightSystem = {}
+local FlightSystem = {}
 
 local _flying           = {}
 -- Parallel queue of pending arrival-sound playbacks. Each burst can schedule
@@ -32,7 +31,7 @@ local _scheduled_sounds = {}
 
 -- ── Tunables ────────────────────────────────────────────────────────
 local MAX_IN_FLIGHT       = 300     -- soft cap; drop-oldest beyond
-local MAX_PER_EVENT       = 7       -- a $50k win shows 7 chips, not 500
+local MAX_PER_EVENT       = 7       -- a burst shows ≤ 7 entities, never hundreds
 local DEFAULT_DURATION    = 0.55    -- seconds from launch to arrival
 local DEFAULT_STAGGER     = 0.03    -- 30 ms between staggered launches
 local DEFAULT_ARC         = 60      -- baseline arc height in px
@@ -56,7 +55,7 @@ end
 --                      start until then)
 --   options.arc_height: bezier control-point Y-offset
 --   options.duration:  seconds in flight after launch
-function ChipFlightSystem.emit(start_xy, end_xy, render_fn, options)
+function FlightSystem.emit(start_xy, end_xy, render_fn, options)
     options = options or {}
     if not render_fn then return end
     if #_flying >= MAX_IN_FLIGHT then
@@ -83,15 +82,15 @@ function ChipFlightSystem.emit(start_xy, end_xy, render_fn, options)
 end
 
 -- Convenience: emit a list of render callbacks as a staggered burst.
--- Caps total entities at MAX_PER_EVENT — a payout of ANY value
--- renders as ≤ 7 entities so high-stakes wins don't fountain 1000+
+-- Caps total entities at MAX_PER_EVENT — a burst of ANY input size
+-- renders as ≤ 7 entities so spammy callers don't fountain 1000+
 -- at once. Caller is responsible for the breakdown that produced the
 -- list; we just sample it.
 --
 -- options.arrival_sound (string, optional) — semantic name dispatched
 -- through SoundService.playNamed at burst-end time. One thunk per burst,
 -- regardless of entity count.
-function ChipFlightSystem.emitBurst(start_xy, end_xy, render_fns, options)
+function FlightSystem.emitBurst(start_xy, end_xy, render_fns, options)
     if not render_fns or #render_fns == 0 then return end
     options = options or {}
     local stagger  = options.stagger  or DEFAULT_STAGGER
@@ -103,7 +102,7 @@ function ChipFlightSystem.emitBurst(start_xy, end_xy, render_fns, options)
     local step  = #render_fns / count
     for i = 1, count do
         local src_idx = math.max(1, math.floor((i - 1) * step + 1))
-        ChipFlightSystem.emit(start_xy, end_xy, render_fns[src_idx], {
+        FlightSystem.emit(start_xy, end_xy, render_fns[src_idx], {
             delay      = (i - 1) * stagger,
             duration   = duration,
             arc_height = options.arc_height,
@@ -121,7 +120,7 @@ function ChipFlightSystem.emitBurst(start_xy, end_xy, render_fns, options)
     end
 end
 
-function ChipFlightSystem.update(dt)
+function FlightSystem.update(dt)
     for i = #_flying, 1, -1 do
         local f = _flying[i]
         if f.delay > 0 then
@@ -149,21 +148,21 @@ function ChipFlightSystem.update(dt)
     end
 end
 
-function ChipFlightSystem.draw()
+function FlightSystem.draw()
     if #_flying == 0 then return end
     for _, f in ipairs(_flying) do
         f.render_fn(f.x, f.y)
     end
 end
 
-function ChipFlightSystem.clear()
+function FlightSystem.clear()
     _flying           = {}
     _scheduled_sounds = {}
 end
 
 -- For debug overlays / introspection.
-function ChipFlightSystem.count()
+function FlightSystem.count()
     return #_flying
 end
 
-return ChipFlightSystem
+return FlightSystem

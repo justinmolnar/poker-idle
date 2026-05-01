@@ -13,7 +13,9 @@
 --               wandering.
 --
 -- Engine-agnostic: this model knows about hit-boxes and dispatcher
--- callbacks, not about poker, tables, or the EffectsRegistry.
+-- callbacks, not about poker, tables, or the EffectsRegistry. Holds
+-- pure state (x, y, heading, target, timers); rendering lives in
+-- services/CursorPool, which is the only thing that draws cursors.
 
 local Cursor = {}
 Cursor.__index = Cursor
@@ -138,28 +140,6 @@ function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher)
             tryClaim(self, deal_hbs, claims)
         end
     end
-end
-
--- Triangle vertices in local coords (tip at origin, base behind by 14 px,
--- 10 px wide). Rotated so the tip leads the direction of motion.
-local SHAPE_PTS = { 0, 0, -14, -5, -14, 5 }
-
--- Fill pass — caller has already set color.
-function Cursor:drawFill()
-    love.graphics.push()
-    love.graphics.translate(self.x, self.y)
-    love.graphics.rotate(self.heading)
-    love.graphics.polygon("fill", SHAPE_PTS)
-    love.graphics.pop()
-end
-
--- Outline pass — caller has already set color and line width.
-function Cursor:drawOutline()
-    love.graphics.push()
-    love.graphics.translate(self.x, self.y)
-    love.graphics.rotate(self.heading)
-    love.graphics.polygon("line", SHAPE_PTS)
-    love.graphics.pop()
 end
 
 return Cursor

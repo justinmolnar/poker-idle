@@ -38,6 +38,12 @@ function PokerEffects.registerAll(reg)
         ctx.hands_per_min = (ctx.hands_per_min or 0) + e.value
     end)
 
+    -- Multiplicative pace boost composed into effective_dt at the table
+    -- level (Energy Drink). Stacks with gtype.pace_mult.
+    reg:register("hand_pace_mult", function(e, ctx)
+        ctx.hand_pace_mult = (ctx.hand_pace_mult or 1) * (e.value or 1)
+    end)
+
     reg:register("rep_decay_slow", function(e, ctx)
         ctx.rep_decay = (ctx.rep_decay or 1) * e.value
     end)
@@ -84,6 +90,62 @@ function PokerEffects.registerAll(reg)
             amount = e.amount or e.value or 0,
             gtype  = e.gtype,
         }
+    end)
+
+    -- Final-WC multiplier. Applied AFTER all additive shifts in buildOutcome.
+    -- Used by the no-poster handicap (×0.4 knocks T1 50% → 20%) and any
+    -- future multiplicative WC modifier.
+    reg:register("wc_mult", function(e, ctx)
+        ctx.wc_mult = (ctx.wc_mult or 1) * (e.value or 1)
+    end)
+
+    -- Catalog additive shape on loss_dist (mirror of win_chance_shift's
+    -- distributional cousin). Each entry pushes a delta-table; buildOutcome
+    -- sums them on top of the gtype dist shape and renormalizes.
+    reg:register("loss_dist_shift", function(e, ctx)
+        ctx.loss_dist_shifts = ctx.loss_dist_shifts or {}
+        ctx.loss_dist_shifts[#ctx.loss_dist_shifts + 1] = {
+            shift = e.shift or {},
+            gtype = e.gtype,
+        }
+    end)
+
+    -- Post-sample win-tier upgrade (Self-Help Book, Lava Lamp). Each entry
+    -- describes a (from → to) re-roll with a chance. Table.lua fires after
+    -- sampleOutcome, before magnitude roll.
+    reg:register("win_tier_shift", function(e, ctx)
+        ctx.win_tier_shifts = ctx.win_tier_shifts or {}
+        ctx.win_tier_shifts[#ctx.win_tier_shifts + 1] = {
+            from   = e.from,
+            to     = e.to,
+            chance = e.chance or 0,
+            gtype  = e.gtype,
+        }
+    end)
+
+    -- Post-sample loss-tier downgrade (Stress Ball, Worry Stone). Same
+    -- mechanism on the loss path — reduces damage by bumping the tier
+    -- DOWN one step.
+    reg:register("loss_tier_shift", function(e, ctx)
+        ctx.loss_tier_shifts = ctx.loss_tier_shifts or {}
+        ctx.loss_tier_shifts[#ctx.loss_tier_shifts + 1] = {
+            from   = e.from,
+            to     = e.to,
+            chance = e.chance or 0,
+            gtype  = e.gtype,
+        }
+    end)
+
+    -- Jackpot-only payout multiplier (Branded Hat). Stacks with
+    -- earnings_mult — that scales every win; this scales only jackpots.
+    reg:register("jackpot_mult", function(e, ctx)
+        ctx.jackpot_mult = (ctx.jackpot_mult or 1) * (e.value or 1)
+    end)
+
+    -- Percentage bonus on starting bankroll seed (Lucky Coin). Sits next
+    -- to start_bankroll_add (flat $); both feed applyStartingPerks.
+    reg:register("start_bankroll_pct", function(e, ctx)
+        ctx.start_bankroll_pct = (ctx.start_bankroll_pct or 0) + (e.value or 0)
     end)
 
     -- ── Meta-progression perks ──────────────────────────────────────────

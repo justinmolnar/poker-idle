@@ -106,18 +106,30 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
     end
 end
 
+-- Triangle vertices in local coords (tip at origin, base behind by 14 px,
+-- 10 px wide). Rotated so the tip leads the direction of motion.
+local SHAPE_PTS = { 0, 0, -14, -5, -14, 5 }
+
+local function drawShape(c, mode)
+    love.graphics.push()
+    love.graphics.translate(c.x, c.y)
+    love.graphics.rotate(c.heading)
+    love.graphics.polygon(mode, SHAPE_PTS)
+    love.graphics.pop()
+end
+
 function CursorPool.draw()
     if #_cursors == 0 then return end
     -- Fill pass — bright primary so cursors pop above the felt green.
     Theme.setColor(Theme.fg.heading, 0.95)
     for _, c in ipairs(_cursors) do
-        c:drawFill()
+        drawShape(c, "fill")
     end
     -- Outline pass for contrast.
     Theme.setColor(Theme.border.strong, 1.0)
     love.graphics.setLineWidth(1)
     for _, c in ipairs(_cursors) do
-        c:drawOutline()
+        drawShape(c, "line")
     end
 end
 

@@ -66,7 +66,7 @@ return {
         -- Zoom = fold-spam firehose. High WC (+0.05) — most hands are
         -- preflop spats you're ahead in. Low pot sizes — heavy tiny
         -- mass. Jackpots are reachable but rare: -0.40 jackpot shift
-        -- means you need substantial Pot Building before Zoom jackpots
+        -- means you need substantial Pot Control fill before Zoom jackpots
         -- show up at all (lands ~10% jackpot mass at full upgrades, 0%
         -- below ~80% fill). The cinematic-skip on tiny outcomes
         -- (data/cinematic_timelines.lua) makes most hands resolve in <1s.

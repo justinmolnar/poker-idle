@@ -220,6 +220,18 @@ local function buildOutcome(ctx, gtype, stake)
         distAddInPlace(loss_dist, gtype.dist_shifts.loss_dist)
     end
 
+    -- 4b. Catalog ctx.loss_dist_shifts — additive shape on the loss
+    --     distribution (mirror of gtype dist_shifts on the loss side).
+    --     Used by the no-poster handicap to skew Run-0 losses toward
+    --     Medium+. Renormalized at step 7.
+    if ctx and ctx.loss_dist_shifts then
+        for _, sh in ipairs(ctx.loss_dist_shifts) do
+            if shiftApplies(sh, gtype) then
+                distAddInPlace(loss_dist, sh.shift)
+            end
+        end
+    end
+
     -- 5. Catalog ctx.win_chance_shifts — flat additive ON TOP of the lerp.
     --    The only mechanism for crossing run-capped toward the absolute cap.
     if ctx and ctx.win_chance_shifts then
@@ -237,6 +249,13 @@ local function buildOutcome(ctx, gtype, stake)
         win_chance = win_chance + gtype.win_chance_shift
     end
 
+    -- 6b. Multiplicative final-WC modifier (no-poster handicap, future
+    --     skill discounts). Applied AFTER all additive shifts so the
+    --     handicap multiplies the *effective* WC, not the lerped baseline.
+    if ctx and ctx.wc_mult then
+        win_chance = win_chance * ctx.wc_mult
+    end
+
     -- 8. Final clamps. Absolute WC ceiling (no 100% wins).
     if     win_chance < 0                 then win_chance = 0
     elseif win_chance > WC_ABSOLUTE_CAP   then win_chance = WC_ABSOLUTE_CAP end
@@ -251,6 +270,23 @@ local function sampleOutcome(win_chance, win_dist, loss_dist)
     local won = love.math.random() < win_chance
     local tier = sampleDist(won and win_dist or loss_dist) or "tiny"
     return won, tier
+end
+
+-- Walk the shift list, bumping the current tier whenever (a) the gtype
+-- filter matches, (b) the descriptor's `from` equals the current tier, and
+-- (c) the chance roll succeeds. Bumps chain by design: Self-Help Book
+-- (Tiny→Small @25%) + Lava Lamp (Small→Medium @15%) can take a hand from
+-- Tiny → Small → Medium in one resolve. Walk order = registration order
+-- in poker_effects.lua; deterministic per build.
+local function applyTierShift(tier, shifts, gtype)
+    if not shifts then return tier end
+    for _, sh in ipairs(shifts) do
+        if shiftApplies(sh, gtype) and tier == sh.from
+           and love.math.random() < (sh.chance or 0) then
+            tier = sh.to
+        end
+    end
+    return tier
 end
 
 -- Roll a magnitude (in bb) within the cell's tier range.
@@ -290,9 +326,6 @@ function Table:new(stake_id, game_type_id, ctx)
         cursor_muted        = false,
 
         x = 0, y = 0,
-        -- Animation state for the per-table EV gauge in TablePanel. Lerps
-        -- toward target each render frame; nil = snap on first read.
-        gauge_pos = nil,
         _pending_resolution = nil,
 
         -- Jackpot FX state. shake_trauma uses the trauma² model — per-frame
@@ -403,6 +436,16 @@ function Table:deal(ctx)
     -- the math — they're cosmetic seats.
     local wc, wd, ld = buildOutcome(ctx, gtype, stake)
     local won, tier = sampleOutcome(wc, wd, ld)
+
+    -- Post-sample tier re-rolls (Self-Help Book / Lava Lamp on the win
+    -- side; Stress Ball / Worry Stone on the loss side). Each shift fires
+    -- independently and can chain — see applyTierShift comment.
+    if won then
+        tier = applyTierShift(tier, ctx.win_tier_shifts, gtype)
+    else
+        tier = applyTierShift(tier, ctx.loss_tier_shifts, gtype)
+    end
+
     local magnitude_bb = rollTierMagnitude(tier)
 
     self.outcome_won  = won
@@ -419,9 +462,22 @@ function Table:deal(ctx)
         -- the dists (Pot Odds Master, Damage Control, Headphones).
         local earnings_mult = ctx.earnings_mult or 1
         local loss_mult     = ctx.loss_mult     or 1
+        -- jackpot_mult (Branded Hat) stacks on top of earnings_mult — only
+        -- jackpot-tier WINS get the extra boost.
+        local jackpot_mult  = (won and tier == "jackpot")
+                              and (ctx.jackpot_mult or 1) or 1
         if won then
-            self.outcome_delta = magnitude_bb * stake.bb * earnings_mult
+            local raw_win = magnitude_bb * stake.bb * earnings_mult * jackpot_mult
+            -- Pot cap: a hand's pot is at most 2× your at-table stack
+            -- (your contribution + opponent matching it). So the most
+            -- you can WIN from a hand is 2× stack. A $0.05 stack tops
+            -- out at $0.10; a full $2 stack at $4. Keeps low-stack
+            -- jackpots from feeling like free money while still letting
+            -- a healthy stack catch a real haul.
+            self.outcome_delta = math.min(raw_win, 2 * (self.stack or 0))
         else
+            -- Loss side already capped downstream: GrindController clamps
+            -- stack at 0 (controllers/GrindController.lua:171-173).
             self.outcome_delta = -magnitude_bb * stake.bb * loss_mult
         end
     end
@@ -470,7 +526,10 @@ function Table:update(dt, ctx)
 
     local gtype = findGameType(self.game_type_id)
     local pace_mult = (gtype and gtype.pace_mult) or 1
-    local effective_dt = (dt or 0) * pace_mult
+    -- ctx.hand_pace_mult (Energy Drink, future pace items) compounds on
+    -- top of the gtype baseline.
+    local ctx_pace = (self._last_ctx and self._last_ctx.hand_pace_mult) or 1
+    local effective_dt = (dt or 0) * pace_mult * ctx_pace
 
     self.state_timer = self.state_timer + effective_dt
 

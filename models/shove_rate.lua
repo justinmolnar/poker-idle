@@ -1,21 +1,27 @@
 -- models/shove_rate.lua
 --
--- Pure computation of the player's current shove rate. Two sources:
--- catalog base (ctx.shove_rate, accumulated by shove_rate_add effects)
--- and a bankroll-tier multiplier (data/bankroll_tiers.lua). Single
--- source of truth; called both at-shove-time (ShoveState locks the
--- value) and live-rendering-time (top bar + SHOVE button render every
--- frame).
+-- Pure computation of the player's per-runout gauntlet rates. Two sources:
+-- catalog base (ctx.shove_rate, accumulated by shove_rate_add effects) and
+-- a bankroll-tier multiplier (data/bankroll_tiers.lua). Single source of
+-- truth; called both at-shove-time (ShoveState locks the value) and live-
+-- rendering-time (top bar + SHOVE button render every frame).
 --
--- Formula:
---   total = catalog_base * bankroll_tier_mult
---   total = min(total, 1.0)
+-- ─── Formula (locked, see docs/math.md) ─────────────────────────────────
+--   r1 = clamp(catalog × mult)              (no cheat)
+--   r2 = clamp(catalog × (mult / 2))        (cheat 1: bankroll halved)
+--   r3 = clamp((catalog / 2) × (mult / 2))  (cheat 2: catalog also halved)
+--   clear = r1 × r2 × r3
 --
 -- The 1.0 clamp is a math-reality clamp — you can't have >100% chance.
--- Past that point grinding stops paying. Catalog × max bankroll mult
--- alone won't reach 1.0 with the current numbers; the player has to
--- actively combine catalog buys + sustained bankroll grinding to push
--- toward the ceiling.
+-- `clear` is what the player is actually risking when they SHOVE; it's the
+-- headline number on the SHOVE button. r1/r2/r3 surface in the breakdown
+-- tooltip so the player can see where the wall is (math.md: "R3 is always
+-- the wall").
+--
+-- The two halvings are the dealer's two cheats. Diegetically: cheat 1
+-- attacks your bankroll-as-tribute, cheat 2 also disqualifies your
+-- catalog-as-evidence. Mechanically: they reduce different multiplicative
+-- factors so each runout is structurally weaker than the last.
 
 local BankrollTiers = require("data.bankroll_tiers")
 
@@ -36,41 +42,76 @@ local function lookupTier(bankroll)
     return last
 end
 
--- Compute the current shove rate plus a breakdown table that drives
--- the hover tooltip. Pure — no globals, no side effects. Caller passes
--- the latest ctx (catalog rollup) and bankroll snapshot; ShoveRate
--- never reaches into game.state directly.
-function ShoveRate.compute(ctx, bankroll)
-    local base = (ctx and ctx.shove_rate) or 0
-    local tier = lookupTier(bankroll or 0)
-    local mult = tier.mult
-    local raw  = base * mult
-    local total = (raw > 1.0) and 1.0 or raw
+local function clamp01(v)
+    if v > 1.0 then return 1.0 end
+    if v < 0.0 then return 0.0 end
+    return v
+end
 
-    return total, {
-        base     = base,
-        tier     = tier,        -- { threshold, mult, label }
-        bankroll = bankroll or 0,
-        total    = total,
-        clamped  = raw > 1.0,
+local function buildRates(catalog, tier)
+    local mult = tier.mult
+    local raw1 = catalog * mult
+    local raw2 = catalog * (mult / 2)
+    local raw3 = (catalog / 2) * (mult / 2)
+    local r1   = clamp01(raw1)
+    local r2   = clamp01(raw2)
+    local r3   = clamp01(raw3)
+    return {
+        catalog  = catalog,
+        tier     = tier,                -- { threshold, mult, label }
+        mult     = mult,
+        r1       = r1,
+        r2       = r2,
+        r3       = r3,
+        clear    = r1 * r2 * r3,
+        clamped  = { r1 = raw1 > 1.0, r2 = raw2 > 1.0, r3 = raw3 > 1.0 },
     }
 end
 
--- Format the breakdown into the multi-line tooltip shown on hover over
+-- Compute the current per-runout rates plus the gauntlet clear. Pure — no
+-- globals, no side effects. Caller passes the latest ctx (catalog rollup)
+-- and bankroll snapshot; ShoveRate never reaches into game.state directly.
+--
+-- Returns a single struct so every caller walks the same shape (catalog,
+-- mult, r1, r2, r3, clear, tier, bankroll, clamped). The previous two-
+-- return shape (total, breakdown) was removed when the gauntlet halving
+-- landed.
+function ShoveRate.compute(ctx, bankroll)
+    local base = (ctx and ctx.shove_rate) or 0
+    local tier = lookupTier(bankroll or 0)
+    local rates = buildRates(base, tier)
+    rates.bankroll = bankroll or 0
+    return rates
+end
+
+-- Synthesize a rate struct from a raw catalog base, bypassing ctx. Used by
+-- the shove-mode debug hotkeys ([ / ]) which mutate the rate independently
+-- of the actual catalog rollup.
+function ShoveRate.computeFromBase(catalog, bankroll)
+    local tier = lookupTier(bankroll or 0)
+    local rates = buildRates(catalog or 0, tier)
+    rates.bankroll = bankroll or 0
+    return rates
+end
+
+-- Format the rate struct into the multi-line tooltip shown on hover over
 -- the top-bar SHOVE column and the SHOVE button. Returns an array of
 -- strings — services/Tooltip.lua accepts arrays directly.
 --
 -- Lives here (not in the view) so the same lines render consistently
 -- everywhere the rate is surfaced.
-function ShoveRate.formatBreakdown(b)
+function ShoveRate.formatBreakdown(rates)
     local lines = {
-        string.format("SHOVE: %.1f%%", b.total * 100),
-        string.format("Base (catalog): %.1f%%", b.base * 100),
-        string.format("Bankroll $%s (%s): %d× -> %.1f%%",
-            ShoveRate._formatMoney(b.bankroll), b.tier.label, b.tier.mult, b.total * 100),
+        string.format("SHOVE: %.2f%% gauntlet clear", rates.clear * 100),
+        string.format("R1: %.1f%%   R2: %.1f%%   R3: %.1f%%",
+            rates.r1 * 100, rates.r2 * 100, rates.r3 * 100),
+        string.format("Base (catalog): %.1f%%", rates.catalog * 100),
+        string.format("Bankroll $%s (%s): %d× mult",
+            ShoveRate._formatMoney(rates.bankroll),
+            rates.tier.label, rates.tier.mult),
     }
-    if b.clamped then
-        lines[#lines + 1] = "(capped at 100% — math ceiling)"
+    if rates.clamped.r1 or rates.clamped.r2 or rates.clamped.r3 then
+        lines[#lines + 1] = "(some rates capped at 100% — math ceiling)"
     end
     return lines
 end

@@ -8,7 +8,7 @@
 -- Two interaction modes:
 --   • SoundService.play("beep", 0.5)         — direct synth play.
 --   • SoundService.playFile("a/b.mp3", 0.7)  — direct file play.
---   • SoundService.playNamed("shove_init")    — looks up data/sounds.lua,
+--   • SoundService.playNamed("event_name")    — looks up data/sounds.lua,
 --     which maps a semantic name → { file=…, volume } OR { kind=…, volume }.
 --     This is the preferred path for game code so call sites don't hardcode
 --     synthesis details or asset paths.
