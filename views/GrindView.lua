@@ -433,9 +433,7 @@ function GrindView:update(dt)
     if mx >= sb.x and mx < sb.x + sb.w and my >= sb.y and my < sb.y + sb.h then
         local state = self.game.state
         local ctx = (self.controller and self.controller.ctx) or {}
-        local _, breakdown = ShoveRate.compute(ctx,
-            state.bankroll or 0,
-            state.pp_this_run or 0)
+        local _, breakdown = ShoveRate.compute(ctx, state.bankroll or 0)
         local lines = ShoveRate.formatBreakdown(breakdown)
         lines[#lines + 1] = "Click to lock this rate."
         TooltipSvc.set(lines, mx, my)
@@ -458,9 +456,7 @@ function GrindView:update(dt)
     if mx >= 716 and mx < 800 and my >= 2 and my < 46 then
         local state = self.game.state
         local ctx = (self.controller and self.controller.ctx) or {}
-        local _, breakdown = ShoveRate.compute(ctx,
-            state.bankroll or 0,
-            state.pp_this_run or 0)
+        local _, breakdown = ShoveRate.compute(ctx, state.bankroll or 0)
         TooltipSvc.set(ShoveRate.formatBreakdown(breakdown), mx, my)
     end
 
@@ -554,11 +550,9 @@ function GrindView:_drawTopBar(W)
     -- in at click time — players see the grind feed the rate in real
     -- time. Tinted by rate breakpoints: red below 20%, amber 20-50%,
     -- green at 50%+. Hover tooltip (set in :update) shows the
-    -- breakdown (base, bankroll mult, pp bonus).
+    -- breakdown (base × bankroll mult).
     local ctx = (self.controller and self.controller.ctx) or {}
-    local rate = ShoveRate.compute(ctx,
-        state.bankroll or 0,
-        state.pp_this_run or 0)
+    local rate = ShoveRate.compute(ctx, state.bankroll or 0)
     local rate_color
     if     rate < 0.20 then rate_color = Theme.status.error
     elseif rate < 0.50 then rate_color = Theme.status.warn
@@ -732,9 +726,7 @@ function GrindView:_drawShoveButton()
     local ctx = self.controller.ctx or {}
     -- Live rate matches the top-bar column. The math-reality clamp lives
     -- inside ShoveRate.compute so we don't double-clamp here.
-    local rate = ShoveRate.compute(ctx,
-        state.bankroll or 0,
-        state.pp_this_run or 0)
+    local rate = ShoveRate.compute(ctx, state.bankroll or 0)
     local pending_pp = state.pp_this_run or 0
 
     local mx, my = love.mouse.getPosition()
@@ -879,9 +871,15 @@ function GrindView:mousepressed(x, y, b)
     local sb = self:_shoveButtonRect()
     if x >= sb.x and x < sb.x + sb.w and y >= sb.y and y < sb.y + sb.h then
         ClickFlash.flash("shove", "shove")
-        -- The PP-bank is now done inside ShoveState:enter so the rate
-        -- sample sees the un-banked pp_this_run for the bonus
-        -- calculation (the formula adds pp_banked × 0.5%).
+        -- Bank the run's pending PP at the moment of pulling the trigger.
+        -- Bounties locked during the run only convert to spendable PP if
+        -- the player actually shoves — F2 debug toggles bypass this so
+        -- dev shortcuts don't grant free PP. pp_this_run is NOT zeroed
+        -- here — the prestige modal reads it post-gauntlet to display
+        -- "you banked N PP this run." resetRun() (after modal dismiss)
+        -- does the actual zero.
+        local state = self.game.state
+        state.pp = state.pp + (state.pp_this_run or 0)
         self.game.state_machine:switch("shove")
         return
     end

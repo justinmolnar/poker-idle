@@ -103,13 +103,13 @@ function Overlay:draw()
 
     love.graphics.setFont(self.font_main)
     Theme.setColor(Theme.debug.hud_dim)
-    -- At-shove-time breakdown: base × mult + pp = total. Pulled from
-    -- the snapshot ShoveState locked in at :enter (self.ss.shove_breakdown).
+    -- At-shove-time breakdown: base × mult = total. Pulled from the
+    -- snapshot ShoveState locked in at :enter (self.ss.shove_breakdown).
     local b = self.ss.shove_breakdown
     local breakdown_line
     if b then
-        breakdown_line = string.format("%.0f%% × %d + %.1f%% pp = %.1f%%",
-            b.base * 100, b.tier.mult, b.pp_bonus * 100, b.total * 100)
+        breakdown_line = string.format("%.0f%% × %d = %.1f%%",
+            b.base * 100, b.tier.mult, b.total * 100)
     else
         breakdown_line = "(no breakdown)"
     end
