@@ -170,6 +170,12 @@ function PokerEffects.registerAll(reg)
     reg:register("cursor_unlocked", function(_e, ctx)
         ctx.cursor_unlocked = true
     end)
+    -- Flag perk that promotes cursors to also click REBUY hit_boxes.
+    -- Default off — opt-in upgrade. Per-table opt-out via the [R]
+    -- header toggle (see views/TablePanel + models/Table.cursor_rebuy_muted).
+    reg:register("cursor_rebuy_unlocked", function(_e, ctx)
+        ctx.cursor_rebuy_unlocked = true
+    end)
     reg:register("cursor_count_add", function(e, ctx)
         ctx.cursor_count = (ctx.cursor_count or 0) + (e.value or 0)
     end)

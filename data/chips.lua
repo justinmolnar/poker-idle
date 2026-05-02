@@ -76,8 +76,20 @@ return {
     -- jackpots look like a pile of 30+.
     tier_chip_target = {
         tiny    = 4,
-        small   = 10,
-        medium  = 20,
-        jackpot = 35,
+        small   = 12,
+        medium  = 28,
+        jackpot = 50,
+    },
+
+    -- Per-tier cap on the chip-burst fountain (services/FlightSystem.lua).
+    -- Default MAX_PER_EVENT (7) bottlenecks high tiers — bump it for
+    -- medium and jackpot so the fountain actually shows the magnitude.
+    -- Read by GrindController:_emitResolutionChips, passed as
+    -- options.max_per_event on emitBurst.
+    tier_burst_cap = {
+        tiny    = 7,
+        small   = 8,
+        medium  = 12,
+        jackpot = 18,
     },
 }

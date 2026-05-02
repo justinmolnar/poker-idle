@@ -31,6 +31,7 @@ local ClickFlash      = require("services.ClickFlash")
 local Tooltip         = require("services.Tooltip")
 local Ghosts          = require("services.Ghosts")
 local AnchorRegistry  = require("services.AnchorRegistry")
+local ShaderRegistry  = require("services.ShaderRegistry")
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
@@ -110,6 +111,10 @@ end
 function love.load()
     Game = buildGame()
     Game.sprite_loader:loadAll()
+
+    -- Compile shaders at boot. ShaderRegistry caches by name; compile
+    -- failures log a warning and degrade gracefully (no crash).
+    ShaderRegistry.loadFromFile("radial_glow", "shaders/radial_glow.frag")
 
     if Constants.DEBUG.START_IN_SHOVE then
         Game.state_machine:switch("shove")

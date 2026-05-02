@@ -131,22 +131,29 @@ end
 -- sound played alongside (e.g. an ambient loop layered under a click).
 -- Recursion lets layers themselves carry layers, but in practice we only use
 -- a single level of nesting.
-local function playEntry(entry)
+local function playEntry(entry, vol_mult)
     if not entry then return end
+    vol_mult = vol_mult or 1.0
+    local v  = (entry.volume or 1) * vol_mult
     if entry.files and #entry.files > 0 then
         local pick = entry.files[love.math.random(1, #entry.files)]
-        SoundService.playFile(pick, entry.volume)
+        SoundService.playFile(pick, v)
     elseif entry.file then
-        SoundService.playFile(entry.file, entry.volume)
+        SoundService.playFile(entry.file, v)
     elseif entry.kind then
-        SoundService.play(entry.kind, entry.volume)
+        SoundService.play(entry.kind, v)
     end
-    if entry.layer then playEntry(entry.layer) end
+    if entry.layer then playEntry(entry.layer, vol_mult) end
 end
 
--- Look up a semantic name in data/sounds.lua and play it.
-function SoundService.playNamed(name)
-    playEntry(Sounds[name])
+-- Look up a semantic name in data/sounds.lua and play it. Optional opts:
+--   opts.volume_mult — multiplier on the data-table's `volume` field.
+--                      Used for tier-scaled feedback (quiet on Tiny,
+--                      louder on Jackpot) without duplicating sound
+--                      entries per tier.
+function SoundService.playNamed(name, opts)
+    local vol_mult = (opts and opts.volume_mult) or 1.0
+    playEntry(Sounds[name], vol_mult)
 end
 
 function SoundService.stopAll()

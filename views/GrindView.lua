@@ -416,17 +416,25 @@ function GrindView:update(dt)
     -- dependencies out of controllers/GrindController.lua.
     local bursts = self.controller:drainBursts()
     for _, b in ipairs(bursts) do
-        FlightSystem.emitBurst(b.source, b.dest, Chips.makeRenderFns(b.chips), b.options)
+        FlightSystem.emitBurst(b.source, b.dest,
+            Chips.makeRenderFns(b.chips, b.options and b.options.chip_tint),
+            b.options)
     end
 end
 
 -- ─── Top bar ───────────────────────────────────────────────────────────
 
 local function moneyText(n)
+    n = n or 0
+    -- Floor to 2 decimals so the displayed bankroll never overstates
+    -- what's actually purchasable. See views/TablePanel:moneyText for
+    -- the same treatment on per-table readouts.
     if math.abs(n) < 1000 then
-        return string.format("$%.2f", n)
+        local floored = math.floor(n * 100) / 100
+        if n < 0 then floored = -math.floor(-n * 100) / 100 end
+        return string.format("$%.2f", floored)
     end
-    return Format.money(n)
+    return Format.money(math.floor(n))
 end
 
 local function ppText(n)
@@ -500,21 +508,22 @@ function GrindView:_drawTopBar(W)
 
     -- SHOVE: live gauntlet-clear readout. Same compute the gauntlet
     -- locks in at click time — players see the grind feed the rate in
-    -- real time. The headline number is `clear` (= r1·r2·r3) — what the
-    -- player is actually risking. Tinted by clear-rate breakpoints from
-    -- math.md's per-tier table: <5% red (T3 territory), 5–30% amber
-    -- (T4–T5), 30%+ green (T6 reachable). Hover tooltip (set in :update)
-    -- shows the per-runout breakdown.
+    -- real time. Player-facing this is just "% to win the all-in" — the
+    -- dealer's cheats are a diegetic surprise reveal, the UI doesn't
+    -- pre-spoil R2/R3 or the gauntlet structure. Mechanically the
+    -- displayed value is raw_r1 (catalog × bankroll-mult, uncapped) so
+    -- the player can see overshoots like "120%" / "220%" — that's the
+    -- "I've ground past anything that matters" feel.
     local ctx = (self.controller and self.controller.ctx) or {}
     local rates = ShoveRate.compute(ctx, state.bankroll or 0)
-    local clear = rates.clear
+    local r1_raw = rates.raw_r1 or 0
     local rate_color
-    if     clear < 0.05 then rate_color = Theme.status.error
-    elseif clear < 0.30 then rate_color = Theme.status.warn
-    else                     rate_color = Theme.status.good
+    if     r1_raw < 0.50 then rate_color = Theme.status.error
+    elseif r1_raw < 1.00 then rate_color = Theme.status.warn
+    else                      rate_color = Theme.status.good
     end
     Theme.setColor(rate_color)
-    love.graphics.print(string.format("%.1f%%", clear * 100), 720, 22)
+    love.graphics.print(string.format("%.0f%%", r1_raw * 100), 720, 22)
 end
 
 -- ─── Cash-Out-All button (top bar, right side) ───────────────────────
@@ -725,29 +734,64 @@ function GrindView:_drawShoveButton()
             fx, fy + 30, fw, "center")
 
         Theme.setColor(can_shove and Theme.fg.primary or Theme.fg.faint)
-        love.graphics.printf(string.format("%.1f%% gauntlet clear", rates.clear * 100),
+        love.graphics.printf(string.format("%.0f%% to win", (rates.raw_r1 or 0) * 100),
             fx, fy + 46, fw, "center")
     end)
 end
 
 -- ─── Floating text overlay ────────────────────────────────────────────
 
+-- Stroke offsets for the text outline. 8 cardinal+diagonal positions
+-- give a clean ring; we draw the text at each in dark color, then once
+-- in the main color at center. Cheap legibility win against any felt.
+local FLOATER_STROKE_OFFSETS = {
+    {-1, -1}, {0, -1}, {1, -1},
+    {-1,  0},          {1,  0},
+    {-1,  1}, {0,  1}, {1,  1},
+}
+local FLOATER_STROKE_COLOR = { 0, 0, 0 }
+
 function GrindView:_drawFloatingText()
     local fonts = self.game.fonts
-    love.graphics.setFont(fonts.heading)
+    -- Resolve a controller-supplied color_token through Theme palettes.
+    -- Keeps the controller free of view imports while still letting it
+    -- name colors symbolically (e.g., "amber" for streak callouts).
+    local function resolveToken(tok)
+        if not tok then return nil end
+        return (Theme.data and Theme.data[tok])
+            or (Theme.status and Theme.status[tok])
+            or nil
+    end
     for _, t in ipairs(self.game.floating_text.getTexts()) do
-        local color
-        if t.text:find(" PP", 1, true) then
-            -- PP-bounty awards (e.g. "+3 PP") in violet so the player reads
-            -- them as distinct from the green +$ / red -$ pot deltas.
-            color = Theme.data.violet
-        elseif t.text:sub(1, 1) == "+" then
-            color = Theme.status.good
-        else
-            color = Theme.status.error
+        -- Color priority: explicit RGB override > color_token lookup > auto.
+        local color = t.color or resolveToken(t.color_token)
+        if not color then
+            if t.text:find(" PP", 1, true) then
+                color = Theme.data.violet
+            elseif t.text:sub(1, 1) == "+" then
+                -- Default win color: amber/gold, not green. Green blends
+                -- with the green felt; gold pops on every stake's color.
+                color = Theme.data.amber or Theme.status.good
+            else
+                color = Theme.status.error
+            end
         end
+        local font  = fonts[t.font or "heading"] or fonts.heading
+        local scale = t.scale or 1.0
+        love.graphics.setFont(font)
+        local tw = font:getWidth(t.text)
+        love.graphics.push()
+        love.graphics.translate(t.x - tw * scale * 0.5, t.y)
+        if scale ~= 1 then love.graphics.scale(scale, scale) end
+        -- Dark stroke ring for legibility against any felt color.
+        Theme.setColor(FLOATER_STROKE_COLOR, (t.alpha or 1) * 0.85)
+        for _, off in ipairs(FLOATER_STROKE_OFFSETS) do
+            love.graphics.print(t.text, off[1], off[2])
+        end
+        -- Main text on top.
         Theme.setColor(color, t.alpha or 1)
-        love.graphics.print(t.text, t.x - 24, t.y)
+        love.graphics.print(t.text, 0, 0)
+        love.graphics.pop()
     end
 end
 
@@ -773,7 +817,11 @@ function GrindView:_drawBankrollChips(W, H)
 
     local tier = Denoms.tierFromAmount(bankroll)
     local chips = Denoms.breakdown(bankroll, ChipData.full_palette, tier)
-    Chips.drawStack(center_x, stack_y, chips, { align = "center" })
+    -- Cap to the bottom band's width so a huge bankroll doesn't march
+    -- past the center-column edges. drawStack drops smallest-denom
+    -- columns from the tail until it fits.
+    Chips.drawStack(center_x, stack_y, chips,
+        { align = "center", max_w = band_w - 32 })
 end
 
 -- ─── Composite draw ───────────────────────────────────────────────────
@@ -801,16 +849,18 @@ function GrindView:draw()
 
     -- Flying chips between source and destination (pot ↔ player ↔
     -- bankroll). Renders above panels and the bankroll pile but below
-    -- the cursor swarm so cursors visibly land on the buttons.
+    -- the cursor swarm.
     FlightSystem.draw()
 
-    -- Cursor swarm — drawn above flying chips so cursors remain readable
-    -- against the chip fountain.
-    CursorPool.draw()
-
     -- Press-then-vanish ghosts for DEAL / REBUY / [×] click animations.
-    -- Drawn above panels so they sit visually where the live button was.
+    -- Drawn above panels so they sit visually where the live button
+    -- was. Must be drawn BEFORE cursors, otherwise the ghost rendered
+    -- after a cursor click covers the cursor that just clicked it.
     Ghosts.draw()
+
+    -- Cursor swarm — drawn last so cursors are always on top, including
+    -- on top of the press-fade ghost they just dispatched.
+    CursorPool.draw()
 
     -- Hover tooltip — sits above gameplay layers but below the backtick
     -- debug overlay (which is the absolute top).
@@ -943,6 +993,8 @@ function GrindView:_handleHitBox(hb)
         self.controller:removeTable(hb.idx)
     elseif hb.action == "toggle_cursor" then
         self.controller:toggleCursorMute(hb.idx)
+    elseif hb.action == "toggle_rebuy_cursor" then
+        self.controller:toggleCursorRebuyMute(hb.idx)
     end
 end
 

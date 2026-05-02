@@ -240,4 +240,12 @@ function ShoveState:mousepressed(mx, my, button)
     end
 end
 
+function ShoveState:wheelmoved(dx, dy)
+    -- Forward scroll wheel to the catalog modal so a catalog longer than
+    -- the viewport can be browsed.
+    if self.catalog_modal and self.catalog_modal.wheelmoved then
+        self.catalog_modal:wheelmoved(dx, dy)
+    end
+end
+
 return ShoveState

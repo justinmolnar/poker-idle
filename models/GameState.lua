@@ -50,7 +50,10 @@ function GameState:new(saved)
     -- Parallel array to active_table_specs — cursor mute flag per table.
     -- Indexed identically; true = autonomous cursor swarm skips this table.
     -- Persisted across saves; reset on prestige (since tables die anyway).
-    instance.active_table_mutes  = {}
+    instance.active_table_mutes        = {}
+    -- Same shape — per-table rebuy-mute. Only consulted when the catalog
+    -- perk `cursor_rebuy_unlocked` is owned.
+    instance.active_table_rebuy_mutes  = {}
     -- Parallel arrays to active_table_specs — per-tournament-table state
     -- so a save mid-MTT-sequence resumes at the right hand on reload.
     -- Both are runtime-resilient: cash-game tables write 0 / nil and
@@ -82,7 +85,8 @@ function GameState:resetRun()
     for _ = 1, Constants.GAMEPLAY.INITIAL_ACTIVE_TABLES do
         self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"
     end
-    self.active_table_mutes  = {}
+    self.active_table_mutes        = {}
+    self.active_table_rebuy_mutes  = {}
     self.active_table_mtt_hands_won = {}
     self.active_table_mtt_state     = {}
     self.stakes_won_this_run = {}
@@ -132,6 +136,7 @@ function GameState:serializeRun()
         run_upgrade_levels         = self.run_upgrade_levels,
         active_table_specs         = self.active_table_specs,
         active_table_mutes         = self.active_table_mutes,
+        active_table_rebuy_mutes   = self.active_table_rebuy_mutes,
         active_table_mtt_hands_won = self.active_table_mtt_hands_won,
         active_table_mtt_state     = self.active_table_mtt_state,
         stakes_won_this_run        = self.stakes_won_this_run,

@@ -49,16 +49,19 @@ function CatalogModal:new(game)
         game     = game,
         -- Cached cell rects (built each :draw, consumed by :consumeMouse)
         _cells   = {},
+        -- Vertical scroll offset (px). Positive = scrolled down.
+        _scroll_y    = 0,
+        _scroll_max  = 0,    -- recomputed each :draw from content height
     }, CatalogModal)
 end
 
 -- ─── Visibility filter ────────────────────────────────────────────────
 
--- Owned/locked-aware filter mirroring the old in-grind catalog tab. Hides
--- system phantoms (handicap), locked items behind requires_hide, and any
--- non-demo phase items so the modal stays focused on the 11-item demo
--- catalog. Future phases would ship via a phase=mid|late filter relaxation
--- (or a phase-progression flag on state).
+-- Owned/locked-aware filter. Hides system phantoms (the no_poster
+-- handicap) and items gated behind a not-yet-owned prerequisite that
+-- asked to be hidden until unlocked. Phase tags exist on items for
+-- future ordering / UI grouping but don't gate visibility — every
+-- buyable item needs a path to be seen.
 local function visibleItems(state)
     local owned = {}
     for _, id in ipairs(state.owned_items) do owned[id] = true end
@@ -67,7 +70,6 @@ local function visibleItems(state)
     for _, item in ipairs(Catalog) do
         local locked = item.requires and not owned[item.requires]
         local skip = item.hidden
-                  or item.phase ~= "demo"
                   or (locked and item.requires_hide)
         if not skip then
             out[#out + 1] = item
@@ -95,6 +97,19 @@ end
 
 function CatalogModal:consumeKey(key)
     return key == "space" or key == "return"
+end
+
+-- Forward mouse-wheel events from ShoveState. dy > 0 = wheel up = scroll
+-- content up (toward earlier items); dy < 0 = wheel down. Clamped to
+-- content bounds (computed in :draw).
+local SCROLL_STEP_PX = 60
+function CatalogModal:wheelmoved(_, dy)
+    if not dy or dy == 0 then return end
+    self._scroll_y = self._scroll_y - dy * SCROLL_STEP_PX
+    if self._scroll_y < 0 then self._scroll_y = 0 end
+    if self._scroll_max and self._scroll_y > self._scroll_max then
+        self._scroll_y = self._scroll_max
+    end
 end
 
 -- Returns true if the click landed on a buyable card and the buy succeeded.
@@ -190,6 +205,10 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
     }
 end
 
+-- Maximum modal height as a fraction of the viewport. Anything taller
+-- and the inner grid scrolls.
+local MODAL_MAX_H_FRAC = 0.90
+
 function CatalogModal:draw()
     local W, H  = love.graphics.getDimensions()
     local fonts = self.game.fonts
@@ -200,10 +219,16 @@ function CatalogModal:draw()
     love.graphics.rectangle("fill", 0, 0, W, H)
 
     local items, owned = visibleItems(state)
-    local n_rows = math.ceil(#items / GRID_COLS)
-    local card_w = math.floor((MODAL_W - 2 * MODAL_PAD - GRID_GAP_X) / GRID_COLS)
-    local grid_h = n_rows * CARD_H + (n_rows - 1) * GRID_GAP_Y
-    local modal_h = HEADER_H + grid_h + 2 * MODAL_PAD + FOOTER_H
+    local n_rows  = math.ceil(#items / GRID_COLS)
+    local card_w  = math.floor((MODAL_W - 2 * MODAL_PAD - GRID_GAP_X) / GRID_COLS)
+    local content_h = n_rows * CARD_H + math.max(0, n_rows - 1) * GRID_GAP_Y
+
+    -- Modal sizing: prefer fitting all items, but cap at viewport*FRAC so
+    -- a long catalog doesn't overflow the screen. When capped, the inner
+    -- grid scrolls.
+    local modal_h_natural = HEADER_H + content_h + 2 * MODAL_PAD + FOOTER_H
+    local modal_h_max     = math.floor(H * MODAL_MAX_H_FRAC)
+    local modal_h         = math.min(modal_h_natural, modal_h_max)
 
     local mx_modal = math.floor((W - MODAL_W) / 2)
     local my_modal = math.floor((H - modal_h) / 2)
@@ -227,22 +252,56 @@ function CatalogModal:draw()
     love.graphics.print(pp_label,
         mx_modal + MODAL_W - MODAL_PAD - pp_w, my_modal + 16)
 
-    -- Grid.
+    -- Compute the visible scroll-viewport for the grid.
+    local viewport_x = mx_modal + MODAL_PAD
+    local viewport_y = my_modal + HEADER_H + MODAL_PAD
+    local viewport_w = MODAL_W - 2 * MODAL_PAD
+    local viewport_h = modal_h - HEADER_H - 2 * MODAL_PAD - FOOTER_H
+
+    -- Update scroll bounds + clamp current scroll based on actual content.
+    self._scroll_max = math.max(0, content_h - viewport_h)
+    if self._scroll_y > self._scroll_max then self._scroll_y = self._scroll_max end
+    if self._scroll_y < 0 then self._scroll_y = 0 end
+
+    -- Scissor clips the grid to the viewport so partially-visible cards
+    -- get cut at the modal edges instead of bleeding outside.
+    love.graphics.setScissor(viewport_x, viewport_y, viewport_w, viewport_h)
+
     self._cells = {}
-    local grid_x = mx_modal + MODAL_PAD
-    local grid_y = my_modal + HEADER_H + MODAL_PAD
     for i, item in ipairs(items) do
         local col = (i - 1) % GRID_COLS
         local row = math.floor((i - 1) / GRID_COLS)
-        local cx = grid_x + col * (card_w + GRID_GAP_X)
-        local cy = grid_y + row * (CARD_H + GRID_GAP_Y)
-        drawItemCard(self, item, owned, state, cx, cy, card_w, CARD_H, fonts)
+        local cx = viewport_x + col * (card_w + GRID_GAP_X)
+        local cy = viewport_y + row * (CARD_H + GRID_GAP_Y) - self._scroll_y
+        -- Cull cards entirely outside the viewport — minor perf, also
+        -- keeps hit-test cells off-screen so clicks don't fire.
+        if cy + CARD_H >= viewport_y and cy <= viewport_y + viewport_h then
+            drawItemCard(self, item, owned, state, cx, cy, card_w, CARD_H, fonts)
+        end
+    end
+
+    love.graphics.setScissor()
+
+    -- Scroll indicator on the right edge — only when content overflows.
+    if self._scroll_max > 0 then
+        local track_x = mx_modal + MODAL_W - 8
+        local track_y = viewport_y
+        local track_h = viewport_h
+        Theme.setColor(Theme.bg.sunken, 0.6)
+        love.graphics.rectangle("fill", track_x, track_y, 4, track_h, 2)
+        local thumb_h = math.max(20, track_h * (viewport_h / content_h))
+        local thumb_y = track_y + (track_h - thumb_h) * (self._scroll_y / self._scroll_max)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.rectangle("fill", track_x, thumb_y, 4, thumb_h, 2)
     end
 
     -- Footer prompt.
     love.graphics.setFont(fonts.ui_small)
     Theme.setColor(Theme.fg.faint)
-    love.graphics.printf("[ SPACE to continue ]",
+    local prompt = self._scroll_max > 0
+        and "[ SPACE to continue · scroll wheel to browse ]"
+        or  "[ SPACE to continue ]"
+    love.graphics.printf(prompt,
         mx_modal, my_modal + modal_h - 28, MODAL_W, "center")
 end
 

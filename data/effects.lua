@@ -224,6 +224,11 @@ Effects.kinds = {
         value_shape = "no field (presence sets ctx.cursor_unlocked = true)",
         affects     = "ctx.cursor_unlocked",
     },
+    cursor_rebuy_unlocked = {
+        description = "Flag perk — cursors also click REBUY (not just DEAL). Per-table opt-out via the [R] header toggle.",
+        value_shape = "no field (presence sets ctx.cursor_rebuy_unlocked = true)",
+        affects     = "ctx.cursor_rebuy_unlocked",
+    },
     cursor_count_add = {
         description = "Adds N to the autonomous cursor pool size.",
         value_shape = "integer, e.g. 1 for +1 cursor",

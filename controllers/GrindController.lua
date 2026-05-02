@@ -17,8 +17,11 @@ local Stakes         = require("data.stakes")
 local GameTypes      = require("data.game_types")
 local Constants      = require("data.constants")
 local ChipData       = require("data.chips")
+local FeedbackIntensity = require("data.feedback_intensity")
 local Denoms         = require("services.DenominationBreakdown")
 local AnchorRegistry = require("services.AnchorRegistry")
+local Confetti       = require("services.Confetti")
+local StakeThemes    = require("data.stake_themes")
 
 local function findStake(id)
     for _, s in ipairs(Stakes) do
@@ -264,7 +267,18 @@ function GrindController:update(dt)
         else
             label = string.format("-$%.2f", -r.delta)
         end
-        self.game.floating_text.emit(label, r.x, r.y)
+        -- Tier-scaled floater opts from data. Tiny = small + compact;
+        -- jackpot = huge + arcing. Color is auto-detected from the +/-
+        -- prefix at draw time, so no override needed here.
+        local intensity_for_floater = FeedbackIntensity[r.tier] or FeedbackIntensity.tiny
+        -- Spawn at the panel center if the anchor exists; falls back to
+        -- (r.x, r.y) which is the panel's top-left corner. The center
+        -- read sells the float as "above this hand" instead of off in
+        -- the corner.
+        local cxy   = (tbl and AnchorRegistry.get(TableModel.anchorKey(tbl, "center")))
+        local fx    = cxy and cxy[1] or (r.x or 0)
+        local fy    = cxy and cxy[2] or (r.y or 0)
+        self.game.floating_text.emit(label, fx, fy, intensity_for_floater.floater)
 
         -- Chip-flight burst on resolution. Three flavors:
         --   • win  → pot to YOU stack
@@ -272,16 +286,44 @@ function GrindController:update(dt)
         --   • overflow (YOU stack hit cap) → YOU to bankroll pile
         self:_emitResolutionChips(r, tbl, overflow_amount)
 
-        -- Jackpot FX: per-table screen shake + colored vignette. Triggered
-        -- ONLY on jackpot tier so the moment stays special. Trauma uses the
-        -- trauma² model (Table:update decays it); vignette is a simple
-        -- alpha-decay overlay tinted by win vs loss.
-        if r.tier == "jackpot" and tbl then
-            local is_win = r.delta > 0
-            tbl.shake_trauma   = math.max(tbl.shake_trauma or 0,
-                                          is_win and 0.75 or 0.65)
-            tbl.vignette_kind  = is_win and "good" or "bad"
-            tbl.vignette_alpha = is_win and 0.70 or 0.65
+        -- Tier-scaled resolution FX. Every settle now produces feedback;
+        -- magnitude per tier comes from data/feedback_intensity.lua so
+        -- there's no `if tier == "jackpot"` branch here. Tiny resolutions
+        -- get a faint border pulse + small slam dip; jackpots get full
+        -- shake + vignette + bright border + biggest slam.
+        if tbl then
+            local intensity = FeedbackIntensity[r.tier] or FeedbackIntensity.tiny
+            local is_win    = r.delta > 0
+            tbl.shake_trauma       = math.max(tbl.shake_trauma or 0, intensity.shake)
+            if intensity.vignette > 0 then
+                tbl.vignette_kind  = is_win and "good" or "bad"
+                tbl.vignette_alpha = math.max(tbl.vignette_alpha or 0, intensity.vignette)
+            end
+            tbl.border_pulse_t     = math.max(tbl.border_pulse_t or 0, intensity.border_pulse)
+            tbl.border_pulse_color = is_win and "good" or "bad"
+            -- Border-pulse SFX marker — short ding tied to the colored
+            -- border flash. Volume scales with the same border_pulse
+            -- intensity so Tiny resolutions barely register and Jackpots
+            -- ring out. Stacks with the existing pot_won_/pot_lost_ tier
+            -- sound that fires from the state-transition handler.
+            local pulse_sound = is_win and "border_pulse_win" or "border_pulse_loss"
+            self:_playNamed(pulse_sound, { volume_mult = intensity.border_pulse })
+            -- Spectacle layer: jackpot wins only. Radial-glow shader on
+            -- the panel + confetti fountain from the table center. Both
+            -- gated on intensity fields existing (only jackpot defines
+            -- them in data/feedback_intensity.lua) so future tiers can
+            -- opt in by adding the same fields.
+            if is_win and intensity.glow and intensity.glow > 0 then
+                tbl.glow_t = math.max(tbl.glow_t or 0, intensity.glow)
+            end
+            if is_win and intensity.confetti_count and intensity.confetti_count > 0 then
+                -- Inline AnchorRegistry lookup — _anchor() helper is
+                -- defined further down in the file and isn't visible
+                -- at this point of the load order.
+                local center = AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
+                                or { r.x or 0, r.y or 0 }
+                Confetti.burst(center, intensity.confetti_count)
+            end
         end
 
         -- PP-bounty: first jackpot-tier win at this (stake, game_type)
@@ -518,6 +560,18 @@ function GrindController:toggleCursorMute(idx)
     return true
 end
 
+-- Toggle the per-table cursor-rebuy opt-out. Only meaningful when the
+-- catalog perk `cursor_rebuy_unlocked` is owned (the [R] header toggle
+-- is hidden otherwise). Persists via _syncStateList →
+-- state.active_table_rebuy_mutes.
+function GrindController:toggleCursorRebuyMute(idx)
+    local t = self.pool:get(idx)
+    if not t then return false end
+    t.cursor_rebuy_muted = not (t.cursor_rebuy_muted == true)
+    self.pool:_syncStateList()
+    return true
+end
+
 -- Click-to-deal entry point. Triggers the per-hand state machine on a
 -- specific table. Returns false if the table is already animating a hand
 -- or doesn't exist.
@@ -533,9 +587,11 @@ function GrindController:dealHand(idx)
 end
 
 -- Defensive sound dispatch — single line so each call site stays terse.
-function GrindController:_playNamed(name)
+-- opts is an optional table forwarded to SoundService.playNamed
+-- (volume_mult etc.) for tier-scaled feedback.
+function GrindController:_playNamed(name, opts)
     local sounds = self.game.sounds
-    if sounds and sounds.playNamed then sounds.playNamed(name) end
+    if sounds and sounds.playNamed then sounds.playNamed(name, opts) end
 end
 
 -- ── Chip-flight emission helpers ─────────────────────────────────────
@@ -630,12 +686,25 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
     local pot_xy = _anchor(tbl, "pot")
     if not you_xy or not pot_xy then return end
     local palette = _paletteForStake(tbl.stake_id)
+    local tier    = r.tier or "small"
+    -- Tier-scaled visible chip-count cap (data/chips.lua). Jackpots
+    -- fountain bigger than the default; tinies stay contained.
+    local burst_cap = (ChipData.tier_burst_cap and ChipData.tier_burst_cap[tier])
+    -- Per-stake chip tint (data/stake_themes.lua) — T6 = warm gold cast,
+    -- T1 = desaturated dim, etc. Multiplied into the chip body color
+    -- inside Chips.drawChip.
+    local stake_theme = StakeThemes[tbl.stake_id]
+    local chip_tint   = stake_theme and stake_theme.chip_tint
 
     if r.delta > 0 then
-        local chips = Denoms.breakdown(r.delta, palette, r.tier or "small")
-        self:_queueBurst(pot_xy, you_xy, chips, { arrival_sound = "chip_land_you" })
+        local chips = Denoms.breakdown(r.delta, palette, tier)
+        self:_queueBurst(pot_xy, you_xy, chips, {
+            arrival_sound = "chip_land_you",
+            max_per_event = burst_cap,
+            chip_tint     = chip_tint,
+        })
     elseif r.delta < 0 then
-        local chips = Denoms.breakdown(-r.delta, palette, r.tier or "small")
+        local chips = Denoms.breakdown(-r.delta, palette, tier)
         -- Loss → chips fly to the winning opponent's seat (their cards).
         -- Falls back to off-screen if the panel hasn't drawn yet (first
         -- frame after table add) so the burst still has a destination.
@@ -644,7 +713,11 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
             target_xy = _anchor(tbl, "opp_" .. tbl.opponent_idx)
         end
         target_xy = target_xy or self:_offscreenAnchor(pot_xy[1])
-        self:_queueBurst(pot_xy, target_xy, chips, { arrival_sound = "chip_land_pot" })
+        self:_queueBurst(pot_xy, target_xy, chips, {
+            arrival_sound = "chip_land_pot",
+            max_per_event = burst_cap,
+            chip_tint     = chip_tint,
+        })
     end
 
     if overflow_amount and overflow_amount > 0 then

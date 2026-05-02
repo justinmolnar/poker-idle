@@ -60,9 +60,20 @@ local function buildRates(catalog, tier)
         catalog  = catalog,
         tier     = tier,                -- { threshold, mult, label }
         mult     = mult,
+        -- Clamped values (used by the actual outcome roll — math reality
+        -- can't have a probability > 1.0).
         r1       = r1,
         r2       = r2,
         r3       = r3,
+        -- Raw / unclamped values for display. The headline shove % shows
+        -- raw_r1 (with no 100% ceiling) so the player can see "220%"
+        -- when they've grinded so hard the dealer's first cheat doesn't
+        -- matter — diegetically: undeniable edge against a cheating
+        -- dealer. The tooltip surfaces all three raw values for the same
+        -- reason ("R3: 110% — even the second cheat won't stop me").
+        raw_r1   = raw1,
+        raw_r2   = raw2,
+        raw_r3   = raw3,
         clear    = r1 * r2 * r3,
         clamped  = { r1 = raw1 > 1.0, r2 = raw2 > 1.0, r3 = raw3 > 1.0 },
     }
@@ -100,20 +111,19 @@ end
 --
 -- Lives here (not in the view) so the same lines render consistently
 -- everywhere the rate is surfaced.
+-- Player-facing breakdown of the shove %. Only exposes what the player
+-- knows pre-reveal: this is a single all-in hand, here's your win
+-- chance and where it came from. R2/R3, the gauntlet, the dealer's
+-- cheats — all of that is a diegetic surprise, NOT something the
+-- tooltip should pre-spoil.
 function ShoveRate.formatBreakdown(rates)
-    local lines = {
-        string.format("SHOVE: %.2f%% gauntlet clear", rates.clear * 100),
-        string.format("R1: %.1f%%   R2: %.1f%%   R3: %.1f%%",
-            rates.r1 * 100, rates.r2 * 100, rates.r3 * 100),
-        string.format("Base (catalog): %.1f%%", rates.catalog * 100),
+    return {
+        string.format("ALL-IN: %.0f%% to win", rates.raw_r1 * 100),
+        string.format("Catalog base: %.1f%%", rates.catalog * 100),
         string.format("Bankroll $%s (%s): %d× mult",
             ShoveRate._formatMoney(rates.bankroll),
             rates.tier.label, rates.tier.mult),
     }
-    if rates.clamped.r1 or rates.clamped.r2 or rates.clamped.r3 then
-        lines[#lines + 1] = "(some rates capped at 100% — math ceiling)"
-    end
-    return lines
 end
 
 -- Compact money formatter for the tooltip — keeps the breakdown line

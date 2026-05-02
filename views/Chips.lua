@@ -36,11 +36,19 @@ end
 -- with_label = true draws the denomination text centered on the chip,
 -- with auto-contrast (light label on dark chips, dark on light) chosen
 -- by Y'CbCr-ish luminance.
-function Chips.drawChip(x, y, denom_idx, alpha, with_label)
+--
+-- tint (optional) is a {r, g, b} multiplier applied to the chip body
+-- color so per-stake themes can shift the chip palette toward warm gold
+-- (T6) or desaturated dim (T1) without redefining the denomination
+-- colors. {1, 1, 1} (or nil) is identity.
+function Chips.drawChip(x, y, denom_idx, alpha, with_label, tint)
     local d = ChipData.denominations[denom_idx]
     if not d then return end
     alpha = alpha or 1
     local c = d.color
+    if tint then
+        c = { c[1] * tint[1], c[2] * tint[2], c[3] * tint[3] }
+    end
 
     -- Outer ring — darkened denomination color.
     local dark = { c[1] * 0.55, c[2] * 0.55, c[3] * 0.55 }
@@ -73,11 +81,11 @@ end
 -- name a draw function; it just hands the resulting closure list to
 -- FlightSystem.emitBurst. Keeps the view layer the only producer of
 -- render callbacks.
-function Chips.makeRenderFns(chip_indices)
+function Chips.makeRenderFns(chip_indices, tint)
     local fns = {}
     if not chip_indices then return fns end
     for i, idx in ipairs(chip_indices) do
-        fns[i] = function(x, y) Chips.drawChip(x, y, idx, 1, true) end
+        fns[i] = function(x, y) Chips.drawChip(x, y, idx, 1, true, tint) end
     end
     return fns
 end
@@ -116,8 +124,12 @@ function Chips.drawStack(x, y, chip_indices, options)
     if not chip_indices or #chip_indices == 0 then return end
     options = options or {}
     local align = options.align or "center"
+    local tint  = options.tint                       -- nil = identity (no tint)
+    local max_w = options.max_w                      -- nil = unbounded width
 
-    -- Group by denomination preserving first-appearance order.
+    -- Group by denomination preserving first-appearance order. Breakdown
+    -- returns chips largest-denom-first, so the FIRST groups are the
+    -- biggest chips and the LAST groups are the smallest.
     local groups, group_for = {}, {}
     for _, idx in ipairs(chip_indices) do
         local g = group_for[idx]
@@ -129,15 +141,38 @@ function Chips.drawStack(x, y, chip_indices, options)
         end
     end
 
-    -- Total columns across all groups (each group breaks into vertical
-    -- columns of MAX_PER_COLUMN chips each).
-    local total_cols = 0
-    for _, g in ipairs(groups) do
-        total_cols = total_cols + math.ceil(g.count / MAX_PER_COLUMN)
+    -- Cols-per-group helper. Each group breaks into vertical columns of
+    -- MAX_PER_COLUMN chips each.
+    local function colsFor(g) return math.ceil(g.count / MAX_PER_COLUMN) end
+    local function widthFor(cols)
+        return cols * CHIP_DIAMETER + math.max(0, cols - 1) * COL_GAP
     end
 
-    local total_w = total_cols * CHIP_DIAMETER
-                    + math.max(0, total_cols - 1) * COL_GAP
+    -- If a width budget is set and the natural layout overflows, drop
+    -- columns from the smallest-denomination groups (the tail) one at a
+    -- time until the pile fits. Largest-denomination chips (the
+    -- showcase + primary tier) are always preserved — better to lose a
+    -- handful of trailing 1¢ chips than to lose the fat 25¢ stack that
+    -- signals "this is a big pot".
+    if max_w and max_w > 0 then
+        local total_cols = 0
+        for _, g in ipairs(groups) do total_cols = total_cols + colsFor(g) end
+        while widthFor(total_cols) > max_w and #groups > 0 do
+            local last = groups[#groups]
+            -- Drop one column's worth of chips from the tail group.
+            last.count = last.count - MAX_PER_COLUMN
+            if last.count <= 0 then
+                groups[#groups] = nil
+            end
+            total_cols = total_cols - 1
+        end
+        if #groups == 0 then return end   -- everything got dropped
+    end
+
+    -- Recompute total cols / width after any clipping.
+    local total_cols = 0
+    for _, g in ipairs(groups) do total_cols = total_cols + colsFor(g) end
+    local total_w = widthFor(total_cols)
 
     local origin_x
     if align == "left"  then origin_x = x
@@ -154,7 +189,7 @@ function Chips.drawStack(x, y, chip_indices, options)
                 -- Label only the topmost chip of each column — labels on
                 -- buried chips would be obscured anyway.
                 local with_label = (i == in_col)
-                Chips.drawChip(cx, cy, g.idx, 1, with_label)
+                Chips.drawChip(cx, cy, g.idx, 1, with_label, tint)
             end
             cx = cx + CHIP_DIAMETER + COL_GAP
         end

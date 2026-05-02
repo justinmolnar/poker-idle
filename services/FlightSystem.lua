@@ -30,7 +30,10 @@ local _flying           = {}
 local _scheduled_sounds = {}
 
 -- ── Tunables ────────────────────────────────────────────────────────
-local MAX_IN_FLIGHT       = 300     -- soft cap; drop-oldest beyond
+local MAX_IN_FLIGHT       = 800     -- soft cap; drop-oldest beyond.
+                                    -- Bumped to accommodate jackpot confetti
+                                    -- fountains (120+ pieces) overlapping
+                                    -- with chip bursts.
 local MAX_PER_EVENT       = 7       -- a burst shows ≤ 7 entities, never hundreds
 local DEFAULT_DURATION    = 0.55    -- seconds from launch to arrival
 local DEFAULT_STAGGER     = 0.03    -- 30 ms between staggered launches
@@ -82,23 +85,25 @@ function FlightSystem.emit(start_xy, end_xy, render_fn, options)
 end
 
 -- Convenience: emit a list of render callbacks as a staggered burst.
--- Caps total entities at MAX_PER_EVENT — a burst of ANY input size
--- renders as ≤ 7 entities so spammy callers don't fountain 1000+
--- at once. Caller is responsible for the breakdown that produced the
--- list; we just sample it.
+-- Caps total entities at options.max_per_event (default MAX_PER_EVENT) —
+-- a burst of ANY input size renders as ≤ cap entities so spammy callers
+-- don't fountain 1000+ at once. Jackpot bursts override the cap upward
+-- for the fountain feel; everything else uses the default 7.
 --
 -- options.arrival_sound (string, optional) — semantic name dispatched
 -- through SoundService.playNamed at burst-end time. One thunk per burst,
 -- regardless of entity count.
+-- options.max_per_event (number, optional) — override the cap.
 function FlightSystem.emitBurst(start_xy, end_xy, render_fns, options)
     if not render_fns or #render_fns == 0 then return end
     options = options or {}
     local stagger  = options.stagger  or DEFAULT_STAGGER
     local duration = options.duration or DEFAULT_DURATION
+    local cap      = options.max_per_event or MAX_PER_EVENT
 
-    -- Sample down to MAX_PER_EVENT, preserving the original order
-    -- so the showcase entity (always at index 1 from breakdown) leads.
-    local count = math.min(#render_fns, MAX_PER_EVENT)
+    -- Sample down to cap, preserving the original order so the showcase
+    -- entity (always at index 1 from breakdown) leads.
+    local count = math.min(#render_fns, cap)
     local step  = #render_fns / count
     for i = 1, count do
         local src_idx = math.max(1, math.floor((i - 1) * step + 1))

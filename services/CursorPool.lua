@@ -65,11 +65,19 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
 
     if desired == 0 then return end
 
-    -- Build the map of claimable DEAL hit-boxes (by idx) — skip muted tables.
+    -- Build the map of claimable hit-boxes (by idx) — skip muted tables.
+    -- DEAL is always cursor-clickable; REBUY only when the catalog perk
+    -- is owned (ctx.cursor_rebuy_unlocked) and the per-table rebuy-mute
+    -- flag isn't set. A given table only ever has one of DEAL / REBUY
+    -- visible at a time, so keying by idx is unambiguous.
+    local rebuy_unlocked = ctx and ctx.cursor_rebuy_unlocked
     local deal_hbs = {}
     if hit_boxes then
         for _, hb in ipairs(hit_boxes) do
             if hb.action == "deal" and not hb.cursor_muted and hb.idx then
+                deal_hbs[hb.idx] = hb
+            elseif rebuy_unlocked and hb.action == "rebuy"
+                   and not hb.cursor_rebuy_muted and hb.idx then
                 deal_hbs[hb.idx] = hb
             end
         end

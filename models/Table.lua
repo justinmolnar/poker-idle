@@ -342,19 +342,40 @@ function Table:new(stake_id, game_type_id, ctx)
         -- ignores this table's DEAL button. Mouse clicks still work.
         -- Persisted parallel to active_table_specs in GameState.
         cursor_muted        = false,
+        -- Same as above but for REBUY hit_boxes — only consulted when
+        -- the catalog perk `cursor_rebuy_unlocked` is owned. Lets the
+        -- player keep auto-deal on but block auto-rebuy at specific
+        -- tables (e.g., let a busted experiment table die instead of
+        -- bleeding more buy-ins).
+        cursor_rebuy_muted  = false,
 
         x = 0, y = 0,
         _pending_resolution = nil,
 
-        -- Jackpot FX state. shake_trauma uses the trauma² model — per-frame
-        -- amplitude = SHAKE_MAX × trauma² × random — so the shake feels
-        -- organic and decays smoothly. vignette_kind ∈ {"good", "bad", nil}
-        -- with vignette_alpha decaying alongside. All three are 0 / nil
-        -- by default; GrindController bumps them on jackpot resolutions
-        -- and Table:update decays them.
-        shake_trauma   = 0,
-        vignette_kind  = nil,
-        vignette_alpha = 0,
+        -- Per-table FX state. All fields decay each frame in :update. The
+        -- shake_trauma uses the trauma² model — per-frame amplitude =
+        -- SHAKE_MAX × trauma² × random — so the shake feels organic.
+        -- GrindController writes these fields on resolution; intensities
+        -- come from data/feedback_intensity.lua keyed by the rolled tier.
+        --
+        -- shake_trauma     0..1   — panel-confined screen shake
+        -- vignette_*       0..1   — colored wash over felt (good/bad)
+        -- border_pulse_t   0..1   — colored border-line flash post-resolve
+        -- border_pulse_color "good" | "bad" — drives pulse hue
+        -- lift_t           0..1   — held-aloft offset; 1 during a hand,
+        --                            eases back to 0 when state == idle
+        -- slam_t           0..1   — brief down-spike triggered on settle
+        -- glow_t           0..1   — radial-glow shader intensity, fired
+        --                            on jackpot wins
+        --
+        shake_trauma       = 0,
+        vignette_kind      = nil,
+        vignette_alpha     = 0,
+        border_pulse_t     = 0,
+        border_pulse_color = nil,
+        lift_t             = 0,
+        slam_t             = 0,
+        glow_t             = 0,
 
         -- Cash-out gate. Set to true by GrindController:removeTable /
         -- :cashOutAll when the player asks to close a table that's mid-
@@ -513,27 +534,58 @@ end
 
 -- ─── Animation tick ───────────────────────────────────────────────────
 
--- Decay rates for jackpot FX (per-second). Tuned to fade over ~0.5 s so the
--- punch is visible without lingering or fighting the next hand's animation.
-local SHAKE_DECAY_RATE    = 1.6
-local VIGNETTE_DECAY_RATE = 1.5
+-- Decay rates per-second. Tuned for visible punch — slow enough that the
+-- effect lingers long enough to read, fast enough not to fight the next
+-- hand's animation.
+local SHAKE_DECAY_RATE        = 1.2
+local VIGNETTE_DECAY_RATE     = 1.2
+local BORDER_PULSE_DECAY_RATE = 1.0
+-- Lift lerp. Panel rises during the playing phases (dealing → showdown).
+-- Panel snaps to rest at "settling" (when chips fly + resolution feedback
+-- fires) and stays at rest while idle. The set of "panel down" states is
+-- explicit so adding a new cinematic phase is one entry, not a code
+-- branch.
+local LIFT_RISE_RATE       = 6.0    -- ~0.3 s up
+local LIFT_DOWN_STATES     = { idle = true, settling = true }
 
 function Table:update(dt, ctx)
     -- Stash latest ctx for the auto-deal path on tournament tables.
     if ctx then self._last_ctx = ctx end
 
-    -- Decay jackpot FX every frame regardless of table state.
+    -- Decay per-table FX every frame regardless of table state.
+    local d = dt or 0
     if (self.shake_trauma or 0) > 0 then
-        self.shake_trauma = math.max(0, self.shake_trauma - (dt or 0) * SHAKE_DECAY_RATE)
+        self.shake_trauma = math.max(0, self.shake_trauma - d * SHAKE_DECAY_RATE)
     end
     if (self.vignette_alpha or 0) > 0 then
-        self.vignette_alpha = math.max(0, self.vignette_alpha - (dt or 0) * VIGNETTE_DECAY_RATE)
+        self.vignette_alpha = math.max(0, self.vignette_alpha - d * VIGNETTE_DECAY_RATE)
         if self.vignette_alpha <= 0 then self.vignette_kind = nil end
+    end
+    if (self.border_pulse_t or 0) > 0 then
+        self.border_pulse_t = math.max(0, self.border_pulse_t - d * BORDER_PULSE_DECAY_RATE)
+        if self.border_pulse_t <= 0 then self.border_pulse_color = nil end
+    end
+    if (self.glow_t or 0) > 0 then
+        -- Lingers ~1.7s so the player has time to register the halo.
+        self.glow_t = math.max(0, self.glow_t - d * 0.6)
+    end
+    -- Lift_t: smooth rise during playing phases, instant snap-to-rest
+    -- once we hit "settling" or "idle" (LIFT_DOWN_STATES). The snap
+    -- lands on the same frame the resolution fires so chips, floater,
+    -- border pulse, and the panel drop all happen as one moment. Any
+    -- lerped fall would visibly "rise back up" during the 0.4s settling
+    -- phase before snapping down again at end-of-hand.
+    local lift_curr = self.lift_t or 0
+    if LIFT_DOWN_STATES[self.state] then
+        self.lift_t = 0
+    else
+        local k = math.min(1, d * LIFT_RISE_RATE)
+        self.lift_t = lift_curr + (1 - lift_curr) * k
     end
 
     -- Reroll flash decay (Zoom's anonymous-seat fade-in). Linear over 0.4s.
     if (self.reroll_flash_t or 0) > 0 then
-        self.reroll_flash_t = math.max(0, self.reroll_flash_t - (dt or 0))
+        self.reroll_flash_t = math.max(0, self.reroll_flash_t - d)
     end
 
     if self.state == "idle" then return nil end
@@ -568,6 +620,13 @@ function Table:update(dt, ctx)
                     x     = self.x,
                     y     = self.y,
                 }
+                -- Slam to rest at the same instant the resolution emits,
+                -- not at end-of-settling. _finalizeHand runs ~0.4 s
+                -- later and was previously the only place that reset
+                -- lift_t — that gap was the "panel hovers up after the
+                -- hand resolved, then awkwardly drops on its own"
+                -- artifact.
+                self.lift_t = 0
             end
             phase = next_phase
         else
@@ -604,6 +663,13 @@ function Table:_finalizeHand()
     self.player_hole   = nil
     self.opponent_hole = nil
     self.community     = nil
+    -- Slam to rest in the same frame the resolution fires. Without this
+    -- the lift decay runs ONCE per :update at the top, BEFORE the
+    -- cinematic walker reaches _finalizeHand — so the resolution frame
+    -- still sees state="settling" and keeps lift_t at 1; the drop only
+    -- happens in the next update. Setting it here closes that gap so the
+    -- slam coincides with the chip burst, floater, border pulse, etc.
+    self.lift_t        = 0
 
     -- Tournament auto-advance. Win = bump hands_won and re-deal; loss
     -- = end the tournament. Cleared all 8 = end with the top payout.

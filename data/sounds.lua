@@ -67,8 +67,8 @@ return {
     pot_lost_small      = { files = CHIP_2ON1,    volume = 0.45 },
     pot_lost_medium     = { files = CHIP_3ON2,    volume = 0.50 },
     pot_lost_jackpot    = {
-        files = CHIP_DROP_4, volume = 0.70,
-        layer = { file = "assets/audio/negative_buzz.mp3", volume = 0.55 },
+        files = CHIP_DROP_4, volume = 0.35,
+        layer = { file = "assets/audio/negative_buzz.mp3", volume = 0.275 },
     },
 
     -- ── Chip-flight arrival thunks (one per burst, fired by FlightSystem) ──
@@ -102,4 +102,15 @@ return {
     pot_won             = { files = CHIP_2ON1,    volume = 0.60 },
     pot_lost            = { files = CHIP_2ON1,    volume = 0.45 },
 
+    -- ── Juice-pass additions (J3/J4) ────────────────────────────────────
+    -- card_snap fires once per individual card-deal animation (not once
+    -- per state transition like card_dealt). Lower volume so 5×
+    -- community-card snaps don't overwhelm the per-hand mix.
+    card_snap           = { files = CARD_GIVE,    volume = 0.18 },
+
+    -- Border-pulse marker fires alongside the colored panel-border flash
+    -- on every resolution. Tier-scaled volume (multiplier passed in at
+    -- the call site so Tiny is barely audible, Jackpot is a full ding).
+    border_pulse_win    = { files = CHIP_1ON1,    volume = 0.25 },
+    border_pulse_loss   = { files = CHIP_DROP_2,  volume = 0.30 },
 }

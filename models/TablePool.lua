@@ -44,9 +44,10 @@ end
 
 function TablePool:rebuildFromState(ctx)
     self.tables = {}
-    local mutes = self.state.active_table_mutes or {}
-    local hands = self.state.active_table_mtt_hands_won or {}
-    local mstate = self.state.active_table_mtt_state or {}
+    local mutes        = self.state.active_table_mutes or {}
+    local rebuy_mutes  = self.state.active_table_rebuy_mutes or {}
+    local hands        = self.state.active_table_mtt_hands_won or {}
+    local mstate       = self.state.active_table_mtt_state or {}
     for i, spec in ipairs(self.state.active_table_specs or {}) do
         local stake_id, gtype_id = unpackSpec(spec)
         if stake_id and gtype_id then
@@ -55,7 +56,8 @@ function TablePool:rebuildFromState(ctx)
             -- table can still be reconstructed.
             if not gtypeExists(gtype_id) then gtype_id = "six_max" end
             local t = Table:new(stake_id, gtype_id, ctx)
-            t.cursor_muted   = mutes[i] == true
+            t.cursor_muted        = mutes[i] == true
+            t.cursor_rebuy_muted  = rebuy_mutes[i] == true
             -- Tournament continuity: reload-mid-run drops the player back
             -- at "table idle, click DEAL to fire the next hand of N".
             -- Cash tables ignore these.
@@ -67,16 +69,18 @@ function TablePool:rebuildFromState(ctx)
 end
 
 function TablePool:_syncStateList()
-    local specs, mutes = {}, {}
+    local specs, mutes, rebuy_mutes = {}, {}, {}
     local hands, mstate = {}, {}
     for i, t in ipairs(self.tables) do
-        specs[i]  = packSpec(t.stake_id, t.game_type_id)
-        mutes[i]  = t.cursor_muted == true
-        hands[i]  = (t.mtt and t.mtt.hands_won) or 0
-        mstate[i] = t.mtt and t.mtt.state
+        specs[i]        = packSpec(t.stake_id, t.game_type_id)
+        mutes[i]        = t.cursor_muted == true
+        rebuy_mutes[i]  = t.cursor_rebuy_muted == true
+        hands[i]        = (t.mtt and t.mtt.hands_won) or 0
+        mstate[i]       = t.mtt and t.mtt.state
     end
     self.state.active_table_specs         = specs
     self.state.active_table_mutes         = mutes
+    self.state.active_table_rebuy_mutes   = rebuy_mutes
     self.state.active_table_mtt_hands_won = hands
     self.state.active_table_mtt_state     = mstate
 end
