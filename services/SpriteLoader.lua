@@ -1,19 +1,22 @@
 -- services/SpriteLoader.lua
--- Centralized sprite loading. Recursively scans assets/sprites/ for image
--- files at startup, caches each as a love.Image. Sprite names are the file
--- path relative to assets/sprites/ with the extension stripped — e.g.
--- assets/sprites/cards/fronts/clubs/a.png → "cards/fronts/clubs/a".
--- Optional aliases.json at the sprite root remaps lookup names.
+-- Centralized sprite loading + lookup. Recursively scans assets/sprites/
+-- for image files at startup, caches each as a love.Image. Sprite names
+-- are the file path relative to assets/sprites/ with the extension
+-- stripped — e.g. assets/sprites/cards/fronts/clubs/a.png →
+-- "cards/fronts/clubs/a". Optional aliases.json at the sprite root remaps
+-- lookup names.
+--
+-- The atlas is intentionally rendering-free; sprite drawing lives in
+-- services/SpriteRenderer (load+lookup vs. draw is split into two small
+-- modules with a clean atlas → renderer dependency).
 --
 -- API:
 --   sl = SpriteLoader:new()
 --   sl:loadAll()
---   sl:getSprite(name)         → love.Image | nil
---   sl:hasSprite(name)         → bool
---   sl:drawSprite(name, x, y, w, h, tint?)  -- falls back to a magenta rect
+--   sl:getSprite(name)  → love.Image | nil
+--   sl:hasSprite(name)  → bool
 
 local Object = require('lib.class')
-local Theme  = require('views.Theme')
 local SpriteLoader = Object:extend('SpriteLoader')
 
 local SPRITE_DIR  = "assets/sprites/"
@@ -27,7 +30,6 @@ function SpriteLoader:init()
     self.sprites = {}
     self.loaded = false
     self.aliases = nil
-    self._warned_missing = {}
 end
 
 local function isSupported(filename)
@@ -111,34 +113,6 @@ end
 function SpriteLoader:hasSprite(sprite_name)
     if not self.loaded then self:loadAll() end
     return self.sprites[_resolve(self, sprite_name)] ~= nil
-end
-
--- Draw a sprite scaled into (x,y,w,h). If the sprite is missing, draws a
--- visibly wrong magenta+border rectangle so missing assets are loud.
-function SpriteLoader:drawSprite(sprite_name, x, y, width, height, tint)
-    local sprite = self:getSprite(sprite_name)
-
-    if not sprite then
-        if not self._warned_missing[sprite_name] then
-            print(string.format('[SpriteLoader] MISSING sprite "%s"', tostring(sprite_name)))
-            self._warned_missing[sprite_name] = true
-        end
-        Theme.setColor(Theme.debug.missing_fill)
-        love.graphics.rectangle('fill', x, y, width, height)
-        Theme.setColor(Theme.debug.missing_border)
-        love.graphics.rectangle('line', x, y, width, height)
-        return false
-    end
-
-    if tint then
-        love.graphics.setColor(tint[1], tint[2], tint[3], tint[4] or 1)
-    else
-        Theme.assetTint()
-    end
-
-    local sw, sh = sprite:getWidth(), sprite:getHeight()
-    love.graphics.draw(sprite, x, y, 0, width / sw, height / sh)
-    return true
 end
 
 return SpriteLoader

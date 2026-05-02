@@ -93,7 +93,7 @@ function InputController:wire()
     -- Backtick toggles a per-table tooltip showing exact win_chance /
     -- win_dist / loss_dist / EV-per-hand for the table the mouse is over,
     -- plus per-seated-opponent numbers. Off by default; see
-    -- views/TablePanel:flushDebugOverlay (deferred so the tooltip draws on
+    -- views/TablePanelStats.flushDebugOverlay (deferred so the tooltip draws on
     -- top of every panel in the grid, not just the panel that triggered it).
     dispatcher:on("keypressed",
         function(key) return key == "`" end,

@@ -19,10 +19,9 @@
 -- ── Registering ──────────────────────────────────────────────────────────
 --
 -- The registry mechanism is engine-agnostic — it lives here in services/.
--- Poker-specific kind registrations live in `models/poker_effects.lua` and
--- are wired in `main.lua` via `PokerEffects.registerAll(reg)`. Two-touch:
--- one entry in data/effects.lua (documentation) + one .register() call in
--- models/poker_effects.lua.
+-- Game-specific kind registrations live in models/ and are wired into the
+-- registry from main.lua. Two-touch: one entry in the effects data file
+-- (documentation) + one .register() call in the model that owns the kind.
 
 local EffectsRegistry = {}
 EffectsRegistry.__index = EffectsRegistry

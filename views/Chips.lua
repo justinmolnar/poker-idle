@@ -5,8 +5,8 @@
 -- top-down chips for now — `drawChip` is the single seam to swap in
 -- sprite art later.
 --
--- Pure breakdown logic (amount → ordered chip-index list, tier inference)
--- lives in services/ChipBreakdown so non-view callers can compose
+-- Pure breakdown logic (amount → ordered token-index list, tier inference)
+-- lives in services/DenominationBreakdown so non-view callers can compose
 -- breakdowns without reaching across layers.
 
 local ChipData = require("data.chips")

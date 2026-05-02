@@ -38,10 +38,10 @@
 -- Lives in models/ (not services/) because it's poker-specific stateful
 -- gameplay logic. services/ is reserved for engine-agnostic infrastructure.
 -- The deck / card / hand_eval primitives this builds on are themselves
--- generic and live in models/ + utils/.
+-- focused single-responsibility models in models/.
 
 local Deck      = require("models.Deck")
-local HandEval  = require("utils.hand_eval")
+local HandEval  = require("models.HandEval")
 local RNG       = require("utils.rng")
 local Constants = require("data.constants")
 

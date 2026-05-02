@@ -3,10 +3,11 @@
 -- Stateless module — named screen-space anchor points. Same convention as
 -- HoverService / Tooltip: file-local upvalues, no instance, no constructor.
 --
--- Views set anchors during draw ("the bankroll pile is at (x, y)"); other
--- layers (controllers, services) read them when they need a target/source
--- coord and don't have access to the view that knows where things landed.
--- 1-frame stale by design — the next frame's :set overwrites.
+-- Views set anchors during draw (a sidebar widget's pile, a panel's
+-- focal point); other layers (controllers, services) read them when they
+-- need a target/source coord and don't have access to the view that knows
+-- where things landed. 1-frame stale by design — the next frame's :set
+-- overwrites.
 --
 -- Engine-agnostic: anchor names are opaque strings.
 

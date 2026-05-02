@@ -19,9 +19,10 @@ local Format         = require("utils.format")
 local Panel          = require("views.Panel")
 local CR             = require("views.ComponentRenderer")
 local TablePanel     = require("views.TablePanel")
+local TablePanelStats = require("views.TablePanelStats")
 local CursorPool     = require("services.CursorPool")
 local Chips          = require("views.Chips")
-local ChipBreakdown  = require("services.ChipBreakdown")
+local Denoms        = require("services.DenominationBreakdown")
 local ChipData       = require("data.chips")
 local FlightSystem   = require("services.FlightSystem")
 local ClickFlash     = require("services.ClickFlash")
@@ -408,6 +409,15 @@ function GrindView:update(dt)
     self.displayed_pp       = tweenNumber(self.displayed_pp,       state.pp,                  dt)
     self.displayed_tied     = tweenNumber(self.displayed_tied,     self.controller:tiedUp(),  dt)
     self.displayed_peak     = tweenNumber(self.displayed_peak,     state.peak_bankroll,       dt)
+
+    -- Drain the controller's chip-burst queue. Controller produces denomination
+    -- indices and source/dest pairs; the view turns them into render closures
+    -- (the visual seam) and dispatches to FlightSystem. Keeps controller→view
+    -- dependencies out of controllers/GrindController.lua.
+    local bursts = self.controller:drainBursts()
+    for _, b in ipairs(bursts) do
+        FlightSystem.emitBurst(b.source, b.dest, Chips.makeRenderFns(b.chips), b.options)
+    end
 end
 
 -- ─── Top bar ───────────────────────────────────────────────────────────
@@ -761,8 +771,8 @@ function GrindView:_drawBankrollChips(W, H)
     local bankroll = self.game.state.bankroll or 0
     if bankroll <= 0 then return end
 
-    local tier = ChipBreakdown.tierFromAmount(bankroll)
-    local chips = ChipBreakdown.breakdown(bankroll, ChipData.full_palette, tier)
+    local tier = Denoms.tierFromAmount(bankroll)
+    local chips = Denoms.breakdown(bankroll, ChipData.full_palette, tier)
     Chips.drawStack(center_x, stack_y, chips, { align = "center" })
 end
 
@@ -809,7 +819,7 @@ function GrindView:draw()
     -- Backtick debug tooltip — flushed last so it draws above every other
     -- view layer (sidebar panels, shove button, floating text, chips,
     -- cursors, hover tooltip all included).
-    TablePanel.flushDebugOverlay(self.game)
+    TablePanelStats.flushDebugOverlay(self.game)
 end
 
 -- ─── Mouse routing ────────────────────────────────────────────────────

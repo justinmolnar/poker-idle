@@ -70,10 +70,10 @@ return {
     full_palette = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 },
 
     -- ── Tier chip-count targets (visual heft via chip count) ───────────
-    -- Used by ChipBreakdown.breakdown to pick the primary denomination —
-    -- the goal isn't fewest-chips, it's a pile whose chip count signals
-    -- magnitude at a glance. Tiny wins look like 3-4 chips; jackpots look
-    -- like a pile of 30+. See services/ChipBreakdown.lua:breakdown.
+    -- Used by DenominationBreakdown.breakdown to pick the primary
+    -- denomination — the goal isn't fewest-tokens, it's a pile whose token
+    -- count signals magnitude at a glance. Tiny wins look like 3-4 chips;
+    -- jackpots look like a pile of 30+.
     tier_chip_target = {
         tiny    = 4,
         small   = 10,

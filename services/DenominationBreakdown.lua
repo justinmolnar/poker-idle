@@ -1,22 +1,24 @@
--- services/ChipBreakdown.lua
+-- services/DenominationBreakdown.lua
 --
--- Pure-logic chip breakdown — amount → ordered denomination-index list.
--- Engine-agnostic: operates on opaque indices into data/chips.lua. No
--- domain knowledge, no rendering. The drawing seam is views/Chips.
+-- Pure-logic breakdown of a magnitude into an ordered list of denomination
+-- indices. Engine-agnostic: operates on opaque indices into a denomination
+-- ladder (data file). No domain knowledge, no rendering — the drawing seam
+-- is owned by views.
 --
--- The breakdown algorithm picks a chip composition that signals
--- *magnitude* (target chip count from tier hint) rather than minimizing
--- chip count — a top-tier $2 yields ~35 chips, not 2×$1, because the
--- player needs to *see* the magnitude.
+-- The breakdown algorithm picks a composition that signals *magnitude*
+-- (target token count from a tier hint) rather than minimizing token count
+-- — a top-tier $2 yields ~35 tokens, not 2×$1, because the player needs to
+-- *see* the magnitude.
 
 local ChipData = require("data.chips")
 
-local ChipBreakdown = {}
+local DenominationBreakdown = {}
 
 -- ── Tier inference for surfaces without an explicit tier hint ────────
 -- Maps a magnitude in caller-defined units to the four target buckets.
--- Thresholds match the unit conventions in data/chips.lua's tier table.
-function ChipBreakdown.tierFromUnit(magnitude)
+-- Thresholds match the unit conventions in the consuming data file's tier
+-- table.
+function DenominationBreakdown.tierFromUnit(magnitude)
     if magnitude < 5  then return "tiny"    end
     if magnitude < 18 then return "small"   end
     if magnitude < 80 then return "medium"  end
@@ -25,7 +27,7 @@ end
 
 -- For surfaces without a unit context, bucket by log10(amount) so small
 -- numbers read "tiny" and very large ones read "jackpot".
-function ChipBreakdown.tierFromAmount(amount)
+function DenominationBreakdown.tierFromAmount(amount)
     if amount <= 0 then return "tiny" end
     local mag = math.log10(amount)
     if mag < 1 then return "tiny"    end   -- < 10
@@ -34,12 +36,12 @@ function ChipBreakdown.tierFromAmount(amount)
     return "jackpot"
 end
 
--- ── Breakdown: amount → ordered chip-index list ──────────────────────
+-- ── Breakdown: amount → ordered denomination-index list ──────────────
 -- `palette_indices` is a list of indices into ChipData.denominations.
 -- `tier_hint` ∈ {"tiny","small","medium","jackpot"} biases the result
--- toward a target chip count for visual heft. Optional — falls back to
+-- toward a target token count for visual heft. Optional — falls back to
 -- "small" if omitted.
-function ChipBreakdown.breakdown(amount, palette_indices, tier_hint)
+function DenominationBreakdown.breakdown(amount, palette_indices, tier_hint)
     if amount <= 0 or not palette_indices or #palette_indices == 0 then
         return {}
     end
@@ -75,22 +77,22 @@ function ChipBreakdown.breakdown(amount, palette_indices, tier_hint)
     end
 
     local primary = denoms[primary_idx]
-    local chips   = {}
+    local tokens  = {}
     local remaining = amount
 
-    -- Showcase chip (medium / jackpot only) — one chip of the next-larger
+    -- Showcase token (medium / jackpot only) — one token of the next-larger
     -- denomination on top of the pile, signalling "this is a big one."
     if (tier_hint == "medium" or tier_hint == "jackpot") and primary_idx > 1 then
         local showcase = denoms[primary_idx - 1]
         if showcase.value <= remaining + 1e-9 then
-            chips[#chips + 1] = showcase.idx
+            tokens[#tokens + 1] = showcase.idx
             remaining = remaining - showcase.value
         end
     end
 
     -- Fill primary.
     while remaining >= primary.value - 1e-9 do
-        chips[#chips + 1] = primary.idx
+        tokens[#tokens + 1] = primary.idx
         remaining = remaining - primary.value
     end
 
@@ -98,12 +100,12 @@ function ChipBreakdown.breakdown(amount, palette_indices, tier_hint)
     for i = primary_idx + 1, #denoms do
         local d = denoms[i]
         while remaining >= d.value - 1e-9 do
-            chips[#chips + 1] = d.idx
+            tokens[#tokens + 1] = d.idx
             remaining = remaining - d.value
         end
     end
 
-    return chips
+    return tokens
 end
 
-return ChipBreakdown
+return DenominationBreakdown

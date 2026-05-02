@@ -2,15 +2,13 @@
 --
 -- Press-then-vanish ghost-button registry. Stateless module mirroring
 -- HoverService / ClickFlash / FlightSystem. When an ephemeral button
--- (DEAL / REBUY / [×]) is clicked, the underlying render path stops
--- because the table state changes (or the table itself is removed). To
--- keep the press-in animation visible for a beat after the click, the
--- click handler stashes a "ghost" entry here: a snapshot of the button's
--- rect plus a render callback that draws it. The ghost runs alpha 1 → 0
--- at DECAY_RATE, then despawns.
+-- is clicked and its underlying render path stops (because the widget
+-- state changes or the widget is removed), the ghost keeps the press-in
+-- animation visible for a beat: the click handler stashes a render
+-- callback here, which runs alpha 1 → 0 at DECAY_RATE then despawns.
 --
--- Engine-agnostic: opaque rect + render-fn. No knowledge of buttons or
--- poker beyond what the caller bundles into the closure.
+-- Engine-agnostic: opaque render-fn. No knowledge of widgets or domain
+-- beyond what the caller bundles into the closure.
 
 local Ghosts = {}
 

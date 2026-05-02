@@ -23,12 +23,16 @@ local Stakes        = require("data.stakes")
 local GameTypes     = require("data.game_types")
 local MttPayouts    = require("data.mtt_payouts")
 local Chips         = require("views.Chips")
-local ChipBreakdown = require("services.ChipBreakdown")
+local Denoms        = require("services.DenominationBreakdown")
 local ChipData      = require("data.chips")
-local ClickFlash  = require("services.ClickFlash")
-local Hover       = require("services.HoverService")
-local Button      = require("views.Button")
-local Ghosts      = require("services.Ghosts")
+local ClickFlash    = require("services.ClickFlash")
+local Hover         = require("services.HoverService")
+local Button        = require("views.Button")
+local Ghosts        = require("services.Ghosts")
+local Anchors       = require("services.AnchorRegistry")
+local Table         = require("models.Table")
+local Stats         = require("views.TablePanelStats")
+local SpriteRenderer = require("services.SpriteRenderer")
 
 local TablePanel = {}
 
@@ -39,11 +43,10 @@ local REMOVE_BTN_SIZE = 18
 local DEAL_BTN_W      = 140
 local DEAL_BTN_H      = 40
 
--- EV readout — bottom-of-panel "+/- N.N bb/h" text colored green / red by
--- sign. Hover the readout for the full pool-stat breakdown (same content
--- as the backtick debug overlay, sourced through buildEvBreakdownLines).
-local EV_READOUT_PAD_BOTTOM = 4   -- gap between readout baseline and panel bottom
-local EV_READOUT_HIT_PAD    = 4   -- hit-rect padding around the text
+-- EV readout (bottom-of-panel "+/- N.N bb/h" text) and the backtick
+-- debug overlay both live in views/TablePanelStats — that module is the
+-- single source of truth for the pool-breakdown line list. We just route
+-- the calls through here.
 
 -- Card sizes for the cramped grid panel.
 local OPP_CARD_W      = 14
@@ -95,8 +98,8 @@ end
 -- ─── Card rendering ──────────────────────────────────────────────────
 
 local function drawCardBack(sl, x, y, w, h, alpha)
-    if sl and sl.drawSprite then
-        sl:drawSprite(CARD_BACK, x, y, w, h, { 1, 1, 1, alpha or 1 })
+    if sl then
+        SpriteRenderer.draw(sl, CARD_BACK, x, y, w, h, { 1, 1, 1, alpha or 1 })
     else
         Theme.setColor(Theme.bg.sunken, alpha or 1)
         love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
@@ -107,8 +110,8 @@ end
 
 local function drawCardFront(sl, card, x, y, w, h, alpha)
     if not card then return end
-    if sl and sl.drawSprite then
-        sl:drawSprite(card:spriteName(), x, y, w, h, { 1, 1, 1, alpha or 1 })
+    if sl then
+        SpriteRenderer.draw(sl, card:spriteName(), x, y, w, h, { 1, 1, 1, alpha or 1 })
     else
         Theme.setColor(Theme.bg.widget_hover, alpha or 1)
         love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
@@ -309,12 +312,11 @@ local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_ch
         local palette = ChipData.stake_palettes[tbl.stake_id]
                         or ChipData.full_palette
         local tier    = tbl.outcome_tier or "small"
-        local chips   = ChipBreakdown.breakdown(pot, palette, tier)
+        local chips   = Denoms.breakdown(pot, palette, tier)
         -- Stack base anchored at felt center; chips grow upward via the
         -- stack-offset, label below the pile.
         Chips.drawStack(center_x, center_y + 6, chips, { align = "center" })
-        tbl.pot_x = center_x
-        tbl.pot_y = center_y + 6
+        Anchors.set(Table.anchorKey(tbl, "pot"), center_x, center_y + 6)
     end
 
     Theme.setColor(Theme.fg.muted)
@@ -329,7 +331,7 @@ end
 -- stack/YOU strip when the gtype carries hand_count. Lives in the same
 -- vertical slot, so panel layout is unchanged between cash and MTT.
 local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
-    local hands_won = tbl.mtt_hands_won or 0
+    local hands_won = (tbl.mtt and tbl.mtt.hands_won) or 0
     local hand_cap  = gtype.hand_count or 8
 
     -- Counter line — current hand on top.
@@ -398,8 +400,9 @@ local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
     -- Anchor for chip-flight loss target (loss in MTT == tournament end;
     -- the current hand's pot still flies somewhere). Anchor at the
     -- center of the strip so the visual still reads as "chips leave."
-    tbl.you_x = x + math.floor(w * 0.5)
-    tbl.you_y = strip_y + pip_h * 0.5
+    Anchors.set(Table.anchorKey(tbl, "you"),
+        x + math.floor(w * 0.5),
+        strip_y + pip_h * 0.5)
 end
 
 local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx)
@@ -437,15 +440,14 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx)
         -- Always render player stack at "small" target (~10 chips) so the
         -- pile stays compact regardless of stake — pot/bankroll are where
         -- magnitude flexes via tier hints.
-        local chips = ChipBreakdown.breakdown(stack, palette, "small")
+        local chips = Denoms.breakdown(stack, palette, "small")
         local pile_anchor_x = cards_x - 8   -- right edge of pile
         local pile_y        = cards_y + PLAYER_CARD_H - 4
         Chips.drawStack(pile_anchor_x, pile_y, chips, { align = "right" })
-        tbl.you_x = pile_anchor_x - 18
-        tbl.you_y = pile_y
+        Anchors.set(Table.anchorKey(tbl, "you"), pile_anchor_x - 18, pile_y)
     else
-        tbl.you_x = cards_x - 26
-        tbl.you_y = cards_y + PLAYER_CARD_H - 4
+        Anchors.set(Table.anchorKey(tbl, "you"),
+            cards_x - 26, cards_y + PLAYER_CARD_H - 4)
     end
 
     Theme.setColor(Theme.fg.heading)
@@ -521,179 +523,6 @@ end
 
 -- Drop the unused inline ghost factory; TablePanel.makeGhostFor below is
 -- the public entry point for ephemeral-button ghost-rendering.
-
--- ─── EV readout ───────────────────────────────────────────────────────
--- The render function is defined further down (after the fmt* helpers and
--- buildEvBreakdownLines, so it can call them). Forward-declare here so
--- the panel-draw call site near the bottom of the file can reach it.
-local drawEvReadout
-
--- ─── Debug tooltip ────────────────────────────────────────────────────
--- Toggled by backtick (see controllers/InputController). When game.debug
--- .overlay is on AND mouse is inside the panel rect, render a tooltip
--- with the table's pool-avg outcome stats and per-seated-opponent
--- breakdown. Off by default — purely a math-tuning aid.
-
-local DEBUG_TIP_W       = 340
-local DEBUG_TIP_PAD     = 8
-local DEBUG_TIP_LINE_H  = 14
-
-local function fmtPct(p)   return string.format("%5.1f%%", (p or 0) * 100) end
-local function fmtBB(b)    return string.format("%5.1f",   b or 0) end
-local function fmtEV(n)
-    n = n or 0
-    if math.abs(n) < 100 then
-        return string.format("%+0.3f", n)
-    elseif math.abs(n) < 10000 then
-        return string.format("%+0.2f", n)
-    end
-    return string.format("%+0.0f", n)
-end
-
--- Stash the (tbl, ctx) for the panel currently under the mouse cursor.
--- TablePanel.flushDebugOverlay (called once per frame, after the panel loop)
--- consumes the stash and renders the tooltip on top of all panels — fixing
--- the z-order issue where panel N+1 would overdraw panel N's tooltip.
-local function stashDebugTooltipIfHover(tbl, panel_x, panel_y, panel_w, panel_h, game, controller)
-    if not tbl then return end
-    local dbg = game and game.debug
-    if not dbg or not dbg.overlay then return end
-
-    local mx, my = love.mouse.getPosition()
-    if mx < panel_x or mx > panel_x + panel_w
-        or my < panel_y or my > panel_y + panel_h then
-        return
-    end
-    dbg._tooltip_pending = { tbl = tbl, controller = controller, mx = mx, my = my }
-end
-
--- Build the pool-breakdown line list. Single source of truth shared by the
--- bottom-of-panel EV readout's hover tooltip AND the backtick-toggled
--- debug overlay (renderDebugTooltip). Returns nil if the table doesn't
--- have stats yet (no opponents seated).
-local function buildEvBreakdownLines(tbl, controller)
-    local stats = tbl:debugStats(controller and controller.ctx)
-    if not stats then return nil end
-
-    local bb = (stats.stake and stats.stake.bb) or 1
-    if bb <= 0 then bb = 1 end
-
-    local lines = {}
-    lines[#lines + 1] = string.format("%s · %s   (pool avg)",
-        stats.stake.display_name or stats.stake.id or "?",
-        stats.gtype.short or stats.gtype.id or "?")
-    lines[#lines + 1] = string.format("WC %s   EV $%s  (%s bb/h)",
-        fmtPct(stats.pool.win_chance),
-        fmtEV(stats.pool.ev_per_hand),
-        fmtEV((stats.pool.ev_per_hand or 0) / bb))
-
-    -- Focus penalty — applied multiplicatively to all $ deltas in the
-    -- resolution loop. The base EV above is pre-focus; the line below
-    -- shows the effective EV the player actually realizes.
-    if controller and controller.currentFocusMult then
-        local fmult   = controller:currentFocusMult()
-        local fcap    = controller:currentFocusCapacity()
-        local n_open  = controller.pool and controller.pool:count() or 0
-        local eff_ev  = (stats.pool.ev_per_hand or 0) * fmult
-        lines[#lines + 1] = string.format(
-            "Focus %d / %d cap   x%.2f  ->  eff EV $%s  (%s bb/h)",
-            n_open, fcap, fmult, fmtEV(eff_ev), fmtEV(eff_ev / bb))
-    end
-    lines[#lines + 1] = string.format("WIN  T %s S %s M %s J %s   avg %s bb",
-        fmtPct(stats.pool.win_dist.tiny),
-        fmtPct(stats.pool.win_dist.small),
-        fmtPct(stats.pool.win_dist.medium),
-        fmtPct(stats.pool.win_dist.jackpot),
-        fmtBB(stats.pool.win_avg_bb))
-    lines[#lines + 1] = string.format("LOSS T %s S %s M %s J %s   avg %s bb",
-        fmtPct(stats.pool.loss_dist.tiny),
-        fmtPct(stats.pool.loss_dist.small),
-        fmtPct(stats.pool.loss_dist.medium),
-        fmtPct(stats.pool.loss_dist.jackpot),
-        fmtBB(stats.pool.loss_avg_bb))
-
-    return lines
-end
-
--- Bottom-of-panel "+1.9 bb/h" readout. Replaces the old red→green gauge.
--- Color-coded by sign (green positive / red negative / muted near zero).
--- Pushes a hit_box carrying buildEvBreakdownLines so the tooltip service
--- surfaces the full breakdown on hover. Forward-declared above.
-drawEvReadout = function(tbl, x, y, w, h_panel, controller, fonts, hit_boxes)
-    if not tbl then return end
-    local ctx = controller and controller.ctx
-    local stats = tbl:estimateStats(ctx)
-    if not stats then return end
-    local stake = findStake(tbl.stake_id)
-    local bb = (stake and stake.bb) or 1
-    if bb <= 0 then bb = 1 end
-
-    local ev_bb = (stats.ev_per_hand or 0) / bb
-    local label = string.format("%+0.1f bb/h", ev_bb)
-
-    local font = fonts.ui_small
-    love.graphics.setFont(font)
-    local text_w = font:getWidth(label)
-    local text_h = font:getHeight()
-    local tx = x + math.floor((w - text_w) / 2)
-    local ty = y + h_panel - text_h - EV_READOUT_PAD_BOTTOM
-
-    local color
-    if ev_bb > 0.05 then
-        color = Theme.status.good
-    elseif ev_bb < -0.05 then
-        color = Theme.status.error
-    else
-        color = Theme.fg.muted
-    end
-    Theme.setColor(color)
-    love.graphics.print(label, tx, ty)
-
-    if hit_boxes then
-        local lines = buildEvBreakdownLines(tbl, controller)
-        if lines then
-            hit_boxes[#hit_boxes + 1] = {
-                x = tx - EV_READOUT_HIT_PAD,
-                y = ty - EV_READOUT_HIT_PAD,
-                w = text_w + EV_READOUT_HIT_PAD * 2,
-                h = text_h + EV_READOUT_HIT_PAD * 2,
-                tooltip = lines,
-            }
-        end
-    end
-end
-
-local function renderDebugTooltip(tbl, mx, my, game, controller)
-    local lines = buildEvBreakdownLines(tbl, controller)
-    if not lines then return end
-
-    local fonts = game.fonts
-    local font  = fonts.ui_small
-    love.graphics.setFont(font)
-
-    local screen_w, screen_h = love.graphics.getDimensions()
-    local tip_h = DEBUG_TIP_PAD * 2 + DEBUG_TIP_LINE_H * #lines
-    local tip_x = mx + 16
-    local tip_y = my + 8
-    if tip_x + DEBUG_TIP_W > screen_w then
-        tip_x = mx - DEBUG_TIP_W - 16
-    end
-    if tip_x < 0 then tip_x = 4 end
-    if tip_y + tip_h > screen_h then tip_y = screen_h - tip_h - 4 end
-    if tip_y < 0 then tip_y = 4 end
-
-    Theme.setColor(Theme.bg.window, 0.95)
-    love.graphics.rectangle("fill", tip_x, tip_y, DEBUG_TIP_W, tip_h, Theme.space.radius)
-    Theme.setColor(Theme.border.strong)
-    love.graphics.rectangle("line", tip_x, tip_y, DEBUG_TIP_W, tip_h, Theme.space.radius)
-
-    Theme.setColor(Theme.fg.heading)
-    for i, line in ipairs(lines) do
-        love.graphics.print(line,
-            tip_x + DEBUG_TIP_PAD,
-            tip_y + DEBUG_TIP_PAD + (i - 1) * DEBUG_TIP_LINE_H)
-    end
-end
 
 -- ─── Jackpot FX (shake + vignette) ───────────────────────────────────
 -- Per-table screen shake and colored vignette on jackpot resolutions.
@@ -796,9 +625,9 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         love.graphics.translate(shake_x, shake_y)
     end
 
-    -- Update screen-space center for floating-text spawn.
-    tbl.x = x + w / 2
-    tbl.y = y + h / 2
+    -- Screen-space center for floating-text spawn (read by GrindController
+    -- via AnchorRegistry; written here once per draw).
+    Anchors.set(Table.anchorKey(tbl, "center"), x + w / 2, y + h / 2)
 
     local fonts = game.fonts
     local sl    = game.sprite_loader
@@ -852,12 +681,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     if not skip_opponents then
         local opp_row_y = felt_y + 4
         local n_opps    = #tbl.opponents
-        -- Cache each opponent's seat-center on the table so chip-flight
-        -- emission can target the winner's cards on a loss. Cards sit
-        -- ~22 px below the seat top with OPP_CARD_H = 20, so the card
-        -- center is roughly opp_row_y + 32.
-        tbl._opp_xy = tbl._opp_xy or {}
-        for k in pairs(tbl._opp_xy) do tbl._opp_xy[k] = nil end
+        -- Record each opponent's seat-center as an AnchorRegistry anchor
+        -- so chip-flight emission can target the winner's cards on a loss.
+        -- Cards sit ~22 px below the seat top with OPP_CARD_H = 20, so the
+        -- card center is roughly opp_row_y + 32.
         if n_opps > 0 then
             -- HU: single seat centered, capped width so it doesn't sprawl
             -- across the whole felt. Other game types: even-distribute.
@@ -871,13 +698,15 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
                 drawOpponentSeat(tbl.opponents[1], 1, tbl, ox, opp_row_y, seat_w, 80, sl, fonts)
                 -- Chip-flight target: card center sits ~30+40/2=50 px below
                 -- the seat top under the `big` layout.
-                tbl._opp_xy[1] = { ox + seat_w * 0.5, opp_row_y + 50 }
+                Anchors.set(Table.anchorKey(tbl, "opp_1"),
+                    ox + seat_w * 0.5, opp_row_y + 50)
             else
                 local opp_w = math.floor(felt_w / n_opps)
                 for i = 1, n_opps do
                     local ox = felt_x + (i - 1) * opp_w
                     drawOpponentSeat(tbl.opponents[i], i, tbl, ox, opp_row_y, opp_w, 50, sl, fonts)
-                    tbl._opp_xy[i] = { ox + opp_w * 0.5, opp_row_y + 32 }
+                    Anchors.set(Table.anchorKey(tbl, "opp_" .. i),
+                        ox + opp_w * 0.5, opp_row_y + 32)
                 end
             end
         end
@@ -889,12 +718,17 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     drawCommunity(tbl, felt_x, comm_y, felt_w, sl, comm_card_w, comm_card_h)
     drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, not mini)
 
-    -- Default chip-flight anchors for this table (overridden by
-    -- drawPlayerSeat / drawPotLabel below if those render).
-    tbl.you_x = tbl.you_x or (felt_x + felt_w * 0.5)
-    tbl.you_y = tbl.you_y or (felt_y + felt_h - 12)
-    tbl.pot_x = tbl.pot_x or (felt_x + felt_w * 0.5)
-    tbl.pot_y = tbl.pot_y or (felt_y + felt_h * 0.45)
+    -- Default chip-flight anchors for this table — re-stamped every frame
+    -- so they track the panel through layout changes. drawPlayerSeat and
+    -- drawPotLabel overwrite with more specific positions when they run.
+    if not Anchors.get(Table.anchorKey(tbl, "you")) then
+        Anchors.set(Table.anchorKey(tbl, "you"),
+            felt_x + felt_w * 0.5, felt_y + felt_h - 12)
+    end
+    if not Anchors.get(Table.anchorKey(tbl, "pot")) then
+        Anchors.set(Table.anchorKey(tbl, "pot"),
+            felt_x + felt_w * 0.5, felt_y + felt_h * 0.45)
+    end
 
     -- Player seat at bottom.
     if not skip_player_cards then
@@ -938,10 +772,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         end
     end
 
-    -- EV readout — bottom-of-panel "+/- N.N bb/h" text. Hover-tooltip
-    -- carries the full pool-stat breakdown via the buildEvBreakdownLines
-    -- helper (shared with the backtick debug overlay).
-    drawEvReadout(tbl, x, y, w, h, controller, fonts, hit_boxes)
+    -- EV readout — bottom-of-panel "+/- N.N bb/h" text. The hover-tooltip
+    -- breakdown and the backtick debug overlay both live in
+    -- views/TablePanelStats; we just route the calls.
+    Stats.drawEvReadout(tbl, x, y, w, h, controller, fonts, hit_boxes)
 
     -- Jackpot vignette — colored wash over the felt area when a jackpot
     -- resolution is fading. Drawn AFTER the gauge so the colored tint
@@ -956,24 +790,12 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     end
 
     -- Backtick-toggled debug tooltip — only stashes the hovered panel's
-    -- (tbl, ctx). Actual render happens in TablePanel.flushDebugOverlay
+    -- (tbl, ctx). Actual render happens in TablePanelStats.flushDebugOverlay
     -- AFTER the caller has drawn every panel, so the tooltip is never
     -- overdrawn by adjacent panels.
-    stashDebugTooltipIfHover(tbl, x, y, w, h, game, controller)
+    Stats.stashDebugTooltipIfHover(tbl, x, y, w, h, game, controller)
 end
 
--- Render the deferred debug tooltip, if any. Call once per frame after the
--- whole panel grid has been drawn.
-function TablePanel.flushDebugOverlay(game)
-    local dbg = game and game.debug
-    if not dbg or not dbg.overlay then return end
-    local p = dbg._tooltip_pending
-    if not p then return end
-    dbg._tooltip_pending = nil
-    if p.tbl then
-        renderDebugTooltip(p.tbl, p.mx, p.my, game, p.controller)
-    end
-end
 
 -- Empty grid slot — placeholder when table_slots cap allows more tables
 -- than are currently active.

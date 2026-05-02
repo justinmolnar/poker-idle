@@ -47,7 +47,8 @@
 local RNG           = require("utils.rng")
 local Deck          = require("models.Deck")
 local Opponent      = require("models.Opponent")
-local HandEval      = require("utils.hand_eval")
+local HandEval      = require("models.HandEval")
+local MttSession    = require("models.MttSession")
 local StakesData    = require("data.stakes")
 local GameTypesData = require("data.game_types")
 local NameData      = require("data.opponent_names")
@@ -58,8 +59,22 @@ local MttPayouts    = require("data.mtt_payouts")
 local Table = {}
 Table.__index = Table
 
+-- Per-process unique id, used as a stable key into AnchorRegistry so views
+-- can record screen-space anchor positions for a table (player stack, pot,
+-- opponent seats, table center) without mutating the model. Resets to 1 on
+-- process boot — anchors don't survive across runs anyway, so there's no
+-- value in persisting it.
+local _next_id = 1
+
 local LAST_RESULTS_CAP = 5
 local CONSTRUCTION_CAP = 200
+
+-- Build the AnchorRegistry key for a slot ("you", "pot", "center",
+-- "opp_<i>") on a given table. Centralized so the view (writer) and the
+-- controller (reader) can't drift on the format.
+function Table.anchorKey(t, slot)
+    return "table_" .. (t._id or 0) .. "_" .. slot
+end
 
 -- Cinematic timeline lookup. Per-(gtype, tier) lists of {state, duration}
 -- live in data/cinematic_timelines.lua; we resolve at deal-time and walk
@@ -300,7 +315,10 @@ end
 
 function Table:new(stake_id, game_type_id, ctx)
     local stake = findStake(stake_id)
+    local id = _next_id
+    _next_id = _next_id + 1
     local self = setmetatable({
+        _id           = id,
         stake_id      = stake_id,
         game_type_id  = game_type_id or "six_max",
         opponents     = {},
@@ -344,15 +362,11 @@ function Table:new(stake_id, game_type_id, ctx)
         -- flight + pool removal) once the table returns to idle.
         pending_close  = false,
 
-        -- Tournament bookkeeping (only meaningful when the gtype carries
-        -- binary_outcome=true — i.e. MTT). hands_won counts cleared hands
-        -- this run; mtt_state ∈ {nil, "playing"} marks "currently inside
-        -- a tournament sequence" so :_finalizeHand knows whether to
-        -- auto-deal the next one. mtt_pending_payout is a one-shot $
-        -- amount drained by GrindController:update on tournament end.
-        mtt_hands_won       = 0,
-        mtt_state           = nil,
-        mtt_pending_payout  = nil,
+        -- Tournament bookkeeping. Composed in always; cash tables leave it
+        -- at hands_won=0/state=nil so the MTT branches in :_finalizeHand
+        -- and the controller no-op. Only meaningful when the gtype carries
+        -- binary_outcome=true. See models/MttSession for the lifecycle.
+        mtt = MttSession:new(),
     }, Table)
     self:fillOpponents(ctx)
     return self
@@ -456,7 +470,7 @@ function Table:deal(ctx)
     -- delta to 0 so the controller's stack/bankroll mutators no-op.
     if gtype.binary_outcome then
         self.outcome_delta = 0
-        if not self.mtt_state then self.mtt_state = "playing" end
+        self.mtt:begin()
     else
         -- earnings_mult / loss_mult scale magnitude only — they don't reshape
         -- the dists (Pot Odds Master, Damage Control, Headphones).
@@ -477,7 +491,7 @@ function Table:deal(ctx)
             self.outcome_delta = math.min(raw_win, 2 * (self.stack or 0))
         else
             -- Loss side already capped downstream: GrindController clamps
-            -- stack at 0 (controllers/GrindController.lua:171-173).
+            -- stack at 0 in its resolution loop.
             self.outcome_delta = -magnitude_bb * stake.bb * loss_mult
         end
     end
@@ -597,10 +611,10 @@ function Table:_finalizeHand()
     -- hand samples WC against the player's current effects rollup —
     -- magnitudes don't matter (binary_outcome forces delta=0).
     local gtype = findGameType(self.game_type_id)
-    if gtype and gtype.auto_deal and self.mtt_state == "playing" then
+    if gtype and gtype.auto_deal and self.mtt:isPlaying() then
         if self.outcome_won then
-            self.mtt_hands_won = (self.mtt_hands_won or 0) + 1
-            if self.mtt_hands_won >= (gtype.hand_count or 0) then
+            self.mtt:winHand()
+            if self.mtt.hands_won >= (gtype.hand_count or 0) then
                 self:_endTournament()
             else
                 self:deal(self._last_ctx)
@@ -611,19 +625,15 @@ function Table:_finalizeHand()
     end
 end
 
--- Compute the tournament payout for the current mtt_hands_won and stash
--- it on self.mtt_pending_payout for GrindController:update to drain into
--- bankroll on the next tick. Resets mtt_state to nil so the next :deal
--- starts a fresh tournament. Sets stack=0 so the panel renders REBUY.
+-- Settle the tournament: stash the payout on self.mtt for the controller to
+-- drain, clear MTT state, and zero the stack so the panel renders REBUY.
 function Table:_endTournament()
-    local stake = findStake(self.stake_id)
-    local boost = (self._last_ctx and self._last_ctx.mtt_payout_boost) or 0
-    local tier  = MttPayouts[boost] or MttPayouts[0]
-    local mult  = (tier and tier[self.mtt_hands_won]) or 0
-    local buy_in = (stake and stake.buy_in) or 0
-    self.mtt_pending_payout = mult * buy_in
-    self.mtt_state          = nil
-    self.stack              = 0  -- triggers REBUY rendering in TablePanel
+    local stake   = findStake(self.stake_id)
+    local boost   = (self._last_ctx and self._last_ctx.mtt_payout_boost) or 0
+    local payouts = MttPayouts[boost] or MttPayouts[0]
+    local buy_in  = (stake and stake.buy_in) or 0
+    self.mtt:settle(buy_in, payouts)
+    self.stack    = 0  -- triggers REBUY rendering in TablePanel
 end
 
 -- Read-only summary the view header pulls each frame.

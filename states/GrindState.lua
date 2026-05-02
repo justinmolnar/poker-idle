@@ -27,6 +27,10 @@ function GrindState:new(game)
     }, GrindState)
     self.controller = GrindController:new(game)
     self.view       = GrindView:new(game, self.controller)
+    -- Expose the controller on the DI container so other states (the
+    -- shove-state's CatalogModal) can dispatch purchase intents through
+    -- the proper layer instead of mutating GameState directly.
+    game.grind = self.controller
     return self
 end
 

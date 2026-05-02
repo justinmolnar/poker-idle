@@ -65,16 +65,21 @@ local function buildGame()
     g.time            = Time:new()
     g.camera          = Camera:new(0, 0, 1)
     g.sprite_loader   = SpriteLoader:new()
+
+    -- Stateful or instance-backed services live on the DI container so
+    -- consumers reach them via `self.game.foo`.
     g.sounds          = SoundService
     g.animations      = AnimationSystem
     g.floating_text   = FloatingText
     g.hover           = HoverService
-    g.cursor_pool     = CursorPool
-    g.flight_system   = FlightSystem
-    g.click_flash     = ClickFlash
-    g.tooltip         = Tooltip
-    g.ghosts          = Ghosts
-    g.anchors         = AnchorRegistry
+
+    -- Stateless module-singleton services (CursorPool, FlightSystem,
+    -- ClickFlash, Tooltip, Ghosts, AnchorRegistry) are NOT registered on
+    -- the DI container. They're file-local-state singletons; consumers
+    -- require them directly. Putting them on `g` would create two parallel
+    -- access paths (DI + require) for the same shared state — a subtle
+    -- form of fake DI. main.lua references them through the locals at
+    -- the top of the file for the per-frame update/draw plumbing below.
 
     -- Viewport dimensions, refreshed in love.resize. Non-view layers
     -- (controllers, services) read from here instead of querying
@@ -126,9 +131,9 @@ function love.update(dt)
     Game.time:update(dt)
     Game.state_machine:update(dt)
     Game.floating_text.update(dt)
-    Game.flight_system.update(dt)
-    Game.click_flash.update(dt)
-    Game.ghosts.update(dt)
+    FlightSystem.update(dt)
+    ClickFlash.update(dt)
+    Ghosts.update(dt)
     -- No auto-save. Use F5 to save manually, F6 to reload, F7 to wipe.
 end
 

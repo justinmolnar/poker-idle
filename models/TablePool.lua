@@ -59,8 +59,8 @@ function TablePool:rebuildFromState(ctx)
             -- Tournament continuity: reload-mid-run drops the player back
             -- at "table idle, click DEAL to fire the next hand of N".
             -- Cash tables ignore these.
-            t.mtt_hands_won  = hands[i] or 0
-            t.mtt_state      = mstate[i]
+            t.mtt.hands_won  = hands[i] or 0
+            t.mtt.state      = mstate[i]
             self.tables[#self.tables + 1] = t
         end
     end
@@ -72,8 +72,8 @@ function TablePool:_syncStateList()
     for i, t in ipairs(self.tables) do
         specs[i]  = packSpec(t.stake_id, t.game_type_id)
         mutes[i]  = t.cursor_muted == true
-        hands[i]  = t.mtt_hands_won or 0
-        mstate[i] = t.mtt_state
+        hands[i]  = (t.mtt and t.mtt.hands_won) or 0
+        mstate[i] = t.mtt and t.mtt.state
     end
     self.state.active_table_specs         = specs
     self.state.active_table_mutes         = mutes

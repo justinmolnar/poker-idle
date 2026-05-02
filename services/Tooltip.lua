@@ -3,11 +3,10 @@
 -- Deferred hover-tooltip rendering. Stateless module. Only one tooltip can
 -- be visible at a time — the most recent Tooltip.set wins. Cleared each
 -- frame from love.update; populated by hit-test passes during update; drawn
--- once per frame at the top of the render order (above panels and chips,
--- below the backtick debug overlay).
+-- once per frame near the top of the render order (above gameplay layers,
+-- below any debug overlays).
 --
--- Same draw shape as the existing debug tooltip in views/TablePanel —
--- filled bg rect, strong border, light text. Auto-sizes to content. Keeps
+-- Filled bg rect, strong border, light text. Auto-sizes to content. Keeps
 -- inside the screen via edge-clamping near the mouse cursor.
 
 local Theme = require("views.Theme")

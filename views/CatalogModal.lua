@@ -16,9 +16,10 @@
 -- "Requires X". SPACE dismisses the modal — ShoveState consumes that key
 -- and runs the actual run-reset / state-switch.
 --
--- Pure presentation. Buy clicks dispatch through GameState:tryBuyCatalogItem
--- (the model owns its own mutations); the next computeEffects call (fired
--- in the prestige flow) picks up the new ownership.
+-- Pure presentation. Buy clicks dispatch through GrindController:buyCatalogItem,
+-- which handles effects-cache invalidation, the purchase sound, and the
+-- guarded model mutation (the model still owns its own state — the
+-- controller is the layer the view talks to).
 
 local Theme   = require("views.Theme")
 local Catalog = require("data.catalog")
@@ -77,10 +78,17 @@ end
 
 -- ─── Buy path ─────────────────────────────────────────────────────────
 
--- Thin pass-through to the model. Kept named so the call site below reads
--- intent ("buy this card") without having to know the model method name.
-local function tryBuy(state, item)
-    return state:tryBuyCatalogItem(item)
+-- Dispatch the purchase intent through GrindController. The controller
+-- handles effects-cache invalidation + sound + the guarded model mutation;
+-- the view stays out of the model's internals.
+local function tryBuy(game, item)
+    if game.grind and game.grind.buyCatalogItem then
+        return game.grind:buyCatalogItem(item.id)
+    end
+    -- Fallback: route through the model directly if the grind controller
+    -- isn't registered yet (shouldn't happen in normal flow, but keeps the
+    -- modal usable from contrived test setups).
+    return game.state:tryBuyCatalogItem(item)
 end
 
 -- ─── Input ────────────────────────────────────────────────────────────
@@ -98,7 +106,7 @@ function CatalogModal:consumeMouse(mx, my, button)
         if mx >= cell.x and mx < cell.x + cell.w
            and my >= cell.y and my < cell.y + cell.h then
             if cell.buyable then
-                return tryBuy(self.game.state, cell.item)
+                return tryBuy(self.game, cell.item)
             end
             return true   -- consumed even if not buyable (don't fall through)
         end

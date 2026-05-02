@@ -22,9 +22,10 @@
 -- 6th community card (cheat) → R2 chip → if R2 won, same for the 7th →
 -- R3 chip. SPACE during animation calls :skip() to fast-forward.
 
-local Theme     = require("views.Theme")
-local HandEval  = require("utils.hand_eval")
-local Constants = require("data.constants")
+local Theme          = require("views.Theme")
+local HandEval       = require("models.HandEval")
+local Constants      = require("data.constants")
+local SpriteRenderer = require("services.SpriteRenderer")
 
 local ShoveView = {}
 ShoveView.__index = ShoveView
@@ -227,7 +228,7 @@ local function drawCardSprite(sl, sprite_name, x, y, w, h, scale_x, alpha)
     local effective_w = w * scale_x
     local cx = x + w / 2
     local actual_x = cx - effective_w / 2
-    sl:drawSprite(sprite_name, actual_x, y, effective_w, h, { 1, 1, 1, alpha })
+    SpriteRenderer.draw(sl, sprite_name, actual_x, y, effective_w, h, { 1, 1, 1, alpha })
 end
 
 local function visibleBoardCount(g)

@@ -128,7 +128,7 @@ end
 --   { files = { "p1", "p2", ... },      volume = v }   -- random pick per play
 --   { kind = "beep" | "chime" | ...,    volume = v }   -- built-in synth
 -- Any of the above may carry `layer = { ...sub-entry... }` for a secondary
--- sound played alongside (e.g. coins layered on a chip drop for jackpot).
+-- sound played alongside (e.g. an ambient loop layered under a click).
 -- Recursion lets layers themselves carry layers, but in practice we only use
 -- a single level of nesting.
 local function playEntry(entry)

@@ -1,8 +1,10 @@
--- utils/hand_eval.lua
+-- models/HandEval.lua
 --
--- 5-card poker hand evaluator + best-5-of-N selector. Engine-agnostic — knows
--- nothing about gauntlets, shoves, or the rest of the game. Reusable for any
--- card-based game that needs standard 5-card poker rankings.
+-- 5-card poker hand evaluator + best-5-of-N selector. Game-specific (it
+-- knows about flushes, straights, full houses) but otherwise self-contained
+-- — no rendering, no game-flow knowledge. Lives in models/ because it's
+-- poker logic; the engine-agnostic infrastructure layers (utils/, services/,
+-- core/, lib/) must not carry game-specific code.
 --
 -- A hand rank is represented as a tuple { category, t1, t2, ... } where
 -- category is one of the constants below (higher = better) and the trailing
