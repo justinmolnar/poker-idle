@@ -16,10 +16,12 @@ C.DEBUG = {
     -- The MVP plan calls for shove to be prototyped first; this lets the
     -- skeleton route there immediately without needing a state-switch hotkey.
     START_IN_SHOVE = false,
-    -- Always-on HUD during the shove prototype. Surfaces shove_rate, hotkey
-    -- legend, attempt counter, per-runout pass rates so verification doesn't
-    -- depend on the console. Toggled live with `D` in shove mode.
-    SHOW_DEBUG_OVERLAY = true,
+    -- Dev HUD over the shove view. Shows r1/r2/r3, session win-rate
+    -- aggregates, the hotkey legend. Off by default — it spoils the
+    -- gauntlet's three-runout structure and the dealer's two cheats by
+    -- exposing every internal in plain text. Press `D` in shove mode to
+    -- bring it back for development / debugging.
+    SHOW_DEBUG_OVERLAY = false,
 }
 
 C.GAMEPLAY = {

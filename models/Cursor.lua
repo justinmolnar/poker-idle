@@ -14,7 +14,7 @@
 --
 -- Engine-agnostic: this model knows about hit-boxes and dispatcher
 -- callbacks, not about poker, tables, or the EffectsRegistry. Holds
--- pure state (x, y, heading, target, timers); rendering lives in
+-- pure state (x, y, target, timers); rendering lives in
 -- services/CursorPool, which is the only thing that draws cursors.
 
 local Cursor = {}
@@ -35,7 +35,6 @@ function Cursor:new(x, y)
         state        = "wandering",
         scan_timer   = 0,                    -- 0 = scan immediately on first tick
         wander_timer = 0,
-        heading      = 0,                    -- radians; for sprite rotation
     }, Cursor)
 end
 
@@ -56,7 +55,7 @@ local function pickWanderPoint(self, W, H)
     self.wander_timer = WANDER_REPICK * (0.6 + math.random() * 0.8)
 end
 
--- Move toward target_x/target_y by `step` px; updates heading.
+-- Move toward target_x/target_y by `step` px.
 local function stepToward(self, step)
     local dx, dy = self.target_x - self.x, self.target_y - self.y
     local dist = math.sqrt(dx * dx + dy * dy)
@@ -64,7 +63,6 @@ local function stepToward(self, step)
         self.x, self.y = self.target_x, self.target_y
         return 0
     end
-    self.heading = math.atan2(dy, dx)
     self.x = self.x + (dx / dist) * step
     self.y = self.y + (dy / dist) * step
     return dist - step

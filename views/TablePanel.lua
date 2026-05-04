@@ -35,6 +35,7 @@ local Stats         = require("views.TablePanelStats")
 local SpriteRenderer = require("services.SpriteRenderer")
 local StakeThemes   = require("data.stake_themes")
 local ShaderRegistry = require("services.ShaderRegistry")
+local HistoryBars   = require("data.history_bars")
 
 local TablePanel = {}
 
@@ -156,6 +157,72 @@ local function drawCardSlot(x, y, w, h)
 end
 
 -- ─── Sub-panels ──────────────────────────────────────────────────────
+
+-- Mini bar-graph of the last N hand outcomes, drawn into the header strip.
+-- Newest entry on the right, oldest on the left. Color: green = win,
+-- red = loss. Height: per-tier fraction from data/history_bars.lua.
+--
+-- Adapts to available width: targets 10 bars, falls back to the min-size
+-- pair (min_bar_w / min_bar_gap) when the zone is tight, and renders
+-- nothing if even one min-sized bar wouldn't fit. No tier branches —
+-- height is a data lookup.
+local function drawHistoryBars(tbl, zone_x, zone_y, zone_w, zone_h)
+    local results = tbl.last_results
+    if not results or #results == 0 or zone_w <= 0 or zone_h <= 0 then
+        return
+    end
+
+    local layout = HistoryBars.layout
+    local heights = HistoryBars.height
+
+    -- Pick the largest bar+gap pair that fits at least 1 bar in zone_w.
+    -- Try the preferred sizes first; fall back to the min sizes.
+    local function fit(bar_w, gap)
+        local slot_w = bar_w + gap
+        if slot_w <= 0 then return 0 end
+        local n = math.floor((zone_w + gap) / slot_w)
+        if n > layout.max_bars then n = layout.max_bars end
+        return n, bar_w, gap
+    end
+
+    local n, bar_w, gap = fit(layout.bar_w, layout.bar_gap)
+    if n < 1 then
+        n, bar_w, gap = fit(layout.min_bar_w, layout.min_bar_gap)
+    end
+    if n < 1 then return end
+
+    -- Show the newest n results, in order (oldest left → newest right).
+    local total = #results
+    local first_visible = math.max(1, total - n + 1)
+    local visible_count = total - first_visible + 1
+
+    -- Right-align the bar pack inside the zone. graph baseline = zone bottom.
+    local pack_w = visible_count * bar_w + (visible_count - 1) * gap
+    local x0 = zone_x + zone_w - pack_w
+    local baseline_y = zone_y + zone_h
+    local graph_h = math.min(zone_h, layout.graph_h)
+
+    -- Faint baseline track behind every slot — gives the empty slots a
+    -- tiny dark cap so the graph reads as "10 slots" not "free-floating
+    -- bars". Drawn full visible_count wide (not max_bars wide) so it
+    -- aligns with the actual bars rendered this frame.
+    Theme.setColor(Theme.border.default, layout.baseline_alpha)
+    love.graphics.rectangle("fill", x0, baseline_y - 1, pack_w, 1)
+
+    for i = 0, visible_count - 1 do
+        local entry = results[first_visible + i]
+        if entry and entry.tier then
+            local frac = heights[entry.tier] or 0.5
+            local bh   = math.max(1, math.floor(graph_h * frac))
+            local bx   = x0 + i * (bar_w + gap)
+            local by   = baseline_y - bh
+
+            local color = entry.won and Theme.status.good or Theme.status.error
+            Theme.setColor(color, 0.95)
+            love.graphics.rectangle("fill", bx, by, bar_w, bh)
+        end
+    end
+end
 
 local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, cursor_on, rebuy_cursor_on)
     local stats = tbl:liveStats() or {}
@@ -301,7 +368,18 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     Theme.setColor(Theme.fg.muted)
     local hands = string.format("%d hands", tbl.hands_played or 0)
     local hw = fonts.ui_small:getWidth(hands)
-    love.graphics.print(hands, x + w - hw - hands_right_offset, y + 5)
+    local hands_x = x + w - hw - hands_right_offset
+    love.graphics.print(hands, hands_x, y + 5)
+
+    -- History bars — fit them into the gap between the stake-name text
+    -- and the hands-count text. Vertically centered in the header strip.
+    -- If there's not enough room for even one min-sized bar, it no-ops.
+    local name_right = x + 8 + fonts.ui_small:getWidth(header_text)
+    local zone_x     = name_right + 8
+    local zone_w     = (hands_x - 8) - zone_x
+    local graph_h    = HistoryBars.layout.graph_h
+    local zone_y     = y + math.floor((HEADER_H - graph_h) / 2)
+    drawHistoryBars(tbl, zone_x, zone_y, zone_w, graph_h)
 end
 
 local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes)

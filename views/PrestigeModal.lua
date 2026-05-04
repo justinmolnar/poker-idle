@@ -33,6 +33,13 @@ function PrestigeModal:draw()
     local W, H   = love.graphics.getDimensions()
     local fonts  = self.game.fonts
 
+    -- Pin the room palette while drawing so the modal looks identical
+    -- across host states. Without this, the shove state's red-tinted
+    -- "shove" palette colors the modal border bright red — visually
+    -- inconsistent with the rest of the UI.
+    local prior_theme = Theme.active
+    Theme.setActive("room")
+
     -- Backdrop dim. Reuses the debug HUD's translucent black token so
     -- there's no literal color in this file.
     Theme.setColor(Theme.debug.hud_bg)
@@ -84,6 +91,8 @@ function PrestigeModal:draw()
     Theme.setColor(Theme.fg.faint)
     love.graphics.printf("[ SPACE to continue ]",
         card_x, card_y + CARD_H - 30, CARD_W, "center")
+
+    if prior_theme then Theme.setActive(prior_theme) end
 end
 
 return PrestigeModal

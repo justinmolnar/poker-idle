@@ -42,6 +42,24 @@ local Y_PLAYER_LABEL = Y_BOARD + CARD_H + 8
 local Y_PLAYER_HOLE  = Y_PLAYER_LABEL + 22
 local Y_CHIPS        = Y_PLAYER_HOLE + CARD_H + 18
 
+-- Target slot 1's left edge so the currently-visible pack of cards is
+-- centered horizontally on screen. n is 5, 6, or 7 depending on how
+-- many cheats have been earned.
+local function packOriginFor(n_slots, screen_w)
+    local pack_w = n_slots * CARD_W + (n_slots - 1) * CARD_GAP
+    return math.floor((screen_w - pack_w) / 2)
+end
+
+-- How many slots the visible pack should currently center on, given
+-- which runout chips have flipped (and whether those runouts won — a
+-- losing R1 doesn't trigger a 6th-card shift).
+local function visiblePackSize(view, result)
+    local n = 5
+    if view.chip_visible[1] and result and result.outcomes[1] == true then n = 6 end
+    if view.chip_visible[2] and result and result.outcomes[2] == true then n = 7 end
+    return n
+end
+
 function ShoveView:new(game, ss)
     local self = setmetatable({
         game            = game,
@@ -52,6 +70,13 @@ function ShoveView:new(game, ss)
         total_duration  = 0,
         card_anims      = {},
         chip_visible    = { false, false, false },
+        -- Animated board-pack origin (slot 1's left edge). The pack of
+        -- visible cards stays centered on screen at every step: 5 cards
+        -- centered → slide left to re-center for 6 → slide left again
+        -- for 7. nil means "uninitialised; snap to target on first
+        -- update". Lerped toward `board_x_target` each frame.
+        board_x         = nil,
+        board_x_target  = nil,
     }, ShoveView)
     self.fonts = nil
     return self
@@ -177,6 +202,10 @@ function ShoveView:resetTimeline()
     self.total_duration = 0
     self.card_anims     = {}
     self.chip_visible   = { false, false, false }
+    -- Snap the board origin back to the 5-centered baseline on the
+    -- next update so a fresh shove always starts visually centered.
+    self.board_x        = nil
+    self.board_x_target = nil
 end
 
 function ShoveView:skip()
@@ -191,6 +220,12 @@ function ShoveView:skip()
         if anim.update then anim:update(10) end
     end
     self.elapsed = self.total_duration
+    -- Snap the board origin to the final pack size so a fast-forwarded
+    -- reveal doesn't get caught mid-slide.
+    local result = self.ss.gauntlet and self.ss.gauntlet.result
+    local n      = visiblePackSize(self, result)
+    self.board_x_target = packOriginFor(n, love.graphics.getWidth())
+    self.board_x        = self.board_x_target
 end
 
 function ShoveView:update(dt)
@@ -212,6 +247,27 @@ function ShoveView:update(dt)
 
     for _, anim in pairs(self.card_anims) do
         if anim.update then anim:update(dt) end
+    end
+
+    -- Animate the board-pack origin so the pack stays centered as new
+    -- slots appear. Target is computed each frame from chip state. On
+    -- first call we snap (board_x == nil) so the initial render is
+    -- already centered; subsequent retargets lerp over ~0.5 s. The
+    -- shift fires when the runout chip flips — i.e. during the
+    -- RUNOUT_PAUSE + CHEAT_PAUSE window before the cheat card slides
+    -- in — so the slide finishes before the new card lands.
+    local W      = love.graphics.getWidth()
+    local result = self.ss.gauntlet and self.ss.gauntlet.result
+    local n      = visiblePackSize(self, result)
+    self.board_x_target = packOriginFor(n, W)
+    if self.board_x == nil then
+        self.board_x = self.board_x_target
+    else
+        local k = math.min(1, dt * 6)
+        self.board_x = self.board_x + (self.board_x_target - self.board_x) * k
+        if math.abs(self.board_x_target - self.board_x) < 0.5 then
+            self.board_x = self.board_x_target
+        end
     end
 end
 
@@ -239,11 +295,18 @@ local function visibleBoardCount(g)
     return 7
 end
 
-local function bannerFor(g)
+-- Banner is reveal-aware: while the runouts are still being walked, we
+-- show a neutral "ALL-IN" so g.result (which is pre-baked the moment the
+-- player presses SPACE) doesn't leak the outcome through banner text.
+-- Result text only appears once the terminal runout chip has flipped.
+local function bannerFor(g, view)
     if not g or not g.result then return "PRESS SPACE TO SHOVE" end
     local r = g.result
+    local revealed = view and view:_revealedRunoutIdx() or 0
+    local terminal_idx = r.won and 3 or (r.busted_at or 0)
+    if revealed < terminal_idx then return "ALL-IN" end
     if r.won then return "GAUNTLET CLEARED" end
-    return "BUSTED ON RUNOUT " .. tostring(r.busted_at or 0)
+    return "BUSTED"
 end
 
 local function isInCombo(card, combo)
@@ -325,8 +388,52 @@ function ShoveView:draw()
 
     local W, H = love.graphics.getDimensions()
 
+    -- Atmospheric backdrop: pitch-black base, a deep felt band centered
+    -- on the board so the cards land "on a table" rather than floating
+    -- in a black void, plus a soft spotlight halo above it. No textures
+    -- or shaders — just stacked rectangles with alpha falloff. Cheap,
+    -- but turns the empty void into a casino room.
     Theme.setColor(Theme.bg.window)
     love.graphics.rectangle("fill", 0, 0, W, H)
+
+    -- Felt band — runs horizontally across the full width behind the
+    -- board area. Color is a deep desaturated green; deliberately not
+    -- the bright grind-table green so the gauntlet still reads as
+    -- "different / serious" tonally.
+    local FELT_R, FELT_G, FELT_B = 0.045, 0.075, 0.060
+    local felt_top    = Y_DEALER_HOLE - 40
+    local felt_height = (Y_PLAYER_HOLE + CARD_H + 40) - felt_top
+
+    -- Soft top fade → felt → soft bottom fade. Three rectangles, each
+    -- with alpha scaled, give a gradient without needing meshes/shaders.
+    love.graphics.setColor(FELT_R, FELT_G, FELT_B, 0.25)
+    love.graphics.rectangle("fill", 0, felt_top - 60, W, 60)
+    love.graphics.setColor(FELT_R, FELT_G, FELT_B, 1.00)
+    love.graphics.rectangle("fill", 0, felt_top, W, felt_height)
+    love.graphics.setColor(FELT_R, FELT_G, FELT_B, 0.25)
+    love.graphics.rectangle("fill", 0, felt_top + felt_height, W, 60)
+
+    -- Thin gold rule above and below the felt band — suggests the rim
+    -- of a table without committing to a full elliptical felt sprite.
+    love.graphics.setColor(0.45, 0.35, 0.18, 0.70)
+    love.graphics.rectangle("fill", 0, felt_top - 1, W, 1)
+    love.graphics.rectangle("fill", 0, felt_top + felt_height, W, 1)
+
+    -- Centered spotlight glow over the board area — adds the "this is
+    -- the moment" focus. Painted as concentric rounded rects with
+    -- decreasing alpha. Wider than the felt band so it bleeds slightly
+    -- past the edges.
+    local spot_cy = (felt_top + felt_height * 0.5)
+    for i = 1, 6 do
+        local frac  = i / 6
+        local alpha = 0.06 * (1 - frac)
+        local rw    = W * 0.55 * frac + 200
+        local rh    = felt_height * 0.50 * frac + 60
+        love.graphics.setColor(1.0, 0.95, 0.80, alpha)
+        love.graphics.rectangle("fill",
+            (W - rw) * 0.5, spot_cy - rh * 0.5,
+            rw, rh, Theme.space.radius * 4)
+    end
 
     love.graphics.setFont(self.fonts.eyebrow)
     Theme.setColor(Theme.status.error)
@@ -337,27 +444,23 @@ function ShoveView:draw()
 
     love.graphics.setFont(self.fonts.heading)
     Theme.setColor(Theme.fg.heading)
-    printCentered(bannerFor(g), self.fonts.heading, 0, 40, W)
+    printCentered(bannerFor(g, self), self.fonts.heading, 0, 40, W)
 
-    local n_board = visibleBoardCount(g)
-    local board_w = 7 * CARD_W + 6 * CARD_GAP
-    local board_x = math.floor((W - board_w) / 2)
+    local n_board         = visibleBoardCount(g)
+    local n_slots_visible = visiblePackSize(self, result)
+    -- Pack origin is animated by :update so the visible pack of cards
+    -- stays centered at every step. Default to the snapped 5-centered
+    -- position if update hasn't run yet (first frame edge case).
+    local board_x = self.board_x or packOriginFor(n_slots_visible, W)
 
-    -- Board placeholder slots.
+    -- Board placeholder slots — only as many as are currently in play.
+    -- Centered on the same 7-slot anchor so cards 1..5 sit where the
+    -- player expects a normal NLHE board.
     Theme.setColor(Theme.bg.sunken)
-    for i = 1, 7 do
+    for i = 1, n_slots_visible do
         local x = board_x + (i - 1) * (CARD_W + CARD_GAP)
         love.graphics.rectangle("fill", x, Y_BOARD, CARD_W, CARD_H, Theme.space.radius)
     end
-
-    -- Cheat-card slot indicators (positions 6 and 7).
-    Theme.setColor(Theme.border.strong)
-    love.graphics.setLineWidth(Theme.space.line_strong)
-    for i = 6, 7 do
-        local x = board_x + (i - 1) * (CARD_W + CARD_GAP)
-        love.graphics.rectangle("line", x, Y_BOARD, CARD_W, CARD_H, Theme.space.radius)
-    end
-    love.graphics.setLineWidth(1)
 
     -- Board cards.
     for i = 1, n_board do
@@ -439,28 +542,32 @@ function ShoveView:draw()
         end
     end
 
-    -- Runout chips.
+    -- Runout result chips — only render the ones that have actually
+    -- been revealed. Pre-revealed grey chips spoiled the structure (the
+    -- player could count "ah, three runouts coming" before any cards
+    -- landed). Now each chip pops in as it's earned. Chips stay anchored
+    -- to their original positions so they fill in left-to-right without
+    -- the layout shifting around.
     local chip_w, chip_h = 92, 32
     local total_chip_w = 3 * chip_w + 2 * CARD_GAP
     local chip_x0 = math.floor((W - total_chip_w) / 2)
     love.graphics.setFont(self.fonts.ui)
     for i = 1, 3 do
-        local x = chip_x0 + (i - 1) * (chip_w + CARD_GAP)
-        local outcome = result and result.outcomes[i]
-        local revealed = self.chip_visible[i]
-        local label, color
-        if revealed and outcome == true then
-            label, color = "R" .. i .. "  WIN",  Theme.status.good
-        elseif revealed and outcome == false then
-            label, color = "R" .. i .. "  LOSS", Theme.status.error
-        else
-            label, color = "R" .. i,             Theme.fg.faint
+        if self.chip_visible[i] then
+            local x = chip_x0 + (i - 1) * (chip_w + CARD_GAP)
+            local outcome = result and result.outcomes[i]
+            local label, color
+            if outcome == true then
+                label, color = "WIN",  Theme.status.good
+            else
+                label, color = "LOSS", Theme.status.error
+            end
+            Theme.setColor(Theme.bg.widget)
+            love.graphics.rectangle("fill", x, Y_CHIPS, chip_w, chip_h, Theme.space.radius)
+            Theme.setColor(color)
+            love.graphics.rectangle("line", x, Y_CHIPS, chip_w, chip_h, Theme.space.radius)
+            printCentered(label, self.fonts.ui, x, Y_CHIPS + 9, chip_w)
         end
-        Theme.setColor(Theme.bg.widget)
-        love.graphics.rectangle("fill", x, Y_CHIPS, chip_w, chip_h, Theme.space.radius)
-        Theme.setColor(color)
-        love.graphics.rectangle("line", x, Y_CHIPS, chip_w, chip_h, Theme.space.radius)
-        printCentered(label, self.fonts.ui, x, Y_CHIPS + 9, chip_w)
     end
 end
 

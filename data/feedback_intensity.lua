@@ -57,7 +57,9 @@ return {
             lifetime    = 2.0,
             color_token = "amber",
         },
-        confetti_count = 35,
+        -- No confetti at Medium — confetti is reserved for Jackpot so the
+        -- player never mistakes a Medium win for the big one. Medium still
+        -- carries full shake/vignette/border-pulse and a large floater.
     },
     jackpot = {
         shake        = 1.00,

@@ -17,13 +17,19 @@ local CursorPool      = require("services.CursorPool")
 local FlightSystem    = require("services.FlightSystem")
 local ClickFlash      = require("services.ClickFlash")
 local Ghosts          = require("services.Ghosts")
+local CatalogModal    = require("views.CatalogModal")
 
 local GrindState = {}
 GrindState.__index = GrindState
 
 function GrindState:new(game)
     local self = setmetatable({
-        game = game,
+        game           = game,
+        -- Mid-grind catalog modal: nil = closed. Opened by the in-game
+        -- "CATALOG" button in the top bar; same modal class the shove
+        -- state uses post-bust, just instantiated on demand here so the
+        -- player can shop PP without busting first.
+        catalog_modal  = nil,
     }, GrindState)
     self.controller = GrindController:new(game)
     self.view       = GrindView:new(game, self.controller)
@@ -31,7 +37,21 @@ function GrindState:new(game)
     -- shove-state's CatalogModal) can dispatch purchase intents through
     -- the proper layer instead of mutating GameState directly.
     game.grind = self.controller
+    -- Expose a hook the view can call to open the in-grind catalog modal
+    -- without the view having to know about state internals.
+    local state_self = self
+    game.openCatalog = function() state_self:openCatalog() end
     return self
+end
+
+function GrindState:openCatalog()
+    if not self.catalog_modal then
+        self.catalog_modal = CatalogModal:new(self.game)
+    end
+end
+
+function GrindState:closeCatalog()
+    self.catalog_modal = nil
 end
 
 function GrindState:enter()
@@ -63,6 +83,12 @@ end
 
 function GrindState:draw()
     self.view:draw()
+    -- Mid-grind catalog modal — drawn over the live grind view so the
+    -- player can shop without leaving the table layout behind. Same
+    -- visual modal as the post-bust flow.
+    if self.catalog_modal then
+        self.catalog_modal:draw()
+    end
 end
 
 -- Called by InputController F6/F7 handlers via the fullResetAllStates
@@ -78,6 +104,15 @@ end
 -- Phase 2 debug: H deals one hand on table 1. J deals every idle table.
 -- Both are temporary — Phase 3 brings click-to-deal via TablePanel buttons.
 function GrindState:keypressed(key)
+    -- Modal-first input: ESC always closes; SPACE/RETURN dismiss the
+    -- modal back to grind. Anything else falls through to normal grind
+    -- bindings only when the modal is closed.
+    if self.catalog_modal then
+        if key == "escape" or self.catalog_modal:consumeKey(key) then
+            self:closeCatalog()
+        end
+        return
+    end
     if key == "h" then
         self.controller:dealHand(1)
     elseif key == "j" then
@@ -86,18 +121,34 @@ function GrindState:keypressed(key)
 end
 
 function GrindState:mousepressed(x, y, b)
+    if self.catalog_modal then
+        local consumed = self.catalog_modal:consumeMouse(x, y, b)
+        -- Outside-click dismiss. The modal returns false when a click
+        -- lands on dead space (outside any cell); we treat that as
+        -- "close" so the player isn't trapped.
+        if not consumed then
+            self:closeCatalog()
+        end
+        return
+    end
     self.view:mousepressed(x, y, b)
 end
 
 function GrindState:mousereleased(x, y, b)
+    if self.catalog_modal then return end
     self.view:mousereleased(x, y, b)
 end
 
 function GrindState:mousemoved(x, y, dx, dy)
+    if self.catalog_modal then return end
     self.view:mousemoved(x, y, dx, dy)
 end
 
 function GrindState:wheelmoved(x, y)
+    if self.catalog_modal and self.catalog_modal.wheelmoved then
+        self.catalog_modal:wheelmoved(x, y)
+        return
+    end
     self.view:wheelmoved(x, y)
 end
 

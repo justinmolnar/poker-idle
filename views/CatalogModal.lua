@@ -214,6 +214,14 @@ function CatalogModal:draw()
     local fonts = self.game.fonts
     local state = self.game.state
 
+    -- The catalog is a meta-progression UI — its identity should NOT
+    -- shift when launched from the gauntlet (whose "shove" palette tints
+    -- border.strong bright red) vs grind. Pin the room palette for the
+    -- duration of this draw, then restore so the host state's next frame
+    -- still uses its own theme.
+    local prior_theme = Theme.active
+    Theme.setActive("room")
+
     -- Backdrop dim.
     Theme.setColor(Theme.debug.hud_bg)
     love.graphics.rectangle("fill", 0, 0, W, H)
@@ -303,6 +311,9 @@ function CatalogModal:draw()
         or  "[ SPACE to continue ]"
     love.graphics.printf(prompt,
         mx_modal, my_modal + modal_h - 28, MODAL_W, "center")
+
+    -- Restore the host state's palette so its next frame renders correctly.
+    if prior_theme then Theme.setActive(prior_theme) end
 end
 
 return CatalogModal

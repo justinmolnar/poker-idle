@@ -164,6 +164,9 @@ function PokerEffects.registerAll(reg)
     reg:register("pp_award_mult", function(e, ctx)
         ctx.pp_award_mult = (ctx.pp_award_mult or 1) * e.value
     end)
+    reg:register("jackpot_pp_add", function(e, ctx)
+        ctx.jackpot_pp_add = (ctx.jackpot_pp_add or 0) + (e.value or 0)
+    end)
 
     -- ── Cursor swarm (autonomous DEAL-clickers) ────────────────────────
     -- Flag perk: presence in owned_items sets ctx.cursor_unlocked = true.

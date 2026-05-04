@@ -27,19 +27,46 @@ local BankrollTiers = require("data.bankroll_tiers")
 
 local ShoveRate = {}
 
--- Linear walk: tier table is 9 rows. Returns the highest row whose
--- threshold ≤ bankroll. Falls back to row 1 (Sub-T1) for negatives.
-local function lookupTier(bankroll)
+-- Walk the tier table to find the (lower, upper) bracket the player's
+-- bankroll falls into. Lower defines the player's "tier badge" (label);
+-- upper is the next stake's row used for interpolation.
+local function lookupBracket(bankroll)
     bankroll = bankroll or 0
-    local last = BankrollTiers[1]
-    for _, row in ipairs(BankrollTiers) do
+    local lower = BankrollTiers[1]
+    local upper = nil
+    for i, row in ipairs(BankrollTiers) do
         if bankroll >= row.threshold then
-            last = row
+            lower = row
+            upper = BankrollTiers[i + 1]
         else
             break
         end
     end
-    return last
+    return lower, upper
+end
+
+-- Log-interpolate the multiplier between two tier rows. Bankroll grows
+-- exponentially (each tier is ~10× the previous), so a linear ramp would
+-- spend most of the time near the lower mult. Interpolating in log-space
+-- gives a perceptually smooth climb: at the geometric midpoint between
+-- T1 ($2) and T2 ($25) — about $7 — mult sits at the midpoint (1.5×),
+-- not at the linear midpoint ($13). Same shape applied at every tier
+-- pair, so the player feels continuous progress instead of integer
+-- jumps at buy-in boundaries.
+local function interpolateMult(bankroll, lower, upper)
+    if not upper then return lower.mult end
+    if lower.mult == upper.mult then return lower.mult end
+    -- Avoid log(0) for the Sub-T1 row whose threshold is 0.
+    local lo_thr = math.max(0.01, lower.threshold)
+    local up_thr = upper.threshold
+    local b      = math.max(lo_thr, bankroll)
+    local lt = math.log(lo_thr)
+    local ut = math.log(up_thr)
+    local bt = math.log(b)
+    local frac = (bt - lt) / (ut - lt)
+    if frac < 0 then frac = 0 end
+    if frac > 1 then frac = 1 end
+    return lower.mult + (upper.mult - lower.mult) * frac
 end
 
 local function clamp01(v)
@@ -48,8 +75,7 @@ local function clamp01(v)
     return v
 end
 
-local function buildRates(catalog, tier)
-    local mult = tier.mult
+local function buildRates(catalog, mult, tier)
     local raw1 = catalog * mult
     local raw2 = catalog * (mult / 2)
     local raw3 = (catalog / 2) * (mult / 2)
@@ -89,8 +115,9 @@ end
 -- landed.
 function ShoveRate.compute(ctx, bankroll)
     local base = (ctx and ctx.shove_rate) or 0
-    local tier = lookupTier(bankroll or 0)
-    local rates = buildRates(base, tier)
+    local lower, upper = lookupBracket(bankroll or 0)
+    local mult = interpolateMult(bankroll or 0, lower, upper)
+    local rates = buildRates(base, mult, lower)
     rates.bankroll = bankroll or 0
     return rates
 end
@@ -99,8 +126,9 @@ end
 -- the shove-mode debug hotkeys ([ / ]) which mutate the rate independently
 -- of the actual catalog rollup.
 function ShoveRate.computeFromBase(catalog, bankroll)
-    local tier = lookupTier(bankroll or 0)
-    local rates = buildRates(catalog or 0, tier)
+    local lower, upper = lookupBracket(bankroll or 0)
+    local mult = interpolateMult(bankroll or 0, lower, upper)
+    local rates = buildRates(catalog or 0, mult, lower)
     rates.bankroll = bankroll or 0
     return rates
 end
@@ -120,9 +148,9 @@ function ShoveRate.formatBreakdown(rates)
     return {
         string.format("ALL-IN: %.0f%% to win", rates.raw_r1 * 100),
         string.format("Catalog base: %.1f%%", rates.catalog * 100),
-        string.format("Bankroll $%s (%s): %d× mult",
+        string.format("Bankroll $%s (%s): %.1f× mult",
             ShoveRate._formatMoney(rates.bankroll),
-            rates.tier.label, rates.tier.mult),
+            rates.tier.label, rates.mult),
     }
 end
 

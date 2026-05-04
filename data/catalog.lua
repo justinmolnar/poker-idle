@@ -257,13 +257,13 @@ return {
     {
         id          = "pen",
         name        = "Pen",
-        effect_text = "+25% PP from bounties.",
-        description = "More PP from bounties.",
+        effect_text = "+1 PP per jackpot win.",
+        description = "Bank a little extra every time you spike.",
         sprite      = "pen",
         phase       = "mid",
         cost_pp     = 4,
         position    = { x = 230, y = 200 },
-        effects     = { { kind = "pp_award_mult", value = 1.25 } },
+        effects     = { { kind = "jackpot_pp_add", value = 1 } },
     },
     {
         id          = "headphones",
@@ -315,7 +315,7 @@ return {
     {
         id          = "cursor_pool",
         name        = "Cursor Pool",
-        effect_text = "Unlocks the cursor swarm — comes with one cursor.",
+        effect_text = "Unlocks the cursor swarm and the Hire upgrade.",
         description = "Hire assistants to click for you.",
         sprite      = "cursor_pool",
         phase       = "late",
@@ -323,7 +323,6 @@ return {
         position    = { x = 100, y = 500 },
         effects     = {
             { kind = "cursor_unlocked" },
-            { kind = "cursor_count_add", value = 1 },
         },
     },
     {

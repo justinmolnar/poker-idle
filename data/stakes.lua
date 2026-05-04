@@ -56,17 +56,22 @@ return {
         buy_in       = 2.00,
         pp_award     = 1,
         -- T1 naked WC stays at 0.50 (it's the demo's coinflip baseline).
-        -- The slight tilt comes from magnitude asymmetry only: wins lean
-        -- a touch off Tiny toward Small/Medium, losses lean a touch onto
-        -- Tiny. Avg win 13.3bb vs avg loss 9.5bb at the same 50/50 → EV
-        -- ≈ +1.9 bb/hand at T1. "More likely to make a bit than not"
-        -- without inflating the headline win-rate number.
+        -- Loss tail is intentionally squashed at T1: Medium losses are
+        -- rare and Jackpot losses are basically a unicorn (0.1%). The
+        -- annoying thing about T1 is busting before the bankroll has a
+        -- chance to compound; muting big-loss variance keeps players
+        -- in the seat. Avg win 13.3bb vs avg loss ~6.0bb at 50/50 → EV
+        -- ≈ +3.65 bb/hand at T1.
         win_chance        = 0.50,
         win_chance_capped = 0.75,
         win_dist          = { tiny = 0.40, small = 0.36, medium = 0.22, jackpot = 0.02 },
         win_dist_capped   = { tiny = 0.10, small = 0.15, medium = 0.25, jackpot = 0.50 },
-        loss_dist         = { tiny = 0.55, small = 0.30, medium = 0.14, jackpot = 0.01 },
-        loss_dist_capped  = { tiny = 0.85, small = 0.10, medium = 0.04, jackpot = 0.01 },
+        loss_dist         = { tiny = 0.70, small = 0.23, medium = 0.069, jackpot = 0.001 },
+        -- loss_dist_capped MUST be a strict improvement on the naked dist
+        -- in this stake's loss-tail tiers: capped jackpot ≤ naked jackpot,
+        -- capped medium ≤ naked medium. Otherwise Pot Control fills will
+        -- LERP loss toward a *worse* tail than the naked baseline.
+        loss_dist_capped  = { tiny = 0.92, small = 0.07, medium = 0.009, jackpot = 0.001 },
         fill_window       = { start = 0, complete = 5 },
     },
     {

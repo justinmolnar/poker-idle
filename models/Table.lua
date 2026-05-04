@@ -66,7 +66,12 @@ Table.__index = Table
 -- value in persisting it.
 local _next_id = 1
 
-local LAST_RESULTS_CAP = 5
+-- Per-table rolling history of the last N hand results (won, delta, tier).
+-- Drawn as a mini bar-graph in the panel header so the player can glance at
+-- a table and see "won big a lot lately" or "bleeding". 10 entries is the
+-- target; the renderer fits fewer if the panel is too narrow to show 10
+-- legibly.
+local LAST_RESULTS_CAP = 10
 local CONSTRUCTION_CAP = 200
 
 -- Build the AnchorRegistry key for a slot ("you", "pot", "center",

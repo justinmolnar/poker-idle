@@ -114,21 +114,43 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
     end
 end
 
--- Triangle vertices in local coords (tip at origin, base behind by 14 px,
--- 10 px wide). Rotated so the tip leads the direction of motion.
-local SHAPE_PTS = { 0, 0, -14, -5, -14, 5 }
+-- Arrow-cursor polygon (clockwise from tip). Top-left point is the
+-- click hotspot — translated to the cursor's (x, y). Real OS cursors
+-- don't rotate with motion, so neither do these. Sized ~1.3× a classic
+-- 12×18 OS arrow so the swarm reads visibly bigger than the player's
+-- own mouse pointer (additional differentiator: warm Theme.fg.heading
+-- fill instead of system white).
+local CURSOR_POLY = {
+    0,  0,    -- tip
+    15, 15,   -- arrow-head bottom-right corner
+    8,  15,   -- inner notch where tail begins
+    12, 23,   -- tail outer-right corner
+    9,  24,   -- tail outer-left corner
+    5,  16,   -- tail inner meets body
+    0,  21,   -- body bottom-left
+}
+-- Pre-triangulated for fill (the polygon is concave — love2d's
+-- polygon("fill", ...) requires convex). Lines render the closed poly
+-- directly so the outline traces the silhouette, not the seams.
+local CURSOR_TRIS = love.math.triangulate(CURSOR_POLY)
 
 local function drawShape(c, mode)
     love.graphics.push()
     love.graphics.translate(c.x, c.y)
-    love.graphics.rotate(c.heading)
-    love.graphics.polygon(mode, SHAPE_PTS)
+    if mode == "fill" then
+        for _, tri in ipairs(CURSOR_TRIS) do
+            love.graphics.polygon("fill", tri)
+        end
+    else
+        love.graphics.polygon("line", CURSOR_POLY)
+    end
     love.graphics.pop()
 end
 
 function CursorPool.draw()
     if #_cursors == 0 then return end
-    -- Fill pass — bright primary so cursors pop above the felt green.
+    -- Fill pass — warm cream so cursors pop above the felt green and
+    -- read distinctly from the player's white OS mouse pointer.
     Theme.setColor(Theme.fg.heading, 0.95)
     for _, c in ipairs(_cursors) do
         drawShape(c, "fill")

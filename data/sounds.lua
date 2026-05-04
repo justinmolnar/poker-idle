@@ -67,8 +67,8 @@ return {
     pot_lost_small      = { files = CHIP_2ON1,    volume = 0.45 },
     pot_lost_medium     = { files = CHIP_3ON2,    volume = 0.50 },
     pot_lost_jackpot    = {
-        files = CHIP_DROP_4, volume = 0.35,
-        layer = { file = "assets/audio/negative_buzz.mp3", volume = 0.275 },
+        files = CHIP_DROP_4, volume = 0.175,
+        layer = { file = "assets/audio/negative_buzz.mp3", volume = 0.1375 },
     },
 
     -- ── Chip-flight arrival thunks (one per burst, fired by FlightSystem) ──

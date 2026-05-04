@@ -206,6 +206,14 @@ Effects.kinds = {
         affects     = "ctx.pp_award_mult",
     },
 
+    -- Flat PP granted on every jackpot-tier WIN (Pen). Independent of the
+    -- per-(stake, gtype) bounty system — fires every time, not just first.
+    jackpot_pp_add = {
+        description = "Flat PP added to pp_this_run on every jackpot-tier win.",
+        value_shape = "integer, e.g. 1 for +1 PP per jackpot",
+        affects     = "ctx.jackpot_pp_add",
+    },
+
     -- ── Slows rep / burn meter rise during a run. (Held over.)
     rep_decay_slow = {
         description = "Multiplies the rate at which rep accumulates.",

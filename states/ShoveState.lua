@@ -224,7 +224,7 @@ function ShoveState:keypressed(key)
         self.shove_rates = ShoveRate.computeFromBase(new_base, bankroll)
         local r = self.shove_rates
         print(string.format(
-            "[shove] catalog=%.2f mult=%d  →  r1=%.2f r2=%.2f r3=%.2f clear=%.2f%%",
+            "[shove] catalog=%.2f mult=%.2f  →  r1=%.2f r2=%.2f r3=%.2f clear=%.2f%%",
             r.catalog, r.mult, r.r1, r.r2, r.r3, r.clear * 100))
 
     elseif key == "d" then

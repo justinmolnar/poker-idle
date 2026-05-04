@@ -178,6 +178,11 @@ function CR._button(comp, px, pw, p, y, game)
             local color
             if disabled then
                 color = Theme.fg.disabled
+            elseif line.color_token then
+                color = (Theme.data and Theme.data[line.color_token])
+                     or (Theme.status and Theme.status[line.color_token])
+                     or (Theme.fg and Theme.fg[line.color_token])
+                     or Theme.fg.primary
             elseif style == "small" or style == "muted" then
                 color = Theme.fg.muted
             elseif style == "heading" then
@@ -191,7 +196,8 @@ function CR._button(comp, px, pw, p, y, game)
 
             local indent = lineIndent(style)
             local printf_w = fw - indent - 4
-            love.graphics.printf(line.text or "", fx + indent, cursor, printf_w, "left")
+            love.graphics.printf(line.text or "",
+                fx + indent, cursor, printf_w, line.align or "left")
             cursor = cursor + lineRenderedHeight(line, game, fw)
         end
     end)

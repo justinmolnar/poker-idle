@@ -261,16 +261,36 @@ function GrindController:update(dt)
             state.peak_bankroll = total_wealth
         end
 
+        -- Floater label & color: for cash hands the dollar delta speaks
+        -- for itself; for tournament hands (binary_outcome forces
+        -- delta=0) showing "+$0.00" was meaningless. Tournaments emit a
+        -- WIN / OUT status floater per hand; the actual payout (which
+        -- only exists at tournament end) gets its own "+$X.XX" floater
+        -- from the MTT drainPayout block above.
+        local gtype_for_floater = tbl and findGameType(tbl.game_type_id)
+        local is_binary = gtype_for_floater and gtype_for_floater.binary_outcome
         local label
-        if r.delta >= 0 then
+        local floater_opts_override = nil
+        if is_binary then
+            label = r.won and "WIN" or "OUT"
+            floater_opts_override = { color_token = r.won and "good" or "error" }
+        elseif r.delta >= 0 then
             label = string.format("+$%.2f", r.delta)
         else
             label = string.format("-$%.2f", -r.delta)
         end
         -- Tier-scaled floater opts from data. Tiny = small + compact;
-        -- jackpot = huge + arcing. Color is auto-detected from the +/-
-        -- prefix at draw time, so no override needed here.
+        -- jackpot = huge + arcing. Color for cash is auto-detected from
+        -- the +/- prefix at draw time; for MTT we override with an
+        -- explicit color_token so WIN/OUT read green/red without a
+        -- prefix to parse.
         local intensity_for_floater = FeedbackIntensity[r.tier] or FeedbackIntensity.tiny
+        local floater_opts = intensity_for_floater.floater
+        if floater_opts_override then
+            floater_opts = {}
+            for k, v in pairs(intensity_for_floater.floater) do floater_opts[k] = v end
+            for k, v in pairs(floater_opts_override) do floater_opts[k] = v end
+        end
         -- Spawn at the panel center if the anchor exists; falls back to
         -- (r.x, r.y) which is the panel's top-left corner. The center
         -- read sells the float as "above this hand" instead of off in
@@ -278,7 +298,7 @@ function GrindController:update(dt)
         local cxy   = (tbl and AnchorRegistry.get(TableModel.anchorKey(tbl, "center")))
         local fx    = cxy and cxy[1] or (r.x or 0)
         local fy    = cxy and cxy[2] or (r.y or 0)
-        self.game.floating_text.emit(label, fx, fy, intensity_for_floater.floater)
+        self.game.floating_text.emit(label, fx, fy, floater_opts)
 
         -- Chip-flight burst on resolution. Three flavors:
         --   • win  → pot to YOU stack
@@ -338,8 +358,6 @@ function GrindController:update(dt)
                     state.stakes_won_this_run[key] = true
                     local stake = findStake(tbl.stake_id)
                     local base_award = stake and stake.pp_award or 0
-                    -- pp_award_mult (Endorsement Deal catalog item)
-                    -- doubles or otherwise scales bounty payouts.
                     local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
                     local award = math.floor(base_award * mult + 0.5)
                     if award > 0 then
@@ -352,6 +370,17 @@ function GrindController:update(dt)
                             string.format("+%d PP (run)", award),
                             r.x, (r.y or 0) - 28)
                     end
+                end
+
+                -- Per-jackpot PP grant (Pen). Independent of the bounty
+                -- system above — fires on EVERY jackpot win, even after
+                -- the (stake, gtype) bounty has been locked.
+                local per_jp = (self.ctx and self.ctx.jackpot_pp_add) or 0
+                if per_jp > 0 then
+                    state.pp_this_run = state.pp_this_run + per_jp
+                    self.game.floating_text.emit(
+                        string.format("+%d PP", per_jp),
+                        r.x, (r.y or 0) - 48)
                 end
             end
         end
@@ -390,9 +419,8 @@ function GrindController:bountyBanked(stake_id, game_type_id)
 end
 
 -- The PP that WOULD bank if the player hits a jackpot win at (stake,
--- gtype) — base stake.pp_award scaled by ctx.pp_award_mult (Pen,
--- Endorsement Deal). Used for the "PP +N available" indicator in the
--- Tables tab.
+-- gtype) — base stake.pp_award scaled by ctx.pp_award_mult. Used for
+-- the "PP +N available" indicator in the Tables tab.
 function GrindController:bountyAward(stake_id)
     local stake = findStake(stake_id)
     if not stake then return 0 end

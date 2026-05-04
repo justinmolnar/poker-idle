@@ -48,6 +48,9 @@ local MARGIN               = 12
 local SHOVE_BTN_H          = 64
 local CASH_OUT_BTN_W       = 110
 local CASH_OUT_BTN_H       = 36
+local CATALOG_BTN_W        = 110
+local CATALOG_BTN_H        = 36
+local TOPBAR_BTN_GAP       = 8
 -- Reserved band at the bottom of the center column for the bankroll
 -- chip pile. Center grid shrinks vertically by this much. Sidebars are
 -- unaffected — they keep running their full height.
@@ -128,10 +131,10 @@ function GrindView:_makeGameTypeStrip()
     -- table; the data file (data/game_types.lua) only carries gameplay
     -- knobs (seats, pace, dist_shifts), not UI copy.
     local GTYPE_BLURB = {
-        six_max  = "6-max — standard pace, 5 seated opponents.",
-        hu       = "Heads-Up — long showdowns; small wins, big losses.",
-        zoom     = "Zoom — anonymous pool, fold-spam. Tiny pots, no reads.",
-        mtt      = "Tournament — pay buy-in once, play 8 hands. Cash 6+ to win.",
+        six_max  = "6-Max — the baseline. Standard pace, 5 seated opponents, no pot-shape bias.",
+        hu       = "Heads-Up — duel with one opponent. Fast pace, you win less often, but pots run deep both ways.",
+        zoom     = "Zoom — anonymous reroll pool. Fastest mode, you win slightly more often, but pots stay small.",
+        mtt      = "Tournament — 8 hands in sequence, no rebuys. Cash 6+ wins to cover the buy-in; win all 8 for the top payout.",
     }
     return {
         type = "custom",
@@ -227,17 +230,27 @@ function GrindView:_buildTablesTabComponents()
             sub = string.format("buy-in $%.2f", stake.buy_in or 0)
         end
 
-        -- PP-bounty status line. Shows whether this (stake, gtype) combo
-        -- has banked PP this run (locked in) or how much is still up
-        -- for grabs. Helps the player skip combos they've already won.
+        -- PP-bounty status line. Right-aligned in the button so it sits
+        -- in the bottom-right corner under the buy-in. Color is the
+        -- whole signal: muted when the bounty is still up for grabs,
+        -- green once it's banked this run. Same text shape in both
+        -- states so the eye locks onto color, not wording.
         local banked = self.controller:bountyBanked(stake.id, gtype_id)
         local pp_line
         if banked then
-            pp_line = { text = "PP banked this run", style = "muted" }
+            pp_line = {
+                text        = "PP BANKED",
+                style       = "heading",
+                align       = "right",
+                color_token = "good",
+            }
         else
             local award = self.controller:bountyAward(stake.id)
-            pp_line = { text = string.format("PP +%d on jackpot win", award),
-                        style = "small" }
+            pp_line = {
+                text  = string.format("+%d PP on jackpot", award),
+                style = "heading",
+                align = "right",
+            }
         end
 
         components[#components + 1] = {
@@ -254,24 +267,10 @@ function GrindView:_buildTablesTabComponents()
         }
     end
 
-    components[#components + 1] = { type = "spacer", h = 8 }
-    components[#components + 1] = { type = "divider", h = 6 }
-
-    -- Live focus stats.
-    local focus_cap = self.controller:currentFocusCapacity()
-    local focus_pct = math.floor(self.controller:currentFocusMult() * 100 + 0.5)
-    components[#components + 1] = {
-        type  = "label",
-        style = "body",
-        text  = string.format("Tables: %d  ·  Focus: %d%%", active, focus_pct),
-        h     = 20,
-    }
-    components[#components + 1] = {
-        type  = "label",
-        style = "small",
-        text  = string.format("Capacity: %d  (max %d tables)", focus_cap, cap),
-        h     = 18,
-    }
+    -- Tables count / focus / capacity all live in the top-bar workload
+    -- cluster now (the sidebar duplicate was redundant). The local `active`
+    -- and `cap` reads above still drive the per-button "tables full" /
+    -- "buy-in unaffordable" disabled states.
 
     return components
 end
@@ -393,14 +392,27 @@ function GrindView:update(dt)
             mx, my)
     end
 
-    -- Top-bar SHOVE column hover tooltip. The rect spans both the label
-    -- and the value (y=2..46) so a hover anywhere on the column lands.
-    -- Width covers the readout + a small comfort margin.
-    if mx >= 716 and mx < 800 and my >= 2 and my < 46 then
+    -- Top-bar SHOVE cell hover tooltip — full breakdown of the live
+    -- shove-rate. Rect is stashed by _drawTopBar (1-frame stale).
+    local sh = self._shove_cell_rect
+    if sh and mx >= sh.x and mx < sh.x + sh.w and my >= sh.y and my < sh.y + sh.h then
         local state = self.game.state
         local ctx = (self.controller and self.controller.ctx) or {}
         local rates = ShoveRate.compute(ctx, state.bankroll or 0)
         TooltipSvc.set(ShoveRate.formatBreakdown(rates), mx, my)
+    end
+
+    -- Top-bar workload cluster (TABLES · FOCUS) hover tooltip. Surfaces
+    -- the focus capacity / max-tables data that used to live in the
+    -- sidebar. Rect stashed by _drawTopBar.
+    local wr = self._workload_rect
+    if wr and mx >= wr.x and mx < wr.x + wr.w and my >= wr.y and my < wr.y + wr.h then
+        local cap       = self.controller:tableSlotsCap()
+        local focus_cap = self.controller:currentFocusCapacity()
+        TooltipSvc.set({
+            string.format("Capacity: %d  /  max %d tables", focus_cap, cap),
+            "Open more than capacity → focus penalty.",
+        }, mx, my)
     end
 
     -- Tween top-bar numbers toward live state values.
@@ -442,6 +454,39 @@ local function ppText(n)
     return Format.formatBig(math.floor(n))
 end
 
+-- Top-bar layout constants. Cells inside a cluster share STAT_CELL_W;
+-- clusters are separated by a 1 px divider with CLUSTER_GAP padding on
+-- either side. BANKROLL keeps its own (wider) cell for the kpi font.
+-- Sizes chosen to keep the rightmost divider clear of the CATALOG
+-- button (which anchors at W - 790 from the left at 1280 wide).
+local STAT_CELL_W      = 72
+local BANKROLL_CELL_W  = 160
+local CLUSTER_GAP      = 10
+local TOPBAR_PAD_X     = 16
+local TOPBAR_LABEL_Y   = 6
+local TOPBAR_VALUE_Y   = 22
+local TOPBAR_DIV_INSET = 8
+
+-- Draws "LABEL" (small, muted) on top and the value (heading font, given
+-- color) below at the cell's left edge. Keeps every non-bankroll cell
+-- visually identical so the eye scans cleanly across the bar.
+local function drawStatCell(x, w, label, value, value_color, fonts)
+    love.graphics.setFont(fonts.ui_small)
+    Theme.setColor(Theme.fg.muted)
+    love.graphics.print(label, x, TOPBAR_LABEL_Y)
+
+    love.graphics.setFont(fonts.heading)
+    Theme.setColor(value_color)
+    love.graphics.print(value, x, TOPBAR_VALUE_Y)
+end
+
+-- Vertical 1 px separator between clusters. Inset top/bottom so it
+-- doesn't touch the bar's bottom border.
+local function drawClusterDivider(x)
+    Theme.setColor(Theme.border.soft)
+    love.graphics.rectangle("fill", x, TOPBAR_DIV_INSET, 1, TOP_BAR_H - TOPBAR_DIV_INSET * 2)
+end
+
 function GrindView:_drawTopBar(W)
     Theme.setColor(Theme.bg.chrome)
     love.graphics.rectangle("fill", 0, 0, W, TOP_BAR_H)
@@ -466,36 +511,14 @@ function GrindView:_drawTopBar(W)
         bankroll_tint = (diff_bank > 0) and Theme.status.good or Theme.status.error
     end
 
-    -- BANKROLL = spendable / off-table money. The big number — that's
-    -- what the player actually buys upgrades with.
+    -- BANKROLL cluster — solo, kpi font. The big spendable number.
     Theme.setColor(bankroll_tint)
     love.graphics.setFont(fonts.kpi)
-    love.graphics.print(moneyText(d_bank), 16, 8)
+    love.graphics.print(moneyText(d_bank), TOPBAR_PAD_X, 8)
 
     local total     = d_bank + d_tied
     local n_tables  = self.controller.pool:count()
     local focus_pct = math.floor(self.controller:currentFocusMult() * 100 + 0.5)
-
-    love.graphics.setFont(fonts.ui_small)
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.print("TIED UP", 200, 6)
-    love.graphics.print("TOTAL",   300, 6)
-    love.graphics.print("PP",      400, 6)
-    love.graphics.print("PEAK",    470, 6)
-    love.graphics.print("TABLES",  580, 6)
-    love.graphics.print("FOCUS",   660, 6)
-    love.graphics.print("SHOVE",   720, 6)
-
-    love.graphics.setFont(fonts.heading)
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.print(moneyText(d_tied), 200, 22)
-    Theme.setColor(Theme.fg.primary)
-    love.graphics.print(moneyText(total), 300, 22)
-    Theme.setColor(Theme.fg.heading)
-    love.graphics.print(ppText(d_pp), 400, 22)
-    Theme.setColor(Theme.fg.primary)
-    love.graphics.print(moneyText(d_peak), 470, 22)
-    love.graphics.print(tostring(n_tables), 580, 22)
 
     -- Focus % color-coded: green = 100% (no penalty), amber = 70–99%,
     -- red = <70%.
@@ -503,17 +526,13 @@ function GrindView:_drawTopBar(W)
     if focus_pct >= 100     then focus_color = Theme.status.good
     elseif focus_pct >= 70  then focus_color = Theme.status.warn
     else                         focus_color = Theme.status.error end
-    Theme.setColor(focus_color)
-    love.graphics.print(focus_pct .. "%", 660, 22)
 
     -- SHOVE: live gauntlet-clear readout. Same compute the gauntlet
     -- locks in at click time — players see the grind feed the rate in
-    -- real time. Player-facing this is just "% to win the all-in" — the
-    -- dealer's cheats are a diegetic surprise reveal, the UI doesn't
-    -- pre-spoil R2/R3 or the gauntlet structure. Mechanically the
-    -- displayed value is raw_r1 (catalog × bankroll-mult, uncapped) so
-    -- the player can see overshoots like "120%" / "220%" — that's the
-    -- "I've ground past anything that matters" feel.
+    -- real time. Mechanically the displayed value is raw_r1 (catalog ×
+    -- bankroll-mult, uncapped) so the player can see overshoots like
+    -- "120%" / "220%" — that's the "I've ground past anything that
+    -- matters" feel.
     local ctx = (self.controller and self.controller.ctx) or {}
     local rates = ShoveRate.compute(ctx, state.bankroll or 0)
     local r1_raw = rates.raw_r1 or 0
@@ -522,8 +541,56 @@ function GrindView:_drawTopBar(W)
     elseif r1_raw < 1.00 then rate_color = Theme.status.warn
     else                      rate_color = Theme.status.good
     end
-    Theme.setColor(rate_color)
-    love.graphics.print(string.format("%.0f%%", r1_raw * 100), 720, 22)
+
+    -- Cluster layout: walk left→right, advancing `x` by cell widths
+    -- plus dividers. Each cluster is a sequence of fixed-width cells;
+    -- a 1 px divider with CLUSTER_GAP padding sits between clusters.
+    local x = TOPBAR_PAD_X + BANKROLL_CELL_W
+
+    drawClusterDivider(x)
+    x = x + CLUSTER_GAP
+
+    -- Money cluster: TIED · TOTAL · PEAK
+    drawStatCell(x, STAT_CELL_W, "TIED UP", moneyText(d_tied), Theme.fg.muted,   fonts)
+    x = x + STAT_CELL_W
+    drawStatCell(x, STAT_CELL_W, "TOTAL",   moneyText(total),  Theme.fg.primary, fonts)
+    x = x + STAT_CELL_W
+    drawStatCell(x, STAT_CELL_W, "PEAK",    moneyText(d_peak), Theme.fg.primary, fonts)
+    x = x + STAT_CELL_W + CLUSTER_GAP
+
+    drawClusterDivider(x)
+    x = x + CLUSTER_GAP
+
+    -- Run cluster: PP · SHOVE
+    drawStatCell(x, STAT_CELL_W, "PP", ppText(d_pp), Theme.fg.heading, fonts)
+    x = x + STAT_CELL_W
+    local shove_cell_x = x
+    drawStatCell(x, STAT_CELL_W, "SHOVE",
+                 string.format("%.0f%%", r1_raw * 100), rate_color, fonts)
+    x = x + STAT_CELL_W + CLUSTER_GAP
+
+    -- Stash the SHOVE cell rect for hover tooltip in update().
+    self._shove_cell_rect = {
+        x = shove_cell_x, y = 2, w = STAT_CELL_W, h = TOP_BAR_H - 4,
+    }
+
+    drawClusterDivider(x)
+    x = x + CLUSTER_GAP
+
+    -- Workload cluster: TABLES · FOCUS  (hover tooltip surfaces capacity).
+    local workload_x0 = x
+    drawStatCell(x, STAT_CELL_W, "TABLES", tostring(n_tables), Theme.fg.primary, fonts)
+    x = x + STAT_CELL_W
+    drawStatCell(x, STAT_CELL_W, "FOCUS",  focus_pct .. "%",   focus_color,      fonts)
+    x = x + STAT_CELL_W + CLUSTER_GAP
+
+    -- Stash the workload cluster rect (both cells) for the update-loop
+    -- hover hit-test. 1-frame stale, same convention as `hit_boxes`.
+    self._workload_rect = {
+        x = workload_x0, y = 2, w = (x - CLUSTER_GAP) - workload_x0, h = TOP_BAR_H - 4,
+    }
+
+    drawClusterDivider(x)
 end
 
 -- ─── Cash-Out-All button (top bar, right side) ───────────────────────
@@ -564,6 +631,40 @@ function GrindView:_drawCashOutButton()
         love.graphics.setFont(fonts.ui_small)
         local text_y = fy + math.floor((fh - fonts.ui_small:getHeight()) * 0.5)
         love.graphics.printf("CASH OUT", fx, text_y, fw, "center")
+    end)
+end
+
+-- ─── Catalog button (top bar, left of Cash-Out) ──────────────────────
+
+function GrindView:_catalogButtonRect()
+    local cb = self:_cashOutButtonRect()
+    return {
+        x = cb.x - CATALOG_BTN_W - TOPBAR_BTN_GAP,
+        y = math.floor((TOP_BAR_H - CATALOG_BTN_H) / 2),
+        w = CATALOG_BTN_W,
+        h = CATALOG_BTN_H,
+    }
+end
+
+function GrindView:_drawCatalogButton()
+    local rect   = self:_catalogButtonRect()
+    local mx, my = love.mouse.getPosition()
+    local hovered = mx >= rect.x and mx < rect.x + rect.w
+                    and my >= rect.y and my < rect.y + rect.h
+    local press   = ClickFlash.alpha("catalog_btn", "catalog_btn")
+
+    Button.draw(rect.x, rect.y, rect.w, rect.h, {
+        fill_color   = Theme.bg.widget_hover,
+        border_color = Theme.fg.heading,
+        hovered      = hovered,
+        press_alpha  = press,
+        depth        = 4,
+    }, function(fx, fy, fw, fh)
+        local fonts = self.game.fonts
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.setFont(fonts.ui_small)
+        local text_y = fy + math.floor((fh - fonts.ui_small:getHeight()) * 0.5)
+        love.graphics.printf("CATALOG", fx, text_y, fw, "center")
     end)
 end
 
@@ -706,7 +807,7 @@ function GrindView:_drawShoveButton()
     local ctx = self.controller.ctx or {}
     -- Live rates match the top-bar column. Headline is gauntlet-clear
     -- (r1·r2·r3); the math-reality clamps live inside ShoveRate.compute.
-    local rates = ShoveRate.compute(ctx, state.bankroll or 0)
+    local rates      = ShoveRate.compute(ctx, state.bankroll or 0)
     local pending_pp = state.pp_this_run or 0
 
     local mx, my = love.mouse.getPosition()
@@ -723,19 +824,44 @@ function GrindView:_drawShoveButton()
         disabled     = not can_shove,
         depth        = 5,
     }, function(fx, fy, fw, fh)
-        local fonts = self.game.fonts
+        -- Restructured layout: SHOVE is the headline — kpi-sized,
+        -- vertically centered, fills most of the button. The two
+        -- secondary readouts (live win %, banked PP) tuck into the
+        -- bottom corners as small labels so they don't compete with
+        -- the action verb.
+        local fonts   = self.game.fonts
+        local small   = fonts.ui_small
+        local title   = fonts.kpi or fonts.heading
+
+        -- Title — massive, centered both axes. Vertical center is
+        -- biased a few pixels up so the bottom-corner labels have
+        -- breathing room without crowding the title.
         Theme.setColor(can_shove and Theme.fg.heading or Theme.fg.disabled)
-        love.graphics.setFont(fonts.heading)
-        love.graphics.printf("SHOVE", fx, fy + 4, fw, "center")
+        love.graphics.setFont(title)
+        local title_y = fy + math.floor((fh - title:getHeight()) * 0.5) - 4
+        love.graphics.printf("SHOVE", fx, title_y, fw, "center")
 
-        Theme.setColor(can_shove and Theme.data.violet or Theme.fg.faint)
-        love.graphics.setFont(fonts.ui_small)
-        love.graphics.printf(string.format("+%d PP banked", pending_pp),
-            fx, fy + 30, fw, "center")
+        -- Bottom corners. Both sit on the same baseline.
+        local pad   = 10
+        local sub_y = fy + fh - small:getHeight() - 5
+        love.graphics.setFont(small)
 
-        Theme.setColor(can_shove and Theme.fg.primary or Theme.fg.faint)
-        love.graphics.printf(string.format("%.0f%% to win", (rates.raw_r1 or 0) * 100),
-            fx, fy + 46, fw, "center")
+        -- Win-chance, bottom-left. Number-only — the "to win" suffix
+        -- was redundant with the giant SHOVE label above it.
+        Theme.setColor(can_shove and Theme.fg.heading or Theme.fg.faint)
+        love.graphics.print(
+            string.format("%.0f%%", (rates.raw_r1 or 0) * 100),
+            fx + pad, sub_y)
+
+        -- PP-banked, bottom-right. Muted when 0; green once a bounty
+        -- has landed so the player can glance at the SHOVE button and
+        -- know whether they have anything riding on the click.
+        local pp_text  = string.format("+%d PP", pending_pp)
+        local pp_color = (pending_pp > 0) and Theme.status.good
+                                          or  Theme.fg.faint
+        Theme.setColor(can_shove and pp_color or Theme.fg.faint)
+        local pp_w = small:getWidth(pp_text)
+        love.graphics.print(pp_text, fx + fw - pad - pp_w, sub_y)
     end)
 end
 
@@ -837,6 +963,7 @@ function GrindView:draw()
 
     self:_drawTopBar(W)
     self:_drawCashOutButton()
+    self:_drawCatalogButton()
     self:_drawCenterGrid(W, H)
     self.left_panel:draw(self.game)
     self.right_panel:draw(self.game)
@@ -885,6 +1012,17 @@ function GrindView:mousepressed(x, y, b)
        and y >= cb.y and y < cb.y + cb.h then
         ClickFlash.flash("cash_out", "cash_out")
         self.controller:cashOutAll()
+        return
+    end
+
+    -- Catalog button (top bar, left of cash-out). Opens the same modal
+    -- the post-bust prestige flow uses, so the player can spend PP
+    -- mid-grind without busting first.
+    local cat = self:_catalogButtonRect()
+    if x >= cat.x and x < cat.x + cat.w
+       and y >= cat.y and y < cat.y + cat.h then
+        ClickFlash.flash("catalog_btn", "catalog_btn")
+        if self.game.openCatalog then self.game.openCatalog() end
         return
     end
 
