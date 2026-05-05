@@ -43,6 +43,11 @@ function Tooltip.draw(font)
     end
     if not font then return end
 
+    -- Line height = the font's actual line height (auto-tracks any
+    -- ui_scale that rebuilt the font at a bigger size). The hardcoded
+    -- 14 px assumed sm at scale 1.
+    local line_h = font:getHeight() + 2
+
     -- Measure content.
     local max_w = 0
     for _, line in ipairs(_t.lines) do
@@ -50,7 +55,7 @@ function Tooltip.draw(font)
         if w > max_w then max_w = w end
     end
     local box_w = max_w + _padding * 2
-    local box_h = _padding * 2 + _line_h * #_t.lines
+    local box_h = _padding * 2 + line_h * #_t.lines
 
     -- Anchor near cursor; flip to the left if the right edge would clip,
     -- and clamp to screen bounds.
@@ -69,7 +74,7 @@ function Tooltip.draw(font)
 
     Theme.setColor(Theme.fg.heading)
     for i, line in ipairs(_t.lines) do
-        love.graphics.print(line, x + _padding, y + _padding + (i - 1) * _line_h)
+        love.graphics.print(line, x + _padding, y + _padding + (i - 1) * line_h)
     end
 end
 

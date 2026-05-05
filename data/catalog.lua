@@ -257,8 +257,8 @@ return {
     {
         id          = "pen",
         name        = "Pen",
-        effect_text = "+1 PP per jackpot win.",
-        description = "Bank a little extra every time you spike.",
+        effect_text = "+1 PP on every stake bounty.",
+        description = "Bank a little extra every time you lock in a new tier.",
         sprite      = "pen",
         phase       = "mid",
         cost_pp     = 4,

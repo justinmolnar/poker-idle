@@ -16,12 +16,17 @@ local Modal         = require("views.widgets.Modal")
 local Row           = require("views.widgets.Row")
 local Dropdown      = require("views.widgets.Dropdown")
 local ConfirmDialog = require("views.widgets.ConfirmDialog")
+local Slider        = require("views.widgets.Slider")
 
 local SettingsModal = {}
 SettingsModal.__index = SettingsModal
 
-local MODAL_W = 480
-local ROW_GAP = 10
+-- Base sizes — scaled at draw-time against game.ui_scale.
+local MODAL_W_BASE = 480
+local ROW_GAP_BASE = 10
+
+local MODAL_W = MODAL_W_BASE
+local ROW_GAP = ROW_GAP_BASE
 local ROW_H   = 44
 
 function SettingsModal.configureFromFonts(fonts)
@@ -68,6 +73,7 @@ function SettingsModal:new(game)
         _mode_dropdown = nil,
         _confirm       = nil,
         _confirm_kind  = nil,
+        _vol_slider    = nil,
     }, SettingsModal)
 
     self_inst._mode_dropdown = Dropdown:new{
@@ -77,6 +83,14 @@ function SettingsModal:new(game)
         },
         on_pick     = function(v) setFullscreen(v == "fullscreen") end,
         max_visible = 2,
+    }
+
+    self_inst._vol_slider = Slider:new{
+        value     = SoundService.getMasterVolume(),
+        on_change = function(v)
+            SoundService.setMasterVolume(v)
+            persistVolume(self_inst)
+        end,
     }
 
     return self_inst
@@ -133,13 +147,7 @@ function SettingsModal:_performLoad()
 end
 
 function SettingsModal:_runAction(action)
-    if action == "vol_down" then
-        SoundService.setMasterVolume(SoundService.getMasterVolume() - 0.1)
-        persistVolume(self)
-    elseif action == "vol_up" then
-        SoundService.setMasterVolume(SoundService.getMasterVolume() + 0.1)
-        persistVolume(self)
-    elseif action == "save" then
+    if action == "save" then
         local g = self.game
         if g.save_service and g.state then
             g.save_service:saveAll(g.state:serializeMeta(), g.state:serializeRun())
@@ -182,6 +190,12 @@ function SettingsModal:consumeMouse(mx, my, button)
     if r == "header" or r == "item" or r == "consumed" then return true end
     if mode_was_open then return true end
 
+    -- Volume slider: clicking on the track jumps the knob and arms a
+    -- drag; subsequent mousemoved events update the value continuously.
+    if self._vol_slider and self._vol_slider:mousepressed(mx, my, button) then
+        return true
+    end
+
     for _, rec in ipairs(self._row_rects) do
         if rec.action and mx >= rec.x and mx < rec.x + rec.w
            and my >= rec.y and my < rec.y + rec.h then
@@ -190,6 +204,14 @@ function SettingsModal:consumeMouse(mx, my, button)
         end
     end
     return false
+end
+
+function SettingsModal:mousemoved(mx, my)
+    if self._vol_slider then self._vol_slider:mousemoved(mx, my) end
+end
+
+function SettingsModal:mousereleased(mx, my, button)
+    if self._vol_slider then self._vol_slider:mousereleased(mx, my, button) end
 end
 
 function SettingsModal:wheelmoved(dx, dy)
@@ -203,6 +225,14 @@ function SettingsModal:draw()
     local fonts = self.game.fonts
     local mx, my = love.mouse.getPosition()
 
+    -- Scale modal width + row gap by ui_scale so the dialog doesn't
+    -- look like a postage stamp on big windows.
+    local s = (self.game.ui_scale) or 1
+    MODAL_W = math.floor(MODAL_W_BASE * s)
+    ROW_GAP = math.floor(ROW_GAP_BASE * s)
+    -- Rebuild the modal frame each draw so its width tracks scale.
+    self._modal = Modal:new{ title = "Settings", w = MODAL_W }
+
     local rows = 6  -- volume, mode, save, load, delete, quit
     local body_h = rows * ROW_H + (rows - 1) * ROW_GAP
 
@@ -215,15 +245,33 @@ function SettingsModal:draw()
     local row_w = body.w
     local y     = body.y
 
-    -- Volume.
+    -- Volume — label on the left, slider track in the middle,
+    -- live percentage on the right. Drag-anywhere on the track sets
+    -- the knob; persistVolume runs on each on_change.
     local vol_pct = math.floor(SoundService.getMasterVolume() * 100 + 0.5)
-    local vol = Row.drawSplit{
-        x = row_x, y = y, w = row_w, h = ROW_H,
-        label = "Volume", value = string.format("%d%%", vol_pct),
-        fonts = fonts,
-    }
-    self._row_rects[#self._row_rects + 1] = { x = vol.left.x,  y = vol.left.y,  w = vol.left.w,  h = vol.left.h,  action = "vol_down" }
-    self._row_rects[#self._row_rects + 1] = { x = vol.right.x, y = vol.right.y, w = vol.right.w, h = vol.right.h, action = "vol_up" }
+    Theme.setColor(Theme.fg.muted)
+    love.graphics.setFont(fonts.md)
+    love.graphics.print("Volume", row_x + 10, y + math.floor((ROW_H - fonts.md:getHeight()) / 2))
+
+    local pct_text  = string.format("%d%%", vol_pct)
+    local pct_w     = fonts.md:getWidth(pct_text) + 4
+    local label_w   = fonts.md:getWidth("Volume") + 24
+    local track_x   = row_x + label_w
+    local track_end = row_x + row_w - pct_w - 10
+    local track_w   = math.max(40, track_end - track_x)
+
+    -- Sync slider value to live SoundService each frame so external
+    -- changes (settings reload) reflect into the knob position.
+    if self._vol_slider then
+        self._vol_slider.value = SoundService.getMasterVolume()
+        self._vol_slider:draw(track_x, y, track_w, ROW_H)
+    end
+
+    Theme.setColor(Theme.fg.heading)
+    love.graphics.print(pct_text,
+        row_x + row_w - pct_w - 4,
+        y + math.floor((ROW_H - fonts.md:getHeight()) / 2))
+
     y = y + ROW_H + ROW_GAP
 
     -- Mode dropdown.

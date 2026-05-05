@@ -19,6 +19,7 @@ local ClickFlash      = require("services.ClickFlash")
 local Ghosts          = require("services.Ghosts")
 local CatalogModal    = require("views.CatalogModal")
 local SettingsModal   = require("views.SettingsModal")
+local Constants       = require("data.constants")
 
 local GrindState = {}
 GrindState.__index = GrindState
@@ -121,13 +122,9 @@ end
 -- Both are temporary — Phase 3 brings click-to-deal via TablePanel buttons.
 function GrindState:keypressed(key)
     -- Modal-first input: ESC always closes; SPACE/RETURN dismiss the
-    -- modal back to grind. Anything else falls through to normal grind
-    -- bindings only when no modal is open.
+    -- modal back to grind. Modal-context keys are not hotkeys, so they
+    -- run in every mode.
     if self.settings_modal then
-        -- consumeKey returns true if an internal overlay handled it
-        -- (dropdown nav, confirm dialog, revert prompt) — modal stays
-        -- open. Only ESC at the top level falls through here, telling
-        -- us to close the modal.
         if self.settings_modal:consumeKey(key) then return end
         if key == "escape" then self:closeSettings() end
         return
@@ -138,13 +135,17 @@ function GrindState:keypressed(key)
         end
         return
     end
-    -- No modal open: ESC opens the settings modal directly into its
-    -- quit-confirm overlay. Cancel returns to grind; Confirm quits.
+    -- ESC outside any modal opens settings (kept in every mode — it's
+    -- the conventional UX path).
     if key == "escape" then
         self:openSettings()
         if self.settings_modal then self.settings_modal:promptQuit() end
         return
     end
+    -- H/J are deal hotkeys that circumvent the per-table DEAL button.
+    -- Killed in PROTOTYPE_MODE so the player can't bypass the
+    -- intended click-to-deal gameplay loop.
+    if Constants.PROTOTYPE_MODE then return end
     if key == "h" then
         self.controller:dealHand(1)
     elseif key == "j" then
@@ -160,10 +161,12 @@ function GrindState:mousepressed(x, y, b)
     end
     if self.catalog_modal then
         local consumed = self.catalog_modal:consumeMouse(x, y, b)
-        -- Outside-click dismiss. The modal returns false when a click
-        -- lands on dead space (outside any cell); we treat that as
-        -- "close" so the player isn't trapped.
-        if not consumed then
+        -- Continue button click sets the modal's resolved flag — close
+        -- the modal in response. Otherwise: outside-click dismiss when
+        -- nothing else consumed the click (dead-space click).
+        if self.catalog_modal:resolved() then
+            self:closeCatalog()
+        elseif not consumed then
             self:closeCatalog()
         end
         return
@@ -172,12 +175,24 @@ function GrindState:mousepressed(x, y, b)
 end
 
 function GrindState:mousereleased(x, y, b)
-    if self.settings_modal or self.catalog_modal then return end
+    if self.settings_modal then
+        if self.settings_modal.mousereleased then
+            self.settings_modal:mousereleased(x, y, b)
+        end
+        return
+    end
+    if self.catalog_modal then return end
     self.view:mousereleased(x, y, b)
 end
 
 function GrindState:mousemoved(x, y, dx, dy)
-    if self.settings_modal or self.catalog_modal then return end
+    if self.settings_modal then
+        if self.settings_modal.mousemoved then
+            self.settings_modal:mousemoved(x, y)
+        end
+        return
+    end
+    if self.catalog_modal then return end
     self.view:mousemoved(x, y, dx, dy)
 end
 

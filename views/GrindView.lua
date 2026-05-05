@@ -1,7 +1,7 @@
 -- views/GrindView.lua
 --
 -- The grind screen. Three-column layout:
---   • Top bar (50px) — bankroll, PP, peak-this-run
+--   • Top bar (50px) — bankroll, PP, run stats
 --   • Left sidebar (Panel) — Tables tab with stake-add buttons + slot count.
 --                             Phase 5 will add a Catalog tab here.
 --   • Center grid — up to MAX_TABLES tiled table panels (2 cols × 3 rows).
@@ -43,7 +43,7 @@ GrindView.__index = GrindView
 
 
 -- Layout values. The window-relative ones (TOP_BAR_H, LEFT_W, RIGHT_W,
--- STAT_CELL_W, BANKROLL_CELL_W, TOPBAR_LABEL_Y, TOPBAR_VALUE_Y) are
+-- CELL_W.*, BANKROLL_CELL_W, TOPBAR_LABEL_Y, TOPBAR_VALUE_Y) are
 -- *recomputed* in recomputeLayout() at init and on resize — derived
 -- from window dimensions + font metrics rather than hardcoded px so
 -- the bar fits the active font and sidebars scale with the window.
@@ -52,11 +52,18 @@ GrindView.__index = GrindView
 local TOP_BAR_H            = 70
 local LEFT_W               = 280
 local RIGHT_W              = 250
-local STAT_CELL_W          = 72
 local BANKROLL_CELL_W      = 160
+-- Per-cell widths sized to fit each cell's actual label / value so
+-- within-cluster cells pack tight against their content. Recomputed
+-- in recomputeLayout from the active fonts. Order matches the draw
+-- walk in _drawTopBar.
+local CELL_W = {
+    tied = 72, total = 72,                   -- money cluster
+    pp = 48, shove = 56,                     -- run cluster
+    tables = 72, focus = 56,                 -- workload cluster
+}
 local TOPBAR_LABEL_Y       = 8
 local TOPBAR_VALUE_Y       = 32
-local TOPBAR_DIV_INSET     = 8
 
 local MARGIN               = 12
 -- Button heights are recomputed from font metrics in recomputeLayout
@@ -67,7 +74,7 @@ local CASH_OUT_BTN_H       = 36
 local CATALOG_BTN_W        = 110
 local CATALOG_BTN_H        = 36
 local TOPBAR_BTN_GAP       = 8
-local CLUSTER_GAP          = 10
+local CLUSTER_GAP          = 24
 local TOPBAR_PAD_X         = 16
 -- Reserved band at the bottom of the center column for the bankroll
 -- chip pile. Center grid shrinks vertically by this much. Sidebars are
@@ -76,17 +83,61 @@ local BOTTOM_BAND_H        = 90
 local PANEL_REMOVE_BTN_SIZE = 22
 local PILL_H               = 18
 local PILL_GAP             = 4
+-- Table panel max dims — declared up here so recomputeLayout's
+-- assignment lands on the same upvalue bestGridLayout reads (the
+-- second declaration below would otherwise shadow this one and
+-- recomputeLayout would silently set a global).
+local PANEL_MAX_W = 520
+local PANEL_MAX_H = 390
 
 -- Recompute the window-relative layout values from current dimensions
 -- and the active fonts. Called on init and on resize. Reassigns the
 -- file-local upvalues above so every reference inside instance methods
 -- picks up the new values automatically.
 local function recomputeLayout(W, H, fonts)
-    -- Sidebars: window-fraction with absolute minimums tuned for the
-    -- larger pixel font. At default 1280×720 these resolve to ~360/280;
-    -- at narrower windows they hold their min so content stays legible.
-    LEFT_W  = math.max(360, math.floor(W * 0.27))
-    RIGHT_W = math.max(280, math.floor(W * 0.22))
+    -- Float layout scale (smooth) — used for sizing visual elements
+    -- so they grow with the window. Fonts use a separate INTEGER
+    -- scale handled by FontService so they stay on the pixel grid.
+    local FontService = require("services.FontService")
+    local s = FontService.layoutScale(W, H)
+
+    -- Table panel max dims grow with the layout scale. Base 520
+    -- (matches the original cap) means at default 1600×900 the cap
+    -- (650) is below the grid width (~768) so empty margin remains
+    -- around the felt. At fullscreen 3840×2160 the cap scales to
+    -- 1560 — visibly bigger felt while still leaving breathing room.
+    PANEL_MAX_W = math.floor(520 * s)
+    PANEL_MAX_H = math.floor(390 * s)
+
+    -- Top-bar buttons + bottom band + table chrome bits scale too.
+    SHOVE_BTN_H          = math.floor(64 * s)
+    -- Top-bar button widths are derived from the longest label in
+    -- their font so they don't waste horizontal space the stat cells
+    -- could use. fonts.sm at any scale already grew with the integer
+    -- font scale.
+    local longest = math.max(
+        fonts.sm:getWidth("SETTINGS"),
+        fonts.sm:getWidth("CATALOG"),
+        fonts.sm:getWidth("CASH OUT"))
+    local btn_pad_x = math.floor(28 * s)
+    CASH_OUT_BTN_W       = longest + btn_pad_x
+    CATALOG_BTN_W        = longest + btn_pad_x
+    BOTTOM_BAND_H        = math.floor(90  * s)
+    PANEL_REMOVE_BTN_SIZE = math.floor(22 * s)
+    PILL_H               = math.floor(18 * s)
+    PILL_GAP             = math.floor(4  * s)
+    MARGIN               = math.floor(12 * s)
+    TOPBAR_BTN_GAP       = math.floor(8  * s)
+    CLUSTER_GAP          = math.floor(40 * s)
+    TOPBAR_PAD_X         = math.floor(16 * s)
+
+    -- Sidebars: window-fraction with absolute minimums (also scaled).
+    -- Left sidebar is narrower — its widest content is the 4-button
+    -- game-type strip (6-MAX/HU/ZOOM/MTT) and stake-add buttons that
+    -- don't need huge widths. Right sidebar holds upgrade buttons
+    -- with longer titles + level so it stays wider.
+    LEFT_W  = math.max(math.floor(220 * s), math.floor(W * 0.16))
+    RIGHT_W = math.max(math.floor(280 * s), math.floor(W * 0.22))
 
     -- Top bar height + label/value y-offsets derived from font heights.
     -- Padding kept minimal — pixel fonts already include leading inside
@@ -102,37 +153,43 @@ local function recomputeLayout(W, H, fonts)
     CASH_OUT_BTN_H = fonts.sm:getHeight() + 16
     CATALOG_BTN_H  = fonts.sm:getHeight() + 16
 
-    -- Top-bar layout: shrink-to-fit. The reserved right-side strip is
-    -- the right sidebar + margin + CATALOG + gap + CASH OUT. Inside
-    -- the leftover, lay out PAD + BANKROLL + 7 stat cells + 4 seams
-    -- (one divider + bracketing gaps × 4 ≈ 64 px). If the ideal
-    -- widths fit, use them; otherwise scale BANKROLL and cells down
-    -- proportionally so they always fit without overlapping the
-    -- button strip.
-    -- Right-side button strip is now SETTINGS · CATALOG · CASH OUT,
-    -- each 110 px with 8 px gaps, anchored at the right sidebar's
-    -- left edge.
-    local button_zone   = RIGHT_W + MARGIN
-                        + CATALOG_BTN_W + TOPBAR_BTN_GAP    -- SETTINGS
-                        + CATALOG_BTN_W + TOPBAR_BTN_GAP    -- CATALOG
-                        + CASH_OUT_BTN_W                     -- CASH OUT
-    local cluster_seams = 64
-    local available     = W - TOPBAR_PAD_X - button_zone - cluster_seams
+    -- Top-bar layout: each cell sized to its own label/value (the
+    -- max of fonts.sm:getWidth(label) and fonts.md:getWidth(value))
+    -- plus a small intrinsic pad. Cells inside a cluster draw flush,
+    -- so within-cluster spacing equals just that intrinsic pad —
+    -- which keeps it visually distinct from the larger CLUSTER_GAP
+    -- between clusters (3 gaps: BANK|MONEY, MONEY|RUN, RUN|WORKLOAD).
+    local button_zone = RIGHT_W
+    local cell_pad    = math.floor(8 * s)
+    local function cellW(label, value_ref)
+        return math.max(
+            math.ceil(fonts.sm:getWidth(label)),
+            math.ceil(fonts.md:getWidth(value_ref))) + cell_pad
+    end
 
-    local ideal_bankroll = math.ceil(fonts.lg:getWidth("$999.99")) + 16
-    local ideal_cell     = math.ceil(fonts.md:getWidth("$99.99"))  + 12
-    local ideal_total    = ideal_bankroll + 7 * ideal_cell
+    CELL_W.tied   = cellW("TIED UP", "$999.99")
+    CELL_W.total  = cellW("TOTAL",   "$999.99")
+    CELL_W.pp     = cellW("PP",      "9999")
+    CELL_W.shove  = cellW("SHOVE",   "999%")
+    CELL_W.tables = cellW("TABLES",  "99 / 99")
+    CELL_W.focus  = cellW("FOCUS",   "100%")
+
+    local ideal_bankroll = math.ceil(fonts.lg:getWidth("$999.99K")) + math.floor(24 * s)
+    local cells_total    = CELL_W.tied  + CELL_W.total
+                         + CELL_W.pp    + CELL_W.shove
+                         + CELL_W.tables + CELL_W.focus
+    local ideal_total    = ideal_bankroll + cells_total + 3 * CLUSTER_GAP
+    local available      = W - TOPBAR_PAD_X - button_zone
 
     if ideal_total <= available then
         BANKROLL_CELL_W = ideal_bankroll
-        STAT_CELL_W     = ideal_cell
     else
-        -- Squeeze: scale both down by the same ratio. Floor at 80/40
-        -- so digits stay legible; below that values truncate visibly
-        -- and the user can resize the window.
+        -- Squeeze: scale bankroll + every cell + cluster gaps by
+        -- the same ratio so the bar still fits without overlap.
         local ratio = available / ideal_total
         BANKROLL_CELL_W = math.max(80, math.floor(ideal_bankroll * ratio))
-        STAT_CELL_W     = math.max(40, math.floor(ideal_cell * ratio))
+        for k, v in pairs(CELL_W) do CELL_W[k] = math.max(28, math.floor(v * ratio)) end
+        CLUSTER_GAP     = math.max(8, math.floor(CLUSTER_GAP * ratio))
     end
 end
 
@@ -153,7 +210,6 @@ function GrindView:new(game, controller)
         displayed_bankroll = state.bankroll       or 0,
         displayed_pp       = state.pp             or 0,
         displayed_tied     = controller:tiedUp(),
-        displayed_peak     = state.peak_bankroll  or 0,
     }, GrindView)
 
     self:_buildPanels()
@@ -202,7 +258,14 @@ end
 -- Built as a `custom` ComponentRenderer entry so the row layout sits in
 -- one component instead of stacking 4 separate buttons vertically.
 function GrindView:_makeGameTypeStrip()
-    local STRIP_H = 32
+    -- Strip height tracks the active sm font + button chrome (depth +
+    -- lift) and a generous vertical pad so the chunky pixel font has
+    -- room to breathe. Recomputed every time _buildPanels runs (i.e.
+    -- on every resize), so the strip grows at fullscreen / large
+    -- windows instead of staying at the design-time 32 px.
+    local fh      = self.game.fonts.sm:getHeight()
+    local s       = self.game.ui_scale or 1
+    local STRIP_H = fh + math.floor(20 * s)
     local self_ref = self
     -- Per-gtype short blurb for the hover tooltip. Hardcoded next to
     -- where the strip is built so callers don't have to juggle a string
@@ -284,20 +347,31 @@ function GrindView:_buildTablesTabComponents()
     local active = self.controller.pool:count()
 
     local components = {}
+    local s_ui = self.game.ui_scale or 1
     components[#components + 1] = {
         type = "label", style = "muted", text = "ADD TABLE",
-        h = self.game.fonts.md:getHeight() + 10,
+        h = self.game.fonts.md:getHeight() + math.floor(10 * s_ui),
     }
 
     -- Game-type sub-tab strip.
     components[#components + 1] = self:_makeGameTypeStrip()
-    components[#components + 1] = { type = "spacer", h = 4 }
+    components[#components + 1] = { type = "spacer", h = math.floor(4 * s_ui) }
 
     -- Stake-add buttons for the currently selected game type. Button id
     -- is composite "add_table:<stake>:<gtype>" so the dispatcher routes
     -- to controller:addTable(stake_id, game_type_id).
     local gtype_id = self.selected_gtype
     for _, stake in ipairs(Stakes) do
+        -- Prototype build only ships T1-T3. T4-T6 are designed but not
+        -- balanced for the demo loop, so the +ADD-TABLE buttons are
+        -- hidden entirely when PROTOTYPE_MODE is on. Existing T4-T6
+        -- tables in a save still render through TablePanel — those die
+        -- naturally on the next reset.
+        if Constants.PROTOTYPE_MODE
+           and (stake.id == "s004" or stake.id == "s005" or stake.id == "s006") then
+            goto continue
+        end
+
         local full         = active >= cap
         local cant_afford  = state.bankroll < (stake.buy_in or 0)
         local disabled     = full or cant_afford
@@ -333,6 +407,7 @@ function GrindView:_buildTablesTabComponents()
                 { text = sub, style = "small" },
             },
         }
+        ::continue::
     end
 
     -- Tables count / focus / capacity all live in the top-bar workload
@@ -359,7 +434,7 @@ function GrindView:_buildUpgradesTabComponents()
 
     local components = {}
     components[#components + 1] = {
-        type = "label", style = "muted", text = "RUN UPGRADES",
+        type = "label", style = "muted", text = "UPGRADES",
         h = self.game.fonts.md:getHeight() + 10,
     }
 
@@ -448,7 +523,7 @@ function GrindView:update(dt)
     if mx >= sb.x and mx < sb.x + sb.w and my >= sb.y and my < sb.y + sb.h then
         local state = self.game.state
         local ctx = (self.controller and self.controller.ctx) or {}
-        local rates = ShoveRate.compute(ctx, state.bankroll or 0)
+        local rates = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
         local lines = ShoveRate.formatBreakdown(rates)
         lines[#lines + 1] = "Click to lock this rate."
         TooltipSvc.set(lines, mx, my)
@@ -471,7 +546,7 @@ function GrindView:update(dt)
     if sh and mx >= sh.x and mx < sh.x + sh.w and my >= sh.y and my < sh.y + sh.h then
         local state = self.game.state
         local ctx = (self.controller and self.controller.ctx) or {}
-        local rates = ShoveRate.compute(ctx, state.bankroll or 0)
+        local rates = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
         TooltipSvc.set(ShoveRate.formatBreakdown(rates), mx, my)
     end
 
@@ -502,7 +577,6 @@ function GrindView:update(dt)
     self.displayed_bankroll = tweenNumber(self.displayed_bankroll, state.bankroll,            dt)
     self.displayed_pp       = tweenNumber(self.displayed_pp,       state.pp,                  dt)
     self.displayed_tied     = tweenNumber(self.displayed_tied,     self.controller:tiedUp(),  dt)
-    self.displayed_peak     = tweenNumber(self.displayed_peak,     state.peak_bankroll,       dt)
 
     -- Drain the controller's chip-burst queue. Controller produces denomination
     -- indices and source/dest pairs; the view turns them into render closures
@@ -551,13 +625,6 @@ local function drawStatCell(x, w, label, value, value_color, fonts)
     love.graphics.print(value, x, TOPBAR_VALUE_Y)
 end
 
--- Vertical 1 px separator between clusters. Inset top/bottom so it
--- doesn't touch the bar's bottom border.
-local function drawClusterDivider(x)
-    Theme.setColor(Theme.border.soft)
-    love.graphics.rectangle("fill", x, TOPBAR_DIV_INSET, 1, TOP_BAR_H - TOPBAR_DIV_INSET * 2)
-end
-
 function GrindView:_drawTopBar(W)
     Theme.setColor(Theme.bg.chrome)
     love.graphics.rectangle("fill", 0, 0, W, TOP_BAR_H)
@@ -572,7 +639,6 @@ function GrindView:_drawTopBar(W)
     local d_bank = self.displayed_bankroll or state.bankroll
     local d_pp   = self.displayed_pp       or state.pp
     local d_tied = self.displayed_tied     or self.controller:tiedUp()
-    local d_peak = self.displayed_peak     or state.peak_bankroll
 
     -- Tint the bankroll while a tween is in progress: green when counting
     -- up (target > displayed), red when counting down.
@@ -608,7 +674,7 @@ function GrindView:_drawTopBar(W)
     -- "120%" / "220%" — that's the "I've ground past anything that
     -- matters" feel.
     local ctx = (self.controller and self.controller.ctx) or {}
-    local rates = ShoveRate.compute(ctx, state.bankroll or 0)
+    local rates = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
     local r1_raw = rates.raw_r1 or 0
     local rate_color
     if     r1_raw < 0.50 then rate_color = Theme.status.error
@@ -616,68 +682,67 @@ function GrindView:_drawTopBar(W)
     else                      rate_color = Theme.status.good
     end
 
-    -- Cluster layout: walk left→right, advancing `x` by cell widths
-    -- plus dividers. Each cluster is a sequence of fixed-width cells;
-    -- a 1 px divider with CLUSTER_GAP padding sits between clusters.
-    local x = TOPBAR_PAD_X + BANKROLL_CELL_W
+    -- Cluster layout: walk left→right. Cells inside a cluster sit
+    -- flush, each sized to its own content. Clusters are separated
+    -- by CLUSTER_GAP whitespace so the grouping (Bankroll | Money |
+    -- Run | Workload) reads visually without divider lines.
+    local x = TOPBAR_PAD_X + BANKROLL_CELL_W + CLUSTER_GAP
 
-    drawClusterDivider(x)
-    x = x + CLUSTER_GAP
-
-    -- Money cluster: TIED · TOTAL · PEAK
-    drawStatCell(x, STAT_CELL_W, "TIED UP", moneyText(d_tied), Theme.fg.muted,   fonts)
-    x = x + STAT_CELL_W
-    drawStatCell(x, STAT_CELL_W, "TOTAL",   moneyText(total),  Theme.fg.primary, fonts)
-    x = x + STAT_CELL_W
-    drawStatCell(x, STAT_CELL_W, "PEAK",    moneyText(d_peak), Theme.fg.primary, fonts)
-    x = x + STAT_CELL_W + CLUSTER_GAP
-
-    drawClusterDivider(x)
-    x = x + CLUSTER_GAP
+    -- Money cluster: TIED · TOTAL
+    drawStatCell(x, CELL_W.tied,  "TIED UP", moneyText(d_tied), Theme.fg.muted,   fonts)
+    x = x + CELL_W.tied
+    drawStatCell(x, CELL_W.total, "TOTAL",   moneyText(total),  Theme.fg.primary, fonts)
+    x = x + CELL_W.total + CLUSTER_GAP
 
     -- Run cluster: PP · SHOVE
-    drawStatCell(x, STAT_CELL_W, "PP", ppText(d_pp), Theme.fg.heading, fonts)
-    x = x + STAT_CELL_W
+    drawStatCell(x, CELL_W.pp, "PP", ppText(d_pp), Theme.fg.heading, fonts)
+    x = x + CELL_W.pp
     local shove_cell_x = x
-    drawStatCell(x, STAT_CELL_W, "SHOVE",
+    drawStatCell(x, CELL_W.shove, "SHOVE",
                  string.format("%.0f%%", r1_raw * 100), rate_color, fonts)
-    x = x + STAT_CELL_W + CLUSTER_GAP
+    x = x + CELL_W.shove + CLUSTER_GAP
 
     -- Stash the SHOVE cell rect for hover tooltip in update().
     self._shove_cell_rect = {
-        x = shove_cell_x, y = 2, w = STAT_CELL_W, h = TOP_BAR_H - 4,
+        x = shove_cell_x, y = 2, w = CELL_W.shove, h = TOP_BAR_H - 4,
     }
-
-    drawClusterDivider(x)
-    x = x + CLUSTER_GAP
 
     -- Workload cluster: TABLES (count / focus capacity) · FOCUS %.
     -- The "N / cap" inline format makes the relationship to FOCUS
     -- visible at a glance; the hover tooltip explains the mechanic.
     local workload_x0 = x
-    drawStatCell(x, STAT_CELL_W, "TABLES",
+    drawStatCell(x, CELL_W.tables, "TABLES",
                  string.format("%d / %d", n_tables, focus_cap),
                  Theme.fg.primary, fonts)
-    x = x + STAT_CELL_W
-    drawStatCell(x, STAT_CELL_W, "FOCUS",  focus_pct .. "%",   focus_color, fonts)
-    x = x + STAT_CELL_W + CLUSTER_GAP
+    x = x + CELL_W.tables
+    drawStatCell(x, CELL_W.focus, "FOCUS",  focus_pct .. "%",   focus_color, fonts)
+    x = x + CELL_W.focus
 
     -- Stash workload rect for the hover tooltip in update().
     self._workload_rect = {
-        x = workload_x0, y = 2, w = (x - CLUSTER_GAP) - workload_x0, h = TOP_BAR_H - 4,
+        x = workload_x0, y = 2, w = x - workload_x0, h = TOP_BAR_H - 4,
     }
-
-    drawClusterDivider(x)
 end
 
--- ─── Cash-Out-All button (top bar, right side) ───────────────────────
+-- ─── Cash-Out-All button (top bar, leftmost of the 3-button strip) ───
+
+-- The three top-bar buttons span the upgrades-sidebar width:
+--   [CASH OUT] gap [CATALOG] gap [SETTINGS] right_pad ‖ screen edge
+-- Equal-width buttons, TOPBAR_BTN_GAP between them, MARGIN on the
+-- right so the rightmost button doesn't kiss the screen edge.
+function GrindView:_topBarBtnW()
+    local pad_right = MARGIN
+    local gap       = TOPBAR_BTN_GAP
+    return math.floor((RIGHT_W - 2 * gap - pad_right) / 3)
+end
 
 function GrindView:_cashOutButtonRect()
     local W = love.graphics.getWidth()
+    local bw = self:_topBarBtnW()
     return {
-        x = W - RIGHT_W - MARGIN - CASH_OUT_BTN_W,
+        x = W - RIGHT_W,                                    -- leftmost
         y = math.floor((TOP_BAR_H - CASH_OUT_BTN_H) / 2),
-        w = CASH_OUT_BTN_W,
+        w = bw,
         h = CASH_OUT_BTN_H,
     }
 end
@@ -703,14 +768,15 @@ function GrindView:_drawCashOutButton()
     }
 end
 
--- ─── Catalog button (top bar, left of Cash-Out) ──────────────────────
+-- ─── Catalog button (top bar, between Cash-Out and Settings) ─────────
 
 function GrindView:_catalogButtonRect()
     local cb = self:_cashOutButtonRect()
+    local bw = self:_topBarBtnW()
     return {
-        x = cb.x - CATALOG_BTN_W - TOPBAR_BTN_GAP,
+        x = cb.x + bw + TOPBAR_BTN_GAP,
         y = math.floor((TOP_BAR_H - CATALOG_BTN_H) / 2),
-        w = CATALOG_BTN_W,
+        w = bw,
         h = CATALOG_BTN_H,
     }
 end
@@ -728,14 +794,15 @@ function GrindView:_drawCatalogButton()
     }
 end
 
--- ─── Settings button (top bar, left of Catalog) ──────────────────────
+-- ─── Settings button (top bar, rightmost) ────────────────────────────
 
 function GrindView:_settingsButtonRect()
     local cb = self:_catalogButtonRect()
+    local bw = self:_topBarBtnW()
     return {
-        x = cb.x - CATALOG_BTN_W - TOPBAR_BTN_GAP,
+        x = cb.x + bw + TOPBAR_BTN_GAP,
         y = math.floor((TOP_BAR_H - CATALOG_BTN_H) / 2),
-        w = CATALOG_BTN_W,
+        w = bw,
         h = CATALOG_BTN_H,
     }
 end
@@ -766,11 +833,9 @@ local PANEL_ASPECT = 4 / 3
 -- wide area it'll pick 2×1, but each cell renders at 4:3 instead of
 -- stretching to fill the full grid height.
 --
--- Clamped by PANEL_MAX_W / PANEL_MAX_H so a single table doesn't blow up
--- to fullscreen — even with one table open, the felt stays at a
--- reasonable size and the surrounding grid area renders as empty space.
-local PANEL_MAX_W = 520
-local PANEL_MAX_H = 390   -- = PANEL_MAX_W / PANEL_ASPECT (4/3)
+-- PANEL_MAX_W / PANEL_MAX_H are declared at the top of the file with
+-- the other layout upvalues (recomputeLayout updates them at boot +
+-- resize). Old duplicate `local` here was shadowing — removed.
 
 local function bestGridLayout(n, grid_w, grid_h)
     local best = { cols = 1, rows = n, pw = 0, ph = 0, area = -1 }
@@ -897,7 +962,7 @@ function GrindView:_drawShoveButton()
     local ctx = self.controller.ctx or {}
     -- Live rates match the top-bar column. Headline is gauntlet-clear
     -- (r1·r2·r3); the math-reality clamps live inside ShoveRate.compute.
-    local rates      = ShoveRate.compute(ctx, state.bankroll or 0)
+    local rates      = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
     local pending_pp = state.pp_this_run or 0
 
     local mx, my = love.mouse.getPosition()
@@ -1106,9 +1171,9 @@ function GrindView:mousepressed(x, y, b)
         return
     end
 
-    -- Catalog button (top bar, left of cash-out). Opens the same modal
-    -- the post-bust prestige flow uses, so the player can spend PP
-    -- mid-grind without busting first.
+    -- Catalog button (top bar, between cash-out and settings). Opens
+    -- the same modal the post-bust prestige flow uses, so the player
+    -- can spend PP mid-grind without busting first.
     local cat = self:_catalogButtonRect()
     if x >= cat.x and x < cat.x + cat.w
        and y >= cat.y and y < cat.y + cat.h then
@@ -1117,7 +1182,7 @@ function GrindView:mousepressed(x, y, b)
         return
     end
 
-    -- Settings button (top bar, left of catalog).
+    -- Settings button (top bar, rightmost).
     local set_rect = self:_settingsButtonRect()
     if x >= set_rect.x and x < set_rect.x + set_rect.w
        and y >= set_rect.y and y < set_rect.y + set_rect.h then

@@ -16,8 +16,12 @@ local Button      = require("views.Button")
 local HoverSvc    = require("services.HoverService")
 local ClickFlash  = require("services.ClickFlash")
 
-local ICON_SIZE    = 64
-local ICON_SPACING = 12
+-- Icon row sizes — recomputed by CR.setScale at boot/resize.
+local ICON_SIZE_BASE    = 64
+local ICON_SPACING_BASE = 12
+
+local ICON_SIZE    = ICON_SIZE_BASE
+local ICON_SPACING = ICON_SPACING_BASE
 local ICON_ROW_H   = ICON_SIZE + 20
 
 -- Single-row line heights per style. Used as the floor — when a line wraps
@@ -38,10 +42,28 @@ function CR.configureFromFonts(fonts)
     LINE_H.small   = fonts.sm:getHeight()
     LINE_H.muted   = fonts.sm:getHeight()
 end
-local BTN_PAD = 8   -- total vertical padding inside a button (top+bottom)
+
+-- Total vertical padding inside a button (top+bottom). Scaled in
+-- CR.setScale so the multi-line stake-add buttons grow with the
+-- window — without this, content gets cramped at large resolutions
+-- where the font has 2× breathing room but the button doesn't.
+local BTN_PAD_BASE = 8
+local BTN_PAD      = BTN_PAD_BASE
 -- Sidebar buttons render as chunky pushable buttons via views/Button.lua.
 -- Allocation = content_h + BTN_DEPTH + lift; the face inside is content_h.
-local BTN_DEPTH = 5
+local BTN_DEPTH_BASE = 5
+local BTN_DEPTH      = BTN_DEPTH_BASE
+
+-- Rescale icon-row + button dimensions against the live ui_scale.
+-- main.lua calls this at boot + on resize.
+function CR.setScale(s)
+    s = s or 1
+    ICON_SIZE    = math.floor(ICON_SIZE_BASE    * s)
+    ICON_SPACING = math.floor(ICON_SPACING_BASE * s)
+    ICON_ROW_H   = ICON_SIZE + math.floor(20 * s)
+    BTN_PAD      = math.floor(BTN_PAD_BASE      * s)
+    BTN_DEPTH    = math.max(2, math.floor(BTN_DEPTH_BASE * s))
+end
 
 -- Resolve a style → font selection. Centralized so buttonH and _button
 -- agree on which font is used per line (otherwise wrap math drifts from
@@ -58,11 +80,18 @@ end
 -- How tall does this line render, given the available content width?
 -- Returns max(LINE_H[style], rows × font:getHeight()) so single-row lines
 -- keep their existing breathing room and wrapped lines grow honestly.
+-- Subtracts the right-segment's width (rendered in fonts.sm) from the
+-- available wrap width so a heading + right badge that overflows wraps
+-- into multiple visual rows and the button allocates the right height.
 local function lineRenderedHeight(line, game, content_w)
     local style  = line.style or "body"
     local font   = styleFont(style, game)
     local indent = lineIndent(style)
-    local wrap_w = math.max(1, content_w - indent - 4)
+    local right_w = 0
+    if line.right and game.fonts and game.fonts.sm then
+        right_w = game.fonts.sm:getWidth(line.right) + 8
+    end
+    local wrap_w = math.max(1, content_w - indent - 4 - right_w)
     local _, wrapped = font:getWrap(line.text or "", wrap_w)
     local n  = math.max(1, #wrapped)
     local fh = font:getHeight()
@@ -211,12 +240,29 @@ function CR._button(comp, px, pw, p, y, game)
 
             local indent = lineIndent(style)
             local printf_w = fw - indent - 4
-            love.graphics.printf(line.text or "",
-                fx + indent, cursor, printf_w, line.align or "left")
 
             -- Optional right-aligned segment on the same row. Lets a
             -- single line carry "name (left) | value (right)" without
             -- spending a second LINE_H worth of vertical space.
+            --
+            -- The right segment always renders in fonts.sm, regardless
+            -- of the line's style — it acts as a metadata badge
+            -- (e.g. "+1 PP", "Lv 3/18"), not part of the heading. This
+            -- avoids overflow at fullscreen breakpoints where heading-
+            -- sized left + heading-sized right would together exceed
+            -- the sidebar width. We measure first and shrink the
+            -- left's printf width by the right's actual size + gap so
+            -- the two never overlap.
+            local right_font = (game.fonts and game.fonts.sm) or font
+            local right_w    = 0
+            if line.right then
+                right_w = right_font:getWidth(line.right) + 8
+            end
+
+            local left_printf_w = math.max(1, printf_w - right_w)
+            love.graphics.printf(line.text or "",
+                fx + indent, cursor, left_printf_w, line.align or "left")
+
             if line.right then
                 local right_color = color
                 if line.right_color_token then
@@ -225,10 +271,15 @@ function CR._button(comp, px, pw, p, y, game)
                                or (Theme.fg and Theme.fg[line.right_color_token])
                                or color
                 end
+                love.graphics.setFont(right_font)
                 Theme.setColor(right_color)
+                -- Vertically center the smaller right text against
+                -- the larger left line so it sits on the same baseline.
+                local right_y = cursor + math.floor((font:getHeight() - right_font:getHeight()) / 2)
                 love.graphics.printf(line.right,
-                    fx + indent, cursor, printf_w, "right")
+                    fx + indent, right_y, printf_w, "right")
                 Theme.setColor(color)
+                love.graphics.setFont(font)
             end
 
             cursor = cursor + lineRenderedHeight(line, game, fw)

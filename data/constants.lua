@@ -5,6 +5,14 @@
 
 local C = {}
 
+-- Build-mode flag. When true the game ships in "prototype" shape:
+-- title-screen boot, T1-T3 stakes only, all dev hotkeys disabled,
+-- silent periodic auto-save, real volume slider, and a Prototype
+-- Complete modal at the win-R1/lose-R2 cliffhanger. Flip to false
+-- to restore the dev-build behavior (manual saves, hotkeys live,
+-- all 6 stakes, no title screen).
+C.PROTOTYPE_MODE = true
+
 C.WINDOW = {
     title  = "Poker Idle",
     width  = 1280,
@@ -50,7 +58,7 @@ C.GAUNTLET = {
     RUNOUT_PAUSE        = 1.2,      -- pause after a runout resolves before the next deals
     CHEAT_REVEAL_PAUSE  = 1.8,      -- extra pause before the cheat card slides in (runouts 2/3)
     REJECTION_RETRY_CAP = 500,      -- max joint-construction retries (deal hole+5-board AND find satisfying c6/c7) before accepting natural outcome
-    CARD_BACK_SPRITE    = "cards/backs/02-castle",  -- shown on hole cards during deal, before runout 1 reveal
+    CARD_BACK_SPRITE    = "cards/backs/06-nature",  -- shown on hole cards during deal, before runout 1 reveal (02-castle is .gif which LÖVE can't decode)
 }
 
 C.SAVE = {

@@ -22,43 +22,54 @@
 -- 6th community card (cheat) → R2 chip → if R2 won, same for the 7th →
 -- R3 chip. SPACE during animation calls :skip() to fast-forward.
 
-local Theme          = require("views.Theme")
-local HandEval       = require("models.HandEval")
-local Constants      = require("data.constants")
-local SpriteRenderer = require("services.SpriteRenderer")
+local Theme                  = require("views.Theme")
+local HandEval               = require("models.HandEval")
+local Constants              = require("data.constants")
+local SpriteRenderer         = require("services.SpriteRenderer")
+local Chips                  = require("views.Chips")
+local DenominationBreakdown  = require("services.DenominationBreakdown")
+local ChipData               = require("data.chips")
 
 local ShoveView = {}
 ShoveView.__index = ShoveView
 
+-- Card sizes / gaps. Recomputed in ShoveView:draw against the live
+-- ui_scale so the gauntlet visuals grow with the window.
 local CARD_W = 88
 local CARD_H = math.floor(CARD_W * 3.5 / 2.5)
 local CARD_GAP = 12
+local CARD_BASE_W   = 88
+local CARD_BASE_GAP = 12
 
--- Total vertical span of the gauntlet stack, used to vertically center
--- it inside the current window. Layout (top → bottom):
---   dealer hole cards (CARD_H)
---   dealer label gap   (8 + 22)
---   community board    (CARD_H)
---   player label gap   (8 + 22)
---   player hole cards  (CARD_H)
---   chips gap          (18)
---   chip strip         (CARD_H * 0.4 ish — chip rect height is small)
-local STACK_H = 3 * CARD_H + 8 + 22 + 8 + 22 + 18 + 36
+-- Reading order top → bottom: banner ("ALL-IN") → stats line
+-- (BASE × MULT = SHOVE%) → POT chip pile → dealer hole → dealer
+-- label → community board → player label → player hole → runout
+-- result chips. Stats and pot live above the cards so the pile the
+-- player just shoved stays the visual focus, with cards landing
+-- under it.
+local POT_BAND_H = 110
 
--- Vertical layout anchors.
 -- Y positions for the gauntlet stack. Initial values are placeholders;
--- recomputeLayout() reassigns them at draw start to keep the whole
--- stack vertically centered in the current window.
-local Y_DEALER_HOLE  = 80
+-- recomputeLayout() reassigns them at draw start so the layout
+-- responds to ui_scale + the current font heights.
+local Y_STATS       = 80
+local Y_POT         = 120
+local Y_DEALER_HOLE = 240
 local Y_DEALER_LABEL = Y_DEALER_HOLE + CARD_H + 8
 local Y_BOARD        = Y_DEALER_LABEL + 22
 local Y_PLAYER_LABEL = Y_BOARD + CARD_H + 8
 local Y_PLAYER_HOLE  = Y_PLAYER_LABEL + 22
 local Y_CHIPS        = Y_PLAYER_HOLE + CARD_H + 18
 
-local function recomputeLayout(H)
-    local top = math.max(40, math.floor((H - STACK_H) / 2))
-    Y_DEALER_HOLE  = top
+local function recomputeLayout(H, fonts, s)
+    local md_h = (fonts and fonts.md and fonts.md:getHeight()) or 18
+    local lg_h = (fonts and fonts.lg and fonts.lg:getHeight()) or 32
+    s = s or 1
+    -- Banner ("ALL-IN") sits at y=40 with lg height. Stats line
+    -- below it; pot pile below stats; cards below pot.
+    Y_STATS        = 40 + lg_h + math.floor(12 * s)
+    Y_POT          = Y_STATS + md_h + math.floor(12 * s)
+    Y_DEALER_HOLE  = Y_POT + POT_BAND_H + math.floor(12 * s)
     Y_DEALER_LABEL = Y_DEALER_HOLE + CARD_H + 8
     Y_BOARD        = Y_DEALER_LABEL + 22
     Y_PLAYER_LABEL = Y_BOARD + CARD_H + 8
@@ -84,6 +95,22 @@ local function visiblePackSize(view, result)
     return n
 end
 
+-- Buildup-phase pacing (pre-cinematic spectacle, before any cards
+-- deal). Player sees a fade-in from black, then their chips fly in
+-- arcs from the player stack at the bottom into the pot at the
+-- center, one chip at a time. Pacing accelerates: first chips ease
+-- in slowly so the player reads what's happening, later chips fire
+-- in quick succession so big bankrolls don't take forever. Mult /
+-- win-% counters tick up as chips land, then a brief "ALL IN" lock
+-- beat before the gauntlet's card timeline starts.
+local BUILDUP_FADE_DURATION    = 0.5
+local BUILDUP_LOCK_DURATION    = 1.0
+local BUILDUP_FLIGHT_DURATION  = 0.45      -- per-chip flight time
+local BUILDUP_INTERVAL_START   = 0.30      -- delay before chip 1
+local BUILDUP_INTERVAL_END     = 0.05      -- delay before final chip
+local BUILDUP_MAX_CHIPS        = 30
+local BUILDUP_MIN_CHIPS        = 8
+
 function ShoveView:new(game, ss)
     local self = setmetatable({
         game            = game,
@@ -101,9 +128,95 @@ function ShoveView:new(game, ss)
         -- update". Lerped toward `board_x_target` each frame.
         board_x         = nil,
         board_x_target  = nil,
+        -- Pre-cinematic buildup (spectacle moment): "idle" | "buildup"
+        -- | "ready_to_deal" | "running". ShoveState:enter calls
+        -- :beginBuildup which sets phase="buildup"; when phase_t crosses
+        -- BUILDUP_TOTAL the view reports isReadyToDeal so the host
+        -- transitions phase="running" and fires _beginGauntlet.
+        phase           = "idle",
+        phase_t         = 0,
+        buildup_rates   = nil,
+        buildup_chip_count_shown = 0,  -- last-frame count for sound triggers
     }, ShoveView)
     self.fonts = nil
     return self
+end
+
+function ShoveView:beginBuildup(rates)
+    self.phase   = "buildup"
+    self.phase_t = 0
+    self.buildup_rates = rates
+    self.timeline = nil
+    self.elapsed  = 0
+    self.next_event_idx = 1
+    self.card_anims = {}
+    self.chip_visible = { false, false, false }
+
+    -- Compute the chip list to push in. Source: bankroll snapshot at
+    -- shove-time. Larger bankroll = more chips (longer spectacle) but
+    -- bounded by BUILDUP_MAX_CHIPS so a $1M shove doesn't take a
+    -- minute. Pacing accelerates per chip so bigger pours feel
+    -- punchy at the end instead of dragging.
+    local bankroll = (rates and rates.bankroll)
+                     or (self.game.state and self.game.state.bankroll)
+                     or 0
+    local n_target = math.floor(BUILDUP_MIN_CHIPS
+        + math.log10(math.max(1, bankroll)) * 4 + 0.5)
+    if n_target < BUILDUP_MIN_CHIPS then n_target = BUILDUP_MIN_CHIPS end
+    if n_target > BUILDUP_MAX_CHIPS then n_target = BUILDUP_MAX_CHIPS end
+
+    local breakdown = DenominationBreakdown.breakdown(
+        bankroll, ChipData.full_palette, "jackpot")
+    -- Truncate / pad to n_target. The breakdown returns largest-first;
+    -- we keep the front so the showcase + primary chunks survive even
+    -- when the trailing small-denom tail gets cut.
+    local chips = {}
+    for i = 1, math.min(#breakdown, n_target) do
+        chips[i] = breakdown[i]
+    end
+    -- If the bankroll's natural breakdown is shorter than the target,
+    -- pad with the smallest-denom of the breakdown so the visual is
+    -- always a satisfying pour rather than 3 chips for $2.
+    if #chips < BUILDUP_MIN_CHIPS and #breakdown > 0 then
+        local last = breakdown[#breakdown]
+        for i = #chips + 1, BUILDUP_MIN_CHIPS do chips[i] = last end
+    end
+    if #chips == 0 then
+        -- Edge case: zero bankroll. Use the smallest denom in the
+        -- ladder so the spectacle still plays.
+        for i = 1, BUILDUP_MIN_CHIPS do chips[i] = 1 end
+    end
+
+    -- Emit-time curve: linearly interpolate the per-chip interval
+    -- from BUILDUP_INTERVAL_START down to BUILDUP_INTERVAL_END across
+    -- the chip count. Each chip's emit_t is the cumulative sum,
+    -- offset by the fade-in duration so chips don't start flying
+    -- before the room is lit.
+    local n = #chips
+    self.buildup_chips = {}
+    local t_acc = BUILDUP_FADE_DURATION
+    for i = 1, n do
+        local frac = (n > 1) and ((i - 1) / (n - 1)) or 0
+        local interval = BUILDUP_INTERVAL_START
+            + (BUILDUP_INTERVAL_END - BUILDUP_INTERVAL_START) * frac
+        t_acc = t_acc + interval
+        self.buildup_chips[i] = {
+            denom_idx = chips[i],
+            emit_t    = t_acc,
+            arrive_t  = t_acc + BUILDUP_FLIGHT_DURATION,
+        }
+    end
+    self.buildup_arrived_count = 0
+    self.buildup_total = (self.buildup_chips[n] and self.buildup_chips[n].arrive_t or 0)
+                         + BUILDUP_LOCK_DURATION
+end
+
+function ShoveView:isReadyToDeal()
+    return self.phase == "ready_to_deal"
+end
+
+function ShoveView:markRunning()
+    self.phase = "running"
 end
 
 -- Use the shared game.fonts table so this view picks up the
@@ -194,7 +307,11 @@ function ShoveView:onGauntletBegin()
     -- R1 resolution.
     add(t, showChip(1), chipSound(1))
 
-    if r.outcomes[1] then
+    -- Prototype build stops here — R2 / R3 (the dealer's cheats) stay
+    -- unrevealed, so first-time players never see the 6th community
+    -- card or the second chip slot. Win → prototype-end modal; loss
+    -- → standard prestige. R2 / R3 visuals are dev-build only.
+    if r.outcomes[1] and not Constants.PROTOTYPE_MODE then
         t = t + RUNOUT_PAUSE + CHEAT_PAUSE
         add(t, startAnim("board_6", "cheat_card_dealt"), "cheat_card_dealt")
         t = t + 0.75
@@ -210,10 +327,17 @@ function ShoveView:onGauntletBegin()
         end
     end
 
-    self.total_duration = t + 0.5
+    -- Hold the final state on screen for a beat so the player reads
+    -- the result chips before the prestige / prototype-end modal pops
+    -- over the cinematic. 0.5s was effectively "modal slams over the
+    -- last reveal"; ~2.0s lets the WIN/LOSS land.
+    self.total_duration = t + 2.0
 end
 
 function ShoveView:isAnimating()
+    if self.phase == "buildup" or self.phase == "ready_to_deal" then
+        return true
+    end
     return self.timeline ~= nil and self.elapsed < self.total_duration
 end
 
@@ -228,9 +352,21 @@ function ShoveView:resetTimeline()
     -- next update so a fresh shove always starts visually centered.
     self.board_x        = nil
     self.board_x_target = nil
+    -- Drop buildup state so the next ShoveState:enter starts clean.
+    self.phase          = "idle"
+    self.phase_t        = 0
+    self.buildup_rates  = nil
+    self.buildup_chip_count_shown = 0
 end
 
 function ShoveView:skip()
+    -- Buildup-skip: jump to ready-to-deal so the host fires the gauntlet
+    -- on its next update tick. Player wanted out of the buildup spectacle.
+    if self.phase == "buildup" then
+        self.phase   = "ready_to_deal"
+        self.phase_t = BUILDUP_TOTAL
+        return
+    end
     if not self.timeline then return end
     -- Fire all remaining events but suppress sounds — otherwise mashing
     -- SPACE during a multi-runout reveal triggers a stack of chimes.
@@ -251,6 +387,33 @@ function ShoveView:skip()
 end
 
 function ShoveView:update(dt)
+    -- Buildup phase: advance phase_t, trigger a chip-land sound each
+    -- time a new chip lands in the pot. Once phase_t crosses the
+    -- buildup total we transition to "ready_to_deal" so ShoveState's
+    -- update can fire _beginGauntlet on its next tick.
+    if self.phase == "buildup" then
+        self.phase_t = self.phase_t + dt
+        if self.buildup_chips then
+            local arrived = 0
+            for _, c in ipairs(self.buildup_chips) do
+                if self.phase_t >= c.arrive_t then arrived = arrived + 1 end
+            end
+            if arrived > (self.buildup_arrived_count or 0) then
+                self.buildup_arrived_count = arrived
+                if self.game.sounds and self.game.sounds.playNamed then
+                    self.game.sounds.playNamed("chip_land_pot")
+                end
+            end
+        end
+        if self.phase_t >= (self.buildup_total or 0) then
+            self.phase = "ready_to_deal"
+            if self.game.sounds and self.game.sounds.playNamed then
+                self.game.sounds.playNamed("shove_initiated")
+            end
+        end
+        return
+    end
+
     if not self.timeline then return end
     self.elapsed = self.elapsed + dt
 
@@ -339,6 +502,150 @@ local function isInCombo(card, combo)
     return false
 end
 
+-- Buildup spectacle: the player's chips fly from a stack at the
+-- bottom of the screen up into a pot at the center, one at a time.
+-- Each chip is a real Chips.drawChip render at the proper denomi-
+-- nation so the visual reads as the actual bankroll being shoved.
+-- Mult / win-% counters tick up as chips land, then "ALL IN" pops
+-- once every chip is in the pot.
+function ShoveView:_drawBuildup(W, H)
+    local rates = self.buildup_rates or {}
+    local s     = (self.game and self.game.ui_scale) or 1
+    local fonts = self.fonts
+    local function easeOut(t) return 1 - (1 - t) * (1 - t) end
+
+    local fade_t        = math.min(1, self.phase_t / BUILDUP_FADE_DURATION)
+    local total_chips   = self.buildup_chips and #self.buildup_chips or 0
+    local last_arrive_t = (total_chips > 0) and self.buildup_chips[total_chips].arrive_t or 0
+    local lock_t        = math.max(0, self.phase_t - last_arrive_t)
+    local in_lock       = lock_t > 0 and total_chips > 0
+
+    -- Anchor positions. Stack lives at the bottom-center of the
+    -- window; pot lands in the dedicated POT band between the board
+    -- and the player hole cards — same spot it'll occupy during the
+    -- cinematic, so the pile doesn't relocate or vanish when cards
+    -- start dealing.
+    local stack_cx = math.floor(W / 2)
+    local stack_cy = math.floor(H * 0.85)
+    local pot_cx   = math.floor(W / 2)
+    local pot_cy   = Y_POT + math.floor(POT_BAND_H * 0.55)
+    local arc_lift = math.max(40, math.floor(120 * s))
+
+    -- Build the per-chip "in flight / arrived / waiting" partition.
+    -- waiting_chips draws as a stack at the bottom; arrived_chips as
+    -- a pot pile in the center; in_flight gets per-chip animated
+    -- positions.
+    local arrived_indices = {}
+    local waiting_indices = {}
+    local in_flight = {}
+    if self.buildup_chips then
+        for _, c in ipairs(self.buildup_chips) do
+            if self.phase_t >= c.arrive_t then
+                arrived_indices[#arrived_indices + 1] = c.denom_idx
+            elseif self.phase_t >= c.emit_t then
+                in_flight[#in_flight + 1] = c
+            else
+                waiting_indices[#waiting_indices + 1] = c.denom_idx
+            end
+        end
+    end
+
+    -- Counters tick up against the fraction of chips that have
+    -- arrived. Mult: 1.0 → rates.mult; win %: 0 → all-in win chance.
+    -- Win chance shows the R1 rate (what the player is actually
+    -- shoving on); displaying clear% would expose the gauntlet's
+    -- multi-runout structure and is also 0% in prototype mode where
+    -- R2/R3 are hard-gated to losses.
+    local arrival_frac = (total_chips > 0)
+        and math.min(1, #arrived_indices / total_chips) or 0
+    local p_eased = easeOut(arrival_frac)
+    local target_mult = rates.mult or 1.0
+    local target_win  = (rates.r1 or 0) * 100
+    local mult_now = 1.0 + (target_mult - 1.0) * p_eased
+    local win_pct  = target_win * p_eased
+    if in_lock then
+        mult_now = target_mult
+        win_pct  = target_win
+    end
+
+    -- Stats readout above the pot pile (Y_STATS slot, just under the
+    -- banner). Lerps during chip-push so the player sees the numbers
+    -- ratchet up as chips arrive.
+    local catalog_pct = math.floor((rates.catalog or 0) * 100 + 0.5)
+    local stats_y = Y_STATS
+    love.graphics.setFont(fonts.md)
+    local text_left  = string.format("BASE %d%%   ×   MULT %.2f   =   ",
+        catalog_pct, mult_now)
+    local text_right = string.format("SHOVE %d%%", math.floor(win_pct + 0.5))
+    local left_w     = fonts.md:getWidth(text_left)
+    local right_w    = fonts.md:getWidth(text_right)
+    local total_w    = left_w + right_w
+    local sx         = math.floor((W - total_w) / 2)
+    Theme.setColor(Theme.fg.muted)
+    love.graphics.print(text_left, sx, stats_y)
+    Theme.setColor(in_lock and Theme.status.good or Theme.fg.heading)
+    love.graphics.print(text_right, sx + left_w, stats_y)
+
+    -- Stack at the bottom — chips not yet flown. Drawn through Chips
+    -- so they match in-game chip art exactly.
+    love.graphics.setFont(fonts.sm)
+    Theme.setColor(Theme.fg.muted)
+    if #waiting_indices > 0 or total_chips > #arrived_indices then
+        printCentered("YOUR STACK", fonts.sm,
+            0, stack_cy - math.floor(36 * s), W)
+        Chips.drawStack(stack_cx, stack_cy, waiting_indices,
+            { align = "center" })
+    end
+
+    -- Pot pile centered in the pot band. Just the chip visual — the
+    -- pile itself reads as "this is the pot".
+    if #arrived_indices > 0 or in_lock then
+        Chips.drawStack(pot_cx, pot_cy, arrived_indices,
+            { align = "center" })
+    end
+
+    -- In-flight chips: parabolic arc from stack to pot. Drawn as
+    -- single chips at their interpolated positions.
+    for _, c in ipairs(in_flight) do
+        local t   = (self.phase_t - c.emit_t) / BUILDUP_FLIGHT_DURATION
+        if t < 0 then t = 0 elseif t > 1 then t = 1 end
+        local et  = easeOut(t)
+        local cx  = stack_cx + (pot_cx - stack_cx) * et
+        local cy  = stack_cy + (pot_cy - stack_cy) * et
+        cy = cy - arc_lift * math.sin(math.pi * t)
+        Chips.drawChip(cx, cy, c.denom_idx, 1.0, false, nil)
+    end
+
+    -- Lock-in flash + "ALL IN" headline.
+    if in_lock then
+        local lock_progress = math.min(1, lock_t / BUILDUP_LOCK_DURATION)
+        local flash_alpha = math.max(0, 0.45 * (1 - lock_progress * 2))
+        if flash_alpha > 0 then
+            love.graphics.setColor(1.0, 0.95, 0.80, flash_alpha)
+            love.graphics.rectangle("fill", 0, 0, W, H)
+        end
+        love.graphics.setFont(fonts.lg)
+        Theme.setColor(Theme.status.error)
+        local headline = "ALL IN"
+        local hw = fonts.lg:getWidth(headline)
+        local hy = math.floor(H * 0.36)
+        local pop = math.min(1, lock_t / 0.25)
+        local pop_scale = 0.85 + 0.15 * easeOut(pop)
+        love.graphics.push()
+        love.graphics.translate(W / 2, hy)
+        love.graphics.scale(pop_scale, pop_scale)
+        love.graphics.print(headline, -hw / 2, 0)
+        love.graphics.pop()
+    end
+
+    if fade_t > 0.4 then
+        local label_alpha = math.min(1, (fade_t - 0.4) / 0.6)
+        love.graphics.setFont(fonts.md)
+        love.graphics.setColor(1, 1, 1, label_alpha * 0.6)
+        printCentered("PUSHING ALL IN…", fonts.md, 0, math.floor(H * 0.10), W)
+    end
+end
+
 -- After a runout's reveal has fully landed, we can show the best-5
 -- highlighting and the hand labels. Definition of "fully landed":
 --   • runout's chip is visible AND
@@ -397,6 +704,50 @@ function ShoveView:_drawBoardCard(i, x, y)
     drawCardSprite(sl, card:spriteName(), x, y, CARD_W, CARD_H, 1, alpha)
 end
 
+-- Persistent shove HUD drawn during the gauntlet cinematic. Keeps
+-- the pot stack + rate breakdown visible the whole time so the
+-- player never loses sight of what's at stake or what their odds
+-- are. Without this the screen goes from "buildup with full
+-- context" to "cards floating in a black void" the instant the
+-- cinematic starts, which the player reads as everything vanishing.
+function ShoveView:_drawShoveStatus(W, H)
+    local rates = self.buildup_rates
+    if not rates then return end
+    local fonts = self.fonts
+    local s     = (self.game and self.game.ui_scale) or 1
+
+    -- Stats readout in Y_STATS slot — same position the buildup
+    -- uses, so there's no jump when the cinematic starts.
+    local catalog_pct = math.floor((rates.catalog or 0) * 100 + 0.5)
+    local shove_pct   = math.floor((rates.r1 or 0) * 100 + 0.5)
+    local stats_y = Y_STATS
+    love.graphics.setFont(fonts.md)
+    local text_left  = string.format("BASE %d%%   ×   MULT %.2f   =   ",
+        catalog_pct, rates.mult or 1.0)
+    local text_right = string.format("SHOVE %d%%", shove_pct)
+    local left_w     = fonts.md:getWidth(text_left)
+    local right_w    = fonts.md:getWidth(text_right)
+    local total_w    = left_w + right_w
+    local sx         = math.floor((W - total_w) / 2)
+    Theme.setColor(Theme.fg.muted)
+    love.graphics.print(text_left, sx, stats_y)
+    Theme.setColor(Theme.status.good)
+    love.graphics.print(text_right, sx + left_w, stats_y)
+
+    -- Pot pile in the center of the pot band. Same chip list the
+    -- buildup arrived with, so the pile stays exactly where it
+    -- landed when the cards take over.
+    if self.buildup_chips and #self.buildup_chips > 0 then
+        local chip_indices = {}
+        for i, c in ipairs(self.buildup_chips) do
+            chip_indices[i] = c.denom_idx
+        end
+        local pot_cx = math.floor(W / 2)
+        local pot_cy = Y_POT + math.floor(POT_BAND_H * 0.55)
+        Chips.drawStack(pot_cx, pot_cy, chip_indices, { align = "center" })
+    end
+end
+
 -- Outline a card slot with a stroke. inset > 0 draws inside the card,
 -- inset < 0 draws outside. Used for the player/dealer best-5 highlights.
 local function strokeSlot(x, y, w, h, inset, lw)
@@ -409,8 +760,14 @@ function ShoveView:draw()
     self:_ensureFonts()
 
     local W, H = love.graphics.getDimensions()
+    -- Scale card / gap sizes by ui_scale so the gauntlet doesn't sit
+    -- as a tiny island in the middle of a 4K screen.
+    local s = (self.game and self.game.ui_scale) or 1
+    CARD_W   = math.floor(CARD_BASE_W * s)
+    CARD_H   = math.floor(CARD_W * 3.5 / 2.5)
+    CARD_GAP = math.floor(CARD_BASE_GAP * s)
     -- Vertically center the gauntlet stack in the current window.
-    recomputeLayout(H)
+    recomputeLayout(H, self.fonts, s)
 
     -- Atmospheric backdrop: pitch-black base, a deep felt band centered
     -- on the board so the cards land "on a table" rather than floating
@@ -463,12 +820,34 @@ function ShoveView:draw()
     Theme.setColor(Theme.status.error)
     love.graphics.print("SHOVE", 16, 12)
 
+    -- Buildup phase: spectacle moment before the gauntlet's card
+    -- timeline starts. Draws over the same felt/spotlight backdrop
+    -- the cinematic uses, then early-returns so card rendering and
+    -- chip strip don't draw on top.
+    if self.phase == "buildup" or self.phase == "ready_to_deal" then
+        self:_drawBuildup(W, H)
+        -- Black fade-in: opaque at phase_t=0, transparent at the end
+        -- of BUILDUP_FADE_DURATION. Anything drawn before this gets
+        -- the casino room "lights coming up" effect.
+        local fade_alpha = 1 - math.min(1, self.phase_t / BUILDUP_FADE_DURATION)
+        if fade_alpha > 0 then
+            love.graphics.setColor(0, 0, 0, fade_alpha)
+            love.graphics.rectangle("fill", 0, 0, W, H)
+        end
+        return
+    end
+
     local g = self.ss.gauntlet
     local result = g and g.result or nil
 
     love.graphics.setFont(self.fonts.lg)
     Theme.setColor(Theme.fg.heading)
     printCentered(bannerFor(g, self), self.fonts.lg, 0, 40, W)
+
+    -- Persistent shove status (pot $ + chip stack + base × mult =
+    -- shove %) so the player always sees what's at stake and what
+    -- their odds are during the cards.
+    self:_drawShoveStatus(W, H)
 
     local n_board         = visibleBoardCount(g)
     local n_slots_visible = visiblePackSize(self, result)
@@ -552,17 +931,37 @@ function ShoveView:draw()
         end
     end
 
-    -- Hand labels (dealer above board, player below board).
+    -- Hand labels (dealer above board, player below board). Drawn as
+    -- solid status-color pills with dark text so they stay legible
+    -- regardless of what cards happen to sit underneath. The previous
+    -- thin red / green text on the shove backdrop blended into the
+    -- card art.
     if result and revealed_idx > 0 then
         local eval = result.evals[revealed_idx]
         if eval then
-            love.graphics.setFont(self.fonts.md)
-            Theme.setColor(Theme.status.error)
-            printCentered("dealer: " .. HandEval.describe(eval.dealer_rank),
-                self.fonts.md, 0, Y_DEALER_LABEL, W)
-            Theme.setColor(Theme.status.good)
-            printCentered("player: " .. HandEval.describe(eval.player_rank),
-                self.fonts.md, 0, Y_PLAYER_LABEL, W)
+            local function drawLabelPill(text, y, color)
+                love.graphics.setFont(self.fonts.md)
+                local fh    = self.fonts.md:getHeight()
+                local pad_x = 14
+                local pad_y = 6
+                local tw    = self.fonts.md:getWidth(text)
+                local pill_w = tw + pad_x * 2
+                local pill_h = fh + pad_y * 2
+                local pill_x = math.floor((W - pill_w) / 2)
+                local pill_y = y - pad_y
+                Theme.setColor(color)
+                love.graphics.rectangle("fill", pill_x, pill_y, pill_w, pill_h, Theme.space.radius)
+                Theme.setColor(Theme.border.strong)
+                love.graphics.setLineWidth(2)
+                love.graphics.rectangle("line", pill_x, pill_y, pill_w, pill_h, Theme.space.radius)
+                love.graphics.setLineWidth(1)
+                Theme.setColor(Theme.bg.window)
+                love.graphics.print(text, pill_x + pad_x, pill_y + pad_y)
+            end
+            drawLabelPill("dealer: " .. HandEval.describe(eval.dealer_rank),
+                Y_DEALER_LABEL, Theme.status.error)
+            drawLabelPill("player: " .. HandEval.describe(eval.player_rank),
+                Y_PLAYER_LABEL, Theme.status.good)
         end
     end
 
@@ -572,25 +971,41 @@ function ShoveView:draw()
     -- landed). Now each chip pops in as it's earned. Chips stay anchored
     -- to their original positions so they fill in left-to-right without
     -- the layout shifting around.
-    local chip_w, chip_h = 92, 32
-    local total_chip_w = 3 * chip_w + 2 * CARD_GAP
+    -- Result chips: solid status-color fill + dark text so the WIN/LOSS
+    -- reads at a glance regardless of the underlying shove backdrop.
+    -- Sizes scale with ui_scale so the chips grow on bigger windows.
+    -- Prototype build only ever resolves R1 — R2 / R3 are gated to
+    -- losses and never deal a 6th/7th card. So we render a single
+    -- chip slot instead of the three-slot strip; the empty R2/R3
+    -- slots would tip the player off that more is coming.
+    local n_slots  = Constants.PROTOTYPE_MODE and 1 or 3
+    local s        = (self.game.ui_scale) or 1
+    local chip_w   = math.max(72, math.floor(110 * s))
+    local chip_h   = math.max(28, math.floor(42  * s))
+    local total_chip_w = n_slots * chip_w + math.max(0, n_slots - 1) * CARD_GAP
     local chip_x0 = math.floor((W - total_chip_w) / 2)
     love.graphics.setFont(self.fonts.md)
-    for i = 1, 3 do
+    for i = 1, n_slots do
         if self.chip_visible[i] then
             local x = chip_x0 + (i - 1) * (chip_w + CARD_GAP)
             local outcome = result and result.outcomes[i]
-            local label, color
+            local fill_color
+            local label
             if outcome == true then
-                label, color = "WIN",  Theme.status.good
+                label, fill_color = "WIN",  Theme.status.good
             else
-                label, color = "LOSS", Theme.status.error
+                label, fill_color = "LOSS", Theme.status.error
             end
-            Theme.setColor(Theme.bg.widget)
+            Theme.setColor(fill_color)
             love.graphics.rectangle("fill", x, Y_CHIPS, chip_w, chip_h, Theme.space.radius)
-            Theme.setColor(color)
+            Theme.setColor(Theme.border.strong)
+            love.graphics.setLineWidth(2)
             love.graphics.rectangle("line", x, Y_CHIPS, chip_w, chip_h, Theme.space.radius)
-            printCentered(label, self.fonts.md, x, Y_CHIPS + 9, chip_w)
+            love.graphics.setLineWidth(1)
+            -- Dark text on the bright fill — high contrast either way.
+            Theme.setColor(Theme.bg.window)
+            local text_y = Y_CHIPS + math.floor((chip_h - self.fonts.md:getHeight()) / 2)
+            printCentered(label, self.fonts.md, x, text_y, chip_w)
         end
     end
 end

@@ -1,7 +1,7 @@
 -- controllers/GrindController.lua
 --
 -- Sits between GrindState and the model layer. Owns the TablePool, applies
--- per-tick resolutions to bankroll, tracks peak_bankroll, and routes
+-- per-tick resolutions to bankroll, and routes
 -- floating-text emission. Validates and applies purchase intents from the
 -- view (run-upgrade and catalog buys).
 --
@@ -172,10 +172,6 @@ function GrindController:update(dt)
             local hands_cleared = t.mtt.hands_won
             if payout > 0 then
                 self.game.state.bankroll = self.game.state.bankroll + payout
-                local total_wealth = self.game.state.bankroll + self:tiedUp()
-                if total_wealth > self.game.state.peak_bankroll then
-                    self.game.state.peak_bankroll = total_wealth
-                end
                 local cxy = AnchorRegistry.get(TableModel.anchorKey(t, "center"))
                 self.game.floating_text.emit(
                     string.format("+$%.2f", payout),
@@ -256,11 +252,6 @@ function GrindController:update(dt)
             state.bankroll = new_bankroll
         end
 
-        local total_wealth = state.bankroll + self:tiedUp()
-        if total_wealth > state.peak_bankroll then
-            state.peak_bankroll = total_wealth
-        end
-
         -- Floater label & color: for cash hands the dollar delta speaks
         -- for itself; for tournament hands (binary_outcome forces
         -- delta=0) showing "+$0.00" was meaningless. Tournaments emit a
@@ -278,12 +269,16 @@ function GrindController:update(dt)
             label = string.format("+$%.2f", r.delta)
         else
             label = string.format("-$%.2f", -r.delta)
+            -- Cash-hand loss: override the data-file's amber default
+            -- with red so losses read correctly. Without this every
+            -- tier picks up color_token="amber" and "-$X.XX" floaters
+            -- render in gold like the wins.
+            floater_opts_override = { color_token = "error" }
         end
         -- Tier-scaled floater opts from data. Tiny = small + compact;
-        -- jackpot = huge + arcing. Color for cash is auto-detected from
-        -- the +/- prefix at draw time; for MTT we override with an
-        -- explicit color_token so WIN/OUT read green/red without a
-        -- prefix to parse.
+        -- jackpot = huge + arcing. The data layer paints wins amber
+        -- (it pops on green felt); the per-emit overrides above route
+        -- losses to red (cash and MTT both).
         local intensity_for_floater = FeedbackIntensity[r.tier] or FeedbackIntensity.tiny
         local floater_opts = intensity_for_floater.floater
         if floater_opts_override then
@@ -350,6 +345,13 @@ function GrindController:update(dt)
         -- combo this run awards the stake's pp_award. Locked in until
         -- prestige clears it. Non-jackpot wins, losing hands, and
         -- subsequent jackpot wins at the same combo do nothing.
+        --
+        -- The Pen catalog item (jackpot_pp_add) adds a flat +N to the
+        -- bounty award — i.e. each tier's payout becomes worth +1 PP
+        -- more when Pen is owned. So a tier whose pp_award is 2 pays
+        -- 3 with Pen; a tier whose award is 5 pays 6. The bonus rides
+        -- the bounty so it fires exactly when the bounty fires (once
+        -- per (stake, gtype) per run), never on subsequent jackpots.
         if r.delta > 0 and r.tier == "jackpot" then
             local tbl = self.pool.tables[r.table_idx]
             if tbl then
@@ -359,7 +361,8 @@ function GrindController:update(dt)
                     local stake = findStake(tbl.stake_id)
                     local base_award = stake and stake.pp_award or 0
                     local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
-                    local award = math.floor(base_award * mult + 0.5)
+                    local bonus = (self.ctx and self.ctx.jackpot_pp_add) or 0
+                    local award = math.floor(base_award * mult + 0.5) + bonus
                     if award > 0 then
                         -- Pending PP — commits to state.pp at SHOVE time.
                         -- The float is the satisfying "you locked a bounty"
@@ -370,17 +373,6 @@ function GrindController:update(dt)
                             string.format("+%d PP (run)", award),
                             r.x, (r.y or 0) - 28)
                     end
-                end
-
-                -- Per-jackpot PP grant (Pen). Independent of the bounty
-                -- system above — fires on EVERY jackpot win, even after
-                -- the (stake, gtype) bounty has been locked.
-                local per_jp = (self.ctx and self.ctx.jackpot_pp_add) or 0
-                if per_jp > 0 then
-                    state.pp_this_run = state.pp_this_run + per_jp
-                    self.game.floating_text.emit(
-                        string.format("+%d PP", per_jp),
-                        r.x, (r.y or 0) - 48)
                 end
             end
         end
@@ -419,13 +411,16 @@ function GrindController:bountyBanked(stake_id, game_type_id)
 end
 
 -- The PP that WOULD bank if the player hits a jackpot win at (stake,
--- gtype) — base stake.pp_award scaled by ctx.pp_award_mult. Used for
--- the "PP +N available" indicator in the Tables tab.
+-- gtype) — base stake.pp_award scaled by ctx.pp_award_mult, then any
+-- flat ctx.jackpot_pp_add (Pen) added on top. Mirrors the actual
+-- bounty math in the resolution loop so the sidebar "+N PP" badge
+-- shows the real payout including catalog upgrades.
 function GrindController:bountyAward(stake_id)
     local stake = findStake(stake_id)
     if not stake then return 0 end
-    local mult = (self.ctx and self.ctx.pp_award_mult) or 1
-    return math.floor((stake.pp_award or 0) * mult + 0.5)
+    local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
+    local bonus = (self.ctx and self.ctx.jackpot_pp_add) or 0
+    return math.floor((stake.pp_award or 0) * mult + 0.5) + bonus
 end
 
 function GrindController:buyRunUpgrade(upgrade_id)

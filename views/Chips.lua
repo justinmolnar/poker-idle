@@ -15,21 +15,40 @@ local Theme    = require("views.Theme")
 local Chips = {}
 
 -- ── Constants (procedural rendering tunables) ────────────────────────
-local CHIP_RADIUS    = 11
+-- Bases are the 1× design values; the live values are recomputed by
+-- Chips.setScale(s) at boot + resize so chips grow with the window.
+local CHIP_RADIUS_BASE   = 11
+local STACK_OFFSET_Y_BASE = -3
+local COL_GAP_BASE       = 2
+local LABEL_FONT_PX_BASE = 9
+
+local CHIP_RADIUS    = CHIP_RADIUS_BASE
 local CHIP_DIAMETER  = 2 * CHIP_RADIUS
-local STACK_OFFSET_Y = -3
-local COL_GAP        = 2
+local STACK_OFFSET_Y = STACK_OFFSET_Y_BASE
+local COL_GAP        = COL_GAP_BASE
 local MAX_PER_COLUMN = 6
-local LABEL_FONT_PX  = 9      -- baseline label font
+local LABEL_FONT_PX  = LABEL_FONT_PX_BASE
 
 -- Lazy-initialised font for chip labels. Held in module scope so we don't
--- thrash newFont every frame.
+-- thrash newFont every frame. Invalidated by Chips.setScale.
 local _label_font
 local function getLabelFont()
     if not _label_font then
         _label_font = love.graphics.newFont(LABEL_FONT_PX)
     end
     return _label_font
+end
+
+-- Rescale chip rendering against the live ui_scale. main.lua calls
+-- this at boot + on resize.
+function Chips.setScale(s)
+    s = s or 1
+    CHIP_RADIUS    = math.max(2, math.floor(CHIP_RADIUS_BASE * s))
+    CHIP_DIAMETER  = 2 * CHIP_RADIUS
+    STACK_OFFSET_Y = math.floor(STACK_OFFSET_Y_BASE * s)
+    COL_GAP        = math.max(1, math.floor(COL_GAP_BASE * s))
+    LABEL_FONT_PX  = math.max(6, math.floor(LABEL_FONT_PX_BASE * s))
+    _label_font    = nil  -- force rebuild at new size on next getLabelFont
 end
 
 -- ── Single chip render (the seam for sprite art later) ───────────────

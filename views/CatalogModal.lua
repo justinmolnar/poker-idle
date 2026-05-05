@@ -21,29 +21,35 @@
 -- guarded model mutation (the model still owns its own state — the
 -- controller is the layer the view talks to).
 
-local Theme   = require("views.Theme")
-local Catalog = require("data.catalog")
+local Theme       = require("views.Theme")
+local Catalog     = require("data.catalog")
+local LabelButton = require("views.widgets.LabelButton")
 
 local CatalogModal = {}
 CatalogModal.__index = CatalogModal
 
 -- ─── Layout constants ──────────────────────────────────────────────────
 
-local MODAL_W           = 980
-local MODAL_PAD         = 24
+-- Base "design" sizes — scaled by ui_scale at draw time so the
+-- modal grows with the window (a 4K screen shouldn't show a tiny
+-- 980-wide card grid in the middle of empty void).
+local MODAL_W_BASE      = 980
+local MODAL_PAD_BASE    = 24
+local GRID_GAP_X_BASE   = 16
+local GRID_GAP_Y_BASE   = 12
+local CARD_PAD_X_BASE   = 14
+local CARD_PAD_Y_BASE   = 10
 
--- HEADER_H / FOOTER_H / CARD_H reconfigured from font metrics in
--- CatalogModal.configureFromFonts (called from main.lua at boot) so
--- header text and card content scale with whatever sizes
--- data/theme.lua chose.
+-- Live values populated each :draw from base × scale.
+local MODAL_W           = MODAL_W_BASE
+local MODAL_PAD         = MODAL_PAD_BASE
 local HEADER_H          = 56
 local FOOTER_H          = 44
-
 local GRID_COLS         = 2
-local GRID_GAP_X        = 16
-local GRID_GAP_Y        = 12
-local CARD_PAD_X        = 14
-local CARD_PAD_Y        = 10
+local GRID_GAP_X        = GRID_GAP_X_BASE
+local GRID_GAP_Y        = GRID_GAP_Y_BASE
+local CARD_PAD_X        = CARD_PAD_X_BASE
+local CARD_PAD_Y        = CARD_PAD_Y_BASE
 local CARD_H            = 84
 
 -- Reconfigure layout from active fonts. Card layout is:
@@ -74,8 +80,13 @@ function CatalogModal:new(game)
         -- Vertical scroll offset (px). Positive = scrolled down.
         _scroll_y    = 0,
         _scroll_max  = 0,    -- recomputed each :draw from content height
+        -- Continue-button rect (built each :draw); click sets _resolved.
+        _continue_rect = nil,
+        _resolved      = false,
     }, CatalogModal)
 end
+
+function CatalogModal:resolved() return self._resolved end
 
 -- ─── Visibility filter ────────────────────────────────────────────────
 
@@ -99,12 +110,10 @@ local function visibleItems(state)
     end
 
     -- Sort by PP cost ascending so the player sees what's affordable
-    -- next at the top. Owned items keep their data-file cost but bubble
-    -- to the bottom (they're not actionable). Stable on cost so two
-    -- items at the same PP fall back to their declaration order.
+    -- next at the top. Owned items stay in their natural cost slot
+    -- (no bubble-to-bottom on purchase) — moving them around as the
+    -- player buys was disorienting and shifted everything else.
     table.sort(out, function(a, b)
-        local ao, bo = owned[a.id] and 1 or 0, owned[b.id] and 1 or 0
-        if ao ~= bo then return ao < bo end
         local ac, bc = a.cost_pp or 0, b.cost_pp or 0
         if ac ~= bc then return ac < bc end
         return false
@@ -131,7 +140,11 @@ end
 -- ─── Input ────────────────────────────────────────────────────────────
 
 function CatalogModal:consumeKey(key)
-    return key == "space" or key == "return"
+    if key == "space" or key == "return" or key == "kpenter" then
+        self._resolved = true
+        return true
+    end
+    return false
 end
 
 -- Forward mouse-wheel events from ShoveState. dy > 0 = wheel up = scroll
@@ -152,6 +165,18 @@ end
 -- bleeding through to grind-state hit-boxes underneath.
 function CatalogModal:consumeMouse(mx, my, button)
     if button ~= 1 then return false end
+
+    -- Continue button at the bottom — click resolves the modal so the
+    -- host (ShoveState) can advance out of the post-bust catalog flow.
+    -- Checked before cells so a Continue rect that overlaps a card
+    -- cell still wins.
+    local r = self._continue_rect
+    if r and mx >= r.x and mx < r.x + r.w
+       and my >= r.y and my < r.y + r.h then
+        self._resolved = true
+        return true
+    end
+
     for _, cell in ipairs(self._cells) do
         if mx >= cell.x and mx < cell.x + cell.w
            and my >= cell.y and my < cell.y + cell.h then
@@ -251,16 +276,22 @@ function CatalogModal:draw()
     local fonts = self.game.fonts
     local state = self.game.state
 
+    -- Scale design-space constants by the live ui_scale so the modal
+    -- and its card grid grow with the window.
+    local s = (self.game.ui_scale) or 1
+    MODAL_W      = math.floor(MODAL_W_BASE   * s)
+    MODAL_PAD    = math.floor(MODAL_PAD_BASE * s)
+    GRID_GAP_X   = math.floor(GRID_GAP_X_BASE * s)
+    GRID_GAP_Y   = math.floor(GRID_GAP_Y_BASE * s)
+    CARD_PAD_X   = math.floor(CARD_PAD_X_BASE * s)
+    CARD_PAD_Y   = math.floor(CARD_PAD_Y_BASE * s)
+
     -- Modal frame + dim backdrop come from the shared Modal widget so
-    -- the chrome stays consistent with the other overlays. We bypass
-    -- the widget's title rendering because the catalog header has a
-    -- right-aligned PP figure that the generic Modal doesn't know
-    -- about; we draw our own header inside the box.
-    if not self._modal then
-        local Modal = require("views.widgets.Modal")
-        self._modal = Modal:new{ w = MODAL_W, max_h_frac = MODAL_MAX_H_FRAC,
-                                 pad = 0 }   -- we manage padding inside
-    end
+    -- the chrome stays consistent with the other overlays. Rebuild it
+    -- per-draw so width tracks the current scale.
+    local Modal = require("views.widgets.Modal")
+    self._modal = Modal:new{ w = MODAL_W, max_h_frac = MODAL_MAX_H_FRAC,
+                             pad = 0 }
 
     local items, owned = visibleItems(state)
     local n_rows   = math.ceil(#items / GRID_COLS)
@@ -318,12 +349,37 @@ function CatalogModal:draw()
         love.graphics.rectangle("fill", track_x, thumb_y, 4, thumb_h, 2)
     end
 
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor(Theme.fg.faint)
-    local prompt = self._scroll_max > 0
-        and "[ SPACE to continue · scroll wheel to browse ]"
-        or  "[ SPACE to continue ]"
-    love.graphics.printf(prompt, box.x, box.y + box.h - 28, box.w, "center")
+    -- Continue button at the bottom. Replaces the old "[ SPACE to
+    -- continue ]" text prompt so the modal works in prototype mode
+    -- (where every key is dead) — click to dismiss.
+    local s_ui    = (self.game.ui_scale) or 1
+    local btn_w   = math.max(140, math.floor(200 * s_ui))
+    local btn_h   = math.max(28, math.floor(40  * s_ui))
+    local btn_x   = box.x + math.floor((box.w - btn_w) / 2)
+    local btn_y   = box.y + box.h - btn_h - 14
+    self._continue_rect = { x = btn_x, y = btn_y, w = btn_w, h = btn_h }
+
+    local mx, my = love.mouse.getPosition()
+    local hov = mx >= btn_x and mx < btn_x + btn_w
+                and my >= btn_y and my < btn_y + btn_h
+    LabelButton.draw{
+        x = btn_x, y = btn_y, w = btn_w, h = btn_h,
+        text         = "Continue",
+        fonts        = fonts,
+        font         = fonts.md,
+        hovered      = hov,
+        depth        = 3,
+        fill_token   = hov and Theme.status.good or Theme.bg.widget,
+        border_token = Theme.status.good,
+        text_token   = hov and Theme.bg.window or Theme.status.good,
+    }
+
+    if self._scroll_max > 0 then
+        love.graphics.setFont(fonts.sm)
+        Theme.setColor(Theme.fg.faint)
+        love.graphics.printf("scroll wheel to browse",
+            box.x, btn_y - fonts.sm:getHeight() - 4, box.w, "center")
+    end
 
     self._modal:endDraw()
 end

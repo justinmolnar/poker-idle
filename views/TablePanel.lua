@@ -40,6 +40,20 @@ local HistoryBars   = require("data.history_bars")
 local TablePanel = {}
 
 -- Layout constants — relative to a panel's (x, y) origin.
+-- Base sizes are 1× design-space; scaled per-panel at draw time
+-- against the panel's actual (w, h) so the chrome shrinks when the
+-- grid crams many panels into a single window. Computed as
+--   pscale = min(w / PANEL_BASE_W, h / PANEL_BASE_H)
+-- and clamped by Game.ui_scale so a single panel on a giant window
+-- doesn't blow chrome up past the window scale's font budget.
+local PANEL_BASE_W    = 520
+local PANEL_BASE_H    = 390
+local HEADER_H_BASE   = 24
+local FELT_INSET_BASE = 6
+local REMOVE_BTN_BASE = 18
+local DEAL_BTN_W_BASE = 140
+local DEAL_BTN_H_BASE = 40
+
 local HEADER_H        = 24
 local FELT_INSET      = 6
 local REMOVE_BTN_SIZE = 18
@@ -166,14 +180,25 @@ end
 -- pair (min_bar_w / min_bar_gap) when the zone is tight, and renders
 -- nothing if even one min-sized bar wouldn't fit. No tier branches —
 -- height is a data lookup.
-local function drawHistoryBars(tbl, zone_x, zone_y, zone_w, zone_h)
+local function drawHistoryBars(tbl, zone_x, zone_y, zone_w, zone_h, s)
     local results = tbl.last_results
     if not results or #results == 0 or zone_w <= 0 or zone_h <= 0 then
         return
     end
 
-    local layout = HistoryBars.layout
+    local layout  = HistoryBars.layout
     local heights = HistoryBars.height
+
+    -- Scale bar dimensions with the active ui_scale so the mini-graph
+    -- grows with the window. Data file holds 1× sizes; we apply the
+    -- scale here at draw time. Min sizes use ceil(... * s) so they
+    -- never round down to zero on small windows.
+    local sc          = s or 1
+    local bar_w_pref  = math.max(1, math.floor(layout.bar_w     * sc))
+    local gap_pref    = math.max(1, math.floor(layout.bar_gap   * sc))
+    local bar_w_min   = math.max(1, math.ceil (layout.min_bar_w * sc))
+    local gap_min     = math.max(1, math.ceil (layout.min_bar_gap * sc))
+    local graph_h_max = math.max(1, math.floor(layout.graph_h   * sc))
 
     -- Pick the largest bar+gap pair that fits at least 1 bar in zone_w.
     -- Try the preferred sizes first; fall back to the min sizes.
@@ -185,9 +210,9 @@ local function drawHistoryBars(tbl, zone_x, zone_y, zone_w, zone_h)
         return n, bar_w, gap
     end
 
-    local n, bar_w, gap = fit(layout.bar_w, layout.bar_gap)
+    local n, bar_w, gap = fit(bar_w_pref, gap_pref)
     if n < 1 then
-        n, bar_w, gap = fit(layout.min_bar_w, layout.min_bar_gap)
+        n, bar_w, gap = fit(bar_w_min, gap_min)
     end
     if n < 1 then return end
 
@@ -200,7 +225,7 @@ local function drawHistoryBars(tbl, zone_x, zone_y, zone_w, zone_h)
     local pack_w = visible_count * bar_w + (visible_count - 1) * gap
     local x0 = zone_x + zone_w - pack_w
     local baseline_y = zone_y + zone_h
-    local graph_h = math.min(zone_h, layout.graph_h)
+    local graph_h = math.min(zone_h, graph_h_max)
 
     -- Faint baseline track behind every slot — gives the empty slots a
     -- tiny dark cap so the graph reads as "10 slots" not "free-floating
@@ -224,7 +249,7 @@ local function drawHistoryBars(tbl, zone_x, zone_y, zone_w, zone_h)
     end
 end
 
-local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, cursor_on, rebuy_cursor_on)
+local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, cursor_on, rebuy_cursor_on, s, ui_s)
     local stats = tbl:liveStats() or {}
     local header_text = stats.stake_display or "?"
     if stats.game_type_short and stats.game_type_short ~= "" then
@@ -365,23 +390,19 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
         hands_right_offset = hands_right_offset + REMOVE_BTN_SIZE + 4
     end
 
-    -- Hands played (right-aligned, shifted past [x] and the cursor badge).
-    Theme.setColor(Theme.fg.muted)
-    local hands = string.format("%d hands", tbl.hands_played or 0)
-    local hw = fonts.sm:getWidth(hands)
-    local hands_x = x + w - hw - hands_right_offset
-    local hands_y = y + math.floor((HEADER_H - fonts.sm:getHeight()) * 0.5)
-    love.graphics.print(hands, hands_x, hands_y)
-
     -- History bars — fit them into the gap between the stake-name text
-    -- and the hands-count text. Vertically centered in the header strip.
-    -- If there's not enough room for even one min-sized bar, it no-ops.
+    -- and the buttons on the right. Vertically centered in the header
+    -- strip. The graph uses ui_scale (the window scale) instead of the
+    -- per-panel scale, so the bars stay legible even at small panel
+    -- sizes — the user wanted the graph to keep size, not vanish into
+    -- a single-pixel sliver when the grid crams panels.
+    local scale_for_graph = ui_s or s or 1
     local name_right = x + 8 + fonts.sm:getWidth(header_text)
     local zone_x     = name_right + 8
-    local zone_w     = (hands_x - 8) - zone_x
-    local graph_h    = HistoryBars.layout.graph_h
+    local zone_w     = (x + w - hands_right_offset) - zone_x
+    local graph_h    = math.max(1, math.floor(HistoryBars.layout.graph_h * scale_for_graph))
     local zone_y     = y + math.floor((HEADER_H - graph_h) / 2)
-    drawHistoryBars(tbl, zone_x, zone_y, zone_w, graph_h)
+    drawHistoryBars(tbl, zone_x, zone_y, zone_w, graph_h, scale_for_graph)
 end
 
 local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes)
@@ -650,11 +671,36 @@ local function _renderFeltButton(bx, by, btn_w, btn_h, fonts, label, fill_color,
         disabled     = not enabled,
         depth        = DEAL_BTN_DEPTH,
     }, function(fx, fy, fw, fh)
-        local font = (fh >= 32) and fonts.md or fonts.sm
+        -- Pick the largest font whose label fits the button width
+        -- (and vertically fits the face height). Without this check
+        -- a long label like "REBUY $100.00" wraps to a second line
+        -- inside small panels and the button breaks visually. If
+        -- even sm overflows we scale-blit it down so the label still
+        -- fits in one line — better squashed-but-readable than
+        -- wrapped-and-clipped.
+        local pad   = 8
+        local avail = math.max(1, fw - pad)
+        local font  = fonts.sm
+        if fh >= 32 and fonts.md:getWidth(label) <= avail then
+            font = fonts.md
+        end
         love.graphics.setFont(font)
         Theme.setColor(enabled and Theme.bg.window or Theme.fg.disabled)
-        local text_y = fy + math.floor((fh - font:getHeight()) * 0.5)
-        love.graphics.printf(label, fx, text_y, fw, "center")
+        local tw = font:getWidth(label)
+        local fh_t = font:getHeight()
+        local sx = (tw > avail) and (avail / tw) or 1
+        local draw_w = tw * sx
+        local text_x = fx + math.floor((fw - draw_w) / 2)
+        local text_y = fy + math.floor((fh - fh_t * sx) * 0.5)
+        if sx < 1 then
+            love.graphics.push()
+            love.graphics.translate(text_x, text_y)
+            love.graphics.scale(sx, sx)
+            love.graphics.print(label, 0, 0)
+            love.graphics.pop()
+        else
+            love.graphics.print(label, text_x, text_y)
+        end
     end)
 end
 
@@ -890,6 +936,25 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         return
     end
 
+    -- Per-panel scale dominates: when the grid crams 18 panels into
+    -- a window, each panel might render at ~340×190 — chrome should
+    -- shrink with that, not stay sized for the full window. Capped
+    -- by ui_scale so a lone panel on a 4K window doesn't grow past
+    -- what the window-scale font budget supports.
+    local ui_s = (game and game.ui_scale) or 1
+    local panel_s = math.min(w / PANEL_BASE_W, h / PANEL_BASE_H)
+    local s = math.min(ui_s, panel_s)
+    -- Header has to remain tall enough to hold fonts.sm + tiny padding,
+    -- otherwise the per-panel scale-down crushes header text into a
+    -- band that's literally shorter than a glyph.
+    local fonts = game and game.fonts
+    local sm_h  = (fonts and fonts.sm and fonts.sm:getHeight()) or 12
+    HEADER_H        = math.max(sm_h + 4, math.floor(HEADER_H_BASE   * s))
+    FELT_INSET      = math.max(1, math.floor(FELT_INSET_BASE * s))
+    REMOVE_BTN_SIZE = math.max(sm_h + 2, math.floor(REMOVE_BTN_BASE * s))
+    DEAL_BTN_W      = math.max(40, math.floor(DEAL_BTN_W_BASE * s))
+    DEAL_BTN_H      = math.max(sm_h + 6, math.floor(DEAL_BTN_H_BASE * s))
+
     -- Stash the panel's current screen-space rect onto the model so the
     -- resolution emitter (Table:_finalizeHand, GrindController:update) can
     -- spawn floating-text and chip bursts at the right table. Without
@@ -962,7 +1027,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- catalog-unlocked.
     local cursor_on        = (controller and controller.ctx and controller.ctx.cursor_unlocked) or false
     local rebuy_cursor_on  = (controller and controller.ctx and controller.ctx.cursor_rebuy_unlocked) or false
-    drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, true, cursor_on, rebuy_cursor_on)
+    drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, true, cursor_on, rebuy_cursor_on, s, ui_s)
 
     -- Felt area.
     local felt_x = x + FELT_INSET

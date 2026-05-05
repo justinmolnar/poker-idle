@@ -44,10 +44,15 @@ local PokerEffects = require("models.poker_effects")
 local GrindState   = require("states.GrindState")
 local ShoveState   = require("states.ShoveState")
 local CreditsState = require("states.CreditsState")
+local TitleState   = require("states.TitleState")
 
 local Game = nil
--- Auto-save was here. Disabled by request — manual F5/F6/F7 only so debug
--- experiments don't get committed to disk between intentional saves.
+
+-- Periodic auto-save accumulator. Only ticks while PROTOTYPE_MODE is on
+-- and we're inside the gameplay states (not title/credits). Persisted
+-- in love.update; reset whenever a save fires.
+local autosave_timer = 0
+local AUTOSAVE_INTERVAL = 10  -- seconds; matches plan-mode answer
 
 local function buildGame()
     local g = {
@@ -57,7 +62,21 @@ local function buildGame()
     }
 
     g.theme           = Theme
-    g.fonts           = FontService.build(ThemeData.font)
+    -- Fonts scale by an integer factor based on the current window
+    -- (1× at 1280×720, 2× at 2560×1440, 3× at 3840×2160). main.lua's
+    -- love.resize rebuilds the table in place on window changes.
+    local _vw, _vh    = love.graphics.getDimensions()
+    g.fonts           = FontService.build(ThemeData.font, _vw, _vh)
+    -- Float layout scale exposed on the DI container so any view can
+    -- multiply its hardcoded design-space constants by it. Updated on
+    -- resize. Use this for card / chip / button sizes that should
+    -- grow proportionally with the window.
+    g.ui_scale        = FontService.layoutScale(_vw, _vh)
+    -- Rescale procedural rendering against the live ui_scale.
+    require("views.Chips").setScale(g.ui_scale)
+    require("views.ComponentRenderer").setScale(g.ui_scale)
+    require("views.widgets.ConfirmDialog").setScale(g.ui_scale)
+    require("views.widgets.Slider").setScale(g.ui_scale)
 
     -- Pixel-font sizing affects layout. Configure layout-bearing
     -- modules (Panel header height, ComponentRenderer LINE_H,
@@ -115,10 +134,27 @@ local function buildGame()
     g.state_machine:register("grind",   GrindState:new(g))
     g.state_machine:register("shove",   ShoveState:new(g))
     g.state_machine:register("credits", CreditsState:new(g))
+    g.state_machine:register("title",   TitleState:new(g))
 
     g.input_dispatcher = InputDispatcher:new()
     g.input_controller = InputController:new(g)
-    g.input_controller:wire()
+    if Constants.PROTOTYPE_MODE then
+        -- All DEV hotkeys (F2/F5/F6/F7/backtick/-/=) are skipped — none
+        -- of those dispatcher predicates run. But keypressed still
+        -- forwards to the active state so modal-class keys like SPACE
+        -- (continue), ENTER, and ESC keep working for normal UX.
+        local sm = g.state_machine
+        local d  = g.input_dispatcher
+        d:on("keypressed",    nil, function(key)         sm:keypressed(key)         end)
+        d:on("keyreleased",   nil, function(key)         sm:keyreleased(key)        end)
+        d:on("mousepressed",  nil, function(x, y, b)     sm:mousepressed(x, y, b)   end)
+        d:on("mousereleased", nil, function(x, y, b)     sm:mousereleased(x, y, b)  end)
+        d:on("mousemoved",    nil, function(x, y, dx, dy) sm:mousemoved(x, y, dx, dy) end)
+        d:on("textinput",     nil, function(text)        sm:textinput(text)         end)
+        d:on("wheelmoved",    nil, function(x, y)        sm:wheelmoved(x, y)        end)
+    else
+        g.input_controller:wire()
+    end
 
     return g
 end
@@ -131,7 +167,9 @@ function love.load()
     -- failures log a warning and degrade gracefully (no crash).
     ShaderRegistry.loadFromFile("radial_glow", "shaders/radial_glow.frag")
 
-    if Constants.DEBUG.START_IN_SHOVE then
+    if Constants.PROTOTYPE_MODE then
+        Game.state_machine:switch("title")
+    elseif Constants.DEBUG.START_IN_SHOVE then
         Game.state_machine:switch("shove")
     else
         Game.state_machine:switch("grind")
@@ -154,7 +192,21 @@ function love.update(dt)
     FlightSystem.update(dt)
     ClickFlash.update(dt)
     Ghosts.update(dt)
-    -- No auto-save. Use F5 to save manually, F6 to reload, F7 to wipe.
+
+    -- Periodic auto-save in PROTOTYPE_MODE. Skip the menu-class states
+    -- (title/credits) so we don't churn disk while the player sits at
+    -- a static screen. Counter resets on each save.
+    if Constants.PROTOTYPE_MODE then
+        local current = Game.state_machine:current()
+        if current == "grind" or current == "shove" then
+            autosave_timer = autosave_timer + dt
+            if autosave_timer >= AUTOSAVE_INTERVAL then
+                autosave_timer = 0
+                local state = Game.state
+                Game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
+            end
+        end
+    end
 end
 
 function love.draw()
@@ -175,11 +227,38 @@ function love.resize(w, h)
     if Game.viewport then
         Game.viewport.w, Game.viewport.h = w, h
     end
+
+    -- Rebuild fonts at the new integer scale + re-run the
+    -- configureFromFonts hooks so layout-bearing modules
+    -- (Panel.TAB_BAR_H, ComponentRenderer LINE_H, modal sizes)
+    -- recompute against the new font heights.
+    local ThemeData = require("data.theme")
+    FontService.rebuildInto(Game.fonts, ThemeData.font, w, h)
+    Game.ui_scale = FontService.layoutScale(w, h)
+    require("views.Chips").setScale(Game.ui_scale)
+    require("views.ComponentRenderer").setScale(Game.ui_scale)
+    require("views.widgets.ConfirmDialog").setScale(Game.ui_scale)
+    require("views.widgets.Slider").setScale(Game.ui_scale)
+    require("views.Panel").configureFromFonts(Game.fonts)
+    require("views.ComponentRenderer").configureFromFonts(Game.fonts)
+    require("views.CatalogModal").configureFromFonts(Game.fonts)
+    require("views.SettingsModal").configureFromFonts(Game.fonts)
+
     if Game.state_machine then
         Game.state_machine:resize(w, h)
     end
 end
 
 function love.quit()
-    -- No save on quit. Disk only changes through explicit F5 / F7 actions.
+    -- In PROTOTYPE_MODE flush one final save so anything between the
+    -- last 10s tick and quit doesn't get lost. Skip from the menu-
+    -- class states (no useful run state to commit). Outside prototype
+    -- mode the dev workflow is manual F5 / F7 only — preserve that.
+    if Game and Constants.PROTOTYPE_MODE then
+        local current = Game.state_machine and Game.state_machine:current()
+        if current == "grind" or current == "shove" then
+            local state = Game.state
+            Game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
+        end
+    end
 end

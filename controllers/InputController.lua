@@ -119,9 +119,6 @@ function InputController:wire()
         function()
             local state = game.state
             state.bankroll = state.bankroll + 1000
-            if state.bankroll > state.peak_bankroll then
-                state.peak_bankroll = state.bankroll
-            end
             print(string.format("[debug] bankroll +$1000 -> $%.2f", state.bankroll))
         end)
 

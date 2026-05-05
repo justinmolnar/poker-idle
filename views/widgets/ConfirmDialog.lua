@@ -15,13 +15,35 @@ local LabelButton = require("views.widgets.LabelButton")
 local ConfirmDialog = {}
 ConfirmDialog.__index = ConfirmDialog
 
-local BOX_W       = 360
-local BOX_H       = 160
-local BTN_W       = 140
-local BTN_H       = 38
-local SIDE_PAD    = 24
-local BTN_BOTTOM  = 16
-local TITLE_TOP   = 28
+-- Base sizes are 1× design-space; setScale(s) multiplies them in
+-- place so the dialog grows with the window. main.lua wires the
+-- call on boot and on resize from Game.ui_scale.
+local BOX_W_BASE      = 360
+local BOX_H_BASE      = 160
+local BTN_W_BASE      = 140
+local BTN_H_BASE      = 38
+local SIDE_PAD_BASE   = 24
+local BTN_BOTTOM_BASE = 16
+local TITLE_TOP_BASE  = 28
+
+local BOX_W       = BOX_W_BASE
+local BOX_H       = BOX_H_BASE
+local BTN_W       = BTN_W_BASE
+local BTN_H       = BTN_H_BASE
+local SIDE_PAD    = SIDE_PAD_BASE
+local BTN_BOTTOM  = BTN_BOTTOM_BASE
+local TITLE_TOP   = TITLE_TOP_BASE
+
+function ConfirmDialog.setScale(s)
+    s = s or 1
+    BOX_W      = math.floor(BOX_W_BASE      * s)
+    BOX_H      = math.floor(BOX_H_BASE      * s)
+    BTN_W      = math.floor(BTN_W_BASE      * s)
+    BTN_H      = math.floor(BTN_H_BASE      * s)
+    SIDE_PAD   = math.floor(SIDE_PAD_BASE   * s)
+    BTN_BOTTOM = math.floor(BTN_BOTTOM_BASE * s)
+    TITLE_TOP  = math.floor(TITLE_TOP_BASE  * s)
+end
 
 -- opts:
 --   prompt          (string, required)

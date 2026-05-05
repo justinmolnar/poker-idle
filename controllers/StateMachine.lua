@@ -33,6 +33,14 @@ function StateMachine:switch(state_name, ...)
     if self.current_state.enter then
         self.current_state:enter(...)
     end
+    -- Window may have been resized while a different state was active.
+    -- love.resize only forwards to the active state, so the new state's
+    -- view layout could be stale (e.g. resized from title screen, then
+    -- switched to grind — grind's view was last laid out at boot dims).
+    -- Fire :resize with the current dims so layout refreshes here.
+    if self.current_state.resize then
+        self.current_state:resize(love.graphics.getDimensions())
+    end
 end
 
 function StateMachine:current() return self.current_name end

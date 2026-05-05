@@ -35,7 +35,6 @@ function GameState:new(saved)
 
     -- Run-side defaults (wiped on prestige).
     instance.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
-    instance.peak_bankroll       = Constants.GAMEPLAY.INITIAL_BANKROLL
     instance.current_stake_id    = "s001"
     -- Stacking run upgrades: id → integer level. Absent / 0 = not owned.
     -- Each level applies the item's effect block once (see EffectsRegistry:applyN).
@@ -78,7 +77,6 @@ end
 -- PP earned during the run was already banked to state.pp during play.
 function GameState:resetRun()
     self.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
-    self.peak_bankroll       = Constants.GAMEPLAY.INITIAL_BANKROLL
     self.current_stake_id    = "s001"
     self.run_upgrade_levels  = {}
     self.active_table_specs = {}
@@ -126,12 +124,11 @@ function GameState:serializeMeta()
     }
 end
 
--- Serialize run-only (bankroll, peak, stake, run upgrades, active tables,
+-- Serialize run-only (bankroll, stake, run upgrades, active tables,
 -- per-run PP bookkeeping). For run.save. Wiped on prestige by `clearRun()`.
 function GameState:serializeRun()
     return {
         bankroll                   = self.bankroll,
-        peak_bankroll              = self.peak_bankroll,
         current_stake_id           = self.current_stake_id,
         run_upgrade_levels         = self.run_upgrade_levels,
         active_table_specs         = self.active_table_specs,
@@ -233,9 +230,6 @@ function GameState:applyStartingPerks(ctx)
     if (ctx.start_bankroll_pct or 0) > 0 then
         self.bankroll = self.bankroll
             + Constants.GAMEPLAY.INITIAL_BANKROLL * ctx.start_bankroll_pct
-    end
-    if self.bankroll > self.peak_bankroll then
-        self.peak_bankroll = self.bankroll
     end
     for _ = 1, (ctx.start_table_count or 0) do
         self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"

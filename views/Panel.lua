@@ -37,6 +37,9 @@ function Panel:new(x, y, w, h)
     instance.y = y
     instance.w = w
     instance.h = h
+    -- content_y / content_h are recomputed each frame via
+    -- :_layout(game) so panels with only one visible tab can hide
+    -- the tab bar entirely (no wasted vertical strip).
     instance.content_y = y + Panel.TAB_BAR_H
     instance.content_h = h - Panel.TAB_BAR_H
 
@@ -50,6 +53,23 @@ function Panel:new(x, y, w, h)
     instance._last_components = nil
 
     return instance
+end
+
+-- Effective tab-bar height for the current game state. Returns 0 when
+-- only one tab is visible — the bar is decorative noise in that case
+-- since there's nothing to switch to.
+function Panel:_effTabBarH(game)
+    local visible = self:_visibleTabs(game)
+    if #visible <= 1 then return 0 end
+    return Panel.TAB_BAR_H
+end
+
+-- Recompute content rect against the current tab-bar height. Cheap;
+-- run at the top of any method that uses content_y / content_h.
+function Panel:_layout(game)
+    local h_bar = self:_effTabBarH(game)
+    self.content_y = self.y + h_bar
+    self.content_h = self.h - h_bar
 end
 
 function Panel:registerTab(def)
@@ -105,7 +125,9 @@ function Panel:handleScroll(dy)
 end
 
 function Panel:handleMouseDown(x, y, _button, game)
-    if y >= self.y and y < self.y + Panel.TAB_BAR_H then
+    self:_layout(game)
+    local h_bar = self:_effTabBarH(game)
+    if h_bar > 0 and y >= self.y and y < self.y + h_bar then
         local visible = self:_visibleTabs(game)
         local n = #visible
         if n == 0 then return false end
@@ -160,8 +182,10 @@ function Panel:update(my)
 end
 
 function Panel:updateHover(mx, my, game)
+    self:_layout(game)
     local HoverService = require("services.HoverService")
-    if my >= self.y and my < self.y + Panel.TAB_BAR_H then
+    local h_bar = self:_effTabBarH(game)
+    if h_bar > 0 and my >= self.y and my < self.y + h_bar then
         local visible = self:_visibleTabs(game)
         local n = #visible
         if n > 0 then
@@ -204,32 +228,38 @@ function Panel:_visibleTabs(game)
 end
 
 function Panel:draw(game)
+    self:_layout(game)
     local visible = self:_visibleTabs(game)
     local n       = #visible
     local tab_w   = n > 0 and (self.w / n) or self.w
+    local h_bar   = self:_effTabBarH(game)
 
-    local active_tab = self:_resolveActiveTab(game)
-
+    local active_tab   = self:_resolveActiveTab(game)
     local HoverService = require("services.HoverService")
-    love.graphics.setFont(game.fonts.md)
-    love.graphics.setScissor(self.x, self.y, self.w, Panel.TAB_BAR_H)
-    for i, tab in ipairs(visible) do
-        local tx = self.x + (i - 1) * tab_w
-        local is_active = (tab.id == self.active_tab_id)
-        local hovered   = (not is_active) and HoverService.is("tab", tab.id)
-        local bg = (is_active or hovered) and Theme.bg.widget_hover or Theme.bg.chrome
-        Theme.setColor(bg)
-        love.graphics.rectangle("fill", tx, self.y, tab_w, Panel.TAB_BAR_H)
-        Theme.setColor(is_active and Theme.border.strong or Theme.border.default)
-        love.graphics.rectangle("line", tx, self.y, tab_w, Panel.TAB_BAR_H)
-        Theme.setColor(is_active and Theme.fg.heading
-                       or hovered and Theme.fg.primary
-                       or Theme.fg.muted)
-        local label = tab.icon and (tab.icon .. " " .. tab.label) or tab.label
-        local label_y = self.y + math.floor((Panel.TAB_BAR_H - game.fonts.md:getHeight()) * 0.5)
-        love.graphics.printf(label, tx + 2, label_y, tab_w - 4, "center")
+
+    -- Tab bar only renders when there's more than one tab. Single-tab
+    -- panels skip the strip entirely so content fills the full panel.
+    if h_bar > 0 then
+        love.graphics.setFont(game.fonts.md)
+        love.graphics.setScissor(self.x, self.y, self.w, h_bar)
+        for i, tab in ipairs(visible) do
+            local tx = self.x + (i - 1) * tab_w
+            local is_active = (tab.id == self.active_tab_id)
+            local hovered   = (not is_active) and HoverService.is("tab", tab.id)
+            local bg = (is_active or hovered) and Theme.bg.widget_hover or Theme.bg.chrome
+            Theme.setColor(bg)
+            love.graphics.rectangle("fill", tx, self.y, tab_w, h_bar)
+            Theme.setColor(is_active and Theme.border.strong or Theme.border.default)
+            love.graphics.rectangle("line", tx, self.y, tab_w, h_bar)
+            Theme.setColor(is_active and Theme.fg.heading
+                           or hovered and Theme.fg.primary
+                           or Theme.fg.muted)
+            local label = tab.icon and (tab.icon .. " " .. tab.label) or tab.label
+            local label_y = self.y + math.floor((h_bar - game.fonts.md:getHeight()) * 0.5)
+            love.graphics.printf(label, tx + 2, label_y, tab_w - 4, "center")
+        end
+        love.graphics.setScissor()
     end
-    love.graphics.setScissor()
 
     if not active_tab or not active_tab.build then return end
 

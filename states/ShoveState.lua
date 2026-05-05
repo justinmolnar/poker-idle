@@ -6,7 +6,7 @@
 -- effects on enter, and the prestige flow that fires when a gauntlet
 -- finishes:
 --
---   • Gauntlet busts (any runout LOSS) → award PP based on peak_bankroll,
+--   • Gauntlet busts (any runout LOSS) → award PP banked during the run,
 --     show the PrestigeModal. SPACE dismisses it and opens the
 --     CatalogModal. SPACE again dismisses the catalog → resetRun → grind.
 --   • Gauntlet clears (3 of 3 runouts WON) → award PP, set state.cleared,
@@ -16,17 +16,18 @@
 -- this state via the SHOVE button (or F2 from grind for testing) just plays
 -- the gauntlet. SPACE during animation skips the cinematic.
 
-local Theme         = require("views.Theme")
-local ShoveView     = require("views.ShoveView")
-local Overlay       = require("views.ShoveDebugOverlay")
-local PrestigeModal = require("views.PrestigeModal")
-local CatalogModal  = require("views.CatalogModal")
-local SettingsModal = require("views.SettingsModal")
-local Gauntlet      = require("models.Gauntlet")
-local Catalog       = require("data.catalog")
-local RunUpgrades   = require("data.run_upgrades")
-local Constants     = require("data.constants")
-local ShoveRate     = require("models.shove_rate")
+local Theme              = require("views.Theme")
+local ShoveView          = require("views.ShoveView")
+local Overlay            = require("views.ShoveDebugOverlay")
+local PrestigeModal      = require("views.PrestigeModal")
+local PrototypeEndModal  = require("views.PrototypeEndModal")
+local CatalogModal       = require("views.CatalogModal")
+local SettingsModal      = require("views.SettingsModal")
+local Gauntlet           = require("models.Gauntlet")
+local Catalog            = require("data.catalog")
+local RunUpgrades        = require("data.run_upgrades")
+local Constants          = require("data.constants")
+local ShoveRate          = require("models.shove_rate")
 
 local ShoveState = {}
 ShoveState.__index = ShoveState
@@ -46,10 +47,11 @@ function ShoveState:new(game)
         game            = game,
         shove_rates     = nil,    -- locked at :enter; struct from ShoveRate.compute
         gauntlet        = nil,
-        prestige_modal  = nil,    -- bust step 1: run-end summary
-        catalog_modal   = nil,    -- bust step 2: post-run PP shop
-        settings_modal  = nil,    -- ESC overlay (volume, resolution, quit)
-        _ended_handled  = false,  -- guard so _onGauntletEnded fires once per gauntlet
+        prestige_modal       = nil,    -- bust step 1: run-end summary
+        catalog_modal        = nil,    -- bust step 2: post-run PP shop
+        settings_modal       = nil,    -- ESC overlay (volume, resolution, quit)
+        prototype_end_modal  = nil,    -- prototype-mode "you beat the demo" screen
+        _ended_handled       = false,  -- guard so _onGauntletEnded fires once per gauntlet
     }, ShoveState)
     self.view    = ShoveView:new(game, self)
     self.overlay = Overlay:new(game, self)
@@ -70,29 +72,54 @@ end
 -- (reload-from-disk and wipe-saves) so a stale gauntlet from before the
 -- reload doesn't pop back when the player next enters shove.
 function ShoveState:fullReset()
-    self.gauntlet       = nil
-    self.prestige_modal = nil
-    self.catalog_modal  = nil
-    self._ended_handled = false
+    self.gauntlet            = nil
+    self.prestige_modal      = nil
+    self.catalog_modal       = nil
+    self.prototype_end_modal = nil
+    self._ended_handled      = false
     self.view:resetTimeline()
     self.overlay:resetStats()
 end
 
 function ShoveState:enter()
     Theme.setActive("shove")
-    -- Lock in the shove rate from the current catalog ctx + bankroll
-    -- snapshot. This is the freeze moment — once the gauntlet begins,
-    -- mutating bankroll doesn't affect rolls. Catalog purchases between
-    -- shoves count toward the next attempt because computeEffects
-    -- rebuilds ctx fresh each :enter.
     local state = self.game.state
+
+    -- All-in cash-out: every table's current stack returns to bankroll
+    -- and the pool is cleared. The shove commits the player's total
+    -- wealth, not just spendable bankroll — the buildup spectacle then
+    -- visualizes those chips moving from stack to pot. Run only on a
+    -- fresh gauntlet entry; if we're re-entering shove after a hot
+    -- reload (F6 path) the gauntlet flag prevents a double cash-out.
+    if not self.gauntlet and self.game.grind then
+        local pool = self.game.grind.pool
+        if pool and pool.tables then
+            local tied = 0
+            for _, t in ipairs(pool.tables) do
+                tied = tied + (t.stack or 0)
+            end
+            pool.tables = {}
+            state.bankroll = state.bankroll + tied
+        end
+        state.active_table_specs         = {}
+        state.active_table_mutes         = {}
+        state.active_table_rebuy_mutes   = {}
+        state.active_table_mtt_hands_won = {}
+        state.active_table_mtt_state     = {}
+    end
+
+    -- Lock in the shove rate from the current catalog ctx + post-
+    -- cashout bankroll. Catalog purchases between shoves count toward
+    -- the next attempt because computeEffects rebuilds ctx fresh each
+    -- :enter.
     local ctx = state:computeEffects(self.game.effects, Catalog, RunUpgrades)
     self.shove_rates = ShoveRate.compute(ctx, state.bankroll or 0)
 
-    -- Auto-start a gauntlet on entry when none is active. Carries the
-    -- player straight into the cinematic instead of requiring SPACE.
+    -- Auto-start the buildup spectacle on entry. The gauntlet itself
+    -- doesn't begin until the view's buildup phase finishes (handled
+    -- in :update — sees view:isReadyToDeal and fires _beginGauntlet).
     if not self.gauntlet then
-        self:_beginGauntlet()
+        self.view:beginBuildup(self.shove_rates)
     end
 end
 
@@ -124,6 +151,19 @@ function ShoveState:_onGauntletEnded()
     -- reads state.pp_this_run for the display total.
     local pp_banked = state.pp_this_run or 0
 
+    -- Prototype-end intercept: in PROTOTYPE_MODE, winning R1 then losing
+    -- R2 is the natural cliffhanger that ends the demo. Show the
+    -- end-of-prototype modal instead of the bust prestige flow. The
+    -- player chooses Continue (resetRun + grind) or Exit to Title.
+    if Constants.PROTOTYPE_MODE
+       and not result.won
+       and result.busted_at == 2
+       and result.outcomes
+       and result.outcomes[1] == true then
+        self.prototype_end_modal = PrototypeEndModal:new(self.game)
+        return
+    end
+
     if result.won then
         state.cleared = true
         -- No auto-save. F5 to commit progress to disk.
@@ -133,9 +173,37 @@ function ShoveState:_onGauntletEnded()
         self.game.state_machine:switch("credits")
     else
         self.prestige_modal = PrestigeModal:new(
-            self.game, state.peak_bankroll, pp_banked, result.busted_at)
+            self.game, pp_banked, result.busted_at)
         -- No auto-save. PP is in memory only until F5.
     end
+end
+
+-- Prototype-end resolution. "Continue Playing" routes through the
+-- catalog (mirrors the standard post-bust flow — same chance to spend
+-- banked PP before the next run starts). "Exit to Title" skips the
+-- catalog and drops the player back at the start screen with their
+-- current run reset.
+function ShoveState:_resolvePrototypeEnd(choice)
+    self.prototype_end_modal = nil
+
+    if choice == "exit" then
+        local state = self.game.state
+        state:resetRun()
+        local meta_ctx = state:computeEffects(
+            self.game.effects, self.game.catalog, self.game.run_upgrades)
+        state:applyStartingPerks(meta_ctx)
+        self.gauntlet       = nil
+        self._ended_handled = false
+        self.view:resetTimeline()
+        self.game.state_machine:switch("title")
+        return
+    end
+
+    -- "continue" path: open the catalog (player banked PP this run;
+    -- this is the moment to spend it). The catalog's Continue button
+    -- runs _dismissCatalogAndReturn which handles the run reset and
+    -- the switch back to grind.
+    self.catalog_modal = CatalogModal:new(self.game)
 end
 
 -- Step 1 of the post-bust flow: prestige summary modal closes, catalog
@@ -171,6 +239,15 @@ end
 function ShoveState:update(dt)
     self.view:update(dt)
 
+    -- Buildup just finished — kick off the actual gauntlet. The view
+    -- transitions to "running" and its existing card-cinematic
+    -- timeline takes over.
+    if self.view:isReadyToDeal() and not self.gauntlet then
+        self.view:markRunning()
+        self:_beginGauntlet()
+        return
+    end
+
     -- After the cinematic finishes, fire the prestige flow once. No-op if
     -- already handled, mid-animation, no gauntlet, or any modal is showing.
     if self.gauntlet
@@ -178,7 +255,8 @@ function ShoveState:update(dt)
        and not self.view:isAnimating()
        and not self._ended_handled
        and not self.prestige_modal
-       and not self.catalog_modal then
+       and not self.catalog_modal
+       and not self.prototype_end_modal then
         self:_onGauntletEnded()
     end
 end
@@ -186,7 +264,9 @@ end
 function ShoveState:draw()
     self.view:draw()
     self.overlay:draw()
-    if self.prestige_modal then
+    if self.prototype_end_modal then
+        self.prototype_end_modal:draw()
+    elseif self.prestige_modal then
         self.prestige_modal:draw()
     elseif self.catalog_modal then
         self.catalog_modal:draw()
@@ -205,7 +285,14 @@ function ShoveState:keypressed(key)
         if key == "escape" then self:closeSettings() end
         return
     end
-    -- Modals consume input first; sequence is prestige → catalog → grind.
+    -- Modals consume input first; sequence is prototype-end →
+    -- prestige → catalog → grind.
+    if self.prototype_end_modal then
+        self.prototype_end_modal:consumeKey(key)
+        local r = self.prototype_end_modal:resolved()
+        if r then self:_resolvePrototypeEnd(r) end
+        return
+    end
     if self.prestige_modal and self.prestige_modal:consumeKey(key) then
         self:_advanceToCatalog()
         return
@@ -221,13 +308,21 @@ function ShoveState:keypressed(key)
         return
     end
 
+    -- SPACE during the cinematic = "skip" (continue semantic). That
+    -- stays in every mode. The other branches (re-deal a finished
+    -- gauntlet, R reset, [/] catalog nudge, D overlay toggle) are
+    -- debug hotkeys and are killed in PROTOTYPE_MODE.
     if key == "space" then
         if self.view:isAnimating() then
             self.view:skip()
-        elseif not self.gauntlet or self.gauntlet.state == "finished" then
-            -- Manual restart path (mostly used during dev / debugging via
-            -- the [/] hotkeys). The auto-start in :enter handles the
-            -- player-triggered SHOVE flow.
+            return
+        end
+    end
+
+    if Constants.PROTOTYPE_MODE then return end
+
+    if key == "space" then
+        if not self.gauntlet or self.gauntlet.state == "finished" then
             self:_beginGauntlet()
         end
 
@@ -268,10 +363,41 @@ function ShoveState:mousepressed(mx, my, button)
         if not consumed then self:closeSettings() end
         return
     end
+    -- Prototype-end modal sits above the post-bust flow.
+    if self.prototype_end_modal then
+        self.prototype_end_modal:consumeMouse(mx, my, button)
+        local r = self.prototype_end_modal:resolved()
+        if r then self:_resolvePrototypeEnd(r) end
+        return
+    end
+    -- Prestige modal: click Continue to advance to catalog.
+    if self.prestige_modal then
+        self.prestige_modal:consumeMouse(mx, my, button)
+        if self.prestige_modal:resolved() then
+            self:_advanceToCatalog()
+        end
+        return
+    end
     -- Catalog modal owns mouse input while open — clicks land on item
-    -- cards, not on the underlying shove view.
+    -- cards, not on the underlying shove view. The Continue button at
+    -- the bottom resolves the modal so the host can advance.
     if self.catalog_modal then
         self.catalog_modal:consumeMouse(mx, my, button)
+        if self.catalog_modal:resolved() then
+            self:_dismissCatalogAndReturn()
+        end
+    end
+end
+
+function ShoveState:mousemoved(x, y, _, _)
+    if self.settings_modal and self.settings_modal.mousemoved then
+        self.settings_modal:mousemoved(x, y)
+    end
+end
+
+function ShoveState:mousereleased(x, y, b)
+    if self.settings_modal and self.settings_modal.mousereleased then
+        self.settings_modal:mousereleased(x, y, b)
     end
 end
 
