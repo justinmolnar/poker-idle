@@ -18,6 +18,7 @@ local FlightSystem    = require("services.FlightSystem")
 local ClickFlash      = require("services.ClickFlash")
 local Ghosts          = require("services.Ghosts")
 local CatalogModal    = require("views.CatalogModal")
+local SettingsModal   = require("views.SettingsModal")
 
 local GrindState = {}
 GrindState.__index = GrindState
@@ -30,6 +31,7 @@ function GrindState:new(game)
         -- state uses post-bust, just instantiated on demand here so the
         -- player can shop PP without busting first.
         catalog_modal  = nil,
+        settings_modal = nil,
     }, GrindState)
     self.controller = GrindController:new(game)
     self.view       = GrindView:new(game, self.controller)
@@ -40,7 +42,8 @@ function GrindState:new(game)
     -- Expose a hook the view can call to open the in-grind catalog modal
     -- without the view having to know about state internals.
     local state_self = self
-    game.openCatalog = function() state_self:openCatalog() end
+    game.openCatalog  = function() state_self:openCatalog()  end
+    game.openSettings = function() state_self:openSettings() end
     return self
 end
 
@@ -52,6 +55,16 @@ end
 
 function GrindState:closeCatalog()
     self.catalog_modal = nil
+end
+
+function GrindState:openSettings()
+    if not self.settings_modal then
+        self.settings_modal = SettingsModal:new(self.game)
+    end
+end
+
+function GrindState:closeSettings()
+    self.settings_modal = nil
 end
 
 function GrindState:enter()
@@ -89,6 +102,9 @@ function GrindState:draw()
     if self.catalog_modal then
         self.catalog_modal:draw()
     end
+    if self.settings_modal then
+        self.settings_modal:draw()
+    end
 end
 
 -- Called by InputController F6/F7 handlers via the fullResetAllStates
@@ -106,11 +122,27 @@ end
 function GrindState:keypressed(key)
     -- Modal-first input: ESC always closes; SPACE/RETURN dismiss the
     -- modal back to grind. Anything else falls through to normal grind
-    -- bindings only when the modal is closed.
+    -- bindings only when no modal is open.
+    if self.settings_modal then
+        -- consumeKey returns true if an internal overlay handled it
+        -- (dropdown nav, confirm dialog, revert prompt) — modal stays
+        -- open. Only ESC at the top level falls through here, telling
+        -- us to close the modal.
+        if self.settings_modal:consumeKey(key) then return end
+        if key == "escape" then self:closeSettings() end
+        return
+    end
     if self.catalog_modal then
         if key == "escape" or self.catalog_modal:consumeKey(key) then
             self:closeCatalog()
         end
+        return
+    end
+    -- No modal open: ESC opens the settings modal directly into its
+    -- quit-confirm overlay. Cancel returns to grind; Confirm quits.
+    if key == "escape" then
+        self:openSettings()
+        if self.settings_modal then self.settings_modal:promptQuit() end
         return
     end
     if key == "h" then
@@ -121,6 +153,11 @@ function GrindState:keypressed(key)
 end
 
 function GrindState:mousepressed(x, y, b)
+    if self.settings_modal then
+        local consumed = self.settings_modal:consumeMouse(x, y, b)
+        if not consumed then self:closeSettings() end
+        return
+    end
     if self.catalog_modal then
         local consumed = self.catalog_modal:consumeMouse(x, y, b)
         -- Outside-click dismiss. The modal returns false when a click
@@ -135,16 +172,20 @@ function GrindState:mousepressed(x, y, b)
 end
 
 function GrindState:mousereleased(x, y, b)
-    if self.catalog_modal then return end
+    if self.settings_modal or self.catalog_modal then return end
     self.view:mousereleased(x, y, b)
 end
 
 function GrindState:mousemoved(x, y, dx, dy)
-    if self.catalog_modal then return end
+    if self.settings_modal or self.catalog_modal then return end
     self.view:mousemoved(x, y, dx, dy)
 end
 
 function GrindState:wheelmoved(x, y)
+    if self.settings_modal and self.settings_modal.wheelmoved then
+        self.settings_modal:wheelmoved(x, y)
+        return
+    end
     if self.catalog_modal and self.catalog_modal.wheelmoved then
         self.catalog_modal:wheelmoved(x, y)
         return

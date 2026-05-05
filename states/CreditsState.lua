@@ -36,17 +36,17 @@ function CreditsState:draw()
     Theme.setColor(Theme.bg.window)
     love.graphics.rectangle("fill", 0, 0, W, H)
 
-    love.graphics.setFont(fonts.hero)
+    love.graphics.setFont(fonts.lg)
     Theme.setColor(Theme.fg.heading)
     love.graphics.printf("you walked out.", 0, math.floor(H * 0.30), W, "center")
 
-    love.graphics.setFont(fonts.heading)
+    love.graphics.setFont(fonts.lg)
     Theme.setColor(Theme.fg.muted)
     love.graphics.printf(
         "the gauntlet cleared. the room is empty behind you.",
         0, math.floor(H * 0.46), W, "center")
 
-    love.graphics.setFont(fonts.ui)
+    love.graphics.setFont(fonts.md)
     Theme.setColor(Theme.fg.faint)
     love.graphics.printf("[ R to wipe save and start over ]",
         0, H - 60, W, "center")

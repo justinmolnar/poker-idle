@@ -59,6 +59,15 @@ local function buildGame()
     g.theme           = Theme
     g.fonts           = FontService.build(ThemeData.font)
 
+    -- Pixel-font sizing affects layout. Configure layout-bearing
+    -- modules (Panel header height, ComponentRenderer LINE_H,
+    -- CatalogModal card heights) from the active fonts so they
+    -- match whatever sizes data/theme.lua picked.
+    require("views.Panel").configureFromFonts(g.fonts)
+    require("views.ComponentRenderer").configureFromFonts(g.fonts)
+    require("views.CatalogModal").configureFromFonts(g.fonts)
+    require("views.SettingsModal").configureFromFonts(g.fonts)
+
     -- Transient debug toggles (not persisted). Backtick (`) toggles
     -- the per-table tooltip overlay; see InputController and TablePanel.
     g.debug = { overlay = false }
@@ -92,6 +101,12 @@ local function buildGame()
     g.save_service    = SaveService:new()
     local saved       = g.save_service:loadAll()
     g.state           = GameState:new(saved)
+
+    -- Apply persisted settings (volume only).
+    local prefs = g.save_service:loadSettings()
+    if prefs and type(prefs.volume) == "number" then
+        SoundService.setMasterVolume(prefs.volume)
+    end
 
     g.effects = EffectsRegistry:new()
     PokerEffects.registerAll(g.effects)
@@ -148,23 +163,20 @@ end
 
 function love.keypressed(key)    Game.input_dispatcher:dispatch("keypressed",   key)         end
 function love.keyreleased(key)   Game.input_dispatcher:dispatch("keyreleased",  key)         end
-function love.mousepressed(x,y,b) Game.input_dispatcher:dispatch("mousepressed",  x, y, b)   end
-function love.mousereleased(x,y,b) Game.input_dispatcher:dispatch("mousereleased", x, y, b)  end
-function love.mousemoved(x,y,dx,dy) Game.input_dispatcher:dispatch("mousemoved", x, y, dx, dy) end
+
+function love.mousepressed(x, y, b)    Game.input_dispatcher:dispatch("mousepressed",  x, y, b)    end
+function love.mousereleased(x, y, b)   Game.input_dispatcher:dispatch("mousereleased", x, y, b)    end
+function love.mousemoved(x, y, dx, dy) Game.input_dispatcher:dispatch("mousemoved", x, y, dx, dy)  end
 function love.textinput(text)    Game.input_dispatcher:dispatch("textinput",    text)        end
 function love.wheelmoved(x, y)   Game.input_dispatcher:dispatch("wheelmoved",   x, y)        end
 
 function love.resize(w, h)
-    -- Forwards to the active state. States that own anchored layout (sidebar
-    -- Panels) implement :resize(w, h) to rebuild internal rects; states that
-    -- read getDimensions() per-frame ignore.
-    if Game then
-        if Game.viewport then
-            Game.viewport.w, Game.viewport.h = w, h
-        end
-        if Game.state_machine then
-            Game.state_machine:resize(w, h)
-        end
+    if not Game then return end
+    if Game.viewport then
+        Game.viewport.w, Game.viewport.h = w, h
+    end
+    if Game.state_machine then
+        Game.state_machine:resize(w, h)
     end
 end
 

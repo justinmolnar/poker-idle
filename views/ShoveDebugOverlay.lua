@@ -33,11 +33,15 @@ function Overlay:new(game, shove_state)
     }, Overlay)
 end
 
+-- Pull the canonical fonts from game.fonts so we get the DPI-scaled
+-- instances FontService rebuilds on resize. (Old behavior cached its
+-- own copies at the raw size_sm/md/lg, which never updated.)
 function Overlay:_ensureFonts()
-    if self.font_main then return end
-    self.font_small = love.graphics.newFont(Theme.font.size_ui_small)
-    self.font_main  = love.graphics.newFont(Theme.font.size_ui)
-    self.font_big   = love.graphics.newFont(Theme.font.size_kpi)
+    local f = self.game and self.game.fonts
+    if not f then return end
+    self.font_small = f.sm
+    self.font_main  = f.md
+    self.font_big   = f.lg
 end
 
 function Overlay:recordAttempt(result)
@@ -83,7 +87,7 @@ function Overlay:draw()
 
     local W, H = love.graphics.getDimensions()
     local pad = Theme.space.popup_pad
-    local rowh = Theme.font.size_ui + 4
+    local rowh = (self.font_main and self.font_main:getHeight() or 16) + 4
     local prev_font = love.graphics.getFont()
 
     -- ── Top-left panel: live state ──────────────────────────────────────
@@ -116,7 +120,7 @@ function Overlay:draw()
         breakdown_line = "(no breakdown)"
     end
     love.graphics.print(breakdown_line,
-        lx + pad, ly + pad + 14 + Theme.font.size_kpi + 2)
+        lx + pad, ly + pad + 14 + (self.font_big and self.font_big:getHeight() or 28) + 2)
 
     Theme.setColor(Theme.debug.hud_text)
     local g = self.ss.gauntlet
@@ -199,7 +203,7 @@ function Overlay:draw()
         { "ESC",   "quit" },
     }
     local x = sx + pad
-    local y = sy + (sh - Theme.font.size_ui) / 2 - 1
+    local y = sy + (sh - (self.font_main and self.font_main:getHeight() or 16)) / 2 - 1
     for _, seg in ipairs(segments) do
         Theme.setColor(Theme.debug.hud_hot)
         love.graphics.print(seg[1], x, y)

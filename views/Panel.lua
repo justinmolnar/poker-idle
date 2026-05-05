@@ -15,7 +15,19 @@ local Theme     = require("views.Theme")
 local Panel = {}
 Panel.__index = Panel
 
-Panel.TAB_BAR_H = 32
+-- Initial value; overwritten in Panel.configureFromFonts (called from
+-- main.lua right after FontService builds the canonical fonts table).
+-- Derived from md:getHeight() + vertical padding so the tab label has
+-- breathing room above and below.
+Panel.TAB_BAR_H = 44
+
+-- Reconfigure layout constants from the active fonts. Called once at
+-- boot and again on resize via main.lua. Keeps Panel engine-agnostic
+-- (it doesn't reach into Theme directly; caller passes fonts in).
+function Panel.configureFromFonts(fonts)
+    if not (fonts and fonts.md) then return end
+    Panel.TAB_BAR_H = fonts.md:getHeight() + 24
+end
 
 local function _trackX(self) return self.x + self.w - Scrollbar.margin() end
 
@@ -199,7 +211,7 @@ function Panel:draw(game)
     local active_tab = self:_resolveActiveTab(game)
 
     local HoverService = require("services.HoverService")
-    love.graphics.setFont(game.fonts.ui)
+    love.graphics.setFont(game.fonts.md)
     love.graphics.setScissor(self.x, self.y, self.w, Panel.TAB_BAR_H)
     for i, tab in ipairs(visible) do
         local tx = self.x + (i - 1) * tab_w
@@ -214,7 +226,8 @@ function Panel:draw(game)
                        or hovered and Theme.fg.primary
                        or Theme.fg.muted)
         local label = tab.icon and (tab.icon .. " " .. tab.label) or tab.label
-        love.graphics.printf(label, tx + 2, self.y + 9, tab_w - 4, "center")
+        local label_y = self.y + math.floor((Panel.TAB_BAR_H - game.fonts.md:getHeight()) * 0.5)
+        love.graphics.printf(label, tx + 2, label_y, tab_w - 4, "center")
     end
     love.graphics.setScissor()
 

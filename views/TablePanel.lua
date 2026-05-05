@@ -239,9 +239,10 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     Theme.setColor(Theme.border.default)
     love.graphics.rectangle("line", x, y, w, HEADER_H, Theme.space.radius)
 
-    love.graphics.setFont(fonts.ui_small)
+    love.graphics.setFont(fonts.sm)
     Theme.setColor(Theme.fg.heading)
-    love.graphics.print(header_text, x + 8, y + 5)
+    local header_text_y = y + math.floor((HEADER_H - fonts.sm:getHeight()) * 0.5)
+    love.graphics.print(header_text, x + 8, header_text_y)
 
     -- [x] remove (right edge). Chunky button via views/Button. Warn-
     -- tinted while pending_close so the player can see a click on a busy
@@ -264,8 +265,8 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
             depth        = 2,
         }, function(fx, fy, fw, fh)
             Theme.setColor((can_remove or pending_close) and Theme.fg.heading or Theme.fg.disabled)
-            love.graphics.setFont(fonts.ui_small)
-            love.graphics.printf("x", fx, fy + (fh - fonts.ui_small:getHeight()) * 0.5,
+            love.graphics.setFont(fonts.sm)
+            love.graphics.printf("x", fx, fy + (fh - fonts.sm:getHeight()) * 0.5,
                                  fw, "center")
         end)
     end
@@ -305,8 +306,8 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
             depth        = 2,
         }, function(fx, fy, fw, fh)
             Theme.setColor(muted and Theme.fg.disabled or active_color)
-            love.graphics.setFont(fonts.ui_small)
-            love.graphics.printf("D", fx, fy + (fh - fonts.ui_small:getHeight()) * 0.5,
+            love.graphics.setFont(fonts.sm)
+            love.graphics.printf("D", fx, fy + (fh - fonts.sm:getHeight()) * 0.5,
                                  fw, "center")
             if muted then
                 love.graphics.setLineWidth(1)
@@ -344,8 +345,8 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
             depth        = 2,
         }, function(fx, fy, fw, fh)
             Theme.setColor(rmuted and Theme.fg.disabled or r_active_color)
-            love.graphics.setFont(fonts.ui_small)
-            love.graphics.printf("R", fx, fy + (fh - fonts.ui_small:getHeight()) * 0.5,
+            love.graphics.setFont(fonts.sm)
+            love.graphics.printf("R", fx, fy + (fh - fonts.sm:getHeight()) * 0.5,
                                  fw, "center")
             if rmuted then
                 love.graphics.setLineWidth(1)
@@ -367,14 +368,15 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     -- Hands played (right-aligned, shifted past [x] and the cursor badge).
     Theme.setColor(Theme.fg.muted)
     local hands = string.format("%d hands", tbl.hands_played or 0)
-    local hw = fonts.ui_small:getWidth(hands)
+    local hw = fonts.sm:getWidth(hands)
     local hands_x = x + w - hw - hands_right_offset
-    love.graphics.print(hands, hands_x, y + 5)
+    local hands_y = y + math.floor((HEADER_H - fonts.sm:getHeight()) * 0.5)
+    love.graphics.print(hands, hands_x, hands_y)
 
     -- History bars — fit them into the gap between the stake-name text
     -- and the hands-count text. Vertically centered in the header strip.
     -- If there's not enough room for even one min-sized bar, it no-ops.
-    local name_right = x + 8 + fonts.ui_small:getWidth(header_text)
+    local name_right = x + 8 + fonts.sm:getWidth(header_text)
     local zone_x     = name_right + 8
     local zone_w     = (hands_x - 8) - zone_x
     local graph_h    = HistoryBars.layout.graph_h
@@ -396,7 +398,7 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes)
     local card_w   = big and (base_w * 2) or base_w
     local card_h   = big and (base_h * 2) or base_h
     local card_gap = big and 6 or 3
-    local name_font = big and fonts.heading or fonts.ui_small
+    local name_font = big and fonts.md or fonts.sm
     local cards_y_offset = big and 30 or 22
     local name_max = big and 14 or 8
 
@@ -486,7 +488,7 @@ local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_ch
     end
 
     Theme.setColor(Theme.fg.muted)
-    love.graphics.setFont(fonts.ui_small)
+    love.graphics.setFont(fonts.sm)
     -- Text sits below the chip pile (or, in mini-panel fallback, at the
     -- felt center).
     local text_y = allow_chips and (center_y + 12) or (center_y - 6)
@@ -502,7 +504,7 @@ local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
 
     -- Counter line — current hand on top.
     Theme.setColor(Theme.fg.heading)
-    love.graphics.setFont(fonts.heading)
+    love.graphics.setFont(fonts.md)
     local counter_label = string.format("HAND %d / %d", hands_won, hand_cap)
     love.graphics.printf(counter_label, x, y, w, "center")
 
@@ -524,7 +526,7 @@ local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
     local strip_x   = x + math.floor((w - strip_w) / 2)
     local strip_y   = y + 22
 
-    love.graphics.setFont(fonts.ui_small)
+    love.graphics.setFont(fonts.sm)
     for i, th in ipairs(thresholds) do
         local px = strip_x + (i - 1) * (pip_w + pip_gap)
 
@@ -559,7 +561,7 @@ local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
         Theme.setColor(text_color)
         local pip_label = string.format("%d:%dx", th, payout_table[th] or 0)
         love.graphics.printf(pip_label, px,
-            strip_y + math.floor((pip_h - fonts.ui_small:getHeight()) * 0.5),
+            strip_y + math.floor((pip_h - fonts.sm:getHeight()) * 0.5),
             pip_w, "center")
     end
 
@@ -625,7 +627,7 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
     end
 
     Theme.setColor(Theme.fg.heading)
-    love.graphics.setFont(fonts.ui_small)
+    love.graphics.setFont(fonts.sm)
     love.graphics.print("YOU  " .. moneyText(stack),
         cards_x + cards_w + 8, label_y - 12)
 end
@@ -648,7 +650,7 @@ local function _renderFeltButton(bx, by, btn_w, btn_h, fonts, label, fill_color,
         disabled     = not enabled,
         depth        = DEAL_BTN_DEPTH,
     }, function(fx, fy, fw, fh)
-        local font = (fh >= 28) and fonts.heading or fonts.ui_small
+        local font = (fh >= 32) and fonts.md or fonts.sm
         love.graphics.setFont(font)
         Theme.setColor(enabled and Theme.bg.window or Theme.fg.disabled)
         local text_y = fy + math.floor((fh - font:getHeight()) * 0.5)
@@ -869,7 +871,7 @@ function TablePanel.makeGhostFor(hb, fonts)
             press_alpha  = alpha,
             depth        = depth,
         }, function(fx, fy, fw, fh)
-            local font = (fh >= 28) and fonts.heading or fonts.ui_small
+            local font = (fh >= 32) and fonts.md or fonts.sm
             love.graphics.setFont(font)
             Theme.setColor(label_color)
             love.graphics.printf(label, fx,
@@ -1069,7 +1071,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         -- Compact mode: no hole-card sprites, just a YOU $X.XX text strip
         -- (stack on this table, not global bankroll).
         Theme.setColor(Theme.fg.heading)
-        love.graphics.setFont(fonts.ui_small)
+        love.graphics.setFont(fonts.sm)
         love.graphics.printf("YOU  " .. moneyText(tbl.stack or 0),
             felt_x, felt_y + felt_h - 16, felt_w, "center")
     end
@@ -1158,7 +1160,7 @@ function TablePanel.drawEmpty(x, y, w, h, fonts)
     love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
     Theme.setColor(Theme.border.soft)
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
-    love.graphics.setFont(fonts.ui_small)
+    love.graphics.setFont(fonts.sm)
     Theme.setColor(Theme.fg.faint)
     love.graphics.printf("empty slot", x, y + math.floor(h / 2) - 8, w, "center")
 end

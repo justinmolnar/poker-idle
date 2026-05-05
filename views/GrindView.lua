@@ -29,6 +29,7 @@ local ClickFlash     = require("services.ClickFlash")
 local TooltipSvc     = require("services.Tooltip")
 local AnchorRegistry = require("services.AnchorRegistry")
 local Button         = require("views.Button")
+local LabelButton    = require("views.widgets.LabelButton")
 local Ghosts         = require("services.Ghosts")
 local Stakes         = require("data.stakes")
 local GameTypes      = require("data.game_types")
@@ -40,17 +41,34 @@ local ShoveRate      = require("models.shove_rate")
 local GrindView = {}
 GrindView.__index = GrindView
 
--- Layout constants.
-local TOP_BAR_H            = 50
+
+-- Layout values. The window-relative ones (TOP_BAR_H, LEFT_W, RIGHT_W,
+-- STAT_CELL_W, BANKROLL_CELL_W, TOPBAR_LABEL_Y, TOPBAR_VALUE_Y) are
+-- *recomputed* in recomputeLayout() at init and on resize — derived
+-- from window dimensions + font metrics rather than hardcoded px so
+-- the bar fits the active font and sidebars scale with the window.
+-- Initial values here are placeholders; the first :_buildPanels call
+-- replaces them.
+local TOP_BAR_H            = 70
 local LEFT_W               = 280
 local RIGHT_W              = 250
+local STAT_CELL_W          = 72
+local BANKROLL_CELL_W      = 160
+local TOPBAR_LABEL_Y       = 8
+local TOPBAR_VALUE_Y       = 32
+local TOPBAR_DIV_INSET     = 8
+
 local MARGIN               = 12
+-- Button heights are recomputed from font metrics in recomputeLayout
+-- so they grow/shrink with whatever sizes data/theme.lua picks.
 local SHOVE_BTN_H          = 64
 local CASH_OUT_BTN_W       = 110
 local CASH_OUT_BTN_H       = 36
 local CATALOG_BTN_W        = 110
 local CATALOG_BTN_H        = 36
 local TOPBAR_BTN_GAP       = 8
+local CLUSTER_GAP          = 10
+local TOPBAR_PAD_X         = 16
 -- Reserved band at the bottom of the center column for the bankroll
 -- chip pile. Center grid shrinks vertically by this much. Sidebars are
 -- unaffected — they keep running their full height.
@@ -58,6 +76,65 @@ local BOTTOM_BAND_H        = 90
 local PANEL_REMOVE_BTN_SIZE = 22
 local PILL_H               = 18
 local PILL_GAP             = 4
+
+-- Recompute the window-relative layout values from current dimensions
+-- and the active fonts. Called on init and on resize. Reassigns the
+-- file-local upvalues above so every reference inside instance methods
+-- picks up the new values automatically.
+local function recomputeLayout(W, H, fonts)
+    -- Sidebars: window-fraction with absolute minimums tuned for the
+    -- larger pixel font. At default 1280×720 these resolve to ~360/280;
+    -- at narrower windows they hold their min so content stays legible.
+    LEFT_W  = math.max(360, math.floor(W * 0.27))
+    RIGHT_W = math.max(280, math.floor(W * 0.22))
+
+    -- Top bar height + label/value y-offsets derived from font heights.
+    -- Padding kept minimal — pixel fonts already include leading inside
+    -- getHeight() so extra px just produces visible empty space.
+    local label_h = fonts.sm:getHeight()
+    local value_h = fonts.md:getHeight()
+    TOPBAR_LABEL_Y = 2
+    TOPBAR_VALUE_Y = TOPBAR_LABEL_Y + label_h
+    TOP_BAR_H      = TOPBAR_VALUE_Y + value_h + 2
+
+    -- Top-bar buttons (CATALOG / CASH OUT) draw their text in fonts.sm,
+    -- so size their height from sm + padding, not md.
+    CASH_OUT_BTN_H = fonts.sm:getHeight() + 16
+    CATALOG_BTN_H  = fonts.sm:getHeight() + 16
+
+    -- Top-bar layout: shrink-to-fit. The reserved right-side strip is
+    -- the right sidebar + margin + CATALOG + gap + CASH OUT. Inside
+    -- the leftover, lay out PAD + BANKROLL + 7 stat cells + 4 seams
+    -- (one divider + bracketing gaps × 4 ≈ 64 px). If the ideal
+    -- widths fit, use them; otherwise scale BANKROLL and cells down
+    -- proportionally so they always fit without overlapping the
+    -- button strip.
+    -- Right-side button strip is now SETTINGS · CATALOG · CASH OUT,
+    -- each 110 px with 8 px gaps, anchored at the right sidebar's
+    -- left edge.
+    local button_zone   = RIGHT_W + MARGIN
+                        + CATALOG_BTN_W + TOPBAR_BTN_GAP    -- SETTINGS
+                        + CATALOG_BTN_W + TOPBAR_BTN_GAP    -- CATALOG
+                        + CASH_OUT_BTN_W                     -- CASH OUT
+    local cluster_seams = 64
+    local available     = W - TOPBAR_PAD_X - button_zone - cluster_seams
+
+    local ideal_bankroll = math.ceil(fonts.lg:getWidth("$999.99")) + 16
+    local ideal_cell     = math.ceil(fonts.md:getWidth("$99.99"))  + 12
+    local ideal_total    = ideal_bankroll + 7 * ideal_cell
+
+    if ideal_total <= available then
+        BANKROLL_CELL_W = ideal_bankroll
+        STAT_CELL_W     = ideal_cell
+    else
+        -- Squeeze: scale both down by the same ratio. Floor at 80/40
+        -- so digits stay legible; below that values truncate visibly
+        -- and the user can resize the window.
+        local ratio = available / ideal_total
+        BANKROLL_CELL_W = math.max(80, math.floor(ideal_bankroll * ratio))
+        STAT_CELL_W     = math.max(40, math.floor(ideal_cell * ratio))
+    end
+end
 
 -- ─── Construction ─────────────────────────────────────────────────────
 
@@ -95,6 +172,7 @@ end
 
 function GrindView:_buildPanels()
     local W, H = love.graphics.getDimensions()
+    recomputeLayout(W, H, self.game.fonts)
 
     self.left_panel = Panel:new(0, TOP_BAR_H, LEFT_W, H - TOP_BAR_H)
     self.left_panel:registerTab({
@@ -166,9 +244,9 @@ function GrindView:_makeGameTypeStrip()
                     Theme.setColor(active and Theme.fg.heading
                                   or hov  and Theme.fg.heading
                                   or Theme.fg.muted)
-                    love.graphics.setFont(fonts.ui_small)
+                    love.graphics.setFont(fonts.sm)
                     love.graphics.printf(label, fx,
-                        fy + math.floor((fh - fonts.ui_small:getHeight()) * 0.5),
+                        fy + math.floor((fh - fonts.sm:getHeight()) * 0.5),
                         fw, "center")
                 end)
             end
@@ -206,7 +284,10 @@ function GrindView:_buildTablesTabComponents()
     local active = self.controller.pool:count()
 
     local components = {}
-    components[#components + 1] = { type = "label", style = "muted", text = "ADD TABLE", h = 22 }
+    components[#components + 1] = {
+        type = "label", style = "muted", text = "ADD TABLE",
+        h = self.game.fonts.md:getHeight() + 10,
+    }
 
     -- Game-type sub-tab strip.
     components[#components + 1] = self:_makeGameTypeStrip()
@@ -230,28 +311,13 @@ function GrindView:_buildTablesTabComponents()
             sub = string.format("buy-in $%.2f", stake.buy_in or 0)
         end
 
-        -- PP-bounty status line. Right-aligned in the button so it sits
-        -- in the bottom-right corner under the buy-in. Color is the
-        -- whole signal: muted when the bounty is still up for grabs,
-        -- green once it's banked this run. Same text shape in both
-        -- states so the eye locks onto color, not wording.
+        -- PP-bounty status: "+N PP" right-aligned next to the stake
+        -- name. Color is the whole signal — default (white) while the
+        -- bounty is still up for grabs, green once banked this run.
         local banked = self.controller:bountyBanked(stake.id, gtype_id)
-        local pp_line
-        if banked then
-            pp_line = {
-                text        = "PP BANKED",
-                style       = "heading",
-                align       = "right",
-                color_token = "good",
-            }
-        else
-            local award = self.controller:bountyAward(stake.id)
-            pp_line = {
-                text  = string.format("+%d PP on jackpot", award),
-                style = "heading",
-                align = "right",
-            }
-        end
+        local award  = self.controller:bountyAward(stake.id)
+        local pp_text       = string.format("+%d PP", award)
+        local pp_color_tok  = banked and "good" or nil
 
         components[#components + 1] = {
             type     = "button",
@@ -260,9 +326,11 @@ function GrindView:_buildTablesTabComponents()
             tooltip  = string.format("Open a %s %s table — costs the buy-in.",
                                      stake.display_name, gtype_id:gsub("_", "-")),
             lines = {
-                { text = "+ " .. stake.display_name, style = "heading" },
+                {
+                    text  = "+ " .. stake.display_name, style = "heading",
+                    right = pp_text, right_color_token = pp_color_tok,
+                },
                 { text = sub, style = "small" },
-                pp_line,
             },
         }
     end
@@ -290,7 +358,10 @@ function GrindView:_buildUpgradesTabComponents()
     for _, id in ipairs(state.owned_items) do owned[id] = true end
 
     local components = {}
-    components[#components + 1] = { type = "label", style = "muted", text = "RUN UPGRADES", h = 22 }
+    components[#components + 1] = {
+        type = "label", style = "muted", text = "RUN UPGRADES",
+        h = self.game.fonts.md:getHeight() + 10,
+    }
 
     for _, up in ipairs(RunUpgrades) do
         local locked = up.requires and not owned[up.requires]
@@ -302,28 +373,30 @@ function GrindView:_buildUpgradesTabComponents()
             local cant_afford = next_cost and state.bankroll < next_cost
             local disabled  = at_max or cant_afford or locked
 
-            local cost_label, tooltip
+            -- 2-line button:
+            --   [name (heading)            | level (heading) ]
+            --   [description (small)       | cost (small)    ]
+            -- Locked / maxed states collapse the right column to a
+            -- single status string on line 1.
+            local level_text, cost_text
             if locked then
-                local req = catalogName(up.requires)
-                cost_label = "Requires " .. req
-                tooltip    = string.format("Locked. Buy %s in the catalog first.", req)
+                level_text = "Requires " .. catalogName(up.requires)
+                cost_text  = ""
             elseif at_max then
-                cost_label = string.format("MAX  Lv %d/%d", level, max_lvl)
-                tooltip    = up.description or up.name
+                level_text = string.format("MAX %d/%d", level, max_lvl)
+                cost_text  = ""
             else
-                cost_label = string.format("Lv %d/%d  ·  $%.2f", level, max_lvl, next_cost or 0)
-                tooltip    = up.description or up.name
+                level_text = string.format("Lv %d/%d", level, max_lvl)
+                cost_text  = string.format("$%.2f", next_cost or 0)
             end
 
             components[#components + 1] = {
                 type     = "button",
                 id       = "buy_runup_" .. up.id,
                 disabled = disabled,
-                tooltip  = tooltip,
                 lines = {
-                    { text = up.name, style = "heading" },
-                    { text = up.description or "", style = "small" },
-                    { text = cost_label, style = (at_max or locked) and "muted" or "body" },
+                    { text = up.name,                style = "heading", right = level_text },
+                    { text = up.description or "",   style = "small",   right = cost_text  },
                 },
             }
         end
@@ -402,16 +475,25 @@ function GrindView:update(dt)
         TooltipSvc.set(ShoveRate.formatBreakdown(rates), mx, my)
     end
 
-    -- Top-bar workload cluster (TABLES · FOCUS) hover tooltip. Surfaces
-    -- the focus capacity / max-tables data that used to live in the
-    -- sidebar. Rect stashed by _drawTopBar.
+    -- Top-bar workload cluster (TABLES · FOCUS) hover tooltip. Explains
+    -- what the "N / cap" reading means, what FOCUS does, and the
+    -- penalty math the inline cells deliberately don't surface.
     local wr = self._workload_rect
     if wr and mx >= wr.x and mx < wr.x + wr.w and my >= wr.y and my < wr.y + wr.h then
-        local cap       = self.controller:tableSlotsCap()
-        local focus_cap = self.controller:currentFocusCapacity()
+        local cap        = self.controller:tableSlotsCap()
+        local focus_cap  = self.controller:currentFocusCapacity()
+        local penalty    = Constants.GAMEPLAY.FOCUS_BASE_PENALTY
+        local floor_v    = Constants.GAMEPLAY.FOCUS_FLOOR
+        local ctx        = (self.controller and self.controller.ctx) or {}
+        local reduce     = ctx.focus_penalty_reduce_mult or 1
+        local eff_pen    = penalty * reduce
         TooltipSvc.set({
-            string.format("Capacity: %d  /  max %d tables", focus_cap, cap),
-            "Open more than capacity → focus penalty.",
+            "TABLES — currently open / focus capacity.",
+            "FOCUS — multiplier on every $ you win or lose.",
+            string.format("Stays 100%% at or under %d tables.", focus_cap),
+            string.format("Each table over capacity drops focus by %.0f%% (min %.0f%%).",
+                          eff_pen * 100, floor_v * 100),
+            string.format("Hard cap: %d tables.", cap),
         }, mx, my)
     end
 
@@ -454,28 +536,17 @@ local function ppText(n)
     return Format.formatBig(math.floor(n))
 end
 
--- Top-bar layout constants. Cells inside a cluster share STAT_CELL_W;
--- clusters are separated by a 1 px divider with CLUSTER_GAP padding on
--- either side. BANKROLL keeps its own (wider) cell for the kpi font.
--- Sizes chosen to keep the rightmost divider clear of the CATALOG
--- button (which anchors at W - 790 from the left at 1280 wide).
-local STAT_CELL_W      = 72
-local BANKROLL_CELL_W  = 160
-local CLUSTER_GAP      = 10
-local TOPBAR_PAD_X     = 16
-local TOPBAR_LABEL_Y   = 6
-local TOPBAR_VALUE_Y   = 22
-local TOPBAR_DIV_INSET = 8
-
--- Draws "LABEL" (small, muted) on top and the value (heading font, given
--- color) below at the cell's left edge. Keeps every non-bankroll cell
--- visually identical so the eye scans cleanly across the bar.
+-- Draws "LABEL" (sm, muted) on top and the value (md, given color)
+-- below at the cell's left edge. Keeps every non-bankroll cell visually
+-- identical so the eye scans cleanly across the bar. md (not lg) for
+-- values because lg=48 overflows the 72px cell width — only bankroll
+-- (its own fat cell) gets the lg pop.
 local function drawStatCell(x, w, label, value, value_color, fonts)
-    love.graphics.setFont(fonts.ui_small)
+    love.graphics.setFont(fonts.sm)
     Theme.setColor(Theme.fg.muted)
     love.graphics.print(label, x, TOPBAR_LABEL_Y)
 
-    love.graphics.setFont(fonts.heading)
+    love.graphics.setFont(fonts.md)
     Theme.setColor(value_color)
     love.graphics.print(value, x, TOPBAR_VALUE_Y)
 end
@@ -511,13 +582,16 @@ function GrindView:_drawTopBar(W)
         bankroll_tint = (diff_bank > 0) and Theme.status.good or Theme.status.error
     end
 
-    -- BANKROLL cluster — solo, kpi font. The big spendable number.
+    -- BANKROLL cluster — solo, lg font. The big spendable number.
+    -- Center vertically in the bar.
     Theme.setColor(bankroll_tint)
-    love.graphics.setFont(fonts.kpi)
-    love.graphics.print(moneyText(d_bank), TOPBAR_PAD_X, 8)
+    love.graphics.setFont(fonts.lg)
+    local bank_y = math.floor((TOP_BAR_H - fonts.lg:getHeight()) * 0.5)
+    love.graphics.print(moneyText(d_bank), TOPBAR_PAD_X, bank_y)
 
     local total     = d_bank + d_tied
     local n_tables  = self.controller.pool:count()
+    local focus_cap = self.controller:currentFocusCapacity()
     local focus_pct = math.floor(self.controller:currentFocusMult() * 100 + 0.5)
 
     -- Focus % color-coded: green = 100% (no penalty), amber = 70–99%,
@@ -577,15 +651,18 @@ function GrindView:_drawTopBar(W)
     drawClusterDivider(x)
     x = x + CLUSTER_GAP
 
-    -- Workload cluster: TABLES · FOCUS  (hover tooltip surfaces capacity).
+    -- Workload cluster: TABLES (count / focus capacity) · FOCUS %.
+    -- The "N / cap" inline format makes the relationship to FOCUS
+    -- visible at a glance; the hover tooltip explains the mechanic.
     local workload_x0 = x
-    drawStatCell(x, STAT_CELL_W, "TABLES", tostring(n_tables), Theme.fg.primary, fonts)
+    drawStatCell(x, STAT_CELL_W, "TABLES",
+                 string.format("%d / %d", n_tables, focus_cap),
+                 Theme.fg.primary, fonts)
     x = x + STAT_CELL_W
-    drawStatCell(x, STAT_CELL_W, "FOCUS",  focus_pct .. "%",   focus_color,      fonts)
+    drawStatCell(x, STAT_CELL_W, "FOCUS",  focus_pct .. "%",   focus_color, fonts)
     x = x + STAT_CELL_W + CLUSTER_GAP
 
-    -- Stash the workload cluster rect (both cells) for the update-loop
-    -- hover hit-test. 1-frame stale, same convention as `hit_boxes`.
+    -- Stash workload rect for the hover tooltip in update().
     self._workload_rect = {
         x = workload_x0, y = 2, w = (x - CLUSTER_GAP) - workload_x0, h = TOP_BAR_H - 4,
     }
@@ -597,9 +674,6 @@ end
 
 function GrindView:_cashOutButtonRect()
     local W = love.graphics.getWidth()
-    -- Anchor to the right panel's left edge so the button never overlaps
-    -- the upgrades panel. y centers within the top bar with room for the
-    -- chunky-button depth + lift.
     return {
         x = W - RIGHT_W - MARGIN - CASH_OUT_BTN_W,
         y = math.floor((TOP_BAR_H - CASH_OUT_BTN_H) / 2),
@@ -616,22 +690,17 @@ function GrindView:_drawCashOutButton()
     local hovered = enabled
                     and mx >= rect.x and mx < rect.x + rect.w
                     and my >= rect.y and my < rect.y + rect.h
-    local press   = ClickFlash.alpha("cash_out", "cash_out")
-
-    Button.draw(rect.x, rect.y, rect.w, rect.h, {
-        fill_color   = enabled and Theme.status.warn or Theme.bg.sunken,
-        border_color = enabled and Theme.fg.heading   or Theme.border.soft,
+    LabelButton.draw{
+        x = rect.x, y = rect.y, w = rect.w, h = rect.h,
+        text         = "CASH OUT",
+        fonts        = self.game.fonts,
         hovered      = hovered,
-        press_alpha  = press,
+        press_alpha  = ClickFlash.alpha("cash_out", "cash_out"),
         disabled     = not enabled,
-        depth        = 4,
-    }, function(fx, fy, fw, fh)
-        local fonts = self.game.fonts
-        Theme.setColor(enabled and Theme.bg.window or Theme.fg.disabled)
-        love.graphics.setFont(fonts.ui_small)
-        local text_y = fy + math.floor((fh - fonts.ui_small:getHeight()) * 0.5)
-        love.graphics.printf("CASH OUT", fx, text_y, fw, "center")
-    end)
+        fill_token   = enabled and Theme.status.warn or Theme.bg.sunken,
+        border_token = enabled and Theme.fg.heading  or Theme.border.soft,
+        text_token   = enabled and Theme.bg.window   or Theme.fg.disabled,
+    }
 end
 
 -- ─── Catalog button (top bar, left of Cash-Out) ──────────────────────
@@ -649,23 +718,39 @@ end
 function GrindView:_drawCatalogButton()
     local rect   = self:_catalogButtonRect()
     local mx, my = love.mouse.getPosition()
-    local hovered = mx >= rect.x and mx < rect.x + rect.w
-                    and my >= rect.y and my < rect.y + rect.h
-    local press   = ClickFlash.alpha("catalog_btn", "catalog_btn")
+    LabelButton.draw{
+        x = rect.x, y = rect.y, w = rect.w, h = rect.h,
+        text        = "CATALOG",
+        fonts       = self.game.fonts,
+        hovered     = mx >= rect.x and mx < rect.x + rect.w
+                      and my >= rect.y and my < rect.y + rect.h,
+        press_alpha = ClickFlash.alpha("catalog_btn", "catalog_btn"),
+    }
+end
 
-    Button.draw(rect.x, rect.y, rect.w, rect.h, {
-        fill_color   = Theme.bg.widget_hover,
-        border_color = Theme.fg.heading,
-        hovered      = hovered,
-        press_alpha  = press,
-        depth        = 4,
-    }, function(fx, fy, fw, fh)
-        local fonts = self.game.fonts
-        Theme.setColor(Theme.fg.heading)
-        love.graphics.setFont(fonts.ui_small)
-        local text_y = fy + math.floor((fh - fonts.ui_small:getHeight()) * 0.5)
-        love.graphics.printf("CATALOG", fx, text_y, fw, "center")
-    end)
+-- ─── Settings button (top bar, left of Catalog) ──────────────────────
+
+function GrindView:_settingsButtonRect()
+    local cb = self:_catalogButtonRect()
+    return {
+        x = cb.x - CATALOG_BTN_W - TOPBAR_BTN_GAP,
+        y = math.floor((TOP_BAR_H - CATALOG_BTN_H) / 2),
+        w = CATALOG_BTN_W,
+        h = CATALOG_BTN_H,
+    }
+end
+
+function GrindView:_drawSettingsButton()
+    local rect   = self:_settingsButtonRect()
+    local mx, my = love.mouse.getPosition()
+    LabelButton.draw{
+        x = rect.x, y = rect.y, w = rect.w, h = rect.h,
+        text        = "SETTINGS",
+        fonts       = self.game.fonts,
+        hovered     = mx >= rect.x and mx < rect.x + rect.w
+                      and my >= rect.y and my < rect.y + rect.h,
+        press_alpha = ClickFlash.alpha("settings_btn", "settings_btn"),
+    }
 end
 
 -- ─── Center grid ──────────────────────────────────────────────────────
@@ -730,15 +815,20 @@ function GrindView:_drawCenterGrid(W, H)
     local n = #tables
     if n <= 0 then
         -- Empty-state hint: prompt the player toward the sidebar add-table
-        -- buttons. Without this, fresh-save players get a blank center.
-        love.graphics.setFont(self.game.fonts.heading)
+        -- buttons. Y positions derived from the active fonts so the two
+        -- lines never overlap regardless of font size.
+        local fonts = self.game.fonts
+        local lg_h  = fonts.lg:getHeight()
+        local cy    = grid_y + math.floor(grid_h / 2)
+        local gap   = 8
+        love.graphics.setFont(fonts.lg)
         Theme.setColor(Theme.fg.muted)
         love.graphics.printf("No tables open.",
-            grid_x, grid_y + math.floor(grid_h / 2) - 24, grid_w, "center")
-        love.graphics.setFont(self.game.fonts.ui)
+            grid_x, cy - lg_h - gap, grid_w, "center")
+        love.graphics.setFont(fonts.md)
         Theme.setColor(Theme.fg.faint)
         love.graphics.printf("Click an ADD TABLE button in the left sidebar.",
-            grid_x, grid_y + math.floor(grid_h / 2) + 4, grid_w, "center")
+            grid_x, cy + gap, grid_w, "center")
         self.frozen_grid = nil
         return
     end
@@ -830,8 +920,8 @@ function GrindView:_drawShoveButton()
         -- bottom corners as small labels so they don't compete with
         -- the action verb.
         local fonts   = self.game.fonts
-        local small   = fonts.ui_small
-        local title   = fonts.kpi or fonts.heading
+        local small   = fonts.sm
+        local title   = fonts.lg
 
         -- Title — massive, centered both axes. Vertical center is
         -- biased a few pixels up so the bottom-corner labels have
@@ -902,7 +992,7 @@ function GrindView:_drawFloatingText()
                 color = Theme.status.error
             end
         end
-        local font  = fonts[t.font or "heading"] or fonts.heading
+        local font  = fonts[t.font or "lg"] or fonts.lg
         local scale = t.scale or 1.0
         love.graphics.setFont(font)
         local tw = font:getWidth(t.text)
@@ -964,6 +1054,7 @@ function GrindView:draw()
     self:_drawTopBar(W)
     self:_drawCashOutButton()
     self:_drawCatalogButton()
+    self:_drawSettingsButton()
     self:_drawCenterGrid(W, H)
     self.left_panel:draw(self.game)
     self.right_panel:draw(self.game)
@@ -991,7 +1082,7 @@ function GrindView:draw()
 
     -- Hover tooltip — sits above gameplay layers but below the backtick
     -- debug overlay (which is the absolute top).
-    TooltipSvc.draw(self.game.fonts.ui_small)
+    TooltipSvc.draw(self.game.fonts.sm)
 
     -- Backtick debug tooltip — flushed last so it draws above every other
     -- view layer (sidebar panels, shove button, floating text, chips,
@@ -1023,6 +1114,15 @@ function GrindView:mousepressed(x, y, b)
        and y >= cat.y and y < cat.y + cat.h then
         ClickFlash.flash("catalog_btn", "catalog_btn")
         if self.game.openCatalog then self.game.openCatalog() end
+        return
+    end
+
+    -- Settings button (top bar, left of catalog).
+    local set_rect = self:_settingsButtonRect()
+    if x >= set_rect.x and x < set_rect.x + set_rect.w
+       and y >= set_rect.y and y < set_rect.y + set_rect.h then
+        ClickFlash.flash("settings_btn", "settings_btn")
+        if self.game.openSettings then self.game.openSettings() end
         return
     end
 

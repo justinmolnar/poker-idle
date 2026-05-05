@@ -169,4 +169,8 @@ function SoundService.setMasterVolume(vol)
     _master = math.max(0, math.min(1, vol))
 end
 
+function SoundService.getMasterVolume()
+    return _master
+end
+
 return SoundService

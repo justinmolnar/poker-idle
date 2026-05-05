@@ -50,13 +50,14 @@ C.GAUNTLET = {
     RUNOUT_PAUSE        = 1.2,      -- pause after a runout resolves before the next deals
     CHEAT_REVEAL_PAUSE  = 1.8,      -- extra pause before the cheat card slides in (runouts 2/3)
     REJECTION_RETRY_CAP = 500,      -- max joint-construction retries (deal hole+5-board AND find satisfying c6/c7) before accepting natural outcome
-    CARD_BACK_SPRITE    = "cards/backs/03-fish",  -- shown on hole cards during deal, before runout 1 reveal
+    CARD_BACK_SPRITE    = "cards/backs/02-castle",  -- shown on hole cards during deal, before runout 1 reveal
 }
 
 C.SAVE = {
     AUTOSAVE_INTERVAL = 30,         -- seconds between auto-save ticks
     META_FILE         = "meta.save",
     RUN_FILE          = "run.save",
+    SETTINGS_FILE     = "settings.save",
     VERSION           = 1,
 }
 

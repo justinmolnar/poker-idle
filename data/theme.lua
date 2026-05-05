@@ -187,15 +187,15 @@ Theme.space = {
 }
 
 -- ─── Fonts ──────────────────────────────────────────────────────────
--- Single font path for now. Add more entries to switch fonts without
--- touching the call sites.
+-- Three universal sizes. Chunky pixel font (Thin Sans) — Balatro-feel:
+-- prominent numbers tower over labels. lg pulls double duty for the
+-- bankroll-class big-number tier AND cinematic moments (Shove cinematic,
+-- Credits) — collapsed from the old kpi/hero split.
 Theme.font = {
-    path_main     = nil,      -- nil = LÖVE default (replace with TTF later)
-    size_ui_small = 11,
-    size_ui       = 13,
-    size_heading  = 16,
-    size_kpi      = 28,
-    size_hero     = 64,
+    path_main = "assets/fonts/Thin Sans.ttf",
+    size_sm   = 8,
+    size_md   = 16,
+    size_lg   = 24,
 }
 
 -- Default-active palette name. views/Theme.lua reads this on first load.

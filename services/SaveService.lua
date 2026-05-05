@@ -111,4 +111,15 @@ function SaveService:clearAll()
     end
 end
 
+-- Settings slot — separate from meta/run since user preferences (volume,
+-- resolution, display mode) survive a "delete save" wipe and aren't
+-- versioned with the run schema. Returns the payload table or nil.
+function SaveService:loadSettings()
+    return self:read(Constants.SAVE.SETTINGS_FILE)
+end
+
+function SaveService:saveSettings(payload)
+    if payload then self:write(Constants.SAVE.SETTINGS_FILE, payload) end
+end
+
 return SaveService

@@ -25,7 +25,7 @@ return {
         border_pulse = 0.55,
         floater = {
             scale       = 1.00,
-            font        = "heading",
+            font        = "md",
             arc_x       = 0,
             arc_y       = -36,
             lifetime    = 1.6,
@@ -38,7 +38,7 @@ return {
         border_pulse = 0.80,
         floater = {
             scale       = 1.20,
-            font        = "heading",
+            font        = "md",
             arc_x       = 0,
             arc_y       = -42,
             lifetime    = 1.8,
@@ -51,7 +51,7 @@ return {
         border_pulse = 1.00,
         floater = {
             scale       = 1.45,
-            font        = "kpi",
+            font        = "lg",
             arc_x       = 18,
             arc_y       = -56,
             lifetime    = 2.0,
@@ -67,7 +67,7 @@ return {
         border_pulse = 1.00,
         floater = {
             scale       = 1.90,             -- big but still reads
-            font        = "kpi",
+            font        = "lg",
             arc_x       = 36,
             arc_y       = -72,
             lifetime    = 2.5,

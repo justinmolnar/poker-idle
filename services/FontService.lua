@@ -1,32 +1,31 @@
 -- services/FontService.lua
 --
--- Builds the canonical `game.fonts` table at boot from the type scale in
--- data/theme.lua. Lifted UI components (Panel, ComponentRenderer) expect
--- these to be available as `game.fonts.ui`, `game.fonts.ui_small`, etc.
--- so calling `love.graphics.newFont` per-view is wasteful and inconsistent.
+-- Builds the canonical `game.fonts` table from the type scale in
+-- data/theme.lua. Three universal sizes (sm/md/lg) consumed across
+-- views via DI (game.fonts.X).
 --
--- Engine-agnostic — knows about font sizes from the theme, not about the
--- game.
+-- Fonts are built at exact data/theme.lua sizes — no per-window
+-- scaling. With the push canvas we render the entire UI
+-- at a fixed virtual size and scale-blit to the actual window, so
+-- font sizes stay constant and the canvas-blit handles "look bigger
+-- on a 4K display".
+--
+-- Engine-agnostic.
 
 local FontService = {}
 
--- font_data is data/theme.lua's `font` table:
---   { path_main, size_ui_small, size_ui, size_heading, size_kpi, size_hero }
-function FontService.build(font_data)
-    local function newFont(size)
-        if font_data.path_main then
-            return love.graphics.newFont(font_data.path_main, size)
-        else
-            return love.graphics.newFont(size)
-        end
+local function newFont(font_data, size)
+    if font_data.path_main then
+        return love.graphics.newFont(font_data.path_main, size)
     end
+    return love.graphics.newFont(size)
+end
 
+function FontService.build(font_data)
     return {
-        ui_small = newFont(font_data.size_ui_small or 11),
-        ui       = newFont(font_data.size_ui       or 13),
-        heading  = newFont(font_data.size_heading  or 16),
-        kpi      = newFont(font_data.size_kpi      or 28),
-        hero     = newFont(font_data.size_hero     or 64),
+        sm = newFont(font_data, font_data.size_sm or 16),
+        md = newFont(font_data, font_data.size_md or 22),
+        lg = newFont(font_data, font_data.size_lg or 48),
     }
 end
 

@@ -34,13 +34,37 @@ local CARD_W = 88
 local CARD_H = math.floor(CARD_W * 3.5 / 2.5)
 local CARD_GAP = 12
 
+-- Total vertical span of the gauntlet stack, used to vertically center
+-- it inside the current window. Layout (top → bottom):
+--   dealer hole cards (CARD_H)
+--   dealer label gap   (8 + 22)
+--   community board    (CARD_H)
+--   player label gap   (8 + 22)
+--   player hole cards  (CARD_H)
+--   chips gap          (18)
+--   chip strip         (CARD_H * 0.4 ish — chip rect height is small)
+local STACK_H = 3 * CARD_H + 8 + 22 + 8 + 22 + 18 + 36
+
 -- Vertical layout anchors.
+-- Y positions for the gauntlet stack. Initial values are placeholders;
+-- recomputeLayout() reassigns them at draw start to keep the whole
+-- stack vertically centered in the current window.
 local Y_DEALER_HOLE  = 80
 local Y_DEALER_LABEL = Y_DEALER_HOLE + CARD_H + 8
 local Y_BOARD        = Y_DEALER_LABEL + 22
 local Y_PLAYER_LABEL = Y_BOARD + CARD_H + 8
 local Y_PLAYER_HOLE  = Y_PLAYER_LABEL + 22
 local Y_CHIPS        = Y_PLAYER_HOLE + CARD_H + 18
+
+local function recomputeLayout(H)
+    local top = math.max(40, math.floor((H - STACK_H) / 2))
+    Y_DEALER_HOLE  = top
+    Y_DEALER_LABEL = Y_DEALER_HOLE + CARD_H + 8
+    Y_BOARD        = Y_DEALER_LABEL + 22
+    Y_PLAYER_LABEL = Y_BOARD + CARD_H + 8
+    Y_PLAYER_HOLE  = Y_PLAYER_LABEL + 22
+    Y_CHIPS        = Y_PLAYER_HOLE + CARD_H + 18
+end
 
 -- Target slot 1's left edge so the currently-visible pack of cards is
 -- centered horizontally on screen. n is 5, 6, or 7 depending on how
@@ -82,14 +106,12 @@ function ShoveView:new(game, ss)
     return self
 end
 
+-- Use the shared game.fonts table so this view picks up the
+-- DPI-scaled fonts that FontService rebuilds on resize. The local
+-- self.fonts assignment is a per-frame view onto game.fonts and stays
+-- a thin reference; we don't cache instances anymore.
 function ShoveView:_ensureFonts()
-    if self.fonts then return end
-    self.fonts = {
-        eyebrow = love.graphics.newFont(Theme.font.size_ui_small),
-        ui      = love.graphics.newFont(Theme.font.size_ui),
-        heading = love.graphics.newFont(Theme.font.size_heading),
-        kpi     = love.graphics.newFont(Theme.font.size_kpi),
-    }
+    self.fonts = self.game.fonts
 end
 
 -- ─── Timeline construction ─────────────────────────────────────────────
@@ -387,6 +409,8 @@ function ShoveView:draw()
     self:_ensureFonts()
 
     local W, H = love.graphics.getDimensions()
+    -- Vertically center the gauntlet stack in the current window.
+    recomputeLayout(H)
 
     -- Atmospheric backdrop: pitch-black base, a deep felt band centered
     -- on the board so the cards land "on a table" rather than floating
@@ -435,16 +459,16 @@ function ShoveView:draw()
             rw, rh, Theme.space.radius * 4)
     end
 
-    love.graphics.setFont(self.fonts.eyebrow)
+    love.graphics.setFont(self.fonts.sm)
     Theme.setColor(Theme.status.error)
     love.graphics.print("SHOVE", 16, 12)
 
     local g = self.ss.gauntlet
     local result = g and g.result or nil
 
-    love.graphics.setFont(self.fonts.heading)
+    love.graphics.setFont(self.fonts.lg)
     Theme.setColor(Theme.fg.heading)
-    printCentered(bannerFor(g, self), self.fonts.heading, 0, 40, W)
+    printCentered(bannerFor(g, self), self.fonts.lg, 0, 40, W)
 
     local n_board         = visibleBoardCount(g)
     local n_slots_visible = visiblePackSize(self, result)
@@ -532,13 +556,13 @@ function ShoveView:draw()
     if result and revealed_idx > 0 then
         local eval = result.evals[revealed_idx]
         if eval then
-            love.graphics.setFont(self.fonts.ui)
+            love.graphics.setFont(self.fonts.md)
             Theme.setColor(Theme.status.error)
             printCentered("dealer: " .. HandEval.describe(eval.dealer_rank),
-                self.fonts.ui, 0, Y_DEALER_LABEL, W)
+                self.fonts.md, 0, Y_DEALER_LABEL, W)
             Theme.setColor(Theme.status.good)
             printCentered("player: " .. HandEval.describe(eval.player_rank),
-                self.fonts.ui, 0, Y_PLAYER_LABEL, W)
+                self.fonts.md, 0, Y_PLAYER_LABEL, W)
         end
     end
 
@@ -551,7 +575,7 @@ function ShoveView:draw()
     local chip_w, chip_h = 92, 32
     local total_chip_w = 3 * chip_w + 2 * CARD_GAP
     local chip_x0 = math.floor((W - total_chip_w) / 2)
-    love.graphics.setFont(self.fonts.ui)
+    love.graphics.setFont(self.fonts.md)
     for i = 1, 3 do
         if self.chip_visible[i] then
             local x = chip_x0 + (i - 1) * (chip_w + CARD_GAP)
@@ -566,7 +590,7 @@ function ShoveView:draw()
             love.graphics.rectangle("fill", x, Y_CHIPS, chip_w, chip_h, Theme.space.radius)
             Theme.setColor(color)
             love.graphics.rectangle("line", x, Y_CHIPS, chip_w, chip_h, Theme.space.radius)
-            printCentered(label, self.fonts.ui, x, Y_CHIPS + 9, chip_w)
+            printCentered(label, self.fonts.md, x, Y_CHIPS + 9, chip_w)
         end
     end
 end

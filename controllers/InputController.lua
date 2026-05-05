@@ -125,11 +125,9 @@ function InputController:wire()
             print(string.format("[debug] bankroll +$1000 -> $%.2f", state.bankroll))
         end)
 
-    -- ESC: quit, dev convenience. Production builds will gate this behind a
-    -- confirmation dialog; for the skeleton it's a fast exit.
-    dispatcher:on("keypressed",
-        function(key) return key == "escape" end,
-        function() love.event.quit() end)
+    -- ESC is now handled per-state: closes any open modal first; if no
+    -- modal is open the state spawns the SettingsModal in quit-confirm
+    -- mode. No global insta-quit binding.
 
     -- Catch-all: forward every other keypress to the active state.
     dispatcher:on("keypressed", nil, function(key) sm:keypressed(key) end)

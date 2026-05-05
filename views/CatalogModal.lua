@@ -32,6 +32,10 @@ CatalogModal.__index = CatalogModal
 local MODAL_W           = 980
 local MODAL_PAD         = 24
 
+-- HEADER_H / FOOTER_H / CARD_H reconfigured from font metrics in
+-- CatalogModal.configureFromFonts (called from main.lua at boot) so
+-- header text and card content scale with whatever sizes
+-- data/theme.lua chose.
 local HEADER_H          = 56
 local FOOTER_H          = 44
 
@@ -41,6 +45,24 @@ local GRID_GAP_Y        = 12
 local CARD_PAD_X        = 14
 local CARD_PAD_Y        = 10
 local CARD_H            = 84
+
+-- Reconfigure layout from active fonts. Card layout is:
+--   title (lg)   at PAD_Y
+--   cost  (md)   at PAD_Y + lg_h
+--   effect (sm)  at PAD_Y + lg_h + md_h  + 4
+--   flavor (sm)  at PAD_Y + lg_h + md_h + sm_h + 8
+function CatalogModal.configureFromFonts(fonts)
+    if not (fonts and fonts.lg) then return end
+    local lh = fonts.lg:getHeight()
+    local mh = fonts.md:getHeight()
+    local sh = fonts.sm:getHeight()
+    HEADER_H = lh + 24
+    FOOTER_H = mh + 20
+    -- Card stack: title row (lh, shared with cost which fits inside lh)
+    -- + effect line (sh) + flavor line (sh) + top/bottom padding +
+    -- inter-line spacing (4 + 4).
+    CARD_H   = lh + 2 * sh + CARD_PAD_Y * 2 + 8
+end
 
 -- ─── Construction ──────────────────────────────────────────────────────
 
@@ -75,6 +97,19 @@ local function visibleItems(state)
             out[#out + 1] = item
         end
     end
+
+    -- Sort by PP cost ascending so the player sees what's affordable
+    -- next at the top. Owned items keep their data-file cost but bubble
+    -- to the bottom (they're not actionable). Stable on cost so two
+    -- items at the same PP fall back to their declaration order.
+    table.sort(out, function(a, b)
+        local ao, bo = owned[a.id] and 1 or 0, owned[b.id] and 1 or 0
+        if ao ~= bo then return ao < bo end
+        local ac, bc = a.cost_pp or 0, b.cost_pp or 0
+        if ac ~= bc then return ac < bc end
+        return false
+    end)
+
     return out, owned
 end
 
@@ -162,7 +197,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
                        or locked and Theme.fg.faint
                        or Theme.fg.heading
     Theme.setColor(name_color)
-    love.graphics.setFont(fonts.heading)
+    love.graphics.setFont(fonts.lg)
     love.graphics.print(item.name or "?", x + CARD_PAD_X, y + CARD_PAD_Y)
 
     local cost_label
@@ -183,21 +218,24 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
         cost_label = moneyish(item.cost_pp)
         cost_color = Theme.status.error
     end
-    love.graphics.setFont(fonts.ui)
+    love.graphics.setFont(fonts.md)
     Theme.setColor(cost_color)
-    local cw = fonts.ui:getWidth(cost_label)
+    local cw = fonts.md:getWidth(cost_label)
     love.graphics.print(cost_label, x + w - CARD_PAD_X - cw, y + CARD_PAD_Y + 4)
 
-    -- Effect line.
-    love.graphics.setFont(fonts.ui_small)
-    Theme.setColor(is_owned and Theme.fg.muted or Theme.fg.primary)
-    love.graphics.print(item.effect_text or "",
-        x + CARD_PAD_X, y + CARD_PAD_Y + 28)
+    -- Effect / flavor lines stack below the title row. Y offsets derived
+    -- from the lg + md font heights so text doesn't collide regardless
+    -- of font size.
+    local title_h  = fonts.lg:getHeight()
+    local effect_y = y + CARD_PAD_Y + title_h + 4
+    local flavor_y = effect_y + fonts.sm:getHeight() + 4
 
-    -- Flavor (italic-feel via muted color).
+    love.graphics.setFont(fonts.sm)
+    Theme.setColor(is_owned and Theme.fg.muted or Theme.fg.primary)
+    love.graphics.print(item.effect_text or "", x + CARD_PAD_X, effect_y)
+
     Theme.setColor(Theme.fg.faint)
-    love.graphics.print(item.description or "",
-        x + CARD_PAD_X, y + CARD_PAD_Y + 48)
+    love.graphics.print(item.description or "", x + CARD_PAD_X, flavor_y)
 
     -- Stash for hit-testing.
     self._cells[#self._cells + 1] = {
@@ -210,69 +248,49 @@ end
 local MODAL_MAX_H_FRAC = 0.90
 
 function CatalogModal:draw()
-    local W, H  = love.graphics.getDimensions()
     local fonts = self.game.fonts
     local state = self.game.state
 
-    -- The catalog is a meta-progression UI — its identity should NOT
-    -- shift when launched from the gauntlet (whose "shove" palette tints
-    -- border.strong bright red) vs grind. Pin the room palette for the
-    -- duration of this draw, then restore so the host state's next frame
-    -- still uses its own theme.
-    local prior_theme = Theme.active
-    Theme.setActive("room")
-
-    -- Backdrop dim.
-    Theme.setColor(Theme.debug.hud_bg)
-    love.graphics.rectangle("fill", 0, 0, W, H)
+    -- Modal frame + dim backdrop come from the shared Modal widget so
+    -- the chrome stays consistent with the other overlays. We bypass
+    -- the widget's title rendering because the catalog header has a
+    -- right-aligned PP figure that the generic Modal doesn't know
+    -- about; we draw our own header inside the box.
+    if not self._modal then
+        local Modal = require("views.widgets.Modal")
+        self._modal = Modal:new{ w = MODAL_W, max_h_frac = MODAL_MAX_H_FRAC,
+                                 pad = 0 }   -- we manage padding inside
+    end
 
     local items, owned = visibleItems(state)
-    local n_rows  = math.ceil(#items / GRID_COLS)
-    local card_w  = math.floor((MODAL_W - 2 * MODAL_PAD - GRID_GAP_X) / GRID_COLS)
+    local n_rows   = math.ceil(#items / GRID_COLS)
+    local card_w   = math.floor((MODAL_W - 2 * MODAL_PAD - GRID_GAP_X) / GRID_COLS)
     local content_h = n_rows * CARD_H + math.max(0, n_rows - 1) * GRID_GAP_Y
+    local body_h   = HEADER_H + content_h + 2 * MODAL_PAD + FOOTER_H
 
-    -- Modal sizing: prefer fitting all items, but cap at viewport*FRAC so
-    -- a long catalog doesn't overflow the screen. When capped, the inner
-    -- grid scrolls.
-    local modal_h_natural = HEADER_H + content_h + 2 * MODAL_PAD + FOOTER_H
-    local modal_h_max     = math.floor(H * MODAL_MAX_H_FRAC)
-    local modal_h         = math.min(modal_h_natural, modal_h_max)
-
-    local mx_modal = math.floor((W - MODAL_W) / 2)
-    local my_modal = math.floor((H - modal_h) / 2)
-
-    -- Modal card.
-    Theme.setColor(Theme.bg.chrome)
-    love.graphics.rectangle("fill", mx_modal, my_modal, MODAL_W, modal_h, Theme.space.radius)
-    Theme.setColor(Theme.border.strong)
-    love.graphics.setLineWidth(Theme.space.line_strong)
-    love.graphics.rectangle("line", mx_modal, my_modal, MODAL_W, modal_h, Theme.space.radius)
-    love.graphics.setLineWidth(1)
+    self._modal:draw(fonts, body_h)
+    local box = self._modal:boxRect()
 
     -- Header: title (left) + PP (right).
     Theme.setColor(Theme.fg.heading)
-    love.graphics.setFont(fonts.kpi)
-    love.graphics.print("CATALOG", mx_modal + MODAL_PAD, my_modal + 16)
+    love.graphics.setFont(fonts.lg)
+    love.graphics.print("CATALOG", box.x + MODAL_PAD, box.y + 16)
     local pp_label = string.format("%d PP", state.pp or 0)
-    love.graphics.setFont(fonts.kpi)
     Theme.setColor(Theme.status.good)
-    local pp_w = fonts.kpi:getWidth(pp_label)
+    local pp_w = fonts.lg:getWidth(pp_label)
     love.graphics.print(pp_label,
-        mx_modal + MODAL_W - MODAL_PAD - pp_w, my_modal + 16)
+        box.x + box.w - MODAL_PAD - pp_w, box.y + 16)
 
-    -- Compute the visible scroll-viewport for the grid.
-    local viewport_x = mx_modal + MODAL_PAD
-    local viewport_y = my_modal + HEADER_H + MODAL_PAD
-    local viewport_w = MODAL_W - 2 * MODAL_PAD
-    local viewport_h = modal_h - HEADER_H - 2 * MODAL_PAD - FOOTER_H
+    -- Scroll viewport for the grid.
+    local viewport_x = box.x + MODAL_PAD
+    local viewport_y = box.y + HEADER_H + MODAL_PAD
+    local viewport_w = box.w - 2 * MODAL_PAD
+    local viewport_h = box.h - HEADER_H - 2 * MODAL_PAD - FOOTER_H
 
-    -- Update scroll bounds + clamp current scroll based on actual content.
     self._scroll_max = math.max(0, content_h - viewport_h)
     if self._scroll_y > self._scroll_max then self._scroll_y = self._scroll_max end
     if self._scroll_y < 0 then self._scroll_y = 0 end
 
-    -- Scissor clips the grid to the viewport so partially-visible cards
-    -- get cut at the modal edges instead of bleeding outside.
     love.graphics.setScissor(viewport_x, viewport_y, viewport_w, viewport_h)
 
     self._cells = {}
@@ -281,8 +299,6 @@ function CatalogModal:draw()
         local row = math.floor((i - 1) / GRID_COLS)
         local cx = viewport_x + col * (card_w + GRID_GAP_X)
         local cy = viewport_y + row * (CARD_H + GRID_GAP_Y) - self._scroll_y
-        -- Cull cards entirely outside the viewport — minor perf, also
-        -- keeps hit-test cells off-screen so clicks don't fire.
         if cy + CARD_H >= viewport_y and cy <= viewport_y + viewport_h then
             drawItemCard(self, item, owned, state, cx, cy, card_w, CARD_H, fonts)
         end
@@ -290,9 +306,8 @@ function CatalogModal:draw()
 
     love.graphics.setScissor()
 
-    -- Scroll indicator on the right edge — only when content overflows.
     if self._scroll_max > 0 then
-        local track_x = mx_modal + MODAL_W - 8
+        local track_x = box.x + box.w - 8
         local track_y = viewport_y
         local track_h = viewport_h
         Theme.setColor(Theme.bg.sunken, 0.6)
@@ -303,17 +318,14 @@ function CatalogModal:draw()
         love.graphics.rectangle("fill", track_x, thumb_y, 4, thumb_h, 2)
     end
 
-    -- Footer prompt.
-    love.graphics.setFont(fonts.ui_small)
+    love.graphics.setFont(fonts.sm)
     Theme.setColor(Theme.fg.faint)
     local prompt = self._scroll_max > 0
         and "[ SPACE to continue · scroll wheel to browse ]"
         or  "[ SPACE to continue ]"
-    love.graphics.printf(prompt,
-        mx_modal, my_modal + modal_h - 28, MODAL_W, "center")
+    love.graphics.printf(prompt, box.x, box.y + box.h - 28, box.w, "center")
 
-    -- Restore the host state's palette so its next frame renders correctly.
-    if prior_theme then Theme.setActive(prior_theme) end
+    self._modal:endDraw()
 end
 
 return CatalogModal

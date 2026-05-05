@@ -22,8 +22,9 @@ local SpriteLoader = Object:extend('SpriteLoader')
 local SPRITE_DIR  = "assets/sprites/"
 local ALIASES_FILE = "assets/sprites/aliases.json"
 
--- LÖVE's image decoders. .gif is intentionally excluded — newImage doesn't
--- support animated GIFs and treating them as still frames is unreliable.
+-- LÖVE's image decoders. .gif is NOT supported — newImage() can't decode
+-- it (animated or static), so we don't pretend. Convert any decorative
+-- GIF to PNG on disk before referencing it.
 local SUPPORTED_EXTS = { png = true, jpg = true, jpeg = true, bmp = true, tga = true }
 
 function SpriteLoader:init()

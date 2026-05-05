@@ -332,7 +332,7 @@ return {
         description   = "Another set of hands.",
         sprite        = "first_cursor",
         phase         = "late",
-        cost_pp       = 15,
+        cost_pp       = 5,
         requires      = "cursor_pool",
         requires_hide = true,
         position      = { x = 200, y = 500 },

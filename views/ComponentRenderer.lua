@@ -22,7 +22,22 @@ local ICON_ROW_H   = ICON_SIZE + 20
 
 -- Single-row line heights per style. Used as the floor — when a line wraps
 -- to multiple visual rows, height becomes N * font:getHeight() instead.
-local LINE_H = { body = 20, small = 16, heading = 22, muted = 20 }
+-- Reconfigured from font metrics in CR.configureFromFonts so pixel-font
+-- glyphs get visual breathing room between rows; raw font:getHeight is
+-- often tighter than the eye expects with chunky pixel fonts.
+local LINE_H = { body = 28, small = 22, heading = 28, muted = 22 }
+
+function CR.configureFromFonts(fonts)
+    if not (fonts and fonts.md and fonts.sm) then return end
+    -- Just the font's natural line height — no extra padding. Pixel
+    -- fonts already include leading inside getHeight() so anything
+    -- more produces visible empty space between rows.
+    LINE_H.body    = fonts.md:getHeight()
+    LINE_H.heading = fonts.md:getHeight()
+    LINE_H.warning = fonts.md:getHeight()
+    LINE_H.small   = fonts.sm:getHeight()
+    LINE_H.muted   = fonts.sm:getHeight()
+end
 local BTN_PAD = 8   -- total vertical padding inside a button (top+bottom)
 -- Sidebar buttons render as chunky pushable buttons via views/Button.lua.
 -- Allocation = content_h + BTN_DEPTH + lift; the face inside is content_h.
@@ -32,8 +47,8 @@ local BTN_DEPTH = 5
 -- agree on which font is used per line (otherwise wrap math drifts from
 -- render math).
 local function styleFont(style, game)
-    if style == "small" or style == "muted" then return game.fonts.ui_small end
-    return game.fonts.ui  -- body / heading / warning
+    if style == "small" or style == "muted" then return game.fonts.sm end
+    return game.fonts.md  -- body / heading / warning
 end
 
 local function lineIndent(style)
@@ -120,7 +135,7 @@ function CR._label(comp, px, pw, p, y, game)
     local h     = comp.h or 24
     local style = comp.style or "body"
 
-    love.graphics.setFont(style == "small" and game.fonts.ui_small or game.fonts.ui)
+    love.graphics.setFont(style == "small" and game.fonts.sm or game.fonts.md)
 
     if style == "heading" then
         Theme.setColor(Theme.fg.heading)
@@ -198,6 +213,24 @@ function CR._button(comp, px, pw, p, y, game)
             local printf_w = fw - indent - 4
             love.graphics.printf(line.text or "",
                 fx + indent, cursor, printf_w, line.align or "left")
+
+            -- Optional right-aligned segment on the same row. Lets a
+            -- single line carry "name (left) | value (right)" without
+            -- spending a second LINE_H worth of vertical space.
+            if line.right then
+                local right_color = color
+                if line.right_color_token then
+                    right_color = (Theme.data and Theme.data[line.right_color_token])
+                               or (Theme.status and Theme.status[line.right_color_token])
+                               or (Theme.fg and Theme.fg[line.right_color_token])
+                               or color
+                end
+                Theme.setColor(right_color)
+                love.graphics.printf(line.right,
+                    fx + indent, cursor, printf_w, "right")
+                Theme.setColor(color)
+            end
+
             cursor = cursor + lineRenderedHeight(line, game, fw)
         end
     end)
@@ -219,14 +252,14 @@ function CR._iconRow(comp, px, pw, p, y, game)
         Theme.setColor(Theme.border.default)
         love.graphics.rectangle("line", icon_x, y + 4, ICON_SIZE, ICON_SIZE)
 
-        love.graphics.setFont(game.fonts.emoji_ui or game.fonts.ui)
+        love.graphics.setFont(game.fonts.emoji_ui or game.fonts.md)
         Theme.setColor(Theme.fg.primary)
         love.graphics.printf(item.icon or "?", icon_x, y + 8, ICON_SIZE, "center")
 
         local label_h = 16
         Theme.setColor(Theme.bg.sunken, 0.6)
         love.graphics.rectangle("fill", icon_x + 1, y + 4 + ICON_SIZE - label_h, ICON_SIZE - 2, label_h - 1)
-        love.graphics.setFont(game.fonts.ui_small)
+        love.graphics.setFont(game.fonts.sm)
         Theme.setColor(Theme.fg.primary)
         love.graphics.printf(item.name or "", icon_x, y + 4 + ICON_SIZE - label_h + 2, ICON_SIZE, "center")
 

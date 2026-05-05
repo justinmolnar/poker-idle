@@ -21,6 +21,7 @@ local ShoveView     = require("views.ShoveView")
 local Overlay       = require("views.ShoveDebugOverlay")
 local PrestigeModal = require("views.PrestigeModal")
 local CatalogModal  = require("views.CatalogModal")
+local SettingsModal = require("views.SettingsModal")
 local Gauntlet      = require("models.Gauntlet")
 local Catalog       = require("data.catalog")
 local RunUpgrades   = require("data.run_upgrades")
@@ -47,11 +48,22 @@ function ShoveState:new(game)
         gauntlet        = nil,
         prestige_modal  = nil,    -- bust step 1: run-end summary
         catalog_modal   = nil,    -- bust step 2: post-run PP shop
+        settings_modal  = nil,    -- ESC overlay (volume, resolution, quit)
         _ended_handled  = false,  -- guard so _onGauntletEnded fires once per gauntlet
     }, ShoveState)
     self.view    = ShoveView:new(game, self)
     self.overlay = Overlay:new(game, self)
     return self
+end
+
+function ShoveState:openSettings()
+    if not self.settings_modal then
+        self.settings_modal = SettingsModal:new(self.game)
+    end
+end
+
+function ShoveState:closeSettings()
+    self.settings_modal = nil
 end
 
 -- Wipe all per-shove transient state. Called by the F6/F7 debug hotkeys
@@ -179,9 +191,20 @@ function ShoveState:draw()
     elseif self.catalog_modal then
         self.catalog_modal:draw()
     end
+    if self.settings_modal then
+        self.settings_modal:draw()
+    end
 end
 
 function ShoveState:keypressed(key)
+    -- Settings modal sits on top of everything (ESC overlay).
+    -- consumeKey returns true when an internal overlay handles a key;
+    -- only top-level ESC falls through and signals the host to close.
+    if self.settings_modal then
+        if self.settings_modal:consumeKey(key) then return end
+        if key == "escape" then self:closeSettings() end
+        return
+    end
     -- Modals consume input first; sequence is prestige → catalog → grind.
     if self.prestige_modal and self.prestige_modal:consumeKey(key) then
         self:_advanceToCatalog()
@@ -189,6 +212,12 @@ function ShoveState:keypressed(key)
     end
     if self.catalog_modal and self.catalog_modal:consumeKey(key) then
         self:_dismissCatalogAndReturn()
+        return
+    end
+    -- ESC with no modal up: open settings → quit-confirm overlay.
+    if key == "escape" then
+        self:openSettings()
+        if self.settings_modal then self.settings_modal:promptQuit() end
         return
     end
 
@@ -233,6 +262,12 @@ function ShoveState:keypressed(key)
 end
 
 function ShoveState:mousepressed(mx, my, button)
+    -- Settings modal owns input first (ESC overlay).
+    if self.settings_modal then
+        local consumed = self.settings_modal:consumeMouse(mx, my, button)
+        if not consumed then self:closeSettings() end
+        return
+    end
     -- Catalog modal owns mouse input while open — clicks land on item
     -- cards, not on the underlying shove view.
     if self.catalog_modal then
@@ -241,6 +276,10 @@ function ShoveState:mousepressed(mx, my, button)
 end
 
 function ShoveState:wheelmoved(dx, dy)
+    if self.settings_modal and self.settings_modal.wheelmoved then
+        self.settings_modal:wheelmoved(dx, dy)
+        return
+    end
     -- Forward scroll wheel to the catalog modal so a catalog longer than
     -- the viewport can be browsed.
     if self.catalog_modal and self.catalog_modal.wheelmoved then

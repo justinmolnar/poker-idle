@@ -109,7 +109,7 @@ function TablePanelStats.drawEvReadout(tbl, x, y, w, h_panel, controller, fonts,
     local ev_bb = (stats.ev_per_hand or 0) / bb
     local label = string.format("%+0.1f bb/h", ev_bb)
 
-    local font = fonts.ui_small
+    local font = fonts.sm
     love.graphics.setFont(font)
     local text_w = font:getWidth(label)
     local text_h = font:getHeight()
@@ -164,7 +164,7 @@ local function renderDebugTooltip(tbl, mx, my, game, controller)
     if not lines then return end
 
     local fonts = game.fonts
-    local font  = fonts.ui_small
+    local font  = fonts.sm
     love.graphics.setFont(font)
 
     local screen_w, screen_h = love.graphics.getDimensions()
