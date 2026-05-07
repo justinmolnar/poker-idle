@@ -24,7 +24,7 @@
 --   stake_palettes = {
 --     [stake_id] = { idx, idx, idx, idx },   -- four denomination indices
 --   }
---   tier_chip_target = { tiny = N, small = N, medium = N, jackpot = N }
+--   tier_chip_target = { small = N, medium = N, large = N, jackpot = N }
 
 return {
 
@@ -72,24 +72,24 @@ return {
     -- ── Tier chip-count targets (visual heft via chip count) ───────────
     -- Used by DenominationBreakdown.breakdown to pick the primary
     -- denomination — the goal isn't fewest-tokens, it's a pile whose token
-    -- count signals magnitude at a glance. Tiny wins look like 3-4 chips;
+    -- count signals magnitude at a glance. Small wins look like 3-4 chips;
     -- jackpots look like a pile of 30+.
     tier_chip_target = {
-        tiny    = 4,
-        small   = 12,
-        medium  = 28,
+        small    = 4,
+        medium   = 12,
+        large  = 28,
         jackpot = 50,
     },
 
     -- Per-tier cap on the chip-burst fountain (services/FlightSystem.lua).
     -- Default MAX_PER_EVENT (7) bottlenecks high tiers — bump it for
-    -- medium and jackpot so the fountain actually shows the magnitude.
+    -- large and jackpot so the fountain actually shows the magnitude.
     -- Read by GrindController:_emitResolutionChips, passed as
     -- options.max_per_event on emitBurst.
     tier_burst_cap = {
-        tiny    = 7,
-        small   = 8,
-        medium  = 12,
+        small    = 7,
+        medium   = 8,
+        large  = 12,
         jackpot = 18,
     },
 }

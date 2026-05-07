@@ -53,19 +53,19 @@ return {
 
     -- ── Pot resolution by tier (8 entries) ──────────────────────────────
     -- Controller passes pot_won_<tier> / pot_lost_<tier> at settling, where
-    -- tier ∈ {tiny, small, medium, jackpot}. Magnitude scales chip-stack
+    -- tier ∈ {small, medium, large, jackpot}. Magnitude scales chip-stack
     -- sample size: 1on1 → 2on1 → 3on2 → Drops/4onStaple. Jackpots layer in
     -- coins (win) or the legacy buzz (loss) for emphasis.
-    pot_won_tiny        = { files = CHIP_1ON1,    volume = 0.55 },
-    pot_won_small       = { files = CHIP_2ON1,    volume = 0.60 },
-    pot_won_medium      = { files = CHIP_3ON2,    volume = 0.65 },
+    pot_won_small        = { files = CHIP_1ON1,    volume = 0.55 },
+    pot_won_medium       = { files = CHIP_2ON1,    volume = 0.60 },
+    pot_won_large      = { files = CHIP_3ON2,    volume = 0.65 },
     pot_won_jackpot     = {
         files = CHIP_DROP_4, volume = 0.80,
         layer = { files = COINS, volume = 0.70 },
     },
-    pot_lost_tiny       = { files = CHIP_1ON1,    volume = 0.40 },
-    pot_lost_small      = { files = CHIP_2ON1,    volume = 0.45 },
-    pot_lost_medium     = { files = CHIP_3ON2,    volume = 0.50 },
+    pot_lost_small       = { files = CHIP_1ON1,    volume = 0.40 },
+    pot_lost_medium      = { files = CHIP_2ON1,    volume = 0.45 },
+    pot_lost_large     = { files = CHIP_3ON2,    volume = 0.50 },
     pot_lost_jackpot    = {
         files = CHIP_DROP_4, volume = 0.175,
         layer = { file = "assets/audio/negative_buzz.mp3", volume = 0.06875 },
@@ -110,7 +110,7 @@ return {
 
     -- Border-pulse marker fires alongside the colored panel-border flash
     -- on every resolution. Tier-scaled volume (multiplier passed in at
-    -- the call site so Tiny is barely audible, Jackpot is a full ding).
+    -- the call site so Small is barely audible, Jackpot is a full ding).
     border_pulse_win    = { files = CHIP_1ON1,    volume = 0.25 },
     border_pulse_loss   = { files = CHIP_DROP_2,  volume = 0.30 },
 }

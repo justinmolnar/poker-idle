@@ -52,6 +52,7 @@ local POT_BAND_H = 110
 -- Y positions for the gauntlet stack. Initial values are placeholders;
 -- recomputeLayout() reassigns them at draw start so the layout
 -- responds to ui_scale + the current font heights.
+local Y_BANNER      = 40
 local Y_STATS       = 80
 local Y_POT         = 120
 local Y_DEALER_HOLE = 240
@@ -65,11 +66,23 @@ local function recomputeLayout(H, fonts, s)
     local md_h = (fonts and fonts.md and fonts.md:getHeight()) or 18
     local lg_h = (fonts and fonts.lg and fonts.lg:getHeight()) or 32
     s = s or 1
-    -- Banner ("ALL-IN") sits at y=40 with lg height. Stats line
-    -- below it; pot pile below stats; cards below pot.
-    Y_STATS        = 40 + lg_h + math.floor(12 * s)
-    Y_POT          = Y_STATS + md_h + math.floor(12 * s)
-    Y_DEALER_HOLE  = Y_POT + POT_BAND_H + math.floor(12 * s)
+    -- Vertically center the full stack (banner → result chips) in the
+    -- viewport. At small windows this keeps the bottom from clipping;
+    -- at large windows the equal top/bottom margin reads as deliberate
+    -- framing.
+    local gap      = math.floor(8 * s)
+    local banner_h = lg_h
+    local stats_h  = md_h + gap
+    local pot_h    = POT_BAND_H + gap
+    local cards_h  = 3 * CARD_H + 8 + 22 + 8 + 22
+    local chips_h  = 18 + 36
+    local stack_h  = banner_h + stats_h + pot_h + cards_h + chips_h
+    local top      = math.max(8, math.floor((H - stack_h) / 2))
+
+    Y_BANNER       = top
+    Y_STATS        = Y_BANNER + banner_h + gap
+    Y_POT          = Y_STATS + md_h + gap
+    Y_DEALER_HOLE  = Y_POT + POT_BAND_H + gap
     Y_DEALER_LABEL = Y_DEALER_HOLE + CARD_H + 8
     Y_BOARD        = Y_DEALER_LABEL + 22
     Y_PLAYER_LABEL = Y_BOARD + CARD_H + 8
@@ -568,22 +581,27 @@ function ShoveView:_drawBuildup(W, H)
         win_pct  = target_win
     end
 
-    -- Stats readout above the pot pile (Y_STATS slot, just under the
-    -- banner). Lerps during chip-push so the player sees the numbers
-    -- ratchet up as chips arrive.
+    -- Stats readout above the pot pile. Reading order: BASE × MULT
+    -- = SHOVE. The total is the takeaway, so it renders in fonts.md
+    -- (heading-color when locked); the inputs (base, mult) sit
+    -- smaller in fonts.sm so they read as supporting data.
     local catalog_pct = math.floor((rates.catalog or 0) * 100 + 0.5)
     local stats_y = Y_STATS
-    love.graphics.setFont(fonts.md)
     local text_left  = string.format("BASE %d%%   ×   MULT %.2f   =   ",
         catalog_pct, mult_now)
     local text_right = string.format("SHOVE %d%%", math.floor(win_pct + 0.5))
-    local left_w     = fonts.md:getWidth(text_left)
-    local right_w    = fonts.md:getWidth(text_right)
-    local total_w    = left_w + right_w
-    local sx         = math.floor((W - total_w) / 2)
+    local left_w  = fonts.sm:getWidth(text_left)
+    local right_w = fonts.md:getWidth(text_right)
+    local total_w = left_w + right_w
+    local sx      = math.floor((W - total_w) / 2)
+    -- Vertically center sm against md so the baselines align.
+    local md_h = fonts.md:getHeight()
+    local sm_h = fonts.sm:getHeight()
+    love.graphics.setFont(fonts.sm)
     Theme.setColor(Theme.fg.muted)
-    love.graphics.print(text_left, sx, stats_y)
-    Theme.setColor(in_lock and Theme.status.good or Theme.fg.heading)
+    love.graphics.print(text_left, sx, stats_y + math.floor((md_h - sm_h) / 2))
+    love.graphics.setFont(fonts.md)
+    Theme.setColor(Theme.fg.heading)
     love.graphics.print(text_right, sx + left_w, stats_y)
 
     -- Stack at the bottom — chips not yet flown. Drawn through Chips
@@ -716,22 +734,27 @@ function ShoveView:_drawShoveStatus(W, H)
     local fonts = self.fonts
     local s     = (self.game and self.game.ui_scale) or 1
 
-    -- Stats readout in Y_STATS slot — same position the buildup
-    -- uses, so there's no jump when the cinematic starts.
+    -- Stats readout in Y_STATS slot — same position the buildup uses.
+    -- Total renders bigger (md, status-good color) than the inputs
+    -- (sm, muted) so the takeaway lands and the math reads as
+    -- supporting context.
     local catalog_pct = math.floor((rates.catalog or 0) * 100 + 0.5)
     local shove_pct   = math.floor((rates.r1 or 0) * 100 + 0.5)
     local stats_y = Y_STATS
-    love.graphics.setFont(fonts.md)
     local text_left  = string.format("BASE %d%%   ×   MULT %.2f   =   ",
         catalog_pct, rates.mult or 1.0)
     local text_right = string.format("SHOVE %d%%", shove_pct)
-    local left_w     = fonts.md:getWidth(text_left)
-    local right_w    = fonts.md:getWidth(text_right)
-    local total_w    = left_w + right_w
-    local sx         = math.floor((W - total_w) / 2)
+    local left_w  = fonts.sm:getWidth(text_left)
+    local right_w = fonts.md:getWidth(text_right)
+    local total_w = left_w + right_w
+    local sx      = math.floor((W - total_w) / 2)
+    local md_h    = fonts.md:getHeight()
+    local sm_h    = fonts.sm:getHeight()
+    love.graphics.setFont(fonts.sm)
     Theme.setColor(Theme.fg.muted)
-    love.graphics.print(text_left, sx, stats_y)
-    Theme.setColor(Theme.status.good)
+    love.graphics.print(text_left, sx, stats_y + math.floor((md_h - sm_h) / 2))
+    love.graphics.setFont(fonts.md)
+    Theme.setColor(Theme.fg.heading)
     love.graphics.print(text_right, sx + left_w, stats_y)
 
     -- Pot pile in the center of the pot band. Same chip list the
@@ -842,7 +865,7 @@ function ShoveView:draw()
 
     love.graphics.setFont(self.fonts.lg)
     Theme.setColor(Theme.fg.heading)
-    printCentered(bannerFor(g, self), self.fonts.lg, 0, 40, W)
+    printCentered(bannerFor(g, self), self.fonts.lg, 0, Y_BANNER, W)
 
     -- Persistent shove status (pot $ + chip stack + base × mult =
     -- shove %) so the player always sees what's at stake and what

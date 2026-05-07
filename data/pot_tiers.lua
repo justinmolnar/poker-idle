@@ -9,8 +9,8 @@
 -- directly.
 
 return {
-    tiny    = { lo = 1.0,  hi = 3.0   },
-    small   = { lo = 5.0,  hi = 15.0  },
-    medium  = { lo = 18.0, hi = 45.0  },
+    small    = { lo = 1.0,  hi = 3.0   },
+    medium   = { lo = 5.0,  hi = 15.0  },
+    large  = { lo = 18.0, hi = 45.0  },
     jackpot = { lo = 80.0, hi = 120.0 },
 }

@@ -17,7 +17,7 @@ ConfirmDialog.__index = ConfirmDialog
 
 -- Base sizes are 1× design-space; setScale(s) multiplies them in
 -- place so the dialog grows with the window. main.lua wires the
--- call on boot and on resize from Game.ui_scale.
+-- call on boot and on resize from game.ui_scale.
 local BOX_W_BASE      = 360
 local BOX_H_BASE      = 160
 local BTN_W_BASE      = 140

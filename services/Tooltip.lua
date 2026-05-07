@@ -19,7 +19,10 @@ local _padding = 6
 local _line_h  = 14   -- font row height; matches ui_small in Theme.font
 
 -- Stash a tooltip for this frame. Caller passes either a string (single
--- line) or a list of strings. mx/my anchor near the mouse cursor.
+-- line), a list of strings, or a list of structured rows
+-- `{ text, style, color_token }` where style ∈ "sm" | "md" | "lg" picks
+-- the font from the fonts table at draw time. mx/my anchor near the
+-- mouse cursor.
 function Tooltip.set(text_or_lines, mx, my)
     if not text_or_lines then return end
     local lines
@@ -36,26 +39,63 @@ function Tooltip.clear()
     _t = nil
 end
 
-function Tooltip.draw(font)
-    if not _t then return end
-    if font then love.graphics.setFont(font) else
-        font = love.graphics.getFont()
+-- Per-line resolve: string lines render in the default font; table
+-- lines pick up font / color from their style tag (resolved against
+-- the fonts table when one is passed).
+local function resolveLine(line, fonts, default_font)
+    if type(line) == "string" then
+        return { text = line, font = default_font, color = nil }
     end
-    if not font then return end
+    local font = default_font
+    if fonts and line.style and fonts[line.style] then
+        font = fonts[line.style]
+    end
+    return {
+        text = line.text or "",
+        font = font,
+        color = line.color_token,    -- resolved by caller through Theme tokens
+    }
+end
 
-    -- Line height = the font's actual line height (auto-tracks any
-    -- ui_scale that rebuilt the font at a bigger size). The hardcoded
-    -- 14 px assumed sm at scale 1.
-    local line_h = font:getHeight() + 2
+local function tokenColor(token)
+    if not token then return nil end
+    return (Theme.data and Theme.data[token])
+        or (Theme.status and Theme.status[token])
+        or (Theme.fg and Theme.fg[token])
+        or nil
+end
 
-    -- Measure content.
-    local max_w = 0
-    for _, line in ipairs(_t.lines) do
-        local w = font:getWidth(line)
+-- font_or_fonts: either a single Font object (legacy) or a fonts table
+-- like game.fonts ({ sm = Font, md = Font, lg = Font }). Structured
+-- lines use the table to pick per-line sizing.
+function Tooltip.draw(font_or_fonts)
+    if not _t then return end
+    local fonts, default_font
+    if type(font_or_fonts) == "table" then
+        fonts        = font_or_fonts
+        default_font = fonts.sm or fonts.md
+    else
+        default_font = font_or_fonts
+    end
+    if not default_font then default_font = love.graphics.getFont() end
+    if not default_font then return end
+
+    -- Resolve every line to a concrete font/color so layout can measure.
+    local rows = {}
+    for i, line in ipairs(_t.lines) do
+        rows[i] = resolveLine(line, fonts, default_font)
+    end
+
+    -- Measure content (per-row line height = that row's font height).
+    local max_w  = 0
+    local total_h = 0
+    for _, r in ipairs(rows) do
+        local w = r.font:getWidth(r.text)
         if w > max_w then max_w = w end
+        total_h = total_h + r.font:getHeight() + 2
     end
     local box_w = max_w + _padding * 2
-    local box_h = _padding * 2 + line_h * #_t.lines
+    local box_h = _padding * 2 + total_h
 
     -- Anchor near cursor; flip to the left if the right edge would clip,
     -- and clamp to screen bounds.
@@ -72,9 +112,13 @@ function Tooltip.draw(font)
     Theme.setColor(Theme.border.strong)
     love.graphics.rectangle("line", x, y, box_w, box_h, Theme.space.radius)
 
-    Theme.setColor(Theme.fg.heading)
-    for i, line in ipairs(_t.lines) do
-        love.graphics.print(line, x + _padding, y + _padding + (i - 1) * line_h)
+    local cy = y + _padding
+    for _, r in ipairs(rows) do
+        love.graphics.setFont(r.font)
+        local color = tokenColor(r.color) or Theme.fg.heading
+        Theme.setColor(color)
+        love.graphics.print(r.text, x + _padding, cy)
+        cy = cy + r.font:getHeight() + 2
     end
 end
 

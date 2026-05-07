@@ -2,19 +2,18 @@
 --
 -- Top-bar SETTINGS button opens this overlay. Built from widgets:
 --   • views.widgets.Modal         — frame + dim backdrop
---   • views.widgets.Row           — label-value rows + split (volume)
---   • views.widgets.Dropdown      — mode picker (windowed / fullscreen)
+--   • views.widgets.Row           — label-value rows
+--   • views.widgets.Slider        — volume slider
 --   • views.widgets.ConfirmDialog — delete / quit prompts
 --
--- Display handling is just a fullscreen toggle. Windowed reverts to
--- whatever LÖVE's window had before fullscreen; fullscreen uses
--- "desktop" type so it covers the actual display reliably.
+-- Display mode (windowed / fullscreen) was removed from the prototype
+-- build — the web canvas owns its own fit-to-iframe behavior, and
+-- native builds default to the conf.lua window size.
 
 local Theme         = require("views.Theme")
 local SoundService  = require("services.SoundService")
 local Modal         = require("views.widgets.Modal")
 local Row           = require("views.widgets.Row")
-local Dropdown      = require("views.widgets.Dropdown")
 local ConfirmDialog = require("views.widgets.ConfirmDialog")
 local Slider        = require("views.widgets.Slider")
 
@@ -32,21 +31,6 @@ local ROW_H   = 44
 function SettingsModal.configureFromFonts(fonts)
     if not (fonts and fonts.md) then return end
     ROW_H = fonts.md:getHeight() + 22
-end
-
-local function isFullscreen()
-    return love.window.getFullscreen() and true or false
-end
-
-local function setFullscreen(want_fs)
-    if want_fs == isFullscreen() then return end
-    -- "desktop" type covers the screen at desktop dims with no mode
-    -- change; reliable across DPI / GPU combos. Windowed restore
-    -- uses LÖVE's own remembered windowed size.
-    love.window.setFullscreen(want_fs, "desktop")
-    if love.resize then
-        love.resize(love.graphics.getDimensions())
-    end
 end
 
 -- Volume-only persistence. Display state is session-local.
@@ -70,20 +54,10 @@ function SettingsModal:new(game)
         game           = game,
         _modal         = Modal:new{ title = "Settings", w = MODAL_W },
         _row_rects     = {},
-        _mode_dropdown = nil,
         _confirm       = nil,
         _confirm_kind  = nil,
         _vol_slider    = nil,
     }, SettingsModal)
-
-    self_inst._mode_dropdown = Dropdown:new{
-        items = {
-            { label = "Windowed",   value = "windowed"   },
-            { label = "Fullscreen", value = "fullscreen" },
-        },
-        on_pick     = function(v) setFullscreen(v == "fullscreen") end,
-        max_visible = 2,
-    }
 
     self_inst._vol_slider = Slider:new{
         value     = SoundService.getMasterVolume(),
@@ -169,9 +143,6 @@ function SettingsModal:consumeKey(key)
         if self._confirm:resolved() then self._confirm = nil; self._confirm_kind = nil end
         return consumed
     end
-    if self._mode_dropdown.is_open and self._mode_dropdown:consumeKey(key) then
-        return true
-    end
     if key == "escape" then return false end  -- top-level ESC: caller closes
     return true                                -- swallow other keys
 end
@@ -184,11 +155,6 @@ function SettingsModal:consumeMouse(mx, my, button)
         if self._confirm:resolved() then self._confirm = nil; self._confirm_kind = nil end
         return consumed
     end
-
-    local mode_was_open = self._mode_dropdown.is_open
-    local r = self._mode_dropdown:consumeMouse(mx, my, button)
-    if r == "header" or r == "item" or r == "consumed" then return true end
-    if mode_was_open then return true end
 
     -- Volume slider: clicking on the track jumps the knob and arms a
     -- drag; subsequent mousemoved events update the value continuously.
@@ -214,9 +180,8 @@ function SettingsModal:mousereleased(mx, my, button)
     if self._vol_slider then self._vol_slider:mousereleased(mx, my, button) end
 end
 
-function SettingsModal:wheelmoved(dx, dy)
-    if self._mode_dropdown.is_open then self._mode_dropdown:wheelmoved(dx, dy) end
-end
+-- No wheelmoved — host (GrindState/ShoveState) checks for the method
+-- before calling, so an absent method is a clean no-op.
 
 -- ─── Drawing ───────────────────────────────────────────────────────────
 
@@ -233,13 +198,10 @@ function SettingsModal:draw()
     -- Rebuild the modal frame each draw so its width tracks scale.
     self._modal = Modal:new{ title = "Settings", w = MODAL_W }
 
-    local rows = 6  -- volume, mode, save, load, delete, quit
+    local rows = 5  -- volume, save, load, delete, quit
     local body_h = rows * ROW_H + (rows - 1) * ROW_GAP
 
     local body = self._modal:draw(fonts, body_h)
-
-    -- Sync mode dropdown to live state.
-    self._mode_dropdown.selected_value = isFullscreen() and "fullscreen" or "windowed"
 
     local row_x = body.x
     local row_w = body.w
@@ -274,11 +236,6 @@ function SettingsModal:draw()
 
     y = y + ROW_H + ROW_GAP
 
-    -- Mode dropdown.
-    local mode_y = y
-    self._mode_dropdown:drawHeader(row_x, mode_y, row_w, ROW_H, "Mode", fonts)
-    y = y + ROW_H + ROW_GAP
-
     local function action_row(label, action)
         local hov = mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H
         Row.draw{ x = row_x, y = y, w = row_w, h = ROW_H,
@@ -292,10 +249,6 @@ function SettingsModal:draw()
     action_row("Load save",   "load")
     action_row("Delete save", "delete")
     action_row("Quit",        "quit")
-
-    if self._mode_dropdown.is_open then
-        self._mode_dropdown:drawPopup(row_x, mode_y + ROW_H + 2, row_w, fonts)
-    end
 
     self._modal:endDraw()
 

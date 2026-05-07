@@ -11,6 +11,10 @@ desktop.ini
 
 # LÖVE build artifacts
 *.love
+build/
+
+# Tooling
+.claude/
 
 # Logs / crash dumps
 crash.log

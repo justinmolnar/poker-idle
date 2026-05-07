@@ -275,11 +275,11 @@ function GrindController:update(dt)
             -- render in gold like the wins.
             floater_opts_override = { color_token = "error" }
         end
-        -- Tier-scaled floater opts from data. Tiny = small + compact;
+        -- Tier-scaled floater opts from data. Small = small + compact;
         -- jackpot = huge + arcing. The data layer paints wins amber
         -- (it pops on green felt); the per-emit overrides above route
         -- losses to red (cash and MTT both).
-        local intensity_for_floater = FeedbackIntensity[r.tier] or FeedbackIntensity.tiny
+        local intensity_for_floater = FeedbackIntensity[r.tier] or FeedbackIntensity.small
         local floater_opts = intensity_for_floater.floater
         if floater_opts_override then
             floater_opts = {}
@@ -303,11 +303,11 @@ function GrindController:update(dt)
 
         -- Tier-scaled resolution FX. Every settle now produces feedback;
         -- magnitude per tier comes from data/feedback_intensity.lua so
-        -- there's no `if tier == "jackpot"` branch here. Tiny resolutions
+        -- there's no `if tier == "jackpot"` branch here. Small resolutions
         -- get a faint border pulse + small slam dip; jackpots get full
         -- shake + vignette + bright border + biggest slam.
         if tbl then
-            local intensity = FeedbackIntensity[r.tier] or FeedbackIntensity.tiny
+            local intensity = FeedbackIntensity[r.tier] or FeedbackIntensity.small
             local is_win    = r.delta > 0
             tbl.shake_trauma       = math.max(tbl.shake_trauma or 0, intensity.shake)
             if intensity.vignette > 0 then
@@ -318,7 +318,7 @@ function GrindController:update(dt)
             tbl.border_pulse_color = is_win and "good" or "bad"
             -- Border-pulse SFX marker — short ding tied to the colored
             -- border flash. Volume scales with the same border_pulse
-            -- intensity so Tiny resolutions barely register and Jackpots
+            -- intensity so Small resolutions barely register and Jackpots
             -- ring out. Stacks with the existing pot_won_/pot_lost_ tier
             -- sound that fires from the state-transition handler.
             local pulse_sound = is_win and "border_pulse_win" or "border_pulse_loss"
@@ -652,7 +652,7 @@ function GrindController:_emitDealChips(t)
     local amount = math.abs(t.outcome_delta or 0)
     if amount <= 0 then return end
     local chips = Denoms.breakdown(amount, _paletteForStake(t.stake_id),
-                                   t.outcome_tier or "small")
+                                   t.outcome_tier or "medium")
     self:_queueBurst(you, pot, chips, { arrival_sound = "chip_land_pot" })
 end
 
@@ -709,7 +709,7 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
     local pot_xy = _anchor(tbl, "pot")
     if not you_xy or not pot_xy then return end
     local palette = _paletteForStake(tbl.stake_id)
-    local tier    = r.tier or "small"
+    local tier    = r.tier or "medium"
     -- Tier-scaled visible chip-count cap (data/chips.lua). Jackpots
     -- fountain bigger than the default; tinies stay contained.
     local burst_cap = (ChipData.tier_burst_cap and ChipData.tier_burst_cap[tier])
@@ -797,10 +797,10 @@ function GrindController:_playStateTransitionSound(_prev, new_state, t)
     elseif new_state == "showdown" then
         sounds.playNamed("hole_card_flip")
     elseif new_state == "settling" then
-        -- Tier-keyed pot sound: a tiny win clicks like one chip; a jackpot
+        -- Tier-keyed pot sound: a small win clicks like one chip; a jackpot
         -- lands like a stack with coins layered. data/sounds.lua defines all
         -- 8 entries (4 tiers × win/loss).
-        local tier = t.outcome_tier or "small"
+        local tier = t.outcome_tier or "medium"
         local key  = (t.outcome_won and "pot_won_" or "pot_lost_") .. tier
         sounds.playNamed(key)
     end

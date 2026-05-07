@@ -195,10 +195,21 @@ function love.update(dt)
 
     -- Periodic auto-save in PROTOTYPE_MODE. Skip the menu-class states
     -- (title/credits) so we don't churn disk while the player sits at
-    -- a static screen. Counter resets on each save.
+    -- a static screen. Also skip while a "menu-class" modal is up over
+    -- gameplay (catalog / prestige / prototype-end) — during a multi-
+    -- minute post-bust catalog browse the autosave was firing every 10s
+    -- and queueing JSON writes to Emscripten's IDBFS, then stalling the
+    -- frame when the queue flushed on resume to grind. Counter resets
+    -- on each save; love.quit still flushes unconditionally so anything
+    -- not yet persisted lands on exit.
     if Constants.PROTOTYPE_MODE then
-        local current = Game.state_machine:current()
-        if current == "grind" or current == "shove" then
+        local sm  = Game.state_machine
+        local cur = sm:current()
+        local s   = sm.current_state
+        local idle_modal = s and (s.catalog_modal
+                                  or s.prestige_modal
+                                  or s.prototype_end_modal)
+        if (cur == "grind" or cur == "shove") and not idle_modal then
             autosave_timer = autosave_timer + dt
             if autosave_timer >= AUTOSAVE_INTERVAL then
                 autosave_timer = 0

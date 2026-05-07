@@ -8,9 +8,13 @@
 -- process as DPI-unaware and applies its own scaling layer. The FFI
 -- call below toggles the per-process DPI awareness flag at runtime,
 -- which is the same thing a manifest in love.exe would do.
+-- love.js (browser) ships no FFI. Failed pcall(require, "ffi") = web build.
+local IS_WEB = false
 do
     local ok, ffi = pcall(require, "ffi")
-    if ok and ffi.os == "Windows" then
+    if not ok then
+        IS_WEB = true
+    elseif ffi.os == "Windows" then
         pcall(function()
             ffi.cdef[[ int SetProcessDPIAware(); ]]
             ffi.load("user32").SetProcessDPIAware()
@@ -28,6 +32,10 @@ function love.conf(t)
     -- chunky pixel font's sidebar buttons (heading + right-aligned
     -- level fit without colliding). Smaller than this the layout's
     -- dynamic-percentage sidebars get squeezed.
+    -- 1600x900 on both. Web build uses itch's "click to launch in
+    -- fullscreen" embed mode — the iframe takes the whole viewport
+    -- and the canvas CSS-scales to fit (object-fit: contain in
+    -- index.html). Internal render stays at the layout's design size.
     t.window.width      = 1600
     t.window.height     = 900
     t.window.minwidth   = 1600

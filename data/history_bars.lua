@@ -24,9 +24,9 @@ return {
     -- Tier → height fraction (0..1 of graph_h). Tinies stay short so the
     -- common case is a quiet baseline; jackpots punch up to full height.
     height = {
-        tiny    = 0.30,
-        small   = 0.55,
-        medium  = 0.80,
+        small    = 0.30,
+        medium   = 0.55,
+        large  = 0.80,
         jackpot = 1.00,
     },
 }

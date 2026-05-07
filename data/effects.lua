@@ -74,7 +74,7 @@ Effects.kinds = {
     -- ── Outcome-model effects ────────────────────────────────────────────
     -- The outcome model has three independent dimensions per hand:
     --   • win_chance — single probability ∈ [0, 1] that the hand is a Win
-    --   • win_dist   — { tiny, small, medium, jackpot }, sums to 1, sampled
+    --   • win_dist   — { small, medium, large, jackpot }, sums to 1, sampled
     --                  when winning
     --   • loss_dist  — same shape, sampled when losing
     --
@@ -135,7 +135,7 @@ Effects.kinds = {
     -- no-poster handicap to skew Run-0 losses toward Medium+.
     loss_dist_shift = {
         description = "Pushes a loss_dist additive-shape descriptor onto ctx.loss_dist_shifts.",
-        value_shape = "{ shift = { tiny=±X, small=±X, medium=±X, jackpot=±X }, gtype? }",
+        value_shape = "{ shift = { small=±X, medium=±X, large=±X, jackpot=±X }, gtype? }",
         affects     = "ctx.loss_dist_shifts (ordered list)",
     },
 
@@ -149,13 +149,13 @@ Effects.kinds = {
 
     win_tier_shift = {
         description = "Push a post-sample win-tier upgrade descriptor onto ctx.win_tier_shifts.",
-        value_shape = "{ from = 'tiny'|'small'|'medium', to = 'small'|'medium'|'jackpot', chance = 0..1, gtype? }",
+        value_shape = "{ from = 'small'|'medium'|'large', to = 'medium'|'large'|'jackpot', chance = 0..1, gtype? }",
         affects     = "ctx.win_tier_shifts (ordered list)",
     },
 
     loss_tier_shift = {
         description = "Push a post-sample loss-tier downgrade descriptor onto ctx.loss_tier_shifts.",
-        value_shape = "{ from = 'small'|'medium'|'jackpot', to = 'tiny'|'small'|'medium', chance = 0..1, gtype? }",
+        value_shape = "{ from = 'medium'|'large'|'jackpot', to = 'small'|'medium'|'large', chance = 0..1, gtype? }",
         affects     = "ctx.loss_tier_shifts (ordered list)",
     },
 

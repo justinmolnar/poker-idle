@@ -47,12 +47,12 @@ return {
         pace_mult = 1.0,        -- fast — 2.6s/hand (longer showdown beat)
         -- HU = the duel. Low win rate (-0.10 WC vs other modes), but
         -- when pots happen they're DEEP — both wins AND losses skew
-        -- away from tiny/small toward medium/jackpot. Identity: "lose
+        -- away from small/medium toward large/jackpot. Identity: "lose
         -- often, but pots are big both ways."
         win_chance_shift = -0.10,
         dist_shifts = {
-            win_dist  = { tiny = -0.20, small = -0.10, medium = 0.10, jackpot = 0.20 },
-            loss_dist = { tiny = -0.20, small = -0.05, medium = 0.10, jackpot = 0.15 },
+            win_dist  = { small = -0.20, medium = -0.10, large = 0.10, jackpot = 0.20 },
+            loss_dist = { small = -0.20, medium = -0.05, large = 0.10, jackpot = 0.15 },
         },
         rerolls_opponents = false,
     },
@@ -62,18 +62,18 @@ return {
         short = "ZOOM",
         seats = 5,
         pace_mult = 1.4,        -- very fast — most hands ~0.57s with the
-                                -- zoom:tiny cinematic-skip in cinematic_timelines.
+                                -- zoom:small cinematic-skip in cinematic_timelines.
         -- Zoom = fold-spam firehose. High WC (+0.05) — most hands are
-        -- preflop spats you're ahead in. Low pot sizes — heavy tiny
+        -- preflop spats you're ahead in. Low pot sizes — heavy small
         -- mass. Jackpots are reachable but rare: -0.40 jackpot shift
         -- means you need substantial Pot Control fill before Zoom jackpots
         -- show up at all (lands ~10% jackpot mass at full upgrades, 0%
-        -- below ~80% fill). The cinematic-skip on tiny outcomes
+        -- below ~80% fill). The cinematic-skip on small outcomes
         -- (data/cinematic_timelines.lua) makes most hands resolve in <1s.
         win_chance_shift = 0.05,
         dist_shifts = {
-            win_dist  = { tiny = 0.40, small =  0.05, medium = -0.05, jackpot = -0.40 },
-            loss_dist = { tiny = 0.10, small = -0.02, medium = -0.03, jackpot = -0.05 },
+            win_dist  = { small = 0.40, medium =  0.05, large = -0.05, jackpot = -0.40 },
+            loss_dist = { small = 0.10, medium = -0.02, large = -0.03, jackpot = -0.05 },
         },
         rerolls_opponents = true,
         anonymous_opponents = true,

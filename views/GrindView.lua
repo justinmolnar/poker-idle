@@ -131,13 +131,13 @@ local function recomputeLayout(W, H, fonts)
     CLUSTER_GAP          = math.floor(40 * s)
     TOPBAR_PAD_X         = math.floor(16 * s)
 
-    -- Sidebars: window-fraction with absolute minimums (also scaled).
-    -- Left sidebar is narrower — its widest content is the 4-button
-    -- game-type strip (6-MAX/HU/ZOOM/MTT) and stake-add buttons that
-    -- don't need huge widths. Right sidebar holds upgrade buttons
-    -- with longer titles + level so it stays wider.
-    LEFT_W  = math.max(math.floor(220 * s), math.floor(W * 0.16))
-    RIGHT_W = math.max(math.floor(280 * s), math.floor(W * 0.22))
+    -- Sidebars: window-fraction with absolute minimums. The minimum
+    -- is NOT layout-scale-multiplied — at 720p the heading text on
+    -- stake-add buttons ("+ $0.01/$0.02" + "+1 PP" badge) needs ~290
+    -- px to fit on a single line at the design font size, and a
+    -- scaled-down minimum (220 * 1.0) lets it wrap.
+    LEFT_W  = math.max(290, math.floor(W * 0.18))
+    RIGHT_W = math.max(320, math.floor(W * 0.22))
 
     -- Top bar height + label/value y-offsets derived from font heights.
     -- Padding kept minimal — pixel fonts already include leading inside
@@ -258,14 +258,13 @@ end
 -- Built as a `custom` ComponentRenderer entry so the row layout sits in
 -- one component instead of stacking 4 separate buttons vertically.
 function GrindView:_makeGameTypeStrip()
-    -- Strip height tracks the active sm font + button chrome (depth +
-    -- lift) and a generous vertical pad so the chunky pixel font has
-    -- room to breathe. Recomputed every time _buildPanels runs (i.e.
-    -- on every resize), so the strip grows at fullscreen / large
-    -- windows instead of staying at the design-time 32 px.
+    -- Strip height tracks the active sm font + a tight pad. The pad
+    -- DOESN'T multiply by ui_scale — at fullscreen the font itself
+    -- already grew via the integer fontScale, so adding another
+    -- 20*ui_scale on top doubled the band height. Plain pad keeps
+    -- the buttons compact at every window size.
     local fh      = self.game.fonts.sm:getHeight()
-    local s       = self.game.ui_scale or 1
-    local STRIP_H = fh + math.floor(20 * s)
+    local STRIP_H = fh + 12
     local self_ref = self
     -- Per-gtype short blurb for the hover tooltip. Hardcoded next to
     -- where the strip is built so callers don't have to juggle a string
@@ -367,47 +366,45 @@ function GrindView:_buildTablesTabComponents()
         -- hidden entirely when PROTOTYPE_MODE is on. Existing T4-T6
         -- tables in a save still render through TablePanel — those die
         -- naturally on the next reset.
-        if Constants.PROTOTYPE_MODE
-           and (stake.id == "s004" or stake.id == "s005" or stake.id == "s006") then
-            goto continue
-        end
+        local hidden = Constants.PROTOTYPE_MODE
+                       and (stake.id == "s004" or stake.id == "s005" or stake.id == "s006")
+        if not hidden then
+            local full         = active >= cap
+            local cant_afford  = state.bankroll < (stake.buy_in or 0)
+            local disabled     = full or cant_afford
 
-        local full         = active >= cap
-        local cant_afford  = state.bankroll < (stake.buy_in or 0)
-        local disabled     = full or cant_afford
+            local sub
+            if full then
+                sub = "tables full (max " .. cap .. ")"
+            elseif cant_afford then
+                sub = string.format("buy-in $%.2f  (need more)", stake.buy_in or 0)
+            else
+                sub = string.format("buy-in $%.2f", stake.buy_in or 0)
+            end
 
-        local sub
-        if full then
-            sub = "tables full (max " .. cap .. ")"
-        elseif cant_afford then
-            sub = string.format("buy-in $%.2f  (need more)", stake.buy_in or 0)
-        else
-            sub = string.format("buy-in $%.2f", stake.buy_in or 0)
-        end
+            -- PP-bounty status: "+N PP" right-aligned next to the stake
+            -- name. Color is the whole signal — default (white) while the
+            -- bounty is still up for grabs, green once banked this run.
+            local banked = self.controller:bountyBanked(stake.id, gtype_id)
+            local award  = self.controller:bountyAward(stake.id)
+            local pp_text       = string.format("+%d PP", award)
+            local pp_color_tok  = banked and "good" or nil
 
-        -- PP-bounty status: "+N PP" right-aligned next to the stake
-        -- name. Color is the whole signal — default (white) while the
-        -- bounty is still up for grabs, green once banked this run.
-        local banked = self.controller:bountyBanked(stake.id, gtype_id)
-        local award  = self.controller:bountyAward(stake.id)
-        local pp_text       = string.format("+%d PP", award)
-        local pp_color_tok  = banked and "good" or nil
-
-        components[#components + 1] = {
-            type     = "button",
-            id       = "add_table:" .. stake.id .. ":" .. gtype_id,
-            disabled = disabled,
-            tooltip  = string.format("Open a %s %s table — costs the buy-in.",
-                                     stake.display_name, gtype_id:gsub("_", "-")),
-            lines = {
-                {
-                    text  = "+ " .. stake.display_name, style = "heading",
-                    right = pp_text, right_color_token = pp_color_tok,
+            components[#components + 1] = {
+                type     = "button",
+                id       = "add_table:" .. stake.id .. ":" .. gtype_id,
+                disabled = disabled,
+                tooltip  = string.format("Open a %s %s table — costs the buy-in.",
+                                         stake.display_name, gtype_id:gsub("_", "-")),
+                lines = {
+                    {
+                        text  = "+ " .. stake.display_name, style = "heading",
+                        right = pp_text, right_color_token = pp_color_tok,
+                    },
+                    { text = sub, style = "small" },
                 },
-                { text = sub, style = "small" },
-            },
-        }
-        ::continue::
+            }
+        end
     end
 
     -- Tables count / focus / capacity all live in the top-bar workload
@@ -532,12 +529,22 @@ function GrindView:update(dt)
     -- Cash-Out-All button hover tooltip. Same direct-rect treatment as
     -- SHOVE — sits in the top bar above the panels, not a hit_box entry.
     local cb = self:_cashOutButtonRect()
-    if self.controller.pool:count() > 0
-       and mx >= cb.x and mx < cb.x + cb.w
+    if mx >= cb.x and mx < cb.x + cb.w
        and my >= cb.y and my < cb.y + cb.h then
-        TooltipSvc.set(
-            "Cash out all tables — busy tables finish their hand first.",
-            mx, my)
+        local pool_count = self.controller.pool:count()
+        if pool_count > 0 then
+            TooltipSvc.set(
+                "Cash out all tables — refunds each table's current"
+                .. " stack to your bankroll.", mx, my)
+        else
+            TooltipSvc.set("No tables open to cash out.", mx, my)
+        end
+    end
+
+    -- TIED UP cell hover tooltip — explains where that money is.
+    local tr = self._tied_cell_rect
+    if tr and mx >= tr.x and mx < tr.x + tr.w and my >= tr.y and my < tr.y + tr.h then
+        TooltipSvc.set("Currently held in tables.", mx, my)
     end
 
     -- Top-bar SHOVE cell hover tooltip — full breakdown of the live
@@ -689,10 +696,16 @@ function GrindView:_drawTopBar(W)
     local x = TOPBAR_PAD_X + BANKROLL_CELL_W + CLUSTER_GAP
 
     -- Money cluster: TIED · TOTAL
+    local tied_cell_x = x
     drawStatCell(x, CELL_W.tied,  "TIED UP", moneyText(d_tied), Theme.fg.muted,   fonts)
     x = x + CELL_W.tied
     drawStatCell(x, CELL_W.total, "TOTAL",   moneyText(total),  Theme.fg.primary, fonts)
     x = x + CELL_W.total + CLUSTER_GAP
+
+    -- Stash the TIED UP cell rect for hover tooltip in update().
+    self._tied_cell_rect = {
+        x = tied_cell_x, y = 2, w = CELL_W.tied, h = TOP_BAR_H - 4,
+    }
 
     -- Run cluster: PP · SHOVE
     drawStatCell(x, CELL_W.pp, "PP", ppText(d_pp), Theme.fg.heading, fonts)
@@ -1147,7 +1160,7 @@ function GrindView:draw()
 
     -- Hover tooltip — sits above gameplay layers but below the backtick
     -- debug overlay (which is the absolute top).
-    TooltipSvc.draw(self.game.fonts.sm)
+    TooltipSvc.draw(self.game.fonts)
 
     -- Backtick debug tooltip — flushed last so it draws above every other
     -- view layer (sidebar panels, shove button, floating text, chips,

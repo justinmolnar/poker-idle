@@ -37,10 +37,23 @@ local function layoutScale(W, H)
 end
 
 local function newFont(font_data, size)
+    -- dpiscale=1 forces FreeType to rasterize the glyph atlas at the
+    -- requested logical pixel size regardless of OS / browser DPI.
+    -- Without this, on a 175% DPI display (browser devicePixelRatio
+    -- = 1.75) the atlas comes out at size*1.75 — non-multiples of 8 for
+    -- the chunky pixel font, which FreeType resolves with grayscale AA
+    -- producing sub-pixel gridline artifacts on every stroke. mono
+    -- hinting on the path-based pixel font yields 1-bit glyphs (no AA).
+    -- Nearest filter ensures sampling stays clean when LOVE later draws
+    -- the atlas onto a high-DPI buffer.
+    local f
     if font_data.path_main then
-        return love.graphics.newFont(font_data.path_main, size)
+        f = love.graphics.newFont(font_data.path_main, size, "mono", 1)
+    else
+        f = love.graphics.newFont(size, "normal", 1)
     end
-    return love.graphics.newFont(size)
+    f:setFilter("nearest", "nearest")
+    return f
 end
 
 function FontService.build(font_data, W, H)

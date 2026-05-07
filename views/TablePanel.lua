@@ -44,7 +44,7 @@ local TablePanel = {}
 -- against the panel's actual (w, h) so the chrome shrinks when the
 -- grid crams many panels into a single window. Computed as
 --   pscale = min(w / PANEL_BASE_W, h / PANEL_BASE_H)
--- and clamped by Game.ui_scale so a single panel on a giant window
+-- and clamped by game.ui_scale so a single panel on a giant window
 -- doesn't blow chrome up past the window scale's font budget.
 local PANEL_BASE_W    = 520
 local PANEL_BASE_H    = 390
@@ -427,9 +427,50 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes)
     -- The data file flips the flag; the view consumes it. Reroll-flash
     -- adds a brief fade-in so the player visibly sees the swap each hand.
     local anonymous = gtype and gtype.anonymous_opponents
-    local label     = anonymous and ("Seat " .. opp_idx)
+    local raw_name  = anonymous and ("Seat " .. opp_idx)
                       or (opp.name or "?")
-    if #label > name_max then label = label:sub(1, name_max - 1) .. "…" end
+
+    -- Pixel-width truncation, MEMOIZED on the opp object. The naive
+    -- per-frame while-loop dominated the grind hot path at multi-table
+    -- scale (6 panels × 5 opps × ~12 trim iterations per opp ≈ 360
+    -- getWidth calls + 360 string allocations every frame, which fed
+    -- enough GC pressure to compound with other heap churn into
+    -- observable lag). Cache key = (raw_name, slot_w, font_height).
+    -- Reroll rebuilds the opp object so cache fields go away naturally;
+    -- a slot resize or font-tier change invalidates via the w / fh
+    -- comparisons. Stable steady-state = zero getWidth calls in this
+    -- block.
+    --
+    -- We always shrink the ASCII raw name BEFORE appending "…" —
+    -- chopping a string that already has the 3-byte "…" suffix at byte
+    -- boundaries leaves a partial UTF-8 codepoint and crashes
+    -- name_font:getWidth (real bug we hit before).
+    local label_pad = 6
+    local fh        = name_font:getHeight()
+    if opp._lbl_w   ~= w
+       or opp._lbl_fh  ~= fh
+       or opp._lbl_raw ~= raw_name then
+        local ell = "…"
+        local label = raw_name
+        if name_font:getWidth(label) > w - label_pad then
+            local n = #raw_name
+            while n > 0 and name_font:getWidth(raw_name:sub(1, n) .. ell) > w - label_pad do
+                n = n - 1
+            end
+            if n > 0 then
+                label = raw_name:sub(1, n) .. ell
+            else
+                label = ell
+            end
+        end
+        -- Even the bare ellipsis doesn't fit → hide entirely.
+        if name_font:getWidth(label) > w - 2 then label = nil end
+        opp._lbl     = label
+        opp._lbl_w   = w
+        opp._lbl_fh  = fh
+        opp._lbl_raw = raw_name
+    end
+    local label = opp._lbl
 
     -- Reroll-flash alpha multiplier. flash_t decays 0.4 → 0 over ~0.4 s
     -- (set by Table:fillOpponents); we map that to alpha 0 → 1 so seats
@@ -438,10 +479,15 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes)
     local seat_alpha = (flash_t > 0) and (1 - flash_t / 0.4) or 1
     if seat_alpha < 0.15 then seat_alpha = 0.15 end
 
-    -- Name / label (always shown).
-    Theme.setColor(Theme.fg.primary, 0.85 * seat_alpha)
-    love.graphics.setFont(name_font)
-    love.graphics.printf(label, x, y, w, "center")
+    -- Name / label. Drawn on a single line — never wrap. If even the
+    -- truncated "…" form doesn't fit, the label was nil-ed out above
+    -- and the slot just shows cards.
+    if label then
+        Theme.setColor(Theme.fg.primary, 0.85 * seat_alpha)
+        love.graphics.setFont(name_font)
+        local lw = name_font:getWidth(label)
+        love.graphics.print(label, x + math.floor((w - lw) / 2), y)
+    end
 
     -- Two face-down cards (or face-up if showdown and this is the revealed opp).
     local cards_y  = y + cards_y_offset
@@ -490,11 +536,11 @@ local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_ch
     local center_y = felt_y + felt_h * 0.5    -- visual middle of the felt
 
     -- Chip pile when room permits — uses outcome_tier so jackpot pots
-    -- visibly dwarf tiny ones. Falls back to text-only on mini panels.
+    -- visibly dwarf small ones. Falls back to text-only on mini panels.
     if allow_chips then
         local palette = ChipData.stake_palettes[tbl.stake_id]
                         or ChipData.full_palette
-        local tier    = tbl.outcome_tier or "small"
+        local tier    = tbl.outcome_tier or "medium"
         local chips   = Denoms.breakdown(pot, palette, tier)
         local stake_theme = StakeThemes[tbl.stake_id]
         local tint    = stake_theme and stake_theme.chip_tint
@@ -628,10 +674,10 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
     if stack > 0 then
         local palette = ChipData.stake_palettes[tbl.stake_id]
                         or ChipData.full_palette
-        -- Always render player stack at "small" target (~10 chips) so the
+        -- Always render player stack at "medium" target (~12 chips) so the
         -- pile stays compact regardless of stake — pot/bankroll are where
         -- magnitude flexes via tier hints.
-        local chips = Denoms.breakdown(stack, palette, "small")
+        local chips = Denoms.breakdown(stack, palette, "medium")
         local pile_anchor_x = cards_x - 8   -- right edge of pile
         local pile_y        = cards_y + card_h - 4
         local stake_theme   = StakeThemes[tbl.stake_id]
@@ -657,6 +703,42 @@ end
 -- The variant is decided in :draw based on tbl.stack; this just renders.
 local DEAL_BTN_DEPTH = 4
 
+-- Pick the felt-button font + horizontal scale that fit `label` inside
+-- the button face (`fw` × `fh`). Returns (font, sx, text_x, text_y).
+-- Shared between the live render and the press-then-vanish ghost so
+-- the ghost can't suddenly switch to a larger font on a label that the
+-- live button had to scale-blit down.
+local function _pickFeltButtonFont(label, fonts, fx, fy, fw, fh)
+    local pad   = 8
+    local avail = math.max(1, fw - pad)
+    local font  = fonts.sm
+    if fh >= 32 and fonts.md:getWidth(label) <= avail then
+        font = fonts.md
+    end
+    local tw   = font:getWidth(label)
+    local fh_t = font:getHeight()
+    local sx   = (tw > avail) and (avail / tw) or 1
+    local draw_w = tw * sx
+    local text_x = fx + math.floor((fw - draw_w) / 2)
+    local text_y = fy + math.floor((fh - fh_t * sx) * 0.5)
+    return font, sx, text_x, text_y
+end
+
+local function _drawFeltButtonLabel(label, fonts, fx, fy, fw, fh, enabled)
+    local font, sx, text_x, text_y = _pickFeltButtonFont(label, fonts, fx, fy, fw, fh)
+    love.graphics.setFont(font)
+    Theme.setColor(enabled and Theme.bg.window or Theme.fg.disabled)
+    if sx < 1 then
+        love.graphics.push()
+        love.graphics.translate(text_x, text_y)
+        love.graphics.scale(sx, sx)
+        love.graphics.print(label, 0, 0)
+        love.graphics.pop()
+    else
+        love.graphics.print(label, text_x, text_y)
+    end
+end
+
 -- Render the chunky DEAL/REBUY button at (bx, by, btn_w, btn_h). Used both
 -- by the live render path and by the press-then-vanish ghost path, so the
 -- ghost matches the live button pixel-for-pixel.
@@ -671,36 +753,7 @@ local function _renderFeltButton(bx, by, btn_w, btn_h, fonts, label, fill_color,
         disabled     = not enabled,
         depth        = DEAL_BTN_DEPTH,
     }, function(fx, fy, fw, fh)
-        -- Pick the largest font whose label fits the button width
-        -- (and vertically fits the face height). Without this check
-        -- a long label like "REBUY $100.00" wraps to a second line
-        -- inside small panels and the button breaks visually. If
-        -- even sm overflows we scale-blit it down so the label still
-        -- fits in one line — better squashed-but-readable than
-        -- wrapped-and-clipped.
-        local pad   = 8
-        local avail = math.max(1, fw - pad)
-        local font  = fonts.sm
-        if fh >= 32 and fonts.md:getWidth(label) <= avail then
-            font = fonts.md
-        end
-        love.graphics.setFont(font)
-        Theme.setColor(enabled and Theme.bg.window or Theme.fg.disabled)
-        local tw = font:getWidth(label)
-        local fh_t = font:getHeight()
-        local sx = (tw > avail) and (avail / tw) or 1
-        local draw_w = tw * sx
-        local text_x = fx + math.floor((fw - draw_w) / 2)
-        local text_y = fy + math.floor((fh - fh_t * sx) * 0.5)
-        if sx < 1 then
-            love.graphics.push()
-            love.graphics.translate(text_x, text_y)
-            love.graphics.scale(sx, sx)
-            love.graphics.print(label, 0, 0)
-            love.graphics.pop()
-        else
-            love.graphics.print(label, text_x, text_y)
-        end
+        _drawFeltButtonLabel(label, fonts, fx, fy, fw, fh, enabled)
     end)
 end
 
@@ -854,8 +907,6 @@ local function drawGlow(tbl, x, y, w, h)
     love.graphics.setShader(sh)
     sh:send("u_color",     GLOW_COLOR)
     sh:send("u_intensity", t)
-    sh:send("u_origin",    { gx, gy })
-    sh:send("u_size",      { gw, gh })
     love.graphics.setBlendMode("add", "alphamultiply")
     love.graphics.rectangle("fill", gx, gy, gw, gh)
     love.graphics.setBlendMode("alpha")
@@ -906,6 +957,14 @@ function TablePanel.makeGhostFor(hb, fonts)
     local label, fill   = hb.label, hb.fill_color or Theme.bg.widget_hover
     local border_color  = Theme.fg.heading
 
+    -- DEAL / REBUY ghosts share the live felt-button label renderer so
+    -- the auto-fit (sm fallback + scale-blit) matches pixel-for-pixel
+    -- between live and ghost. Without this the ghost picks fonts.md
+    -- whenever the face is tall enough — even on labels the live
+    -- button had to scale-blit down — and the text appears to "grow"
+    -- on click before fading out.
+    local use_felt_label = (hb.action == "deal" or hb.action == "rebuy")
+
     return function(alpha)
         -- Ghosts decays alpha 1 → 0 over ~0.5 s. Mapping straight to
         -- press_alpha gives the rise-out animation: press_alpha=1 at click
@@ -917,12 +976,16 @@ function TablePanel.makeGhostFor(hb, fonts)
             press_alpha  = alpha,
             depth        = depth,
         }, function(fx, fy, fw, fh)
-            local font = (fh >= 32) and fonts.md or fonts.sm
-            love.graphics.setFont(font)
-            Theme.setColor(label_color)
-            love.graphics.printf(label, fx,
-                                 fy + math.floor((fh - font:getHeight()) * 0.5),
-                                 fw, "center")
+            if use_felt_label then
+                _drawFeltButtonLabel(label, fonts, fx, fy, fw, fh, true)
+            else
+                local font = (fh >= 32) and fonts.md or fonts.sm
+                love.graphics.setFont(font)
+                Theme.setColor(label_color)
+                love.graphics.printf(label, fx,
+                                     fy + math.floor((fh - font:getHeight()) * 0.5),
+                                     fw, "center")
+            end
         end)
     end
 end

@@ -34,7 +34,9 @@ local LABEL_FONT_PX  = LABEL_FONT_PX_BASE
 local _label_font
 local function getLabelFont()
     if not _label_font then
-        _label_font = love.graphics.newFont(LABEL_FONT_PX)
+        -- dpiscale=1 + nearest filter — same rationale as FontService.
+        _label_font = love.graphics.newFont(LABEL_FONT_PX, "normal", 1)
+        _label_font:setFilter("nearest", "nearest")
     end
     return _label_font
 end

@@ -153,7 +153,13 @@ end
 local SCROLL_STEP_PX = 60
 function CatalogModal:wheelmoved(_, dy)
     if not dy or dy == 0 then return end
-    self._scroll_y = self._scroll_y - dy * SCROLL_STEP_PX
+    -- Sign-only step: love.js's SDL2 port forwards browser wheel deltas
+    -- raw (often ±100+ pixels per notch on Chrome / Edge), so dy *
+    -- SCROLL_STEP_PX would launch the modal straight to the bottom in a
+    -- single tick. Local LÖVE reports dy = ±1, where this collapses to
+    -- the same per-notch step it always was.
+    local step = (dy > 0) and 1 or -1
+    self._scroll_y = self._scroll_y - step * SCROLL_STEP_PX
     if self._scroll_y < 0 then self._scroll_y = 0 end
     if self._scroll_max and self._scroll_y > self._scroll_max then
         self._scroll_y = self._scroll_max

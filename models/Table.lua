@@ -14,9 +14,9 @@
 -- Each hand resolves through three independent dimensions:
 --
 --   • win_chance — single probability ∈ [0, 1] that the hand is a Win
---   • win_dist   — { tiny, small, medium, jackpot } sums to 1; sampled
+--   • win_dist   — { small, medium, large, jackpot } sums to 1; sampled
 --                  when winning
---   • loss_dist  — { tiny, small, medium, jackpot } sums to 1; sampled
+--   • loss_dist  — { small, medium, large, jackpot } sums to 1; sampled
 --                  when losing
 --
 -- Each stake declares both naked AND run-capped values for these three.
@@ -127,7 +127,7 @@ end
 
 -- ─── Outcome model ────────────────────────────────────────────────────
 
-local TIER_KEYS = { "tiny", "small", "medium", "jackpot" }
+local TIER_KEYS = { "small", "medium", "large", "jackpot" }
 
 -- ── Distribution helpers ──
 local function distCopy(src)
@@ -154,7 +154,7 @@ local function distClampAndNormalize(d)
     local s = 0
     for _, t in ipairs(TIER_KEYS) do s = s + (d[t] or 0) end
     if s <= 0 then
-        d.tiny, d.small, d.medium, d.jackpot = 1, 0, 0, 0
+        d.small, d.medium, d.large, d.jackpot = 1, 0, 0, 0
         return
     end
     for _, t in ipairs(TIER_KEYS) do d[t] = d[t] / s end
@@ -288,15 +288,15 @@ end
 -- Sample (won, tier) from the 3-distribution outcome.
 local function sampleOutcome(win_chance, win_dist, loss_dist)
     local won = love.math.random() < win_chance
-    local tier = sampleDist(won and win_dist or loss_dist) or "tiny"
+    local tier = sampleDist(won and win_dist or loss_dist) or "small"
     return won, tier
 end
 
 -- Walk the shift list, bumping the current tier whenever (a) the gtype
 -- filter matches, (b) the descriptor's `from` equals the current tier, and
 -- (c) the chance roll succeeds. Bumps chain by design: Self-Help Book
--- (Tiny→Small @25%) + Lava Lamp (Small→Medium @15%) can take a hand from
--- Tiny → Small → Medium in one resolve. Walk order = registration order
+-- (Small→Medium @25%) + Lava Lamp (Medium→Large @15%) can take a hand from
+-- Small → Medium → Large in one resolve. Walk order = registration order
 -- in poker_effects.lua; deterministic per build.
 local function applyTierShift(tier, shifts, gtype)
     if not shifts then return tier end
@@ -340,7 +340,7 @@ function Table:new(stake_id, game_type_id, ctx)
         community           = nil,
         outcome_won         = nil,
         outcome_delta       = nil,
-        outcome_tier        = nil,    -- "tiny" / "small" / "medium" / "jackpot"
+        outcome_tier        = nil,    -- "small" / "medium" / "large" / "jackpot"
         natural_outcome     = true,
 
         -- When true, the autonomous cursor swarm (services/CursorPool)
@@ -616,7 +616,7 @@ function Table:update(dt, ctx)
         if next_phase then
             self.state = next_phase[1]
             -- Resolution dict pushed on entering "settling", regardless
-            -- of which phases preceded it (Zoom+tiny skips most phases).
+            -- of which phases preceded it (Zoom+small skips most phases).
             if next_phase[1] == "settling" then
                 self._pending_resolution = {
                     won   = self.outcome_won,

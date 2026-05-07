@@ -34,11 +34,11 @@ return {
     --   3. default
     overrides = {
 
-        -- Zoom + tiny outcome: the bulk of Zoom hands. Compresses to
+        -- Zoom + small outcome: the bulk of Zoom hands. Compresses to
         -- ~0.8s total — deal animation, then snap to settle. No flop
         -- reveal beat. Combined with Zoom's 1.4 pace_mult, this lands at
         -- ~0.57s per hand for the common case.
-        ["zoom:tiny"] = {
+        ["zoom:small"] = {
             { "dealing",  0.40 },
             { "settling", 0.40 },
         },

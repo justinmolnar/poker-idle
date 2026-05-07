@@ -19,8 +19,17 @@
 local Object = require('lib.class')
 local SpriteLoader = Object:extend('SpriteLoader')
 
-local SPRITE_DIR  = "assets/sprites/"
+local SPRITE_DIR  = "assets/sprites"
 local ALIASES_FILE = "assets/sprites/aliases.json"
+
+-- Trailing slashes on dir paths cause love.filesystem.getDirectoryItems
+-- to return an empty-string entry under the fused-zip backend, which
+-- self-recurses to stack overflow. Always join without a trailing slash.
+local function joinPath(a, b)
+    if a == "" then return b end
+    if b == "" then return a end
+    return a .. "/" .. b
+end
 
 -- LÖVE's image decoders. .gif is NOT supported — newImage() can't decode
 -- it (animated or static), so we don't pretend. Convert any decorative
@@ -46,22 +55,24 @@ end
 -- path components with '/'. dir is "" for the root scan, "cards/" for a
 -- nested call, etc.
 function SpriteLoader:_scan(rel_dir)
-    local full_dir = SPRITE_DIR .. rel_dir
+    local full_dir = joinPath(SPRITE_DIR, rel_dir)
     local items = love.filesystem.getDirectoryItems(full_dir)
     local count = 0
     for _, item in ipairs(items) do
-        local item_path  = full_dir .. item
-        local rel_path   = rel_dir .. item
-        local info = love.filesystem.getInfo(item_path)
-        if info then
-            if info.type == "directory" then
-                count = count + self:_scan(rel_path .. "/")
-            elseif info.type == "file" and isSupported(item) then
-                local sprite_name = stripExt(rel_path)
-                local ok, image = pcall(love.graphics.newImage, item_path)
-                if ok and image then
-                    self.sprites[sprite_name] = image
-                    count = count + 1
+        if item ~= "" and item ~= "." and item ~= ".." then
+            local item_path = joinPath(full_dir, item)
+            local rel_path  = joinPath(rel_dir, item)
+            local info = love.filesystem.getInfo(item_path)
+            if info then
+                if info.type == "directory" then
+                    count = count + self:_scan(rel_path)
+                elseif info.type == "file" and isSupported(item) then
+                    local sprite_name = stripExt(rel_path)
+                    local ok, image = pcall(love.graphics.newImage, item_path)
+                    if ok and image then
+                        self.sprites[sprite_name] = image
+                        count = count + 1
+                    end
                 end
             end
         end

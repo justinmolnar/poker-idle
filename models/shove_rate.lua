@@ -166,12 +166,14 @@ end
 -- cheats — all of that is a diegetic surprise, NOT something the
 -- tooltip should pre-spoil.
 function ShoveRate.formatBreakdown(rates)
+    -- Reading order: inputs first (small), takeaway last (md). No color
+    -- override on the total — it inherits the tooltip's default heading
+    -- color, which keeps it consistent with the top-bar SHOVE cell that
+    -- already paints the % red/amber/green from rate_color.
     return {
-        string.format("ALL-IN: %.0f%% to win", rates.raw_r1 * 100),
-        string.format("Catalog base: %.1f%%", rates.catalog * 100),
-        string.format("Bankroll $%s (%s): %.1f× mult",
-            ShoveRate._formatMoney(rates.bankroll),
-            rates.tier.label, rates.mult),
+        { text = string.format("Catalog base: %.1f%%", rates.catalog * 100), style = "sm" },
+        { text = string.format("Bankroll Mult: %.1f×", rates.mult),         style = "sm" },
+        { text = string.format("ALL-IN: %.0f%% to win", rates.raw_r1 * 100), style = "md" },
     }
 end
 

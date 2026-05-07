@@ -7,26 +7,25 @@
 // Outer zone: long soft halo that bleeds beyond the panel rect.
 //
 // Bound by drawing a rectangle larger than the panel with the shader
-// active and blend-mode ("add", "alphamultiply"). Caller passes the
-// rect's screen-space origin + size so we can compute local coords.
+// active and blend-mode ("add", "alphamultiply"). The rect's normalized
+// tex_coords (0..1) drive the radial falloff — works the same on both
+// native LÖVE and love.js (the previous screen_coords / u_origin
+// approach broke on the web build because Emscripten's SDL2 port
+// reports gl_FragCoord in canvas pixels while Lua's love.graphics.*
+// returns logical pixels, so the two coord spaces didn't agree).
 //
 // Uniforms:
 //   u_color     — vec3 — halo color (caller picks gold/etc.)
 //   u_intensity — float 0..1 — overall alpha multiplier (caller decays it)
-//   u_origin    — vec2 — screen-space top-left of the rect being drawn
-//   u_size      — vec2 — pixel size of the rect
 
 extern vec3  u_color;
 extern float u_intensity;
-extern vec2  u_origin;
-extern vec2  u_size;
 
 vec4 effect(vec4 color, Image tex, vec2 tex_coords, vec2 screen_coords) {
-    vec2 local  = screen_coords - u_origin;
-    vec2 center = u_size * 0.5;
-    // Normalize so the rect's corners read r ≈ 1.4.
-    vec2 d = (local - center) / u_size;
-    float r = length(d) * 2.0;
+    // tex_coords = 0..1 across the rect being drawn. Recenter to
+    // -1..1, so r ≈ 1.0 at edges, ~1.4 at corners.
+    vec2 d = (tex_coords - vec2(0.5, 0.5)) * 2.0;
+    float r = length(d);
 
     // Bright inner core: tight falloff, full alpha until r ~= 0.30, gone by 0.55.
     float core = clamp(1.0 - r * 1.8, 0.0, 1.0);

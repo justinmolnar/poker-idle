@@ -10,16 +10,16 @@
 -- rebalancing intensities is a one-data-file edit.
 --
 -- Tier ladder (from data/pot_tiers.lua):
---   tiny    — modal outcome on most hands. Should be barely there.
---   small   — noticeable but not loud.
---   medium  — clearly felt; meaningful pot.
+--   small    — modal outcome on most hands. Should be barely there.
+--   medium   — noticeable but not loud.
+--   large  — clearly felt; meaningful pot.
 --   jackpot — every juice trick on. The rare moment.
 --
 -- All values 0..1 unless noted; per-system code maps them to actual
 -- pixels / alpha / decibels.
 
 return {
-    tiny = {
+    small = {
         shake        = 0.20,
         vignette     = 0.0,
         border_pulse = 0.55,
@@ -32,7 +32,7 @@ return {
             color_token = "amber",          -- gold so it pops on green felt
         },
     },
-    small = {
+    medium = {
         shake        = 0.45,
         vignette     = 0.0,
         border_pulse = 0.80,
@@ -45,7 +45,7 @@ return {
             color_token = "amber",
         },
     },
-    medium = {
+    large = {
         shake        = 0.75,
         vignette     = 0.55,
         border_pulse = 1.00,
@@ -57,8 +57,8 @@ return {
             lifetime    = 2.0,
             color_token = "amber",
         },
-        -- No confetti at Medium — confetti is reserved for Jackpot so the
-        -- player never mistakes a Medium win for the big one. Medium still
+        -- No confetti at Large — confetti is reserved for Jackpot so the
+        -- player never mistakes a Large win for the big one. Large still
         -- carries full shake/vignette/border-pulse and a large floater.
     },
     jackpot = {

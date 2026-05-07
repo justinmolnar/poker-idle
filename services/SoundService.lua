@@ -21,6 +21,14 @@ local Sounds = require("data.sounds")
 
 local _sources      = {}   -- { [kind] = love.audio.Source }   for synth
 local _file_sources = {}   -- { [path] = love.audio.Source }   prototype/cloned per play
+-- Per-path clone pool: each play reuses the first idle clone, falling
+-- back to a fresh clone only when every existing clone is still mid-
+-- playback. Memory plateaus at the peak number of concurrent overlapping
+-- plays per file; without this, every fire-and-forget play allocated a
+-- new Source (~165 per gauntlet) and held the WebAudio node alive until
+-- the browser GC caught up. Browser-side that GC was lazy enough to
+-- compound with other heap pressure into observable lag.
+local _clone_pool   = {}   -- { [path] = { source, source, ... } }
 local _master       = 1.0  -- master volume 0–1
 
 -- ── Tone generators ──────────────────────────────────────────────────────────
@@ -118,8 +126,20 @@ function SoundService.playFile(path, volume_mult)
         _file_sources[path] = src
         base = src
     end
-    local s = base:clone()
+    local pool = _clone_pool[path]
+    if not pool then pool = {}; _clone_pool[path] = pool end
+    -- Reuse the first non-playing clone in the pool. New clone only if
+    -- all existing ones are mid-playback (overlapping plays).
+    local s
+    for i = 1, #pool do
+        if not pool[i]:isPlaying() then s = pool[i]; break end
+    end
+    if not s then
+        s = base:clone()
+        pool[#pool + 1] = s
+    end
     s:setVolume(math.max(0, math.min(1, (volume_mult or 1.0) * _master)))
+    s:stop()
     s:play()
 end
 
@@ -148,7 +168,7 @@ end
 
 -- Look up a semantic name in data/sounds.lua and play it. Optional opts:
 --   opts.volume_mult — multiplier on the data-table's `volume` field.
---                      Used for tier-scaled feedback (quiet on Tiny,
+--                      Used for tier-scaled feedback (quiet on Small,
 --                      louder on Jackpot) without duplicating sound
 --                      entries per tier.
 function SoundService.playNamed(name, opts)
@@ -162,6 +182,11 @@ function SoundService.stopAll()
     end
     for _, src in pairs(_file_sources) do
         if src:isPlaying() then src:stop() end
+    end
+    for _, pool in pairs(_clone_pool) do
+        for i = 1, #pool do
+            if pool[i]:isPlaying() then pool[i]:stop() end
+        end
     end
 end
 

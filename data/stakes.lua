@@ -38,7 +38,7 @@
 --     pp_award        = integer               -- one-time per-run PP bounty
 --     win_chance      = number 0..1           -- naked
 --     win_chance_capped = number 0..1
---     win_dist        = { tiny, small, medium, jackpot }  -- naked, sums to 1
+--     win_dist        = { small, medium, large, jackpot }  -- naked, sums to 1
 --     win_dist_capped = same shape, sums to 1
 --     loss_dist       = same shape, naked
 --     loss_dist_capped= same shape
@@ -56,7 +56,7 @@ return {
         buy_in       = 2.00,
         pp_award     = 1,
         -- T1 naked WC stays at 0.50 (it's the demo's coinflip baseline).
-        -- Loss tail is intentionally squashed at T1: Medium losses are
+        -- Loss tail is intentionally squashed at T1: Large losses are
         -- rare and Jackpot losses are basically a unicorn (0.1%). The
         -- annoying thing about T1 is busting before the bankroll has a
         -- chance to compound; muting big-loss variance keeps players
@@ -64,14 +64,14 @@ return {
         -- ≈ +3.65 bb/hand at T1.
         win_chance        = 0.50,
         win_chance_capped = 0.75,
-        win_dist          = { tiny = 0.40, small = 0.36, medium = 0.22, jackpot = 0.02 },
-        win_dist_capped   = { tiny = 0.10, small = 0.15, medium = 0.25, jackpot = 0.50 },
-        loss_dist         = { tiny = 0.70, small = 0.23, medium = 0.069, jackpot = 0.001 },
+        win_dist          = { small = 0.40, medium = 0.36, large = 0.22, jackpot = 0.02 },
+        win_dist_capped   = { small = 0.10, medium = 0.15, large = 0.25, jackpot = 0.50 },
+        loss_dist         = { small = 0.70, medium = 0.23, large = 0.069, jackpot = 0.001 },
         -- loss_dist_capped MUST be a strict improvement on the naked dist
         -- in this stake's loss-tail tiers: capped jackpot ≤ naked jackpot,
-        -- capped medium ≤ naked medium. Otherwise Pot Control fills will
+        -- capped large ≤ naked large. Otherwise Pot Control fills will
         -- LERP loss toward a *worse* tail than the naked baseline.
-        loss_dist_capped  = { tiny = 0.92, small = 0.07, medium = 0.009, jackpot = 0.001 },
+        loss_dist_capped  = { small = 0.92, medium = 0.07, large = 0.009, jackpot = 0.001 },
         fill_window       = { start = 0, complete = 5 },
     },
     {
@@ -84,10 +84,10 @@ return {
         pp_award     = 2,
         win_chance        = 0.30,
         win_chance_capped = 0.65,
-        win_dist          = { tiny = 0.50, small = 0.30, medium = 0.18, jackpot = 0.02 },
-        win_dist_capped   = { tiny = 0.10, small = 0.15, medium = 0.25, jackpot = 0.50 },
-        loss_dist         = { tiny = 0.35, small = 0.30, medium = 0.30, jackpot = 0.05 },
-        loss_dist_capped  = { tiny = 0.80, small = 0.12, medium = 0.05, jackpot = 0.03 },
+        win_dist          = { small = 0.50, medium = 0.30, large = 0.18, jackpot = 0.02 },
+        win_dist_capped   = { small = 0.10, medium = 0.15, large = 0.25, jackpot = 0.50 },
+        loss_dist         = { small = 0.35, medium = 0.30, large = 0.30, jackpot = 0.05 },
+        loss_dist_capped  = { small = 0.80, medium = 0.12, large = 0.05, jackpot = 0.03 },
         fill_window       = { start = 3, complete = 8 },
     },
     {
@@ -100,10 +100,10 @@ return {
         pp_award     = 3,
         win_chance        = 0.15,
         win_chance_capped = 0.55,
-        win_dist          = { tiny = 0.55, small = 0.30, medium = 0.13, jackpot = 0.02 },
-        win_dist_capped   = { tiny = 0.10, small = 0.15, medium = 0.25, jackpot = 0.50 },
-        loss_dist         = { tiny = 0.25, small = 0.30, medium = 0.35, jackpot = 0.10 },
-        loss_dist_capped  = { tiny = 0.75, small = 0.13, medium = 0.05, jackpot = 0.07 },
+        win_dist          = { small = 0.55, medium = 0.30, large = 0.13, jackpot = 0.02 },
+        win_dist_capped   = { small = 0.10, medium = 0.15, large = 0.25, jackpot = 0.50 },
+        loss_dist         = { small = 0.25, medium = 0.30, large = 0.35, jackpot = 0.10 },
+        loss_dist_capped  = { small = 0.75, medium = 0.13, large = 0.05, jackpot = 0.07 },
         fill_window       = { start = 6, complete = 11 },
     },
     {
@@ -116,10 +116,10 @@ return {
         pp_award     = 4,
         win_chance        = 0.10,
         win_chance_capped = 0.45,
-        win_dist          = { tiny = 0.40, small = 0.40, medium = 0.20, jackpot = 0.00 },
-        win_dist_capped   = { tiny = 0.15, small = 0.20, medium = 0.20, jackpot = 0.45 },
-        loss_dist         = { tiny = 0.15, small = 0.25, medium = 0.40, jackpot = 0.20 },
-        loss_dist_capped  = { tiny = 0.65, small = 0.15, medium = 0.07, jackpot = 0.13 },
+        win_dist          = { small = 0.40, medium = 0.40, large = 0.20, jackpot = 0.00 },
+        win_dist_capped   = { small = 0.15, medium = 0.20, large = 0.20, jackpot = 0.45 },
+        loss_dist         = { small = 0.15, medium = 0.25, large = 0.40, jackpot = 0.20 },
+        loss_dist_capped  = { small = 0.65, medium = 0.15, large = 0.07, jackpot = 0.13 },
         fill_window       = { start = 9, complete = 14 },
     },
     {
@@ -132,10 +132,10 @@ return {
         pp_award     = 5,
         win_chance        = 0.05,
         win_chance_capped = 0.35,
-        win_dist          = { tiny = 0.50, small = 0.40, medium = 0.10, jackpot = 0.00 },
-        win_dist_capped   = { tiny = 0.20, small = 0.20, medium = 0.20, jackpot = 0.40 },
-        loss_dist         = { tiny = 0.10, small = 0.20, medium = 0.40, jackpot = 0.30 },
-        loss_dist_capped  = { tiny = 0.50, small = 0.15, medium = 0.15, jackpot = 0.20 },
+        win_dist          = { small = 0.50, medium = 0.40, large = 0.10, jackpot = 0.00 },
+        win_dist_capped   = { small = 0.20, medium = 0.20, large = 0.20, jackpot = 0.40 },
+        loss_dist         = { small = 0.10, medium = 0.20, large = 0.40, jackpot = 0.30 },
+        loss_dist_capped  = { small = 0.50, medium = 0.15, large = 0.15, jackpot = 0.20 },
         fill_window       = { start = 12, complete = 17 },
     },
     {
@@ -148,10 +148,10 @@ return {
         pp_award     = 6,
         win_chance        = 0.005,
         win_chance_capped = 0.25,
-        win_dist          = { tiny = 0.60, small = 0.40, medium = 0.00, jackpot = 0.00 },
-        win_dist_capped   = { tiny = 0.20, small = 0.25, medium = 0.20, jackpot = 0.35 },
-        loss_dist         = { tiny = 0.05, small = 0.15, medium = 0.30, jackpot = 0.50 },
-        loss_dist_capped  = { tiny = 0.35, small = 0.20, medium = 0.10, jackpot = 0.35 },
+        win_dist          = { small = 0.60, medium = 0.40, large = 0.00, jackpot = 0.00 },
+        win_dist_capped   = { small = 0.20, medium = 0.25, large = 0.20, jackpot = 0.35 },
+        loss_dist         = { small = 0.05, medium = 0.15, large = 0.30, jackpot = 0.50 },
+        loss_dist_capped  = { small = 0.35, medium = 0.20, large = 0.10, jackpot = 0.35 },
         fill_window       = { start = 15, complete = 20 },
     },
 
