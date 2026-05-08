@@ -36,19 +36,30 @@ function GameState:new(saved)
     instance.cleared     = false   -- true once the gauntlet is beaten — gates the credits screen on boot
 
     -- Deck-system meta state (persists forever; never reset by prestige).
-    -- All decks unlocked from the start in this build; later unlock
-    -- conditions plug in by appending to this list rather than seeding it.
-    -- deck_levels / deck_xp default to L1 / 0 for every spec so the
-    -- effects pipeline has a clean baseline (L1 contributes one stack).
+    -- Only the starter (DeckSpecs[1]) is unlocked at fresh start. The
+    -- rest gate behind play-progress milestones — see each spec's
+    -- `unlock` field and Decks.checkPendingUnlocks (called from the
+    -- controller after lifetime counters bump).
+    local starter = DeckSpecs[1]
     instance.unlocked_decks = {}
     instance.deck_levels    = {}
     instance.deck_xp        = {}
-    for _, spec in ipairs(DeckSpecs) do
-        instance.unlocked_decks[#instance.unlocked_decks + 1] = spec.id
-        instance.deck_levels[spec.id] = 1
-        instance.deck_xp[spec.id]     = 0
+    if starter then
+        instance.unlocked_decks[1]      = starter.id
+        instance.deck_levels[starter.id] = 1
+        instance.deck_xp[starter.id]     = 0
     end
-    instance.active_deck_id = (DeckSpecs[1] and DeckSpecs[1].id) or nil
+    instance.active_deck_id = starter and starter.id or nil
+
+    -- Lifetime counters (persist forever; drive deck unlocks). Bumped
+    -- by GrindController on each resolution. Read by deck_unlock_rules
+    -- via the UnlockRegistry threshold-check kinds.
+    instance.lifetime_money_won             = 0
+    instance.lifetime_money_lost            = 0
+    instance.lifetime_jackpot_count         = 0
+    instance.lifetime_mtt_hands_won         = 0
+    instance.lifetime_hands_played          = 0
+    instance.lifetime_hands_at_4plus_tables = 0
 
     -- Run-side defaults (wiped on prestige).
     instance.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
@@ -117,19 +128,28 @@ function GameState:wipeAll()
     self.pp          = Constants.GAMEPLAY.INITIAL_PP
     self.owned_items = {}
     self.cleared     = false
-    -- Deck state resets to all-decks-unlocked, all at L1, no XP, default
-    -- active. Mirrors the fresh-:new defaults so a fresh game starts
-    -- identical regardless of whether it boots into an empty save or a
-    -- cleared one.
+    -- Deck state resets to starter-only with all unlock progress lost.
+    -- Mirrors the fresh-:new defaults exactly.
+    local starter = DeckSpecs[1]
     self.unlocked_decks = {}
     self.deck_levels    = {}
     self.deck_xp        = {}
-    for _, spec in ipairs(DeckSpecs) do
-        self.unlocked_decks[#self.unlocked_decks + 1] = spec.id
-        self.deck_levels[spec.id] = 1
-        self.deck_xp[spec.id]     = 0
+    if starter then
+        self.unlocked_decks[1]      = starter.id
+        self.deck_levels[starter.id] = 1
+        self.deck_xp[starter.id]     = 0
     end
-    self.active_deck_id = (DeckSpecs[1] and DeckSpecs[1].id) or nil
+    self.active_deck_id = starter and starter.id or nil
+
+    -- Lifetime counters reset too — the unlock conditions need a fresh
+    -- start when the player wipes their game.
+    self.lifetime_money_won             = 0
+    self.lifetime_money_lost            = 0
+    self.lifetime_jackpot_count         = 0
+    self.lifetime_mtt_hands_won         = 0
+    self.lifetime_hands_played          = 0
+    self.lifetime_hands_at_4plus_tables = 0
+
     self:resetRun()
 end
 
@@ -143,19 +163,76 @@ function GameState:applySaved(saved)
         AutoSerializer.apply(self, saved.run, GameState.REFS, function() return nil end)
     end
     self.effects_cache = nil
+
+    -- Migration pass: prior builds shipped a different deck roster
+    -- (fish/acorns/patterns instead of the current seven). Drop unknown
+    -- ids from unlocked_decks, prune their dangling level/xp entries,
+    -- and ensure active_deck_id points at something real.
+    self:_migrateDeckState()
+
+    -- Lifetime counters added later than the deck-state fields. Older
+    -- saves don't have them — backfill to 0 so unlock checks have a
+    -- well-defined zero baseline.
+    self.lifetime_money_won             = self.lifetime_money_won             or 0
+    self.lifetime_money_lost            = self.lifetime_money_lost            or 0
+    self.lifetime_jackpot_count         = self.lifetime_jackpot_count         or 0
+    self.lifetime_mtt_hands_won         = self.lifetime_mtt_hands_won         or 0
+    self.lifetime_hands_played          = self.lifetime_hands_played          or 0
+    self.lifetime_hands_at_4plus_tables = self.lifetime_hands_at_4plus_tables or 0
 end
 
--- Serialize meta-only (PP, owned items, cleared flag, deck progression).
--- For meta.save.
+-- Drop unknown deck ids from unlocked_decks / deck_levels / deck_xp and
+-- repair active_deck_id if it points at an id no longer in the spec
+-- list. Called from applySaved.
+function GameState:_migrateDeckState()
+    local known = {}
+    for _, spec in ipairs(DeckSpecs) do known[spec.id] = true end
+
+    if self.unlocked_decks then
+        local kept = {}
+        for _, id in ipairs(self.unlocked_decks) do
+            if known[id] then kept[#kept + 1] = id end
+        end
+        self.unlocked_decks = kept
+    else
+        self.unlocked_decks = {}
+    end
+
+    if self.deck_levels then
+        for id in pairs(self.deck_levels) do
+            if not known[id] then self.deck_levels[id] = nil end
+        end
+    end
+    if self.deck_xp then
+        for id in pairs(self.deck_xp) do
+            if not known[id] then self.deck_xp[id] = nil end
+        end
+    end
+
+    if not self.active_deck_id or not known[self.active_deck_id] then
+        self.active_deck_id = self.unlocked_decks[1]
+                              or (DeckSpecs[1] and DeckSpecs[1].id)
+                              or nil
+    end
+end
+
+-- Serialize meta-only (PP, owned items, cleared flag, deck progression,
+-- lifetime counters that drive unlock checks). For meta.save.
 function GameState:serializeMeta()
     return {
-        pp              = self.pp,
-        owned_items     = self.owned_items,
-        cleared         = self.cleared,
-        unlocked_decks  = self.unlocked_decks,
-        deck_levels     = self.deck_levels,
-        deck_xp         = self.deck_xp,
-        active_deck_id  = self.active_deck_id,
+        pp                              = self.pp,
+        owned_items                     = self.owned_items,
+        cleared                         = self.cleared,
+        unlocked_decks                  = self.unlocked_decks,
+        deck_levels                     = self.deck_levels,
+        deck_xp                         = self.deck_xp,
+        active_deck_id                  = self.active_deck_id,
+        lifetime_money_won              = self.lifetime_money_won,
+        lifetime_money_lost             = self.lifetime_money_lost,
+        lifetime_jackpot_count          = self.lifetime_jackpot_count,
+        lifetime_mtt_hands_won          = self.lifetime_mtt_hands_won,
+        lifetime_hands_played           = self.lifetime_hands_played,
+        lifetime_hands_at_4plus_tables  = self.lifetime_hands_at_4plus_tables,
     }
 end
 

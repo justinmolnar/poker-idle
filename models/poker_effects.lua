@@ -110,6 +110,37 @@ function PokerEffects.registerAll(reg)
         }
     end)
 
+    -- Win-side mirror of loss_dist_shift — additive shape on the win
+    -- distribution. Optional `tier_min` / `tier_max` bounds (1-based stake
+    -- index) let scope-targeted decks reshape the win-tier dist only at
+    -- certain stakes (e.g. Low Stakes Hero shifts win_dist toward jackpot
+    -- but only at T1-T3). Renormalized by buildOutcome at the end of the
+    -- dist pipeline.
+    reg:register("win_dist_shift", function(e, ctx)
+        ctx.win_dist_shifts = ctx.win_dist_shifts or {}
+        ctx.win_dist_shifts[#ctx.win_dist_shifts + 1] = {
+            shift    = e.shift or {},
+            gtype    = e.gtype,
+            tier_min = e.tier_min,
+            tier_max = e.tier_max,
+        }
+    end)
+
+    -- Flat additive chance to auto-win a hand BEFORE the WC roll fires.
+    -- Each entry contributes its `amount` (0..1) to the per-hand auto-win
+    -- probability; sampleOutcome rolls once against the summed total per
+    -- gtype filter. Doesn't reshape distributions or fills — it's a
+    -- top-of-pipeline override that turns "would have lost" hands into
+    -- forced wins at the configured rate. Used by MTT Pro to cash MTT
+    -- hands more often without depending on per-stake fill_window math.
+    reg:register("auto_win_chance", function(e, ctx)
+        ctx.auto_win_chances = ctx.auto_win_chances or {}
+        ctx.auto_win_chances[#ctx.auto_win_chances + 1] = {
+            amount = e.amount or e.value or 0,
+            gtype  = e.gtype,
+        }
+    end)
+
     -- Post-sample win-tier upgrade (Self-Help Book, Lava Lamp). Each entry
     -- describes a (from → to) re-roll with a chance. Table.lua fires after
     -- sampleOutcome, before magnitude roll.

@@ -139,6 +139,27 @@ Effects.kinds = {
         affects     = "ctx.loss_dist_shifts (ordered list)",
     },
 
+    -- Win-side mirror. Optional `tier_min` / `tier_max` (1-based stake
+    -- index) bound the shift to specific tiers — used by deck specs that
+    -- only reshape outcomes at certain stakes (e.g. Low Stakes Hero
+    -- shifts mass toward jackpot at T1-T3 only).
+    win_dist_shift = {
+        description = "Pushes a win_dist additive-shape descriptor onto ctx.win_dist_shifts.",
+        value_shape = "{ shift = { small=±X, medium=±X, large=±X, jackpot=±X }, gtype?, tier_min?, tier_max? }",
+        affects     = "ctx.win_dist_shifts (ordered list)",
+    },
+
+    -- Pre-roll auto-win override. Each entry's `amount` (0..1) sums into
+    -- a per-hand auto-win probability filtered by gtype. sampleOutcome
+    -- rolls once before the natural WC roll; success forces won=true.
+    -- Top-of-pipeline — bypasses fill_window / distribution shifts.
+    -- Used by MTT Pro to flat-bump MTT cash rate at every tier.
+    auto_win_chance = {
+        description = "Pushes an auto-win-probability descriptor onto ctx.auto_win_chances.",
+        value_shape = "{ amount = 0..1, gtype? }",
+        affects     = "ctx.auto_win_chances (ordered list)",
+    },
+
     -- ── Tier re-roll shifts ─────────────────────────────────────────────
     -- After sampleOutcome picks a tier, an optional re-roll bumps the tier
     -- up (win path) or down (loss path) with a configured chance. Different

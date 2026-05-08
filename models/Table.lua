@@ -241,6 +241,22 @@ local function buildOutcome(ctx, gtype, stake)
         end
     end
 
+    -- 4c. Catalog/deck ctx.win_dist_shifts — same mechanism, win side.
+    --     Optional tier_min / tier_max bounds let tier-scoped decks
+    --     (e.g. Low Stakes Hero) reshape the win-dist only at certain
+    --     stakes. Stake tier index is the 1-based position in the
+    --     Stakes data list — looked up via Lookups.indexById.
+    if ctx and ctx.win_dist_shifts then
+        local tier_idx = stake and Lookups.indexById(StakesData, stake.id) or nil
+        for _, sh in ipairs(ctx.win_dist_shifts) do
+            local tier_ok = (not sh.tier_min or (tier_idx and tier_idx >= sh.tier_min))
+                            and (not sh.tier_max or (tier_idx and tier_idx <= sh.tier_max))
+            if shiftApplies(sh, gtype) and tier_ok then
+                distAddInPlace(win_dist, sh.shift)
+            end
+        end
+    end
+
     -- 5. Catalog ctx.win_chance_shifts — flat additive ON TOP of the lerp.
     --    The only mechanism for crossing run-capped toward the absolute cap.
     if ctx and ctx.win_chance_shifts then
@@ -275,8 +291,28 @@ local function buildOutcome(ctx, gtype, stake)
 end
 
 -- Sample (won, tier) from the 3-distribution outcome.
-local function sampleOutcome(win_chance, win_dist, loss_dist)
-    local won = love.math.random() < win_chance
+--
+-- Auto-win check fires BEFORE the WC roll: for each ctx.auto_win_chances
+-- entry whose gtype filter passes, sum the `amount` and roll once against
+-- the total. A successful roll forces won=true regardless of the natural
+-- win_chance — used by MTT Pro to flat-bump cash rate without touching
+-- the fill / distribution pipeline.
+local function sampleOutcome(win_chance, win_dist, loss_dist, ctx, gtype)
+    local won = false
+    if ctx and ctx.auto_win_chances then
+        local total = 0
+        for _, e in ipairs(ctx.auto_win_chances) do
+            if shiftApplies(e, gtype) then
+                total = total + (e.amount or 0)
+            end
+        end
+        if total > 0 and love.math.random() < total then
+            won = true
+        end
+    end
+    if not won then
+        won = love.math.random() < win_chance
+    end
     local tier = sampleDist(won and win_dist or loss_dist) or "small"
     return won, tier
 end
@@ -464,7 +500,7 @@ function Table:deal(ctx)
     -- Build the table's outcome and sample. Opponents no longer affect
     -- the math — they're cosmetic seats.
     local wc, wd, ld = buildOutcome(ctx, gtype, stake)
-    local won, tier = sampleOutcome(wc, wd, ld)
+    local won, tier = sampleOutcome(wc, wd, ld, ctx, gtype)
 
     -- Post-sample tier re-rolls (Self-Help Book / Lava Lamp on the win
     -- side; Stress Ball / Worry Stone on the loss side). Each shift fires

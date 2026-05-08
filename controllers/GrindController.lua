@@ -367,19 +367,57 @@ function GrindController:update(dt)
             end
         end
 
-        -- Deck XP accrual on every resolved hand. Active deck only; the
-        -- rule kind on the deck spec decides whether and how much. bb_delta
-        -- is computed from the cash-side $ delta against the table's stake.bb;
-        -- tournament binary_outcome hands have r.delta = 0 → bb_delta = 0,
-        -- and the bb_won applicator returns 0 in that case. Gated on
-        -- FEATURES.DECKS so the prototype build accrues no silent state.
+        -- Deck-system meta bookkeeping. Lifetime counters drive unlock
+        -- thresholds; the resolved-hand event drives active-deck XP. All
+        -- of this is gated on FEATURES.DECKS so the prototype build
+        -- accrues no silent state.
         if Constants.FEATURES and Constants.FEATURES.DECKS then
-            local bb = (stake and stake.bb and stake.bb > 0) and stake.bb or nil
+            local n_tables = self.pool:count()
+            local gtype_id = tbl and tbl.game_type_id
+
+            -- Lifetime counters: every resolution bumps hands_played; the
+            -- rest fire on their conditional events. Bumped BEFORE
+            -- checkPendingUnlocks so any threshold crossed by this hand
+            -- unlocks immediately.
+            state.lifetime_hands_played = (state.lifetime_hands_played or 0) + 1
+            if r.delta > 0 then
+                state.lifetime_money_won = (state.lifetime_money_won or 0) + r.delta
+            elseif r.delta < 0 then
+                state.lifetime_money_lost = (state.lifetime_money_lost or 0) + (-r.delta)
+            end
+            if r.won and r.tier == "jackpot" then
+                state.lifetime_jackpot_count = (state.lifetime_jackpot_count or 0) + 1
+            end
+            if r.won and gtype_id == "mtt" then
+                state.lifetime_mtt_hands_won = (state.lifetime_mtt_hands_won or 0) + 1
+            end
+            if n_tables >= 4 then
+                state.lifetime_hands_at_4plus_tables = (state.lifetime_hands_at_4plus_tables or 0) + 1
+            end
+
+            -- XP grant for the active deck. Event carries everything the
+            -- registered XP rules (parameterized by gtype / tier / etc.)
+            -- can filter on.
+            local bb           = (stake and stake.bb and stake.bb > 0) and stake.bb or nil
+            local stake_tier_idx = stake and Lookups.indexById(Stakes, stake.id) or nil
             self:_grantDeckXp({
-                won      = r.won and true or false,
-                bb_delta = bb and (r.delta / bb) or 0,
-                delta    = r.delta,
+                won            = r.won and true or false,
+                delta          = r.delta,
+                tier           = r.tier,
+                bb_delta       = bb and (r.delta / bb) or 0,
+                gtype          = gtype_id,
+                stake_tier_idx = stake_tier_idx,
+                n_tables       = n_tables,
             })
+
+            -- Newly-met unlock thresholds flip locked decks into the
+            -- player's roster. Returns the list of newly-unlocked ids;
+            -- effects cache only needs invalidating if anything actually
+            -- unlocked.
+            local newly = Decks.checkPendingUnlocks(state, self.game.unlock_rules)
+            if #newly > 0 then
+                self:invalidateEffects()
+            end
         end
     end
 

@@ -48,6 +48,61 @@ function Decks.activeSprite(state)
     return spec and spec.sprite or nil
 end
 
+-- Whether `spec` is currently unlocked for `state`. A spec without an
+-- `unlock` field is always unlocked (the starter deck). Otherwise the
+-- spec's unlock condition is dispatched through `unlock_registry`.
+-- A spec already in `state.unlocked_decks` is considered unlocked
+-- regardless of its current condition (one-way unlock — a deck never
+-- re-locks once earned).
+local function _isInUnlockedList(state, id)
+    if not state or not state.unlocked_decks then return false end
+    for _, owned_id in ipairs(state.unlocked_decks) do
+        if owned_id == id then return true end
+    end
+    return false
+end
+
+function Decks.isUnlocked(state, spec, unlock_registry)
+    if not spec then return false end
+    if _isInUnlockedList(state, spec.id) then return true end
+    if not spec.unlock then return true end
+    if not unlock_registry then return false end
+    return unlock_registry:check(spec.unlock, state)
+end
+
+-- Walk every spec; for each one not yet in `state.unlocked_decks`,
+-- check its unlock condition and (if satisfied) flip it into the
+-- unlocked list with fresh L1 / 0 XP entries. Returns the list of
+-- newly-unlocked ids so callers can react (toast, FX) — currently
+-- unused but the hook is there.
+function Decks.checkPendingUnlocks(state, unlock_registry)
+    local newly = {}
+    if not state then return newly end
+    state.unlocked_decks = state.unlocked_decks or {}
+    state.deck_levels    = state.deck_levels    or {}
+    state.deck_xp        = state.deck_xp        or {}
+
+    for _, spec in ipairs(DeckSpecs) do
+        if not _isInUnlockedList(state, spec.id) then
+            local unlocked
+            if not spec.unlock then
+                unlocked = true
+            elseif unlock_registry then
+                unlocked = unlock_registry:check(spec.unlock, state)
+            else
+                unlocked = false
+            end
+            if unlocked then
+                state.unlocked_decks[#state.unlocked_decks + 1] = spec.id
+                state.deck_levels[spec.id] = 1
+                state.deck_xp[spec.id]     = 0
+                newly[#newly + 1]          = spec.id
+            end
+        end
+    end
+    return newly
+end
+
 -- Resolve which level a given total XP value puts the deck at. Always
 -- >= 1, capped at spec.max_level.
 function Decks.levelForXp(spec, xp)

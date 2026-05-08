@@ -24,6 +24,7 @@
 -- factors so each runout is structurally weaker than the last.
 
 local BankrollTiers = require("data.bankroll_tiers")
+local Constants     = require("data.constants")
 
 -- Hard ceiling on r1 (the headline shove%). At 1.0 the player would
 -- be guaranteed to win runout 1, which trivializes the all-in moment;
@@ -89,16 +90,23 @@ local function buildRates(catalog, mult, tier)
     local r1   = clamp01(raw1)
     local r2   = clamp01(raw2)
     local r3   = clamp01(raw3)
-    -- Cap r1 + raw_r1 to 99% — the headline shove% never reads 100% or
-    -- overshoot. Player always sees a number that says "you might still
-    -- lose." Hard-gate R2 / R3 outcomes to losses: the dealer always
-    -- cheats once the cards reveal. In prototype this lands on the
-    -- end-of-demo modal; outside prototype the player sees the cheat
-    -- play out, busts, and returns to grind like it never happened.
-    if raw1 > R1_DISPLAY_CAP then raw1 = R1_DISPLAY_CAP end
-    if r1   > R1_DISPLAY_CAP then r1   = R1_DISPLAY_CAP end
+    -- Hard-gate R2 / R3 outcomes to losses: the dealer always cheats
+    -- once the cards reveal. In prototype this lands on the end-of-demo
+    -- modal; outside prototype the player sees the cheat play out,
+    -- busts, and returns to grind like it never happened. Universal.
     r2 = 0
     r3 = 0
+
+    -- Demo-cut only: cap r1 + raw_r1 to 99% so the headline shove%
+    -- never reads 100% / overshoot during the prototype build. Outside
+    -- the demo, raw_r1 stays uncapped so a deeply-grinded player can
+    -- read "220%" / "350%" — the "undeniable edge against a cheating
+    -- dealer" reading. r1 (the actual outcome roll) is still clamped
+    -- to 1.0 by clamp01 above; the math reality stands either way.
+    if Constants.FEATURES and Constants.FEATURES.DEMO_CUT then
+        if raw1 > R1_DISPLAY_CAP then raw1 = R1_DISPLAY_CAP end
+        if r1   > R1_DISPLAY_CAP then r1   = R1_DISPLAY_CAP end
+    end
     return {
         catalog  = catalog,
         tier     = tier,                -- { threshold, mult, label }

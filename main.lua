@@ -24,6 +24,7 @@ local AnimationSystem = require("services.AnimationSystem")
 local FloatingText    = require("services.FloatingTextSystem")
 local EffectsRegistry = require("services.EffectsRegistry")
 local XpRuleRegistry  = require("services.XpRuleRegistry")
+local UnlockRegistry  = require("services.UnlockRegistry")
 local FontService     = require("services.FontService")
 local HoverService    = require("services.HoverService")
 local CursorPool      = require("services.CursorPool")
@@ -40,9 +41,10 @@ local ThemeData     = require("data.theme")
 local StateMachine    = require("controllers.StateMachine")
 local InputController = require("controllers.InputController")
 
-local GameState    = require("models.GameState")
-local PokerEffects = require("models.poker_effects")
-local DeckXpRules  = require("models.deck_xp_rules")
+local GameState       = require("models.GameState")
+local PokerEffects    = require("models.poker_effects")
+local DeckXpRules     = require("models.deck_xp_rules")
+local DeckUnlockRules = require("models.deck_unlock_rules")
 local GrindState   = require("states.GrindState")
 local ShoveState   = require("states.ShoveState")
 local CreditsState = require("states.CreditsState")
@@ -137,6 +139,13 @@ local function buildGame()
     -- models/deck_xp_rules. Mirrors the effects-registry pairing.
     g.xp_rules = XpRuleRegistry:new()
     DeckXpRules.registerAll(g.xp_rules)
+
+    -- Same-shape registry for deck unlock conditions. Each registered
+    -- kind compares a lifetime counter on state against a threshold on
+    -- the spec's `unlock` block. Liftable into another idle game by
+    -- swapping the kinds registered from models/deck_unlock_rules.
+    g.unlock_rules = UnlockRegistry:new()
+    DeckUnlockRules.registerAll(g.unlock_rules)
 
     g.state_machine = StateMachine:new(g)
     g.state_machine:register("grind",   GrindState:new(g))

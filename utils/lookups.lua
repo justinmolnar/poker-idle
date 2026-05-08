@@ -15,4 +15,16 @@ function Lookups.findById(list, id)
     return nil
 end
 
+-- Linear scan for the 1-based array index of the first item with matching
+-- `.id`, or nil. For ordered data tables (data/stakes.lua, etc.) the array
+-- position serves as the tier-index — useful when callers need both the
+-- item and where it sits in the progression.
+function Lookups.indexById(list, id)
+    if not list or id == nil then return nil end
+    for i, item in ipairs(list) do
+        if item.id == id then return i end
+    end
+    return nil
+end
+
 return Lookups
