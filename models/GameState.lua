@@ -9,6 +9,8 @@
 
 local AutoSerializer = require("services.AutoSerializer")
 local Constants      = require("data.constants")
+local Decks          = require("models.Decks")
+local DeckSpecs      = require("data.decks")
 
 local GameState = {}
 GameState.__index = GameState
@@ -32,6 +34,21 @@ function GameState:new(saved)
     instance.pp          = Constants.GAMEPLAY.INITIAL_PP
     instance.owned_items = {}
     instance.cleared     = false   -- true once the gauntlet is beaten — gates the credits screen on boot
+
+    -- Deck-system meta state (persists forever; never reset by prestige).
+    -- All decks unlocked from the start in this build; later unlock
+    -- conditions plug in by appending to this list rather than seeding it.
+    -- deck_levels / deck_xp default to L1 / 0 for every spec so the
+    -- effects pipeline has a clean baseline (L1 contributes one stack).
+    instance.unlocked_decks = {}
+    instance.deck_levels    = {}
+    instance.deck_xp        = {}
+    for _, spec in ipairs(DeckSpecs) do
+        instance.unlocked_decks[#instance.unlocked_decks + 1] = spec.id
+        instance.deck_levels[spec.id] = 1
+        instance.deck_xp[spec.id]     = 0
+    end
+    instance.active_deck_id = (DeckSpecs[1] and DeckSpecs[1].id) or nil
 
     -- Run-side defaults (wiped on prestige).
     instance.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
@@ -100,6 +117,19 @@ function GameState:wipeAll()
     self.pp          = Constants.GAMEPLAY.INITIAL_PP
     self.owned_items = {}
     self.cleared     = false
+    -- Deck state resets to all-decks-unlocked, all at L1, no XP, default
+    -- active. Mirrors the fresh-:new defaults so a fresh game starts
+    -- identical regardless of whether it boots into an empty save or a
+    -- cleared one.
+    self.unlocked_decks = {}
+    self.deck_levels    = {}
+    self.deck_xp        = {}
+    for _, spec in ipairs(DeckSpecs) do
+        self.unlocked_decks[#self.unlocked_decks + 1] = spec.id
+        self.deck_levels[spec.id] = 1
+        self.deck_xp[spec.id]     = 0
+    end
+    self.active_deck_id = (DeckSpecs[1] and DeckSpecs[1].id) or nil
     self:resetRun()
 end
 
@@ -115,12 +145,17 @@ function GameState:applySaved(saved)
     self.effects_cache = nil
 end
 
--- Serialize meta-only (PP, owned items, cleared flag). For meta.save.
+-- Serialize meta-only (PP, owned items, cleared flag, deck progression).
+-- For meta.save.
 function GameState:serializeMeta()
     return {
-        pp          = self.pp,
-        owned_items = self.owned_items,
-        cleared     = self.cleared,
+        pp              = self.pp,
+        owned_items     = self.owned_items,
+        cleared         = self.cleared,
+        unlocked_decks  = self.unlocked_decks,
+        deck_levels     = self.deck_levels,
+        deck_xp         = self.deck_xp,
+        active_deck_id  = self.active_deck_id,
     }
 end
 
@@ -182,6 +217,15 @@ function GameState:computeEffects(registry, catalog, run_upgrades)
         end
     end
 
+    -- Decks stack: every unlocked deck contributes its banked passive at
+    -- the current level via the same registry pipeline. Active vs.
+    -- inactive doesn't matter here — only XP accrual cares about that.
+    -- Gated on the feature flag so the prototype build's stat ctx stays
+    -- exactly as it was before the deck system existed.
+    if Constants.FEATURES and Constants.FEATURES.DECKS then
+        Decks.applyEffects(self, registry, ctx)
+    end
+
     self.effects_cache = ctx
     return ctx
 end
@@ -209,6 +253,20 @@ function GameState:tryBuyCatalogItem(item)
     self.owned_items[#self.owned_items + 1] = item.id
     self.effects_cache = nil
     return true
+end
+
+-- Set the active deck for XP-accrual purposes. Validates that `id` is in
+-- the player's unlocked_decks list. Returns true on success. Centralised
+-- so the deck-select view stays out of the model's internals.
+function GameState:setActiveDeck(id)
+    if not id or not self.unlocked_decks then return false end
+    for _, owned_id in ipairs(self.unlocked_decks) do
+        if owned_id == id then
+            self.active_deck_id = id
+            return true
+        end
+    end
+    return false
 end
 
 -- Apply meta-progression catalog perks that fire at run start.

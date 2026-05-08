@@ -37,6 +37,7 @@ local RunUpgrades    = require("data.run_upgrades")
 local Catalog        = require("data.catalog")
 local Constants      = require("data.constants")
 local ShoveRate      = require("models.shove_rate")
+local Decks          = require("models.Decks")
 
 local GrindView = {}
 GrindView.__index = GrindView
@@ -59,7 +60,7 @@ local BANKROLL_CELL_W      = 160
 -- walk in _drawTopBar.
 local CELL_W = {
     tied = 72, total = 72,                   -- money cluster
-    pp = 48, shove = 56,                     -- run cluster
+    pp = 48, shove = 56, deck = 50,          -- run cluster (deck is a sprite chip)
     tables = 72, focus = 56,                 -- workload cluster
 }
 local TOPBAR_LABEL_Y       = 8
@@ -171,6 +172,11 @@ local function recomputeLayout(W, H, fonts)
     CELL_W.total  = cellW("TOTAL",   "$999.99")
     CELL_W.pp     = cellW("PP",      "9999")
     CELL_W.shove  = cellW("SHOVE",   "999%")
+    -- Deck cell is a sprite chip, not a text value — size it from the
+    -- label width plus a fixed icon footprint (~36px scaled). Only takes
+    -- bar space when FEATURES.DECKS is on; the cluster collapses
+    -- otherwise (the cells_total sum below excludes it).
+    CELL_W.deck   = math.max(cellW("DECK", "L9"), math.floor(36 * s) + math.floor(8 * s))
     CELL_W.tables = cellW("TABLES",  "99 / 99")
     CELL_W.focus  = cellW("FOCUS",   "100%")
 
@@ -178,6 +184,9 @@ local function recomputeLayout(W, H, fonts)
     local cells_total    = CELL_W.tied  + CELL_W.total
                          + CELL_W.pp    + CELL_W.shove
                          + CELL_W.tables + CELL_W.focus
+    if Constants.FEATURES and Constants.FEATURES.DECKS then
+        cells_total = cells_total + CELL_W.deck
+    end
     local ideal_total    = ideal_bankroll + cells_total + 3 * CLUSTER_GAP
     local available      = W - TOPBAR_PAD_X - button_zone
 
@@ -361,12 +370,11 @@ function GrindView:_buildTablesTabComponents()
     -- to controller:addTable(stake_id, game_type_id).
     local gtype_id = self.selected_gtype
     for _, stake in ipairs(Stakes) do
-        -- Prototype build only ships T1-T3. T4-T6 are designed but not
-        -- balanced for the demo loop, so the +ADD-TABLE buttons are
-        -- hidden entirely when PROTOTYPE_MODE is on. Existing T4-T6
-        -- tables in a save still render through TablePanel — those die
-        -- naturally on the next reset.
-        local hidden = Constants.PROTOTYPE_MODE
+        -- T4-T6 are designed but not balanced for the demo loop, so the
+        -- +ADD-TABLE buttons are hidden when FEATURES.HIGH_TIER_STAKES
+        -- is off. Existing T4-T6 tables in a save still render through
+        -- TablePanel — those die naturally on the next reset.
+        local hidden = (not Constants.FEATURES.HIGH_TIER_STAKES)
                        and (stake.id == "s004" or stake.id == "s005" or stake.id == "s006")
         if not hidden then
             local full         = active >= cap
@@ -557,6 +565,40 @@ function GrindView:update(dt)
         TooltipSvc.set(ShoveRate.formatBreakdown(rates), mx, my)
     end
 
+    -- Top-bar DECK chip hover tooltip — name + level + bonus + how to
+    -- gain XP + progress + a footer note that all banked decks stack and
+    -- a click hint pointing at the roster modal. Only fires when
+    -- FEATURES.DECKS is on (the cell rect is nil otherwise).
+    local dr = self._deck_cell_rect
+    if dr and mx >= dr.x and mx < dr.x + dr.w and my >= dr.y and my < dr.y + dr.h then
+        local state = self.game.state
+        local active_id = state.active_deck_id
+        local spec = active_id and Decks.specById(active_id)
+        if spec then
+            local level = (state.deck_levels and state.deck_levels[active_id]) or 1
+            local xp    = (state.deck_xp and state.deck_xp[active_id]) or 0
+            local into, span = Decks.progressInLevel(spec, level, xp)
+            local lines = {
+                spec.name or active_id,
+                string.format("L%d / %d  ·  %s",
+                    level, spec.max_level, spec.bonus_text or ""),
+                spec.xp_action_text or "",
+            }
+            if span then
+                lines[#lines + 1] = string.format("%d / %d XP to L%d",
+                    math.floor(into), math.floor(span), level + 1)
+            else
+                lines[#lines + 1] = "MAXED"
+            end
+            lines[#lines + 1] = ""
+            lines[#lines + 1] = "All unlocked decks contribute their bonus,"
+            lines[#lines + 1] = "even when not active. Swap at shove."
+            lines[#lines + 1] = ""
+            lines[#lines + 1] = "Click to view your full roster."
+            TooltipSvc.set(lines, mx, my)
+        end
+    end
+
     -- Top-bar workload cluster (TABLES · FOCUS) hover tooltip. Explains
     -- what the "N / cap" reading means, what FOCUS does, and the
     -- penalty math the inline cells deliberately don't surface.
@@ -599,17 +641,13 @@ end
 
 -- ─── Top bar ───────────────────────────────────────────────────────────
 
+-- Hybrid: precise to two decimals under $1k (so the readout never
+-- overstates what's purchasable), abbreviated K/M/B at $1k+ (so the
+-- top-bar cluster stays narrow). TablePanel uses Format.moneyExact
+-- directly because per-table readouts want the precise integer instead.
 local function moneyText(n)
-    n = n or 0
-    -- Floor to 2 decimals so the displayed bankroll never overstates
-    -- what's actually purchasable. See views/TablePanel:moneyText for
-    -- the same treatment on per-table readouts.
-    if math.abs(n) < 1000 then
-        local floored = math.floor(n * 100) / 100
-        if n < 0 then floored = -math.floor(-n * 100) / 100 end
-        return string.format("$%.2f", floored)
-    end
-    return Format.money(math.floor(n))
+    if math.abs(n or 0) < 1000 then return Format.moneyExact(n) end
+    return Format.money(n)
 end
 
 local function ppText(n)
@@ -630,6 +668,62 @@ local function drawStatCell(x, w, label, value, value_color, fonts)
     love.graphics.setFont(fonts.md)
     Theme.setColor(value_color)
     love.graphics.print(value, x, TOPBAR_VALUE_Y)
+end
+
+-- Draws the active-deck card-back chip at the given x, in a `w`-wide
+-- column. Returns the cell hit rect for hover-tooltip dispatch in
+-- update(). Caller should only invoke this when FEATURES.DECKS is on.
+function GrindView:_drawDeckCell(x, w, fonts)
+    local state = self.game.state
+    local active_id = state.active_deck_id
+    local spec = active_id and Decks.specById(active_id)
+    local cell_rect = { x = x, y = 0, w = w, h = TOP_BAR_H }
+    if not spec then return cell_rect end
+
+    local s = self.game.ui_scale or 1
+    local sprite = self.game.sprite_loader:getSprite(spec.sprite)
+
+    -- Icon sized to fit the bar height with a small inset. Maintains a
+    -- 2.5:3.5 card-shaped aspect ratio so it reads as a card back even
+    -- when the texture below is missing.
+    local inset = math.floor(4 * s)
+    local icon_h = TOP_BAR_H - inset * 2
+    local icon_w = math.floor(icon_h * 2.5 / 3.5)
+    local icon_x = x + math.floor((w - icon_w) / 2)
+    local icon_y = inset
+
+    if sprite then
+        local sx = icon_w / sprite:getWidth()
+        local sy = icon_h / sprite:getHeight()
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.draw(sprite, icon_x, icon_y, 0, sx, sy)
+    else
+        -- Fallback rect with a "?" marker if the asset failed to load.
+        Theme.setColor(Theme.bg.sunken)
+        love.graphics.rectangle("fill", icon_x, icon_y, icon_w, icon_h, 2)
+        Theme.setColor(Theme.fg.faint)
+        love.graphics.setFont(fonts.sm)
+        love.graphics.printf("?", icon_x,
+            icon_y + math.floor((icon_h - fonts.sm:getHeight()) / 2),
+            icon_w, "center")
+    end
+
+    -- Level badge overlay (bottom-right of the icon). Compact "L3" tag
+    -- so the active level reads at a glance without the tooltip.
+    local level = (state.deck_levels and state.deck_levels[active_id]) or 1
+    local lvl_text = "L" .. tostring(level)
+    love.graphics.setFont(fonts.sm)
+    local lvl_w = fonts.sm:getWidth(lvl_text) + math.floor(6 * s)
+    local lvl_h = fonts.sm:getHeight() + math.floor(2 * s)
+    local lvl_x = icon_x + icon_w - lvl_w + math.floor(2 * s)
+    local lvl_y = icon_y + icon_h - lvl_h + math.floor(2 * s)
+    Theme.setColor(Theme.bg.window, 0.85)
+    love.graphics.rectangle("fill", lvl_x, lvl_y, lvl_w, lvl_h, 2)
+    Theme.setColor(Theme.fg.heading)
+    love.graphics.print(lvl_text, lvl_x + math.floor(3 * s),
+                        lvl_y + math.floor(1 * s))
+
+    return cell_rect
 end
 
 function GrindView:_drawTopBar(W)
@@ -707,13 +801,25 @@ function GrindView:_drawTopBar(W)
         x = tied_cell_x, y = 2, w = CELL_W.tied, h = TOP_BAR_H - 4,
     }
 
-    -- Run cluster: PP · SHOVE
+    -- Run cluster: PP · SHOVE · (DECK)
     drawStatCell(x, CELL_W.pp, "PP", ppText(d_pp), Theme.fg.heading, fonts)
     x = x + CELL_W.pp
     local shove_cell_x = x
     drawStatCell(x, CELL_W.shove, "SHOVE",
                  string.format("%.0f%%", r1_raw * 100), rate_color, fonts)
-    x = x + CELL_W.shove + CLUSTER_GAP
+    x = x + CELL_W.shove
+
+    -- DECK chip (sprite) sits in the run cluster when FEATURES.DECKS is
+    -- on. The chip renders the active deck's card-back at icon size with
+    -- a level overlay; the hover tooltip in update() carries the full
+    -- name + bonus + XP-to-next breakdown.
+    if Constants.FEATURES and Constants.FEATURES.DECKS then
+        self._deck_cell_rect = self:_drawDeckCell(x, CELL_W.deck, fonts)
+        x = x + CELL_W.deck
+    else
+        self._deck_cell_rect = nil
+    end
+    x = x + CLUSTER_GAP
 
     -- Stash the SHOVE cell rect for hover tooltip in update().
     self._shove_cell_rect = {
@@ -1110,7 +1216,9 @@ function GrindView:_drawBankrollChips(W, H)
     if bankroll <= 0 then return end
 
     local tier = Denoms.tierFromAmount(bankroll)
-    local chips = Denoms.breakdown(bankroll, ChipData.full_palette, tier)
+    local chips = Denoms.breakdown(bankroll, ChipData.denominations,
+                                   ChipData.full_palette,
+                                   ChipData.tier_chip_target, tier)
     -- Cap to the bottom band's width so a huge bankroll doesn't march
     -- past the center-column edges. drawStack drops smallest-denom
     -- columns from the tail until it fits.
@@ -1195,6 +1303,17 @@ function GrindView:mousepressed(x, y, b)
         return
     end
 
+    -- DECK chip (top bar, run cluster). Opens the read-only roster
+    -- modal — swapping the active deck is restricted to the post-shove
+    -- ritual, but the player can inspect their decks any time.
+    local deck_rect = self._deck_cell_rect
+    if deck_rect
+       and x >= deck_rect.x and x < deck_rect.x + deck_rect.w
+       and y >= deck_rect.y and y < deck_rect.y + deck_rect.h then
+        if self.game.openDeckRoster then self.game.openDeckRoster() end
+        return
+    end
+
     -- Settings button (top bar, rightmost).
     local set_rect = self:_settingsButtonRect()
     if x >= set_rect.x and x < set_rect.x + set_rect.w
@@ -1274,6 +1393,17 @@ function GrindView:_handleSidebarButton(id)
     -- CatalogModal (see views/CatalogModal.lua).
 end
 
+-- Hit-box action handlers. Adding a new clickable region = one entry here
+-- + one hit-box record in TablePanel/GrindView's draw walk that carries
+-- the same action key. No if/elseif chain on hb.action.
+local HIT_BOX_HANDLERS = {
+    deal                = function(self, hb) self.controller:dealHand(hb.idx)              end,
+    rebuy               = function(self, hb) self.controller:rebuyTable(hb.idx)            end,
+    remove_table        = function(self, hb) self.controller:removeTable(hb.idx)           end,
+    toggle_cursor       = function(self, hb) self.controller:toggleCursorMute(hb.idx)      end,
+    toggle_rebuy_cursor = function(self, hb) self.controller:toggleCursorRebuyMute(hb.idx) end,
+}
+
 function GrindView:_handleHitBox(hb)
     -- Click-feedback flash. Single trigger point catches mouse-driven and
     -- cursor-swarm dispatches alike (cursor pool routes through here).
@@ -1301,17 +1431,8 @@ function GrindView:_handleHitBox(hb)
         if ghost then Ghosts.add(ghost) end
     end
 
-    if hb.action == "deal" then
-        self.controller:dealHand(hb.idx)
-    elseif hb.action == "rebuy" then
-        self.controller:rebuyTable(hb.idx)
-    elseif hb.action == "remove_table" then
-        self.controller:removeTable(hb.idx)
-    elseif hb.action == "toggle_cursor" then
-        self.controller:toggleCursorMute(hb.idx)
-    elseif hb.action == "toggle_rebuy_cursor" then
-        self.controller:toggleCursorRebuyMute(hb.idx)
-    end
+    local handler = HIT_BOX_HANDLERS[hb.action]
+    if handler then handler(self, hb) end
 end
 
 function GrindView:mousereleased(_, _, _)

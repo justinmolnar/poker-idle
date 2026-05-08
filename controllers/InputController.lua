@@ -31,24 +31,11 @@ function InputController:wire()
             sm:switch(next_name)
         end)
 
-    -- ── Manual save management (auto-save is disabled) ───────────────
-    --   F5 — save current in-memory state to disk
-    --   F6 — reload state from disk, wiping anything unsaved
+    -- ── Save debug hotkeys ────────────────────────────────────────────
+    -- Auto-save runs unconditionally now (see main.lua), so no manual
+    -- F5 commit is needed. F6 / F7 stick around as dev affordances:
+    --   F6 — reload state from disk (snap back to last autosave checkpoint)
     --   F7 — delete both save slots and reset to a fresh game
-
-    dispatcher:on("keypressed",
-        function(key) return key == "f5" end,
-        function()
-            local state = game.state
-            game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
-            local total_levels = 0
-            for _, lvl in pairs(state.run_upgrade_levels) do
-                total_levels = total_levels + lvl
-            end
-            print(string.format(
-                "[save] F5 — saved.  bankroll=$%.2f  pp=%d  owned=%d  run_upgrade_levels=%d",
-                state.bankroll, state.pp, #state.owned_items, total_levels))
-        end)
 
     -- Walk the state-machine and tell each state to nuke its transient
     -- mid-flow state (running gauntlet, prestige modal, animation timer,

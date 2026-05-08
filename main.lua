@@ -23,6 +23,7 @@ local SpriteLoader    = require("services.SpriteLoader")
 local AnimationSystem = require("services.AnimationSystem")
 local FloatingText    = require("services.FloatingTextSystem")
 local EffectsRegistry = require("services.EffectsRegistry")
+local XpRuleRegistry  = require("services.XpRuleRegistry")
 local FontService     = require("services.FontService")
 local HoverService    = require("services.HoverService")
 local CursorPool      = require("services.CursorPool")
@@ -41,6 +42,7 @@ local InputController = require("controllers.InputController")
 
 local GameState    = require("models.GameState")
 local PokerEffects = require("models.poker_effects")
+local DeckXpRules  = require("models.deck_xp_rules")
 local GrindState   = require("states.GrindState")
 local ShoveState   = require("states.ShoveState")
 local CreditsState = require("states.CreditsState")
@@ -48,11 +50,11 @@ local TitleState   = require("states.TitleState")
 
 local Game = nil
 
--- Periodic auto-save accumulator. Only ticks while PROTOTYPE_MODE is on
--- and we're inside the gameplay states (not title/credits). Persisted
--- in love.update; reset whenever a save fires.
+-- Periodic auto-save accumulator. Only ticks while we're inside the
+-- gameplay states (not title/credits) and no menu-class modal is up.
+-- Persisted in love.update; reset whenever a save fires.
 local autosave_timer = 0
-local AUTOSAVE_INTERVAL = 10  -- seconds; matches plan-mode answer
+local AUTOSAVE_INTERVAL = 10  -- seconds
 
 local function buildGame()
     local g = {
@@ -130,6 +132,12 @@ local function buildGame()
     g.effects = EffectsRegistry:new()
     PokerEffects.registerAll(g.effects)
 
+    -- Same-shape registry for deck XP rules. Engine-agnostic skeleton
+    -- (services/XpRuleRegistry); poker-specific kinds register from
+    -- models/deck_xp_rules. Mirrors the effects-registry pairing.
+    g.xp_rules = XpRuleRegistry:new()
+    DeckXpRules.registerAll(g.xp_rules)
+
     g.state_machine = StateMachine:new(g)
     g.state_machine:register("grind",   GrindState:new(g))
     g.state_machine:register("shove",   ShoveState:new(g))
@@ -138,8 +146,8 @@ local function buildGame()
 
     g.input_dispatcher = InputDispatcher:new()
     g.input_controller = InputController:new(g)
-    if Constants.PROTOTYPE_MODE then
-        -- All DEV hotkeys (F2/F5/F6/F7/backtick/-/=) are skipped — none
+    if not Constants.FEATURES.DEV_HOTKEYS then
+        -- All DEV hotkeys (F2/F6/F7/backtick/-/=) are skipped — none
         -- of those dispatcher predicates run. But keypressed still
         -- forwards to the active state so modal-class keys like SPACE
         -- (continue), ENTER, and ESC keep working for normal UX.
@@ -167,12 +175,10 @@ function love.load()
     -- failures log a warning and degrade gracefully (no crash).
     ShaderRegistry.loadFromFile("radial_glow", "shaders/radial_glow.frag")
 
-    if Constants.PROTOTYPE_MODE then
-        Game.state_machine:switch("title")
-    elseif Constants.DEBUG.START_IN_SHOVE then
+    if Constants.DEBUG.START_IN_SHOVE then
         Game.state_machine:switch("shove")
     else
-        Game.state_machine:switch("grind")
+        Game.state_machine:switch("title")
     end
 
     print("[main] Poker Idle booted. Active state: " .. tostring(Game.state_machine:current()))
@@ -193,22 +199,22 @@ function love.update(dt)
     ClickFlash.update(dt)
     Ghosts.update(dt)
 
-    -- Periodic auto-save in PROTOTYPE_MODE. Skip the menu-class states
-    -- (title/credits) so we don't churn disk while the player sits at
-    -- a static screen. Also skip while a "menu-class" modal is up over
-    -- gameplay (catalog / prestige / prototype-end) — during a multi-
-    -- minute post-bust catalog browse the autosave was firing every 10s
-    -- and queueing JSON writes to Emscripten's IDBFS, then stalling the
-    -- frame when the queue flushed on resume to grind. Counter resets
-    -- on each save; love.quit still flushes unconditionally so anything
-    -- not yet persisted lands on exit.
-    if Constants.PROTOTYPE_MODE then
+    -- Periodic auto-save. Skip the menu-class states (title/credits) so
+    -- we don't churn disk while the player sits at a static screen. Also
+    -- skip while a "menu-class" modal is up over gameplay (catalog /
+    -- prestige / prototype-end) — during a multi-minute post-bust catalog
+    -- browse the autosave was firing every 10s and queueing JSON writes
+    -- to Emscripten's IDBFS, then stalling the frame when the queue
+    -- flushed on resume to grind. Counter resets on each save; love.quit
+    -- flushes unconditionally so anything not yet persisted lands on exit.
+    do
         local sm  = Game.state_machine
         local cur = sm:current()
         local s   = sm.current_state
         local idle_modal = s and (s.catalog_modal
                                   or s.prestige_modal
-                                  or s.prototype_end_modal)
+                                  or s.prototype_end_modal
+                                  or s.deck_select_modal)
         if (cur == "grind" or cur == "shove") and not idle_modal then
             autosave_timer = autosave_timer + dt
             if autosave_timer >= AUTOSAVE_INTERVAL then
@@ -261,11 +267,10 @@ function love.resize(w, h)
 end
 
 function love.quit()
-    -- In PROTOTYPE_MODE flush one final save so anything between the
-    -- last 10s tick and quit doesn't get lost. Skip from the menu-
-    -- class states (no useful run state to commit). Outside prototype
-    -- mode the dev workflow is manual F5 / F7 only — preserve that.
-    if Game and Constants.PROTOTYPE_MODE then
+    -- Flush one final save so anything between the last autosave tick and
+    -- quit doesn't get lost. Skip from the menu-class states (no useful
+    -- run state to commit).
+    if Game then
         local current = Game.state_machine and Game.state_machine:current()
         if current == "grind" or current == "shove" then
             local state = Game.state

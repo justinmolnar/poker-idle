@@ -25,7 +25,7 @@ local _file_sources = {}   -- { [path] = love.audio.Source }   prototype/cloned 
 -- back to a fresh clone only when every existing clone is still mid-
 -- playback. Memory plateaus at the peak number of concurrent overlapping
 -- plays per file; without this, every fire-and-forget play allocated a
--- new Source (~165 per gauntlet) and held the WebAudio node alive until
+-- new Source (hundreds per dense burst) and held the WebAudio node alive until
 -- the browser GC caught up. Browser-side that GC was lazy enough to
 -- compound with other heap pressure into observable lag.
 local _clone_pool   = {}   -- { [path] = { source, source, ... } }

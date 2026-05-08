@@ -123,6 +123,88 @@ local function buttonH(comp, content_w, game)
     return Button.allocatedH(contentH(comp, content_w, game), BTN_DEPTH)
 end
 
+-- ─── Type registry (data-driven dispatch) ───────────────────────────────────
+--
+-- Adding a new component type = one entry here. No if/elseif chains on
+-- comp.type anywhere; both draw and hit-test walk the registry.
+--
+-- Per-type slots (all optional except `measureH`):
+--   draw(comp, px, pw, p, y, game) → h         renders, returns allocated h
+--   hit (comp, px, pw, p, y, h, cx, cy) → res  hit-test, returns comp/item or nil
+--   measureH(comp, content_w, game) → h        height the layout walker should
+--                                              advance by, computed before draw
+--                                              so hit-test knows the rect
+--
+-- Note: `draw` may return the same value `measureH` reports — the registry
+-- doesn't enforce equality, but layout drift is the consequence if they
+-- diverge.
+
+local function _drawDivider(comp, px, pw, p, y, _game)
+    Theme.setColor(Theme.border.soft)
+    love.graphics.rectangle("fill", px + p, y + 2, pw - p * 2, Theme.space.hairline)
+    return comp.h or 6
+end
+
+local function _drawSpacer(comp, _px, _pw, _p, _y, _game)
+    return comp.h or 8
+end
+
+local function _drawCustom(comp, px, pw, _p, y, game)
+    local h = comp.h or 0
+    if comp.draw_fn then comp.draw_fn(px, y, pw, h, game) end
+    return h
+end
+
+local function _hitButton(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
+    if comp.disabled then return nil end
+    if cy >= cursor_y and cy < cursor_y + h
+       and cx >= panel_x + p and cx < panel_x + panel_w - p then
+        if comp.id then HoverSvc.set("button", comp.id) end
+        if comp.tooltip then
+            local mx, my = love.mouse.getPosition()
+            require("services.Tooltip").set(comp.tooltip, mx, my)
+        end
+        return comp
+    end
+    return nil
+end
+
+local function _hitIconRow(comp, panel_x, _panel_w, p, cursor_y, _h, cx, cy)
+    if cy >= cursor_y and cy < cursor_y + (ICON_SIZE + 4) then
+        local icon_x = panel_x + p + 5
+        for _, item in ipairs(comp.items or {}) do
+            if cx >= icon_x and cx < icon_x + ICON_SIZE then
+                return item
+            end
+            icon_x = icon_x + ICON_SIZE + ICON_SPACING
+        end
+    end
+    return nil
+end
+
+local function _hitCustom(comp, panel_x, panel_w, _p, cursor_y, h, cx, cy)
+    if comp.hit_fn and cy >= cursor_y and cy < cursor_y + h then
+        local result = comp.hit_fn(panel_x, cursor_y, panel_w, h, cx, cy)
+        if result then return result end
+    end
+    return nil
+end
+
+local function _staticH(default)
+    return function(comp, _w, _game) return comp.h or default end
+end
+
+CR.types = {
+    label    = { draw = nil,           hit = nil,        measureH = _staticH(24) },
+    button   = { draw = nil,           hit = _hitButton, measureH = function(comp, w, game) return buttonH(comp, w, game) end },
+    -- icon_row reads ICON_ROW_H live: CR.setScale mutates the upvalue at
+    -- runtime, so a captured default would freeze at the boot value.
+    icon_row = { draw = nil,           hit = _hitIconRow, measureH = function(comp, _w, _g) return comp.h or ICON_ROW_H end },
+    divider  = { draw = _drawDivider,  hit = nil,        measureH = _staticH(6) },
+    spacer   = { draw = _drawSpacer,   hit = nil,        measureH = _staticH(8) },
+    custom   = { draw = _drawCustom,   hit = _hitCustom, measureH = _staticH(0) },
+}
+
 -- ─── Draw ────────────────────────────────────────────────────────────────────
 
 function CR.draw(components, panel_x, panel_w, game, scroll_view)
@@ -137,27 +219,10 @@ function CR.draw(components, panel_x, panel_w, game, scroll_view)
     return cursor_y
 end
 
-function CR._drawComp(comp, px, pw, p, y, game, scroll_view)
-    local t = comp.type
-
-    if t == "label" then
-        return CR._label(comp, px, pw, p, y, game)
-    elseif t == "button" then
-        return CR._button(comp, px, pw, p, y, game)
-    elseif t == "icon_row" then
-        return CR._iconRow(comp, px, pw, p, y, game)
-    elseif t == "divider" then
-        Theme.setColor(Theme.border.soft)
-        love.graphics.rectangle("fill", px + p, y + 2, pw - p * 2, Theme.space.hairline)
-        return comp.h or 6
-    elseif t == "spacer" then
-        return comp.h or 8
-    elseif t == "custom" then
-        local h = comp.h or 0
-        if comp.draw_fn then comp.draw_fn(px, y, pw, h, game) end
-        return h
-    end
-    return comp.h or 0
+function CR._drawComp(comp, px, pw, p, y, game, _scroll_view)
+    local def = CR.types[comp.type]
+    if not (def and def.draw) then return comp.h or 0 end
+    return def.draw(comp, px, pw, p, y, game)
 end
 
 function CR._label(comp, px, pw, p, y, game)
@@ -328,54 +393,24 @@ function CR.hitTest(components, panel_x, panel_w, cx, cy, game)
     local p = 10
 
     for _, comp in ipairs(components) do
-        local h
-
-        if comp.type == "button" then
-            h = buttonH(comp, panel_w - p * 2, game)
-            if not comp.disabled
-            and cy >= cursor_y and cy < cursor_y + h
-            and cx >= panel_x + p and cx < panel_x + panel_w - p then
-                if comp.id then
-                    require("services.HoverService").set("button", comp.id)
-                end
-                -- Stash the tooltip if the component carries one. The
-                -- raw screen-space mouse position is what the Tooltip
-                -- service wants for anchoring; the caller passes panel-
-                -- content-space `cy`, but `cx` is screen-space.
-                if comp.tooltip then
-                    local mx, my = love.mouse.getPosition()
-                    require("services.Tooltip").set(comp.tooltip, mx, my)
-                end
-                return comp
-            end
-
-        elseif comp.type == "icon_row" then
-            h = comp.h or ICON_ROW_H
-            if cy >= cursor_y and cy < cursor_y + (ICON_SIZE + 4) then
-                local icon_x = panel_x + p + 5
-                for _, item in ipairs(comp.items or {}) do
-                    if cx >= icon_x and cx < icon_x + ICON_SIZE then
-                        return item
-                    end
-                    icon_x = icon_x + ICON_SIZE + ICON_SPACING
-                end
-            end
-
-        elseif comp.type == "custom" then
-            h = comp.h or 0
-            if comp.hit_fn and cy >= cursor_y and cy < cursor_y + h then
-                local result = comp.hit_fn(panel_x, cursor_y, panel_w, h, cx, cy)
-                if result then return result end
-            end
-
-        else
-            h = comp.h or 0
+        local def = CR.types[comp.type]
+        local h = def and def.measureH(comp, panel_w - p * 2, game) or (comp.h or 0)
+        if def and def.hit then
+            local result = def.hit(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
+            if result then return result end
         end
-
-        cursor_y = cursor_y + (h or 0)
+        cursor_y = cursor_y + h
     end
 
     return nil
 end
+
+-- Wire the draw slots that depend on private renderers defined above.
+-- Done at the bottom because CR._label / CR._button / CR._iconRow are
+-- only assigned during the file's top-to-bottom load — referencing them
+-- inside the registry literal would capture nil.
+CR.types.label.draw    = function(c, px, pw, p, y, g) return CR._label   (c, px, pw, p, y, g) end
+CR.types.button.draw   = function(c, px, pw, p, y, g) return CR._button  (c, px, pw, p, y, g) end
+CR.types.icon_row.draw = function(c, px, pw, p, y, g) return CR._iconRow (c, px, pw, p, y, g) end
 
 return CR

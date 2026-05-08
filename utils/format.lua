@@ -24,6 +24,21 @@ function Format.money(n)
     return "$" .. Format.formatBig(n or 0)
 end
 
+-- Precise money formatting — keeps two decimals under $1k and floors to
+-- whole dollars at $1k+. Used where the readout must always be ≤ the
+-- actually-owned value (otherwise an "I see $0.50, can't afford a $0.50
+-- buy" rounding mismatch can appear: stored 0.4999… formats to $0.50 with
+-- round-to-nearest, but the affordability check uses the precise value).
+function Format.moneyExact(n)
+    n = n or 0
+    if math.abs(n) < 1000 then
+        local floored = math.floor(n * 100) / 100
+        if n < 0 then floored = -math.floor(-n * 100) / 100 end
+        return string.format("$%.2f", floored)
+    end
+    return string.format("$%.0f", math.floor(n))
+end
+
 -- Percentage formatting: 0.345 → "34.5%".
 function Format.percent(frac, decimals)
     decimals = decimals or 1

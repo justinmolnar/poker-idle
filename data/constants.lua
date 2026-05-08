@@ -5,13 +5,40 @@
 
 local C = {}
 
--- Build-mode flag. When true the game ships in "prototype" shape:
--- title-screen boot, T1-T3 stakes only, all dev hotkeys disabled,
--- silent periodic auto-save, real volume slider, and a Prototype
--- Complete modal at the win-R1/lose-R2 cliffhanger. Flip to false
--- to restore the dev-build behavior (manual saves, hotkeys live,
--- all 6 stakes, no title screen).
-C.PROTOTYPE_MODE = true
+-- Master build-mode preset. Toggling this flips every entry in
+-- C.FEATURES below. New systems should each declare their own flag in
+-- C.FEATURES and reference it directly — don't add new branches on
+-- C.PROTOTYPE_MODE.
+--
+-- Things that always run regardless of this flag: auto-save, the title
+-- screen, the dealer-always-cheats outcome.
+C.PROTOTYPE_MODE = false
+
+-- Per-feature flags. Default values follow C.PROTOTYPE_MODE; override an
+-- individual entry below the assignment if you need a non-default mix
+-- for testing (e.g. develop the deck system with HIGH_TIER_STAKES = true
+-- but DEMO_CUT still on so the modal-end is still wired up).
+C.FEATURES = {
+    -- Demo cut. Hard-stops the gauntlet at win-R1/lose-R2 with the
+    -- Prototype Complete modal; suppresses the R2/R3 cinematic; collapses
+    -- the result-chip strip to a single slot. The three coordinated
+    -- effects exist together — flipping individual pieces produces
+    -- broken UI (e.g. modal off + single-slot = no end + no R2 reveal).
+    DEMO_CUT          = C.PROTOTYPE_MODE,
+
+    -- Show T4-T6 stakes in the grind view's add-table buttons. Existing
+    -- T4-T6 tables in a save still render; this only gates the +ADD-TABLE
+    -- buttons.
+    HIGH_TIER_STAKES  = not C.PROTOTYPE_MODE,
+
+    -- Wire the developer hotkeys (F2/F6/F7/backtick/-/=, H/J in grind,
+    -- R/[/]/D in shove). Off in shipping builds.
+    DEV_HOTKEYS       = not C.PROTOTYPE_MODE,
+
+    -- Future systems land here as they're built. Set true to develop;
+    -- the prototype build keeps them off until they're ready to ship.
+    DECKS             = true,
+}
 
 C.WINDOW = {
     title  = "Poker Idle",

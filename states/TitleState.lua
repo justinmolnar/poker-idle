@@ -1,7 +1,7 @@
 -- states/TitleState.lua
 --
--- Boot-screen state used in PROTOTYPE_MODE. Four buttons stacked in
--- the center of the window:
+-- Boot-screen state shown unconditionally on launch. Four buttons
+-- stacked in the center of the window:
 --   • Start       — fresh game (confirms first if a save exists)
 --   • Load Save   — switches to grind with whatever was loaded at boot
 --   • Delete Save — confirms, then clears the meta + run save slots
@@ -122,8 +122,10 @@ function TitleState:draw()
     end
 end
 
-function TitleState:_handleButton(id)
-    if id == "start" then
+-- Title-screen button handlers. Adding a new menu button = one entry
+-- here + one entry in the button list rendered in :draw.
+local BUTTON_HANDLERS = {
+    start = function(self)
         if hasSave() then
             self._confirm = ConfirmDialog:new{
                 prompt        = "Start a new game? Existing save will be erased.",
@@ -134,23 +136,29 @@ function TitleState:_handleButton(id)
         else
             self:_doStart()
         end
-    elseif id == "load" then
-        self.game.state_machine:switch("grind")
-    elseif id == "delete" then
+    end,
+    load = function(self) self.game.state_machine:switch("grind") end,
+    delete = function(self)
         self._confirm = ConfirmDialog:new{
             prompt        = "Delete your save? This cannot be undone.",
             danger        = true,
             confirm_label = "Delete",
             on_confirm    = function() self:_doDelete() end,
         }
-    elseif id == "exit" then
+    end,
+    exit = function(self)
         self._confirm = ConfirmDialog:new{
             prompt        = "Quit the game?",
             danger        = true,
             confirm_label = "Quit",
             on_confirm    = function() love.event.quit() end,
         }
-    end
+    end,
+}
+
+function TitleState:_handleButton(id)
+    local handler = BUTTON_HANDLERS[id]
+    if handler then handler(self) end
 end
 
 function TitleState:_doStart()

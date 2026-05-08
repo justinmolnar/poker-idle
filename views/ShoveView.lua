@@ -25,10 +25,12 @@
 local Theme                  = require("views.Theme")
 local HandEval               = require("models.HandEval")
 local Constants              = require("data.constants")
+local Decks                  = require("models.Decks")
 local SpriteRenderer         = require("services.SpriteRenderer")
 local Chips                  = require("views.Chips")
 local DenominationBreakdown  = require("services.DenominationBreakdown")
 local ChipData               = require("data.chips")
+local CardSprites            = require("views.CardSprites")
 
 local ShoveView = {}
 ShoveView.__index = ShoveView
@@ -179,7 +181,8 @@ function ShoveView:beginBuildup(rates)
     if n_target > BUILDUP_MAX_CHIPS then n_target = BUILDUP_MAX_CHIPS end
 
     local breakdown = DenominationBreakdown.breakdown(
-        bankroll, ChipData.full_palette, "jackpot")
+        bankroll, ChipData.denominations, ChipData.full_palette,
+        ChipData.tier_chip_target, "jackpot")
     -- Truncate / pad to n_target. The breakdown returns largest-first;
     -- we keep the front so the showcase + primary chunks survive even
     -- when the trailing small-denom tail gets cut.
@@ -320,11 +323,11 @@ function ShoveView:onGauntletBegin()
     -- R1 resolution.
     add(t, showChip(1), chipSound(1))
 
-    -- Prototype build stops here — R2 / R3 (the dealer's cheats) stay
+    -- Demo cut stops here — R2 / R3 (the dealer's cheats) stay
     -- unrevealed, so first-time players never see the 6th community
     -- card or the second chip slot. Win → prototype-end modal; loss
-    -- → standard prestige. R2 / R3 visuals are dev-build only.
-    if r.outcomes[1] and not Constants.PROTOTYPE_MODE then
+    -- → standard prestige. R2 / R3 visuals run when DEMO_CUT is off.
+    if r.outcomes[1] and not Constants.FEATURES.DEMO_CUT then
         t = t + RUNOUT_PAUSE + CHEAT_PAUSE
         add(t, startAnim("board_6", "cheat_card_dealt"), "cheat_card_dealt")
         t = t + 0.75
@@ -477,12 +480,7 @@ local function printCentered(text, font, x, y, w)
 end
 
 local function drawCardSprite(sl, sprite_name, x, y, w, h, scale_x, alpha)
-    scale_x = scale_x or 1
-    alpha   = alpha   or 1
-    local effective_w = w * scale_x
-    local cx = x + w / 2
-    local actual_x = cx - effective_w / 2
-    SpriteRenderer.draw(sl, sprite_name, actual_x, y, effective_w, h, { 1, 1, 1, alpha })
+    CardSprites.sprite(sl, sprite_name, x, y, w, h, scale_x, alpha)
 end
 
 local function visibleBoardCount(g)
@@ -639,7 +637,7 @@ function ShoveView:_drawBuildup(W, H)
         local lock_progress = math.min(1, lock_t / BUILDUP_LOCK_DURATION)
         local flash_alpha = math.max(0, 0.45 * (1 - lock_progress * 2))
         if flash_alpha > 0 then
-            love.graphics.setColor(1.0, 0.95, 0.80, flash_alpha)
+            Theme.setColor(Theme.fg.heading, flash_alpha)
             love.graphics.rectangle("fill", 0, 0, W, H)
         end
         love.graphics.setFont(fonts.lg)
@@ -659,7 +657,7 @@ function ShoveView:_drawBuildup(W, H)
     if fade_t > 0.4 then
         local label_alpha = math.min(1, (fade_t - 0.4) / 0.6)
         love.graphics.setFont(fonts.md)
-        love.graphics.setColor(1, 1, 1, label_alpha * 0.6)
+        Theme.setColor(Theme.fg.heading, label_alpha * 0.6)
         printCentered("PUSHING ALL IN…", fonts.md, 0, math.floor(H * 0.10), W)
     end
 end
@@ -683,7 +681,12 @@ end
 
 function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key)
     local sl = self.game.sprite_loader
-    local back = Constants.GAUNTLET.CARD_BACK_SPRITE
+    -- Active-deck override for the gauntlet hole-card back. Falls back
+    -- to the constant default when the deck system is off or the active
+    -- spec is missing, so the prototype build still renders cleanly.
+    local back = (Constants.FEATURES.DECKS
+                  and Decks.activeSprite(self.game.state))
+                 or Constants.GAUNTLET.CARD_BACK_SPRITE
     local front = card:spriteName()
     local deal_anim = self.card_anims[deal_key]
     local flip_anim = self.card_anims.hole_flip
@@ -771,12 +774,9 @@ function ShoveView:_drawShoveStatus(W, H)
     end
 end
 
--- Outline a card slot with a stroke. inset > 0 draws inside the card,
--- inset < 0 draws outside. Used for the player/dealer best-5 highlights.
+-- Wrapper for the best-5 stroke; lives in views/CardSprites.
 local function strokeSlot(x, y, w, h, inset, lw)
-    love.graphics.setLineWidth(lw)
-    love.graphics.rectangle("line", x + inset, y + inset, w - 2 * inset, h - 2 * inset, Theme.space.radius)
-    love.graphics.setLineWidth(1)
+    CardSprites.strokeSlot(x, y, w, h, inset, lw)
 end
 
 function ShoveView:draw()
@@ -817,9 +817,11 @@ function ShoveView:draw()
     love.graphics.setColor(FELT_R, FELT_G, FELT_B, 0.25)
     love.graphics.rectangle("fill", 0, felt_top + felt_height, W, 60)
 
-    -- Thin gold rule above and below the felt band — suggests the rim
-    -- of a table without committing to a full elliptical felt sprite.
-    love.graphics.setColor(0.45, 0.35, 0.18, 0.70)
+    -- Thin rule above and below the felt band — suggests the rim of a
+    -- table without committing to a full elliptical felt sprite. Colored
+    -- via the active palette's strong border token; under the shove
+    -- palette this reads as a red rim consistent with the black/red mode.
+    Theme.setColor(Theme.border.strong, 0.70)
     love.graphics.rectangle("fill", 0, felt_top - 1, W, 1)
     love.graphics.rectangle("fill", 0, felt_top + felt_height, W, 1)
 
@@ -833,7 +835,7 @@ function ShoveView:draw()
         local alpha = 0.06 * (1 - frac)
         local rw    = W * 0.55 * frac + 200
         local rh    = felt_height * 0.50 * frac + 60
-        love.graphics.setColor(1.0, 0.95, 0.80, alpha)
+        Theme.setColor(Theme.fg.heading, alpha)
         love.graphics.rectangle("fill",
             (W - rw) * 0.5, spot_cy - rh * 0.5,
             rw, rh, Theme.space.radius * 4)
@@ -854,7 +856,7 @@ function ShoveView:draw()
         -- the casino room "lights coming up" effect.
         local fade_alpha = 1 - math.min(1, self.phase_t / BUILDUP_FADE_DURATION)
         if fade_alpha > 0 then
-            love.graphics.setColor(0, 0, 0, fade_alpha)
+            Theme.setColor(Theme.bg.sunken, fade_alpha)
             love.graphics.rectangle("fill", 0, 0, W, H)
         end
         return
@@ -997,11 +999,11 @@ function ShoveView:draw()
     -- Result chips: solid status-color fill + dark text so the WIN/LOSS
     -- reads at a glance regardless of the underlying shove backdrop.
     -- Sizes scale with ui_scale so the chips grow on bigger windows.
-    -- Prototype build only ever resolves R1 — R2 / R3 are gated to
+    -- DEMO_CUT only ever resolves R1 visually — R2 / R3 are gated to
     -- losses and never deal a 6th/7th card. So we render a single
     -- chip slot instead of the three-slot strip; the empty R2/R3
     -- slots would tip the player off that more is coming.
-    local n_slots  = Constants.PROTOTYPE_MODE and 1 or 3
+    local n_slots  = Constants.FEATURES.DEMO_CUT and 1 or 3
     local s        = (self.game.ui_scale) or 1
     local chip_w   = math.max(72, math.floor(110 * s))
     local chip_h   = math.max(28, math.floor(42  * s))

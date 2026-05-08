@@ -18,6 +18,7 @@ local FlightSystem    = require("services.FlightSystem")
 local ClickFlash      = require("services.ClickFlash")
 local Ghosts          = require("services.Ghosts")
 local CatalogModal    = require("views.CatalogModal")
+local DeckSelectModal = require("views.DeckSelectModal")
 local SettingsModal   = require("views.SettingsModal")
 local Constants       = require("data.constants")
 
@@ -31,8 +32,11 @@ function GrindState:new(game)
         -- "CATALOG" button in the top bar; same modal class the shove
         -- state uses post-bust, just instantiated on demand here so the
         -- player can shop PP without busting first.
-        catalog_modal  = nil,
-        settings_modal = nil,
+        catalog_modal      = nil,
+        -- Read-only deck roster popup. Opened by clicking the top-bar
+        -- DECK chip; swap is still restricted to the post-shove flow.
+        deck_roster_modal  = nil,
+        settings_modal     = nil,
     }, GrindState)
     self.controller = GrindController:new(game)
     self.view       = GrindView:new(game, self.controller)
@@ -43,8 +47,9 @@ function GrindState:new(game)
     -- Expose a hook the view can call to open the in-grind catalog modal
     -- without the view having to know about state internals.
     local state_self = self
-    game.openCatalog  = function() state_self:openCatalog()  end
-    game.openSettings = function() state_self:openSettings() end
+    game.openCatalog    = function() state_self:openCatalog()    end
+    game.openSettings   = function() state_self:openSettings()   end
+    game.openDeckRoster = function() state_self:openDeckRoster() end
     return self
 end
 
@@ -56,6 +61,22 @@ end
 
 function GrindState:closeCatalog()
     self.catalog_modal = nil
+end
+
+-- Mid-grind read-only deck-roster popup. Same view as the post-shove
+-- swap modal but in read_only mode — clicking a tile does nothing,
+-- clicking anywhere dismisses. Gated on FEATURES.DECKS so the prototype
+-- build never opens it.
+function GrindState:openDeckRoster()
+    if not Constants.FEATURES.DECKS then return end
+    if not self.deck_roster_modal then
+        self.deck_roster_modal = DeckSelectModal:new(self.game,
+                                                     { read_only = true })
+    end
+end
+
+function GrindState:closeDeckRoster()
+    self.deck_roster_modal = nil
 end
 
 function GrindState:openSettings()
@@ -103,6 +124,9 @@ function GrindState:draw()
     if self.catalog_modal then
         self.catalog_modal:draw()
     end
+    if self.deck_roster_modal then
+        self.deck_roster_modal:draw()
+    end
     if self.settings_modal then
         self.settings_modal:draw()
     end
@@ -135,6 +159,12 @@ function GrindState:keypressed(key)
         end
         return
     end
+    if self.deck_roster_modal then
+        if key == "escape" or self.deck_roster_modal:consumeKey(key) then
+            self:closeDeckRoster()
+        end
+        return
+    end
     -- ESC outside any modal opens settings (kept in every mode — it's
     -- the conventional UX path).
     if key == "escape" then
@@ -143,9 +173,9 @@ function GrindState:keypressed(key)
         return
     end
     -- H/J are deal hotkeys that circumvent the per-table DEAL button.
-    -- Killed in PROTOTYPE_MODE so the player can't bypass the
-    -- intended click-to-deal gameplay loop.
-    if Constants.PROTOTYPE_MODE then return end
+    -- Gated on FEATURES.DEV_HOTKEYS so shipping builds don't let the
+    -- player bypass the intended click-to-deal gameplay loop.
+    if not Constants.FEATURES.DEV_HOTKEYS then return end
     if key == "h" then
         self.controller:dealHand(1)
     elseif key == "j" then
@@ -171,6 +201,13 @@ function GrindState:mousepressed(x, y, b)
         end
         return
     end
+    if self.deck_roster_modal then
+        self.deck_roster_modal:consumeMouse(x, y, b)
+        if self.deck_roster_modal:resolved() then
+            self:closeDeckRoster()
+        end
+        return
+    end
     self.view:mousepressed(x, y, b)
 end
 
@@ -182,6 +219,7 @@ function GrindState:mousereleased(x, y, b)
         return
     end
     if self.catalog_modal then return end
+    if self.deck_roster_modal then return end
     self.view:mousereleased(x, y, b)
 end
 
@@ -193,6 +231,7 @@ function GrindState:mousemoved(x, y, dx, dy)
         return
     end
     if self.catalog_modal then return end
+    if self.deck_roster_modal then return end
     self.view:mousemoved(x, y, dx, dy)
 end
 

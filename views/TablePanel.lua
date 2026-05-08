@@ -19,6 +19,7 @@
 
 local Theme         = require("views.Theme")
 local Constants     = require("data.constants")
+local Decks         = require("models.Decks")
 local Stakes        = require("data.stakes")
 local GameTypes     = require("data.game_types")
 local MttPayouts    = require("data.mtt_payouts")
@@ -34,8 +35,11 @@ local Table         = require("models.Table")
 local Stats         = require("views.TablePanelStats")
 local SpriteRenderer = require("services.SpriteRenderer")
 local StakeThemes   = require("data.stake_themes")
-local ShaderRegistry = require("services.ShaderRegistry")
 local HistoryBars   = require("data.history_bars")
+local Lookups       = require("utils.lookups")
+local Format        = require("utils.format")
+local CardSprites   = require("views.CardSprites")
+local Effects       = require("views.TablePanelEffects")
 
 local TablePanel = {}
 
@@ -96,17 +100,6 @@ end
 
 -- ─── Helpers ──────────────────────────────────────────────────────────
 
-local function findStake(id)
-    for _, s in ipairs(Stakes) do
-        if s.id == id then return s end
-    end
-end
-
-local function findGameType(id)
-    for _, gt in ipairs(GameTypes) do
-        if gt.id == id then return gt end
-    end
-end
 
 local function communityCardCount(state)
     if state == "idle" or state == "dealing" then return 0 end
@@ -120,54 +113,29 @@ local function opponentFaceUp(state)
     return state == "showdown" or state == "settling"
 end
 
--- Lookup back sprite name once (avoids constants reach in render loop).
+-- Default back sprite used when no deck override is available (FEATURES.DECKS
+-- off, or active deck spec missing). The deck system overrides this per
+-- frame in TablePanel.draw — the constant is just the fallback.
 local CARD_BACK = Constants.GAUNTLET and Constants.GAUNTLET.CARD_BACK_SPRITE
                   or "cards/backs/03-fish"
 
-local function moneyText(n)
-    n = n or 0
-    -- Floor to 2 decimals so what's displayed is always ≤ what's
-    -- actually owned. Avoids "I see $0.50 but can't afford a $0.50
-    -- buy" — stored value might be 0.4999… (round-to-nearest at format
-    -- time displays as $0.50) but the affordability check uses the
-    -- precise value. Floor keeps the readout honest.
-    if math.abs(n) < 1000 then
-        local floored = math.floor(n * 100) / 100
-        if n < 0 then floored = -math.floor(-n * 100) / 100 end
-        return string.format("$%.2f", floored)
-    end
-    return string.format("$%.0f", math.floor(n))
-end
 
 -- ─── Card rendering ──────────────────────────────────────────────────
+-- Card back / front / slot rendering primitives now live in
+-- views/CardSprites.lua so the shove gauntlet shares the same fallback
+-- treatment. drawCardBack takes the back sprite explicitly so the active
+-- deck's art can flow through without globals.
 
-local function drawCardBack(sl, x, y, w, h, alpha)
-    if sl then
-        SpriteRenderer.draw(sl, CARD_BACK, x, y, w, h, { 1, 1, 1, alpha or 1 })
-    else
-        Theme.setColor(Theme.bg.sunken, alpha or 1)
-        love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
-        Theme.setColor(Theme.border.default, alpha or 1)
-        love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
-    end
+local function drawCardBack(sl, back, x, y, w, h, alpha)
+    CardSprites.back(sl, back or CARD_BACK, x, y, w, h, alpha)
 end
 
 local function drawCardFront(sl, card, x, y, w, h, alpha)
-    if not card then return end
-    if sl then
-        SpriteRenderer.draw(sl, card:spriteName(), x, y, w, h, { 1, 1, 1, alpha or 1 })
-    else
-        Theme.setColor(Theme.bg.widget_hover, alpha or 1)
-        love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
-    end
+    CardSprites.front(sl, card, x, y, w, h, alpha)
 end
 
--- Empty slot placeholder (for community cards not yet dealt).
 local function drawCardSlot(x, y, w, h)
-    Theme.setColor(Theme.bg.sunken, 0.5)
-    love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
-    Theme.setColor(Theme.border.soft, 0.6)
-    love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+    CardSprites.slot(x, y, w, h)
 end
 
 -- ─── Sub-panels ──────────────────────────────────────────────────────
@@ -405,10 +373,10 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     drawHistoryBars(tbl, zone_x, zone_y, zone_w, graph_h, scale_for_graph)
 end
 
-local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes)
+local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes, back_sprite)
     if not opp then return end
 
-    local gtype = findGameType(tbl.game_type_id)
+    local gtype = Lookups.findById(GameTypes,tbl.game_type_id)
 
     -- HU seat is the duel — the opponent gets a heading-font name and
     -- 2× cards so they read as A Rival, not a generic seat. Single
@@ -498,8 +466,8 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes)
         drawCardFront(sl, tbl.opponent_hole[1], cards_x, cards_y, card_w, card_h, seat_alpha)
         drawCardFront(sl, tbl.opponent_hole[2], cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
     elseif holeVisible(tbl.state) then
-        drawCardBack(sl, cards_x, cards_y, card_w, card_h, seat_alpha)
-        drawCardBack(sl, cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
+        drawCardBack(sl, back_sprite, cards_x, cards_y, card_w, card_h, seat_alpha)
+        drawCardBack(sl, back_sprite, cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
     end
     -- Opponent stacks were rendered here previously — dropped to make
     -- room for the reveal tag line above. Stacks weren't load-bearing
@@ -541,7 +509,7 @@ local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_ch
         local palette = ChipData.stake_palettes[tbl.stake_id]
                         or ChipData.full_palette
         local tier    = tbl.outcome_tier or "medium"
-        local chips   = Denoms.breakdown(pot, palette, tier)
+        local chips   = Denoms.breakdown(pot, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
         local stake_theme = StakeThemes[tbl.stake_id]
         local tint    = stake_theme and stake_theme.chip_tint
         -- Stack base anchored at felt center; chips grow upward via the
@@ -559,7 +527,7 @@ local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_ch
     -- Text sits below the chip pile (or, in mini-panel fallback, at the
     -- felt center).
     local text_y = allow_chips and (center_y + 12) or (center_y - 6)
-    love.graphics.printf("Pot: " .. moneyText(pot), felt_x, text_y, felt_w, "center")
+    love.graphics.printf("Pot: " .. Format.moneyExact(pot), felt_x, text_y, felt_w, "center")
 end
 
 -- Tournament bottom-band: hand counter + payout ladder. Replaces the
@@ -658,7 +626,7 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
 
     -- Tournament tables swap the bottom band for a hand-counter + payout
     -- ladder; cash tables show the stack chip pile + "YOU $X.XX" label.
-    local gtype = findGameType(tbl.game_type_id)
+    local gtype = Lookups.findById(GameTypes,tbl.game_type_id)
     if gtype and gtype.hand_count then
         local ladder_y = cards_y + card_h + 4
         drawTournamentLadder(tbl, gtype, ctx, x, ladder_y, w, fonts)
@@ -677,7 +645,7 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
         -- Always render player stack at "medium" target (~12 chips) so the
         -- pile stays compact regardless of stake — pot/bankroll are where
         -- magnitude flexes via tier hints.
-        local chips = Denoms.breakdown(stack, palette, "medium")
+        local chips = Denoms.breakdown(stack, ChipData.denominations, palette, ChipData.tier_chip_target, "medium")
         local pile_anchor_x = cards_x - 8   -- right edge of pile
         local pile_y        = cards_y + card_h - 4
         local stake_theme   = StakeThemes[tbl.stake_id]
@@ -695,7 +663,7 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
 
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.sm)
-    love.graphics.print("YOU  " .. moneyText(stack),
+    love.graphics.print("YOU  " .. Format.moneyExact(stack),
         cards_x + cards_w + 8, label_y - 12)
 end
 
@@ -800,128 +768,10 @@ end
 -- the public entry point for ephemeral-button ghost-rendering.
 
 -- ─── Per-table FX (shake / vignette / lift / slam / border-pulse) ───
--- All are bounded so adjacent panels in the grid don't get encroached on.
--- State decays in models/Table.lua:update; this layer just reads.
-
-local SHAKE_MAX_PX        = 8   -- amplitude at trauma=1; trauma² scaling.
-local VIGNETTE_MAX_ALPHA  = 0.65
-local LIFT_MAX_PX         = 18    -- panel hovers up this many px during a hand
-local BORDER_PULSE_MAX_W  = 10    -- max border-line width at pulse=1
-local BORDER_PULSE_ALPHA  = 1.0
-
-local function shakeOffset(tbl)
-    local trauma = tbl.shake_trauma or 0
-    if trauma <= 0 then return 0, 0 end
-    local amp = SHAKE_MAX_PX * trauma * trauma
-    return (love.math.random() * 2 - 1) * amp,
-           (love.math.random() * 2 - 1) * amp
-end
-
--- Vertical offset for the hover-lift. Returns Y delta in px — negative =
--- up, 0 = rest. The lift_t value lerps both directions in Table:update,
--- so a fresh hand smoothly raises the panel and a settled hand smoothly
--- lowers it. No separate slam impulse — the slam mechanic was creating
--- an overshoot that looked like a teleport on quick re-deals.
-local function liftSlamOffset(tbl)
-    return (tbl.lift_t or 0) * -LIFT_MAX_PX
-end
-
--- Drop shadow rendered at the panel's *base* (un-lifted) position so
--- when the panel translates upward the shadow stays put and is exposed
--- beneath the lifted panel. Three rounded-rectangle layers with
--- decreasing alpha approximate a soft edge.
---
--- Always rendered (subtle 3px / 6px offset visible at rest; bigger
--- visible footprint when lifted). Caller draws this BEFORE pushing the
--- lift transform so the shadow stays in fixed screen-space while the
--- panel translates up off it.
-local SHADOW_COLOR      = { 0, 0, 0 }
-local SHADOW_DROP_X     = 4         -- horizontal drop offset (light from upper-left)
-local SHADOW_DROP_Y     = 8         -- baseline vertical drop offset at rest
-
-local function drawHoverShadow(tbl, x, y, w, h)
-    local lift = tbl.lift_t or 0
-    -- As the panel lifts, the shadow stays put — but we also slightly
-    -- soften alpha + spread the layers so the shadow visually feels
-    -- "farther from the object" the higher it is.
-    local r = Theme.space.radius
-
-    -- Three layers. Outermost is biggest + most transparent for a soft
-    -- edge feel; innermost is densest. Stacked behind the panel.
-    local layers = {
-        { spread = 8 + lift * 6,  alpha = 0.10 + lift * 0.05 },
-        { spread = 4 + lift * 4,  alpha = 0.18 + lift * 0.08 },
-        { spread = 0,             alpha = 0.45 + lift * 0.10 },
-    }
-
-    for _, L in ipairs(layers) do
-        Theme.setColor(SHADOW_COLOR, L.alpha)
-        love.graphics.rectangle(
-            "fill",
-            x + SHADOW_DROP_X - L.spread,
-            y + SHADOW_DROP_Y - L.spread,
-            w + L.spread * 2,
-            h + L.spread * 2,
-            r + L.spread)
-    end
-end
-
--- Border-pulse colored frame on top of the panel chrome. Drawn AFTER
--- the panel chrome (so it overlays the regular border) but BEFORE felt
--- content (so cards/chips render on top of the colored ring).
-local function drawBorderPulse(tbl, x, y, w, h)
-    local t = tbl.border_pulse_t or 0
-    if t <= 0.001 or not tbl.border_pulse_color then return end
-    local color = (tbl.border_pulse_color == "good") and Theme.status.good
-                                                       or Theme.status.error
-    local line_w = math.max(1, math.floor(BORDER_PULSE_MAX_W * t + 0.5))
-    Theme.setColor(color, t * BORDER_PULSE_ALPHA)
-    love.graphics.setLineWidth(line_w)
-    love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
-    love.graphics.setLineWidth(1)
-end
-
--- Radial-glow halo via shader. Rendered additively over the panel rect
--- after all other content. Falls back to plain rendering if the shader
--- failed to compile (graceful degradation — see ShaderRegistry).
-local GLOW_COLOR = { 1.00, 0.85, 0.30 }   -- warm gold
-local SHADER_PASS_COLOR = { 1, 1, 1 }     -- identity tint so the shader's
-                                          -- output passes through; the
-                                          -- previous setColor would
-                                          -- otherwise modulate it down.
-local GLOW_RECT_PAD = 80                  -- draw the glow rect this many
-                                          -- px outside the panel on every
-                                          -- side so the halo bleeds beyond
-                                          -- panel edges instead of cutting
-                                          -- off at the border.
-local function drawGlow(tbl, x, y, w, h)
-    local t = tbl.glow_t or 0
-    if t <= 0.001 then return end
-    local sh = ShaderRegistry.get("radial_glow")
-    if not sh then return end
-    local gx = x - GLOW_RECT_PAD
-    local gy = y - GLOW_RECT_PAD
-    local gw = w + GLOW_RECT_PAD * 2
-    local gh = h + GLOW_RECT_PAD * 2
-    Theme.setColor(SHADER_PASS_COLOR, 1)
-    love.graphics.setShader(sh)
-    sh:send("u_color",     GLOW_COLOR)
-    sh:send("u_intensity", t)
-    love.graphics.setBlendMode("add", "alphamultiply")
-    love.graphics.rectangle("fill", gx, gy, gw, gh)
-    love.graphics.setBlendMode("alpha")
-    love.graphics.setShader()
-end
-
-local function drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
-    local a = tbl.vignette_alpha or 0
-    if a <= 0.001 or not tbl.vignette_kind then return end
-    local color = (tbl.vignette_kind == "good") and Theme.status.good
-                                                  or Theme.status.error
-    Theme.setColor(color, a * VIGNETTE_MAX_ALPHA)
-    love.graphics.rectangle("fill", felt_x, felt_y, felt_w, felt_h,
-                            Theme.space.radius)
-end
+-- All bounded so adjacent panels in the grid don't get encroached on.
+-- Implementations live in views/TablePanelEffects (sibling-module split,
+-- mirrors views/TablePanelStats). State decays in models/Table.lua:update;
+-- the effects layer just reads tween fields.
 
 -- ─── Ghost factory (press-then-vanish for ephemeral buttons) ─────────
 -- Builds a Ghosts.add render closure for a hit_box that's about to vanish
@@ -932,19 +782,20 @@ end
 --
 -- Returns nil for actions that don't need ghost-fade (stake-up, [C], etc.
 -- — those persist after click and animate via the live ClickFlash path).
+-- Per-action ghost style. Functions are called per-frame so the Theme
+-- token reads pick up palette swaps. Actions absent here yield no ghost.
+local GHOST_STYLES = {
+    deal         = function() return 4, Theme.bg.window  end,
+    rebuy        = function() return 4, Theme.bg.window  end,
+    remove_table = function() return 2, Theme.fg.heading end,
+}
+
 function TablePanel.makeGhostFor(hb, fonts)
     if not (hb and hb.action and hb.label) then return nil end
 
-    local depth, label_color
-    if hb.action == "deal" or hb.action == "rebuy" then
-        depth       = 4
-        label_color = Theme.bg.window
-    elseif hb.action == "remove_table" then
-        depth       = 2
-        label_color = Theme.fg.heading
-    else
-        return nil
-    end
+    local style_fn = GHOST_STYLES[hb.action]
+    if not style_fn then return nil end
+    local depth, label_color = style_fn()
 
     -- DEAL / REBUY hit_boxes carry visual_* fields for the actual button
     -- rect (which sits centered inside the full felt — the felt is the
@@ -1030,8 +881,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- punch) → shake (random shudder on top). All sub-elements (chrome,
     -- felt, cards, chips) inherit the transform so the panel moves as a
     -- single object. State decays in Table:update; we just read.
-    local shake_x, shake_y = shakeOffset(tbl)
-    local lift_y           = liftSlamOffset(tbl)
+    local shake_x, shake_y = Effects.shakeOffset(tbl)
+    local lift_y           = Effects.liftSlamOffset(tbl)
     local transformed = (shake_x ~= 0 or shake_y ~= 0 or lift_y ~= 0)
 
     -- Hit-box offset: hit_boxes are pushed during sub-element rendering
@@ -1047,7 +898,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- the panel is at rest (lift_t = 0) the shadow sits exactly under the
     -- panel and isn't visible; as the panel lifts, the shadow becomes
     -- exposed and spreads slightly for a soft hover feel.
-    drawHoverShadow(tbl, x, y, w, h)
+    Effects.drawHoverShadow(tbl, x, y, w, h)
 
     if transformed then
         love.graphics.push()
@@ -1061,6 +912,13 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     local fonts = game.fonts
     local sl    = game.sprite_loader
     local state = game.state
+
+    -- Card-back override per frame: when the deck system is on, the
+    -- active deck's sprite replaces the constant default for every
+    -- face-down card on this panel. Decks.activeSprite returns nil if
+    -- the spec is missing → drawCardBack falls back to CARD_BACK.
+    local back_sprite = (Constants.FEATURES.DECKS and Decks.activeSprite(state))
+                        or CARD_BACK
 
     -- Panel chrome — fill stays Theme.bg.widget for chrome contrast.
     -- Border color/width come from the per-stake theme so T6 looks gold-
@@ -1081,7 +939,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- Table:update; color comes from the win/lost branch in the
     -- resolution loop. Drawn here so it overlays the panel border
     -- but sits beneath all felt content.
-    drawBorderPulse(tbl, x, y, w, h)
+    Effects.drawBorderPulse(tbl, x, y, w, h)
 
     -- Header. Removing always allowed now that buy-ins are refundable —
     -- the previous "keep at least one table" gate was a leftover from
@@ -1154,7 +1012,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
                 local seat_w = math.min(felt_w, math.max(180, sizes.opp_w * 2 + 80))
                 local seat_h = sizes.opp_h * 2 + 36
                 local ox     = felt_x + math.floor((felt_w - seat_w) / 2)
-                drawOpponentSeat(tbl.opponents[1], 1, tbl, ox, opp_row_y, seat_w, seat_h, sl, fonts, sizes)
+                drawOpponentSeat(tbl.opponents[1], 1, tbl, ox, opp_row_y, seat_w, seat_h, sl, fonts, sizes, back_sprite)
                 -- Chip-flight target: roughly the card center under the
                 -- `big` layout.
                 Anchors.set(Table.anchorKey(tbl, "opp_1"),
@@ -1164,7 +1022,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
                 local seat_h  = sizes.opp_h + 28
                 for i = 1, n_opps do
                     local ox = felt_x + (i - 1) * opp_w
-                    drawOpponentSeat(tbl.opponents[i], i, tbl, ox, opp_row_y, opp_w, seat_h, sl, fonts, sizes)
+                    drawOpponentSeat(tbl.opponents[i], i, tbl, ox, opp_row_y, opp_w, seat_h, sl, fonts, sizes, back_sprite)
                     Anchors.set(Table.anchorKey(tbl, "opp_" .. i),
                         ox + opp_w * 0.5, opp_row_y + math.floor(sizes.opp_h * 0.5) + 20)
                 end
@@ -1200,7 +1058,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         -- (stack on this table, not global bankroll).
         Theme.setColor(Theme.fg.heading)
         love.graphics.setFont(fonts.sm)
-        love.graphics.printf("YOU  " .. moneyText(tbl.stack or 0),
+        love.graphics.printf("YOU  " .. Format.moneyExact(tbl.stack or 0),
             felt_x, felt_y + felt_h - 16, felt_w, "center")
     end
 
@@ -1210,10 +1068,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- button gated on bankroll.
     if tbl.state == "idle" then
         if (tbl.stack or 0) <= 0 then
-            local stake = findStake(tbl.stake_id)
+            local stake = Lookups.findById(Stakes,tbl.stake_id)
             local cost  = (stake and stake.buy_in) or 0
             local can_rebuy = state.bankroll >= cost
-            local label = string.format("REBUY %s", moneyText(cost))
+            local label = string.format("REBUY %s", Format.moneyExact(cost))
             drawFeltButton(felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, label, "rebuy",
                 Theme.status.error, can_rebuy)
@@ -1247,11 +1105,11 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- Jackpot vignette — colored wash over the felt area when a jackpot
     -- resolution is fading. Drawn AFTER the gauge so the colored tint
     -- sits over everything inside the panel.
-    drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
+    Effects.drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
 
     -- Radial-glow halo (jackpot wins). Additive shader pass over the
     -- whole panel rect; lasts ~0.7s after a jackpot win.
-    drawGlow(tbl, x, y, w, h)
+    Effects.drawGlow(tbl, x, y, w, h)
 
     -- Close the shake/lift transform before the hover-hit-test stash, so
     -- the mouse-vs-panel rect calculation in the debug tooltip uses the

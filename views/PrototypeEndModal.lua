@@ -1,6 +1,6 @@
 -- views/PrototypeEndModal.lua
 --
--- End-of-prototype overlay. Shown when PROTOTYPE_MODE is on and the
+-- End-of-prototype overlay. Shown when FEATURES.DEMO_CUT is on and the
 -- player wins runout 1 then loses runout 2 — the natural cliffhanger
 -- in the prototype build, before the gauntlet's full three-runout arc
 -- becomes its own thing.

@@ -74,19 +74,26 @@ function SettingsModal:promptQuit()
     self:_openConfirm("quit")
 end
 
-function SettingsModal:_openConfirm(kind)
-    self._confirm_kind = kind
-    if kind == "delete" then
-        self._confirm = ConfirmDialog:new{
+-- Confirm-dialog factories per kind. Adding a new prompt = one entry here.
+local CONFIRM_BUILDERS = {
+    delete = function(self)
+        return ConfirmDialog:new{
             prompt = "Delete save and start over?", danger = true,
             on_confirm = function() self:_performDelete() end,
         }
-    elseif kind == "quit" then
-        self._confirm = ConfirmDialog:new{
+    end,
+    quit = function(self)
+        return ConfirmDialog:new{
             prompt = "Quit the game?", danger = true,
             on_confirm = function() love.event.quit() end,
         }
-    end
+    end,
+}
+
+function SettingsModal:_openConfirm(kind)
+    self._confirm_kind = kind
+    local builder = CONFIRM_BUILDERS[kind]
+    if builder then self._confirm = builder(self) end
 end
 
 function SettingsModal:_performDelete()
@@ -120,19 +127,23 @@ function SettingsModal:_performLoad()
     end
 end
 
-function SettingsModal:_runAction(action)
-    if action == "save" then
+-- Row-action handlers per action key. Adding a new row = one entry here +
+-- one action_row(...) call in :draw.
+local ACTION_HANDLERS = {
+    save = function(self)
         local g = self.game
         if g.save_service and g.state then
             g.save_service:saveAll(g.state:serializeMeta(), g.state:serializeRun())
         end
-    elseif action == "load" then
-        self:_performLoad()
-    elseif action == "delete" then
-        self:_openConfirm("delete")
-    elseif action == "quit" then
-        self:_openConfirm("quit")
-    end
+    end,
+    load   = function(self) self:_performLoad() end,
+    delete = function(self) self:_openConfirm("delete") end,
+    quit   = function(self) self:_openConfirm("quit") end,
+}
+
+function SettingsModal:_runAction(action)
+    local handler = ACTION_HANDLERS[action]
+    if handler then handler(self) end
 end
 
 -- ─── Input ─────────────────────────────────────────────────────────────

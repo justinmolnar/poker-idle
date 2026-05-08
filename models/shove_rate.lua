@@ -24,7 +24,6 @@
 -- factors so each runout is structurally weaker than the last.
 
 local BankrollTiers = require("data.bankroll_tiers")
-local Constants     = require("data.constants")
 
 -- Hard ceiling on r1 (the headline shove%). At 1.0 the player would
 -- be guaranteed to win runout 1, which trivializes the all-in moment;
@@ -90,19 +89,16 @@ local function buildRates(catalog, mult, tier)
     local r1   = clamp01(raw1)
     local r2   = clamp01(raw2)
     local r3   = clamp01(raw3)
-    -- Prototype mode:
-    --   • Cap r1 + raw_r1 to 99% — the headline shove% never reads
-    --     100% or overshoot. Player always sees a number that says
-    --     "you might still lose."
-    --   • Hard-gate R2 / R3 outcomes to losses so the demo always
-    --     ends at the prototype-end modal (win R1 → lose R2). Keeps
-    --     the rest of the gauntlet structure unspoiled.
-    if Constants.PROTOTYPE_MODE then
-        if raw1 > R1_DISPLAY_CAP then raw1 = R1_DISPLAY_CAP end
-        if r1   > R1_DISPLAY_CAP then r1   = R1_DISPLAY_CAP end
-        r2 = 0
-        r3 = 0
-    end
+    -- Cap r1 + raw_r1 to 99% — the headline shove% never reads 100% or
+    -- overshoot. Player always sees a number that says "you might still
+    -- lose." Hard-gate R2 / R3 outcomes to losses: the dealer always
+    -- cheats once the cards reveal. In prototype this lands on the
+    -- end-of-demo modal; outside prototype the player sees the cheat
+    -- play out, busts, and returns to grind like it never happened.
+    if raw1 > R1_DISPLAY_CAP then raw1 = R1_DISPLAY_CAP end
+    if r1   > R1_DISPLAY_CAP then r1   = R1_DISPLAY_CAP end
+    r2 = 0
+    r3 = 0
     return {
         catalog  = catalog,
         tier     = tier,                -- { threshold, mult, label }

@@ -11,6 +11,7 @@
 
 local TablePool      = require("models.TablePool")
 local TableModel     = require("models.Table")            -- only for anchorKey()
+local Decks          = require("models.Decks")
 local Catalog        = require("data.catalog")
 local RunUpgrades    = require("data.run_upgrades")
 local Stakes         = require("data.stakes")
@@ -22,18 +23,7 @@ local Denoms         = require("services.DenominationBreakdown")
 local AnchorRegistry = require("services.AnchorRegistry")
 local Confetti       = require("services.Confetti")
 local StakeThemes    = require("data.stake_themes")
-
-local function findStake(id)
-    for _, s in ipairs(Stakes) do
-        if s.id == id then return s end
-    end
-end
-
-local function findGameType(id)
-    for _, gt in ipairs(GameTypes) do
-        if gt.id == id then return gt end
-    end
-end
+local Lookups        = require("utils.lookups")
 
 -- PP-bounty key: a (stake, game_type) combo locks one bounty per run.
 -- 4 game types × 6 stakes = 24 distinct bounty slots — total ~84 PP for
@@ -185,14 +175,14 @@ function GrindController:update(dt)
             -- fires for MTT because binary_outcome forces delta=0. Mirror
             -- the same gating (first clear per (stake, gtype) combo,
             -- scaled by pp_award_mult) here so the bounty actually banks.
-            local gtype = findGameType(t.game_type_id)
+            local gtype = Lookups.findById(GameTypes,t.game_type_id)
             local cap   = (gtype and gtype.hand_count) or 0
             if cap > 0 and hands_cleared >= cap then
                 local state = self.game.state
                 local key   = bountyKey(t.stake_id, t.game_type_id)
                 if not state.stakes_won_this_run[key] then
                     state.stakes_won_this_run[key] = true
-                    local stake = findStake(t.stake_id)
+                    local stake = Lookups.findById(Stakes,t.stake_id)
                     local base_award = stake and stake.pp_award or 0
                     local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
                     local award = math.floor(base_award * mult + 0.5)
@@ -226,7 +216,7 @@ function GrindController:update(dt)
         -- zero the loss clamps to whatever's actually on the table so
         -- the player can't go negative just from a brutal hand.
         local tbl   = self.pool.tables[r.table_idx]
-        local stake = tbl and findStake(tbl.stake_id)
+        local stake = tbl and Lookups.findById(Stakes,tbl.stake_id)
         local cap   = (stake and stake.buy_in) or 0
         local overflow_amount = 0
         if tbl then
@@ -258,7 +248,7 @@ function GrindController:update(dt)
         -- WIN / OUT status floater per hand; the actual payout (which
         -- only exists at tournament end) gets its own "+$X.XX" floater
         -- from the MTT drainPayout block above.
-        local gtype_for_floater = tbl and findGameType(tbl.game_type_id)
+        local gtype_for_floater = tbl and Lookups.findById(GameTypes,tbl.game_type_id)
         local is_binary = gtype_for_floater and gtype_for_floater.binary_outcome
         local label
         local floater_opts_override = nil
@@ -358,7 +348,7 @@ function GrindController:update(dt)
                 local key = bountyKey(tbl.stake_id, tbl.game_type_id)
                 if not state.stakes_won_this_run[key] then
                     state.stakes_won_this_run[key] = true
-                    local stake = findStake(tbl.stake_id)
+                    local stake = Lookups.findById(Stakes,tbl.stake_id)
                     local base_award = stake and stake.pp_award or 0
                     local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
                     local bonus = (self.ctx and self.ctx.jackpot_pp_add) or 0
@@ -376,6 +366,21 @@ function GrindController:update(dt)
                 end
             end
         end
+
+        -- Deck XP accrual on every resolved hand. Active deck only; the
+        -- rule kind on the deck spec decides whether and how much. bb_delta
+        -- is computed from the cash-side $ delta against the table's stake.bb;
+        -- tournament binary_outcome hands have r.delta = 0 → bb_delta = 0,
+        -- and the bb_won applicator returns 0 in that case. Gated on
+        -- FEATURES.DECKS so the prototype build accrues no silent state.
+        if Constants.FEATURES and Constants.FEATURES.DECKS then
+            local bb = (stake and stake.bb and stake.bb > 0) and stake.bb or nil
+            self:_grantDeckXp({
+                won      = r.won and true or false,
+                bb_delta = bb and (r.delta / bb) or 0,
+                delta    = r.delta,
+            })
+        end
     end
 
     -- Resolutions just mutated per-table state (incl. MttSession fields
@@ -383,6 +388,16 @@ function GrindController:update(dt)
     -- captures the latest hand counter. Cheap (4 array writes per
     -- table; bounded by MAX_TABLES).
     self.pool:_syncStateList()
+end
+
+-- Grant XP to the active deck for one resolved hand. Returns true on a
+-- level-up so the controller can invalidate the effects cache; the model
+-- side handles the math + state writes.
+function GrindController:_grantDeckXp(event)
+    local _, leveled = Decks.gainXp(self.game.state, self.game.xp_rules, event)
+    if leveled then
+        self:invalidateEffects()
+    end
 end
 
 -- ─── Purchase intents (called from view button handlers) ─────────────────────
@@ -416,7 +431,7 @@ end
 -- bounty math in the resolution loop so the sidebar "+N PP" badge
 -- shows the real payout including catalog upgrades.
 function GrindController:bountyAward(stake_id)
-    local stake = findStake(stake_id)
+    local stake = Lookups.findById(Stakes,stake_id)
     if not stake then return 0 end
     local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
     local bonus = (self.ctx and self.ctx.jackpot_pp_add) or 0
@@ -481,7 +496,7 @@ end
 -- not affordable / pool full / unknown stake-or-gametype.
 function GrindController:addTable(stake_id, game_type_id)
     if self.pool:count() >= self:tableSlotsCap() then return false end
-    local stake = findStake(stake_id)
+    local stake = Lookups.findById(Stakes,stake_id)
     if not stake then return false end
     local mult = (self.ctx and self.ctx.buy_in_mult) or 1
     local cost = (stake.buy_in or 0) * mult
@@ -560,7 +575,7 @@ end
 function GrindController:changeTableStake(idx, new_stake_id)
     local t = self.pool.tables[idx]
     if not t then return false end
-    local new_stake = findStake(new_stake_id)
+    local new_stake = Lookups.findById(Stakes,new_stake_id)
     if not new_stake then return false end
     local mult   = (self.ctx and self.ctx.buy_in_mult) or 1
     local refund = t.stack or 0
@@ -651,7 +666,9 @@ function GrindController:_emitDealChips(t)
     if not you or not pot then return end
     local amount = math.abs(t.outcome_delta or 0)
     if amount <= 0 then return end
-    local chips = Denoms.breakdown(amount, _paletteForStake(t.stake_id),
+    local chips = Denoms.breakdown(amount, ChipData.denominations,
+                                   _paletteForStake(t.stake_id),
+                                   ChipData.tier_chip_target,
                                    t.outcome_tier or "medium")
     self:_queueBurst(you, pot, chips, { arrival_sound = "chip_land_pot" })
 end
@@ -661,11 +678,11 @@ function GrindController:_emitBuyInChips(t, amount)
     local you     = _anchor(t, "you")
     local bank_xy = AnchorRegistry.get("bankroll")
     if not you or not bank_xy then return end
-    local stake   = findStake(t.stake_id)
+    local stake   = Lookups.findById(Stakes,t.stake_id)
     local bb      = (stake and stake.bb) or 1
     local palette = _paletteForStake(t.stake_id)
     local tier    = Denoms.tierFromUnit(amount / bb)
-    local chips   = Denoms.breakdown(amount, palette, tier)
+    local chips   = Denoms.breakdown(amount, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
     self:_queueBurst(bank_xy, you, chips, { arrival_sound = "chip_land_you" })
 end
 
@@ -674,11 +691,11 @@ function GrindController:_emitCashOutChips(t, amount)
     local you     = _anchor(t, "you")
     local bank_xy = AnchorRegistry.get("bankroll")
     if not you or not bank_xy then return end
-    local stake   = findStake(t.stake_id)
+    local stake   = Lookups.findById(Stakes,t.stake_id)
     local bb      = (stake and stake.bb) or 1
     local palette = _paletteForStake(t.stake_id)
     local tier    = Denoms.tierFromUnit(amount / bb)
-    local chips   = Denoms.breakdown(amount, palette, tier)
+    local chips   = Denoms.breakdown(amount, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
     self:_queueBurst(you, bank_xy, chips, { arrival_sound = "chip_land_bankroll" })
 end
 
@@ -695,11 +712,11 @@ function GrindController:_emitMttPayoutChips(t, amount)
     local source  = pot
                     or center
                     or { v.w * 0.5, v.h * 0.5 }
-    local stake   = findStake(t.stake_id)
+    local stake   = Lookups.findById(Stakes,t.stake_id)
     local bb      = (stake and stake.bb) or 1
     local palette = _paletteForStake(t.stake_id)
     local tier    = Denoms.tierFromUnit(amount / bb)
-    local chips   = Denoms.breakdown(amount, palette, tier)
+    local chips   = Denoms.breakdown(amount, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
     self:_queueBurst(source, bank_xy, chips, { arrival_sound = "chip_land_bankroll" })
 end
 
@@ -720,14 +737,14 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
     local chip_tint   = stake_theme and stake_theme.chip_tint
 
     if r.delta > 0 then
-        local chips = Denoms.breakdown(r.delta, palette, tier)
+        local chips = Denoms.breakdown(r.delta, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
         self:_queueBurst(pot_xy, you_xy, chips, {
             arrival_sound = "chip_land_you",
             max_per_event = burst_cap,
             chip_tint     = chip_tint,
         })
     elseif r.delta < 0 then
-        local chips = Denoms.breakdown(-r.delta, palette, tier)
+        local chips = Denoms.breakdown(-r.delta, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
         -- Loss → chips fly to the winning opponent's seat (their cards).
         -- Falls back to off-screen if the panel hasn't drawn yet (first
         -- frame after table add) so the burst still has a destination.
@@ -747,7 +764,9 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
         local v = self.game.viewport or { w = 0, h = 0 }
         local bank_xy = AnchorRegistry.get("bankroll")
                         or { v.w * 0.5, v.h - 30 }
-        local chips = Denoms.breakdown(overflow_amount, ChipData.full_palette,
+        local chips = Denoms.breakdown(overflow_amount, ChipData.denominations,
+                                       ChipData.full_palette,
+                                       ChipData.tier_chip_target,
                                        Denoms.tierFromAmount(overflow_amount))
         self:_queueBurst(you_xy, bank_xy, chips, { arrival_sound = "chip_land_bankroll" })
     end
@@ -760,7 +779,7 @@ function GrindController:rebuyTable(idx)
     local t = self.pool:get(idx)
     if not t then return false end
     if (t.stack or 0) > 0 then return false end
-    local stake = findStake(t.stake_id)
+    local stake = Lookups.findById(Stakes,t.stake_id)
     local cost  = (stake and stake.buy_in) or 0
     local state = self.game.state
     if state.bankroll < cost then return false end
@@ -768,8 +787,8 @@ function GrindController:rebuyTable(idx)
     t.stack = cost
     -- Tournament tables: rebuy is also "register again" — reset the
     -- per-tournament counter so the next DEAL starts a fresh 8-hand run.
-    -- Sync the parallel save arrays in case the player F5s before the
-    -- next resolution lands.
+    -- Sync the parallel save arrays so the next autosave tick captures
+    -- the post-rebuy state cleanly.
     if t.mtt then t.mtt:reset() end
     self.pool:_syncStateList()
     -- Bankroll → YOU stack chip burst (table positions are already known

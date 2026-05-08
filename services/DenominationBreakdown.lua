@@ -2,15 +2,18 @@
 --
 -- Pure-logic breakdown of a magnitude into an ordered list of denomination
 -- indices. Engine-agnostic: operates on opaque indices into a denomination
--- ladder (data file). No domain knowledge, no rendering — the drawing seam
--- is owned by views.
+-- ladder supplied by the caller. No domain knowledge, no rendering — the
+-- drawing seam is owned by views.
 --
 -- The breakdown algorithm picks a composition that signals *magnitude*
 -- (target token count from a tier hint) rather than minimizing token count
 -- — a top-tier $2 yields ~35 tokens, not 2×$1, because the player needs to
 -- *see* the magnitude.
-
-local ChipData = require("data.chips")
+--
+-- The caller passes the denomination ladder + tier-target table on every
+-- call so this service stays uncoupled from any specific data file. A
+-- poker-side caller will typically pass `ChipData.denominations` and
+-- `ChipData.tier_chip_target`; a future game would pass its own.
 
 local DenominationBreakdown = {}
 
@@ -37,11 +40,12 @@ function DenominationBreakdown.tierFromAmount(amount)
 end
 
 -- ── Breakdown: amount → ordered denomination-index list ──────────────
--- `palette_indices` is a list of indices into ChipData.denominations.
--- `tier_hint` ∈ {"small","medium","large","jackpot"} biases the result
--- toward a target token count for visual heft. Optional — falls back to
--- "medium" if omitted.
-function DenominationBreakdown.breakdown(amount, palette_indices, tier_hint)
+-- `denominations` is a list of `{ value = number, ... }` entries; only
+-- `.value` is read. `palette_indices` is a list of indices into it.
+-- `tier_chip_target` is a `{ small = N, medium = N, large = N, jackpot = N }`
+-- table that drives target token count. `tier_hint` ∈ those keys biases
+-- the result toward visual heft. Optional — falls back to "medium".
+function DenominationBreakdown.breakdown(amount, denominations, palette_indices, tier_chip_target, tier_hint)
     if amount <= 0 or not palette_indices or #palette_indices == 0 then
         return {}
     end
@@ -51,12 +55,12 @@ function DenominationBreakdown.breakdown(amount, palette_indices, tier_hint)
     for _, idx in ipairs(palette_indices) do
         denoms[#denoms + 1] = {
             idx   = idx,
-            value = ChipData.denominations[idx].value,
+            value = denominations[idx].value,
         }
     end
     table.sort(denoms, function(a, b) return a.value > b.value end)
 
-    local target_count = ChipData.tier_chip_target[tier_hint or "medium"] or 8
+    local target_count = (tier_chip_target and tier_chip_target[tier_hint or "medium"]) or 8
 
     -- Pick the primary denomination — the one whose count would land
     -- closest to target. Soft preference for being >= target ("chunkier"

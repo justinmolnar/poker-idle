@@ -55,6 +55,7 @@ local NameData      = require("data.opponent_names")
 local PotTiers      = require("data.pot_tiers")
 local Timelines     = require("data.cinematic_timelines")
 local MttPayouts    = require("data.mtt_payouts")
+local Lookups       = require("utils.lookups")
 
 local Table = {}
 Table.__index = Table
@@ -92,18 +93,6 @@ local function resolveTimeline(gtype_id, tier)
 end
 
 -- ─── Helpers ──────────────────────────────────────────────────────────
-
-local function findStake(id)
-    for _, s in ipairs(StakesData) do
-        if s.id == id then return s end
-    end
-end
-
-local function findGameType(id)
-    for _, gt in ipairs(GameTypesData) do
-        if gt.id == id then return gt end
-    end
-end
 
 local function sampleDist(dist)
     if not dist then return nil end
@@ -319,7 +308,7 @@ end
 -- ─── Construction ─────────────────────────────────────────────────────
 
 function Table:new(stake_id, game_type_id, ctx)
-    local stake = findStake(stake_id)
+    local stake = Lookups.findById(StakesData,stake_id)
     local id = _next_id
     _next_id = _next_id + 1
     local self = setmetatable({
@@ -400,8 +389,8 @@ end
 
 function Table:fillOpponents(_ctx)
     self.opponents = {}
-    local stake = findStake(self.stake_id)
-    local gtype = findGameType(self.game_type_id)
+    local stake = Lookups.findById(StakesData,self.stake_id)
+    local gtype = Lookups.findById(GameTypesData,self.game_type_id)
     if not stake or not gtype then return end
 
     -- Opponents are pure visual flavour now: a name + a stack at the
@@ -418,7 +407,7 @@ end
 
 function Table:setStake(stake_id, ctx)
     self.stake_id = stake_id
-    local stake = findStake(stake_id)
+    local stake = Lookups.findById(StakesData,stake_id)
     self.stack = (stake and stake.buy_in) or 0
     self.state = "idle"
     self.state_timer = 0
@@ -459,8 +448,8 @@ function Table:deal(ctx)
     -- effects rollup without needing to thread ctx through every call.
     self._last_ctx = ctx
 
-    local stake = findStake(self.stake_id)
-    local gtype = findGameType(self.game_type_id)
+    local stake = Lookups.findById(StakesData,self.stake_id)
+    local gtype = Lookups.findById(GameTypesData,self.game_type_id)
     if not stake or not gtype then return false end
 
     if gtype.rerolls_opponents then
@@ -595,7 +584,7 @@ function Table:update(dt, ctx)
 
     if self.state == "idle" then return nil end
 
-    local gtype = findGameType(self.game_type_id)
+    local gtype = Lookups.findById(GameTypesData,self.game_type_id)
     local pace_mult = (gtype and gtype.pace_mult) or 1
     -- ctx.hand_pace_mult (Energy Drink, future pace items) compounds on
     -- top of the gtype baseline.
@@ -681,7 +670,7 @@ function Table:_finalizeHand()
     -- We re-use the latest ctx stashed on :update / :deal so the new
     -- hand samples WC against the player's current effects rollup —
     -- magnitudes don't matter (binary_outcome forces delta=0).
-    local gtype = findGameType(self.game_type_id)
+    local gtype = Lookups.findById(GameTypesData,self.game_type_id)
     if gtype and gtype.auto_deal and self.mtt:isPlaying() then
         if self.outcome_won then
             self.mtt:winHand()
@@ -699,7 +688,7 @@ end
 -- Settle the tournament: stash the payout on self.mtt for the controller to
 -- drain, clear MTT state, and zero the stack so the panel renders REBUY.
 function Table:_endTournament()
-    local stake   = findStake(self.stake_id)
+    local stake   = Lookups.findById(StakesData,self.stake_id)
     local boost   = (self._last_ctx and self._last_ctx.mtt_payout_boost) or 0
     local payouts = MttPayouts[boost] or MttPayouts[0]
     local buy_in  = (stake and stake.buy_in) or 0
@@ -709,8 +698,8 @@ end
 
 -- Read-only summary the view header pulls each frame.
 function Table:liveStats(_ctx)
-    local stake = findStake(self.stake_id)
-    local gtype = findGameType(self.game_type_id)
+    local stake = Lookups.findById(StakesData,self.stake_id)
+    local gtype = Lookups.findById(GameTypesData,self.game_type_id)
     if not stake then return nil end
     return {
         stake_display   = stake.display_name,
@@ -740,8 +729,8 @@ local function tierAvgBB(tier)
 end
 
 function Table:tableOutcome(ctx)
-    local stake = findStake(self.stake_id)
-    local gtype = findGameType(self.game_type_id)
+    local stake = Lookups.findById(StakesData,self.stake_id)
+    local gtype = Lookups.findById(GameTypesData,self.game_type_id)
     if not stake or not gtype then return nil end
     return buildOutcome(ctx or {}, gtype, stake)
 end
@@ -750,8 +739,8 @@ end
 -- mechanical variance, there's no per-opponent breakdown to compute — every
 -- seat at a given (stake, gtype, ctx) shares the same outcome.
 function Table:debugStats(ctx)
-    local stake = findStake(self.stake_id)
-    local gtype = findGameType(self.game_type_id)
+    local stake = Lookups.findById(StakesData,self.stake_id)
+    local gtype = Lookups.findById(GameTypesData,self.game_type_id)
     if not stake or not gtype then return nil end
 
     ctx = ctx or {}
@@ -784,8 +773,8 @@ function Table:debugStats(ctx)
 end
 
 function Table:estimateStats(ctx)
-    local stake = findStake(self.stake_id)
-    local gtype = findGameType(self.game_type_id)
+    local stake = Lookups.findById(StakesData,self.stake_id)
+    local gtype = Lookups.findById(GameTypesData,self.game_type_id)
     if not stake or not gtype then return nil end
     if #self.opponents == 0 then return nil end
 

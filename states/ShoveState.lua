@@ -22,6 +22,7 @@ local Overlay            = require("views.ShoveDebugOverlay")
 local PrestigeModal      = require("views.PrestigeModal")
 local PrototypeEndModal  = require("views.PrototypeEndModal")
 local CatalogModal       = require("views.CatalogModal")
+local DeckSelectModal    = require("views.DeckSelectModal")
 local SettingsModal      = require("views.SettingsModal")
 local Gauntlet           = require("models.Gauntlet")
 local Catalog            = require("data.catalog")
@@ -49,6 +50,7 @@ function ShoveState:new(game)
         gauntlet        = nil,
         prestige_modal       = nil,    -- bust step 1: run-end summary
         catalog_modal        = nil,    -- bust step 2: post-run PP shop
+        deck_select_modal    = nil,    -- bust step 3: choose active deck for next run (FEATURES.DECKS)
         settings_modal       = nil,    -- ESC overlay (volume, resolution, quit)
         prototype_end_modal  = nil,    -- prototype-mode "you beat the demo" screen
         _ended_handled       = false,  -- guard so _onGauntletEnded fires once per gauntlet
@@ -75,6 +77,7 @@ function ShoveState:fullReset()
     self.gauntlet            = nil
     self.prestige_modal      = nil
     self.catalog_modal       = nil
+    self.deck_select_modal   = nil
     self.prototype_end_modal = nil
     self._ended_handled      = false
     self.view:resetTimeline()
@@ -151,11 +154,11 @@ function ShoveState:_onGauntletEnded()
     -- reads state.pp_this_run for the display total.
     local pp_banked = state.pp_this_run or 0
 
-    -- Prototype-end intercept: in PROTOTYPE_MODE, winning R1 then losing
-    -- R2 is the natural cliffhanger that ends the demo. Show the
+    -- Demo-cut intercept: when FEATURES.DEMO_CUT is on, winning R1 then
+    -- losing R2 is the natural cliffhanger that ends the demo. Show the
     -- end-of-prototype modal instead of the bust prestige flow. The
     -- player chooses Continue (resetRun + grind) or Exit to Title.
-    if Constants.PROTOTYPE_MODE
+    if Constants.FEATURES.DEMO_CUT
        and not result.won
        and result.busted_at == 2
        and result.outcomes
@@ -166,7 +169,6 @@ function ShoveState:_onGauntletEnded()
 
     if result.won then
         state.cleared = true
-        -- No auto-save. F5 to commit progress to disk.
         self.prestige_modal = nil
         self.gauntlet = nil
         self.view:resetTimeline()
@@ -174,7 +176,6 @@ function ShoveState:_onGauntletEnded()
     else
         self.prestige_modal = PrestigeModal:new(
             self.game, pp_banked, result.busted_at)
-        -- No auto-save. PP is in memory only until F5.
     end
 end
 
@@ -214,9 +215,11 @@ function ShoveState:_advanceToCatalog()
     self.catalog_modal  = CatalogModal:new(self.game)
 end
 
--- Step 2 of the post-bust flow: catalog modal closes, run resets, control
--- returns to grind. New owned_items (Poker Poster + whatever was bought)
--- propagate via computeEffects → applyStartingPerks.
+-- Step 2 of the post-bust flow: catalog modal closes, run resets, then —
+-- when FEATURES.DECKS is on — the deck-select modal opens for step 3.
+-- Without that feature on, the run goes straight to grind. New owned_items
+-- (Poker Poster + whatever was bought) propagate via computeEffects →
+-- applyStartingPerks before either branch.
 function ShoveState:_dismissCatalogAndReturn()
     local state = self.game.state
     state:resetRun()
@@ -227,10 +230,32 @@ function ShoveState:_dismissCatalogAndReturn()
     local meta_ctx = state:computeEffects(
         self.game.effects, self.game.catalog, self.game.run_upgrades)
     state:applyStartingPerks(meta_ctx)
-    -- No auto-save. The reset run state lives in memory only until F5.
+    self.catalog_modal = nil
+
+    if Constants.FEATURES and Constants.FEATURES.DECKS then
+        self.deck_select_modal = DeckSelectModal:new(self.game)
+        return
+    end
+
+    self:_finalizePostBustReturn()
+end
+
+-- Step 3 of the post-bust flow (DECKS only): deck-select modal closes,
+-- control returns to grind. State is already reset + perks applied at
+-- this point — this only finalises bookkeeping and switches.
+function ShoveState:_dismissDeckSelectAndReturn()
+    self.deck_select_modal = nil
+    self:_finalizePostBustReturn()
+end
+
+-- Shared tail of the post-bust flow. Called from either the catalog
+-- dismiss (when DECKS is off) or the deck-select dismiss. Resets the
+-- per-shove transient state and switches back to grind.
+function ShoveState:_finalizePostBustReturn()
     self.gauntlet       = nil
     self.prestige_modal = nil
     self.catalog_modal  = nil
+    self.deck_select_modal = nil
     self._ended_handled = false
     self.view:resetTimeline()
     self.game.state_machine:switch("grind")
@@ -256,6 +281,7 @@ function ShoveState:update(dt)
        and not self._ended_handled
        and not self.prestige_modal
        and not self.catalog_modal
+       and not self.deck_select_modal
        and not self.prototype_end_modal then
         self:_onGauntletEnded()
     end
@@ -270,6 +296,8 @@ function ShoveState:draw()
         self.prestige_modal:draw()
     elseif self.catalog_modal then
         self.catalog_modal:draw()
+    elseif self.deck_select_modal then
+        self.deck_select_modal:draw()
     end
     if self.settings_modal then
         self.settings_modal:draw()
@@ -301,6 +329,12 @@ function ShoveState:keypressed(key)
         self:_dismissCatalogAndReturn()
         return
     end
+    if self.deck_select_modal and self.deck_select_modal:consumeKey(key) then
+        if self.deck_select_modal:resolved() then
+            self:_dismissDeckSelectAndReturn()
+        end
+        return
+    end
     -- ESC with no modal up: open settings → quit-confirm overlay.
     if key == "escape" then
         self:openSettings()
@@ -309,9 +343,9 @@ function ShoveState:keypressed(key)
     end
 
     -- SPACE during the cinematic = "skip" (continue semantic). That
-    -- stays in every mode. The other branches (re-deal a finished
+    -- stays in every build. The other branches (re-deal a finished
     -- gauntlet, R reset, [/] catalog nudge, D overlay toggle) are
-    -- debug hotkeys and are killed in PROTOTYPE_MODE.
+    -- debug hotkeys gated on FEATURES.DEV_HOTKEYS.
     if key == "space" then
         if self.view:isAnimating() then
             self.view:skip()
@@ -319,7 +353,7 @@ function ShoveState:keypressed(key)
         end
     end
 
-    if Constants.PROTOTYPE_MODE then return end
+    if not Constants.FEATURES.DEV_HOTKEYS then return end
 
     if key == "space" then
         if not self.gauntlet or self.gauntlet.state == "finished" then
@@ -385,6 +419,15 @@ function ShoveState:mousepressed(mx, my, button)
         self.catalog_modal:consumeMouse(mx, my, button)
         if self.catalog_modal:resolved() then
             self:_dismissCatalogAndReturn()
+        end
+        return
+    end
+    -- Deck-select modal: post-catalog. Tile clicks dispatch through
+    -- state:setActiveDeck; Continue resolves the modal.
+    if self.deck_select_modal then
+        self.deck_select_modal:consumeMouse(mx, my, button)
+        if self.deck_select_modal:resolved() then
+            self:_dismissDeckSelectAndReturn()
         end
     end
 end

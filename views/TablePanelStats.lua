@@ -15,6 +15,7 @@
 local Theme       = require("views.Theme")
 local Stakes      = require("data.stakes")
 local MttPayouts  = require("data.mtt_payouts")
+local Lookups     = require("utils.lookups")
 
 -- Player-facing display letters for the four outcome tiers. The keys
 -- are the same `small / medium / large / jackpot` strings every other
@@ -33,14 +34,6 @@ TablePanelStats.EV_READOUT_HIT_PAD    = 4   -- hit-rect padding around the text
 local DEBUG_TIP_W      = 340
 local DEBUG_TIP_PAD    = 8
 local DEBUG_TIP_LINE_H = 14
-
--- ─── Format helpers ──────────────────────────────────────────────────
-
-local function findStake(id)
-    for _, s in ipairs(Stakes) do
-        if s.id == id then return s end
-    end
-end
 
 -- ─── Pool-breakdown line list (shared by EV tooltip + debug overlay) ──
 
@@ -217,7 +210,7 @@ function TablePanelStats.drawEvReadout(tbl, x, y, w, h_panel, controller, fonts,
     local ctx = controller and controller.ctx
     local stats = tbl:estimateStats(ctx)
     if not stats then return end
-    local stake = findStake(tbl.stake_id)
+    local stake = Lookups.findById(Stakes,tbl.stake_id)
     local bb = (stake and stake.bb) or 1
     if bb <= 0 then bb = 1 end
 
