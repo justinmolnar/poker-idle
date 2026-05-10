@@ -591,8 +591,10 @@ function GrindView:update(dt)
                 lines[#lines + 1] = "MAXED"
             end
             lines[#lines + 1] = ""
-            lines[#lines + 1] = "All unlocked decks contribute their bonus,"
-            lines[#lines + 1] = "even when not active. Swap at shove."
+            lines[#lines + 1] = "Only the active deck earns XP."
+            lines[#lines + 1] = "All unlocked decks' bonuses still apply,"
+            lines[#lines + 1] = "active or not. Swap at shove to train"
+            lines[#lines + 1] = "a different one."
             lines[#lines + 1] = ""
             lines[#lines + 1] = "Click to view your full roster."
             TooltipSvc.set(lines, mx, my)

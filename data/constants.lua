@@ -35,9 +35,10 @@ C.FEATURES = {
     -- R/[/]/D in shove). Off in shipping builds.
     DEV_HOTKEYS       = not C.PROTOTYPE_MODE,
 
-    -- Future systems land here as they're built. Set true to develop;
-    -- the prototype build keeps them off until they're ready to ship.
-    DECKS             = true,
+    -- Deck system. Off in the prototype build (the demo cut wraps before
+    -- the long-tail progression that decks live on); on in the dev build
+    -- where the full roster + unlock gating live.
+    DECKS             = not C.PROTOTYPE_MODE,
 }
 
 C.WINDOW = {

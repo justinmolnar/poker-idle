@@ -320,20 +320,20 @@ function DeckSelectModal:draw()
         drawTile(self, spec, tx, ty, tile_w, tile_h, fonts, s, unlocked)
     end
 
-    -- Footer: stacking note + mode-appropriate hint.
+    -- Footer: active-only-XP rule + stacking rule + mode hint.
     local footer_y = body.y + grid_h + math.floor(12 * s)
     love.graphics.setFont(fonts.sm)
     Theme.setColor(Theme.fg.muted)
     love.graphics.printf(
-        "All unlocked decks contribute their bonus at all times — even when not active.",
+        "Only the active deck earns XP. All unlocked decks' bonuses still apply.",
         body.x, footer_y, body.w, "center")
     Theme.setColor(Theme.fg.faint)
     if self.read_only then
-        love.graphics.printf("Swap decks at the post-shove screen.",
+        love.graphics.printf("Swap at the post-shove screen to train a different deck.",
             body.x, footer_y + fonts.sm:getHeight() + math.floor(2 * s),
             body.w, "center")
     else
-        love.graphics.printf("Click an unlocked deck to set it active for your next run.",
+        love.graphics.printf("Click an unlocked deck to train it on your next run.",
             body.x, footer_y + fonts.sm:getHeight() + math.floor(2 * s),
             body.w, "center")
     end
