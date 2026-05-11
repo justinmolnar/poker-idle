@@ -48,7 +48,7 @@ function GrindController:new(game)
     -- Compute effects first so the initial pool rebuild gets ctx (matters
     -- for Cold Read and other start-of-table catalog perks).
     self:invalidateEffects()
-    self.pool = TablePool:new(game.state, self.ctx)
+    self.pool = TablePool:new(game.state, self.ctx, game.poker_events)
     return self
 end
 
@@ -774,14 +774,21 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
     local stake_theme = StakeThemes[tbl.stake_id]
     local chip_tint   = stake_theme and stake_theme.chip_tint
 
-    if r.delta > 0 then
+    -- Skip the main pot-to-winner burst when poker theater is on — the
+    -- script's pot_push anim handler emits that burst with the correct
+    -- visible-pot amount and timing. The overflow spill (pot → bankroll
+    -- when stack caps) stays unconditional because the script doesn't
+    -- model stack-cap overflow.
+    local theater_on = Constants.FEATURES and Constants.FEATURES.POKER_THEATER
+
+    if not theater_on and r.delta > 0 then
         local chips = Denoms.breakdown(r.delta, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
         self:_queueBurst(pot_xy, you_xy, chips, {
             arrival_sound = "chip_land_you",
             max_per_event = burst_cap,
             chip_tint     = chip_tint,
         })
-    elseif r.delta < 0 then
+    elseif not theater_on and r.delta < 0 then
         local chips = Denoms.breakdown(-r.delta, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
         -- Loss → chips fly to the winning opponent's seat (their cards).
         -- Falls back to off-screen if the panel hasn't drawn yet (first

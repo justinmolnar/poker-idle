@@ -56,6 +56,11 @@ local PotTiers      = require("data.pot_tiers")
 local Timelines     = require("data.cinematic_timelines")
 local MttPayouts    = require("data.mtt_payouts")
 local Lookups       = require("utils.lookups")
+local Constants     = require("data.constants")
+local HandScript    = require("models.HandScript")
+local PokerActionWeights = require("data.poker_action_weights")
+local PokerBetSizing     = require("data.poker_bet_sizing")
+local PokerEventTimings  = require("data.poker_event_timings")
 
 local Table = {}
 Table.__index = Table
@@ -343,7 +348,7 @@ end
 
 -- ─── Construction ─────────────────────────────────────────────────────
 
-function Table:new(stake_id, game_type_id, ctx)
+function Table:new(stake_id, game_type_id, ctx, poker_events)
     local stake = Lookups.findById(StakesData,stake_id)
     local id = _next_id
     _next_id = _next_id + 1
@@ -356,6 +361,18 @@ function Table:new(stake_id, game_type_id, ctx)
         state_timer   = 0,
         hands_played  = 0,
         last_results  = {},
+
+        -- Poker-event registry. Used at deal time (writer state mutation
+        -- inside HandScript.write) and at play time (cinematic walker
+        -- mutates the table's playback state as each event fires). Only
+        -- consulted when FEATURES.POKER_THEATER is on; nil otherwise is
+        -- harmless because the script branch is never entered.
+        poker_events  = poker_events,
+        script             = nil,
+        script_idx         = 0,
+        script_timer       = 0,
+        playback_state     = nil,
+        view_event_cursor     = 0,
 
         stack = (stake and stake.buy_in) or 0,
 
@@ -553,12 +570,128 @@ function Table:deal(ctx)
     self.community       = board
     self.natural_outcome = natural
 
-    -- Resolve the cinematic shape for this (gtype, tier). Walker advances
-    -- index in :update; phase[1] is the entry state ("dealing" by default).
-    self.timeline    = resolveTimeline(gtype.id, tier)
-    self.phase_idx   = 1
-    self.state       = self.timeline[1][1]
-    self.state_timer = 0
+    -- Hand-name labels for showdown reveal. Computed once at deal time
+    -- so the view doesn't recompute every frame. HandEval.describe
+    -- returns e.g. "pair of Aces" / "trip 7s" / "Ace-high flush".
+    -- Cleared in :_finalizeHand so they don't leak across hands.
+    if p_hole and #p_hole >= 2 and board and #board == 5 then
+        local p_cards = {
+            p_hole[1], p_hole[2],
+            board[1], board[2], board[3], board[4], board[5],
+        }
+        self.player_hand_name = HandEval.describe(HandEval.bestFiveOfN(p_cards))
+    else
+        self.player_hand_name = nil
+    end
+    if o_hole and #o_hole >= 2 and board and #board == 5 then
+        local o_cards = {
+            o_hole[1], o_hole[2],
+            board[1], board[2], board[3], board[4], board[5],
+        }
+        self.opponent_hand_name = HandEval.describe(HandEval.bestFiveOfN(o_cards))
+    else
+        self.opponent_hand_name = nil
+    end
+
+    -- Cinematic setup. Two paths gated by FEATURES.POKER_THEATER:
+    --   * Theater on  → models/HandScript.write composes a per-hand
+    --                   event list (post_blind, fold, call, raise,
+    --                   deal_*, pot_push). :update walks events by
+    --                   timestamp; the view reads playback_state.
+    --   * Theater off → existing timeline walk (rigid phase sequence
+    --                   from data/cinematic_timelines).
+    if Constants.FEATURES and Constants.FEATURES.POKER_THEATER then
+        self.script_idx     = 0
+        self.script_timer   = 0
+        self.view_event_cursor = 0
+        -- gtype.seats is the OPPONENT count (5 for six-max, 1 for HU,
+        -- etc.), not the total. Total seats includes the player.
+        local n_seats = ((gtype and gtype.seats) or 5) + 1
+        local player_seat = love.math.random(1, n_seats)
+        local button_seat = love.math.random(1, n_seats)
+        self.playback_state = {
+            n_seats             = n_seats,
+            player_seat         = player_seat,
+            in_seats            = {},
+            n_in                = n_seats,
+            pot                 = 0,
+            current_bet         = 0,
+            per_seat_committed  = {},
+            per_seat_total      = {},
+            community_count     = 0,
+            player_revealed     = false,
+            opp_revealed        = false,
+            winner              = nil,
+        }
+        for i = 1, n_seats do self.playback_state.in_seats[i] = true end
+        -- Cap the writer's contribution target at the player's available
+        -- stack. The bb-tier roll can exceed what the player can actually
+        -- put in; without this cap the script keeps generating call
+        -- events past the all-in point and the displayed stack tries to
+        -- drain below zero. (The bankroll math already clamps at stack
+        -- in GrindController's resolution loop, so r.delta lands correctly
+        -- regardless of what the script depicts.)
+        local stake_bb        = (stake and stake.bb) or 0
+        local effective_bb    = magnitude_bb
+        if stake_bb > 0 and (self.stack or 0) > 0 then
+            local stack_bb = (self.stack or 0) / stake_bb
+            if effective_bb > stack_bb then effective_bb = stack_bb end
+        end
+        local result = HandScript.write(
+            {
+                won           = won,
+                magnitude_bb  = effective_bb,
+                tier          = tier,
+                gtype_id      = gtype.id,
+                stake_bb      = stake_bb,
+                binary_outcome = gtype.binary_outcome,
+            },
+            {
+                n_seats     = n_seats,
+                player_seat = player_seat,
+                button_seat = button_seat,
+            },
+            self.poker_events,
+            PokerActionWeights,
+            PokerBetSizing,
+            PokerEventTimings)
+        self.script           = result.events
+        self.script_total     = result.total_duration
+        self.timeline         = nil
+        self.phase_idx        = nil
+        self.state            = "dealing"  -- neutral non-idle state for lift/FX gates
+        self.state_timer      = 0
+
+        -- Align tbl.opponent_idx (visual position 1..n_opps in
+        -- tbl.opponents) to the script's showcase opp — the seat whose
+        -- cards flip face-up at showdown. Without this, the legacy
+        -- random opponent_idx might point at a folded opp, making the
+        -- post-resolution view read as if the folded seat won.
+        if result.showcase_opp_seat then
+            local s = result.showcase_opp_seat
+            if s == player_seat then
+                -- Defensive: if the writer somehow returned the player as
+                -- the showcase seat, leave the legacy opponent_idx in place.
+            elseif s < player_seat then
+                self.opponent_idx = s
+            else
+                self.opponent_idx = s - 1
+            end
+            -- Clamp into valid range (n_opps < n_seats).
+            local n_opps = #self.opponents
+            if n_opps > 0 and self.opponent_idx > n_opps then
+                self.opponent_idx = n_opps
+            end
+        end
+    else
+        -- Resolve the cinematic shape for this (gtype, tier). Walker
+        -- advances index in :update; phase[1] is the entry state.
+        self.script           = nil
+        self.timeline         = resolveTimeline(gtype.id, tier)
+        self.phase_idx        = 1
+        self.state            = self.timeline[1][1]
+        self.state_timer      = 0
+    end
     return true
 end
 
@@ -629,6 +762,51 @@ function Table:update(dt, ctx)
 
     self.state_timer = self.state_timer + effective_dt
 
+    -- ── Script-walker branch (FEATURES.POKER_THEATER on) ──────────────
+    -- When the table has a script attached, walk it event-by-event.
+    -- Each event whose absolute timestamp `t` has been crossed gets
+    -- popped, applied via the registry (mutates self.playback_state),
+    -- and stamped on self.view_event_cursor so views can detect new events.
+    -- When all events are consumed, transition to "settling" the same
+    -- way the timeline walker does — preserves resolution emit, lift
+    -- snap, and _finalizeHand timing.
+    if self.script then
+        self.script_timer = (self.script_timer or 0) + effective_dt
+        local events = self.script
+        while self.script_idx < #events do
+            local next_ev = events[self.script_idx + 1]
+            if next_ev.t > self.script_timer then break end
+            self.script_idx = self.script_idx + 1
+            if self.poker_events and self.playback_state then
+                self.poker_events:apply(next_ev, self.playback_state)
+            end
+        end
+        if self.script_idx >= #events and self.state ~= "settling" then
+            -- Script exhausted — transition into settling so resolution
+            -- emit + FX fire just like the timeline path.
+            self.state       = "settling"
+            self.state_timer = 0
+            self._pending_resolution = {
+                won   = self.outcome_won,
+                delta = self.outcome_delta,
+                tier  = self.outcome_tier,
+                x     = self.x,
+                y     = self.y,
+            }
+            self.lift_t = 0
+        elseif self.state == "settling" and self.state_timer >= 0.4 then
+            -- Settling beat over — clean up and return to idle.
+            self:_finalizeHand()
+        end
+
+        if self._pending_resolution then
+            local r = self._pending_resolution
+            self._pending_resolution = nil
+            return r
+        end
+        return nil
+    end
+
     -- Walk the cinematic timeline. Each entry is {state_name, duration};
     -- when the timer crosses the current phase's duration we advance and
     -- spend the leftover on the next phase (preserves smoothness when a
@@ -690,9 +868,17 @@ function Table:_finalizeHand()
     self.state_timer   = 0
     self.timeline      = nil
     self.phase_idx     = nil
+    self.script           = nil
+    self.script_idx       = 0
+    self.script_timer     = 0
+    self.script_total     = nil
+    self.view_event_cursor   = 0
+    self.playback_state   = nil
     self.player_hole   = nil
     self.opponent_hole = nil
     self.community     = nil
+    self.player_hand_name   = nil
+    self.opponent_hand_name = nil
     -- Slam to rest in the same frame the resolution fires. Without this
     -- the lift decay runs ONCE per :update at the top, BEFORE the
     -- cinematic walker reaches _finalizeHand — so the resolution frame

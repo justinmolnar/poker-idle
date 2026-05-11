@@ -22,9 +22,10 @@ local SoundService    = require("services.SoundService")
 local SpriteLoader    = require("services.SpriteLoader")
 local AnimationSystem = require("services.AnimationSystem")
 local FloatingText    = require("services.FloatingTextSystem")
-local EffectsRegistry = require("services.EffectsRegistry")
-local XpRuleRegistry  = require("services.XpRuleRegistry")
-local UnlockRegistry  = require("services.UnlockRegistry")
+local EffectsRegistry    = require("services.EffectsRegistry")
+local XpRuleRegistry     = require("services.XpRuleRegistry")
+local UnlockRegistry     = require("services.UnlockRegistry")
+local PokerEventRegistry = require("services.PokerEventRegistry")
 local FontService     = require("services.FontService")
 local HoverService    = require("services.HoverService")
 local CursorPool      = require("services.CursorPool")
@@ -41,10 +42,11 @@ local ThemeData     = require("data.theme")
 local StateMachine    = require("controllers.StateMachine")
 local InputController = require("controllers.InputController")
 
-local GameState       = require("models.GameState")
-local PokerEffects    = require("models.poker_effects")
-local DeckXpRules     = require("models.deck_xp_rules")
-local DeckUnlockRules = require("models.deck_unlock_rules")
+local GameState        = require("models.GameState")
+local PokerEffects     = require("models.poker_effects")
+local DeckXpRules      = require("models.deck_xp_rules")
+local DeckUnlockRules  = require("models.deck_unlock_rules")
+local PokerActionApply = require("models.poker_action_apply")
 local GrindState   = require("states.GrindState")
 local ShoveState   = require("states.ShoveState")
 local CreditsState = require("states.CreditsState")
@@ -146,6 +148,14 @@ local function buildGame()
     -- swapping the kinds registered from models/deck_unlock_rules.
     g.unlock_rules = UnlockRegistry:new()
     DeckUnlockRules.registerAll(g.unlock_rules)
+
+    -- Same-shape registry for poker-event applicators (post_blind,
+    -- fold, call, raise, etc.). Used by both the script writer
+    -- (models/HandScript.lua) at write-time and the cinematic walker
+    -- (models/Table.lua) at play-time. Engine-agnostic; poker kinds
+    -- register from models/poker_action_apply.
+    g.poker_events = PokerEventRegistry:new()
+    PokerActionApply.registerAll(g.poker_events)
 
     g.state_machine = StateMachine:new(g)
     g.state_machine:register("grind",   GrindState:new(g))

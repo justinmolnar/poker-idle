@@ -25,6 +25,7 @@ local Chips          = require("views.Chips")
 local Denoms        = require("services.DenominationBreakdown")
 local ChipData       = require("data.chips")
 local FlightSystem   = require("services.FlightSystem")
+local ChipFlight     = require("views.ChipFlight")
 local ClickFlash     = require("services.ClickFlash")
 local TooltipSvc     = require("services.Tooltip")
 local AnchorRegistry = require("services.AnchorRegistry")
@@ -630,14 +631,13 @@ function GrindView:update(dt)
     self.displayed_tied     = tweenNumber(self.displayed_tied,     self.controller:tiedUp(),  dt)
 
     -- Drain the controller's chip-burst queue. Controller produces denomination
-    -- indices and source/dest pairs; the view turns them into render closures
-    -- (the visual seam) and dispatches to FlightSystem. Keeps controller→view
-    -- dependencies out of controllers/GrindController.lua.
+    -- indices and source/dest pairs; the view delegates to ChipFlight which
+    -- wraps the render-closure composition + FlightSystem dispatch. Keeps
+    -- controller→view dependencies out of controllers/GrindController.lua
+    -- and shares the same path the script's per-event handlers use.
     local bursts = self.controller:drainBursts()
     for _, b in ipairs(bursts) do
-        FlightSystem.emitBurst(b.source, b.dest,
-            Chips.makeRenderFns(b.chips, b.options and b.options.chip_tint),
-            b.options)
+        ChipFlight.flyChipsList(b.source, b.dest, b.chips, b.options)
     end
 end
 

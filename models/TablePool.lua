@@ -36,8 +36,12 @@ local function unpackSpec(spec)
     return stake_id, gtype_id
 end
 
-function TablePool:new(state, ctx)
-    local self = setmetatable({ state = state, tables = {} }, TablePool)
+function TablePool:new(state, ctx, poker_events)
+    local self = setmetatable({
+        state        = state,
+        tables       = {},
+        poker_events = poker_events,
+    }, TablePool)
     self:rebuildFromState(ctx)
     return self
 end
@@ -55,7 +59,7 @@ function TablePool:rebuildFromState(ctx)
             -- from a pre-rip build) silently downgrades to six_max so the
             -- table can still be reconstructed.
             if not gtypeExists(gtype_id) then gtype_id = "six_max" end
-            local t = Table:new(stake_id, gtype_id, ctx)
+            local t = Table:new(stake_id, gtype_id, ctx, self.poker_events)
             t.cursor_muted        = mutes[i] == true
             t.cursor_rebuy_muted  = rebuy_mutes[i] == true
             -- Tournament continuity: reload-mid-run drops the player back
@@ -90,7 +94,7 @@ function TablePool:count() return #self.tables end
 function TablePool:get(idx) return self.tables[idx] end
 
 function TablePool:addTable(stake_id, game_type_id, ctx)
-    self.tables[#self.tables + 1] = Table:new(stake_id, game_type_id, ctx)
+    self.tables[#self.tables + 1] = Table:new(stake_id, game_type_id, ctx, self.poker_events)
     self:_syncStateList()
 end
 

@@ -20,6 +20,7 @@
 local Theme         = require("views.Theme")
 local Constants     = require("data.constants")
 local Decks         = require("models.Decks")
+local PokerEventAnims = require("views.PokerEventAnims")
 local Stakes        = require("data.stakes")
 local GameTypes     = require("data.game_types")
 local MttPayouts    = require("data.mtt_payouts")
@@ -101,16 +102,30 @@ end
 -- ─── Helpers ──────────────────────────────────────────────────────────
 
 
-local function communityCardCount(state)
-    if state == "idle" or state == "dealing" then return 0 end
-    if state == "flop"     then return 3 end
-    if state == "turn"     then return 4 end
+-- Visibility helpers. Two paths: with poker theater on, the table
+-- carries a playback_state populated by HandScript event applicators
+-- (fold / deal / showdown_reveal mutate playback_state), and we read
+-- those fields directly. With theater off, fall back to the legacy
+-- state-name keying (dealing/flop/turn/river/showdown/settling).
+local function communityCardCount(tbl)
+    if tbl.playback_state then return tbl.playback_state.community_count or 0 end
+    local s = tbl.state
+    if s == "idle" or s == "dealing" then return 0 end
+    if s == "flop"     then return 3 end
+    if s == "turn"     then return 4 end
     return 5  -- river / showdown / settling
 end
 
-local function holeVisible(state) return state ~= "idle" end
-local function opponentFaceUp(state)
-    return state == "showdown" or state == "settling"
+local function holeVisible(tbl)
+    return tbl.state ~= "idle"
+end
+
+local function opponentFaceUp(tbl)
+    if tbl.playback_state then
+        return tbl.playback_state.opp_revealed == true
+    end
+    local s = tbl.state
+    return s == "showdown" or s == "settling"
 end
 
 -- Default back sprite used when no deck override is available (FEATURES.DECKS
@@ -447,6 +462,18 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     local seat_alpha = (flash_t > 0) and (1 - flash_t / 0.4) or 1
     if seat_alpha < 0.15 then seat_alpha = 0.15 end
 
+    -- Folded-seat dim. When the script has marked this seat out of the
+    -- hand (in_seats[script_seat] is nil), drop the seat to ~30% opacity
+    -- so the player can see at a glance who's still in. Theater-only —
+    -- when playback_state is nil we don't dim.
+    if tbl.playback_state and tbl.playback_state.player_seat then
+        local ps = tbl.playback_state.player_seat
+        local script_seat = (opp_idx < ps) and opp_idx or (opp_idx + 1)
+        if not tbl.playback_state.in_seats[script_seat] then
+            seat_alpha = seat_alpha * 0.30
+        end
+    end
+
     -- Name / label. Drawn on a single line — never wrap. If even the
     -- truncated "…" form doesn't fit, the label was nil-ed out above
     -- and the slot just shows cards.
@@ -461,11 +488,31 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     local cards_y  = y + cards_y_offset
     local cards_w  = card_w * 2 + card_gap
     local cards_x  = x + math.floor((w - cards_w) / 2)
-    local face_up  = opponentFaceUp(tbl.state) and tbl.opponent_idx == opp_idx
+    -- Face-up requires showdown reveal AND this is the showcase opp AND
+    -- (theater-mode only) that opp is still in_seats. Without the in-seats
+    -- guard a folded opp could flip face-up if opponent_idx pointed at them.
+    local face_up = opponentFaceUp(tbl) and tbl.opponent_idx == opp_idx
+    if face_up and tbl.playback_state and tbl.playback_state.player_seat then
+        local ps = tbl.playback_state.player_seat
+        local script_seat = (opp_idx < ps) and opp_idx or (opp_idx + 1)
+        if not tbl.playback_state.in_seats[script_seat] then
+            face_up = false
+        end
+    end
     if face_up and tbl.opponent_hole then
         drawCardFront(sl, tbl.opponent_hole[1], cards_x, cards_y, card_w, card_h, seat_alpha)
         drawCardFront(sl, tbl.opponent_hole[2], cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
-    elseif holeVisible(tbl.state) then
+        -- Hand-name label under the revealed cards ("pair of Aces" etc.)
+        -- so the showdown reveal earns a real read instead of just card
+        -- art. Stored on the table at deal time by Table:_resolve.
+        if tbl.opponent_hand_name and fonts and fonts.sm then
+            Theme.setColor(Theme.fg.heading, seat_alpha)
+            love.graphics.setFont(fonts.sm)
+            love.graphics.printf(tbl.opponent_hand_name,
+                cards_x - 20, cards_y + card_h + 2,
+                cards_w + 40, "center")
+        end
+    elseif holeVisible(tbl) then
         drawCardBack(sl, back_sprite, cards_x, cards_y, card_w, card_h, seat_alpha)
         drawCardBack(sl, back_sprite, cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
     end
@@ -478,7 +525,7 @@ local function drawCommunity(tbl, felt_x, row_y, felt_w, sl, card_w, card_h)
     -- card_w / card_h are required now that sizing is panel-relative.
     -- Caller in TablePanel.draw passes computed sizes; mini override
     -- substitutes smaller values for cramped layouts.
-    local count = communityCardCount(tbl.state)
+    local count = communityCardCount(tbl)
     local total_w = card_w * 5 + 4 * 4
     local row_x = felt_x + math.floor((felt_w - total_w) / 2)
 
@@ -494,10 +541,17 @@ end
 
 local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_chips)
     if tbl.state == "idle" then return end
-    -- Pot = total chips in the middle = your contribution + opponent's
-    -- contribution. Outcome model is symmetric: win/lose magnitudes match,
-    -- so 2 × |delta| is the right total-pot reading both ways.
-    local pot = (tbl.outcome_delta and math.abs(tbl.outcome_delta) * 2) or 0
+    -- Pot reading. Two paths:
+    --   * Theater on  → tbl.playback_state.pot is the running pot, mutated
+    --                   by HandScript event applicators as bets land.
+    --   * Theater off → 2 × |outcome_delta| (legacy assumption that the
+    --                   pot is symmetric around the player's net delta).
+    local pot
+    if tbl.playback_state and (tbl.playback_state.pot or 0) > 0 then
+        pot = tbl.playback_state.pot
+    else
+        pot = (tbl.outcome_delta and math.abs(tbl.outcome_delta) * 2) or 0
+    end
     if pot <= 0 then return end
 
     local center_x = felt_x + felt_w * 0.5
@@ -616,9 +670,27 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
     local cards_x = x + math.floor((w - cards_w) / 2)
     local cards_y = y
 
-    if holeVisible(tbl.state) and tbl.player_hole then
+    if holeVisible(tbl) and tbl.player_hole then
         drawCardFront(sl, tbl.player_hole[1], cards_x, cards_y, card_w, card_h, 1)
         drawCardFront(sl, tbl.player_hole[2], cards_x + card_w + 4, cards_y, card_w, card_h, 1)
+        -- Hand-name label on showdown. Theater path keys off player_revealed;
+        -- legacy path falls back to state == "showdown"/"settling" which
+        -- already implies face-up for the player too. Either way we only
+        -- want the label visible once cards have meaning at showdown.
+        local revealed
+        if tbl.playback_state then
+            revealed = tbl.playback_state.player_revealed == true
+        else
+            local s = tbl.state
+            revealed = s == "showdown" or s == "settling"
+        end
+        if revealed and tbl.player_hand_name and fonts and fonts.sm then
+            Theme.setColor(Theme.fg.heading)
+            love.graphics.setFont(fonts.sm)
+            love.graphics.printf(tbl.player_hand_name,
+                cards_x - 20, cards_y + card_h + 2,
+                cards_w + 40, "center")
+        end
     else
         drawCardSlot(cards_x, cards_y, card_w, card_h)
         drawCardSlot(cards_x + card_w + 4, cards_y, card_w, card_h, 1)
@@ -636,16 +708,34 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
     -- Stack chip pile to the LEFT of the cards (small, ~8-12 chips), and
     -- "YOU $X.XX" label to the RIGHT for the precise read. Caches the
     -- chip-pile center on tbl so chip-flight emission can anchor here.
+    --
+    -- While poker theater is mid-hand (winner not yet set), deduct the
+    -- player's running per-street contribution from the displayed stack
+    -- so the pile visibly drains as chips fly into the pot. Once the
+    -- pot pushes (winner set), the actual tbl.stack update is imminent
+    -- — fall back to tbl.stack so we don't double-deduct against the
+    -- post-resolution value.
     local stack = tbl.stack or 0
+    local display_stack = stack
+    if tbl.playback_state and not tbl.playback_state.winner then
+        -- per_seat_committed resets each street (used by the writer for
+        -- bet-matching math). For the stack-drain display we want
+        -- cumulative contribution across all streets — per_seat_total.
+        local ps        = tbl.playback_state.player_seat
+        local committed = (ps and tbl.playback_state.per_seat_total
+                              and tbl.playback_state.per_seat_total[ps])
+                          or 0
+        display_stack = math.max(0, stack - committed)
+    end
     local label_y = cards_y + card_h + 2
 
-    if stack > 0 then
+    if display_stack > 0 then
         local palette = ChipData.stake_palettes[tbl.stake_id]
                         or ChipData.full_palette
         -- Always render player stack at "medium" target (~12 chips) so the
         -- pile stays compact regardless of stake — pot/bankroll are where
         -- magnitude flexes via tier hints.
-        local chips = Denoms.breakdown(stack, ChipData.denominations, palette, ChipData.tier_chip_target, "medium")
+        local chips = Denoms.breakdown(display_stack, ChipData.denominations, palette, ChipData.tier_chip_target, "medium")
         local pile_anchor_x = cards_x - 8   -- right edge of pile
         local pile_y        = cards_y + card_h - 4
         local stake_theme   = StakeThemes[tbl.stake_id]
@@ -663,7 +753,7 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
 
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.sm)
-    love.graphics.print("YOU  " .. Format.moneyExact(stack),
+    love.graphics.print("YOU  " .. Format.moneyExact(display_stack),
         cards_x + cards_w + 8, label_y - 12)
 end
 
@@ -912,6 +1002,26 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     local fonts = game.fonts
     local sl    = game.sprite_loader
     local state = game.state
+
+    -- Drain any newly-fired script events since the last frame. Each
+    -- event whose model index is past tbl.view_event_cursor gets dispatched
+    -- through views/PokerEventAnims (kind→fn table) — typically pops a
+    -- floater near the actor's seat anchor. The anchors used by the
+    -- floaters were registered in the prior frame's draw, so reading
+    -- them here is 1-frame stale on the very first event of a hand;
+    -- imperceptible at 60fps.
+    if tbl.script and tbl.playback_state then
+        local cursor = tbl.view_event_cursor or 0
+        local idx    = tbl.script_idx or 0
+        for i = cursor + 1, idx do
+            local ev = tbl.script[i]
+            if ev then
+                local fn = PokerEventAnims[ev.kind]
+                if fn then fn(ev, tbl, game) end
+            end
+        end
+        tbl.view_event_cursor = idx
+    end
 
     -- Card-back override per frame: when the deck system is on, the
     -- active deck's sprite replaces the constant default for every

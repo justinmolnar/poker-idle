@@ -39,6 +39,13 @@ C.FEATURES = {
     -- the long-tail progression that decks live on); on in the dev build
     -- where the full roster + unlock gating live.
     DECKS             = not C.PROTOTYPE_MODE,
+
+    -- Poker theater. Per-hand cinematic switches from the rigid
+    -- dealing/flop/turn/river/showdown timeline to a fully-scripted
+    -- sequence written by models/HandScript.lua at resolution time
+    -- (blinds, betting rounds, action passing, fold-outs vs. showdowns).
+    -- Math is unchanged.
+    POKER_THEATER     = not C.PROTOTYPE_MODE,
 }
 
 C.WINDOW = {
