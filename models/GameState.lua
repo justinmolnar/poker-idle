@@ -87,6 +87,19 @@ function GameState:new(saved)
     -- ignore them on read.
     instance.active_table_mtt_hands_won = {}
     instance.active_table_mtt_state     = {}
+    -- Chip-stack tournament arrays (8-max KO). Each entry is per-seat
+    -- (array indexed by script seat 1..n_seats) or a scalar. Cash tables
+    -- store nil.
+    instance.active_table_seat_stacks   = {}
+    instance.active_table_seat_busted   = {}
+    instance.active_table_player_seat   = {}
+    instance.active_table_button_seat   = {}
+    instance.active_table_bust_order    = {}
+    -- Per-table stack value, so a chip-stack table's current $-stack
+    -- (which can grow beyond 100bb as chips are won) survives reload.
+    -- Cash tables write their stack here too; on reload they restore
+    -- without re-charging the buy-in.
+    instance.active_table_stack         = {}
     instance.stakes_won_this_run = {}           -- set keyed by stake_id; locks in PP bounties per run
     instance.pp_this_run         = 0            -- running counter for the prestige modal display
 
@@ -115,6 +128,12 @@ function GameState:resetRun()
     self.active_table_rebuy_mutes  = {}
     self.active_table_mtt_hands_won = {}
     self.active_table_mtt_state     = {}
+    self.active_table_seat_stacks   = {}
+    self.active_table_seat_busted   = {}
+    self.active_table_player_seat   = {}
+    self.active_table_button_seat   = {}
+    self.active_table_bust_order    = {}
+    self.active_table_stack         = {}
     self.stakes_won_this_run = {}
     self.pp_this_run         = 0
     self.effects_cache       = nil
@@ -248,6 +267,12 @@ function GameState:serializeRun()
         active_table_rebuy_mutes   = self.active_table_rebuy_mutes,
         active_table_mtt_hands_won = self.active_table_mtt_hands_won,
         active_table_mtt_state     = self.active_table_mtt_state,
+        active_table_seat_stacks   = self.active_table_seat_stacks,
+        active_table_seat_busted   = self.active_table_seat_busted,
+        active_table_player_seat   = self.active_table_player_seat,
+        active_table_button_seat   = self.active_table_button_seat,
+        active_table_bust_order    = self.active_table_bust_order,
+        active_table_stack         = self.active_table_stack,
         stakes_won_this_run        = self.stakes_won_this_run,
         pp_this_run                = self.pp_this_run,
     }

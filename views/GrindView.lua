@@ -284,7 +284,7 @@ function GrindView:_makeGameTypeStrip()
         six_max  = "6-Max — the baseline. Standard pace, 5 seated opponents, no pot-shape bias.",
         hu       = "Heads-Up — duel with one opponent. Fast pace, you win less often, but pots run deep both ways.",
         zoom     = "Zoom — anonymous reroll pool. Fastest mode, you win slightly more often, but pots stay small.",
-        mtt      = "Tournament — 8 hands in sequence, no rebuys. Cash 6+ wins to cover the buy-in; win all 8 for the top payout.",
+        mtt      = "8-max KO — sit down with 100bb chips. Hands play normally; seats bust at zero. Win it all or finish top-3 to cash.",
     }
     return {
         type = "custom",

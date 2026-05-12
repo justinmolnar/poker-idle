@@ -169,15 +169,15 @@ function GrindController:update(dt)
                 self:_emitMttPayoutChips(t, payout)
             end
 
-            -- PP bounty for MTT: full clear (hands_cleared == hand_count)
-            -- is the jackpot-equivalent for tournament tables. The cash-
-            -- path bounty below gates on r.tier == "jackpot", which never
-            -- fires for MTT because binary_outcome forces delta=0. Mirror
-            -- the same gating (first clear per (stake, gtype) combo,
-            -- scaled by pp_award_mult) here so the bounty actually banks.
+            -- PP bounty for chip-stack tournaments: winning the tournament
+            -- (finish_position == 1) is the jackpot-equivalent. The cash-
+            -- path bounty below gates on r.tier == "jackpot", which is
+            -- per-hand — for a tournament you can only "jackpot" once,
+            -- on the win. First-win-per-(stake, gtype) is the same
+            -- once-per-run cap the cash path uses.
             local gtype = Lookups.findById(GameTypes,t.game_type_id)
-            local cap   = (gtype and gtype.hand_count) or 0
-            if cap > 0 and hands_cleared >= cap then
+            local won_tournament = t.mtt and t.mtt.last_finish == 1
+            if gtype and gtype.chip_stack_table and won_tournament then
                 local state = self.game.state
                 local key   = bountyKey(t.stake_id, t.game_type_id)
                 if not state.stakes_won_this_run[key] then
@@ -215,11 +215,20 @@ function GrindController:update(dt)
         -- cap (= stake.buy_in) the surplus spills to bankroll; below
         -- zero the loss clamps to whatever's actually on the table so
         -- the player can't go negative just from a brutal hand.
+        --
+        -- Chip-stack tables (8-max KO): tbl.stack has already been
+        -- updated by Table:_reconcileChipFlow when the script's
+        -- pot_push fired, and r.delta carries the resulting net flow.
+        -- Skip the stack write so we don't double-count, and skip the
+        -- buy-in cap entirely (a winning seat can hold up to the full
+        -- 800bb chip pool, far above the 100bb buy-in).
         local tbl   = self.pool.tables[r.table_idx]
         local stake = tbl and Lookups.findById(Stakes,tbl.stake_id)
         local cap   = (stake and stake.buy_in) or 0
         local overflow_amount = 0
-        if tbl then
+        if tbl and r.chip_stack_table then
+            -- No-op: stack already reconciled. r.delta is informational.
+        elseif tbl then
             local new_stack = tbl.stack + r.delta
             if new_stack > cap then
                 overflow_amount = new_stack - cap
@@ -242,27 +251,21 @@ function GrindController:update(dt)
             state.bankroll = new_bankroll
         end
 
-        -- Floater label & color: for cash hands the dollar delta speaks
-        -- for itself; for tournament hands (binary_outcome forces
-        -- delta=0) showing "+$0.00" was meaningless. Tournaments emit a
-        -- WIN / OUT status floater per hand; the actual payout (which
-        -- only exists at tournament end) gets its own "+$X.XX" floater
-        -- from the MTT drainPayout block above.
-        local gtype_for_floater = tbl and Lookups.findById(GameTypes,tbl.game_type_id)
-        local is_binary = gtype_for_floater and gtype_for_floater.binary_outcome
+        -- Floater label & color: the dollar delta speaks for itself.
+        -- For chip-stack tables, r.delta is the post-reconcile chip-flow
+        -- net — same shape as cash. Tournament payouts (end-of-MTT
+        -- cashout) emit their own "+$X.XX" floater from the drainPayout
+        -- block above.
         local label
         local floater_opts_override = nil
-        if is_binary then
-            label = r.won and "WIN" or "OUT"
-            floater_opts_override = { color_token = r.won and "good" or "error" }
-        elseif r.delta >= 0 then
+        if r.delta >= 0 then
             label = string.format("+$%.2f", r.delta)
         else
             label = string.format("-$%.2f", -r.delta)
-            -- Cash-hand loss: override the data-file's amber default
-            -- with red so losses read correctly. Without this every
-            -- tier picks up color_token="amber" and "-$X.XX" floaters
-            -- render in gold like the wins.
+            -- Loss: override the data-file's amber default with red so
+            -- losses read correctly. Without this every tier picks up
+            -- color_token="amber" and "-$X.XX" floaters render in gold
+            -- like the wins.
             floater_opts_override = { color_token = "error" }
         end
         -- Tier-scaled floater opts from data. Small = small + compact;
@@ -342,7 +345,13 @@ function GrindController:update(dt)
         -- 3 with Pen; a tier whose award is 5 pays 6. The bonus rides
         -- the bounty so it fires exactly when the bounty fires (once
         -- per (stake, gtype) per run), never on subsequent jackpots.
-        if r.delta > 0 and r.tier == "jackpot" then
+        --
+        -- Chip-stack tournaments skip this path — their bounty fires
+        -- once per run on a 1st-place tournament win, gated in the
+        -- drainPayout block above. Without this skip, a jackpot pot
+        -- mid-tournament would bank the (stake, mtt) bounty before
+        -- the player has actually won the tournament.
+        if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table then
             local tbl = self.pool.tables[r.table_idx]
             if tbl then
                 local key = bountyKey(tbl.stake_id, tbl.game_type_id)
@@ -555,14 +564,29 @@ function GrindController:addTable(stake_id, game_type_id)
 end
 
 -- Sum of live stacks at active tables. The "TIED UP" reading on the
--- top bar — money that's not gone, just locked on the felt. Tracks the
--- *current* stack value (which fluctuates with wins/losses), not the
--- buy-in paid to sit. Cashing out (see :removeTable) refunds whatever
--- the stack is worth at that moment.
+-- top bar — money that's not gone, just locked on the felt. Cash
+-- tables: tracks the current stack value (which fluctuates with
+-- wins/losses), since cash-out refunds that exact amount. Chip-stack
+-- tournaments: tracks the buy-in (what was actually paid to sit
+-- down), since chip-pile growth during a tournament doesn't convert
+-- to cash until the finish-position payout settles at the end. A
+-- busted or freshly-settled tournament has tbl.stack = 0 → no
+-- contribution either way.
 function GrindController:tiedUp()
     local total = 0
     for _, t in ipairs(self.pool.tables) do
-        total = total + (t.stack or 0)
+        local stack = t.stack or 0
+        if stack <= 0 then
+            -- Busted or post-settle — nothing locked here.
+        else
+            local gtype = Lookups.findById(GameTypes, t.game_type_id)
+            if gtype and gtype.chip_stack_table then
+                local stake = Lookups.findById(Stakes, t.stake_id)
+                total = total + ((stake and stake.buy_in) or 0)
+            else
+                total = total + stack
+            end
+        end
     end
     return total
 end
@@ -570,13 +594,23 @@ end
 -- Removing a table refunds the *current stack* (cash-out semantics).
 -- Lost it all? You get $0 back. Sitting on a freshly bought-in table
 -- with no hands played? Full buy-in returns.
--- Internal: actual pool removal + chip-flight + bankroll refund. Used by
--- both the synchronous removeTable path (when idle) and the deferred path
--- in :update when a pending_close table returns to idle.
+--
+-- Chip-stack tournaments: closing mid-tournament forfeits the buy-in.
+-- Chips on the table are tournament chips — they don't convert to cash
+-- until the finish-position payout settles. A brand-new tournament
+-- table (no hand dealt yet → mtt not yet playing) still refunds the
+-- buy-in so accidental adds aren't punitive; a busted or post-settle
+-- table has stack = 0 already.
 function GrindController:_finalizeRemove(idx)
     local t = self.pool.tables[idx]
     if not t then return false end
-    local refund = t.stack or 0
+    local gtype = Lookups.findById(GameTypes, t.game_type_id)
+    local refund
+    if gtype and gtype.chip_stack_table and t.mtt and t.mtt:isPlaying() then
+        refund = 0
+    else
+        refund = t.stack or 0
+    end
     self:_emitCashOutChips(t, refund)
     self.pool:removeTable(idx)
     self.game.state.bankroll = self.game.state.bankroll + refund

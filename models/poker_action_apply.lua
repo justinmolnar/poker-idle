@@ -113,11 +113,15 @@ function PokerActionApply.registerAll(reg)
         s.opp_revealed    = true
     end)
 
-    -- Pot push: the winner takes the pot. Resets pot to 0; the view
-    -- fires a chip-flight from the pot center to the winner's anchor.
+    -- Pot push: the winner takes the pot. Stashes the pre-push pot on
+    -- s.pot_at_push so the end-of-hand reconciliation (Table:_finalizeHand
+    -- for chip_stack_table gtypes) can credit the winner's seat stack by
+    -- the actual pot amount AFTER s.pot has been zeroed. The view fires
+    -- a chip-flight from the pot center to the winner's anchor.
     reg:register("pot_push", function(e, s)
-        s.winner = e.seat
-        s.pot    = 0
+        s.winner      = e.seat
+        s.pot_at_push = s.pot or 0
+        s.pot         = 0
     end)
 end
 

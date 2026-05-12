@@ -18,7 +18,7 @@
 --     won            = bool,
 --     delta          = number,                 -- raw $ (positive on win)
 --     tier           = "small"|"medium"|"large"|"jackpot",
---     bb_delta       = number,                 -- cash only; binary MTT = 0
+--     bb_delta       = number,                 -- delta / stake.bb
 --     gtype          = "six_max"|"hu"|"zoom"|"mtt",
 --     stake_tier_idx = 1..6,                   -- T1-T6 stake position
 --     n_tables       = integer,                -- concurrent open tables
@@ -41,7 +41,6 @@ end
 
 function DeckXpRules.registerAll(reg)
     -- Money won. Optional tier_min / tier_max filter for tier-scoped decks.
-    -- Tournament binary_outcome hands have delta = 0 → contribute nothing.
     reg:register("money_won", function(rule, event)
         if not event or not event.won then return 0 end
         if not tierBoundsOk(rule, event) then return 0 end

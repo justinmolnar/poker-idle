@@ -462,13 +462,35 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     local seat_alpha = (flash_t > 0) and (1 - flash_t / 0.4) or 1
     if seat_alpha < 0.15 then seat_alpha = 0.15 end
 
+    -- Map this seat's visual opp_idx (1..n_opps) to a script_seat
+    -- (1..n_seats including the player). Used by both fold-dim and the
+    -- chip-stack busted lookup.
+    local player_seat_for_map =
+        (tbl.playback_state and tbl.playback_state.player_seat)
+        or tbl.player_seat_fixed
+    local script_seat = nil
+    if player_seat_for_map then
+        script_seat = (opp_idx < player_seat_for_map) and opp_idx or (opp_idx + 1)
+    end
+
+    -- Chip-stack tournaments (8-max KO): seats busted in earlier hands
+    -- render dimmed permanently with a "BUSTED" tag. Drawn before the
+    -- fold-dim so a busted-then-still-in-the-script seat reads as
+    -- busted (script's in_seats may briefly include them during the
+    -- hand on the first deal after they busted; the alpha tells the
+    -- player what's going on).
+    local seat_busted_flag = (gtype and gtype.chip_stack_table
+        and tbl.seat_busted and script_seat
+        and tbl.seat_busted[script_seat]) or false
+    if seat_busted_flag then
+        seat_alpha = seat_alpha * 0.18
+    end
+
     -- Folded-seat dim. When the script has marked this seat out of the
     -- hand (in_seats[script_seat] is nil), drop the seat to ~30% opacity
     -- so the player can see at a glance who's still in. Theater-only —
     -- when playback_state is nil we don't dim.
-    if tbl.playback_state and tbl.playback_state.player_seat then
-        local ps = tbl.playback_state.player_seat
-        local script_seat = (opp_idx < ps) and opp_idx or (opp_idx + 1)
+    if tbl.playback_state and tbl.playback_state.player_seat and script_seat then
         if not tbl.playback_state.in_seats[script_seat] then
             seat_alpha = seat_alpha * 0.30
         end
@@ -516,9 +538,36 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
         drawCardBack(sl, back_sprite, cards_x, cards_y, card_w, card_h, seat_alpha)
         drawCardBack(sl, back_sprite, cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
     end
-    -- Opponent stacks were rendered here previously — dropped to make
-    -- room for the reveal tag line above. Stacks weren't load-bearing
-    -- info at multi-tabling scale; the felt's pot label is what matters.
+
+    -- Chip-stack tournament: render the seat's current bb stack below
+    -- the cards. Busted seats display "BUSTED" in red. Cash games skip
+    -- this — opponents there are visual flavor with no per-seat stack
+    -- model behind them.
+    if gtype and gtype.chip_stack_table and script_seat then
+        local stake_for_bb = Lookups.findById(Stakes, tbl.stake_id)
+        local bb_val       = (stake_for_bb and stake_for_bb.bb) or 0
+        local label_y      = cards_y + card_h + 2
+        -- Shift below the hand-name label when this seat is the
+        -- face-up showdown reveal — otherwise the bb/BUSTED text
+        -- would overdraw the "pair of Aces" line.
+        if face_up and tbl.opponent_hand_name and fonts.sm then
+            label_y = label_y + fonts.sm:getHeight() + 2
+        end
+        if seat_busted_flag then
+            Theme.setColor(Theme.status.error, 0.90)
+            love.graphics.setFont(fonts.sm)
+            love.graphics.printf("BUSTED",
+                x, label_y, w, "center")
+        elseif tbl.seat_stacks and bb_val > 0 then
+            local chips = tbl.seat_stacks[script_seat] or 0
+            local bb    = chips / bb_val
+            local txt   = string.format("%dbb", math.floor(bb + 0.5))
+            Theme.setColor(Theme.fg.muted, seat_alpha)
+            love.graphics.setFont(fonts.sm)
+            love.graphics.printf(txt,
+                x, label_y, w, "center")
+        end
+    end
 end
 
 local function drawCommunity(tbl, felt_x, row_y, felt_w, sl, card_w, card_h)
@@ -584,63 +633,68 @@ local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_ch
     love.graphics.printf("Pot: " .. Format.moneyExact(pot), felt_x, text_y, felt_w, "center")
 end
 
--- Tournament bottom-band: hand counter + payout ladder. Replaces the
--- stack/YOU strip when the gtype carries hand_count. Lives in the same
--- vertical slot, so panel layout is unchanged between cash and MTT.
+-- Tournament bottom-band for chip-stack tables: survivors counter +
+-- finish-position payout strip. Replaces the stack/YOU strip when the
+-- gtype carries chip_stack_table. Same vertical slot as the cash-table
+-- stack pile, so panel layout is unchanged.
 local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
-    local hands_won = (tbl.mtt and tbl.mtt.hands_won) or 0
-    local hand_cap  = gtype.hand_count or 8
+    -- Count alive seats (player + alive opps).
+    local n_seats = (gtype.seats or 0) + 1
+    local alive   = 0
+    if tbl.seat_busted then
+        for s = 1, n_seats do
+            if not tbl.seat_busted[s] then alive = alive + 1 end
+        end
+    else
+        alive = n_seats   -- pre-init (table just added, no hand played yet)
+    end
 
-    -- Counter line — current hand on top.
+    -- Counter line. When the player has busted (tbl.stack = 0 and seat
+    -- busted), show their final finish position instead of the count.
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.md)
-    local counter_label = string.format("HAND %d / %d", hands_won, hand_cap)
+    local counter_label
+    if tbl.last_finish then
+        local function positionName(pos)
+            if pos == 1 then return "1st"
+            elseif pos == 2 then return "2nd"
+            elseif pos == 3 then return "3rd"
+            else return string.format("%dth", pos) end
+        end
+        counter_label = string.format("FINISH: %s", positionName(tbl.last_finish))
+    else
+        counter_label = string.format("%d / %d ALIVE", alive, n_seats)
+    end
     love.graphics.printf(counter_label, x, y, w, "center")
 
-    -- Pip strip with payout multipliers underneath.
+    -- Pip strip: payout multipliers by finish position. Threshold keys
+    -- in mtt_payouts.lua map as (n_seats - key + 1) → finish_position.
+    -- Sort descending so 1st reads leftmost (top spot first).
     local boost  = (ctx and ctx.mtt_payout_boost) or 0
     local payout_table = MttPayouts[boost] or MttPayouts[0]
-
-    -- Ordered ascending — collect threshold keys present in the table.
     local thresholds = {}
     for k in pairs(payout_table) do thresholds[#thresholds + 1] = k end
-    table.sort(thresholds)
+    table.sort(thresholds, function(a, b) return a > b end)
 
     local pip_h     = 16
     local pip_gap   = 6
     local n         = #thresholds
     local pip_w     = math.floor((w - (n - 1) * pip_gap - 16) / n)
-    if pip_w < 28 then pip_w = 28 end
+    if pip_w < 36 then pip_w = 36 end
     local strip_w   = pip_w * n + (n - 1) * pip_gap
     local strip_x   = x + math.floor((w - strip_w) / 2)
     local strip_y   = y + 22
 
     love.graphics.setFont(fonts.sm)
     for i, th in ipairs(thresholds) do
-        local px = strip_x + (i - 1) * (pip_w + pip_gap)
+        local px            = strip_x + (i - 1) * (pip_w + pip_gap)
+        local finish_pos    = n_seats - th + 1
+        local is_player_won = tbl.last_finish == finish_pos
 
-        -- State coloring:
-        --   cleared      → good (already past this threshold; payout locked)
-        --   next-to-reach → warn (this is the next milestone in line)
-        --   distant       → faint (still possible if you keep winning, but
-        --                          not the immediate target)
-        local cleared    = hands_won >= th
-        local is_next    = (not cleared) and (th == thresholds[1] or hands_won >= th - (th - thresholds[1]))
-        -- "is_next" approximates: the lowest uncleared threshold.
-        is_next = (not cleared)
-        for _, t2 in ipairs(thresholds) do
-            if (not cleared) and t2 < th and hands_won < t2 then
-                is_next = false
-                break
-            end
-        end
-
-        local fill = cleared and Theme.status.good
-                     or is_next and Theme.status.warn
+        local fill = is_player_won and Theme.status.good
                      or Theme.bg.sunken
-        local text_color = cleared and Theme.bg.window
-                           or is_next and Theme.bg.window
-                           or Theme.fg.faint
+        local text_color = is_player_won and Theme.bg.window
+                           or Theme.fg.muted
 
         Theme.setColor(fill)
         love.graphics.rectangle("fill", px, strip_y, pip_w, pip_h, Theme.space.radius)
@@ -648,15 +702,20 @@ local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
         love.graphics.rectangle("line", px, strip_y, pip_w, pip_h, Theme.space.radius)
 
         Theme.setColor(text_color)
-        local pip_label = string.format("%d:%dx", th, payout_table[th] or 0)
+        local function shortPos(p)
+            if p == 1 then return "1st"
+            elseif p == 2 then return "2nd"
+            elseif p == 3 then return "3rd"
+            else return p .. "th" end
+        end
+        local pip_label = string.format("%s:%dx", shortPos(finish_pos), payout_table[th] or 0)
         love.graphics.printf(pip_label, px,
             strip_y + math.floor((pip_h - fonts.sm:getHeight()) * 0.5),
             pip_w, "center")
     end
 
-    -- Anchor for chip-flight loss target (loss in MTT == tournament end;
-    -- the current hand's pot still flies somewhere). Anchor at the
-    -- center of the strip so the visual still reads as "chips leave."
+    -- Anchor for chip-flight target (cash-out from tournament end). Pinned
+    -- to the strip center so payout chips fly to a coherent screen point.
     Anchors.set(Table.anchorKey(tbl, "you"),
         x + math.floor(w * 0.5),
         strip_y + pip_h * 0.5)
@@ -696,10 +755,11 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
         drawCardSlot(cards_x + card_w + 4, cards_y, card_w, card_h, 1)
     end
 
-    -- Tournament tables swap the bottom band for a hand-counter + payout
-    -- ladder; cash tables show the stack chip pile + "YOU $X.XX" label.
+    -- Chip-stack tournaments swap the bottom band for a survivors counter
+    -- + finish-position payout strip. Cash tables show the stack chip
+    -- pile + "YOU $X.XX" label.
     local gtype = Lookups.findById(GameTypes,tbl.game_type_id)
-    if gtype and gtype.hand_count then
+    if gtype and gtype.chip_stack_table then
         local ladder_y = cards_y + card_h + 4
         drawTournamentLadder(tbl, gtype, ctx, x, ladder_y, w, fonts)
         return

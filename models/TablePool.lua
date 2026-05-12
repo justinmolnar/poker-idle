@@ -52,6 +52,14 @@ function TablePool:rebuildFromState(ctx)
     local rebuy_mutes  = self.state.active_table_rebuy_mutes or {}
     local hands        = self.state.active_table_mtt_hands_won or {}
     local mstate       = self.state.active_table_mtt_state or {}
+    -- Chip-stack tournament continuity: parallel arrays carry per-seat
+    -- state across save / reload. Cash tables leave them nil.
+    local seat_stacks  = self.state.active_table_seat_stacks or {}
+    local seat_busted  = self.state.active_table_seat_busted or {}
+    local p_seats      = self.state.active_table_player_seat or {}
+    local b_seats      = self.state.active_table_button_seat or {}
+    local b_orders     = self.state.active_table_bust_order  or {}
+    local stack_vals   = self.state.active_table_stack       or {}
     for i, spec in ipairs(self.state.active_table_specs or {}) do
         local stake_id, gtype_id = unpackSpec(spec)
         if stake_id and gtype_id then
@@ -67,6 +75,14 @@ function TablePool:rebuildFromState(ctx)
             -- Cash tables ignore these.
             t.mtt.hands_won  = hands[i] or 0
             t.mtt.state      = mstate[i]
+            if seat_stacks[i] then
+                t.seat_stacks       = seat_stacks[i]
+                t.seat_busted       = seat_busted[i] or {}
+                t.player_seat_fixed = p_seats[i]
+                t.button_seat       = b_seats[i]
+                t.bust_order        = b_orders[i] or {}
+                if stack_vals[i] then t.stack = stack_vals[i] end
+            end
             self.tables[#self.tables + 1] = t
         end
     end
@@ -75,18 +91,32 @@ end
 function TablePool:_syncStateList()
     local specs, mutes, rebuy_mutes = {}, {}, {}
     local hands, mstate = {}, {}
+    local seat_stacks, seat_busted = {}, {}
+    local p_seats, b_seats, b_orders, stack_vals = {}, {}, {}, {}
     for i, t in ipairs(self.tables) do
         specs[i]        = packSpec(t.stake_id, t.game_type_id)
         mutes[i]        = t.cursor_muted == true
         rebuy_mutes[i]  = t.cursor_rebuy_muted == true
         hands[i]        = (t.mtt and t.mtt.hands_won) or 0
         mstate[i]       = t.mtt and t.mtt.state
+        seat_stacks[i]  = t.seat_stacks       -- may be nil for cash tables
+        seat_busted[i]  = t.seat_busted
+        p_seats[i]      = t.player_seat_fixed
+        b_seats[i]      = t.button_seat
+        b_orders[i]     = t.bust_order
+        stack_vals[i]   = t.stack
     end
     self.state.active_table_specs         = specs
     self.state.active_table_mutes         = mutes
     self.state.active_table_rebuy_mutes   = rebuy_mutes
     self.state.active_table_mtt_hands_won = hands
     self.state.active_table_mtt_state     = mstate
+    self.state.active_table_seat_stacks   = seat_stacks
+    self.state.active_table_seat_busted   = seat_busted
+    self.state.active_table_player_seat   = p_seats
+    self.state.active_table_button_seat   = b_seats
+    self.state.active_table_bust_order    = b_orders
+    self.state.active_table_stack         = stack_vals
 end
 
 function TablePool:count() return #self.tables end

@@ -138,32 +138,21 @@ local function buildCashLines(tbl, controller, stats)
     return lines
 end
 
--- MTT breakdown: per-hand win rate, expected wins out of N, the pay
--- ladder for the boost tier the player has unlocked, and the
--- expected $ per session computed via binomial CDF over wins.
+-- Chip-stack tournament breakdown: per-hand win rate, buy-in, and the
+-- finish-position pay table keyed by `n_seats - finish_position + 1`
+-- (so 1st = 8, 2nd = 7, 3rd = 6). No expected-$ estimate — the
+-- per-hand model doesn't translate cleanly to tournament finish-
+-- position probability without modeling stack dynamics, which is
+-- out of scope for the readout.
 local function buildMttLines(tbl, controller, stats)
-    local p     = stats.pool.win_chance or 0
-    local gtype = stats.gtype
-    local n     = gtype.hand_count or 8
+    local p       = stats.pool.win_chance or 0
+    local gtype   = stats.gtype
+    local n_seats = (gtype.seats or 0) + 1   -- 7 opps + player = 8
 
     local ctx   = controller and controller.ctx
     local boost = (ctx and ctx.mtt_payout_boost) or 0
     local payouts = MttPayouts[boost] or MttPayouts[0]
     local buy_in  = (stats.stake and stats.stake.buy_in) or 0
-
-    -- Expected payout: sum over k of P(exactly k wins) × payout[k].
-    -- Sessions where wins < 6 cash zero, which the payouts table
-    -- represents by absent keys.
-    local e_payout = 0
-    for k = 0, n do
-        local mult = payouts[k] or 0
-        if mult > 0 then
-            local prob = binomCoeff(n, k) * (p ^ k) * ((1 - p) ^ (n - k))
-            e_payout = e_payout + prob * mult * buy_in
-        end
-    end
-    local net = e_payout - buy_in
-    local net_color = (net > 0) and "good" or (net < 0) and "error" or "muted"
 
     local header = string.format("%s · %s",
         stats.stake.display_name or stats.stake.id or "?",
@@ -172,21 +161,27 @@ local function buildMttLines(tbl, controller, stats)
     local lines = {
         row(header, "md"),
         row("Per-hand win rate: " .. fmtPctClean(p)),
-        row(string.format("Expected wins: %.1f / %d", p * n, n)),
-        row("Pay table:", "sm", "muted"),
+        row(string.format("Buy-in: %s (%d bb stack)",
+            fmtMoney(buy_in), gtype.starting_stack_bb or 100)),
+        row("Pay by finish position:", "sm", "muted"),
     }
-    -- Threshold rows in ascending order so the player reads
-    -- "what do I need to clear" → "what does the top spot pay".
+    -- Thresholds descending so 1st place reads first. Each key maps to
+    -- finish_position = n_seats - key + 1.
+    local function positionName(pos)
+        if pos == 1 then return "1st"
+        elseif pos == 2 then return "2nd"
+        elseif pos == 3 then return "3rd"
+        else return string.format("%dth", pos) end
+    end
     local thresholds = {}
     for k in pairs(payouts) do thresholds[#thresholds + 1] = k end
-    table.sort(thresholds)
+    table.sort(thresholds, function(a, b) return a > b end)
     for _, k in ipairs(thresholds) do
         local mult = payouts[k] or 0
+        local pos  = n_seats - k + 1
         lines[#lines + 1] = row(string.format(
-            "  %d wins  →  %d×  (%s)", k, mult, fmtMoney(mult * buy_in)))
+            "  %s  →  %d×  (%s)", positionName(pos), mult, fmtMoney(mult * buy_in)))
     end
-    lines[#lines + 1] = row(string.format("Expected: %s / run  (net %s)",
-        fmtMoney(e_payout), fmtMoney(net)), "md", net_color)
     return lines
 end
 
@@ -194,7 +189,7 @@ local function buildEvBreakdownLines(tbl, controller)
     local stats = tbl:debugStats(controller and controller.ctx)
     if not stats then return nil end
     local gtype = stats.gtype
-    if gtype and gtype.binary_outcome then
+    if gtype and gtype.chip_stack_table then
         return buildMttLines(tbl, controller, stats)
     end
     return buildCashLines(tbl, controller, stats)

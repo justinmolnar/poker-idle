@@ -431,9 +431,10 @@ function Table:new(stake_id, game_type_id, ctx, poker_events)
         pending_close  = false,
 
         -- Tournament bookkeeping. Composed in always; cash tables leave it
-        -- at hands_won=0/state=nil so the MTT branches in :_finalizeHand
-        -- and the controller no-op. Only meaningful when the gtype carries
-        -- binary_outcome=true. See models/MttSession for the lifecycle.
+        -- at hands_won=0/state=nil so the chip-stack branches in
+        -- :_finalizeHand and the controller no-op. Only meaningful when
+        -- the gtype carries chip_stack_table=true. See models/MttSession
+        -- for the lifecycle.
         mtt = MttSession:new(),
     }, Table)
     self:fillOpponents(ctx)
@@ -465,6 +466,97 @@ function Table:setStake(stake_id, ctx)
     self.state = "idle"
     self.state_timer = 0
     self:fillOpponents(ctx)
+    -- Stake-change resets the chip-stack tournament so the next deal
+    -- starts a fresh run at the new stake's bb. Without this, leftover
+    -- per-seat stacks (sized in the old stake's bb) would persist.
+    self:_clearChipStackState()
+end
+
+-- ─── Chip-stack tournament helpers ────────────────────────────────────
+-- For chip_stack_table gtypes (8-max KO): every seat sits down with
+-- starting_stack_bb chips, hands play with real chip flow, seats bust
+-- at 0, tournament ends when the player busts or wins it all. Payout
+-- comes from data/mtt_payouts.lua keyed by finish position.
+
+function Table:_clearChipStackState()
+    self.seat_stacks       = nil
+    self.seat_busted       = nil
+    self.player_seat_fixed = nil
+    self.button_seat       = nil
+    self.bust_order        = nil
+    self.last_finish       = nil
+end
+
+-- Called from Table:deal when the gtype is chip_stack_table. Initializes
+-- per-seat state on the first deal of a fresh tournament; no-op when
+-- mid-run (mtt:isPlaying() returns true).
+function Table:_initChipStackIfNeeded(stake, gtype)
+    if self.mtt:isPlaying() then return end
+    local n_seats     = (gtype.seats or 0) + 1
+    local start_chips = (gtype.starting_stack_bb or 100) * ((stake and stake.bb) or 0)
+    self.seat_stacks  = {}
+    self.seat_busted  = {}
+    for s = 1, n_seats do
+        self.seat_stacks[s] = start_chips
+        self.seat_busted[s] = false
+    end
+    self.player_seat_fixed = love.math.random(1, n_seats)
+    self.button_seat       = love.math.random(1, n_seats)
+    self.bust_order        = {}
+    self.last_finish       = nil
+    -- tbl.stack mirrors seat_stacks[player_seat_fixed] for visual reads
+    -- (chip pile + "YOU $X.XX" label). The reconciliation pass keeps
+    -- these in sync after every hand.
+    self.stack             = start_chips
+end
+
+-- End-of-hand chip flow → seat stack reconciliation. Reads the script's
+-- per_seat_total + pot_at_push + winner and applies the net deltas to
+-- self.seat_stacks. Marks busted seats. Returns the player's net delta
+-- so the resolution dict can carry it back to the controller for the
+-- floater label.
+--
+-- Called from Table:update at the settling-state transition for
+-- chip_stack_table tables — runs BEFORE _pending_resolution is built so
+-- the resolution dict's delta reflects actual chip flow (not the cash
+-- branch's pre-cap outcome_delta).
+function Table:_reconcileChipFlow()
+    local ps = self.playback_state
+    if not ps or not ps.winner then return 0 end
+    if not self.seat_stacks then return 0 end
+
+    local player_seat = self.player_seat_fixed
+    local old_stack   = self.seat_stacks[player_seat] or 0
+
+    local n_seats = ps.n_seats or 0
+    for seat = 1, n_seats do
+        if not self.seat_busted[seat] then
+            local contributed = (ps.per_seat_total and ps.per_seat_total[seat]) or 0
+            local stack       = (self.seat_stacks[seat] or 0) - contributed
+            if seat == ps.winner then
+                stack = stack + (ps.pot_at_push or 0)
+            end
+            -- Round to cents to kill float residuals. Without this, a
+            -- seat can be left with $0.001 from accumulated FP drift,
+            -- which is below the writer's r2() threshold for blinds —
+            -- they post $0.00, neither contribute nor get whittled
+            -- down, and "live" at 0bb display forever. Rounding folds
+            -- the residual cleanly into the bust check below.
+            stack = math.floor(stack * 100 + 0.5) / 100
+            if stack <= 0 then
+                stack = 0
+                if not self.seat_busted[seat] then
+                    self.seat_busted[seat] = true
+                    self.bust_order[#self.bust_order + 1] = seat
+                end
+            end
+            self.seat_stacks[seat] = stack
+        end
+    end
+
+    local new_stack = self.seat_stacks[player_seat] or 0
+    self.stack = new_stack
+    return new_stack - old_stack
 end
 
 -- ─── Per-hand math ────────────────────────────────────────────────────
@@ -533,35 +625,36 @@ function Table:deal(ctx)
     self.outcome_won  = won
     self.outcome_tier = tier
 
-    -- Binary-outcome (MTT): magnitude doesn't matter; only the win/loss
-    -- bit affects state. Skip the $-delta math entirely and force the
-    -- delta to 0 so the controller's stack/bankroll mutators no-op.
-    if gtype.binary_outcome then
-        self.outcome_delta = 0
-        self.mtt:begin()
+    -- earnings_mult / loss_mult scale magnitude only — they don't reshape
+    -- the dists (Pot Odds Master, Damage Control, Headphones).
+    local earnings_mult = ctx.earnings_mult or 1
+    local loss_mult     = ctx.loss_mult     or 1
+    -- jackpot_mult (Branded Hat) stacks on top of earnings_mult — only
+    -- jackpot-tier WINS get the extra boost.
+    local jackpot_mult  = (won and tier == "jackpot")
+                          and (ctx.jackpot_mult or 1) or 1
+    if won then
+        local raw_win = magnitude_bb * stake.bb * earnings_mult * jackpot_mult
+        -- Pot cap: a hand's pot is at most 2× your at-table stack
+        -- (your contribution + opponent matching it). So the most
+        -- you can WIN from a hand is 2× stack. A $0.05 stack tops
+        -- out at $0.10; a full $2 stack at $4. Keeps low-stack
+        -- jackpots from feeling like free money while still letting
+        -- a healthy stack catch a real haul.
+        self.outcome_delta = math.min(raw_win, 2 * (self.stack or 0))
     else
-        -- earnings_mult / loss_mult scale magnitude only — they don't reshape
-        -- the dists (Pot Odds Master, Damage Control, Headphones).
-        local earnings_mult = ctx.earnings_mult or 1
-        local loss_mult     = ctx.loss_mult     or 1
-        -- jackpot_mult (Branded Hat) stacks on top of earnings_mult — only
-        -- jackpot-tier WINS get the extra boost.
-        local jackpot_mult  = (won and tier == "jackpot")
-                              and (ctx.jackpot_mult or 1) or 1
-        if won then
-            local raw_win = magnitude_bb * stake.bb * earnings_mult * jackpot_mult
-            -- Pot cap: a hand's pot is at most 2× your at-table stack
-            -- (your contribution + opponent matching it). So the most
-            -- you can WIN from a hand is 2× stack. A $0.05 stack tops
-            -- out at $0.10; a full $2 stack at $4. Keeps low-stack
-            -- jackpots from feeling like free money while still letting
-            -- a healthy stack catch a real haul.
-            self.outcome_delta = math.min(raw_win, 2 * (self.stack or 0))
-        else
-            -- Loss side already capped downstream: GrindController clamps
-            -- stack at 0 in its resolution loop.
-            self.outcome_delta = -magnitude_bb * stake.bb * loss_mult
-        end
+        -- Loss side already capped downstream: GrindController clamps
+        -- stack at 0 in its resolution loop.
+        self.outcome_delta = -magnitude_bb * stake.bb * loss_mult
+    end
+
+    -- Chip-stack tournaments: initialize seat stacks + bust state on
+    -- the first deal of a fresh MTT run. Subsequent deals reuse the
+    -- per-seat state. Tournament-end detection runs in _finalizeHand
+    -- after the reconciliation pass.
+    if gtype.chip_stack_table then
+        self:_initChipStackIfNeeded(stake, gtype)
+        self.mtt:begin()
     end
 
     local p_hole, o_hole, board, natural = constructHand(won)
@@ -607,13 +700,36 @@ function Table:deal(ctx)
         -- gtype.seats is the OPPONENT count (5 for six-max, 1 for HU,
         -- etc.), not the total. Total seats includes the player.
         local n_seats = ((gtype and gtype.seats) or 5) + 1
-        local player_seat = love.math.random(1, n_seats)
-        local button_seat = love.math.random(1, n_seats)
+        -- Chip-stack tournaments use the persisted player_seat / button
+        -- so the visual position stays stable and blinds rotate as opps
+        -- bust. Cash games re-roll both each hand (existing behavior).
+        local player_seat, button_seat
+        if gtype.chip_stack_table then
+            player_seat = self.player_seat_fixed
+            button_seat = self.button_seat
+            -- Advance the button clockwise to the next ALIVE seat each
+            -- hand. Defensive: if button_seat is somehow on a busted seat
+            -- (e.g. opp busted on the previous hand from this position),
+            -- the loop walks past it.
+            local advanced = nil
+            local s = (button_seat % n_seats) + 1
+            for _ = 1, n_seats do
+                if not self.seat_busted[s] then advanced = s; break end
+                s = (s % n_seats) + 1
+            end
+            if advanced then
+                self.button_seat = advanced
+                button_seat      = advanced
+            end
+        else
+            player_seat = love.math.random(1, n_seats)
+            button_seat = love.math.random(1, n_seats)
+        end
         self.playback_state = {
             n_seats             = n_seats,
             player_seat         = player_seat,
             in_seats            = {},
-            n_in                = n_seats,
+            n_in                = 0,
             pot                 = 0,
             current_bet         = 0,
             per_seat_committed  = {},
@@ -622,20 +738,56 @@ function Table:deal(ctx)
             player_revealed     = false,
             opp_revealed        = false,
             winner              = nil,
+            pot_at_push         = 0,
         }
-        for i = 1, n_seats do self.playback_state.in_seats[i] = true end
+        -- alive_seats: in chip-stack mode, busted seats stay out of the
+        -- hand. For cash games every seat is alive.
+        local alive_seats = {}
+        local n_alive = 0
+        for i = 1, n_seats do
+            local is_alive = true
+            if gtype.chip_stack_table and self.seat_busted then
+                is_alive = not self.seat_busted[i]
+            end
+            if is_alive then
+                self.playback_state.in_seats[i] = true
+                alive_seats[i] = true
+                n_alive = n_alive + 1
+            end
+        end
+        self.playback_state.n_in = n_alive
         -- Cap the writer's contribution target at the player's available
         -- stack. The bb-tier roll can exceed what the player can actually
         -- put in; without this cap the script keeps generating call
         -- events past the all-in point and the displayed stack tries to
-        -- drain below zero. (The bankroll math already clamps at stack
-        -- in GrindController's resolution loop, so r.delta lands correctly
-        -- regardless of what the script depicts.)
+        -- drain below zero. For chip-stack tables, also cap at the
+        -- biggest alive opponent stack so the pot is feasible.
         local stake_bb        = (stake and stake.bb) or 0
         local effective_bb    = magnitude_bb
         if stake_bb > 0 and (self.stack or 0) > 0 then
             local stack_bb = (self.stack or 0) / stake_bb
             if effective_bb > stack_bb then effective_bb = stack_bb end
+        end
+        if gtype.chip_stack_table and stake_bb > 0 and self.seat_stacks then
+            local max_opp = 0
+            for seat = 1, n_seats do
+                if seat ~= player_seat and not self.seat_busted[seat] then
+                    local s_chips = self.seat_stacks[seat] or 0
+                    if s_chips > max_opp then max_opp = s_chips end
+                end
+            end
+            local opp_bb = max_opp / stake_bb
+            if effective_bb > opp_bb then effective_bb = opp_bb end
+        end
+        -- Per-seat stack table passed to the writer so it can cap any
+        -- single seat's contribution at their remaining chips (emits
+        -- all_in instead of call when short). Cash games pass nil.
+        local seat_stacks_for_writer = nil
+        if gtype.chip_stack_table and self.seat_stacks then
+            seat_stacks_for_writer = {}
+            for seat = 1, n_seats do
+                seat_stacks_for_writer[seat] = self.seat_stacks[seat] or 0
+            end
         end
         local result = HandScript.write(
             {
@@ -644,12 +796,13 @@ function Table:deal(ctx)
                 tier          = tier,
                 gtype_id      = gtype.id,
                 stake_bb      = stake_bb,
-                binary_outcome = gtype.binary_outcome,
             },
             {
                 n_seats     = n_seats,
                 player_seat = player_seat,
                 button_seat = button_seat,
+                alive_seats = (gtype.chip_stack_table and alive_seats) or nil,
+                seat_stacks = seat_stacks_for_writer,
             },
             self.poker_events,
             PokerActionWeights,
@@ -783,15 +936,26 @@ function Table:update(dt, ctx)
         end
         if self.script_idx >= #events and self.state ~= "settling" then
             -- Script exhausted — transition into settling so resolution
-            -- emit + FX fire just like the timeline path.
+            -- emit + FX fire just like the timeline path. For chip-stack
+            -- tables, reconcile per-seat chip flow into seat_stacks
+            -- BEFORE building the resolution dict so r.delta reflects
+            -- the actual stack change (and seat busts have been marked
+            -- for end-condition checks in _finalizeHand).
+            local gtype = Lookups.findById(GameTypesData, self.game_type_id)
+            local resolved_delta = self.outcome_delta
+            if gtype and gtype.chip_stack_table then
+                resolved_delta = self:_reconcileChipFlow()
+                self.outcome_delta = resolved_delta
+            end
             self.state       = "settling"
             self.state_timer = 0
             self._pending_resolution = {
                 won   = self.outcome_won,
-                delta = self.outcome_delta,
+                delta = resolved_delta,
                 tier  = self.outcome_tier,
                 x     = self.x,
                 y     = self.y,
+                chip_stack_table = gtype and gtype.chip_stack_table or false,
             }
             self.lift_t = 0
         elseif self.state == "settling" and self.state_timer >= 0.4 then
@@ -887,34 +1051,63 @@ function Table:_finalizeHand()
     -- slam coincides with the chip burst, floater, border pulse, etc.
     self.lift_t        = 0
 
-    -- Tournament auto-advance. Win = bump hands_won and re-deal; loss
-    -- = end the tournament. Cleared all 8 = end with the top payout.
+    -- Tournament auto-advance for chip-stack tables. On each hand:
+    --   * Bump mtt.hands_won (lifetime deck-XP / stat tracking).
+    --   * Detect end conditions:
+    --       - Player busted → settle with finish_position based on
+    --         bust order (1 = winner, n_seats = first bust).
+    --       - All non-player seats busted → player wins, finish 1.
+    --       - Else → auto-deal the next hand.
     -- We re-use the latest ctx stashed on :update / :deal so the new
-    -- hand samples WC against the player's current effects rollup —
-    -- magnitudes don't matter (binary_outcome forces delta=0).
+    -- hand samples WC against the player's current effects rollup.
     local gtype = Lookups.findById(GameTypesData,self.game_type_id)
-    if gtype and gtype.auto_deal and self.mtt:isPlaying() then
+    if gtype and gtype.chip_stack_table and self.mtt:isPlaying() then
         if self.outcome_won then
             self.mtt:winHand()
-            if self.mtt.hands_won >= (gtype.hand_count or 0) then
-                self:_endTournament()
-            else
-                self:deal(self._last_ctx)
+        end
+        local n_seats = (gtype.seats or 0) + 1
+        local player_seat = self.player_seat_fixed
+        local player_busted = self.seat_busted and self.seat_busted[player_seat] == true
+        local alive_opps = 0
+        for s = 1, n_seats do
+            if s ~= player_seat and not self.seat_busted[s] then
+                alive_opps = alive_opps + 1
             end
-        else
-            self:_endTournament()
+        end
+        if player_busted then
+            -- Player's finish position = (alive_opps_when_player_busts) + 1.
+            -- If 5 opps alive when player busts: player is 6th (3rd place
+            -- among 8 seats once the other 5 also bust). Player's order
+            -- among finishers is determined by who's still alive AT THE
+            -- MOMENT they bust.
+            local finish_position = alive_opps + 1
+            self:_endTournament(finish_position, n_seats)
+        elseif alive_opps == 0 then
+            self:_endTournament(1, n_seats)
+        elseif gtype.auto_deal then
+            self:deal(self._last_ctx)
         end
     end
 end
 
 -- Settle the tournament: stash the payout on self.mtt for the controller to
--- drain, clear MTT state, and zero the stack so the panel renders REBUY.
-function Table:_endTournament()
+-- drain, clear chip-stack state, and zero the stack so the panel renders
+-- REBUY. Payout is read from data/mtt_payouts.lua keyed by
+-- (n_seats - finish_position + 1) — so 1st=8, 2nd=7, 3rd=6, 4th+ gets no
+-- entry and pays nothing. The Plastic Trophy / Engraved Plaque perks
+-- still raise the floor at lower finishes via ctx.mtt_payout_boost.
+function Table:_endTournament(finish_position, n_seats)
     local stake   = Lookups.findById(StakesData,self.stake_id)
     local boost   = (self._last_ctx and self._last_ctx.mtt_payout_boost) or 0
     local payouts = MttPayouts[boost] or MttPayouts[0]
     local buy_in  = (stake and stake.buy_in) or 0
-    self.mtt:settle(buy_in, payouts)
+    self.last_finish = finish_position
+    self.mtt:settle(buy_in, payouts, finish_position, n_seats)
+    -- Per-seat state (seat_stacks / seat_busted / player_seat_fixed /
+    -- button_seat / bust_order) is left in place — the post-tournament
+    -- panel renders the final bust pattern until the player rebuys.
+    -- The next _initChipStackIfNeeded (fired from deal() after rebuy)
+    -- overwrites everything for the fresh run.
     self.stack    = 0  -- triggers REBUY rendering in TablePanel
 end
 

@@ -81,23 +81,31 @@ return {
     {
         id   = "mtt",
         name = "Tournament",
-        short = "MTT",
-        seats = 5,
-        pace_mult = 1.0,        -- 6-max-baseline cinematics, 8 hands in sequence
-        -- MTT inherits 6-max baseline distributions. Magnitudes don't
-        -- matter under binary_outcome — only the per-hand win/lose roll
-        -- decides advance vs end. Identity is structural (auto-deal +
-        -- 8-hand cap + payout ladder), not magnitude-shaped.
-        dist_shifts       = nil,
+        short = "8-MAX KO",
+        seats = 7,              -- 7 opponents + player = 8 seated total
+        pace_mult = 1.0,
         rerolls_opponents = false,
-        -- Tournament knobs:
-        --   hand_count      — auto-deal stops at this many cleared hands
-        --   auto_deal       — fire :deal again on settling-end (no clicks)
-        --   binary_outcome  — outcome_delta forced to 0 in :deal; only
-        --                     `won` matters for advance-or-end
-        hand_count     = 8,
-        auto_deal      = true,
-        binary_outcome = true,
+        -- 8-max knockout: each seat sits down with starting_stack_bb at
+        -- table init. Hands play normally (no binary_outcome), with real
+        -- chip flow into the pot. Seats bust at 0 chips. Tournament ends
+        -- when the player busts OR is the last seat standing. Payout
+        -- read from data/mtt_payouts.lua keyed by finish position
+        -- (1st=8, 2nd=7, 3rd=6, 4th-8th=0).
+        chip_stack_table    = true,
+        starting_stack_bb   = 100,
+        auto_deal           = true,
+        -- Tier distribution is shoved hard toward large + jackpot so
+        -- pots actually bust seats. Without this, the 6-max baseline
+        -- (small-heavy) trickles chips around for dozens of hands
+        -- before anyone goes broke — blinds alone aren't enough at
+        -- 100bb starting stacks. Small/medium go to ~0 after clamp;
+        -- large/jackpot soak up all the mass. Mirrored on the loss
+        -- side so the player's losses are equally chunky and they
+        -- bust quickly when running bad.
+        dist_shifts = {
+            win_dist  = { small = -0.95, medium = -0.80, large = 0.50, jackpot = 0.80 },
+            loss_dist = { small = -0.95, medium = -0.80, large = 0.50, jackpot = 0.80 },
+        },
     },
 
 }

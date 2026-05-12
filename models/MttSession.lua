@@ -1,23 +1,25 @@
 -- models/MttSession.lua
 --
 -- Per-table tournament state. Composed onto Table for any game type with
--- `binary_outcome = true`; ignored by cash tables (instance still exists,
--- just stays at hands_won=0/state=nil so the cash table treats it as a
--- no-op). Splits the tournament-specific bookkeeping (hands won this run,
--- "currently registered" flag, pending payout cash) out of the cash-table
--- model so Table doesn't carry MTT-only fields at top level.
+-- `chip_stack_table = true` (the 8-max KO mode). Cash tables instantiate
+-- but leave it at hands_won=0 / state=nil — no-op. Splits the
+-- tournament-specific bookkeeping (hands won this run, "currently
+-- registered" flag, pending payout cash, last finish position) out of
+-- the table model.
 --
 -- Lifecycle:
 --   • :begin()       — flag the session as live (called on the first deal
 --                      of a new MTT run from Table:deal).
---   • :winHand()     — bump hands_won.
---   • :settle(...)   — finalize: stash pending_payout, clear state.
+--   • :winHand()     — bump hands_won (deck-XP / lifetime stat tracking).
+--   • :settle(...)   — finalize: look up payout by finish position,
+--                      stash pending_payout, clear state.
 --   • :drainPayout() — controller calls each frame; returns the payout
 --                      cash if any, then clears pending_payout.
 --   • :reset()       — REBUY / save-clear: zero hands_won and state.
 --
 -- save round-trip: hands_won and state are persisted via TablePool's parallel
--- arrays on GameState. pending_payout is transient (drained next frame).
+-- arrays on GameState. pending_payout and last_finish are transient
+-- (drained / read next frame).
 
 local MttSession = {}
 MttSession.__index = MttSession
@@ -27,6 +29,8 @@ function MttSession:new()
         hands_won      = 0,
         state          = nil,    -- nil | "playing"
         pending_payout = nil,    -- $ amount, transient
+        last_finish    = nil,    -- finish position from most recent settle,
+                                 -- read by controller for bounty gating
     }, MttSession)
 end
 
@@ -42,12 +46,16 @@ function MttSession:winHand()
     self.hands_won = self.hands_won + 1
 end
 
--- Resolve the payout from the boost-aware payouts table for the current
--- hands_won total. Stashes it on pending_payout for the controller to
--- drain. Clears state so the next :begin starts a fresh run.
-function MttSession:settle(buy_in, payouts_for_boost)
-    local mult = (payouts_for_boost and payouts_for_boost[self.hands_won]) or 0
+-- Resolve the payout for the given finish position (1 = won, 2 = 2nd
+-- place, etc.). The mtt_payouts ladder is keyed descending — 1st = 8,
+-- 2nd = 7, 3rd = 6 — so finish_positions outside the top-3 yield no
+-- payout. Stashes pending_payout for the controller to drain and clears
+-- state so the next :begin starts a fresh run.
+function MttSession:settle(buy_in, payouts_for_boost, finish_position, n_seats)
+    local key  = (n_seats or 0) - (finish_position or 0) + 1
+    local mult = (payouts_for_boost and payouts_for_boost[key]) or 0
     self.pending_payout = mult * (buy_in or 0)
+    self.last_finish    = finish_position
     self.state          = nil
 end
 
@@ -64,6 +72,7 @@ function MttSession:reset()
     self.hands_won      = 0
     self.state          = nil
     self.pending_payout = nil
+    self.last_finish    = nil
 end
 
 return MttSession
