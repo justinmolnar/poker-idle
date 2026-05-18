@@ -169,15 +169,19 @@ function GrindController:update(dt)
                 self:_emitMttPayoutChips(t, payout)
             end
 
-            -- PP bounty for chip-stack tournaments: winning the tournament
-            -- (finish_position == 1) is the jackpot-equivalent. The cash-
-            -- path bounty below gates on r.tier == "jackpot", which is
-            -- per-hand — for a tournament you can only "jackpot" once,
-            -- on the win. First-win-per-(stake, gtype) is the same
-            -- once-per-run cap the cash path uses.
+            -- PP bounty for tournaments: jackpot-equivalent fires once at
+            -- tournament-win time. Two flavors:
+            --   • chip-stack (FEATURES.MTT_KO):     finish_position == 1
+            --   • legacy binary_outcome (prototype): cleared all hand_count hands
+            -- Cash-path bounty below gates on r.tier == "jackpot", which is
+            -- per-hand — tournaments can only "jackpot" once, on the win,
+            -- so this drain-block path handles it and the cash path skips.
             local gtype = Lookups.findById(GameTypes,t.game_type_id)
-            local won_tournament = t.mtt and t.mtt.last_finish == 1
-            if gtype and gtype.chip_stack_table and won_tournament then
+            local won_ko     = t.mtt and t.mtt.last_finish == 1
+                              and gtype and gtype.chip_stack_table
+            local won_legacy = gtype and gtype.binary_outcome
+                              and t.mtt and hands_cleared >= (gtype.hand_count or 0)
+            if gtype and (won_ko or won_legacy) then
                 local state = self.game.state
                 local key   = bountyKey(t.stake_id, t.game_type_id)
                 if not state.stakes_won_this_run[key] then
@@ -251,14 +255,31 @@ function GrindController:update(dt)
             state.bankroll = new_bankroll
         end
 
-        -- Floater label & color: the dollar delta speaks for itself.
-        -- For chip-stack tables, r.delta is the post-reconcile chip-flow
-        -- net — same shape as cash. Tournament payouts (end-of-MTT
-        -- cashout) emit their own "+$X.XX" floater from the drainPayout
-        -- block above.
+        -- Floater label & color. Three flavors:
+        --   • cash hand               → "+/-$X.XX"
+        --   • chip-stack MTT hand     → "+/-Nbb" (no cash until placement)
+        --   • legacy binary MTT hand  → "WIN" / "OUT" (delta is forced 0,
+        --                                so a dollar label is meaningless)
+        -- Tournament cash payout fires its own "+$X.XX" floater from the
+        -- drainPayout block above when the tournament ends.
+        local gtype_for_floater = tbl and Lookups.findById(GameTypes, tbl.game_type_id)
+        local is_binary = gtype_for_floater and gtype_for_floater.binary_outcome
         local label
         local floater_opts_override = nil
-        if r.delta >= 0 then
+        if is_binary then
+            label = r.won and "WIN" or "OUT"
+            floater_opts_override = { color_token = r.won and "good" or "error" }
+        elseif r.chip_stack_table then
+            local stake = tbl and Lookups.findById(Stakes, tbl.stake_id)
+            local bb_val = (stake and stake.bb and stake.bb > 0) and stake.bb or 1
+            local bb_delta = (r.delta or 0) / bb_val
+            if bb_delta >= 0 then
+                label = string.format("+%dbb", math.floor(bb_delta + 0.5))
+            else
+                label = string.format("-%dbb", math.floor(-bb_delta + 0.5))
+                floater_opts_override = { color_token = "error" }
+            end
+        elseif r.delta >= 0 then
             label = string.format("+$%.2f", r.delta)
         else
             label = string.format("-$%.2f", -r.delta)
@@ -524,6 +545,26 @@ function GrindController:getRunUpgradeNextCost(upgrade)
     if current >= (upgrade.max_level or 1) then return nil end
     local cost = (upgrade.costs and upgrade.costs[current + 1]) or 0
     return cost * ((self.ctx and self.ctx.run_upgrade_cost_mult) or 1)
+end
+
+-- Strand check: would spending `cost` leave the player unable to play any
+-- table — no felt to grind back from? True only when there are no
+-- playable tables (stack > 0) AND the post-purchase bankroll is below the
+-- cheapest stake's adjusted buy-in. Used by the upgrades tab to disable
+-- buttons that would silently end the run.
+function GrindController:wouldStrandRun(cost)
+    if not cost or cost <= 0 then return false end
+    for _, t in ipairs(self.pool.tables) do
+        if (t.stack or 0) > 0 then return false end
+    end
+    local mult = (self.ctx and self.ctx.buy_in_mult) or 1
+    local cheapest
+    for _, s in ipairs(Stakes) do
+        local bi = (s.buy_in or 0) * mult
+        if not cheapest or bi < cheapest then cheapest = bi end
+    end
+    if not cheapest then return false end
+    return (self.game.state.bankroll - cost) < cheapest
 end
 
 function GrindController:buyCatalogItem(item_id)

@@ -191,11 +191,12 @@ Effects.kinds = {
 
     -- Additive percentage on starting bankroll (Lucky Coin = +50%). Sits
     -- next to start_bankroll_add: that's a flat $ add, this is a %.
-    -- Computed against Constants.GAMEPLAY.INITIAL_BANKROLL in
-    -- GameState:applyStartingPerks.
+    -- Applied AFTER start_bankroll_add in GameState:applyStartingPerks,
+    -- so the percentage multiplies the post-add bankroll. "+$5 + 50%" on
+    -- a $2 base = ($2 + $5) × 1.5 = $10.50.
     start_bankroll_pct = {
-        description = "Adds (pct × initial bankroll) to the seeded bankroll at run start.",
-        value_shape = "number, e.g. 0.5 for +50% of the base seed",
+        description = "Multiplies the bankroll seed (after flat adds) by (1 + pct).",
+        value_shape = "number, e.g. 0.5 for +50%",
         affects     = "ctx.start_bankroll_pct (additive)",
     },
 

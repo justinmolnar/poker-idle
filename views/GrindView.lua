@@ -284,7 +284,9 @@ function GrindView:_makeGameTypeStrip()
         six_max  = "6-Max — the baseline. Standard pace, 5 seated opponents, no pot-shape bias.",
         hu       = "Heads-Up — duel with one opponent. Fast pace, you win less often, but pots run deep both ways.",
         zoom     = "Zoom — anonymous reroll pool. Fastest mode, you win slightly more often, but pots stay small.",
-        mtt      = "8-max KO — sit down with 100bb chips. Hands play normally; seats bust at zero. Win it all or finish top-3 to cash.",
+        mtt      = Constants.FEATURES.MTT_KO
+                   and "8-max KO — sit down with 100bb chips. Hands play normally; seats bust at zero. Win it all or finish top-3 to cash."
+                   or  "Tournament — 8 hands play out automatically. Win more hands to climb the payout ladder; lose one and the run ends.",
     }
     return {
         type = "custom",
@@ -382,13 +384,11 @@ function GrindView:_buildTablesTabComponents()
             local cant_afford  = state.bankroll < (stake.buy_in or 0)
             local disabled     = full or cant_afford
 
-            local sub
+            local sub_left, sub_right
             if full then
-                sub = "tables full (max " .. cap .. ")"
-            elseif cant_afford then
-                sub = string.format("buy-in $%.2f  (need more)", stake.buy_in or 0)
+                sub_left, sub_right = "tables full (max " .. cap .. ")", ""
             else
-                sub = string.format("buy-in $%.2f", stake.buy_in or 0)
+                sub_left, sub_right = "", string.format("buy-in $%.2f", stake.buy_in or 0)
             end
 
             -- PP-bounty status: "+N PP" right-aligned next to the stake
@@ -410,7 +410,7 @@ function GrindView:_buildTablesTabComponents()
                         text  = "+ " .. stake.display_name, style = "heading",
                         right = pp_text, right_color_token = pp_color_tok,
                     },
-                    { text = sub, style = "small" },
+                    { text = sub_left, style = "small", right = sub_right },
                 },
             }
         end
@@ -452,14 +452,20 @@ function GrindView:_buildUpgradesTabComponents()
             local at_max    = level >= max_lvl
             local next_cost = self.controller:getRunUpgradeNextCost(up)
             local cant_afford = next_cost and state.bankroll < next_cost
-            local disabled  = at_max or cant_afford or locked
+            -- Strand block: even if affordable, refuse purchases that would
+            -- leave the player unable to open a table — upgrades aren't
+            -- refundable, so this would silently end the run.
+            local would_strand = (not at_max) and (not locked) and (not cant_afford)
+                                 and self.controller:wouldStrandRun(next_cost)
+            local disabled  = at_max or cant_afford or locked or would_strand
 
             -- 2-line button:
             --   [name (heading)            | level (heading) ]
             --   [description (small)       | cost (small)    ]
             -- Locked / maxed states collapse the right column to a
             -- single status string on line 1.
-            local level_text, cost_text
+            local level_text, cost_text, desc_text, tooltip
+            desc_text = up.description or ""
             if locked then
                 level_text = "Requires " .. catalogName(up.requires)
                 cost_text  = ""
@@ -470,14 +476,25 @@ function GrindView:_buildUpgradesTabComponents()
                 level_text = string.format("Lv %d/%d", level, max_lvl)
                 cost_text  = string.format("$%.2f", next_cost or 0)
             end
+            if would_strand then
+                desc_text = "open or rebuy a table first — buying now ends the run"
+                tooltip   = "Locked: spending $" .. string.format("%.2f", next_cost or 0)
+                         .. " would leave you below the cheapest buy-in"
+                         .. " with no playable tables. Open a table first."
+            end
 
             components[#components + 1] = {
                 type     = "button",
                 id       = "buy_runup_" .. up.id,
                 disabled = disabled,
+                tooltip  = tooltip,
                 lines = {
-                    { text = up.name,                style = "heading", right = level_text },
-                    { text = up.description or "",   style = "small",   right = cost_text  },
+                    { text = up.name, style = "heading", right = level_text },
+                    {
+                        text  = desc_text, style = "small",
+                        right = cost_text,
+                        right_color_token = would_strand and "error" or nil,
+                    },
                 },
             }
         end

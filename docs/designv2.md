@@ -189,7 +189,7 @@ Standard idle pattern, single axis:
 
 - Spent during a run, lost on prestige.
 - No room item — pure stat boosts in the run-tracker UI.
-- Fill outcome-model dimensions (Sharper Reads → win_chance, Pot Control → win_dist + loss_dist, Focus → table capacity, Hire/Cursor Speed → cursor swarm).
+- Fill outcome-model dimensions (Sharper Reads → win_chance, Pot Control → win_dist + loss_dist, Focus → table capacity, Box of Mice/Cursor Speed → cursor swarm).
 - Compete with stake-climbing for bankroll. Save up for next stake, or buy upgrades to grind current stake faster?
 
 ### Catalog (bought with Poker Points)

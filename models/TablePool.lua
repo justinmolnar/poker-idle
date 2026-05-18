@@ -8,7 +8,15 @@
 -- Update tick collects resolutions from each table and returns them for the
 -- controller to act on (apply to bankroll, emit floating text, etc.).
 
-local Table     = require("models.Table")
+-- FEATURES.MTT_KO gates the post-1617f0d chip-flow MTT system. When off
+-- (prototype builds), we route ALL tables through Table_legacy — the
+-- pre-refactor snapshot of Table.lua that still carries the binary_outcome
+-- code path the old MTT uses. Cash-table behavior is unchanged between
+-- the two files for prototype-mode purposes; this isn't a per-table swap.
+local Constants = require("data.constants")
+local Table     = Constants.FEATURES.MTT_KO
+                  and require("models.Table")
+                  or  require("models.Table_legacy")
 local GameTypes = require("data.game_types")
 
 -- Fallback gtype for unknown ids in a saved spec (e.g. a deprecated mode
@@ -59,6 +67,7 @@ function TablePool:rebuildFromState(ctx)
     local p_seats      = self.state.active_table_player_seat or {}
     local b_seats      = self.state.active_table_button_seat or {}
     local b_orders     = self.state.active_table_bust_order  or {}
+    local mtt_plans    = self.state.active_table_mtt_plans   or {}
     local stack_vals   = self.state.active_table_stack       or {}
     for i, spec in ipairs(self.state.active_table_specs or {}) do
         local stake_id, gtype_id = unpackSpec(spec)
@@ -75,6 +84,7 @@ function TablePool:rebuildFromState(ctx)
             -- Cash tables ignore these.
             t.mtt.hands_won  = hands[i] or 0
             t.mtt.state      = mstate[i]
+            t.mtt.plan       = mtt_plans[i]
             if seat_stacks[i] then
                 t.seat_stacks       = seat_stacks[i]
                 t.seat_busted       = seat_busted[i] or {}
@@ -90,7 +100,7 @@ end
 
 function TablePool:_syncStateList()
     local specs, mutes, rebuy_mutes = {}, {}, {}
-    local hands, mstate = {}, {}
+    local hands, mstate, mtt_plans = {}, {}, {}
     local seat_stacks, seat_busted = {}, {}
     local p_seats, b_seats, b_orders, stack_vals = {}, {}, {}, {}
     for i, t in ipairs(self.tables) do
@@ -99,7 +109,8 @@ function TablePool:_syncStateList()
         rebuy_mutes[i]  = t.cursor_rebuy_muted == true
         hands[i]        = (t.mtt and t.mtt.hands_won) or 0
         mstate[i]       = t.mtt and t.mtt.state
-        seat_stacks[i]  = t.seat_stacks       -- may be nil for cash tables
+        mtt_plans[i]    = t.mtt and t.mtt.plan       -- nil for cash tables
+        seat_stacks[i]  = t.seat_stacks              -- may be nil for cash tables
         seat_busted[i]  = t.seat_busted
         p_seats[i]      = t.player_seat_fixed
         b_seats[i]      = t.button_seat
@@ -111,6 +122,7 @@ function TablePool:_syncStateList()
     self.state.active_table_rebuy_mutes   = rebuy_mutes
     self.state.active_table_mtt_hands_won = hands
     self.state.active_table_mtt_state     = mstate
+    self.state.active_table_mtt_plans     = mtt_plans
     self.state.active_table_seat_stacks   = seat_stacks
     self.state.active_table_seat_busted   = seat_busted
     self.state.active_table_player_seat   = p_seats

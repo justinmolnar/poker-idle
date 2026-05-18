@@ -76,14 +76,14 @@ return {
     -- mechanic returns as an opt-in variant, deliberate replacement
     -- upgrades can come with it.)
 
-    -- ── Hire — more cursors in the swarm ──────────────────────────────
+    -- ── Box of Mice — more cursors in the swarm ──────────────────────
     -- Adds 1 cursor per level. Requires the catalog `cursor_pool` unlock
     -- + at least one cursor (catalog or run) to do anything visible.
     -- 12 levels.
     {
-        id            = "hire",
-        name          = "Hire",
-        description   = "Pay an assistant for the night.",
+        id            = "box_of_mice",
+        name          = "Cursor",
+        description   = "One more mouse.",
         requires      = "cursor_pool",
         requires_hide = true,
         max_level     = 12,

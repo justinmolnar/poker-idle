@@ -12,7 +12,7 @@ local C = {}
 --
 -- Things that always run regardless of this flag: auto-save, the title
 -- screen, the dealer-always-cheats outcome.
-C.PROTOTYPE_MODE = false
+C.PROTOTYPE_MODE = true
 
 -- Per-feature flags. Default values follow C.PROTOTYPE_MODE; override an
 -- individual entry below the assignment if you need a non-default mix
@@ -46,6 +46,16 @@ C.FEATURES = {
     -- (blinds, betting rounds, action passing, fold-outs vs. showdowns).
     -- Math is unchanged.
     POKER_THEATER     = not C.PROTOTYPE_MODE,
+
+    -- 8-max knockout MTT with real chip flow. Off → prototype falls back
+    -- to the pre-1617f0d "8-hand binary outcome" tournament: seats=5,
+    -- 8 hands auto-played, payout keyed by hands_won via mtt_payouts.
+    -- When off, TablePool loads models/Table_legacy (the snapshot of
+    -- Table.lua from before the 1617f0d refactor) for MTT tables, and
+    -- data/game_types.lua swaps the `mtt` entry to the old definition.
+    -- The new chip-flow system (Table.lua, MttSession.lua, HandScript.lua)
+    -- only runs when MTT_KO is on.
+    MTT_KO            = not C.PROTOTYPE_MODE,
 }
 
 C.WINDOW = {

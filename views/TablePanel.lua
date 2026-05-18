@@ -633,46 +633,81 @@ local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_ch
     love.graphics.printf("Pot: " .. Format.moneyExact(pot), felt_x, text_y, felt_w, "center")
 end
 
--- Tournament bottom-band for chip-stack tables: survivors counter +
--- finish-position payout strip. Replaces the stack/YOU strip when the
--- gtype carries chip_stack_table. Same vertical slot as the cash-table
--- stack pile, so panel layout is unchanged.
-local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
-    -- Count alive seats (player + alive opps).
-    local n_seats = (gtype.seats or 0) + 1
-    local alive   = 0
-    if tbl.seat_busted then
-        for s = 1, n_seats do
-            if not tbl.seat_busted[s] then alive = alive + 1 end
-        end
-    else
-        alive = n_seats   -- pre-init (table just added, no hand played yet)
-    end
+-- Legacy MTT bottom-band: hand counter + payout ladder keyed by
+-- hands_won. Used only when FEATURES.MTT_KO is off and the gtype is
+-- the binary_outcome 8-round MTT. The new chip-stack ladder lives in
+-- drawTournamentLadder below.
+local function drawLegacyMttLadder(tbl, gtype, ctx, x, y, w, fonts)
+    local hands_won = (tbl.mtt and tbl.mtt.hands_won) or 0
+    local hand_cap  = gtype.hand_count or 8
 
-    -- Counter line. When the player has busted (tbl.stack = 0 and seat
-    -- busted), show their final finish position instead of the count.
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.md)
-    local counter_label
-    if tbl.last_finish then
-        local function positionName(pos)
-            if pos == 1 then return "1st"
-            elseif pos == 2 then return "2nd"
-            elseif pos == 3 then return "3rd"
-            else return string.format("%dth", pos) end
-        end
-        counter_label = string.format("FINISH: %s", positionName(tbl.last_finish))
-    else
-        counter_label = string.format("%d / %d ALIVE", alive, n_seats)
-    end
-    love.graphics.printf(counter_label, x, y, w, "center")
+    love.graphics.printf(string.format("HAND %d / %d", hands_won, hand_cap),
+        x, y, w, "center")
 
+    local boost        = (ctx and ctx.mtt_payout_boost) or 0
+    local payout_table = MttPayouts[boost] or MttPayouts[0]
+    local thresholds   = {}
+    for k in pairs(payout_table) do thresholds[#thresholds + 1] = k end
+    table.sort(thresholds)
+
+    local pip_h   = 16
+    local pip_gap = 6
+    local n       = #thresholds
+    if n == 0 then return end
+    local pip_w   = math.floor((w - (n - 1) * pip_gap - 16) / n)
+    if pip_w < 36 then pip_w = 36 end
+    local strip_w = pip_w * n + (n - 1) * pip_gap
+    local strip_x = x + math.floor((w - strip_w) / 2)
+    local strip_y = y + 22
+
+    love.graphics.setFont(fonts.sm)
+    for i, th in ipairs(thresholds) do
+        local px      = strip_x + (i - 1) * (pip_w + pip_gap)
+        local cleared = hands_won >= th
+        local is_next = not cleared
+        for _, t2 in ipairs(thresholds) do
+            if (not cleared) and t2 < th and hands_won < t2 then
+                is_next = false
+                break
+            end
+        end
+
+        local fill = cleared and Theme.status.good
+                     or is_next and Theme.status.warn
+                     or Theme.bg.sunken
+        local text_color = (cleared or is_next) and Theme.bg.window
+                                                 or Theme.fg.muted
+        Theme.setColor(fill)
+        love.graphics.rectangle("fill", px, strip_y, pip_w, pip_h, Theme.space.radius)
+        Theme.setColor(Theme.border.soft)
+        love.graphics.rectangle("line", px, strip_y, pip_w, pip_h, Theme.space.radius)
+
+        Theme.setColor(text_color)
+        love.graphics.printf(string.format("%d:%dx", th, payout_table[th] or 0),
+            px, strip_y + math.floor((pip_h - fonts.sm:getHeight()) * 0.5),
+            pip_w, "center")
+    end
+
+    Anchors.set(Table.anchorKey(tbl, "you"),
+        x + math.floor(w * 0.5),
+        strip_y + pip_h * 0.5)
+end
+
+-- Tournament bottom-band for chip-stack tables: finish-position payout
+-- strip. Same vertical slot the cash-table stack pile occupies, at the
+-- same position the original ladder lived in — visually unchanged.
+-- The alive-count / FINISH text is rendered separately on the left of
+-- the player cards (drawPlayerSeat), not in this function.
+local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
     -- Pip strip: payout multipliers by finish position. Threshold keys
     -- in mtt_payouts.lua map as (n_seats - key + 1) → finish_position.
     -- Sort descending so 1st reads leftmost (top spot first).
-    local boost  = (ctx and ctx.mtt_payout_boost) or 0
+    local n_seats      = (gtype.seats or 0) + 1
+    local boost        = (ctx and ctx.mtt_payout_boost) or 0
     local payout_table = MttPayouts[boost] or MttPayouts[0]
-    local thresholds = {}
+    local thresholds   = {}
     for k in pairs(payout_table) do thresholds[#thresholds + 1] = k end
     table.sort(thresholds, function(a, b) return a > b end)
 
@@ -683,6 +718,9 @@ local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
     if pip_w < 36 then pip_w = 36 end
     local strip_w   = pip_w * n + (n - 1) * pip_gap
     local strip_x   = x + math.floor((w - strip_w) / 2)
+    -- y + 22 preserves the exact vertical slot the strip occupied when
+    -- the counter line lived above it inside this function — the bar's
+    -- on-screen position is unchanged from the original.
     local strip_y   = y + 22
 
     love.graphics.setFont(fonts.sm)
@@ -755,11 +793,62 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
         drawCardSlot(cards_x + card_w + 4, cards_y, card_w, card_h, 1)
     end
 
-    -- Chip-stack tournaments swap the bottom band for a survivors counter
-    -- + finish-position payout strip. Cash tables show the stack chip
-    -- pile + "YOU $X.XX" label.
+    -- Legacy MTT (FEATURES.MTT_KO off): hand counter + payout ladder
+    -- keyed by hands_won. Lives in the same bottom-band slot.
     local gtype = Lookups.findById(GameTypes,tbl.game_type_id)
+    if gtype and gtype.hand_count and not gtype.chip_stack_table then
+        local ladder_y = cards_y + card_h + 4
+        drawLegacyMttLadder(tbl, gtype, ctx, x, ladder_y, w, fonts)
+        return
+    end
+
+    -- Chip-stack tournaments:
+    --   • Right of cards: YOU Nbb label (mirror of cash YOU $X.XX).
+    --   • Left of cards:  alive counter / FINISH text.
+    --   • Bottom band:    finish-position pip strip — the bar, in its
+    --                     original on-screen position, untouched.
     if gtype and gtype.chip_stack_table then
+        local label_y = cards_y + card_h + 2
+        -- Right side: YOU Nbb (hidden post-bust; FINISH lives on left).
+        if not tbl.last_finish then
+            local stake_for_bb = Lookups.findById(Stakes, tbl.stake_id)
+            local bb_val       = (stake_for_bb and stake_for_bb.bb) or 0
+            if bb_val > 0 and tbl.seat_stacks and tbl.player_seat_fixed then
+                local chips = tbl.seat_stacks[tbl.player_seat_fixed] or 0
+                local bb    = math.floor(chips / bb_val + 0.5)
+                Theme.setColor(Theme.fg.heading)
+                love.graphics.setFont(fonts.sm)
+                love.graphics.print(string.format("YOU  %dbb", bb),
+                    cards_x + cards_w + 8, label_y - 12)
+            end
+        end
+        -- Left side: alive counter / final finish position.
+        local n_seats = (gtype.seats or 0) + 1
+        local alive   = 0
+        if tbl.seat_busted then
+            for s = 1, n_seats do
+                if not tbl.seat_busted[s] then alive = alive + 1 end
+            end
+        else
+            alive = n_seats
+        end
+        local counter_label
+        if tbl.last_finish then
+            local function positionName(pos)
+                if pos == 1 then return "1st"
+                elseif pos == 2 then return "2nd"
+                elseif pos == 3 then return "3rd"
+                else return string.format("%dth", pos) end
+            end
+            counter_label = string.format("FINISH %s", positionName(tbl.last_finish))
+        else
+            counter_label = string.format("%d/%d ALIVE", alive, n_seats)
+        end
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.setFont(fonts.sm)
+        local tw = fonts.sm:getWidth(counter_label)
+        love.graphics.print(counter_label, cards_x - 8 - tw, label_y - 12)
+        -- Bar at the bottom — original position, untouched.
         local ladder_y = cards_y + card_h + 4
         drawTournamentLadder(tbl, gtype, ctx, x, ladder_y, w, fonts)
         return

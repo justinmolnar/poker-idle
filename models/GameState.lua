@@ -95,6 +95,11 @@ function GameState:new(saved)
     instance.active_table_player_seat   = {}
     instance.active_table_button_seat   = {}
     instance.active_table_bust_order    = {}
+    -- Tournament plan (models/MttSession): the full pre-rolled
+    -- finish_position + n_hands + bust schedule + per-hand outcome list.
+    -- Persisted so a mid-tournament reload resumes at next_hand_idx and
+    -- delivers the same finish position the plan committed to.
+    instance.active_table_mtt_plans     = {}
     -- Per-table stack value, so a chip-stack table's current $-stack
     -- (which can grow beyond 100bb as chips are won) survives reload.
     -- Cash tables write their stack here too; on reload they restore
@@ -133,6 +138,7 @@ function GameState:resetRun()
     self.active_table_player_seat   = {}
     self.active_table_button_seat   = {}
     self.active_table_bust_order    = {}
+    self.active_table_mtt_plans     = {}
     self.active_table_stack         = {}
     self.stakes_won_this_run = {}
     self.pp_this_run         = 0
@@ -272,6 +278,7 @@ function GameState:serializeRun()
         active_table_player_seat   = self.active_table_player_seat,
         active_table_button_seat   = self.active_table_button_seat,
         active_table_bust_order    = self.active_table_bust_order,
+        active_table_mtt_plans     = self.active_table_mtt_plans,
         active_table_stack         = self.active_table_stack,
         stakes_won_this_run        = self.stakes_won_this_run,
         pp_this_run                = self.pp_this_run,
@@ -378,8 +385,11 @@ end
 --
 -- Recognized fields:
 --   ctx.start_bankroll_add  — added to the fresh INITIAL_BANKROLL (flat $)
---   ctx.start_bankroll_pct  — additive % on INITIAL_BANKROLL (Lucky Coin)
+--   ctx.start_bankroll_pct  — additive % on the post-add bankroll (Lucky Coin)
 --   ctx.start_table_count   — N s001:six_max tables auto-seeded (free)
+--
+-- Order: flat add applies first, then the percentage multiplies the result.
+-- "+$5 + 50%" on a $2 base = ($2 + $5) × 1.5 = $10.50, not $2 + $5 + $1 = $8.
 --
 -- Idempotency: this is meant to be called once per resetRun. Calling it
 -- twice would double-apply, so don't.
@@ -388,8 +398,7 @@ function GameState:applyStartingPerks(ctx)
         self.bankroll = self.bankroll + ctx.start_bankroll_add
     end
     if (ctx.start_bankroll_pct or 0) > 0 then
-        self.bankroll = self.bankroll
-            + Constants.GAMEPLAY.INITIAL_BANKROLL * ctx.start_bankroll_pct
+        self.bankroll = self.bankroll * (1 + ctx.start_bankroll_pct)
     end
     for _ = 1, (ctx.start_table_count or 0) do
         self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"

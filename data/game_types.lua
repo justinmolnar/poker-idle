@@ -26,7 +26,56 @@
 -- ONLY in dist_shifts (shaping tier variance, not win_chance) and pace_mult
 -- (throughput, not per-hand EV).
 --
--- Pure data — no logic.
+-- Pure data — no logic, except for one feature-flag swap of the `mtt`
+-- entry below: when FEATURES.MTT_KO is off (prototype build), the entry
+-- reverts to the pre-1617f0d "8-hand binary outcome" tournament shape.
+-- This is the only branch in this file — every other gtype is shared.
+
+local Constants = require("data.constants")
+local mtt_ko    = Constants.FEATURES.MTT_KO
+
+local mtt_entry
+if mtt_ko then
+    mtt_entry = {
+        id   = "mtt",
+        name = "Tournament",
+        short = "8-MAX KO",
+        seats = 7,              -- 7 opponents + player = 8 seated total
+        pace_mult = 1.0,
+        rerolls_opponents = false,
+        -- 8-max knockout: each seat sits down with starting_stack_bb at
+        -- table init. Hands play normally (no binary_outcome), with real
+        -- chip flow into the pot. Seats bust at 0 chips. Tournament ends
+        -- when the player busts OR is the last seat standing. Payout
+        -- read from data/mtt_payouts.lua keyed by finish position
+        -- (1st=8, 2nd=7, 3rd=6, 4th-8th=0).
+        chip_stack_table    = true,
+        starting_stack_bb   = 100,
+        auto_deal           = true,
+        -- No per-gtype dist_shifts: tournament difficulty + length is
+        -- driven by the two-level outcome model in models/MttSession
+        -- (data/mtt_finish_dist.lua + data/mtt_hand_count.lua). The
+        -- planner picks finish_position + n_hands once per tournament
+        -- and pre-rolls per-hand outcomes; per-hand tier mass doesn't
+        -- need a separate crush on top.
+    }
+else
+    -- Legacy 6-max MTT: 8 hands of binary outcome, payout keyed by
+    -- hands_won via data/mtt_payouts.lua. Used by Table_legacy.lua when
+    -- FEATURES.MTT_KO is off (prototype builds).
+    mtt_entry = {
+        id   = "mtt",
+        name = "Tournament",
+        short = "MTT",
+        seats = 5,
+        pace_mult = 1.0,
+        dist_shifts       = nil,
+        rerolls_opponents = false,
+        hand_count     = 8,
+        auto_deal      = true,
+        binary_outcome = true,
+    }
+end
 
 return {
 
@@ -78,34 +127,6 @@ return {
         rerolls_opponents = true,
         anonymous_opponents = true,
     },
-    {
-        id   = "mtt",
-        name = "Tournament",
-        short = "8-MAX KO",
-        seats = 7,              -- 7 opponents + player = 8 seated total
-        pace_mult = 1.0,
-        rerolls_opponents = false,
-        -- 8-max knockout: each seat sits down with starting_stack_bb at
-        -- table init. Hands play normally (no binary_outcome), with real
-        -- chip flow into the pot. Seats bust at 0 chips. Tournament ends
-        -- when the player busts OR is the last seat standing. Payout
-        -- read from data/mtt_payouts.lua keyed by finish position
-        -- (1st=8, 2nd=7, 3rd=6, 4th-8th=0).
-        chip_stack_table    = true,
-        starting_stack_bb   = 100,
-        auto_deal           = true,
-        -- Tier distribution is shoved hard toward large + jackpot so
-        -- pots actually bust seats. Without this, the 6-max baseline
-        -- (small-heavy) trickles chips around for dozens of hands
-        -- before anyone goes broke — blinds alone aren't enough at
-        -- 100bb starting stacks. Small/medium go to ~0 after clamp;
-        -- large/jackpot soak up all the mass. Mirrored on the loss
-        -- side so the player's losses are equally chunky and they
-        -- bust quickly when running bad.
-        dist_shifts = {
-            win_dist  = { small = -0.95, medium = -0.80, large = 0.50, jackpot = 0.80 },
-            loss_dist = { small = -0.95, medium = -0.80, large = 0.50, jackpot = 0.80 },
-        },
-    },
+    mtt_entry,
 
 }

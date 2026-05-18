@@ -6,24 +6,13 @@
 --     -> { events = { ... }, total_duration = N }
 --
 -- Inputs:
---   outcome    = { won, magnitude_bb, tier, gtype_id, stake_bb }
---   table_ctx  = { n_seats, player_seat, button_seat,
---                  alive_seats = { [seat] = true } | nil,
---                  seat_stacks = { [seat] = $ } | nil }
+--   outcome    = { won, magnitude_bb, tier, gtype_id, stake_bb, binary_outcome }
+--   table_ctx  = { n_seats, player_seat, button_seat }
 --   registry   = services/PokerEventRegistry instance (for write-time
 --                state mutation as events are appended)
 --   weights    = data/poker_action_weights table (kept for future use)
 --   sizing     = data/poker_bet_sizing table (kept for future use)
 --   timings    = data/poker_event_timings table (per-kind beat duration)
---
--- alive_seats / seat_stacks (8-max KO tables):
---   * alive_seats — set of seats still in the tournament. Dead seats are
---     skipped everywhere (no blinds, no action, can't win pots). nil =
---     all seats alive (cash-game default).
---   * seat_stacks — per-seat $ remaining (independent of `outcome.stack`).
---     The writer caps any single seat's contribution at their stack;
---     contributions that would exceed are emitted as `all_in` events
---     with the capped amount. nil = no caps (cash-game default).
 --
 -- Output: a flat ordered list of events, each with absolute timestamp `t`
 -- in seconds. The cinematic walks this list at play time; no decisions
@@ -142,84 +131,31 @@ local function splitPot(total, n)
     return out
 end
 
--- Walk clockwise from `start` (exclusive) until we land on a seat where
--- alive[s] is truthy. Returns nil if nobody alive in the ring. `start`
--- itself is not considered — we always step at least once.
-local function nextAlive(start, n, alive)
-    local s = (start % n) + 1
-    for _ = 1, n do
-        if alive[s] then return s end
-        s = (s % n) + 1
-    end
-    return nil
-end
-
--- Same direction, but considers `start` itself first.
-local function firstAliveAt(start, n, alive)
-    local s = start
-    for _ = 1, n do
-        if alive[s] then return s end
-        s = (s % n) + 1
-    end
-    return nil
-end
-
 -- Plan the hand. Pure combinatorics — no events emitted yet.
 local function plan(outcome, table_ctx)
     local n         = table_ctx.n_seats
     local player    = table_ctx.player_seat
+    local button    = table_ctx.button_seat or ((player + 1 - 1) % n + 1)
     local tier      = outcome.tier or "small"
     local target    = math.max(0, outcome.magnitude_bb * (outcome.stake_bb or 0))
     local pot_total = 2 * target
 
-    -- alive_seats: default all seats alive (cash game / first MTT hand).
-    local alive_seats = {}
-    if table_ctx.alive_seats then
-        for s, v in pairs(table_ctx.alive_seats) do
-            if v then alive_seats[s] = true end
-        end
-    else
-        for i = 1, n do alive_seats[i] = true end
-    end
-    local n_alive = 0
-    for _ in pairs(alive_seats) do n_alive = n_alive + 1 end
-
-    -- Button must be an alive seat. If the caller's button hint is dead,
-    -- rotate forward to the next alive seat. Defensive — caller should
-    -- already pass an alive button.
-    local button_hint = table_ctx.button_seat or ((player + 1 - 1) % n + 1)
-    local button = firstAliveAt(button_hint, n, alive_seats) or player
-
-    -- SB and BB seats follow the button among ALIVE seats.
-    local sb_seat = nextAlive(button, n, alive_seats) or button
-    local bb_seat = nextAlive(sb_seat, n, alive_seats) or sb_seat
+    -- SB and BB seats follow the button.
+    local sb_seat = (button % n) + 1
+    local bb_seat = (sb_seat % n) + 1
 
     -- Showdown decision.
     local showdown_p = SHOWDOWN_CHANCE_BY_TIER[tier] or 0.5
     local showdown = love.math.random() < showdown_p
 
-    -- Pick the winner seat. outcome.forced_winner_seat (set by MTT plan
-    -- generation in models/MttSession) overrides the random pick when
-    -- the seat is alive; otherwise we fall back to player-on-win /
-    -- random-alive-on-loss. The alive guard makes plan drift safe — if
-    -- the plan named a seat that has since busted, the writer recovers
-    -- cleanly and MttSession:reconcile patches the schedule on the next
-    -- hand.
+    -- Pick the winner seat.
     local winner_seat
-    if outcome.forced_winner_seat and alive_seats[outcome.forced_winner_seat] then
-        winner_seat = outcome.forced_winner_seat
-    elseif outcome.won then
+    if outcome.won then
         winner_seat = player
     else
         local picks = {}
-        for i = 1, n do
-            if i ~= player and alive_seats[i] then picks[#picks + 1] = i end
-        end
-        if #picks > 0 then
-            winner_seat = picks[love.math.random(1, #picks)]
-        else
-            winner_seat = player    -- degenerate: no alive opps. Player wins.
-        end
+        for i = 1, n do if i ~= player then picks[#picks + 1] = i end end
+        winner_seat = picks[love.math.random(1, #picks)]
     end
 
     -- Decide how many streets play out. Showdowns always go river (4).
@@ -238,13 +174,13 @@ local function plan(outcome, table_ctx)
     local street_pots = splitPot(pot_total, n_streets_played)
 
     -- Plan the K_stay (seats still in) at the END of each street.
-    -- Always start at K=n_alive. Always end at 1 (fold-out) or 2 (showdown).
+    -- Always start at K=n. Always end at 1 (fold-out) or 2 (showdown).
     -- Linear interpolation in between is the simplest sane shape.
     local K_at_end = {}
     for s = 1, n_streets_played do
         local frac = s / n_streets_played
         local last_K = showdown and 2 or 1
-        K_at_end[s] = math.max(last_K, math.floor(n_alive - (n_alive - last_K) * frac + 0.5))
+        K_at_end[s] = math.max(last_K, math.floor(n - (n - last_K) * frac + 0.5))
     end
     -- Force last value exactly so monotone decrease lands cleanly.
     K_at_end[n_streets_played] = showdown and 2 or 1
@@ -260,12 +196,10 @@ local function plan(outcome, table_ctx)
     elseif outcome.won then
         stays[player] = true
     end
-    -- Build a shuffled list of non-stay alive seats.
+    -- Build a shuffled list of non-stay seats.
     local foldables = {}
     for i = 1, n do
-        if alive_seats[i] and not stays[i] then
-            foldables[#foldables + 1] = i
-        end
+        if not stays[i] then foldables[#foldables + 1] = i end
     end
     -- Fisher-Yates shuffle.
     for i = #foldables, 2, -1 do
@@ -274,7 +208,7 @@ local function plan(outcome, table_ctx)
     end
     -- Walk K_at_end and assign fold-streets so stays-after-street equals K.
     local idx = 1
-    local in_count = n_alive
+    local in_count = n
     for s = 1, n_streets_played do
         local target_in = K_at_end[s]
         while in_count > target_in and idx <= #foldables do
@@ -287,9 +221,6 @@ local function plan(outcome, table_ctx)
 
     return {
         n_seats         = n,
-        n_alive         = n_alive,
-        alive_seats     = alive_seats,
-        seat_stacks     = table_ctx.seat_stacks,    -- nil for cash games
         player_seat     = player,
         button_seat     = button,
         sb_seat         = sb_seat,
@@ -328,44 +259,14 @@ local function emit(events, ws, kind, payload, registry, timings)
     return ev
 end
 
--- Cap the requested chip amount at the seat's stack_remaining. Decrements
--- stack_remaining. Returns (capped_amount, was_capped).
-local function capChips(ws, seat, requested)
-    if requested <= 0 then return 0, false end
-    local remaining = ws.stack_remaining and ws.stack_remaining[seat]
-    if remaining == nil then return requested, false end    -- no cap
-    if requested >= remaining then
-        ws.stack_remaining[seat] = 0
-        return remaining, true
-    end
-    ws.stack_remaining[seat] = remaining - requested
-    return requested, false
-end
-
 local function newWriterState(plan_)
     local in_seats = {}
-    local n_in = 0
-    for i = 1, plan_.n_seats do
-        if plan_.alive_seats[i] then
-            in_seats[i] = true
-            n_in = n_in + 1
-        end
-    end
-    -- stack_remaining[seat] = $ this seat can still commit. nil for seats
-    -- without a stack record (cash games leave seat_stacks=nil → all
-    -- entries default to huge, no caps trigger).
-    local stack_remaining = nil
-    if plan_.seat_stacks then
-        stack_remaining = {}
-        for seat, amt in pairs(plan_.seat_stacks) do
-            stack_remaining[seat] = amt
-        end
-    end
+    for i = 1, plan_.n_seats do in_seats[i] = true end
     return {
         n_seats             = plan_.n_seats,
         player_seat         = plan_.player_seat,
         in_seats            = in_seats,
-        n_in                = n_in,
+        n_in                = plan_.n_seats,
         pot                 = 0,
         current_bet         = 0,
         per_seat_committed  = {},
@@ -375,7 +276,6 @@ local function newWriterState(plan_)
         opp_revealed        = false,
         winner              = nil,
         time_cursor         = 0,
-        stack_remaining     = stack_remaining,
     }
 end
 
@@ -396,22 +296,12 @@ local function actionOrder(plan_, street_idx)
     return order
 end
 
--- Emit forced blind posts. Done before preflop action. Each blind is
--- capped at the poster's stack — if they have less than the blind, they
--- post all-in for whatever they have left.
+-- Emit forced blind posts. Done before preflop action.
 local function emitBlinds(events, ws, plan_, registry, timings)
     local sb = plan_.stake_bb / 2
     local bb = plan_.stake_bb
-    local sb_amt = r2(capChips(ws, plan_.sb_seat, sb))
-    if sb_amt > 0 then
-        emit(events, ws, "post_blind",
-             { seat = plan_.sb_seat, amount = sb_amt }, registry, timings)
-    end
-    local bb_amt = r2(capChips(ws, plan_.bb_seat, bb))
-    if bb_amt > 0 then
-        emit(events, ws, "post_blind",
-             { seat = plan_.bb_seat, amount = bb_amt }, registry, timings)
-    end
+    emit(events, ws, "post_blind", { seat = plan_.sb_seat, amount = r2(sb) }, registry, timings)
+    emit(events, ws, "post_blind", { seat = plan_.bb_seat, amount = r2(bb) }, registry, timings)
 end
 
 -- Run a single street. K_stay = number of seats expected to still be in
@@ -437,34 +327,19 @@ local function runStreet(events, ws, plan_, street_idx, street_pot, registry, ti
     -- Walk seats in turn order. Each seat acts exactly once.
     for _, seat in ipairs(order) do
         if ws.in_seats[seat] then
-            local remaining = ws.stack_remaining and ws.stack_remaining[seat]
-            if remaining == 0 then
-                -- All-in from a previous street: nothing left to commit
-                -- and can't fold (already committed to showdown). Skip.
+            local fold_at = plan_.fold_streets[seat]
+            if fold_at == street_idx then
+                emit(events, ws, "fold", { seat = seat }, registry, timings)
             else
-                local fold_at = plan_.fold_streets[seat]
-                if fold_at == street_idx then
-                    emit(events, ws, "fold", { seat = seat }, registry, timings)
+                -- Staying seat: contribute the per-seat call.
+                local already = ws.per_seat_committed[seat] or 0
+                local delta_needed = math.max(0, r2(per_seat_call - already))
+                if delta_needed <= 0 then
+                    emit(events, ws, "check", { seat = seat }, registry, timings)
                 else
-                    -- Staying seat: contribute the per-seat call, capped
-                    -- at their stack. If short, emit all_in instead.
-                    local already = ws.per_seat_committed[seat] or 0
-                    local delta_needed = math.max(0, r2(per_seat_call - already))
-                    if delta_needed <= 0 then
-                        emit(events, ws, "check", { seat = seat }, registry, timings)
-                    else
-                        local amt, capped = capChips(ws, seat, delta_needed)
-                        amt = r2(amt)
-                        if amt <= 0 then
-                            -- Defensive: stack already at 0 (shouldn't reach here).
-                        elseif capped then
-                            emit(events, ws, "all_in",
-                                 { seat = seat, amount = amt }, registry, timings)
-                        else
-                            emit(events, ws, "call",
-                                 { seat = seat, amount = amt }, registry, timings)
-                        end
-                    end
+                    emit(events, ws, "call",
+                         { seat = seat, amount = delta_needed },
+                         registry, timings)
                 end
             end
             -- Early-out: if the fold reduced n_in to 1, the round is done.

@@ -314,9 +314,9 @@ return {
 
     {
         id          = "cursor_pool",
-        name        = "Cursor Pool",
-        effect_text = "Unlocks the cursor swarm and the Hire upgrade.",
-        description = "Hire assistants to click for you.",
+        name        = "Box of Mice",
+        effect_text = "Unlocks the cursor swarm and the Cursor upgrade.",
+        description = "More mice. More clicks.",
         sprite      = "cursor_pool",
         phase       = "late",
         cost_pp     = 10,

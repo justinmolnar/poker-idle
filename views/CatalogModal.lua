@@ -53,21 +53,19 @@ local CARD_PAD_Y        = CARD_PAD_Y_BASE
 local CARD_H            = 84
 
 -- Reconfigure layout from active fonts. Card layout is:
---   title (lg)   at PAD_Y
---   cost  (md)   at PAD_Y + lg_h
---   effect (sm)  at PAD_Y + lg_h + md_h  + 4
---   flavor (sm)  at PAD_Y + lg_h + md_h + sm_h + 8
+--   title  (md)  at PAD_Y
+--   cost   (md)  on the same row, right-aligned
+--   effect (sm)  at PAD_Y + md_h + 2
+--   flavor (sm)  at PAD_Y + md_h + sm_h + 4
+--
+-- CARD_H is NOT cached here — it's recomputed in :draw against the live
+-- ui-scaled CARD_PAD_Y so the bottom padding matches the top regardless
+-- of when configureFromFonts last fired (boot vs resize).
 function CatalogModal.configureFromFonts(fonts)
-    if not (fonts and fonts.lg) then return end
-    local lh = fonts.lg:getHeight()
+    if not (fonts and fonts.md) then return end
     local mh = fonts.md:getHeight()
-    local sh = fonts.sm:getHeight()
-    HEADER_H = lh + 24
-    FOOTER_H = mh + 20
-    -- Card stack: title row (lh, shared with cost which fits inside lh)
-    -- + effect line (sh) + flavor line (sh) + top/bottom padding +
-    -- inter-line spacing (4 + 4).
-    CARD_H   = lh + 2 * sh + CARD_PAD_Y * 2 + 8
+    HEADER_H = fonts.lg:getHeight() + 16
+    FOOTER_H = mh + 16
 end
 
 -- ─── Construction ──────────────────────────────────────────────────────
@@ -228,7 +226,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
                        or locked and Theme.fg.faint
                        or Theme.fg.heading
     Theme.setColor(name_color)
-    love.graphics.setFont(fonts.lg)
+    love.graphics.setFont(fonts.md)
     love.graphics.print(item.name or "?", x + CARD_PAD_X, y + CARD_PAD_Y)
 
     local cost_label
@@ -252,14 +250,14 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
     love.graphics.setFont(fonts.md)
     Theme.setColor(cost_color)
     local cw = fonts.md:getWidth(cost_label)
-    love.graphics.print(cost_label, x + w - CARD_PAD_X - cw, y + CARD_PAD_Y + 4)
+    love.graphics.print(cost_label, x + w - CARD_PAD_X - cw, y + CARD_PAD_Y)
 
-    -- Effect / flavor lines stack below the title row. Y offsets derived
-    -- from the lg + md font heights so text doesn't collide regardless
-    -- of font size.
-    local title_h  = fonts.lg:getHeight()
-    local effect_y = y + CARD_PAD_Y + title_h + 4
-    local flavor_y = effect_y + fonts.sm:getHeight() + 4
+    -- Effect / flavor lines stack below the title row. Y offsets derive
+    -- from md (title) + sm (body) heights so text doesn't collide
+    -- regardless of font size.
+    local title_h  = fonts.md:getHeight()
+    local effect_y = y + CARD_PAD_Y + title_h + 2
+    local flavor_y = effect_y + fonts.sm:getHeight() + 2
 
     love.graphics.setFont(fonts.sm)
     Theme.setColor(is_owned and Theme.fg.muted or Theme.fg.primary)
@@ -291,6 +289,11 @@ function CatalogModal:draw()
     GRID_GAP_Y   = math.floor(GRID_GAP_Y_BASE * s)
     CARD_PAD_X   = math.floor(CARD_PAD_X_BASE * s)
     CARD_PAD_Y   = math.floor(CARD_PAD_Y_BASE * s)
+    -- Tight card height: title (md) + effect (sm) + flavor (sm) +
+    -- top/bottom pad + the two 2-px inter-line gaps used in drawItemCard.
+    -- Recomputed per-draw so it always tracks the live scaled padding.
+    CARD_H = fonts.md:getHeight() + 2 * fonts.sm:getHeight()
+             + 2 * CARD_PAD_Y + 4
 
     -- Modal frame + dim backdrop come from the shared Modal widget so
     -- the chrome stays consistent with the other overlays. Rebuild it
