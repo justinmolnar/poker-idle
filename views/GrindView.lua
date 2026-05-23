@@ -493,7 +493,6 @@ function GrindView:_buildUpgradesTabComponents()
                     {
                         text  = desc_text, style = "small",
                         right = cost_text,
-                        right_color_token = would_strand and "error" or nil,
                     },
                 },
             }

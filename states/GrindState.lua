@@ -55,7 +55,10 @@ end
 
 function GrindState:openCatalog()
     if not self.catalog_modal then
-        self.catalog_modal = CatalogModal:new(self.game)
+        -- Mid-grind catalog is inspection-only. Purchases live in the
+        -- post-bust ritual so the player can't compound a bankroll dump
+        -- with an upgrade that strands the run.
+        self.catalog_modal = CatalogModal:new(self.game, { read_only = true })
     end
 end
 

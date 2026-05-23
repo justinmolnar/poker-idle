@@ -70,9 +70,18 @@ end
 
 -- ─── Construction ──────────────────────────────────────────────────────
 
-function CatalogModal:new(game)
+-- opts.read_only — when true, the modal renders the catalog but every
+--                   item ignores buy clicks (no purchases mid-grind).
+--                   Used by the top-bar CATALOG button so the player can
+--                   inspect items without spending PP outside the
+--                   post-bust ritual. Affordable items skip the green
+--                   "buyable" border so the read-only state reads
+--                   clearly. Default false → full post-bust behavior.
+function CatalogModal:new(game, opts)
+    opts = opts or {}
     return setmetatable({
-        game     = game,
+        game      = game,
+        read_only = opts.read_only == true,
         -- Cached cell rects (built each :draw, consumed by :consumeMouse)
         _cells   = {},
         -- Vertical scroll offset (px). Positive = scrolled down.
@@ -184,7 +193,7 @@ function CatalogModal:consumeMouse(mx, my, button)
     for _, cell in ipairs(self._cells) do
         if mx >= cell.x and mx < cell.x + cell.w
            and my >= cell.y and my < cell.y + cell.h then
-            if cell.buyable then
+            if cell.buyable and not self.read_only then
                 return tryBuy(self.game, cell.item)
             end
             return true   -- consumed even if not buyable (don't fall through)
@@ -201,7 +210,9 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
     local is_owned   = owned[item.id]
     local locked     = item.requires and not owned[item.requires]
     local affordable = (not is_owned) and (not locked) and state.pp >= (item.cost_pp or 0)
-    local buyable    = affordable
+    -- Read-only catalog (mid-grind inspection) never marks a card buyable
+    -- so the green "buyable" border doesn't lie about being clickable.
+    local buyable    = affordable and not self.read_only
 
     -- Card background. Tinted by status: muted when locked/owned, normal
     -- when affordable, faint when can't afford yet.
