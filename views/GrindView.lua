@@ -1,7 +1,7 @@
 -- views/GrindView.lua
 --
 -- The grind screen. Three-column layout:
---   • Top bar (50px) — bankroll, PP, run stats
+--   • Top bar (50px) — bankroll, chips, run stats
 --   • Left sidebar (Panel) — Tables tab with stake-add buttons + slot count.
 --                             Phase 5 will add a Catalog tab here.
 --   • Center grid — up to MAX_TABLES tiled table panels (2 cols × 3 rows).
@@ -22,6 +22,8 @@ local TablePanel     = require("views.TablePanel")
 local TablePanelStats = require("views.TablePanelStats")
 local CursorPool     = require("services.CursorPool")
 local Chips          = require("views.Chips")
+local Icons          = require("views.Icons")
+local IconText       = require("views.IconText")
 local Denoms        = require("services.DenominationBreakdown")
 local ChipData       = require("data.chips")
 local FlightSystem   = require("services.FlightSystem")
@@ -39,9 +41,19 @@ local Catalog        = require("data.catalog")
 local Constants      = require("data.constants")
 local ShoveRate      = require("models.shove_rate")
 local Decks          = require("models.Decks")
+local OutcomeMath    = require("models.outcome_math")
+local Lookups        = require("utils.lookups")
 
 local GrindView = {}
 GrindView.__index = GrindView
+
+-- A stake is visible when high-tier stakes are unlocked, or it's one of the
+-- always-on demo stakes (T1-T3). Single source of truth for stake visibility
+-- so the add-table buttons and the upgrade range tooltips never disagree.
+local function stakeVisible(stake)
+    if Constants.FEATURES.HIGH_TIER_STAKES then return true end
+    return not (stake.id == "s004" or stake.id == "s005" or stake.id == "s006")
+end
 
 
 -- Layout values. The window-relative ones (TOP_BAR_H, LEFT_W, RIGHT_W,
@@ -61,7 +73,7 @@ local BANKROLL_CELL_W      = 160
 -- walk in _drawTopBar.
 local CELL_W = {
     tied = 72, total = 72,                   -- money cluster
-    pp = 48, shove = 56, deck = 50,          -- run cluster (deck is a sprite chip)
+    chip = 48, shove = 56, deck = 50,        -- run cluster (chip + deck are icon/sprite)
     tables = 72, focus = 56,                 -- workload cluster
 }
 local TOPBAR_LABEL_Y       = 8
@@ -135,7 +147,7 @@ local function recomputeLayout(W, H, fonts)
 
     -- Sidebars: window-fraction with absolute minimums. The minimum
     -- is NOT layout-scale-multiplied — at 720p the heading text on
-    -- stake-add buttons ("+ $0.01/$0.02" + "+1 PP" badge) needs ~290
+    -- stake-add buttons ("+ $0.01/$0.02" + "+1 chip" badge) needs ~290
     -- px to fit on a single line at the design font size, and a
     -- scaled-down minimum (220 * 1.0) lets it wrap.
     LEFT_W  = math.max(290, math.floor(W * 0.18))
@@ -171,7 +183,10 @@ local function recomputeLayout(W, H, fonts)
 
     CELL_W.tied   = cellW("TIED UP", "$999.99")
     CELL_W.total  = cellW("TOTAL",   "$999.99")
-    CELL_W.pp     = cellW("PP",      "9999")
+    -- Chip cell is a prominent glyph + count (not a stacked label/value),
+    -- so size it from the chip diameter + gap + the widest count.
+    CELL_W.chip   = math.floor(TOP_BAR_H * 0.6) + math.floor(6 * s)
+                    + math.ceil(fonts.md:getWidth("9999")) + cell_pad
     CELL_W.shove  = cellW("SHOVE",   "999%")
     -- Deck cell is a sprite chip, not a text value — size it from the
     -- label width plus a fixed icon footprint (~36px scaled). Only takes
@@ -183,7 +198,7 @@ local function recomputeLayout(W, H, fonts)
 
     local ideal_bankroll = math.ceil(fonts.lg:getWidth("$999.99K")) + math.floor(24 * s)
     local cells_total    = CELL_W.tied  + CELL_W.total
-                         + CELL_W.pp    + CELL_W.shove
+                         + CELL_W.chip  + CELL_W.shove
                          + CELL_W.tables + CELL_W.focus
     if Constants.FEATURES and Constants.FEATURES.DECKS then
         cells_total = cells_total + CELL_W.deck
@@ -218,7 +233,7 @@ function GrindView:new(game, controller)
         -- of snapping the number. Initialised to current state so a first
         -- frame doesn't tween from 0.
         displayed_bankroll = state.bankroll       or 0,
-        displayed_pp       = state.pp             or 0,
+        displayed_chips    = state.chips           or 0,
         displayed_tied     = controller:tiedUp(),
     }, GrindView)
 
@@ -248,7 +263,7 @@ function GrindView:_buildPanels()
         build    = function() return self:_buildTablesTabComponents() end,
     })
     -- Catalog tab removed — purchases now happen in views/CatalogModal.lua
-    -- after each bust. The PP shop is only accessible between runs.
+    -- after each bust. The chip shop is only accessible between runs.
 
     -- Right panel reserves space at the bottom for the SHOVE button.
     local right_panel_h = H - TOP_BAR_H - SHOVE_BTN_H - 2 * MARGIN
@@ -371,46 +386,64 @@ function GrindView:_buildTablesTabComponents()
     -- Stake-add buttons for the currently selected game type. Button id
     -- is composite "add_table:<stake>:<gtype>" so the dispatcher routes
     -- to controller:addTable(stake_id, game_type_id).
-    local gtype_id = self.selected_gtype
+    local gtype_id  = self.selected_gtype
+    local gtype_obj = Lookups.findById(GameTypes, gtype_id)
     for _, stake in ipairs(Stakes) do
-        -- T4-T6 are designed but not balanced for the demo loop, so the
-        -- +ADD-TABLE buttons are hidden when FEATURES.HIGH_TIER_STAKES
-        -- is off. Existing T4-T6 tables in a save still render through
-        -- TablePanel — those die naturally on the next reset.
-        local hidden = (not Constants.FEATURES.HIGH_TIER_STAKES)
-                       and (stake.id == "s004" or stake.id == "s005" or stake.id == "s006")
-        if not hidden then
+        -- T4-T6 are designed but not balanced for the demo loop, so their
+        -- +ADD-TABLE buttons are hidden when FEATURES.HIGH_TIER_STAKES is off
+        -- (see stakeVisible). Existing T4-T6 tables in a save still render
+        -- through TablePanel — those die naturally on the next reset.
+        if stakeVisible(stake) then
             local full         = active >= cap
             local cant_afford  = state.bankroll < (stake.buy_in or 0)
             local disabled     = full or cant_afford
+            local affordable   = not disabled   -- can open this table right now
 
-            local sub_left, sub_right
+            -- bb/h EV — only when the table can actually be opened.
+            local sub_left, sub_right, sub_color
             if full then
                 sub_left, sub_right = "tables full (max " .. cap .. ")", ""
             else
-                sub_left, sub_right = "", string.format("buy-in $%.2f", stake.buy_in or 0)
+                sub_right = string.format("buy-in $%.2f", stake.buy_in or 0)
+                if affordable then
+                    local ev_bb = TablePanelStats.evBbPerHand(self.controller, stake, gtype_obj)
+                    if ev_bb then
+                        sub_left  = string.format("%+0.1f bb/h", ev_bb)
+                        sub_color = (ev_bb > 0.05 and "good") or (ev_bb < -0.05 and "error") or "muted"
+                    end
+                end
             end
 
-            -- PP-bounty status: "+N PP" right-aligned next to the stake
-            -- name. Color is the whole signal — default (white) while the
-            -- bounty is still up for grabs, green once banked this run.
+            -- Chip-bounty badge: green + full gold once banked this run; greyed
+            -- while still unearned, greyer still when you can't even buy in.
             local banked = self.controller:bountyBanked(stake.id, gtype_id)
             local award  = self.controller:bountyAward(stake.id)
-            local pp_text       = string.format("+%d PP", award)
-            local pp_color_tok  = banked and "good" or nil
+            local chip_text = string.format("+%d", award)
+            local chip_color_tok, chip_shade
+            if banked then
+                chip_color_tok, chip_shade = "good", 1.0
+            elseif cant_afford then
+                chip_color_tok, chip_shade = "faint", 0.15
+            else
+                chip_color_tok, chip_shade = "muted", 0.35
+            end
 
             components[#components + 1] = {
                 type     = "button",
                 id       = "add_table:" .. stake.id .. ":" .. gtype_id,
                 disabled = disabled,
-                tooltip  = string.format("Open a %s %s table — costs the buy-in.",
-                                         stake.display_name, gtype_id:gsub("_", "-")),
+                -- EV breakdown tooltip only when the table can be opened.
+                tooltip  = affordable
+                           and TablePanelStats.breakdownLinesFor(self.controller, stake, gtype_obj)
+                           or nil,
                 lines = {
                     {
                         text  = "+ " .. stake.display_name, style = "heading",
-                        right = pp_text, right_color_token = pp_color_tok,
+                        right = chip_text, right_color_token = chip_color_tok,
+                        right_icon = "chip", right_icon_shade = chip_shade,
                     },
-                    { text = sub_left, style = "small", right = sub_right },
+                    { text = sub_left, style = "small", color_token = sub_color,
+                      right = sub_right, right_color_token = "muted" },
                 },
             }
         end
@@ -431,6 +464,153 @@ local function catalogName(item_id)
         if item.id == item_id then return item.name end
     end
     return item_id
+end
+
+-- Upgrades whose effect "fills" toward a per-stake cap get a dynamic "next
+-- level" tooltip — built fresh from the outcome model so it reflects real
+-- upgrades/perks and whatever stakes exist. Both builders omit non-changing
+-- stakes (only show what the level moves) and short-circuit to "MAX".
+
+-- Per-stake cell value: "MAX" once the dimension's fill is past this stake's
+-- window, "+N%" while it's still moving, "-" when the gain rounds to nothing.
+local function _cell(capped, delta)
+    if capped then return "MAX" end
+    if delta >= 0.005 then return string.format("+%d%%", math.floor(delta * 100 + 0.5)) end
+    return "-"
+end
+
+local function _capped(ctx, fill_key, gt, stake)
+    local window = stake.fill_window
+    return window ~= nil
+        and OutcomeMath.sumFills(ctx[fill_key], gt) >= (window.complete or 0)
+end
+
+-- Win chance: the fill delta cancels the per-mode additive shift, so a single
+-- mode-agnostic value per stake is honest. Every stake shown (MAX / +N% / -).
+local function _winChanceRows(view, ctx, nextctx)
+    local f     = view.game.fonts.sm
+    local gtype = Lookups.findById(GameTypes, "six_max") or GameTypes[1]
+    local data, name_w = {}, 0
+    for _, stake in ipairs(Stakes) do
+        if stakeVisible(stake) then
+            local cw  = OutcomeMath.buildOutcome(ctx,     gtype, stake)
+            local nw  = OutcomeMath.buildOutcome(nextctx, gtype, stake)
+            local txt = _cell(_capped(ctx, "win_chance_fills", gtype, stake), nw - cw)
+            data[#data + 1] = { name = stake.display_name or stake.id, txt = txt }
+            name_w = math.max(name_w, f:getWidth(stake.display_name or stake.id))
+        end
+    end
+
+    local col  = name_w + math.floor(f:getHeight() * 1.4)
+    local rows = { { text = "Win chance, next level:", style = "sm", color_token = "muted" } }
+    for _, e in ipairs(data) do
+        local name, txt = e.name, e.txt
+        local dim = (txt == "MAX" or txt == "-")
+        rows[#rows + 1] = {
+            measure = function(_) return col + f:getWidth(txt), f:getHeight() end,
+            render  = function(x, y, _)
+                love.graphics.setFont(f)
+                Theme.setColor(Theme.fg.muted); love.graphics.print(name, x, y)
+                Theme.setColor(dim and Theme.fg.faint or Theme.fg.heading)
+                love.graphics.print(txt, x + col, y)
+            end,
+        }
+    end
+    return rows
+end
+
+-- Stack rate: the win-dist renormalization makes the stack-tier delta
+-- genuinely mode-dependent, so it's a per-mode grid (one column per game
+-- type). Every stake shown; each cell is MAX / +N% / -.
+local function _stackRateRows(view, ctx, nextctx)
+    local f      = view.game.fonts.sm
+    local gtypes = GameTypes
+
+    local data, name_w = {}, 0
+    for _, stake in ipairs(Stakes) do
+        if stakeVisible(stake) then
+            local cells = {}
+            for i, gt in ipairs(gtypes) do
+                local _, cd = OutcomeMath.buildOutcome(ctx,     gt, stake)
+                local _, nd = OutcomeMath.buildOutcome(nextctx, gt, stake)
+                cells[i] = _cell(_capped(ctx, "win_dist_fills", gt, stake),
+                                 (nd.jackpot or 0) - (cd.jackpot or 0))
+            end
+            data[#data + 1] = { name = stake.display_name or stake.id, cells = cells }
+            name_w = math.max(name_w, f:getWidth(stake.display_name or stake.id))
+        end
+    end
+
+    local gap      = math.floor(f:getHeight() * 0.8)
+    local name_col = name_w + gap
+    local col_w    = f:getWidth("+99%")
+    for _, gt in ipairs(gtypes) do col_w = math.max(col_w, f:getWidth(gt.short or gt.id)) end
+    col_w = col_w + gap
+    local total_w  = name_col + #gtypes * col_w
+
+    local rows = {
+        {   -- header: stack icon (the word "Stack" reads as nothing) + label
+            measure = function(_) return IconText.measure("{stack} rate, next level:", f), f:getHeight() end,
+            render  = function(x, y, _)
+                IconText.draw(view.game, "{stack} rate, next level:", x, y, f, Theme.fg.muted)
+            end,
+        },
+        {   -- column header: game-type short names
+            measure = function(_) return total_w, f:getHeight() end,
+            render  = function(x, y, _)
+                love.graphics.setFont(f)
+                Theme.setColor(Theme.fg.muted)
+                for i, gt in ipairs(gtypes) do
+                    love.graphics.print(gt.short or gt.id, x + name_col + (i - 1) * col_w, y)
+                end
+            end,
+        },
+    }
+    for _, row in ipairs(data) do
+        local name, cells = row.name, row.cells
+        rows[#rows + 1] = {
+            measure = function(_) return total_w, f:getHeight() end,
+            render  = function(x, y, _)
+                love.graphics.setFont(f)
+                Theme.setColor(Theme.fg.heading)
+                love.graphics.print(name, x, y)
+                for i, c in ipairs(cells) do
+                    Theme.setColor((c == "MAX" or c == "-") and Theme.fg.faint or Theme.fg.heading)
+                    love.graphics.print(c, x + name_col + (i - 1) * col_w, y)
+                end
+            end,
+        }
+    end
+    return rows
+end
+
+local RANGE_TOOLTIP = {
+    win_chance = { keys = { "win_chance_fills" },                  build = _winChanceRows },
+    win_dist   = { keys = { "win_dist_fills", "loss_dist_fills" }, build = _stackRateRows },
+}
+
+-- Build the "next level" range tooltip for an upgrade, or nil if it has none.
+-- Maxed upgrades short-circuit to "MAX"; the builders drop non-changing stakes
+-- so the table only shows what the next level actually moves.
+function GrindView:_buildRangeTooltip(up)
+    local spec = up.tooltip_metric and RANGE_TOOLTIP[up.tooltip_metric]
+    if not spec then return nil end
+
+    if self.controller:getRunUpgradeLevel(up.id) >= (up.max_level or 1) then
+        return { { text = "MAX", style = "sm", color_token = "muted" } }
+    end
+
+    local ctx     = self.controller.ctx or {}
+    local nextctx = {}
+    for k, v in pairs(ctx) do nextctx[k] = v end
+    for _, key in ipairs(spec.keys) do
+        local list = {}
+        for _, d in ipairs(ctx[key] or {}) do list[#list + 1] = d end
+        list[#list + 1] = { strength = 1 }
+        nextctx[key] = list
+    end
+
+    return spec.build(self, ctx, nextctx)
 end
 
 function GrindView:_buildUpgradesTabComponents()
@@ -464,7 +644,7 @@ function GrindView:_buildUpgradesTabComponents()
             --   [description (small)       | cost (small)    ]
             -- Locked / maxed states collapse the right column to a
             -- single status string on line 1.
-            local level_text, cost_text, desc_text, tooltip
+            local level_text, cost_text, desc_text
             desc_text = up.description or ""
             if locked then
                 level_text = "Requires " .. catalogName(up.requires)
@@ -478,16 +658,14 @@ function GrindView:_buildUpgradesTabComponents()
             end
             if would_strand then
                 desc_text = "open or rebuy a table first — buying now ends the run"
-                tooltip   = "Locked: spending $" .. string.format("%.2f", next_cost or 0)
-                         .. " would leave you below the cheapest buy-in"
-                         .. " with no playable tables. Open a table first."
             end
 
             components[#components + 1] = {
                 type     = "button",
                 id       = "buy_runup_" .. up.id,
                 disabled = disabled,
-                tooltip  = tooltip,
+                tooltip  = self:_buildRangeTooltip(up),
+                icon     = up.icon,   -- icon id (data/icons); drawn when art ships
                 lines = {
                     { text = up.name, style = "heading", right = level_text },
                     {
@@ -643,7 +821,7 @@ function GrindView:update(dt)
     -- Tween top-bar numbers toward live state values.
     local state = self.game.state
     self.displayed_bankroll = tweenNumber(self.displayed_bankroll, state.bankroll,            dt)
-    self.displayed_pp       = tweenNumber(self.displayed_pp,       state.pp,                  dt)
+    self.displayed_chips    = tweenNumber(self.displayed_chips,    state.chips,               dt)
     self.displayed_tied     = tweenNumber(self.displayed_tied,     self.controller:tiedUp(),  dt)
 
     -- Drain the controller's chip-burst queue. Controller produces denomination
@@ -668,7 +846,7 @@ local function moneyText(n)
     return Format.money(n)
 end
 
-local function ppText(n)
+local function chipsText(n)
     if not n or n < 1 then return "0" end
     return Format.formatBig(math.floor(n))
 end
@@ -678,10 +856,20 @@ end
 -- identical so the eye scans cleanly across the bar. md (not lg) for
 -- values because lg=48 overflows the 72px cell width — only bankroll
 -- (its own fat cell) gets the lg pop.
-local function drawStatCell(x, w, label, value, value_color, fonts)
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.print(label, x, TOPBAR_LABEL_Y)
+-- Optional `icon_fn(ix, iy, size)` draws a glyph in the label slot and
+-- returns true when it rendered; if so, the text label is skipped. When
+-- it returns false/nil (e.g. a not-yet-shipped sprite) the text label
+-- still draws, so a cell never loses its identity waiting on art.
+local function drawStatCell(x, w, label, value, value_color, fonts, icon_fn)
+    local drew_icon = false
+    if icon_fn then
+        drew_icon = icon_fn(x, TOPBAR_LABEL_Y, fonts.sm:getHeight()) and true or false
+    end
+    if not drew_icon then
+        love.graphics.setFont(fonts.sm)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.print(label, x, TOPBAR_LABEL_Y)
+    end
 
     love.graphics.setFont(fonts.md)
     Theme.setColor(value_color)
@@ -756,7 +944,7 @@ function GrindView:_drawTopBar(W)
     -- Tweened display values (set in :update each frame). Reading these
     -- instead of state.* gives a smooth count-up/down after a hand.
     local d_bank = self.displayed_bankroll or state.bankroll
-    local d_pp   = self.displayed_pp       or state.pp
+    local d_chips = self.displayed_chips or state.chips
     local d_tied = self.displayed_tied     or self.controller:tiedUp()
 
     -- Tint the bankroll while a tween is in progress: green when counting
@@ -819,12 +1007,24 @@ function GrindView:_drawTopBar(W)
         x = tied_cell_x, y = 2, w = CELL_W.tied, h = TOP_BAR_H - 4,
     }
 
-    -- Run cluster: PP · SHOVE · (DECK)
-    drawStatCell(x, CELL_W.pp, "PP", ppText(d_pp), Theme.fg.heading, fonts)
-    x = x + CELL_W.pp
+    -- Run cluster: CHIPS · SHOVE · (DECK). The Gold Chip is the meta
+    -- currency — drawn prominently as a real-sized glyph + count, not a
+    -- tiny label-slot dot. (Procedural until ui/icons/chip art lands.)
+    do
+        local cs = self.game.ui_scale or 1
+        local cd = math.floor(TOP_BAR_H * 0.6)
+        Icons.drawChip(self.game, x, math.floor((TOP_BAR_H - cd) / 2), cd)
+        love.graphics.setFont(fonts.md)
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.print(chipsText(d_chips),
+            x + cd + math.floor(6 * cs),
+            math.floor((TOP_BAR_H - fonts.md:getHeight()) / 2))
+    end
+    x = x + CELL_W.chip
     local shove_cell_x = x
     drawStatCell(x, CELL_W.shove, "SHOVE",
-                 string.format("%.0f%%", r1_raw * 100), rate_color, fonts)
+                 string.format("%.0f%%", r1_raw * 100), rate_color, fonts,
+                 function(ix, iy, isize) return Icons.draw(self.game, "shove", ix, iy, isize, isize) end)
     x = x + CELL_W.shove
 
     -- DECK chip (sprite) sits in the run cluster when FEATURES.DECKS is
@@ -852,7 +1052,8 @@ function GrindView:_drawTopBar(W)
                  string.format("%d / %d", n_tables, focus_cap),
                  Theme.fg.primary, fonts)
     x = x + CELL_W.tables
-    drawStatCell(x, CELL_W.focus, "FOCUS",  focus_pct .. "%",   focus_color, fonts)
+    drawStatCell(x, CELL_W.focus, "FOCUS",  focus_pct .. "%",   focus_color, fonts,
+                 function(ix, iy, isize) return Icons.draw(self.game, "focus", ix, iy, isize, isize) end)
     x = x + CELL_W.focus
 
     -- Stash workload rect for the hover tooltip in update().
@@ -1094,13 +1295,13 @@ function GrindView:_drawShoveButton()
     local state = self.game.state
     -- Shove is always allowed. No bankroll floor — softlocking the player
     -- with a "you can't even surrender" gate was strictly worse than letting
-    -- them shove with nothing and bank whatever PP they earned.
+    -- them shove with nothing and bank whatever chips they earned.
     local can_shove = true
     local ctx = self.controller.ctx or {}
     -- Live rates match the top-bar column. Headline is gauntlet-clear
     -- (r1·r2·r3); the math-reality clamps live inside ShoveRate.compute.
     local rates      = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
-    local pending_pp = state.pp_this_run or 0
+    local pending_chips = state.chips_this_run or 0
 
     local mx, my = love.mouse.getPosition()
     local hovered = can_shove and mx >= sb.x and mx < sb.x + sb.w
@@ -1118,7 +1319,7 @@ function GrindView:_drawShoveButton()
     }, function(fx, fy, fw, fh)
         -- Restructured layout: SHOVE is the headline — kpi-sized,
         -- vertically centered, fills most of the button. The two
-        -- secondary readouts (live win %, banked PP) tuck into the
+        -- secondary readouts (live win %, banked chips) tuck into the
         -- bottom corners as small labels so they don't compete with
         -- the action verb.
         local fonts   = self.game.fonts
@@ -1145,15 +1346,19 @@ function GrindView:_drawShoveButton()
             string.format("%.0f%%", (rates.raw_r1 or 0) * 100),
             fx + pad, sub_y)
 
-        -- PP-banked, bottom-right. Muted when 0; green once a bounty
-        -- has landed so the player can glance at the SHOVE button and
-        -- know whether they have anything riding on the click.
-        local pp_text  = string.format("+%d PP", pending_pp)
-        local pp_color = (pending_pp > 0) and Theme.status.good
-                                          or  Theme.fg.faint
-        Theme.setColor(can_shove and pp_color or Theme.fg.faint)
-        local pp_w = small:getWidth(pp_text)
-        love.graphics.print(pp_text, fx + fw - pad - pp_w, sub_y)
+        -- Chips-banked, bottom-right: "+N ◆". Muted when 0; green once a
+        -- bounty has landed so the player can glance at the SHOVE button
+        -- and know whether they have anything riding on the click.
+        local chip_text  = string.format("+%d", pending_chips)
+        local chip_color = (pending_chips > 0) and Theme.status.good
+                                               or  Theme.fg.faint
+        Theme.setColor(can_shove and chip_color or Theme.fg.faint)
+        local ctw   = small:getWidth(chip_text)
+        local gsize = small:getHeight()
+        local cgap  = 3
+        local crx   = fx + fw - pad - (ctw + cgap + gsize)
+        love.graphics.print(chip_text, crx, sub_y)
+        Icons.drawChip(self.game, crx + ctw + cgap, sub_y, gsize)
     end)
 end
 
@@ -1184,9 +1389,7 @@ function GrindView:_drawFloatingText()
         -- Color priority: explicit RGB override > color_token lookup > auto.
         local color = t.color or resolveToken(t.color_token)
         if not color then
-            if t.text:find(" PP", 1, true) then
-                color = Theme.data.violet
-            elseif t.text:sub(1, 1) == "+" then
+            if t.text:sub(1, 1) == "+" then
                 -- Default win color: amber/gold, not green. Green blends
                 -- with the green felt; gold pops on every stake's color.
                 color = Theme.data.amber or Theme.status.good
@@ -1196,20 +1399,32 @@ function GrindView:_drawFloatingText()
         end
         local font  = fonts[t.font or "lg"] or fonts.lg
         local scale = t.scale or 1.0
+        local alpha = t.alpha or 1
         love.graphics.setFont(font)
-        local tw = font:getWidth(t.text)
-        love.graphics.push()
-        love.graphics.translate(t.x - tw * scale * 0.5, t.y)
-        if scale ~= 1 then love.graphics.scale(scale, scale) end
-        -- Dark stroke ring for legibility against any felt color.
-        Theme.setColor(FLOATER_STROKE_COLOR, (t.alpha or 1) * 0.85)
-        for _, off in ipairs(FLOATER_STROKE_OFFSETS) do
-            love.graphics.print(t.text, off[1], off[2])
+
+        if t.text:find("{", 1, true) then
+            -- Floater carries inline icons (e.g. "+1 {chip}") — render via
+            -- IconText, centered. No stroke ring; the glyph carries itself.
+            local tw = IconText.measure(t.text, font)
+            love.graphics.push()
+            love.graphics.translate(t.x - tw * scale * 0.5, t.y)
+            if scale ~= 1 then love.graphics.scale(scale, scale) end
+            IconText.draw(self.game, t.text, 0, 0, font, color, alpha)
+            love.graphics.pop()
+        else
+            local tw = font:getWidth(t.text)
+            love.graphics.push()
+            love.graphics.translate(t.x - tw * scale * 0.5, t.y)
+            if scale ~= 1 then love.graphics.scale(scale, scale) end
+            -- Dark stroke ring for legibility against any felt color.
+            Theme.setColor(FLOATER_STROKE_COLOR, alpha * 0.85)
+            for _, off in ipairs(FLOATER_STROKE_OFFSETS) do
+                love.graphics.print(t.text, off[1], off[2])
+            end
+            Theme.setColor(color, alpha)
+            love.graphics.print(t.text, 0, 0)
+            love.graphics.pop()
         end
-        -- Main text on top.
-        Theme.setColor(color, t.alpha or 1)
-        love.graphics.print(t.text, 0, 0)
-        love.graphics.pop()
     end
 end
 
@@ -1312,7 +1527,7 @@ function GrindView:mousepressed(x, y, b)
 
     -- Catalog button (top bar, between cash-out and settings). Opens
     -- the same modal the post-bust prestige flow uses, so the player
-    -- can spend PP mid-grind without busting first.
+    -- can spend chips mid-grind without busting first.
     local cat = self:_catalogButtonRect()
     if x >= cat.x and x < cat.x + cat.w
        and y >= cat.y and y < cat.y + cat.h then

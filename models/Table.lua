@@ -966,67 +966,23 @@ end
 -- mechanical variance, there's no per-opponent breakdown to compute — every
 -- seat at a given (stake, gtype, ctx) shares the same outcome.
 function Table:debugStats(ctx)
-    local stake = Lookups.findById(StakesData,self.stake_id)
-    local gtype = Lookups.findById(GameTypesData,self.game_type_id)
-    if not stake or not gtype then return nil end
-
-    ctx = ctx or {}
-    local em = ctx.earnings_mult or 1
-    local lm = ctx.loss_mult     or 1
-    local bb = stake.bb
-
-    local wc, wd, ld = self:tableOutcome(ctx)
-    if not wc then return nil end
-
-    local win_avg, loss_avg = 0, 0
-    for _, t in ipairs(OutcomeMath.TIER_KEYS) do
-        win_avg  = win_avg  + (wd[t] or 0) * OutcomeMath.tierAvgBB(t)
-        loss_avg = loss_avg + (ld[t] or 0) * OutcomeMath.tierAvgBB(t)
-    end
-    local ev = wc * win_avg * bb * em - (1 - wc) * loss_avg * bb * lm
-
-    return {
-        stake = stake,
-        gtype = gtype,
-        pool = {
-            win_chance  = wc,
-            win_dist    = wd,
-            loss_dist   = ld,
-            ev_per_hand = ev,
-            win_avg_bb  = win_avg,
-            loss_avg_bb = loss_avg,
-        },
-    }
+    return OutcomeMath.evStats(ctx,
+        Lookups.findById(GameTypesData, self.game_type_id),
+        Lookups.findById(StakesData, self.stake_id))
 end
 
 function Table:estimateStats(ctx)
-    local stake = Lookups.findById(StakesData,self.stake_id)
-    local gtype = Lookups.findById(GameTypesData,self.game_type_id)
-    if not stake or not gtype then return nil end
     if #self.opponents == 0 then return nil end
-
-    ctx = ctx or {}
-    local wc, wd, ld = self:tableOutcome(ctx)
-    if not wc then return nil end
-
-    -- EV per hand. win_chance × E[win_magnitude] - (1-win_chance) × E[loss_magnitude].
-    local em = ctx.earnings_mult or 1
-    local lm = ctx.loss_mult     or 1
-    local bb = stake.bb
-
-    local win_avg, loss_avg = 0, 0
-    for _, t in ipairs(OutcomeMath.TIER_KEYS) do
-        win_avg  = win_avg  + (wd[t] or 0) * OutcomeMath.tierAvgBB(t)
-        loss_avg = loss_avg + (ld[t] or 0) * OutcomeMath.tierAvgBB(t)
-    end
-
-    local ev = wc * win_avg * bb * em - (1 - wc) * loss_avg * bb * lm
-
+    local s = OutcomeMath.evStats(ctx,
+        Lookups.findById(GameTypesData, self.game_type_id),
+        Lookups.findById(StakesData, self.stake_id))
+    if not s then return nil end
+    -- Flat shape the EV readout expects (drawEvReadout).
     return {
-        ev_per_hand = ev,
-        win_chance  = wc,
-        win_dist    = wd,
-        loss_dist   = ld,
+        ev_per_hand = s.pool.ev_per_hand,
+        win_chance  = s.pool.win_chance,
+        win_dist    = s.pool.win_dist,
+        loss_dist   = s.pool.loss_dist,
     }
 end
 

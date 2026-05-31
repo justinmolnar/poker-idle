@@ -6,10 +6,10 @@
 -- effects on enter, and the prestige flow that fires when a gauntlet
 -- finishes:
 --
---   • Gauntlet busts (any runout LOSS) → award PP banked during the run,
+--   • Gauntlet busts (any runout LOSS) → award chips banked during the run,
 --     show the PrestigeModal. SPACE dismisses it and opens the
 --     CatalogModal. SPACE again dismisses the catalog → resetRun → grind.
---   • Gauntlet clears (3 of 3 runouts WON) → award PP, set state.cleared,
+--   • Gauntlet clears (3 of 3 runouts WON) → award chips, set state.cleared,
 --     switch to CreditsState. The win-condition path.
 --
 -- The state auto-starts a gauntlet on enter when none exists. Switching to
@@ -49,7 +49,7 @@ function ShoveState:new(game)
         shove_rates     = nil,    -- locked at :enter; struct from ShoveRate.compute
         gauntlet        = nil,
         prestige_modal       = nil,    -- bust step 1: run-end summary
-        catalog_modal        = nil,    -- bust step 2: post-run PP shop
+        catalog_modal        = nil,    -- bust step 2: post-run chip shop
         deck_select_modal    = nil,    -- bust step 3: choose active deck for next run (FEATURES.DECKS)
         settings_modal       = nil,    -- ESC overlay (volume, resolution, quit)
         prototype_end_modal  = nil,    -- prototype-mode "you beat the demo" screen
@@ -149,10 +149,10 @@ function ShoveState:_onGauntletEnded()
     local result = self.gauntlet.result
     local state  = self.game.state
 
-    -- PP isn't computed at bust anymore. It was banked into state.pp during
-    -- the run via GrindController on each first-win-at-stake. The modal just
-    -- reads state.pp_this_run for the display total.
-    local pp_banked = state.pp_this_run or 0
+    -- Chips aren't computed at bust anymore. They were banked into
+    -- state.chips during the run via GrindController on each
+    -- first-win-at-stake. The modal just reads state.chips_this_run.
+    local chips_banked = state.chips_this_run or 0
 
     -- Demo-cut intercept: when FEATURES.DEMO_CUT is on, winning R1 then
     -- losing R2 is the natural cliffhanger that ends the demo. Show the
@@ -175,13 +175,13 @@ function ShoveState:_onGauntletEnded()
         self.game.state_machine:switch("credits")
     else
         self.prestige_modal = PrestigeModal:new(
-            self.game, pp_banked, result.busted_at)
+            self.game, chips_banked, result.busted_at)
     end
 end
 
 -- Prototype-end resolution. "Continue Playing" routes through the
 -- catalog (mirrors the standard post-bust flow — same chance to spend
--- banked PP before the next run starts). "Exit to Title" skips the
+-- banked chips before the next run starts). "Exit to Title" skips the
 -- catalog and drops the player back at the start screen with their
 -- current run reset.
 function ShoveState:_resolvePrototypeEnd(choice)
@@ -200,7 +200,7 @@ function ShoveState:_resolvePrototypeEnd(choice)
         return
     end
 
-    -- "continue" path: open the catalog (player banked PP this run;
+    -- "continue" path: open the catalog (player banked chips this run;
     -- this is the moment to spend it). The catalog's Continue button
     -- runs _dismissCatalogAndReturn which handles the run reset and
     -- the switch back to grind.
@@ -209,7 +209,7 @@ end
 
 -- Step 1 of the post-bust flow: prestige summary modal closes, catalog
 -- modal opens. Run state stays put — the player still has their
--- pp_this_run banked to state.pp at this point and can spend it.
+-- chips_this_run banked to state.chips at this point and can spend it.
 function ShoveState:_advanceToCatalog()
     self.prestige_modal = nil
     self.catalog_modal  = CatalogModal:new(self.game)

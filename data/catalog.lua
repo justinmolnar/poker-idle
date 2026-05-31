@@ -1,7 +1,7 @@
 -- data/catalog.lua
 --
--- The PP-shop catalog. Each item:
---   • is bought ONCE with Poker Points (PP, the meta currency)
+-- The chip-shop catalog. Each item:
+--   • is bought ONCE with Gold Chips (the meta currency)
 --   • applies one or more effects via the EffectsRegistry
 --   • persists across prestiges forever
 --
@@ -16,7 +16,7 @@
 --     effect_text = "Explicit mechanical effect, e.g. '+5% win chance'",
 --     description = "Italic flavor blurb under the effect line",
 --     sprite      = "sprite_name",          -- looked up via SpriteLoader
---     cost_pp     = number,
+--     cost_chip     = number,
 --     phase       = "demo" | "mid" | "late" | "system",
 --     position    = { x = px, y = px },     -- room placement (deferred)
 --     effects     = { { kind = "...", value = ... }, ... }
@@ -31,8 +31,8 @@
 -- ─── Phase ladder ───────────────────────────────────────────────────────
 -- Items are tagged by demo phase per docs/math.md and docs/demo-balance.md:
 --
---   demo  — reachable in the first ~12 PP. The 11-item starter set
---           (Poster + 10 paid totaling 29 PP, ~46% base shove available).
+--   demo  — reachable in the first ~12 chips. The 11-item starter set
+--           (Poster + 10 paid totaling 29 chips, ~46% base shove available).
 --   mid   — phase 2 / T4-T5. Higher-cost utility perks.
 --   late  — phase 3 / T6 unlock. Cursor swarm, MTT advanced cash tiers.
 --   system — phantom entries that drive game-wide mechanisms (handicap).
@@ -56,7 +56,7 @@ return {
         hidden          = true,
         granted_at_start = true,
         removed_by      = "poker_poster",
-        cost_pp         = 0,
+        cost_chip         = 0,
         effects         = {
             -- 0.40× knocks T1's naked 0.50 WC down to ~0.20 — "you don't
             -- know how to play" territory.
@@ -71,7 +71,7 @@ return {
 
     -- ─── Demo phase: free tutorial item ─────────────────────────────────
     -- The only catalog item that names poker directly. The player buys it
-    -- for 0 PP from the post-bust catalog modal — buying it is what lifts
+    -- for 0 chips from the post-bust catalog modal — buying it is what lifts
     -- the no-poster handicap (via the `removed_by` hook above). Mechanism
     -- is purely the ownership flag; the entry has no direct effects.
     {
@@ -81,12 +81,12 @@ return {
         description   = "Do you not even know how to play poker?",
         sprite        = "poker_poster",
         phase         = "demo",
-        cost_pp       = 0,
+        cost_chip       = 0,
         position      = { x = 80, y = 200 },
         effects       = {},
     },
 
-    -- ─── Demo phase: 10 paid items totaling 29 PP ───────────────────────
+    -- ─── Demo phase: 10 paid items totaling 29 chips ────────────────────
     -- Each item carries both a `shove_rate_add` (catalog base contributor)
     -- and a felt-side mechanical effect. Build archetypes laid out in
     -- docs/demo-balance.md §Lever Coverage.
@@ -94,11 +94,11 @@ return {
     {
         id          = "branded_hat",
         name        = "Branded Hat",
-        effect_text = "+4% shove rate. J wins pay 1.2×.",
+        effect_text = "{stack} pays 1.2×.",
         description = "Snug fit. Logo's barely noticeable.",
         sprite      = "branded_hat",
         phase       = "demo",
-        cost_pp     = 1,
+        cost_chip     = 1,
         position    = { x = 120, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.04 },
@@ -108,11 +108,11 @@ return {
     {
         id          = "mirror",
         name        = "Mirror",
-        effect_text = "+3% shove rate. +10% win chance at HU tables.",
+        effect_text = "+10% win chance at HU tables.",
         description = "A nice big one. You should see yourself sometimes.",
         sprite      = "mirror",
         phase       = "demo",
-        cost_pp     = 2,
+        cost_chip     = 2,
         position    = { x = 160, y = 220 },
         effects     = {
             { kind = "shove_rate_add",   value = 0.03 },
@@ -122,11 +122,11 @@ return {
     {
         id          = "energy_drink",
         name        = "Energy Drink",
-        effect_text = "+2% shove rate. Hands resolve 25% faster.",
+        effect_text = "Hands resolve 25% faster.",
         description = "Tastes terrible. Works fine.",
         sprite      = "energy_drink",
         phase       = "demo",
-        cost_pp     = 2,
+        cost_chip     = 2,
         position    = { x = 200, y = 220 },
         effects     = {
             { kind = "shove_rate_add",  value = 0.02 },
@@ -136,11 +136,11 @@ return {
     {
         id          = "whiteboard",
         name        = "Whiteboard",
-        effect_text = "+3% shove rate. +5% win chance at all tables.",
+        effect_text = "+5% win chance at all tables.",
         description = "Every room could use a whiteboard.",
         sprite      = "whiteboard",
         phase       = "demo",
-        cost_pp     = 3,
+        cost_chip     = 3,
         position    = { x = 240, y = 220 },
         effects     = {
             { kind = "shove_rate_add",   value = 0.03 },
@@ -150,11 +150,11 @@ return {
     {
         id          = "self_help_book",
         name        = "Self-Help Book",
-        effect_text = "+4% shove rate. 25% chance: S win → M win.",
+        effect_text = "25% chance to boost {small} {arrow} {medium}.",
         description = "Bestseller. Life-changing, they say.",
         sprite      = "self_help_book",
         phase       = "demo",
-        cost_pp     = 3,
+        cost_chip     = 3,
         position    = { x = 280, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.04 },
@@ -165,11 +165,11 @@ return {
     {
         id          = "stress_ball",
         name        = "Stress Ball",
-        effect_text = "+5% shove rate. 25% chance: L loss → M loss.",
+        effect_text = "25% chance to soften {l:large} {arrow} {l:medium}.",
         description = "For when things get tense.",
         sprite      = "stress_ball",
         phase       = "demo",
-        cost_pp     = 3,
+        cost_chip     = 3,
         position    = { x = 320, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.05 },
@@ -180,11 +180,11 @@ return {
     {
         id          = "lucky_coin",
         name        = "Lucky Coin",
-        effect_text = "+3% shove rate. +50% starting bankroll.",
+        effect_text = "+50% starting bankroll.",
         description = "Heavy. Older than it looks.",
         sprite      = "lucky_coin",
         phase       = "demo",
-        cost_pp     = 3,
+        cost_chip     = 3,
         position    = { x = 360, y = 220 },
         effects     = {
             { kind = "shove_rate_add",     value = 0.03 },
@@ -194,11 +194,11 @@ return {
     {
         id          = "lava_lamp",
         name        = "Lava Lamp",
-        effect_text = "+4% shove rate. 15% chance: M win → L win.",
+        effect_text = "15% chance to boost {medium} {arrow} {large}.",
         description = "Soothing to watch. Hypnotic, almost.",
         sprite      = "lava_lamp",
         phase       = "demo",
-        cost_pp     = 3,
+        cost_chip     = 3,
         position    = { x = 400, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.04 },
@@ -209,11 +209,11 @@ return {
     {
         id          = "worry_stone",
         name        = "Worry Stone",
-        effect_text = "+5% shove rate. 15% chance: J loss → L loss.",
+        effect_text = "15% chance to soften {l:stack} {arrow} {l:large}.",
         description = "Worn smooth by someone.",
         sprite      = "worry_stone",
         phase       = "demo",
-        cost_pp     = 3,
+        cost_chip     = 3,
         position    = { x = 440, y = 220 },
         -- 4-tier note: spec called this "15% Big loss → Medium". The code's
         -- outcome model has 4 tiers (small/medium/large/jackpot — no Big).
@@ -229,11 +229,11 @@ return {
     {
         id          = "plastic_trophy",
         name        = "Plastic Trophy",
-        effect_text = "+3% shove rate. MTT cashes pay 4× / 8× / 20×.",
+        effect_text = "MTT cashes pay 4× / 8× / 20×.",
         description = "Participation award. Handsome on a shelf.",
         sprite      = "plastic_trophy",
         phase       = "demo",
-        cost_pp     = 3,
+        cost_chip     = 3,
         position    = { x = 350, y = 300 },
         effects     = {
             { kind = "shove_rate_add",   value = 0.03 },
@@ -241,7 +241,7 @@ return {
         },
     },
 
-    -- ─── Mid phase: T4–T5 perks (priced 4–14 PP) ────────────────────────
+    -- ─── Mid phase: T4–T5 perks (priced 4–14 chips) ─────────────────────
 
     {
         id          = "calculator",
@@ -250,20 +250,20 @@ return {
         description = "Sharper reads, every hand.",
         sprite      = "calculator",
         phase       = "mid",
-        cost_pp     = 4,
+        cost_chip     = 4,
         position    = { x = 180, y = 200 },
         effects     = { { kind = "win_chance_shift", amount = 0.02 } },
     },
     {
         id          = "pen",
         name        = "Pen",
-        effect_text = "+1 PP on every stake bounty.",
+        effect_text = "+1 {chip} on every stake bounty.",
         description = "Bank a little extra every time you lock in a new tier.",
         sprite      = "pen",
         phase       = "mid",
-        cost_pp     = 4,
+        cost_chip     = 4,
         position    = { x = 230, y = 200 },
-        effects     = { { kind = "jackpot_pp_add", value = 1 } },
+        effects     = { { kind = "jackpot_chip_add", value = 1 } },
     },
     {
         id          = "headphones",
@@ -272,7 +272,7 @@ return {
         description = "Soften your losses.",
         sprite      = "headphones",
         phase       = "mid",
-        cost_pp     = 5,
+        cost_chip     = 5,
         position    = { x = 280, y = 200 },
         effects     = { { kind = "loss_mult", value = 0.95 } },
     },
@@ -283,7 +283,7 @@ return {
         description = "Start each run with a table seated.",
         sprite      = "free_sit",
         phase       = "mid",
-        cost_pp     = 5,
+        cost_chip     = 5,
         position    = { x = 330, y = 200 },
         effects     = { { kind = "start_table_count", value = 1 } },
     },
@@ -294,7 +294,7 @@ return {
         description = "Start each run with $5 extra.",
         sprite      = "pocket_cash",
         phase       = "mid",
-        cost_pp     = 8,
+        cost_chip     = 8,
         position    = { x = 100, y = 300 },
         effects     = { { kind = "start_bankroll_add", value = 5 } },
     },
@@ -305,7 +305,7 @@ return {
         description = "Cheaper buy-ins.",
         sprite      = "discount_sits",
         phase       = "mid",
-        cost_pp     = 14,
+        cost_chip     = 14,
         position    = { x = 600, y = 300 },
         effects     = { { kind = "buy_in_mult", value = 0.85 } },
     },
@@ -319,7 +319,7 @@ return {
         description = "More mice. More clicks.",
         sprite      = "cursor_pool",
         phase       = "late",
-        cost_pp     = 10,
+        cost_chip     = 10,
         position    = { x = 100, y = 500 },
         effects     = {
             { kind = "cursor_unlocked" },
@@ -332,7 +332,7 @@ return {
         description   = "Another set of hands.",
         sprite        = "first_cursor",
         phase         = "late",
-        cost_pp       = 5,
+        cost_chip       = 5,
         requires      = "cursor_pool",
         requires_hide = true,
         position      = { x = 200, y = 500 },
@@ -345,7 +345,7 @@ return {
         description   = "Some of them have been here a while.",
         sprite        = "tireless_assistants",
         phase         = "late",
-        cost_pp       = 5,
+        cost_chip       = 5,
         requires      = "cursor_pool",
         requires_hide = true,
         position      = { x = 300, y = 500 },
@@ -358,7 +358,7 @@ return {
         description = "Maxed tournament cashes.",
         sprite      = "engraved_plaque",
         phase       = "late",
-        cost_pp     = 25,
+        cost_chip     = 25,
         requires    = "plastic_trophy",
         position    = { x = 450, y = 400 },
         effects     = { { kind = "mtt_payout_boost", value = 2 } },

@@ -31,7 +31,7 @@ function GrindState:new(game)
         -- Mid-grind catalog modal: nil = closed. Opened by the in-game
         -- "CATALOG" button in the top bar; same modal class the shove
         -- state uses post-bust, just instantiated on demand here so the
-        -- player can shop PP without busting first.
+        -- player can shop with chips without busting first.
         catalog_modal      = nil,
         -- Read-only deck roster popup. Opened by clicking the top-bar
         -- DECK chip; swap is still restricted to the post-shove flow.

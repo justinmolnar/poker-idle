@@ -1,7 +1,7 @@
 -- models/GameState.lua
 --
 -- The single root model for player progression. Holds the dual-slot state:
---   meta-side: pp, owned_items (persists forever)
+--   meta-side: chips, owned_items (persists forever)
 --   run-side:  bankroll, current_stake_id, run_upgrade_levels (wiped on prestige)
 --
 -- AutoSerializer-driven. Adding a new persistent field = adding the field;
@@ -31,7 +31,7 @@ function GameState:new(saved)
     local instance = setmetatable({}, GameState)
 
     -- Meta-side defaults (persisted forever).
-    instance.pp          = Constants.GAMEPLAY.INITIAL_PP
+    instance.chips       = Constants.GAMEPLAY.INITIAL_CHIP
     instance.owned_items = {}
     instance.cleared     = false   -- true once the gauntlet is beaten — gates the credits screen on boot
 
@@ -105,8 +105,8 @@ function GameState:new(saved)
     -- Cash tables write their stack here too; on reload they restore
     -- without re-charging the buy-in.
     instance.active_table_stack         = {}
-    instance.stakes_won_this_run = {}           -- set keyed by stake_id; locks in PP bounties per run
-    instance.pp_this_run         = 0            -- running counter for the prestige modal display
+    instance.stakes_won_this_run = {}           -- set keyed by stake_id; locks in chip bounties per run
+    instance.chips_this_run      = 0            -- running counter for the prestige modal display
 
     -- Transient stat cache, recomputed lazily.
     instance.effects_cache = nil
@@ -119,8 +119,8 @@ function GameState:new(saved)
 end
 
 -- Wipes run-side fields back to defaults. Called by the prestige flow after
--- a gauntlet bust. Meta-side (pp, owned_items, cleared) is left untouched —
--- PP earned during the run was already banked to state.pp during play.
+-- a gauntlet bust. Meta-side (chips, owned_items, cleared) is left untouched —
+-- chips earned during the run were already banked to state.chips during play.
 function GameState:resetRun()
     self.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
     self.current_stake_id    = "s001"
@@ -141,7 +141,7 @@ function GameState:resetRun()
     self.active_table_mtt_plans     = {}
     self.active_table_stack         = {}
     self.stakes_won_this_run = {}
-    self.pp_this_run         = 0
+    self.chips_this_run      = 0
     self.effects_cache       = nil
 end
 
@@ -150,7 +150,7 @@ end
 -- they can play through again from zero. Caller is responsible for
 -- save_service:saveAll() afterwards to overwrite the disk slots.
 function GameState:wipeAll()
-    self.pp          = Constants.GAMEPLAY.INITIAL_PP
+    self.chips       = Constants.GAMEPLAY.INITIAL_CHIP
     self.owned_items = {}
     self.cleared     = false
     -- Deck state resets to starter-only with all unlock progress lost.
@@ -188,6 +188,15 @@ function GameState:applySaved(saved)
         AutoSerializer.apply(self, saved.run, GameState.REFS, function() return nil end)
     end
     self.effects_cache = nil
+
+    -- Currency rename pp → chips (2026-05, post public launch). Old saves
+    -- serialized pp / pp_this_run; remap so existing players keep their
+    -- banked currency, then drop the stray legacy fields. Idempotent —
+    -- new saves never set self.pp, so this no-ops after one rewrite.
+    if self.pp ~= nil then self.chips = self.pp; self.pp = nil end
+    if self.pp_this_run ~= nil then
+        self.chips_this_run = self.pp_this_run; self.pp_this_run = nil
+    end
 
     -- Migration pass: prior builds shipped a different deck roster
     -- (fish/acorns/patterns instead of the current seven). Drop unknown
@@ -241,11 +250,11 @@ function GameState:_migrateDeckState()
     end
 end
 
--- Serialize meta-only (PP, owned items, cleared flag, deck progression,
+-- Serialize meta-only (chips, owned items, cleared flag, deck progression,
 -- lifetime counters that drive unlock checks). For meta.save.
 function GameState:serializeMeta()
     return {
-        pp                              = self.pp,
+        chips                           = self.chips,
         owned_items                     = self.owned_items,
         cleared                         = self.cleared,
         unlocked_decks                  = self.unlocked_decks,
@@ -262,7 +271,7 @@ function GameState:serializeMeta()
 end
 
 -- Serialize run-only (bankroll, stake, run upgrades, active tables,
--- per-run PP bookkeeping). For run.save. Wiped on prestige by `clearRun()`.
+-- per-run chip bookkeeping). For run.save. Wiped on prestige by `clearRun()`.
 function GameState:serializeRun()
     return {
         bankroll                   = self.bankroll,
@@ -281,7 +290,7 @@ function GameState:serializeRun()
         active_table_mtt_plans     = self.active_table_mtt_plans,
         active_table_stack         = self.active_table_stack,
         stakes_won_this_run        = self.stakes_won_this_run,
-        pp_this_run                = self.pp_this_run,
+        chips_this_run             = self.chips_this_run,
     }
 end
 
@@ -339,14 +348,14 @@ function GameState:computeEffects(registry, catalog, run_upgrades)
     return ctx
 end
 
--- Spend PP on a catalog item: validates affordability + non-duplicate +
+-- Spend chips on a catalog item: validates affordability + non-duplicate +
 -- requires-prereq, applies the mutation, invalidates the effects cache.
 -- Returns true on success. Centralised so both grind-time and post-bust
--- catalog UIs route through one mutation point — no view mutates state.pp
+-- catalog UIs route through one mutation point — no view mutates state.chips
 -- directly. Caller-side concerns (sound, ctx recompute) remain on the
 -- caller; this is just the model-side guarded write.
 function GameState:tryBuyCatalogItem(item)
-    if not item or item.cost_pp == nil then return false end
+    if not item or item.cost_chip == nil then return false end
     for _, owned_id in ipairs(self.owned_items) do
         if owned_id == item.id then return false end
     end
@@ -357,8 +366,8 @@ function GameState:tryBuyCatalogItem(item)
         end
         if not met then return false end
     end
-    if self.pp < item.cost_pp then return false end
-    self.pp = self.pp - item.cost_pp
+    if self.chips < item.cost_chip then return false end
+    self.chips = self.chips - item.cost_chip
     self.owned_items[#self.owned_items + 1] = item.id
     self.effects_cache = nil
     return true

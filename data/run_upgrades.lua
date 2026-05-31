@@ -36,7 +36,10 @@ return {
     {
         id          = "sharper_reads",
         name        = "Sharper Reads",
-        description = "Read opponents better.",
+        description = "Higher win chance",
+        icon        = "sharper_reads",
+        -- Drives a per-stake range tooltip (win chance, current → next level).
+        tooltip_metric = "win_chance",
         max_level   = 18,
         costs       = {
             0.25, 0.50, 1.50, 4, 10,
@@ -58,7 +61,10 @@ return {
     {
         id          = "pot_control",
         name        = "Pot Control",
-        description = "Bigger wins, smaller losses.",
+        description = "Bigger wins, smaller losses. Drives {chip}",
+        icon        = "pot_control",
+        -- Drives a per-stake range tooltip (Stack rate, current → next level).
+        tooltip_metric = "win_dist",
         max_level   = 14,
         costs       = {
             1.50, 4.50, 14, 40, 113,
@@ -83,7 +89,8 @@ return {
     {
         id            = "box_of_mice",
         name          = "Cursor",
-        description   = "One more mouse.",
+        description   = "+1 Cursor (auto-clicker)",
+        icon          = "cursor",
         requires      = "cursor_pool",
         requires_hide = true,
         max_level     = 12,
@@ -100,7 +107,8 @@ return {
     {
         id            = "cursor_speed",
         name          = "Cursor Speed",
-        description   = "They click faster.",
+        description   = "Cursors move faster",
+        icon          = "cursor_speed",
         requires      = "cursor_pool",
         requires_hide = true,
         max_level     = 8,
@@ -116,7 +124,8 @@ return {
     {
         id          = "focus",
         name        = "Focus",
-        description = "Concentrate on more tables.",
+        description = "Increase table limit before penalty",
+        icon        = "focus",
         max_level   = 10,
         costs       = {
             5, 20, 80, 320, 1300,

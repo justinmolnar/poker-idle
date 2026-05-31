@@ -46,6 +46,10 @@ local function resolveLine(line, fonts, default_font)
     if type(line) == "string" then
         return { text = line, font = default_font, color = nil }
     end
+    -- Custom-drawn row (icon stacks etc.): caller supplies render + measure.
+    if line.render then
+        return { render = line.render, measure = line.measure }
+    end
     local font = default_font
     if fonts and line.style and fonts[line.style] then
         font = fonts[line.style]
@@ -80,19 +84,33 @@ function Tooltip.draw(font_or_fonts)
     if not default_font then default_font = love.graphics.getFont() end
     if not default_font then return end
 
+    -- Wrap long text to a sane max width so a tooltip never spans the screen.
+    local MAX_W = math.floor(math.min(default_font:getHeight() * 20,
+                                      love.graphics.getWidth() * 0.45))
+
     -- Resolve every line to a concrete font/color so layout can measure.
     local rows = {}
     for i, line in ipairs(_t.lines) do
         rows[i] = resolveLine(line, fonts, default_font)
     end
 
-    -- Measure content (per-row line height = that row's font height).
+    -- Measure content (per-row line height = that row's font height, or the
+    -- custom row's self-reported size).
     local max_w  = 0
     local total_h = 0
     for _, r in ipairs(rows) do
-        local w = r.font:getWidth(r.text)
+        local w, h
+        if r.render then
+            w, h = 0, default_font:getHeight()
+            if r.measure and fonts then w, h = r.measure(fonts) end
+        else
+            local wrapw, wlines = r.font:getWrap(r.text, MAX_W)
+            w = wrapw
+            h = math.max(1, #wlines) * r.font:getHeight()
+        end
+        r._h = h
         if w > max_w then max_w = w end
-        total_h = total_h + r.font:getHeight() + 2
+        total_h = total_h + h + 2
     end
     local box_w = max_w + _padding * 2
     local box_h = _padding * 2 + total_h
@@ -114,11 +132,15 @@ function Tooltip.draw(font_or_fonts)
 
     local cy = y + _padding
     for _, r in ipairs(rows) do
-        love.graphics.setFont(r.font)
-        local color = tokenColor(r.color) or Theme.fg.heading
-        Theme.setColor(color)
-        love.graphics.print(r.text, x + _padding, cy)
-        cy = cy + r.font:getHeight() + 2
+        if r.render then
+            if fonts then r.render(x + _padding, cy, fonts) end
+        else
+            love.graphics.setFont(r.font)
+            local color = tokenColor(r.color) or Theme.fg.heading
+            Theme.setColor(color)
+            love.graphics.printf(r.text, x + _padding, cy, MAX_W, "left")
+        end
+        cy = cy + (r._h or 0) + 2
     end
 end
 

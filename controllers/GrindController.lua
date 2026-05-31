@@ -25,8 +25,8 @@ local Confetti       = require("services.Confetti")
 local StakeThemes    = require("data.stake_themes")
 local Lookups        = require("utils.lookups")
 
--- PP-bounty key: a (stake, game_type) combo locks one bounty per run.
--- 4 game types × 6 stakes = 24 distinct bounty slots — total ~84 PP for
+-- Chip-bounty key: a (stake, game_type) combo locks one bounty per run.
+-- 4 game types × 6 stakes = 24 distinct bounty slots — total ~84 chips for
 -- a perfect climb across all combos.
 local function bountyKey(stake_id, game_type_id)
     return stake_id .. ":" .. game_type_id
@@ -169,7 +169,7 @@ function GrindController:update(dt)
                 self:_emitMttPayoutChips(t, payout)
             end
 
-            -- PP bounty for tournaments: jackpot-equivalent fires once at
+            -- Chip bounty for tournaments: jackpot-equivalent fires once at
             -- tournament-win time. Two flavors:
             --   • chip-stack (FEATURES.MTT_KO):     finish_position == 1
             --   • legacy binary_outcome (prototype): cleared all hand_count hands
@@ -187,14 +187,14 @@ function GrindController:update(dt)
                 if not state.stakes_won_this_run[key] then
                     state.stakes_won_this_run[key] = true
                     local stake = Lookups.findById(Stakes,t.stake_id)
-                    local base_award = stake and stake.pp_award or 0
-                    local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
+                    local base_award = stake and stake.chip_award or 0
+                    local mult  = (self.ctx and self.ctx.chip_award_mult) or 1
                     local award = math.floor(base_award * mult + 0.5)
                     if award > 0 then
-                        state.pp_this_run = state.pp_this_run + award
+                        state.chips_this_run = state.chips_this_run + award
                         local cxy = AnchorRegistry.get(TableModel.anchorKey(t, "center"))
                         self.game.floating_text.emit(
-                            string.format("+%d PP (run)", award),
+                            string.format("+%d {chip}", award),
                             cxy and cxy[1] or 0, (cxy and cxy[2] or 0) - 28)
                     end
                 end
@@ -212,7 +212,7 @@ function GrindController:update(dt)
         -- Apply focus penalty to the actual $ delta — split attention
         -- means smaller wins and harsher relative losses. Floor in
         -- currentFocusMult prevents zero, so a tiny positive delta is
-        -- still positive and counts as a win for the PP bounty.
+        -- still positive and counts as a win for the chip bounty.
         r.delta = r.delta * focus_mult
 
         -- Wins/losses land on the table's stack first. Above the 100bb
@@ -355,14 +355,14 @@ function GrindController:update(dt)
             end
         end
 
-        -- PP-bounty: first jackpot-tier win at this (stake, game_type)
-        -- combo this run awards the stake's pp_award. Locked in until
+        -- Chip-bounty: first jackpot-tier win at this (stake, game_type)
+        -- combo this run awards the stake's chip_award. Locked in until
         -- prestige clears it. Non-jackpot wins, losing hands, and
         -- subsequent jackpot wins at the same combo do nothing.
         --
-        -- The Pen catalog item (jackpot_pp_add) adds a flat +N to the
-        -- bounty award — i.e. each tier's payout becomes worth +1 PP
-        -- more when Pen is owned. So a tier whose pp_award is 2 pays
+        -- The Pen catalog item (jackpot_chip_add) adds a flat +N to the
+        -- bounty award — i.e. each tier's payout becomes worth +1 chip
+        -- more when Pen is owned. So a tier whose chip_award is 2 pays
         -- 3 with Pen; a tier whose award is 5 pays 6. The bonus rides
         -- the bounty so it fires exactly when the bounty fires (once
         -- per (stake, gtype) per run), never on subsequent jackpots.
@@ -379,18 +379,18 @@ function GrindController:update(dt)
                 if not state.stakes_won_this_run[key] then
                     state.stakes_won_this_run[key] = true
                     local stake = Lookups.findById(Stakes,tbl.stake_id)
-                    local base_award = stake and stake.pp_award or 0
-                    local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
-                    local bonus = (self.ctx and self.ctx.jackpot_pp_add) or 0
+                    local base_award = stake and stake.chip_award or 0
+                    local mult  = (self.ctx and self.ctx.chip_award_mult) or 1
+                    local bonus = (self.ctx and self.ctx.jackpot_chip_add) or 0
                     local award = math.floor(base_award * mult + 0.5) + bonus
                     if award > 0 then
-                        -- Pending PP — commits to state.pp at SHOVE time.
-                        -- The float is the satisfying "you locked a bounty"
-                        -- signal; the top bar's PP figure stays static
-                        -- until shove pulls the trigger on banking.
-                        state.pp_this_run = state.pp_this_run + award
+                        -- Pending chips — commit to state.chips at SHOVE
+                        -- time. The float is the satisfying "you locked a
+                        -- bounty" signal; the top bar's chip figure stays
+                        -- static until shove pulls the trigger on banking.
+                        state.chips_this_run = state.chips_this_run + award
                         self.game.floating_text.emit(
-                            string.format("+%d PP (run)", award),
+                            string.format("+%d {chip}", award),
                             r.x, (r.y or 0) - 28)
                     end
                 end
@@ -484,7 +484,7 @@ function GrindController:_requirementMet(requires_id)
     return false
 end
 
--- True if the player has already banked the (stake, gtype) PP bounty
+-- True if the player has already banked the (stake, gtype) chip bounty
 -- this run. Mirrors the bountyKey format used by the resolution loop —
 -- keep both writers using the same key format.
 function GrindController:bountyBanked(stake_id, game_type_id)
@@ -493,17 +493,17 @@ function GrindController:bountyBanked(stake_id, game_type_id)
         and self.game.state.stakes_won_this_run[key] == true
 end
 
--- The PP that WOULD bank if the player hits a jackpot win at (stake,
--- gtype) — base stake.pp_award scaled by ctx.pp_award_mult, then any
--- flat ctx.jackpot_pp_add (Pen) added on top. Mirrors the actual
--- bounty math in the resolution loop so the sidebar "+N PP" badge
+-- The chips that WOULD bank if the player hits a jackpot win at (stake,
+-- gtype) — base stake.chip_award scaled by ctx.chip_award_mult, then any
+-- flat ctx.jackpot_chip_add (Pen) added on top. Mirrors the actual
+-- bounty math in the resolution loop so the sidebar "+N chips" badge
 -- shows the real payout including catalog upgrades.
 function GrindController:bountyAward(stake_id)
     local stake = Lookups.findById(Stakes,stake_id)
     if not stake then return 0 end
-    local mult  = (self.ctx and self.ctx.pp_award_mult) or 1
-    local bonus = (self.ctx and self.ctx.jackpot_pp_add) or 0
-    return math.floor((stake.pp_award or 0) * mult + 0.5) + bonus
+    local mult  = (self.ctx and self.ctx.chip_award_mult) or 1
+    local bonus = (self.ctx and self.ctx.jackpot_chip_add) or 0
+    return math.floor((stake.chip_award or 0) * mult + 0.5) + bonus
 end
 
 function GrindController:buyRunUpgrade(upgrade_id)
@@ -945,15 +945,15 @@ function GrindController:_playStateTransitionSound(_prev, new_state, t)
     end
 end
 
--- SHOVE-button intent. Banks the run's pending PP (locked-in bounties
--- only convert to spendable PP if the player actually pulls the trigger)
+-- SHOVE-button intent. Banks the run's pending chips (locked-in bounties
+-- only convert to spendable chips if the player actually pulls the trigger)
 -- and flips the state machine to the gauntlet. The view dispatches this
--- on click; pp_this_run is NOT zeroed here — the shove state reads it
--- post-gauntlet for the "you banked N PP this run" readout, and the
+-- on click; chips_this_run is NOT zeroed here — the shove state reads it
+-- post-gauntlet for the "you banked N chips this run" readout, and the
 -- post-modal reset zeros it.
 function GrindController:initiateShove()
     local state = self.game.state
-    state.pp = state.pp + (state.pp_this_run or 0)
+    state.chips = state.chips + (state.chips_this_run or 0)
     self.game.state_machine:switch("shove")
 end
 

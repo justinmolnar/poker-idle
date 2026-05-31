@@ -79,7 +79,7 @@ C.DEBUG = {
 
 C.GAMEPLAY = {
     INITIAL_BANKROLL       = 2,        -- starting $ each run (just barely covers a $0.01/$0.02 buy-in)
-    INITIAL_PP             = 0,        -- meta currency starts at zero
+    INITIAL_CHIP           = 0,        -- meta currency (Gold Chips) starts at zero
     INITIAL_ACTIVE_TABLES  = 0,        -- fresh save / resetRun: no tables opened. Player buys first for the buy-in ($2 at $0.01/$0.02).
     -- The old 0.90 shove-rate soft cap is gone. Shove rate now multi-
     -- plies catalog × bankroll-tier (see models/shove_rate.lua) with a
@@ -94,8 +94,8 @@ C.GAMEPLAY = {
     FOCUS_BASE_CAPACITY    = 4,        -- below this many tables, no penalty
     FOCUS_BASE_PENALTY     = 0.15,     -- per extra table over capacity (5 over → floor)
     FOCUS_FLOOR            = 0.05,     -- floor on focus_mult; running too many is actively bad
-    -- PP_AWARD_DIVISOR removed — PP comes from per-stake first-win bounties,
-    -- not from a peak-bankroll formula on bust.
+    -- CHIP_AWARD_DIVISOR removed — chips come from per-stake first-win
+    -- bounties, not from a peak-bankroll formula on bust.
 }
 
 C.GAUNTLET = {

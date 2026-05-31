@@ -222,18 +222,18 @@ Effects.kinds = {
         value_shape = "number <1, e.g. 0.80 for 20% cheaper run upgrades",
         affects     = "ctx.run_upgrade_cost_mult",
     },
-    pp_award_mult = {
-        description = "Multiplier on PP earned from per-(stake, game_type) bounties.",
-        value_shape = "number, e.g. 2.0 to double PP awards",
-        affects     = "ctx.pp_award_mult",
+    chip_award_mult = {
+        description = "Multiplier on chips earned from per-(stake, game_type) bounties.",
+        value_shape = "number, e.g. 2.0 to double chip awards",
+        affects     = "ctx.chip_award_mult",
     },
 
-    -- Flat PP granted on every jackpot-tier WIN (Pen). Independent of the
+    -- Flat chips granted on every jackpot-tier WIN (Pen). Independent of the
     -- per-(stake, gtype) bounty system — fires every time, not just first.
-    jackpot_pp_add = {
-        description = "Flat PP added to pp_this_run on every jackpot-tier win.",
-        value_shape = "integer, e.g. 1 for +1 PP per jackpot",
-        affects     = "ctx.jackpot_pp_add",
+    jackpot_chip_add = {
+        description = "Flat chips added to chips_this_run on every jackpot-tier win.",
+        value_shape = "integer, e.g. 1 for +1 chip per jackpot",
+        affects     = "ctx.jackpot_chip_add",
     },
 
     -- ── Slows rep / burn meter rise during a run. (Held over.)

@@ -301,4 +301,39 @@ function OutcomeMath.tierAvgBB(tier)
     return (r.lo + r.hi) * 0.5
 end
 
+-- Full per-hand EV stats for a (ctx, gtype, stake) — pure, no Table needed.
+-- THE one place the EV math lives: Table:debugStats / :estimateStats and the
+-- stake-add buttons all call this so nothing reimplements it. Shape matches
+-- what TablePanelStats.buildCashLines / buildMttLines consume.
+function OutcomeMath.evStats(ctx, gtype, stake)
+    if not stake or not gtype then return nil end
+    ctx = ctx or {}
+    local wc, wd, ld = OutcomeMath.buildOutcome(ctx, gtype, stake)
+    if not wc then return nil end
+
+    local em = ctx.earnings_mult or 1
+    local lm = ctx.loss_mult     or 1
+    local bb = stake.bb or 1
+
+    local win_avg, loss_avg = 0, 0
+    for _, t in ipairs(TIER_KEYS) do
+        win_avg  = win_avg  + (wd[t] or 0) * OutcomeMath.tierAvgBB(t)
+        loss_avg = loss_avg + (ld[t] or 0) * OutcomeMath.tierAvgBB(t)
+    end
+    local ev = wc * win_avg * bb * em - (1 - wc) * loss_avg * bb * lm
+
+    return {
+        stake = stake,
+        gtype = gtype,
+        pool  = {
+            win_chance  = wc,
+            win_dist    = wd,
+            loss_dist   = ld,
+            ev_per_hand = ev,
+            win_avg_bb  = win_avg,
+            loss_avg_bb = loss_avg,
+        },
+    }
+end
+
 return OutcomeMath

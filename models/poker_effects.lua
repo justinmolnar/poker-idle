@@ -192,11 +192,11 @@ function PokerEffects.registerAll(reg)
     reg:register("run_upgrade_cost_mult", function(e, ctx)
         ctx.run_upgrade_cost_mult = (ctx.run_upgrade_cost_mult or 1) * e.value
     end)
-    reg:register("pp_award_mult", function(e, ctx)
-        ctx.pp_award_mult = (ctx.pp_award_mult or 1) * e.value
+    reg:register("chip_award_mult", function(e, ctx)
+        ctx.chip_award_mult = (ctx.chip_award_mult or 1) * e.value
     end)
-    reg:register("jackpot_pp_add", function(e, ctx)
-        ctx.jackpot_pp_add = (ctx.jackpot_pp_add or 0) + (e.value or 0)
+    reg:register("jackpot_chip_add", function(e, ctx)
+        ctx.jackpot_chip_add = (ctx.jackpot_chip_add or 0) + (e.value or 0)
     end)
 
     -- ── Cursor swarm (autonomous DEAL-clickers) ────────────────────────

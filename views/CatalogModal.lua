@@ -24,6 +24,8 @@
 local Theme       = require("views.Theme")
 local Catalog     = require("data.catalog")
 local LabelButton = require("views.widgets.LabelButton")
+local Icons       = require("views.Icons")
+local IconText    = require("views.IconText")
 
 local CatalogModal = {}
 CatalogModal.__index = CatalogModal
@@ -73,7 +75,7 @@ end
 -- opts.read_only — when true, the modal renders the catalog but every
 --                   item ignores buy clicks (no purchases mid-grind).
 --                   Used by the top-bar CATALOG button so the player can
---                   inspect items without spending PP outside the
+--                   inspect items without spending chips outside the
 --                   post-bust ritual. Affordable items skip the green
 --                   "buyable" border so the read-only state reads
 --                   clearly. Default false → full post-bust behavior.
@@ -116,12 +118,12 @@ local function visibleItems(state)
         end
     end
 
-    -- Sort by PP cost ascending so the player sees what's affordable
+    -- Sort by chip cost ascending so the player sees what's affordable
     -- next at the top. Owned items stay in their natural cost slot
     -- (no bubble-to-bottom on purchase) — moving them around as the
     -- player buys was disorienting and shifted everything else.
     table.sort(out, function(a, b)
-        local ac, bc = a.cost_pp or 0, b.cost_pp or 0
+        local ac, bc = a.cost_chip or 0, b.cost_chip or 0
         if ac ~= bc then return ac < bc end
         return false
     end)
@@ -204,12 +206,12 @@ end
 
 -- ─── Render ───────────────────────────────────────────────────────────
 
-local function moneyish(n) return string.format("%d PP", n or 0) end
+local function moneyish(n) return string.format("%d", n or 0) end
 
 local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
     local is_owned   = owned[item.id]
     local locked     = item.requires and not owned[item.requires]
-    local affordable = (not is_owned) and (not locked) and state.pp >= (item.cost_pp or 0)
+    local affordable = (not is_owned) and (not locked) and state.chips >= (item.cost_chip or 0)
     -- Read-only catalog (mid-grind inspection) never marks a card buyable
     -- so the green "buyable" border doesn't lie about being clickable.
     local buyable    = affordable and not self.read_only
@@ -241,6 +243,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
     love.graphics.print(item.name or "?", x + CARD_PAD_X, y + CARD_PAD_Y)
 
     local cost_label
+    local cost_numeric = false
     local cost_color = Theme.fg.primary
     if is_owned then
         cost_label = "OWNED"
@@ -248,20 +251,33 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
     elseif locked then
         cost_label = "LOCKED"
         cost_color = Theme.fg.faint
-    elseif (item.cost_pp or 0) <= 0 then
+    elseif (item.cost_chip or 0) <= 0 then
         cost_label = "FREE"
         cost_color = Theme.status.good
     elseif affordable then
-        cost_label = moneyish(item.cost_pp)
-        cost_color = Theme.fg.heading
+        cost_label   = moneyish(item.cost_chip)
+        cost_numeric = true
+        cost_color   = Theme.fg.heading
     else
-        cost_label = moneyish(item.cost_pp)
-        cost_color = Theme.status.error
+        cost_label   = moneyish(item.cost_chip)
+        cost_numeric = true
+        cost_color   = Theme.status.error
     end
     love.graphics.setFont(fonts.md)
     Theme.setColor(cost_color)
-    local cw = fonts.md:getWidth(cost_label)
-    love.graphics.print(cost_label, x + w - CARD_PAD_X - cw, y + CARD_PAD_Y)
+    if cost_numeric then
+        -- Numeric cost reads "<n> ◆": number in the affordability color,
+        -- then the gold chip glyph, right-aligned together as one unit.
+        local num_w = fonts.md:getWidth(cost_label)
+        local gsize = fonts.md:getHeight()
+        local gap   = math.max(2, math.floor(4 * (self.game.ui_scale or 1)))
+        local rx    = x + w - CARD_PAD_X - (num_w + gap + gsize)
+        love.graphics.print(cost_label, rx, y + CARD_PAD_Y)
+        Icons.drawChip(self.game, rx + num_w + gap, y + CARD_PAD_Y, gsize)
+    else
+        local cw = fonts.md:getWidth(cost_label)
+        love.graphics.print(cost_label, x + w - CARD_PAD_X - cw, y + CARD_PAD_Y)
+    end
 
     -- Effect / flavor lines stack below the title row. Y offsets derive
     -- from md (title) + sm (body) heights so text doesn't collide
@@ -270,12 +286,28 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
     local effect_y = y + CARD_PAD_Y + title_h + 2
     local flavor_y = effect_y + fonts.sm:getHeight() + 2
 
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor(is_owned and Theme.fg.muted or Theme.fg.primary)
-    love.graphics.print(item.effect_text or "", x + CARD_PAD_X, effect_y)
+    -- Effect text renders through IconText so {chip}/{tier} markers draw as
+    -- inline icons instead of jargon words.
+    IconText.draw(self.game, item.effect_text or "",
+        x + CARD_PAD_X, effect_y, fonts.sm,
+        is_owned and Theme.fg.muted or Theme.fg.primary)
 
     Theme.setColor(Theme.fg.faint)
     love.graphics.print(item.description or "", x + CARD_PAD_X, flavor_y)
+
+    -- Shove contribution gets its own stat on the flavor line, right-aligned
+    -- under the cost. Pulled from the item's effects via the registry (so no
+    -- kind-string checks live in the view).
+    local sctx = {}
+    self.game.effects:applyAll(item, sctx)
+    local shove = sctx.shove_rate or 0
+    if shove > 0 then
+        local stxt = string.format("+%d%% shove", math.floor(shove * 100 + 0.5))
+        love.graphics.setFont(fonts.sm)
+        Theme.setColor(Theme.fg.muted)
+        local sw = fonts.sm:getWidth(stxt)
+        love.graphics.print(stxt, x + w - CARD_PAD_X - sw, flavor_y)
+    end
 
     -- Stash for hit-testing.
     self._cells[#self._cells + 1] = {
@@ -322,15 +354,18 @@ function CatalogModal:draw()
     self._modal:draw(fonts, body_h)
     local box = self._modal:boxRect()
 
-    -- Header: title (left) + PP (right).
+    -- Header: title (left) + chip balance (right).
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.lg)
     love.graphics.print("CATALOG", box.x + MODAL_PAD, box.y + 16)
-    local pp_label = string.format("%d PP", state.pp or 0)
+    local bal   = string.format("%d", state.chips or 0)
+    local bal_w = fonts.lg:getWidth(bal)
+    local gsize = fonts.lg:getHeight()
+    local gap   = math.floor(6 * s)
+    local bx    = box.x + box.w - MODAL_PAD - (bal_w + gap + gsize)
     Theme.setColor(Theme.status.good)
-    local pp_w = fonts.lg:getWidth(pp_label)
-    love.graphics.print(pp_label,
-        box.x + box.w - MODAL_PAD - pp_w, box.y + 16)
+    love.graphics.print(bal, bx, box.y + 16)
+    Icons.drawChip(self.game, bx + bal_w + gap, box.y + 16, gsize)
 
     -- Scroll viewport for the grid.
     local viewport_x = box.x + MODAL_PAD

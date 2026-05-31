@@ -15,6 +15,8 @@ local Theme       = require("views.Theme")
 local Button      = require("views.Button")
 local HoverSvc    = require("services.HoverService")
 local ClickFlash  = require("services.ClickFlash")
+local Icons       = require("views.Icons")
+local IconText    = require("views.IconText")
 
 -- Icon row sizes — recomputed by CR.setScale at boot/resize.
 local ICON_SIZE_BASE    = 64
@@ -86,10 +88,15 @@ end
 local function lineRenderedHeight(line, game, content_w)
     local style  = line.style or "body"
     local font   = styleFont(style, game)
+    -- Icon-bearing lines render single-line via IconText (no wrapping).
+    if (line.text or ""):find("{", 1, true) then
+        return LINE_H[style] or font:getHeight()
+    end
     local indent = lineIndent(style)
     local right_w = 0
     if line.right and game.fonts and game.fonts.sm then
         right_w = game.fonts.sm:getWidth(line.right) + 8
+        if line.right_icon then right_w = right_w + game.fonts.sm:getHeight() + 4 end
     end
     local wrap_w = math.max(1, content_w - indent - 4 - right_w)
     local _, wrapped = font:getWrap(line.text or "", wrap_w)
@@ -156,14 +163,16 @@ local function _drawCustom(comp, px, pw, _p, y, game)
 end
 
 local function _hitButton(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
-    if comp.disabled then return nil end
     if cy >= cursor_y and cy < cursor_y + h
        and cx >= panel_x + p and cx < panel_x + panel_w - p then
-        if comp.id then HoverSvc.set("button", comp.id) end
+        -- Tooltip shows even when the button is disabled (can't afford / would
+        -- strand) — the player needs the info to decide whether to save up.
         if comp.tooltip then
             local mx, my = love.mouse.getPosition()
             require("services.Tooltip").set(comp.tooltip, mx, my)
         end
+        if comp.disabled then return nil end
+        if comp.id then HoverSvc.set("button", comp.id) end
         return comp
     end
     return nil
@@ -312,7 +321,7 @@ function CR._button(comp, px, pw, p, y, game)
             --
             -- The right segment always renders in fonts.sm, regardless
             -- of the line's style — it acts as a metadata badge
-            -- (e.g. "+1 PP", "Lv 3/18"), not part of the heading. This
+            -- (e.g. "+1 chip", "Lv 3/18"), not part of the heading. This
             -- avoids overflow at fullscreen breakpoints where heading-
             -- sized left + heading-sized right would together exceed
             -- the sidebar width. We measure first and shrink the
@@ -325,8 +334,12 @@ function CR._button(comp, px, pw, p, y, game)
             end
 
             local left_printf_w = math.max(1, printf_w - right_w)
-            love.graphics.printf(line.text or "",
-                fx + indent, cursor, left_printf_w, line.align or "left")
+            if (line.text or ""):find("{", 1, true) then
+                IconText.draw(game, line.text, fx + indent, cursor, font, color)
+            else
+                love.graphics.printf(line.text or "",
+                    fx + indent, cursor, left_printf_w, line.align or "left")
+            end
 
             if line.right then
                 local right_color = color
@@ -341,8 +354,16 @@ function CR._button(comp, px, pw, p, y, game)
                 -- Vertically center the smaller right text against
                 -- the larger left line so it sits on the same baseline.
                 local right_y = cursor + math.floor((font:getHeight() - right_font:getHeight()) / 2)
+                -- Optional currency glyph drawn flush-right after the badge
+                -- ("+N ◆"); the badge text right-aligns into the space before it.
+                local icon_d = line.right_icon and right_font:getHeight() or 0
+                local text_w = (icon_d > 0) and math.max(1, printf_w - icon_d - 4) or printf_w
                 love.graphics.printf(line.right,
-                    fx + indent, right_y, printf_w, "right")
+                    fx + indent, right_y, text_w, "right")
+                if line.right_icon then
+                    Icons.drawChip(game, fx + indent + printf_w - icon_d, right_y, icon_d,
+                        line.right_icon_alpha, line.right_icon_shade)
+                end
                 Theme.setColor(color)
                 love.graphics.setFont(font)
             end

@@ -61,8 +61,8 @@ function InputController:wire()
             -- Force grind re-enter so TablePool rebuilds + effects refresh.
             sm:switch("grind")
             print(string.format(
-                "[save] F6 — reloaded.  bankroll=$%.2f  pp=%d  owned=%d",
-                state.bankroll, state.pp, #state.owned_items))
+                "[save] F6 — reloaded.  bankroll=$%.2f  chips=%d  owned=%d",
+                state.bankroll, state.chips, #state.owned_items))
         end)
 
     dispatcher:on("keypressed",

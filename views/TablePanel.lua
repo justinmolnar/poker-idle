@@ -156,8 +156,9 @@ end
 -- ─── Sub-panels ──────────────────────────────────────────────────────
 
 -- Mini bar-graph of the last N hand outcomes, drawn into the header strip.
--- Newest entry on the right, oldest on the left. Color: green = win,
--- red = loss. Height: per-tier fraction from data/history_bars.lua.
+-- Newest entry on the right, oldest on the left. Color: per-tier ramp
+-- (green for wins, red for losses) so a Stack result pops gold/pink at a
+-- glance. Height: per-tier fraction from data/history_bars.lua.
 --
 -- Adapts to available width: targets 10 bars, falls back to the min-size
 -- pair (min_bar_w / min_bar_gap) when the zone is tight, and renders
@@ -225,7 +226,12 @@ local function drawHistoryBars(tbl, zone_x, zone_y, zone_w, zone_h, s)
             local bx   = x0 + i * (bar_w + gap)
             local by   = baseline_y - bh
 
-            local color = entry.won and Theme.status.good or Theme.status.error
+            -- Color by tier so a Stack (jackpot) result pops at a glance,
+            -- while win/loss stays legible (green ramp vs red ramp). Keyed
+            -- lookup — no tier branches; flat win/loss color is the fallback.
+            local ramp  = entry.won and Theme.tier.win or Theme.tier.loss
+            local color = ramp[entry.tier]
+                          or (entry.won and Theme.status.good or Theme.status.error)
             Theme.setColor(color, 0.95)
             love.graphics.rectangle("fill", bx, by, bar_w, bh)
         end

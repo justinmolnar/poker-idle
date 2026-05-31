@@ -94,6 +94,48 @@ function Chips.drawChip(x, y, denom_idx, alpha, with_label, tint)
     end
 end
 
+-- A single generic "chip glyph" for UI use (the Gold Chip currency icon,
+-- badges) — independent of the denomination palette. Two concentric discs
+-- in the theme-invariant currency colors, centered at (x, y) with radius r.
+-- views/Icons.drawChip is the seam that swaps in sprite art when it lands;
+-- until then this is what makes the currency read as an icon.
+-- `shade` (default 1) multiplies the chip colors toward black, so an
+-- unearned/locked badge can be drawn properly dark rather than just faded.
+function Chips.drawGlyph(x, y, r, alpha, shade)
+    alpha = alpha or 1
+    shade = shade or 1
+    local chip, ring = Theme.currency.chip, Theme.currency.chip_ring
+    if shade ~= 1 then
+        chip = { chip[1] * shade, chip[2] * shade, chip[3] * shade }
+        ring = { ring[1] * shade, ring[2] * shade, ring[3] * shade }
+    end
+    Theme.setColor(ring, alpha)
+    love.graphics.circle("fill", x, y, r)
+    Theme.setColor(chip, alpha)
+    love.graphics.circle("fill", x, y, math.max(1, r - math.max(1, r * 0.28)))
+    Theme.setColor(ring, alpha)
+    love.graphics.circle("line", x, y, math.max(1, r * 0.45))
+end
+
+-- Draw a tight vertical stack of `count` solid chips (radius r) in `color`,
+-- bottom chip centered at (cx, baseline_y), each higher chip offset up by
+-- ~0.55r. A compact "more chips = bigger tier" glyph for the outcome-tier
+-- indicators in tooltips. Drawn back-to-front so lower chips sit in front.
+function Chips.drawGlyphStack(cx, baseline_y, count, r, color, alpha)
+    alpha = alpha or 1
+    color = color or Theme.currency.chip
+    local dark = { color[1] * 0.55, color[2] * 0.55, color[3] * 0.55 }
+    local step = math.max(1, math.floor(r * 0.55))
+    local inner = math.max(1, r - math.max(1, math.floor(r * 0.3)))
+    for i = math.max(1, count), 1, -1 do
+        local cy = baseline_y - (i - 1) * step
+        Theme.setColor(dark, alpha)
+        love.graphics.circle("fill", cx, cy, r)
+        Theme.setColor(color, alpha)
+        love.graphics.circle("fill", cx, cy, inner)
+    end
+end
+
 -- Build deferred-render closures for a chip-index list. Each closure
 -- captures its denomination and renders one chip at the (x, y) the
 -- caller (e.g. FlightSystem) hands back at draw time.

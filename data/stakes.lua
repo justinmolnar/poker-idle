@@ -35,7 +35,7 @@
 --     sb              = number ($),
 --     bb              = number ($),
 --     buy_in          = number ($)            -- 100bb
---     pp_award        = integer               -- one-time per-run PP bounty
+--     chip_award        = integer               -- one-time per-run chip bounty
 --     win_chance      = number 0..1           -- naked
 --     win_chance_capped = number 0..1
 --     win_dist        = { small, medium, large, jackpot }  -- naked, sums to 1
@@ -54,7 +54,7 @@ return {
         sb           = 0.01,
         bb           = 0.02,
         buy_in       = 2.00,
-        pp_award     = 1,
+        chip_award     = 1,
         -- T1 naked WC stays at 0.50 (it's the demo's coinflip baseline).
         -- Loss tail is intentionally squashed at T1: Large losses are
         -- rare and Jackpot losses are basically a unicorn (0.1%). The
@@ -81,7 +81,7 @@ return {
         sb           = 0.10,
         bb           = 0.25,
         buy_in       = 25.00,
-        pp_award     = 2,
+        chip_award     = 2,
         win_chance        = 0.30,
         win_chance_capped = 0.65,
         win_dist          = { small = 0.50, medium = 0.30, large = 0.18, jackpot = 0.02 },
@@ -97,7 +97,7 @@ return {
         sb           = 0.50,
         bb           = 1.00,
         buy_in       = 100.00,
-        pp_award     = 3,
+        chip_award     = 3,
         win_chance        = 0.15,
         win_chance_capped = 0.55,
         win_dist          = { small = 0.55, medium = 0.30, large = 0.13, jackpot = 0.02 },
@@ -113,7 +113,7 @@ return {
         sb           = 5,
         bb           = 10,
         buy_in       = 1000,
-        pp_award     = 4,
+        chip_award     = 4,
         win_chance        = 0.10,
         win_chance_capped = 0.45,
         win_dist          = { small = 0.40, medium = 0.40, large = 0.20, jackpot = 0.00 },
@@ -129,7 +129,7 @@ return {
         sb           = 50,
         bb           = 100,
         buy_in       = 10000,
-        pp_award     = 5,
+        chip_award     = 5,
         win_chance        = 0.05,
         win_chance_capped = 0.35,
         win_dist          = { small = 0.50, medium = 0.40, large = 0.10, jackpot = 0.00 },
@@ -145,7 +145,7 @@ return {
         sb           = 500,
         bb           = 1000,
         buy_in       = 100000,
-        pp_award     = 6,
+        chip_award     = 6,
         win_chance        = 0.005,
         win_chance_capped = 0.25,
         win_dist          = { small = 0.60, medium = 0.40, large = 0.00, jackpot = 0.00 },

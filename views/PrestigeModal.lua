@@ -1,7 +1,7 @@
 -- views/PrestigeModal.lua
 --
 -- Overlay that appears on the shove view after the gauntlet busts.
--- Tells the player they lost the all-in and reports the PP they
+-- Tells the player they lost the all-in and reports the chips they
 -- banked this run. A Continue button advances the post-bust flow
 -- (host calls _advanceToCatalog or _resolvePrototypeEnd as needed).
 --
@@ -15,6 +15,7 @@
 local Theme       = require("views.Theme")
 local Modal       = require("views.widgets.Modal")
 local LabelButton = require("views.widgets.LabelButton")
+local Icons       = require("views.Icons")
 
 local PrestigeModal = {}
 PrestigeModal.__index = PrestigeModal
@@ -24,13 +25,13 @@ local CARD_H_BASE = 320
 local BTN_W_BASE  = 200
 local BTN_H_BASE  = 44
 
-function PrestigeModal:new(game, pp_banked, _busted_at)
+function PrestigeModal:new(game, chips_banked, _busted_at)
     local s = (game.ui_scale) or 1
     local card_w = math.floor(CARD_W_BASE * s)
     local card_h = math.floor(CARD_H_BASE * s)
     return setmetatable({
         game          = game,
-        pp_banked     = pp_banked or 0,   -- PP earned this run (already in state.pp)
+        chips_banked  = chips_banked or 0,  -- chips earned this run (already in state.chips)
         _resolved     = false,
         _btn_rect     = nil,
         _modal        = Modal:new{ title = "BUSTED", w = card_w, h = card_h },
@@ -71,15 +72,24 @@ function PrestigeModal:draw()
     love.graphics.printf("You busted on the all-in.",
         body.x, body.y, body.w, "center")
 
-    -- PP banked this run (accent color so the takeaway lands).
+    -- Chips banked this run (accent color so the takeaway lands).
     local row_y = body.y + fonts.md:getHeight() + 24
     love.graphics.setFont(fonts.sm)
     Theme.setColor(Theme.fg.muted)
-    love.graphics.printf("PP BANKED THIS RUN", body.x, row_y, body.w, "center")
+    love.graphics.printf("BANKED THIS RUN", body.x, row_y, body.w, "center")
+
+    -- Chip glyph + amount, centered together as a unit.
+    local num   = tostring(self.chips_banked)
+    local num_y = row_y + fonts.sm:getHeight() + 4
     love.graphics.setFont(fonts.lg)
+    local num_w = fonts.lg:getWidth(num)
+    local gsize = fonts.lg:getHeight()
+    local gap   = math.floor(6 * s)
+    local total = gsize + gap + num_w
+    local gx    = body.x + math.floor((body.w - total) / 2)
+    Icons.drawChip(self.game, gx, num_y, gsize)
     Theme.setColor(Theme.status.good)
-    love.graphics.printf(tostring(self.pp_banked) .. " PP",
-        body.x, row_y + fonts.sm:getHeight() + 4, body.w, "center")
+    love.graphics.print(num, gx + gsize + gap, num_y)
 
     -- Continue button at the bottom.
     local btn_w = math.floor(BTN_W_BASE * s)

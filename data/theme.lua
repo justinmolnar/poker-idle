@@ -91,6 +91,24 @@ Theme.palettes = {
             error = { 0.82, 0.42, 0.38 },
             info  = { 0.55, 0.72, 0.85 },
         },
+        tier = {
+            -- Outcome-tier color ramps for the per-table history bars.
+            -- Keyed by the internal tier id (small/medium/large/jackpot);
+            -- jackpot is the "Stack" tier and pops gold (win) / hot pink
+            -- (loss) so the big result reads at a glance.
+            win = {
+                small   = { 0.38, 0.56, 0.34 },
+                medium  = { 0.46, 0.72, 0.42 },
+                large   = { 0.56, 0.86, 0.48 },
+                jackpot = { 0.96, 0.78, 0.30 },
+            },
+            loss = {
+                small   = { 0.52, 0.33, 0.31 },
+                medium  = { 0.70, 0.40, 0.37 },
+                large   = { 0.86, 0.44, 0.40 },
+                jackpot = { 0.95, 0.32, 0.52 },
+            },
+        },
         tint = {
             world = { 1.00, 1.00, 1.00 },
         },
@@ -128,6 +146,20 @@ Theme.palettes = {
             error = { 0.95, 0.20, 0.20 },
             info  = { 0.45, 0.65, 0.85 },
         },
+        tier = {
+            win = {
+                small   = { 0.34, 0.62, 0.34 },
+                medium  = { 0.42, 0.78, 0.42 },
+                large   = { 0.52, 0.92, 0.50 },
+                jackpot = { 1.00, 0.82, 0.28 },
+            },
+            loss = {
+                small   = { 0.62, 0.26, 0.26 },
+                medium  = { 0.80, 0.30, 0.30 },
+                large   = { 0.95, 0.34, 0.34 },
+                jackpot = { 1.00, 0.28, 0.55 },
+            },
+        },
         tint = {
             world = { 1.00, 1.00, 1.00 },
         },
@@ -154,6 +186,15 @@ Theme.debug = {
     hud_hot    = { 0.55, 0.85, 1.00 },           -- cyan: hotkey legend keys
 }
 
+-- ─── Currency glyph (theme-invariant) ───────────────────────────────
+-- The Gold Chip reads as the same gold object in any palette. Used by
+-- the procedural chip placeholder (views/Chips.drawGlyph) until real
+-- sprite art lands at assets/sprites/ui/icons/chip.
+Theme.currency = {
+    chip      = { 0.93, 0.75, 0.30 },   -- warm gold disc
+    chip_ring = { 0.52, 0.40, 0.14 },   -- darker rim / inner ring
+}
+
 -- ─── Type scale (theme-invariant) ───────────────────────────────────
 -- Closed set. Chrome callers pick from these by name.
 Theme.size = {
@@ -162,7 +203,7 @@ Theme.size = {
     md  = 12,    -- default body / UI text
     lg  = 13,    -- section headings
     xl  = 16,    -- modal titles, big numbers
-    kpi = 28,    -- bankroll display, PP display
+    kpi = 28,    -- bankroll display, chip display
     hero = 64,   -- shove %, terminal moments
 }
 

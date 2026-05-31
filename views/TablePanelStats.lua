@@ -16,12 +16,10 @@ local Theme       = require("views.Theme")
 local Stakes      = require("data.stakes")
 local MttPayouts  = require("data.mtt_payouts")
 local Lookups     = require("utils.lookups")
+local TierGlyph   = require("views.TierGlyph")
+local OutcomeMath = require("models.outcome_math")
 
--- Player-facing display letters for the four outcome tiers. The keys
--- are the same `small / medium / large / jackpot` strings every other
--- module uses — these letters are just the compact label the EV
--- tooltip + catalog item text print.
-local TIER_LABELS = { small = "S", medium = "M", large = "L", jackpot = "J" }
+-- Canonical tier order (internal keys). Rendered as glyphs via TierGlyph.
 local TIER_ORDER  = { "small", "medium", "large", "jackpot" }
 
 local TablePanelStats = {}
@@ -80,20 +78,51 @@ local function buildCashLines(tbl, controller, stats)
     local loss_avg_dollars = stats.pool.loss_avg_bb * bb * lm
     local ev_bb = (stats.pool.ev_per_hand or 0) / bb
 
-    -- One-line tier mix: "  S 40%  M 36%  L 22%  J 2%". Tiers with
-    -- effectively zero probability are skipped so low stakes /
-    -- heavily-shifted distributions read tight.
-    local function tierMixLine(dist)
-        local parts = {}
+    -- Tier mix as shared TierGlyph chip-stacks + percentages, skipping tiers
+    -- with ~zero probability so heavily-shifted distributions read tight.
+    -- Returns a custom render row the Tooltip widget draws via its
+    -- draw-callback support.
+    local SEG_GAP = 12
+    local function tierMixLine(dist, outcome)
+        local present = {}
         for _, k in ipairs(TIER_ORDER) do
             local p = dist[k] or 0
             if p >= 0.0005 then
-                parts[#parts + 1] = string.format("%s %s",
-                    TIER_LABELS[k] or k, fmtPctClean(p))
+                present[#present + 1] = { tier = k, pct = fmtPctClean(p) }
             end
         end
-        if #parts == 0 then return nil end
-        return row("  " .. table.concat(parts, "  "), "sm")
+        if #present == 0 then return nil end
+
+        local function metrics(fonts)
+            local f = fonts.sm
+            local r = TierGlyph.radius(f:getHeight())
+            return f, r, f:getHeight() + r * 3
+        end
+
+        local function measure(fonts)
+            local f, r, row_h = metrics(fonts)
+            local w = 4
+            for _, seg in ipairs(present) do
+                w = w + r * 2 + 3 + f:getWidth(seg.pct) + SEG_GAP
+            end
+            return w, row_h
+        end
+
+        local function render(x, y, fonts)
+            local f, r, row_h = metrics(fonts)
+            local baseline = y + row_h - r
+            local text_y   = y + row_h - f:getHeight()
+            local cx = x + 4 + r
+            love.graphics.setFont(f)
+            for _, seg in ipairs(present) do
+                TierGlyph.draw(cx, baseline, seg.tier, r, outcome)
+                Theme.setColor(TierGlyph.color(seg.tier, outcome))
+                love.graphics.print(seg.pct, cx + r + 3, text_y)
+                cx = cx + r * 2 + 3 + f:getWidth(seg.pct) + SEG_GAP
+            end
+        end
+
+        return { render = render, measure = measure }
     end
 
     local header = string.format("%s · %s",
@@ -104,10 +133,10 @@ local function buildCashLines(tbl, controller, stats)
         row("Win rate: " .. fmtPctClean(stats.pool.win_chance)),
         row(string.format("Avg win:  %s",  fmtMoney(win_avg_dollars))),
     }
-    local win_mix = tierMixLine(stats.pool.win_dist)
+    local win_mix = tierMixLine(stats.pool.win_dist, "win")
     if win_mix then lines[#lines + 1] = win_mix end
     lines[#lines + 1] = row(string.format("Avg loss: %s", fmtMoney(loss_avg_dollars)))
-    local loss_mix = tierMixLine(stats.pool.loss_dist)
+    local loss_mix = tierMixLine(stats.pool.loss_dist, "loss")
     if loss_mix then lines[#lines + 1] = loss_mix end
 
     -- Headline EV. Bigger font + status color so it lands as the
@@ -185,14 +214,35 @@ local function buildMttLines(tbl, controller, stats)
     return lines
 end
 
-local function buildEvBreakdownLines(tbl, controller)
-    local stats = tbl:debugStats(controller and controller.ctx)
+-- Dispatch stats → tooltip rows (cash vs tournament). The single breakdown
+-- path; both the per-table readout and the stake-add buttons go through it.
+local function breakdownFromStats(controller, stats)
     if not stats then return nil end
-    local gtype = stats.gtype
-    if gtype and gtype.chip_stack_table then
-        return buildMttLines(tbl, controller, stats)
+    if stats.gtype and stats.gtype.chip_stack_table then
+        return buildMttLines(nil, controller, stats)
     end
-    return buildCashLines(tbl, controller, stats)
+    return buildCashLines(nil, controller, stats)
+end
+
+local function buildEvBreakdownLines(tbl, controller)
+    return breakdownFromStats(controller, tbl:debugStats(controller and controller.ctx))
+end
+
+-- Public: EV breakdown rows for a hypothetical (stake, gtype) — lets the
+-- stake-add buttons show the exact tooltip you get hovering a live table.
+function TablePanelStats.breakdownLinesFor(controller, stake, gtype)
+    return breakdownFromStats(controller,
+        OutcomeMath.evStats(controller and controller.ctx, gtype, stake))
+end
+
+-- Public: the bb/h figure for a (stake, gtype), matching the readout below
+-- each table panel.
+function TablePanelStats.evBbPerHand(controller, stake, gtype)
+    local s = OutcomeMath.evStats(controller and controller.ctx, gtype, stake)
+    if not s then return nil end
+    local bb = (stake and stake.bb) or 1
+    if bb <= 0 then bb = 1 end
+    return (s.pool.ev_per_hand or 0) / bb
 end
 
 -- ─── EV readout (always visible) ─────────────────────────────────────
