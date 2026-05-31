@@ -552,19 +552,70 @@ end
 -- playable tables (stack > 0) AND the post-purchase bankroll is below the
 -- cheapest stake's adjusted buy-in. Used by the upgrades tab to disable
 -- buttons that would silently end the run.
-function GrindController:wouldStrandRun(cost)
-    if not cost or cost <= 0 then return false end
-    for _, t in ipairs(self.pool.tables) do
-        if (t.stack or 0) > 0 then return false end
-    end
+-- Cheapest table the player could open right now (min buy-in x buy_in_mult).
+function GrindController:_cheapestBuyIn()
     local mult = (self.ctx and self.ctx.buy_in_mult) or 1
     local cheapest
     for _, s in ipairs(Stakes) do
         local bi = (s.buy_in or 0) * mult
         if not cheapest or bi < cheapest then cheapest = bi end
     end
+    return cheapest
+end
+
+-- True when no open table still holds chips (nothing left in play).
+function GrindController:_noLiveTables()
+    for _, t in ipairs(self.pool.tables) do
+        if (t.stack or 0) > 0 then return false end
+    end
+    return true
+end
+
+function GrindController:wouldStrandRun(cost)
+    if not cost or cost <= 0 then return false end
+    if not self:_noLiveTables() then return false end
+    local cheapest = self:_cheapestBuyIn()
     if not cheapest then return false end
     return (self.game.state.bankroll - cost) < cheapest
+end
+
+-- Bricked: nothing in play and can't afford even the cheapest buy-in — the
+-- soft-stuck state the quick-reset rescues.
+function GrindController:isStranded()
+    if not self:_noLiveTables() then return false end
+    local cheapest = self:_cheapestBuyIn()
+    if not cheapest then return false end
+    return self.game.state.bankroll < cheapest
+end
+
+-- Whether the no-cost quick-reset should be offered. The hard gate is zero
+-- UN-banked chips: chips earned this run would be lost on a reset, so with any
+-- you should Shove first (that banks them). Already-banked chips are safe and
+-- don't matter. On top of that: bricked, and past the intro handicap (owns the
+-- Poster). Before the Poster a reset just lands you right back here, and the
+-- first bust should teach Shove + the free Poster, not this.
+function GrindController:canQuickReset()
+    local state = self.game.state
+    -- Un-banked chips this run -> Shove to bank them instead. (Banked chips
+    -- survive a reset, so they're irrelevant here.)
+    if (state.chips_this_run or 0) > 0 then return false end
+    local has_poster = false
+    for _, id in ipairs(state.owned_items) do
+        if id == "poker_poster" then has_poster = true; break end
+    end
+    if not has_poster then return false end
+    return self:isStranded()
+end
+
+-- Spot the player a fresh starting stake without a Shove (they have no chips
+-- to bank). Mirrors the post-bust run reset: wipe the run, re-seed starting
+-- perks, rebuild the pool. Caller persists.
+function GrindController:quickReset()
+    local state = self.game.state
+    state:resetRun()
+    self:invalidateEffects()
+    state:applyStartingPerks(self.ctx)
+    self.pool:rebuildFromState(self.ctx)
 end
 
 function GrindController:buyCatalogItem(item_id)

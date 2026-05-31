@@ -30,20 +30,29 @@ local PAD_X = 14    -- horizontal text padding inside the row
 --                 hovered else border.default)
 --   label_token (token, default Theme.fg.heading)
 --   value_token (token, default Theme.fg.primary)
+--   disabled    (bool, default false — greyed, no hover lift)
 function Row.draw(opts)
-    local fonts   = opts.fonts
-    local hovered = opts.hovered
-    local fill    = opts.fill_token or (hovered and Theme.bg.widget_hover or Theme.bg.widget)
-    local border  = opts.border_token or (hovered and Theme.border.strong or Theme.border.default)
+    local fonts    = opts.fonts
+    local disabled = opts.disabled
+    local hovered  = opts.hovered and not disabled
+    local fill, border, label_tok
+    if disabled then
+        fill, border, label_tok = Theme.bg.sunken, Theme.border.soft, Theme.fg.disabled
+    else
+        fill      = opts.fill_token or (hovered and Theme.bg.widget_hover or Theme.bg.widget)
+        border    = opts.border_token or (hovered and Theme.border.strong or Theme.border.default)
+        label_tok = opts.label_token or Theme.fg.heading
+    end
 
     Button.draw(opts.x, opts.y, opts.w, opts.h, {
         fill_color   = fill,
         border_color = border,
         hovered      = hovered,
+        disabled     = disabled,
         depth        = opts.depth or 3,
     }, function(fx, fy, fw, fh)
         local label_y = fy + math.floor((fh - fonts.md:getHeight()) * 0.5)
-        Theme.setColor(opts.label_token or Theme.fg.heading)
+        Theme.setColor(label_tok)
         love.graphics.setFont(fonts.md)
         love.graphics.print(opts.label, fx + PAD_X, label_y)
         if opts.value then

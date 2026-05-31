@@ -79,6 +79,7 @@ function ShoveState:fullReset()
     self.catalog_modal       = nil
     self.deck_select_modal   = nil
     self.prototype_end_modal = nil
+    self.settings_modal      = nil
     self._ended_handled      = false
     self.view:resetTimeline()
     self.overlay:resetStats()
@@ -335,10 +336,10 @@ function ShoveState:keypressed(key)
         end
         return
     end
-    -- ESC with no modal up: open settings → quit-confirm overlay.
+    -- ESC with no modal up: open the settings modal (no stacked quit confirm —
+    -- it carries its own Quit row and closes on a second ESC).
     if key == "escape" then
         self:openSettings()
-        if self.settings_modal then self.settings_modal:promptQuit() end
         return
     end
 

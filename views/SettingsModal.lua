@@ -4,7 +4,7 @@
 --   • views.widgets.Modal         — frame + dim backdrop
 --   • views.widgets.Row           — label-value rows
 --   • views.widgets.Slider        — volume slider
---   • views.widgets.ConfirmDialog — delete / quit prompts
+--   • views.widgets.ConfirmDialog — new-game / quit prompts
 --
 -- Display mode (windowed / fullscreen) was removed from the prototype
 -- build — the web canvas owns its own fit-to-iframe behavior, and
@@ -16,6 +16,8 @@ local Modal         = require("views.widgets.Modal")
 local Row           = require("views.widgets.Row")
 local ConfirmDialog = require("views.widgets.ConfirmDialog")
 local Slider        = require("views.widgets.Slider")
+local Constants     = require("data.constants")
+local TooltipSvc    = require("services.Tooltip")
 
 local SettingsModal = {}
 SettingsModal.__index = SettingsModal
@@ -70,16 +72,16 @@ function SettingsModal:new(game)
     return self_inst
 end
 
-function SettingsModal:promptQuit()
-    self:_openConfirm("quit")
-end
-
 -- Confirm-dialog factories per kind. Adding a new prompt = one entry here.
 local CONFIRM_BUILDERS = {
-    delete = function(self)
+    -- Mirrors the title-screen "Start" confirmation verbatim so the new-game
+    -- prompt reads identically wherever it's triggered.
+    new_game = function(self)
         return ConfirmDialog:new{
-            prompt = "Delete save and start over?", danger = true,
-            on_confirm = function() self:_performDelete() end,
+            prompt        = "Start a new game? Existing save will be erased.",
+            danger        = true,
+            confirm_label = "Start Over",
+            on_confirm    = function() self:_performNewGame() end,
         }
     end,
     quit = function(self)
@@ -96,7 +98,10 @@ function SettingsModal:_openConfirm(kind)
     if builder then self._confirm = builder(self) end
 end
 
-function SettingsModal:_performDelete()
+-- Wipe disk + in-memory state and drop into a fresh grind run — the in-game
+-- equivalent of the title screen's "Start". Runs every state's fullReset
+-- first so the live cursor swarm / in-flight chips don't dangle past the wipe.
+function SettingsModal:_performNewGame()
     local g = self.game
     if g.save_service then g.save_service:clearAll() end
     if g.state then g.state:wipeAll() end
@@ -136,9 +141,9 @@ local ACTION_HANDLERS = {
             g.save_service:saveAll(g.state:serializeMeta(), g.state:serializeRun())
         end
     end,
-    load   = function(self) self:_performLoad() end,
-    delete = function(self) self:_openConfirm("delete") end,
-    quit   = function(self) self:_openConfirm("quit") end,
+    load     = function(self) self:_performLoad() end,
+    new_game = function(self) self:_openConfirm("new_game") end,
+    quit     = function(self) self:_openConfirm("quit") end,
 }
 
 function SettingsModal:_runAction(action)
@@ -180,6 +185,12 @@ function SettingsModal:consumeMouse(mx, my, button)
             return true
         end
     end
+    -- Consume any other click inside the modal frame (disabled rows, labels,
+    -- dead space) so it doesn't fall through to the host's outside-click
+    -- dismiss. Only genuine outside-clicks return false.
+    if self._modal and self._modal:hitTest(mx, my) == "inside" then
+        return true
+    end
     return false
 end
 
@@ -198,6 +209,7 @@ end
 
 function SettingsModal:draw()
     self._row_rects = {}
+    self._quit_tip  = nil
     local fonts = self.game.fonts
     local mx, my = love.mouse.getPosition()
 
@@ -209,7 +221,7 @@ function SettingsModal:draw()
     -- Rebuild the modal frame each draw so its width tracks scale.
     self._modal = Modal:new{ title = "Settings", w = MODAL_W }
 
-    local rows = 5  -- volume, save, load, delete, quit
+    local rows = 5  -- volume, save, load, new game, quit
     local body_h = rows * ROW_H + (rows - 1) * ROW_GAP
 
     local body = self._modal:draw(fonts, body_h)
@@ -247,25 +259,41 @@ function SettingsModal:draw()
 
     y = y + ROW_H + ROW_GAP
 
-    local function action_row(label, action)
+    local function action_row(label, action, opts)
+        opts = opts or {}
         local hov = mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H
         Row.draw{ x = row_x, y = y, w = row_w, h = ROW_H,
-                  label = label, fonts = fonts, hovered = hov }
-        self._row_rects[#self._row_rects + 1] = {
-            x = row_x, y = y, w = row_w, h = ROW_H, action = action,
-        }
+                  label = label, fonts = fonts,
+                  hovered = hov and not opts.disabled, disabled = opts.disabled }
+        if opts.disabled then
+            -- No hit-rect → unclickable; stash the hover tooltip to draw on top.
+            if hov and opts.tip then self._quit_tip = { text = opts.tip, x = mx, y = my } end
+        else
+            self._row_rects[#self._row_rects + 1] = {
+                x = row_x, y = y, w = row_w, h = ROW_H, action = action,
+            }
+        end
         y = y + ROW_H + ROW_GAP
     end
-    action_row("Save now",    "save")
-    action_row("Load save",   "load")
-    action_row("Delete save", "delete")
-    action_row("Quit",        "quit")
+    action_row("Save now",       "save")
+    action_row("Load save",      "load")
+    action_row("Start new game", "new_game")
+    local quit_off = Constants.FEATURES and Constants.FEATURES.QUIT_DISABLED
+    action_row("Quit", "quit", quit_off
+        and { disabled = true, tip = "Disabled for web build." } or nil)
 
     self._modal:endDraw()
 
     if self._confirm then
         self._confirm:draw(fonts)
         if self._confirm:resolved() then self._confirm = nil; self._confirm_kind = nil end
+    end
+
+    -- Disabled-Quit tooltip. GrindView's global tooltip pass already ran
+    -- (before this modal drew), so render it here to land on top of the modal.
+    if self._quit_tip then
+        TooltipSvc.set(self._quit_tip.text, self._quit_tip.x, self._quit_tip.y)
+        TooltipSvc.draw(fonts)
     end
 end
 

@@ -56,6 +56,11 @@ C.FEATURES = {
     -- The new chip-flow system (Table.lua, MttSession.lua, HandScript.lua)
     -- only runs when MTT_KO is on.
     MTT_KO            = not C.PROTOTYPE_MODE,
+
+    -- Disable the Settings "Quit" button. The web/love.js build can't quit a
+    -- browser tab — love.event.quit() hard-errors the canvas — so the
+    -- prototype (web) build greys Quit out with a "disabled for web" tooltip.
+    QUIT_DISABLED     = C.PROTOTYPE_MODE,
 }
 
 C.WINDOW = {

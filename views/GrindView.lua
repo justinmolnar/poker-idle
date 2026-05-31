@@ -266,8 +266,11 @@ function GrindView:_buildPanels()
     -- Catalog tab removed — purchases now happen in views/CatalogModal.lua
     -- after each bust. The chip shop is only accessible between runs.
 
-    -- Right panel reserves space at the bottom for the SHOVE button.
-    local right_panel_h = H - TOP_BAR_H - SHOVE_BTN_H - 2 * MARGIN
+    -- Right panel reserves space at the bottom for the SHOVE button, plus a
+    -- few px so the quick-reset button can straddle the shove's top edge
+    -- without overlapping panel content.
+    local qr_reserve    = math.floor(18 * (self.game.ui_scale or 1))
+    local right_panel_h = H - TOP_BAR_H - SHOVE_BTN_H - 2 * MARGIN - qr_reserve
     self.right_panel = Panel:new(W - RIGHT_W, TOP_BAR_H, RIGHT_W, right_panel_h)
     self.right_panel:registerTab({
         id       = "upgrades",
@@ -715,6 +718,28 @@ function GrindView:update(dt)
         end
     end
     self._bounty_glow_primed = true
+
+    -- Quick-reset button (overlaps the shove) — explain it on hover. Rendered
+    -- as IconText rows so the {chip} glyph shows instead of the word.
+    if self.controller:canQuickReset() then
+        local qr = self:_quickResetButtonRect()
+        if mx >= qr.x and mx < qr.x + qr.w and my >= qr.y and my < qr.y + qr.h then
+            local function iconRow(str)
+                return {
+                    render  = function(rx, ry, fonts)
+                        IconText.draw(self.game, str, rx, ry, fonts.sm, Theme.fg.heading)
+                    end,
+                    measure = function(fonts)
+                        return IconText.measure(str, fonts.sm), fonts.sm:getHeight()
+                    end,
+                }
+            end
+            TooltipSvc.set({
+                iconRow("Reset to a fresh $2 stake, no Shove."),
+                iconRow("Only when broke with no {chip} to bank."),
+            }, mx, my)
+        end
+    end
 
     -- Hit-test components for hover (writes "button" namespace into
     -- HoverService AND stashes any comp.tooltip via Tooltip.set).
@@ -1260,6 +1285,22 @@ local function bestGridLayout(n, grid_w, grid_h)
     return best
 end
 
+-- Small "Quick reset" button straddling the SHOVE button's top edge (half on
+-- the shove, half in the reserved strip above it) — an obvious overlapping
+-- alternative. Only shown / hit-tested when GrindController:canQuickReset().
+function GrindView:_quickResetButtonRect()
+    local sb   = self:_shoveButtonRect()
+    local s    = self.game.ui_scale or 1
+    local font = self.game.fonts.sm
+    local bw   = font:getWidth("Quick reset") + math.floor(28 * s)
+    local bh   = font:getHeight() + math.floor(14 * s)
+    return {
+        x = sb.x + math.floor((sb.w - bw) / 2),
+        y = sb.y - math.floor(bh / 2),
+        w = bw, h = bh,
+    }
+end
+
 function GrindView:_drawCenterGrid(W, H)
     local grid_x = LEFT_W + MARGIN
     local grid_y = TOP_BAR_H + MARGIN
@@ -1412,6 +1453,24 @@ function GrindView:_drawShoveButton()
         love.graphics.print(chip_text, crx, sub_y)
         Icons.drawChip(self.game, crx + ctw + cgap, sub_y, gsize)
     end)
+
+    -- Quick-reset alternative, overlaid on the shove face when the player is
+    -- bricked with no chips to bank (GrindController:canQuickReset). Drawn
+    -- after the shove so it sits on top; the shove peeks as a red frame +
+    -- bottom readouts so it's clearly an alternative, not a replacement.
+    if self.controller:canQuickReset() then
+        local qr     = self:_quickResetButtonRect()
+        local mx, my = love.mouse.getPosition()
+        local hov    = mx >= qr.x and mx < qr.x + qr.w
+                   and my >= qr.y and my < qr.y + qr.h
+        LabelButton.draw{
+            x = qr.x, y = qr.y, w = qr.w, h = qr.h,
+            text = "Quick reset",
+            fonts = self.game.fonts, font = self.game.fonts.sm,
+            hovered = hov, depth = 4,
+            press_alpha = ClickFlash.alpha("quick_reset", "quick_reset"),
+        }
+    end
 end
 
 -- ─── Floating text overlay ────────────────────────────────────────────
@@ -1566,6 +1625,18 @@ end
 
 function GrindView:mousepressed(x, y, b)
     if b ~= 1 then return end
+
+    -- Quick-reset button — overlaid on the SHOVE face when bricked with no
+    -- chips to bank. Checked before SHOVE so the overlay wins; clicks on the
+    -- peeking shove frame/readouts still fall through to the shove below.
+    if self.controller:canQuickReset() then
+        local qr = self:_quickResetButtonRect()
+        if x >= qr.x and x < qr.x + qr.w and y >= qr.y and y < qr.y + qr.h then
+            ClickFlash.flash("quick_reset", "quick_reset")
+            if self.game.quickReset then self.game.quickReset() end
+            return
+        end
+    end
 
     -- Cash-Out-All button (top bar). Checked first so the right-side hit
     -- doesn't fall through to the right panel's tab-strip / scroll zone.

@@ -55,6 +55,7 @@ function GrindState:new(game)
     game.openSettings   = function() state_self:openSettings()   end
     game.openDeckRoster = function() state_self:openDeckRoster() end
     game.openHelp       = function() state_self:openHelp()       end
+    game.quickReset     = function() state_self:quickReset()     end
     return self
 end
 
@@ -115,6 +116,15 @@ function GrindState:_dismissOnboarding()
         self.game.save_service:saveAll(
             self.game.state:serializeMeta(), self.game.state:serializeRun())
     end
+end
+
+-- No-cost rescue when the player is bricked with no chips (see
+-- GrindController:canQuickReset). The view renders the button only when
+-- allowed; the host owns the mutation + persisting it (MVC).
+function GrindState:quickReset()
+    self.controller:quickReset()
+    self.game.save_service:saveAll(
+        self.game.state:serializeMeta(), self.game.state:serializeRun())
 end
 
 function GrindState:enter()
@@ -178,6 +188,13 @@ function GrindState:fullReset()
     FlightSystem.clear()
     ClickFlash.clear()
     Ghosts.clear()
+    -- Drop open overlays so a new-game wipe (Settings → Start new game) doesn't
+    -- leave the Settings / catalog / deck modal hanging over the fresh run.
+    -- The onboarding modal is intentionally left alone — :enter reopens it for
+    -- the fresh (un-onboarded) game.
+    self.settings_modal    = nil
+    self.catalog_modal     = nil
+    self.deck_roster_modal = nil
 end
 
 -- Phase 2 debug: H deals one hand on table 1. J deals every idle table.
@@ -210,11 +227,12 @@ function GrindState:keypressed(key)
         end
         return
     end
-    -- ESC outside any modal opens settings (kept in every mode — it's
-    -- the conventional UX path).
+    -- ESC outside any modal opens the settings modal (which carries its own
+    -- Quit row and closes on a second ESC). It must NOT also fire the quit
+    -- confirm — that stacked a second dialog on top of the freshly-opened
+    -- settings modal.
     if key == "escape" then
         self:openSettings()
-        if self.settings_modal then self.settings_modal:promptQuit() end
         return
     end
     -- H/J are deal hotkeys that circumvent the per-table DEAL button.
