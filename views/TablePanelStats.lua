@@ -261,12 +261,20 @@ function TablePanelStats.drawEvReadout(tbl, x, y, w, h_panel, controller, fonts,
 
     local ev_bb = (stats.ev_per_hand or 0) / bb
     local label = string.format("%+0.1f bb/h", ev_bb)
+    local stack_p     = (stats.win_chance or 0)
+                        * ((stats.win_dist and stats.win_dist.jackpot) or 0)
+    local stack_label = string.format("%.1f%%", stack_p * 100)
 
     local font = fonts.sm
     love.graphics.setFont(font)
-    local text_w = font:getWidth(label)
-    local text_h = font:getHeight()
-    local tx = x + math.floor((w - text_w) / 2)
+    local text_h    = font:getHeight()
+    local r         = TierGlyph.radius(text_h)
+    local gap       = math.floor(text_h * 0.6)    -- bb/h → stack stat
+    local glyph_pad = math.floor(text_h * 0.25)   -- glyph → pct
+    local bb_w      = font:getWidth(label)
+    local sp_w      = font:getWidth(stack_label)
+    local total_w   = bb_w + gap + r * 2 + glyph_pad + sp_w
+    local tx = x + math.floor((w - total_w) / 2)
     local ty = y + h_panel - text_h - TablePanelStats.EV_READOUT_PAD_BOTTOM
 
     local color
@@ -280,13 +288,20 @@ function TablePanelStats.drawEvReadout(tbl, x, y, w, h_panel, controller, fonts,
     Theme.setColor(color)
     love.graphics.print(label, tx, ty)
 
+    -- Stack-win chance beside the EV: gold tier glyph + pct (pct shares the
+    -- EV's color so the cluster reads as one readout).
+    local sx = tx + bb_w + gap
+    TierGlyph.draw(sx + r, ty + text_h - r, "jackpot", r, "win")
+    Theme.setColor(color)
+    love.graphics.print(stack_label, sx + r * 2 + glyph_pad, ty)
+
     if hit_boxes then
         local lines = buildEvBreakdownLines(tbl, controller)
         if lines then
             hit_boxes[#hit_boxes + 1] = {
                 x = tx - TablePanelStats.EV_READOUT_HIT_PAD,
                 y = ty - TablePanelStats.EV_READOUT_HIT_PAD,
-                w = text_w + TablePanelStats.EV_READOUT_HIT_PAD * 2,
+                w = total_w + TablePanelStats.EV_READOUT_HIT_PAD * 2,
                 h = text_h + TablePanelStats.EV_READOUT_HIT_PAD * 2,
                 tooltip = lines,
             }

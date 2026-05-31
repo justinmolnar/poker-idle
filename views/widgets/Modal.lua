@@ -20,6 +20,10 @@ local DEFAULT_TITLE_PAD = 14
 
 -- opts:
 --   title         (string, optional)         — header text
+--   title_align   ("center"|"left", def center) — header text alignment
+--   aside         (string, optional)         — secondary text drawn small &
+--                                              right-aligned in the header
+--                                              (e.g. a disclaimer); wraps
 --   w             (integer, default 480)     — modal width
 --   h             (integer, optional)        — fixed height; if nil,
 --                                              caller sizes via body_h
@@ -34,6 +38,8 @@ function Modal:new(opts)
     opts = opts or {}
     return setmetatable({
         title       = opts.title,
+        title_align = opts.title_align or "center",
+        aside       = opts.aside,
         w           = opts.w or 480,
         h           = opts.h,                              -- optional fixed
         max_h_frac  = opts.max_h_frac or 0.90,
@@ -95,11 +101,32 @@ function Modal:draw(fonts, body_h_request)
     love.graphics.rectangle("line", bx, by, self.w, modal_h, Theme.space.radius)
     love.graphics.setLineWidth(1)
 
-    -- Title.
+    -- Header text. With an aside, the title (lg) and aside (sm) are distributed
+    -- space-around — each gets an equal margin, so both sit a calculated
+    -- distance off their edge instead of pinned to it. Without one, the title
+    -- honors title_align (centered / left).
+    local has_aside = self.aside and self.aside ~= "" and fonts and fonts.sm
     if self.title and fonts and fonts.lg then
-        Theme.setColor(Theme.fg.heading)
+        local ty = by + DEFAULT_TITLE_PAD
         love.graphics.setFont(fonts.lg)
-        love.graphics.printf(self.title, bx, by + DEFAULT_TITLE_PAD, self.w, "center")
+        if has_aside then
+            local title_w     = fonts.lg:getWidth(self.title)
+            local aside_w, wl = fonts.sm:getWrap(self.aside, self.w)
+            local free        = self.w - title_w - aside_w
+            local edge        = math.max(0, math.floor(free / 4))
+            local mid         = free - edge * 2
+            Theme.setColor(Theme.fg.heading)
+            love.graphics.print(self.title, bx + edge, ty)
+            local aside_h = #wl * fonts.sm:getHeight()
+            local ay      = ty + math.max(0, math.floor((fonts.lg:getHeight() - aside_h) / 2))
+            Theme.setColor(Theme.fg.muted)
+            love.graphics.setFont(fonts.sm)
+            love.graphics.printf(self.aside, bx + edge + title_w + mid, ay, aside_w, "left")
+        else
+            local inset = (self.title_align == "left") and DEFAULT_PAD or 0
+            Theme.setColor(Theme.fg.heading)
+            love.graphics.printf(self.title, bx + inset, ty, self.w - inset * 2, self.title_align)
+        end
     end
 
     self._box = { x = bx, y = by, w = self.w, h = modal_h }

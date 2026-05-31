@@ -33,6 +33,7 @@ local TooltipSvc     = require("services.Tooltip")
 local AnchorRegistry = require("services.AnchorRegistry")
 local Button         = require("views.Button")
 local LabelButton    = require("views.widgets.LabelButton")
+local AwardGlow      = require("views.AwardGlow")
 local Ghosts         = require("services.Ghosts")
 local Stakes         = require("data.stakes")
 local GameTypes      = require("data.game_types")
@@ -338,6 +339,9 @@ function GrindView:_makeGameTypeStrip()
                         fy + math.floor((fh - fonts.sm:getHeight()) * 0.5),
                         fw, "center")
                 end)
+                -- Chip-award pulse routed here when a bounty banks for a
+                -- game type the player isn't currently viewing.
+                AwardGlow.draw(id, bx, y, rect_w, rect_h)
             end
         end,
         hit_fn = function(px, y, pw, _, cx, cy)
@@ -688,6 +692,29 @@ function GrindView:update(dt)
     self.right_panel:update(my)
     self.left_panel:updateHover(mx, my, self.game)
     self.right_panel:updateHover(mx, my, self.game)
+
+    -- Chip-bounty fanfare: the moment a (stake, gtype) bounty first banks
+    -- this run, pulse its add-table button gold — or, if the player isn't on
+    -- that game type's sub-tab (the button isn't shown), pulse the game-type
+    -- tab instead so the cue still lands. Swept across every combo so it fires
+    -- exactly when the chip is earned.
+    self._bounty_glow_seen = self._bounty_glow_seen or {}
+    local prime = not self._bounty_glow_primed   -- first sweep only syncs
+    for _, stake in ipairs(Stakes) do
+        for _, gt in ipairs(GameTypes) do
+            local key    = stake.id .. ":" .. gt.id
+            local banked = self.controller:bountyBanked(stake.id, gt.id)
+            if banked and not prime and not self._bounty_glow_seen[key] then
+                if gt.id == self.selected_gtype then
+                    AwardGlow.flash("add_table:" .. key)
+                else
+                    AwardGlow.flash("gtype:" .. gt.id)
+                end
+            end
+            self._bounty_glow_seen[key] = banked
+        end
+    end
+    self._bounty_glow_primed = true
 
     -- Hit-test components for hover (writes "button" namespace into
     -- HoverService AND stashes any comp.tooltip via Tooltip.set).
@@ -1158,6 +1185,31 @@ function GrindView:_drawSettingsButton()
     }
 end
 
+-- ─── Help button (top bar, "?" — reopens the how-to-play modal) ──────
+
+function GrindView:_helpButtonRect()
+    local cb = self:_cashOutButtonRect()
+    local sz = CATALOG_BTN_H
+    return {
+        x = cb.x - TOPBAR_BTN_GAP - sz,
+        y = math.floor((TOP_BAR_H - sz) / 2),
+        w = sz, h = sz,
+    }
+end
+
+function GrindView:_drawHelpButton()
+    local rect   = self:_helpButtonRect()
+    local mx, my = love.mouse.getPosition()
+    LabelButton.draw{
+        x = rect.x, y = rect.y, w = rect.w, h = rect.h,
+        text        = "?",
+        fonts       = self.game.fonts,
+        hovered     = mx >= rect.x and mx < rect.x + rect.w
+                      and my >= rect.y and my < rect.y + rect.h,
+        press_alpha = ClickFlash.alpha("help_btn", "help_btn"),
+    }
+end
+
 -- ─── Center grid ──────────────────────────────────────────────────────
 
 -- Target aspect for each table panel — wider than tall so the felt reads
@@ -1471,6 +1523,7 @@ function GrindView:draw()
     self.hit_boxes = {}
 
     self:_drawTopBar(W)
+    self:_drawHelpButton()
     self:_drawCashOutButton()
     self:_drawCatalogButton()
     self:_drawSettingsButton()
@@ -1553,6 +1606,15 @@ function GrindView:mousepressed(x, y, b)
        and y >= set_rect.y and y < set_rect.y + set_rect.h then
         ClickFlash.flash("settings_btn", "settings_btn")
         if self.game.openSettings then self.game.openSettings() end
+        return
+    end
+
+    -- Help button ("?", top bar). Reopens the how-to-play modal.
+    local help_rect = self:_helpButtonRect()
+    if x >= help_rect.x and x < help_rect.x + help_rect.w
+       and y >= help_rect.y and y < help_rect.y + help_rect.h then
+        ClickFlash.flash("help_btn", "help_btn")
+        if self.game.openHelp then self.game.openHelp() end
         return
     end
 

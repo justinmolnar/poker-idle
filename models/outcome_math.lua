@@ -233,6 +233,26 @@ function OutcomeMath.buildOutcome(ctx, gtype, stake)
         win_chance = win_chance * ctx.wc_mult
     end
 
+    -- 7. Per-gtype delayed jackpot emergence (Zoom). A flat negative jackpot
+    --    shift otherwise keeps the cell pinned at 0 until the lerp overtakes it
+    --    near full fill — so the entire Stack-rate gain lands in the last
+    --    Pot Control level. Instead, ramp the jackpot cell from `jackpot_emerge`
+    --    fill up to its target (the stake's capped jackpot plus that shift), so
+    --    the Stack rate climbs gradually over the upgrade's top levels and ends
+    --    at the same value. Overwrites the jackpot cell computed above; catalog
+    --    jackpot shifts on this gtype don't compound — this IS the rule here.
+    if gtype and gtype.jackpot_emerge then
+        local sh     = gtype.dist_shifts and gtype.dist_shifts.win_dist
+        local offset = (sh and sh.jackpot) or 0
+        local capped = (stake and stake.win_dist_capped and stake.win_dist_capped.jackpot) or 0
+        local target = capped + offset
+        if target < 0 then target = 0 end
+        local thr  = gtype.jackpot_emerge
+        local ramp = (wd_fill - thr) / math.max(1e-6, 1 - thr)
+        if ramp < 0 then ramp = 0 elseif ramp > 1 then ramp = 1 end
+        win_dist.jackpot = target * ramp
+    end
+
     -- 8. Final clamps. Absolute WC ceiling (no 100% wins).
     if     win_chance < 0               then win_chance = 0
     elseif win_chance > WC_ABSOLUTE_CAP then win_chance = WC_ABSOLUTE_CAP end

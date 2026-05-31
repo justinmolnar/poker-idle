@@ -20,6 +20,7 @@ local Ghosts          = require("services.Ghosts")
 local CatalogModal    = require("views.CatalogModal")
 local DeckSelectModal = require("views.DeckSelectModal")
 local SettingsModal   = require("views.SettingsModal")
+local OnboardingModal = require("views.OnboardingModal")
 local Constants       = require("data.constants")
 
 local GrindState = {}
@@ -37,6 +38,9 @@ function GrindState:new(game)
         -- DECK chip; swap is still restricted to the post-shove flow.
         deck_roster_modal  = nil,
         settings_modal     = nil,
+        -- One-page how-to-play. Auto-opens on first grind (state.onboarded);
+        -- replayable any time via the top-bar "?" button.
+        onboarding_modal   = nil,
     }, GrindState)
     self.controller = GrindController:new(game)
     self.view       = GrindView:new(game, self.controller)
@@ -50,6 +54,7 @@ function GrindState:new(game)
     game.openCatalog    = function() state_self:openCatalog()    end
     game.openSettings   = function() state_self:openSettings()   end
     game.openDeckRoster = function() state_self:openDeckRoster() end
+    game.openHelp       = function() state_self:openHelp()       end
     return self
 end
 
@@ -92,6 +97,26 @@ function GrindState:closeSettings()
     self.settings_modal = nil
 end
 
+-- Open the how-to-play modal on demand (top-bar "?"). Does NOT touch the
+-- `onboarded` flag — replays are free.
+function GrindState:openHelp()
+    if not self.onboarding_modal then
+        self.onboarding_modal = OnboardingModal:new(self.game)
+    end
+end
+
+-- Close the how-to-play modal. The first time it's dismissed we persist the
+-- acknowledgement so it never auto-opens again. The view never sets this —
+-- the host owns the state mutation (MVC).
+function GrindState:_dismissOnboarding()
+    self.onboarding_modal = nil
+    if not self.game.state.onboarded then
+        self.game.state.onboarded = true
+        self.game.save_service:saveAll(
+            self.game.state:serializeMeta(), self.game.state:serializeRun())
+    end
+end
+
 function GrindState:enter()
     Theme.setActive("room")
     -- Rebuild the table pool from the current state — covers the case where
@@ -103,6 +128,12 @@ function GrindState:enter()
     -- pre-revealed attributes.
     self.controller:invalidateEffects()
     self.controller.pool:rebuildFromState(self.controller.ctx)
+
+    -- First-run how-to-play, shown before the player meets the scripted intro
+    -- loss. Auto-opens once; dismissing it persists `onboarded`.
+    if not self.game.state.onboarded then
+        self:openHelp()
+    end
 end
 
 function GrindState:exit() end
@@ -133,6 +164,10 @@ function GrindState:draw()
     if self.settings_modal then
         self.settings_modal:draw()
     end
+    -- How-to-play sits on top of everything else.
+    if self.onboarding_modal then
+        self.onboarding_modal:draw()
+    end
 end
 
 -- Called by InputController F6/F7 handlers via the fullResetAllStates
@@ -148,6 +183,13 @@ end
 -- Phase 2 debug: H deals one hand on table 1. J deals every idle table.
 -- Both are temporary — Phase 3 brings click-to-deal via TablePanel buttons.
 function GrindState:keypressed(key)
+    -- How-to-play is the most forced modal — it owns input while up; only its
+    -- button / space-return dismisses it (ESC does not escape it).
+    if self.onboarding_modal then
+        self.onboarding_modal:consumeKey(key)
+        if self.onboarding_modal:resolved() then self:_dismissOnboarding() end
+        return
+    end
     -- Modal-first input: ESC always closes; SPACE/RETURN dismiss the
     -- modal back to grind. Modal-context keys are not hotkeys, so they
     -- run in every mode.
@@ -187,6 +229,11 @@ function GrindState:keypressed(key)
 end
 
 function GrindState:mousepressed(x, y, b)
+    if self.onboarding_modal then
+        self.onboarding_modal:consumeMouse(x, y, b)
+        if self.onboarding_modal:resolved() then self:_dismissOnboarding() end
+        return
+    end
     if self.settings_modal then
         local consumed = self.settings_modal:consumeMouse(x, y, b)
         if not consumed then self:closeSettings() end
@@ -215,6 +262,10 @@ function GrindState:mousepressed(x, y, b)
 end
 
 function GrindState:mousereleased(x, y, b)
+    if self.onboarding_modal then
+        self.onboarding_modal:mousereleased(x, y, b)
+        return
+    end
     if self.settings_modal then
         if self.settings_modal.mousereleased then
             self.settings_modal:mousereleased(x, y, b)
@@ -227,6 +278,10 @@ function GrindState:mousereleased(x, y, b)
 end
 
 function GrindState:mousemoved(x, y, dx, dy)
+    if self.onboarding_modal then
+        self.onboarding_modal:mousemoved(x, y)
+        return
+    end
     if self.settings_modal then
         if self.settings_modal.mousemoved then
             self.settings_modal:mousemoved(x, y)
@@ -239,6 +294,10 @@ function GrindState:mousemoved(x, y, dx, dy)
 end
 
 function GrindState:wheelmoved(x, y)
+    if self.onboarding_modal then
+        self.onboarding_modal:wheelmoved(x, y)
+        return
+    end
     if self.settings_modal and self.settings_modal.wheelmoved then
         self.settings_modal:wheelmoved(x, y)
         return

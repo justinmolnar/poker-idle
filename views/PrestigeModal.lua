@@ -1,119 +1,45 @@
 -- views/PrestigeModal.lua
 --
--- Overlay that appears on the shove view after the gauntlet busts.
--- Tells the player they lost the all-in and reports the chips they
--- banked this run. A Continue button advances the post-bust flow
--- (host calls _advanceToCatalog or _resolvePrototypeEnd as needed).
---
--- Deliberately neutral about the gauntlet's runout structure — does
--- NOT say "busted on runout 1 of 3" or similar. First-time players
--- shouldn't be spoiled on R2/R3 mechanics from the bust screen.
---
--- Pure presentation — no mutation. Logic lives in ShoveState. Modal
--- frame comes from views/widgets/Modal.lua.
+-- Post-bust run summary: acknowledges the all-in loss and reports the chips
+-- banked this run. A single Continue button advances the post-bust flow
+-- (ShoveState reads :resolved()). Thin wrapper over views/widgets/ActionModal
+-- — only the bust copy + chip tally is poker-specific.
 
 local Theme       = require("views.Theme")
-local Modal       = require("views.widgets.Modal")
-local LabelButton = require("views.widgets.LabelButton")
+local ActionModal = require("views.widgets.ActionModal")
 local Icons       = require("views.Icons")
 
 local PrestigeModal = {}
-PrestigeModal.__index = PrestigeModal
 
-local CARD_W_BASE = 480
-local CARD_H_BASE = 320
-local BTN_W_BASE  = 200
-local BTN_H_BASE  = 44
-
+-- Returns a configured ActionModal (:resolved() is truthy once dismissed).
 function PrestigeModal:new(game, chips_banked, _busted_at)
-    local s = (game.ui_scale) or 1
-    local card_w = math.floor(CARD_W_BASE * s)
-    local card_h = math.floor(CARD_H_BASE * s)
-    return setmetatable({
-        game          = game,
-        chips_banked  = chips_banked or 0,  -- chips earned this run (already in state.chips)
-        _resolved     = false,
-        _btn_rect     = nil,
-        _modal        = Modal:new{ title = "BUSTED", w = card_w, h = card_h },
-    }, PrestigeModal)
-end
-
-function PrestigeModal:resolved() return self._resolved end
-
--- Back-compat for non-prototype mode where SPACE still advances.
-function PrestigeModal:consumeKey(key)
-    if key == "space" or key == "return" or key == "kpenter" then
-        self._resolved = true
-        return true
-    end
-    return false
-end
-
-function PrestigeModal:consumeMouse(mx, my, button)
-    if button ~= 1 or self._resolved then return true end
-    local r = self._btn_rect
-    if r and mx >= r.x and mx < r.x + r.w
-       and my >= r.y and my < r.y + r.h then
-        self._resolved = true
-    end
-    return true
-end
-
-function PrestigeModal:draw()
-    local fonts = self.game.fonts
-    local body  = self._modal:draw(fonts)
-    local s     = (self.game.ui_scale) or 1
-
-    -- Bust copy — acknowledges the all-in loss but doesn't expose the
-    -- runout structure (no "R1 of 3", no mention of the dealer cheats
-    -- coming on subsequent runouts).
-    love.graphics.setFont(fonts.md)
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.printf("You busted on the all-in.",
-        body.x, body.y, body.w, "center")
-
-    -- Chips banked this run (accent color so the takeaway lands).
-    local row_y = body.y + fonts.md:getHeight() + 24
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.printf("BANKED THIS RUN", body.x, row_y, body.w, "center")
-
-    -- Chip glyph + amount, centered together as a unit.
-    local num   = tostring(self.chips_banked)
-    local num_y = row_y + fonts.sm:getHeight() + 4
-    love.graphics.setFont(fonts.lg)
-    local num_w = fonts.lg:getWidth(num)
-    local gsize = fonts.lg:getHeight()
-    local gap   = math.floor(6 * s)
-    local total = gsize + gap + num_w
-    local gx    = body.x + math.floor((body.w - total) / 2)
-    Icons.drawChip(self.game, gx, num_y, gsize)
-    Theme.setColor(Theme.status.good)
-    love.graphics.print(num, gx + gsize + gap, num_y)
-
-    -- Continue button at the bottom.
-    local btn_w = math.floor(BTN_W_BASE * s)
-    local btn_h = math.floor(BTN_H_BASE * s)
-    local btn_x = body.x + math.floor((body.w - btn_w) / 2)
-    local btn_y = body.y + body.h - btn_h - 12
-    self._btn_rect = { x = btn_x, y = btn_y, w = btn_w, h = btn_h }
-
-    local mx, my = love.mouse.getPosition()
-    local hov = mx >= btn_x and mx < btn_x + btn_w
-                and my >= btn_y and my < btn_y + btn_h
-    LabelButton.draw{
-        x = btn_x, y = btn_y, w = btn_w, h = btn_h,
-        text         = "Continue",
-        fonts        = fonts,
-        font         = fonts.md,
-        hovered      = hov,
-        depth        = 3,
-        fill_token   = hov and Theme.status.good or Theme.bg.widget,
-        border_token = Theme.status.good,
-        text_token   = hov and Theme.bg.window or Theme.status.good,
+    chips_banked = chips_banked or 0
+    return ActionModal:new{
+        game    = game,
+        title   = "BUSTED",
+        w       = 480,
+        buttons = { { text = "Continue", value = "ok", primary = true } },
+        keys    = { space = "ok", ["return"] = "ok", kpenter = "ok" },
+        body    = function(ui, fonts, s)
+            ui:para("You busted on the all-in.", "md", Theme.fg.muted, "center")
+            ui:gap(24)
+            ui:para("BANKED THIS RUN", "sm", Theme.fg.muted, "center")
+            ui:gap(4)
+            -- Chip glyph + amount, centered together as a unit.
+            ui:custom(fonts.lg:getHeight(), function(x, y, w)
+                local lg    = fonts.lg
+                local num   = tostring(chips_banked)
+                love.graphics.setFont(lg)
+                local num_w = lg:getWidth(num)
+                local gsize = lg:getHeight()
+                local gap   = math.floor(6 * s)
+                local gx    = x + math.floor((w - (gsize + gap + num_w)) / 2)
+                Icons.drawChip(game, gx, y, gsize)
+                Theme.setColor(Theme.status.good)
+                love.graphics.print(num, gx + gsize + gap, y)
+            end)
+        end,
     }
-
-    self._modal:endDraw()
 end
 
 return PrestigeModal

@@ -34,6 +34,7 @@ function GameState:new(saved)
     instance.chips       = Constants.GAMEPLAY.INITIAL_CHIP
     instance.owned_items = {}
     instance.cleared     = false   -- true once the gauntlet is beaten — gates the credits screen on boot
+    instance.onboarded   = false   -- true once the intro how-to-play modal has been dismissed
 
     -- Deck-system meta state (persists forever; never reset by prestige).
     -- Only the starter (DeckSpecs[1]) is unlocked at fresh start. The
@@ -153,6 +154,7 @@ function GameState:wipeAll()
     self.chips       = Constants.GAMEPLAY.INITIAL_CHIP
     self.owned_items = {}
     self.cleared     = false
+    self.onboarded   = false
     -- Deck state resets to starter-only with all unlock progress lost.
     -- Mirrors the fresh-:new defaults exactly.
     local starter = DeckSpecs[1]
@@ -257,6 +259,7 @@ function GameState:serializeMeta()
         chips                           = self.chips,
         owned_items                     = self.owned_items,
         cleared                         = self.cleared,
+        onboarded                       = self.onboarded,
         unlocked_decks                  = self.unlocked_decks,
         deck_levels                     = self.deck_levels,
         deck_xp                         = self.deck_xp,

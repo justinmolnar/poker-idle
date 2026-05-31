@@ -114,12 +114,14 @@ return {
                                 -- zoom:small cinematic-skip in cinematic_timelines.
         -- Zoom = fold-spam firehose. High WC (+0.05) — most hands are
         -- preflop spats you're ahead in. Low pot sizes — heavy small
-        -- mass. Jackpots are reachable but rare: -0.40 jackpot shift
-        -- means you need substantial Pot Control fill before Zoom jackpots
-        -- show up at all (lands ~10% jackpot mass at full upgrades, 0%
-        -- below ~80% fill). The cinematic-skip on small outcomes
-        -- (data/cinematic_timelines.lua) makes most hands resolve in <1s.
+        -- mass. Jackpots are reachable but rare: the -0.40 jackpot shift
+        -- sets the target Stack rate (capped + shift → ~10% at T1-T3, 5% T4,
+        -- 0% T5-T6). `jackpot_emerge` then ramps that target in gradually from
+        -- the halfway fill point instead of dumping it all into the final
+        -- Pot Control level (see OutcomeMath step 7). The cinematic-skip on
+        -- small outcomes (data/cinematic_timelines.lua) resolves most hands <1s.
         win_chance_shift = 0.05,
+        jackpot_emerge = 0.5,
         dist_shifts = {
             win_dist  = { small = 0.40, medium =  0.05, large = -0.05, jackpot = -0.40 },
             loss_dist = { small = 0.10, medium = -0.02, large = -0.03, jackpot = -0.05 },

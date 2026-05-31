@@ -17,6 +17,7 @@ local HoverSvc    = require("services.HoverService")
 local ClickFlash  = require("services.ClickFlash")
 local Icons       = require("views.Icons")
 local IconText    = require("views.IconText")
+local AwardGlow   = require("views.AwardGlow")
 
 -- Icon row sizes — recomputed by CR.setScale at boot/resize.
 local ICON_SIZE_BASE    = 64
@@ -371,6 +372,10 @@ function CR._button(comp, px, pw, p, y, game)
             cursor = cursor + lineRenderedHeight(line, game, fw)
         end
     end)
+
+    -- Chip-award fanfare: a gold pulse over the button face the moment a
+    -- bounty banks (GrindView fires it; shared with the game-type tab strip).
+    AwardGlow.draw(comp.id, px + p, y, content_w, total_h)
 
     return total_h
 end
