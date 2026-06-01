@@ -11,6 +11,10 @@
 --     id          = "snake_case_unique",
 --     name        = "Display Name",
 --     description = "Short blurb shown under the name (no level mention here)",
+--     tooltip_blurb = "Plain-language 'what it does' line(s) shown at the TOP
+--                      of the hover tooltip, above any per-stake range grid.
+--                      String or list-of-strings (one row each). May use
+--                      {icon} markers — rendered through IconText.",
 --     max_level   = integer,
 --     costs       = { $L1, $L2, $L3, ... },        -- 1-indexed, length = max_level
 --     effects     = { { kind = "...", ... }, ... } -- applied PER level
@@ -37,6 +41,10 @@ return {
         id          = "sharper_reads",
         name        = "Sharper Reads",
         description = "Higher win chance",
+        tooltip_blurb = {
+            "Raises your odds of winning across all stakes",
+            "and game types. Graph shows next level increases.",
+        },
         icon        = "sharper_reads",
         -- Drives a per-stake range tooltip (win chance, current → next level).
         tooltip_metric = "win_chance",
@@ -61,7 +69,11 @@ return {
     {
         id          = "pot_control",
         name        = "Pot Control",
-        description = "Bigger wins, smaller losses. Drives {chip}",
+        description = "More {w:stack} Less {l:stack} - Drives {chip}",
+        tooltip_blurb = {
+            "Raises chance of smaller losses and bigger wins.",
+            "Graph shows {w:stack}% increase, used to earn {chip}.",
+        },
         icon        = "pot_control",
         -- Drives a per-stake range tooltip (Stack rate, current → next level).
         tooltip_metric = "win_dist",
@@ -90,6 +102,10 @@ return {
         id            = "box_of_mice",
         name          = "Cursor",
         description   = "+1 Cursor (auto-clicker)",
+        tooltip_blurb = {
+            "Adds an autoclicking cursor that clicks DEAL /",
+            "REBUY (if purchased in catalog) buttons automatically.",
+        },
         icon          = "cursor",
         requires      = "cursor_pool",
         requires_hide = true,
@@ -108,6 +124,9 @@ return {
         id            = "cursor_speed",
         name          = "Cursor Speed",
         description   = "Cursors move faster",
+        tooltip_blurb = {
+            "+25% cursor movement speed.",
+        },
         icon          = "cursor_speed",
         requires      = "cursor_pool",
         requires_hide = true,
@@ -125,6 +144,10 @@ return {
         id          = "focus",
         name        = "Focus",
         description = "Increase table limit before penalty",
+        tooltip_blurb = {
+            "Run more tables at once before your",
+            "FOCUS multiplier starts dropping.",
+        },
         icon        = "focus",
         max_level   = 10,
         costs       = {

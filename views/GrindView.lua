@@ -596,28 +596,54 @@ local RANGE_TOOLTIP = {
     win_dist   = { keys = { "win_dist_fills", "loss_dist_fills" }, build = _stackRateRows },
 }
 
--- Build the "next level" range tooltip for an upgrade, or nil if it has none.
--- Maxed upgrades short-circuit to "MAX"; the builders drop non-changing stakes
--- so the table only shows what the next level actually moves.
+-- One IconText tooltip row for a blurb line (heading color; {icon} markers
+-- resolve to real glyphs). Single line — blurbs are authored pre-wrapped as a
+-- list of short strings in data/run_upgrades.lua.
+local function _blurbRow(view, str)
+    local f = view.game.fonts.sm
+    return {
+        measure = function(_) return IconText.measure(str, f), f:getHeight() end,
+        render  = function(x, y, _) IconText.draw(view.game, str, x, y, f, Theme.fg.heading) end,
+    }
+end
+
+-- Build an upgrade's hover tooltip: a leading plain-language blurb ("what it
+-- does", icons where applicable) followed by the per-stake "next level" range
+-- grid when the upgrade carries one. Maxed upgrades show the blurb + "MAX";
+-- the grid builders drop non-changing stakes so the table only shows what the
+-- next level actually moves. Returns nil only when there's nothing to show.
 function GrindView:_buildRangeTooltip(up)
+    local rows = {}
+
+    local blurb = up.tooltip_blurb
+    if type(blurb) == "string" then blurb = { blurb } end
+    if blurb then
+        for _, line in ipairs(blurb) do rows[#rows + 1] = _blurbRow(self, line) end
+    end
+
     local spec = up.tooltip_metric and RANGE_TOOLTIP[up.tooltip_metric]
-    if not spec then return nil end
+    if spec then
+        if self.controller:getRunUpgradeLevel(up.id) >= (up.max_level or 1) then
+            rows[#rows + 1] = { text = "MAX", style = "sm", color_token = "muted" }
+        else
+            -- blank spacer between the blurb and the range grid
+            if #rows > 0 then rows[#rows + 1] = { text = "", style = "sm", color_token = "muted" } end
 
-    if self.controller:getRunUpgradeLevel(up.id) >= (up.max_level or 1) then
-        return { { text = "MAX", style = "sm", color_token = "muted" } }
+            local ctx     = self.controller.ctx or {}
+            local nextctx = {}
+            for k, v in pairs(ctx) do nextctx[k] = v end
+            for _, key in ipairs(spec.keys) do
+                local list = {}
+                for _, d in ipairs(ctx[key] or {}) do list[#list + 1] = d end
+                list[#list + 1] = { strength = 1 }
+                nextctx[key] = list
+            end
+            for _, r in ipairs(spec.build(self, ctx, nextctx)) do rows[#rows + 1] = r end
+        end
     end
 
-    local ctx     = self.controller.ctx or {}
-    local nextctx = {}
-    for k, v in pairs(ctx) do nextctx[k] = v end
-    for _, key in ipairs(spec.keys) do
-        local list = {}
-        for _, d in ipairs(ctx[key] or {}) do list[#list + 1] = d end
-        list[#list + 1] = { strength = 1 }
-        nextctx[key] = list
-    end
-
-    return spec.build(self, ctx, nextctx)
+    if #rows == 0 then return nil end
+    return rows
 end
 
 function GrindView:_buildUpgradesTabComponents()
@@ -735,8 +761,8 @@ function GrindView:update(dt)
                 }
             end
             TooltipSvc.set({
-                iconRow("Reset to a fresh $2 stake, no Shove."),
-                iconRow("Only when broke with no {chip} to bank."),
+                iconRow("Banks your {chip} and starts a fresh $2 stake."),
+                iconRow("No Shove — for when you're broke and stuck."),
             }, mx, my)
         end
     end
@@ -1508,34 +1534,38 @@ function GrindView:_drawFloatingText()
                 color = Theme.status.error
             end
         end
-        local font  = fonts[t.font or "lg"] or fonts.lg
-        local scale = t.scale or 1.0
-        local alpha = t.alpha or 1
+        local font   = fonts[t.font or "lg"] or fonts.lg
+        local scale  = t.scale or 1.0
+        local alpha  = t.alpha or 1
+        local line_h = font:getHeight()
         love.graphics.setFont(font)
 
-        if t.text:find("{", 1, true) then
-            -- Floater carries inline icons (e.g. "+1 {chip}") — render via
-            -- IconText, centered. No stroke ring; the glyph carries itself.
-            local tw = IconText.measure(t.text, font)
-            love.graphics.push()
-            love.graphics.translate(t.x - tw * scale * 0.5, t.y)
-            if scale ~= 1 then love.graphics.scale(scale, scale) end
-            IconText.draw(self.game, t.text, 0, 0, font, color, alpha)
-            love.graphics.pop()
-        else
-            local tw = font:getWidth(t.text)
-            love.graphics.push()
-            love.graphics.translate(t.x - tw * scale * 0.5, t.y)
-            if scale ~= 1 then love.graphics.scale(scale, scale) end
-            -- Dark stroke ring for legibility against any felt color.
-            Theme.setColor(FLOATER_STROKE_COLOR, alpha * 0.85)
-            for _, off in ipairs(FLOATER_STROKE_OFFSETS) do
-                love.graphics.print(t.text, off[1], off[2])
+        -- Multi-line aware: split on "\n", center each line on t.x, and stack
+        -- them downward from t.y. The renderer owns the layout, so callers can
+        -- emit ONE float for a whole block (e.g. a win banner + payout lines)
+        -- with no manual per-line offsets to collide or drift off-screen.
+        love.graphics.push()
+        love.graphics.translate(t.x, t.y)
+        if scale ~= 1 then love.graphics.scale(scale, scale) end
+        local ly = 0
+        for line in (t.text .. "\n"):gmatch("(.-)\n") do
+            if line:find("{", 1, true) then
+                -- Inline icons (e.g. "+1 {chip}") — IconText, no stroke ring.
+                local tw = IconText.measure(line, font)
+                IconText.draw(self.game, line, -tw * 0.5, ly, font, color, alpha)
+            elseif line ~= "" then
+                local tw = font:getWidth(line)
+                -- Dark stroke ring for legibility against any felt color.
+                Theme.setColor(FLOATER_STROKE_COLOR, alpha * 0.85)
+                for _, off in ipairs(FLOATER_STROKE_OFFSETS) do
+                    love.graphics.print(line, -tw * 0.5 + off[1], ly + off[2])
+                end
+                Theme.setColor(color, alpha)
+                love.graphics.print(line, -tw * 0.5, ly)
             end
-            Theme.setColor(color, alpha)
-            love.graphics.print(t.text, 0, 0)
-            love.graphics.pop()
+            ly = ly + line_h
         end
+        love.graphics.pop()
     end
 end
 

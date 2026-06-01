@@ -160,44 +160,64 @@ function GrindController:update(dt)
         local payout = t.mtt and t.mtt:drainPayout()
         if payout ~= nil then
             local hands_cleared = t.mtt.hands_won
-            if payout > 0 then
-                self.game.state.bankroll = self.game.state.bankroll + payout
-                local cxy = AnchorRegistry.get(TableModel.anchorKey(t, "center"))
-                self.game.floating_text.emit(
-                    string.format("+$%.2f", payout),
-                    cxy and cxy[1] or 0, cxy and cxy[2] or 0)
-                self:_emitMttPayoutChips(t, payout)
-            end
-
-            -- Chip bounty for tournaments: jackpot-equivalent fires once at
-            -- tournament-win time. Two flavors:
-            --   • chip-stack (FEATURES.MTT_KO):     finish_position == 1
-            --   • legacy binary_outcome (prototype): cleared all hand_count hands
-            -- Cash-path bounty below gates on r.tier == "jackpot", which is
-            -- per-hand — tournaments can only "jackpot" once, on the win,
-            -- so this drain-block path handles it and the cash path skips.
-            local gtype = Lookups.findById(GameTypes,t.game_type_id)
+            -- Win detection. Two flavors: chip-stack KO (finish 1st) and the
+            -- legacy binary tournament (cleared all hand_count hands).
+            local gtype = Lookups.findById(GameTypes, t.game_type_id)
             local won_ko     = t.mtt and t.mtt.last_finish == 1
                               and gtype and gtype.chip_stack_table
             local won_legacy = gtype and gtype.binary_outcome
                               and t.mtt and hands_cleared >= (gtype.hand_count or 0)
-            if gtype and (won_ko or won_legacy) then
+            local is_win = gtype and (won_ko or won_legacy)
+            local center = AnchorRegistry.get(TableModel.anchorKey(t, "center"))
+                           or { 0, 0 }
+
+            if payout > 0 then
+                self.game.state.bankroll = self.game.state.bankroll + payout
+                self:_emitMttPayoutChips(t, payout)
+            end
+
+            if is_win then
+                -- Chip bounty: first jackpot-equivalent per (stake, gtype) per
+                -- run. Tournaments only "jackpot" once — on the win — so it's
+                -- banked here, not on the per-hand cash path. Rides into the
+                -- celebration block below.
+                local award = 0
                 local state = self.game.state
                 local key   = bountyKey(t.stake_id, t.game_type_id)
                 if not state.stakes_won_this_run[key] then
                     state.stakes_won_this_run[key] = true
-                    local stake = Lookups.findById(Stakes,t.stake_id)
-                    local base_award = stake and stake.chip_award or 0
+                    local stake = Lookups.findById(Stakes, t.stake_id)
+                    local base  = stake and stake.chip_award or 0
                     local mult  = (self.ctx and self.ctx.chip_award_mult) or 1
-                    local award = math.floor(base_award * mult + 0.5)
-                    if award > 0 then
-                        state.chips_this_run = state.chips_this_run + award
-                        local cxy = AnchorRegistry.get(TableModel.anchorKey(t, "center"))
-                        self.game.floating_text.emit(
-                            string.format("+%d {chip}", award),
-                            cxy and cxy[1] or 0, (cxy and cxy[2] or 0) - 28)
-                    end
+                    award = math.floor(base * mult + 0.5)
+                    if award > 0 then state.chips_this_run = state.chips_this_run + award end
                 end
+
+                -- Jackpot-grade table FX + a confetti fountain — the MTT is the
+                -- top of the ladder, so the win gets the full spectacle.
+                local jp = FeedbackIntensity.jackpot
+                t.shake_trauma       = math.max(t.shake_trauma or 0, jp.shake)
+                t.vignette_kind      = "good"
+                t.vignette_alpha     = math.max(t.vignette_alpha or 0, jp.vignette)
+                t.border_pulse_t     = 1.0
+                t.border_pulse_color = "good"
+                t.glow_t             = math.max(t.glow_t or 0, jp.glow or 1.0)
+                Confetti.burst(center, math.floor((jp.confetti_count or 120) * 1.5))
+
+                -- ONE multi-line celebration float anchored at the table center.
+                -- The renderer stacks the lines itself, so there are no manual
+                -- per-float offsets to collide or drift off the top of view.
+                local lg_h = self.game.fonts.lg:getHeight()
+                local msg  = "TOURNAMENT WON"
+                if payout > 0 then msg = msg .. string.format("\n+$%.2f", payout) end
+                if award  > 0 then msg = msg .. string.format("\n+%d {chip}", award) end
+                self.game.floating_text.emit(msg, center[1], center[2],
+                    { scale = 1.4, font = "lg", color_token = "amber",
+                      lifetime = 2.6, arc_y = -math.floor(lg_h * 0.5) })
+            elseif payout > 0 then
+                -- Partial payout (busted before the win) — a plain cash float.
+                self.game.floating_text.emit(string.format("+$%.2f", payout),
+                    center[1], center[2])
             end
 
             t.mtt.hands_won = 0
@@ -268,7 +288,10 @@ function GrindController:update(dt)
         local floater_opts_override = nil
         if is_binary then
             label = r.won and "WIN" or "OUT"
-            floater_opts_override = { color_token = r.won and "good" or "error" }
+            -- Short-lived so the rapid auto-dealt tournament hands don't pile
+            -- their floaters on top of each other.
+            floater_opts_override = { color_token = r.won and "good" or "error",
+                                      lifetime = 0.85 }
         elseif r.chip_stack_table then
             local stake = tbl and Lookups.findById(Stakes, tbl.stake_id)
             local bb_val = (stake and stake.bb and stake.bb > 0) and stake.bb or 1
@@ -289,6 +312,23 @@ function GrindController:update(dt)
             -- like the wins.
             floater_opts_override = { color_token = "error" }
         end
+
+        -- MTT WIN feedback scales with tournament PROGRESS, not the (for a
+        -- binary tournament hand, meaningless) pot tier: early hands stay
+        -- small and ramp toward large as the stack clears to the win. The
+        -- winning hand itself is left to the TOURNAMENT WON banner.
+        local mtt_final = false
+        if is_binary and r.won and tbl and tbl.mtt then
+            local hc   = gtype_for_floater.hand_count or 8
+            local n    = math.max(1, math.min(hc, tbl.mtt.hands_won or 1))
+            local ramp = { "small", "small", "medium", "medium",
+                           "large", "large", "large", "large" }
+            r.tier    = ramp[n] or "large"
+            -- The winning hand is the one that settled the tournament (payout
+            -- pending) — let the TOURNAMENT WON banner stand in for its float.
+            mtt_final = (tbl.mtt.pending_payout ~= nil)
+        end
+
         -- Tier-scaled floater opts from data. Small = small + compact;
         -- jackpot = huge + arcing. The data layer paints wins amber
         -- (it pops on green felt); the per-emit overrides above route
@@ -307,7 +347,11 @@ function GrindController:update(dt)
         local cxy   = (tbl and AnchorRegistry.get(TableModel.anchorKey(tbl, "center")))
         local fx    = cxy and cxy[1] or (r.x or 0)
         local fy    = cxy and cxy[2] or (r.y or 0)
-        self.game.floating_text.emit(label, fx, fy, floater_opts)
+        -- Skip the winning hand's per-hand float — the TOURNAMENT WON banner
+        -- from the payout-drain block stands in for it (avoids the pile-up).
+        if not mtt_final then
+            self.game.floating_text.emit(label, fx, fy, floater_opts)
+        end
 
         -- Chip-flight burst on resolution. Three flavors:
         --   • win  → pot to YOU stack
@@ -588,17 +632,14 @@ function GrindController:isStranded()
     return self.game.state.bankroll < cheapest
 end
 
--- Whether the no-cost quick-reset should be offered. The hard gate is zero
--- UN-banked chips: chips earned this run would be lost on a reset, so with any
--- you should Shove first (that banks them). Already-banked chips are safe and
--- don't matter. On top of that: bricked, and past the intro handicap (owns the
--- Poster). Before the Poster a reset just lands you right back here, and the
--- first bust should teach Shove + the free Poster, not this.
+-- Whether the no-cost quick-reset should be offered: bricked and past the
+-- intro handicap (owns the Poster). Chips don't gate it — :quickReset banks
+-- this run's chips first, so a bricked player who can't yet afford anything in
+-- the shop can still bail to a fresh stake without losing them. Before the
+-- Poster a reset just lands you right back here, and the first bust should
+-- teach Shove + the free Poster, not this.
 function GrindController:canQuickReset()
     local state = self.game.state
-    -- Un-banked chips this run -> Shove to bank them instead. (Banked chips
-    -- survive a reset, so they're irrelevant here.)
-    if (state.chips_this_run or 0) > 0 then return false end
     local has_poster = false
     for _, id in ipairs(state.owned_items) do
         if id == "poker_poster" then has_poster = true; break end
@@ -607,11 +648,13 @@ function GrindController:canQuickReset()
     return self:isStranded()
 end
 
--- Spot the player a fresh starting stake without a Shove (they have no chips
--- to bank). Mirrors the post-bust run reset: wipe the run, re-seed starting
+-- Spot the player a fresh starting stake without a Shove. Banks this run's
+-- chips first (so a bricked player who can't afford the shop yet doesn't lose
+-- them), then mirrors the post-bust run reset: wipe the run, re-seed starting
 -- perks, rebuild the pool. Caller persists.
 function GrindController:quickReset()
     local state = self.game.state
+    state.chips = state.chips + (state.chips_this_run or 0)
     state:resetRun()
     self:invalidateEffects()
     state:applyStartingPerks(self.ctx)
