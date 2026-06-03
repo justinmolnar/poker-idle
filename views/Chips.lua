@@ -53,6 +53,11 @@ function Chips.setScale(s)
     _label_font    = nil  -- force rebuild at new size on next getLabelFont
 end
 
+-- Current scaled chip radius. A pile's base chip is CENTERED on the `y` passed
+-- to drawStack, so callers that want the pile's visual BOTTOM at a baseline
+-- pass `baseline - Chips.radius()`.
+function Chips.radius() return CHIP_RADIUS end
+
 -- ── Single chip render (the seam for sprite art later) ───────────────
 -- with_label = true draws the denomination text centered on the chip,
 -- with auto-contrast (light label on dark chips, dark on light) chosen

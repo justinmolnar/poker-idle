@@ -457,24 +457,11 @@ function Table:deal(ctx)
     -- so the view doesn't recompute every frame. HandEval.describe
     -- returns e.g. "pair of Aces" / "trip 7s" / "Ace-high flush".
     -- Cleared in :_finalizeHand so they don't leak across hands.
-    if p_hole and #p_hole >= 2 and board and #board == 5 then
-        local p_cards = {
-            p_hole[1], p_hole[2],
-            board[1], board[2], board[3], board[4], board[5],
-        }
-        self.player_hand_name = HandEval.describe(HandEval.bestFiveOfN(p_cards))
-    else
-        self.player_hand_name = nil
-    end
-    if o_hole and #o_hole >= 2 and board and #board == 5 then
-        local o_cards = {
-            o_hole[1], o_hole[2],
-            board[1], board[2], board[3], board[4], board[5],
-        }
-        self.opponent_hand_name = HandEval.describe(HandEval.bestFiveOfN(o_cards))
-    else
-        self.opponent_hand_name = nil
-    end
+    -- Name + best-5 combo for each side (the combo drives the view's showdown
+    -- emphasis). One shared HandEval.handLabel so this can't drift from the
+    -- copy in models/Table_legacy.
+    self.player_hand_name,   self.player_combo   = HandEval.handLabel(p_hole, board)
+    self.opponent_hand_name, self.opponent_combo = HandEval.handLabel(o_hole, board)
 
     -- Cinematic setup. Two paths gated by FEATURES.POKER_THEATER:
     --   * Theater on  → models/HandScript.write composes a per-hand
@@ -838,6 +825,8 @@ function Table:_finalizeHand()
     self.community     = nil
     self.player_hand_name   = nil
     self.opponent_hand_name = nil
+    self.player_combo       = nil
+    self.opponent_combo     = nil
     -- Slam to rest in the same frame the resolution fires. Without this
     -- the lift decay runs ONCE per :update at the top, BEFORE the
     -- cinematic walker reaches _finalizeHand — so the resolution frame

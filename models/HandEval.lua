@@ -200,4 +200,20 @@ function HandEval.bestFiveOfN(cards)
     return best_rank, best_combo
 end
 
+-- Showdown label for one 2-card hole + a 5-card board. Returns the
+-- describe() string AND the best-5 combo (the cards making the hand), or
+-- (nil, nil) when the inputs aren't a complete 2 + 5 deal. Shared by
+-- models/Table and models/Table_legacy so the two can't drift on this.
+function HandEval.handLabel(hole, board)
+    if not (hole and #hole >= 2 and board and #board == 5) then
+        return nil, nil
+    end
+    local cards = {
+        hole[1], hole[2],
+        board[1], board[2], board[3], board[4], board[5],
+    }
+    local rank, combo = HandEval.bestFiveOfN(cards)
+    return HandEval.describe(rank), combo
+end
+
 return HandEval

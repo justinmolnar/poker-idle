@@ -58,9 +58,16 @@ end
 
 function FontService.build(font_data, W, H)
     if not (W and H) then W, H = love.graphics.getDimensions() end
-    local s = fontScale(W, H)
+    local s    = fontScale(W, H)
+    local base = font_data.size_sm or 8
     return {
-        sm = newFont(font_data, (font_data.size_sm or 8) * s),
+        -- One integer step BELOW sm (so still a multiple of the pixel grid,
+        -- still crisp) for low-priority chrome that shouldn't compete with the
+        -- cards -- pot amount, opponent names. At 1× there's nothing smaller
+        -- than the base grid, so xs floors at sm; it only shrinks once the
+        -- window pushes fonts to 2×+ (which is exactly when sm looks too big).
+        xs = newFont(font_data, base * math.max(1, s - 1)),
+        sm = newFont(font_data, base * s),
         md = newFont(font_data, (font_data.size_md or 16) * s),
         lg = newFont(font_data, (font_data.size_lg or 24) * s),
     }

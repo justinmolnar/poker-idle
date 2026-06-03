@@ -1,13 +1,14 @@
 -- views/TablePanelStats.lua
 --
--- Per-panel stats UI extracted from views/TablePanel: the bottom-of-panel
--- "+N.N bb/h" EV readout, its hover-tooltip breakdown, and the backtick-
--- toggled debug overlay (game.debug.overlay). Lives in its own module so
--- TablePanel.lua stays focused on panel chrome / cards / chips while the
--- stats-and-debug rendering has a coherent home.
+-- Per-panel stats UI extracted from views/TablePanel: the "+N.N bb/h" EV
+-- readout (drawn into the felt layout's bottom-center slot), its hover-tooltip
+-- breakdown, and the backtick-toggled debug overlay (game.debug.overlay).
+-- Lives in its own module so TablePanel.lua stays focused on panel chrome /
+-- cards / chips while the stats-and-debug rendering has a coherent home.
 --
 -- Public surface used by TablePanel:
---   • TablePanelStats.drawEvReadout(tbl, x, y, w, h_panel, controller, fonts, hit_boxes)
+--   • TablePanelStats.measureEvReadout(tbl, controller, fonts) -> width
+--   • TablePanelStats.drawEvReadout(tbl, ev_slot, controller, fonts, hit_boxes)
 --   • TablePanelStats.stashDebugTooltipIfHover(tbl, panel_x, panel_y, panel_w, panel_h, game, controller)
 -- Public surface used by GrindView (deferred-render top-of-stack):
 --   • TablePanelStats.flushDebugOverlay(game)
@@ -24,10 +25,8 @@ local TIER_ORDER  = { "small", "medium", "large", "jackpot" }
 
 local TablePanelStats = {}
 
--- Layout constants — exported so TablePanel can keep its stats-region
--- bottom-padding allocation in sync with what we render here.
-TablePanelStats.EV_READOUT_PAD_BOTTOM = 4   -- gap between readout baseline and panel bottom
-TablePanelStats.EV_READOUT_HIT_PAD    = 4   -- hit-rect padding around the text
+-- Padding around the readout's hover hit-rect.
+TablePanelStats.EV_READOUT_HIT_PAD    = 4
 
 local DEBUG_TIP_W      = 340
 local DEBUG_TIP_PAD    = 8
@@ -245,64 +244,80 @@ function TablePanelStats.evBbPerHand(controller, stake, gtype)
     return (s.pool.ev_per_hand or 0) / bb
 end
 
--- ─── EV readout (always visible) ─────────────────────────────────────
+-- ─── EV readout ──────────────────────────────────────────────────────
+-- "+1.9 bb/h  {stack-glyph} N%" — EV sign-colored (green / red / muted) with
+-- the gold stack glyph marking the stack-win %. Position comes from the felt
+-- layout's bottom-center slot (views/FeltLayout → L.bottom.ev); this module
+-- no longer measures from the panel border.
 
--- Bottom-of-panel "+1.9 bb/h" readout. Color-coded by sign (green positive
--- / red negative / muted near zero). Pushes a hit_box carrying the full
--- pool breakdown so the global Tooltip service surfaces it on hover.
-function TablePanelStats.drawEvReadout(tbl, x, y, w, h_panel, controller, fonts, hit_boxes)
-    if not tbl then return end
-    local ctx = controller and controller.ctx
-    local stats = tbl:estimateStats(ctx)
-    if not stats then return end
-    local stake = Lookups.findById(Stakes,tbl.stake_id)
+-- Shared metric + measurement, so the width FeltLayout reserves and the width
+-- drawn here are the same number. Returns a metrics table, or nil when there
+-- are no stats yet.
+local function evMetrics(tbl, controller, font)
+    if not (tbl and tbl.estimateStats) then return nil end
+    local stats = tbl:estimateStats(controller and controller.ctx)
+    if not stats then return nil end
+    local stake = Lookups.findById(Stakes, tbl.stake_id)
     local bb = (stake and stake.bb) or 1
     if bb <= 0 then bb = 1 end
 
-    local ev_bb = (stats.ev_per_hand or 0) / bb
-    local label = string.format("%+0.1f bb/h", ev_bb)
+    local ev_bb       = (stats.ev_per_hand or 0) / bb
     local stack_p     = (stats.win_chance or 0)
                         * ((stats.win_dist and stats.win_dist.jackpot) or 0)
+    local label       = string.format("%+0.1f bb/h", ev_bb)
     local stack_label = string.format("%.1f%%", stack_p * 100)
 
-    local font = fonts.sm
-    love.graphics.setFont(font)
     local text_h    = font:getHeight()
     local r         = TierGlyph.radius(text_h)
-    local gap       = math.floor(text_h * 0.6)    -- bb/h → stack stat
-    local glyph_pad = math.floor(text_h * 0.25)   -- glyph → pct
+    local gap       = math.floor(text_h * 0.6)
+    local glyph_pad = math.floor(text_h * 0.25)
     local bb_w      = font:getWidth(label)
-    local sp_w      = font:getWidth(stack_label)
-    local total_w   = bb_w + gap + r * 2 + glyph_pad + sp_w
-    local tx = x + math.floor((w - total_w) / 2)
-    local ty = y + h_panel - text_h - TablePanelStats.EV_READOUT_PAD_BOTTOM
+    local total_w   = bb_w + gap + r * 2 + glyph_pad + font:getWidth(stack_label)
+    local color     = (ev_bb > 0.05 and Theme.status.good)
+                   or (ev_bb < -0.05 and Theme.status.error)
+                   or Theme.fg.muted
 
-    local color
-    if ev_bb > 0.05 then
-        color = Theme.status.good
-    elseif ev_bb < -0.05 then
-        color = Theme.status.error
-    else
-        color = Theme.fg.muted
-    end
-    Theme.setColor(color)
-    love.graphics.print(label, tx, ty)
+    return {
+        label = label, stack_label = stack_label, color = color,
+        total_w = total_w, text_h = text_h, r = r, gap = gap,
+        glyph_pad = glyph_pad, bb_w = bb_w,
+    }
+end
 
-    -- Stack-win chance beside the EV: gold tier glyph + pct (pct shares the
-    -- EV's color so the cluster reads as one readout).
-    local sx = tx + bb_w + gap
-    TierGlyph.draw(sx + r, ty + text_h - r, "jackpot", r, "win")
-    Theme.setColor(color)
-    love.graphics.print(stack_label, sx + r * 2 + glyph_pad, ty)
+-- Pixel width the readout will occupy — so FeltLayout can decide whether it
+-- fits the gap between the chip pile and the YOU label. 0 when there's none.
+function TablePanelStats.measureEvReadout(tbl, controller, fonts)
+    local m = evMetrics(tbl, controller, fonts.sm)
+    return m and m.total_w or 0
+end
+
+-- Draw the readout left-anchored at the layout slot `ev = { x, y, w, show }`
+-- (TablePanel only calls this when ev.show is true). Pushes the breakdown
+-- hover hit_box.
+function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes)
+    if not ev then return end
+    local font = fonts.sm
+    local m = evMetrics(tbl, controller, font)
+    if not m then return end
+
+    love.graphics.setFont(font)
+    local tx, ty = ev.x, ev.y
+    Theme.setColor(m.color)
+    love.graphics.print(m.label, tx, ty)
+
+    -- Stack-win chance: gold tier glyph + pct, sharing the EV color.
+    local sx = tx + m.bb_w + m.gap
+    TierGlyph.draw(sx + m.r, ty + m.text_h - m.r, "jackpot", m.r, "win")
+    Theme.setColor(m.color)
+    love.graphics.print(m.stack_label, sx + m.r * 2 + m.glyph_pad, ty)
 
     if hit_boxes then
         local lines = buildEvBreakdownLines(tbl, controller)
         if lines then
+            local pad = TablePanelStats.EV_READOUT_HIT_PAD
             hit_boxes[#hit_boxes + 1] = {
-                x = tx - TablePanelStats.EV_READOUT_HIT_PAD,
-                y = ty - TablePanelStats.EV_READOUT_HIT_PAD,
-                w = total_w + TablePanelStats.EV_READOUT_HIT_PAD * 2,
-                h = text_h + TablePanelStats.EV_READOUT_HIT_PAD * 2,
+                x = tx - pad, y = ty - pad,
+                w = m.total_w + pad * 2, h = m.text_h + pad * 2,
                 tooltip = lines,
             }
         end

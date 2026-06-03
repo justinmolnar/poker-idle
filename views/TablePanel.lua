@@ -41,6 +41,7 @@ local Lookups       = require("utils.lookups")
 local Format        = require("utils.format")
 local CardSprites   = require("views.CardSprites")
 local Effects       = require("views.TablePanelEffects")
+local FeltLayout    = require("views.FeltLayout")
 
 local TablePanel = {}
 
@@ -70,32 +71,10 @@ local DEAL_BTN_H      = 40
 -- single source of truth for the pool-breakdown line list. We just route
 -- the calls through here.
 
--- Card sprite native aspect (56×80 px). Heights derive from width/aspect
--- so cards never stretch.
-local CARD_ASPECT     = 56 / 80   -- 0.7
-
--- Panel-relative card sizing. Bigger panels get bigger cards; multi-table
--- mini cells get proportionally smaller cards. The skip_player_cards /
--- skip_opponents thresholds in TablePanel.draw bail out below readable
--- minimums, so we don't enforce a floor here.
---
--- Ratios are tuned so a 520-wide panel (single-table cap, see GrindView's
--- PANEL_MAX_W) gives ~68 px player cards — roughly 2× the previous fixed
--- 36 px and big enough to actually read suit/rank at a glance.
-local PLAYER_CARD_W_FRAC = 0.130
-local COMM_CARD_W_FRAC   = 0.085
-local OPP_CARD_W_FRAC    = 0.055
-
-local function cardSizesFor(panel_w)
-    local pw = math.floor(panel_w * PLAYER_CARD_W_FRAC)
-    local cw = math.floor(panel_w * COMM_CARD_W_FRAC)
-    local ow = math.floor(panel_w * OPP_CARD_W_FRAC)
-    return {
-        player_w = pw, player_h = math.floor(pw / CARD_ASPECT),
-        comm_w   = cw, comm_h   = math.floor(cw / CARD_ASPECT),
-        opp_w    = ow, opp_h    = math.floor(ow / CARD_ASPECT),
-    }
-end
+-- Panel-relative card sizing now lives in views/FeltLayout (sourced from
+-- data/felt_layout's card fractions) so the layout calculator and the panel
+-- share one sizing path. Thin alias kept for the existing call sites.
+local cardSizesFor = FeltLayout.cardSizes
 
 -- Opponent count comes from the table's game type now (`#tbl.opponents`).
 
@@ -152,6 +131,25 @@ end
 local function drawCardSlot(x, y, w, h)
     CardSprites.slot(x, y, w, h)
 end
+
+-- Showdown win highlight. `combo` is the winner's best-5 (the 5 cards from
+-- models/Table's player_combo / opponent_combo). A card glows when it is one
+-- of those references. Matches the gauntlet's best-5 treatment so "which
+-- cards won" reads at a glance — the winner's two hole cards + the board
+-- cards they used light up green, the rest stay plain.
+-- Value match (suit+rank) -- a 7-card deal has no duplicates, so this uniquely
+-- identifies a card and can't break on reference identity the way `c == card`
+-- could if the combo and the drawn card ever came from different objects.
+local function inCombo(card, combo)
+    if not combo or not card then return false end
+    for _, c in ipairs(combo) do
+        if c.rank == card.rank and c.suit == card.suit then return true end
+    end
+    return false
+end
+
+-- Showdown emphasis is done as a single overlay pass (drawShowdownEmphasis,
+-- below) that runs AFTER every normal card/anim draw, so it can't be buried.
 
 -- ─── Sub-panels ──────────────────────────────────────────────────────
 
@@ -394,7 +392,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     drawHistoryBars(tbl, zone_x, zone_y, zone_w, graph_h, scale_for_graph)
 end
 
-local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes, back_sprite)
+local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes, cards_y_offset, back_sprite)
     if not opp then return end
 
     local gtype = Lookups.findById(GameTypes,tbl.game_type_id)
@@ -408,8 +406,11 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     local card_w   = big and (base_w * 2) or base_w
     local card_h   = big and (base_h * 2) or base_h
     local card_gap = big and 6 or 3
-    local name_font = big and fonts.md or fonts.sm
-    local cards_y_offset = big and 30 or 22
+    -- HU rival keeps the heading font (it IS a rival); the per-seat 6-/9-max
+    -- names drop to xs -- low-priority chrome, shouldn't rival the cards.
+    local name_font = big and fonts.md or (fonts.xs or fonts.sm)
+    -- cards_y_offset is supplied by views/FeltLayout (= reserved name height +
+    -- gap) so cards always begin BELOW the name, at any font/panel size.
     local name_max = big and 14 or 8
 
     -- Anonymous pool (Zoom): show "Seat N" instead of the rolled name.
@@ -530,16 +531,9 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     if face_up and tbl.opponent_hole then
         drawCardFront(sl, tbl.opponent_hole[1], cards_x, cards_y, card_w, card_h, seat_alpha)
         drawCardFront(sl, tbl.opponent_hole[2], cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
-        -- Hand-name label under the revealed cards ("pair of Aces" etc.)
-        -- so the showdown reveal earns a real read instead of just card
-        -- art. Stored on the table at deal time by Table:_resolve.
-        if tbl.opponent_hand_name and fonts and fonts.sm then
-            Theme.setColor(Theme.fg.heading, seat_alpha)
-            love.graphics.setFont(fonts.sm)
-            love.graphics.printf(tbl.opponent_hand_name,
-                cards_x - 20, cards_y + card_h + 2,
-                cards_w + 40, "center")
-        end
+        -- Showdown win emphasis (dim losers / grow winners) is applied later as
+        -- a single on-top overlay pass in TablePanel.draw -- see
+        -- drawShowdownEmphasis. The hand-name label renders under this seat.
     elseif holeVisible(tbl) then
         drawCardBack(sl, back_sprite, cards_x, cards_y, card_w, card_h, seat_alpha)
         drawCardBack(sl, back_sprite, cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
@@ -553,12 +547,6 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
         local stake_for_bb = Lookups.findById(Stakes, tbl.stake_id)
         local bb_val       = (stake_for_bb and stake_for_bb.bb) or 0
         local label_y      = cards_y + card_h + 2
-        -- Shift below the hand-name label when this seat is the
-        -- face-up showdown reveal — otherwise the bb/BUSTED text
-        -- would overdraw the "pair of Aces" line.
-        if face_up and tbl.opponent_hand_name and fonts.sm then
-            label_y = label_y + fonts.sm:getHeight() + 2
-        end
         if seat_busted_flag then
             Theme.setColor(Theme.status.error, 0.90)
             love.graphics.setFont(fonts.sm)
@@ -576,246 +564,212 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     end
 end
 
-local function drawCommunity(tbl, felt_x, row_y, felt_w, sl, card_w, card_h)
-    -- card_w / card_h are required now that sizing is panel-relative.
-    -- Caller in TablePanel.draw passes computed sizes; mini override
-    -- substitutes smaller values for cramped layouts.
-    local count = communityCardCount(tbl)
-    local total_w = card_w * 5 + 4 * 4
-    local row_x = felt_x + math.floor((felt_w - total_w) / 2)
+-- Draws the 5 community slots centered in the comm layout rect
+-- (`{ x, y, w, card_w, card_h, gap }` from views/FeltLayout).
+local function drawCommunity(tbl, comm, sl)
+    local count   = communityCardCount(tbl)
+    local total_w = comm.card_w * 5 + 4 * comm.gap
+    local row_x   = comm.x + math.floor((comm.w - total_w) / 2)
 
     for i = 1, 5 do
-        local cx = row_x + (i - 1) * (card_w + 4)
+        local cx = row_x + (i - 1) * (comm.card_w + comm.gap)
         if i <= count and tbl.community and tbl.community[i] then
-            drawCardFront(sl, tbl.community[i], cx, row_y, card_w, card_h, 1)
+            drawCardFront(sl, tbl.community[i], cx, comm.y, comm.card_w, comm.card_h, 1)
         else
-            drawCardSlot(cx, row_y, card_w, card_h)
+            drawCardSlot(cx, comm.y, comm.card_w, comm.card_h)
         end
     end
 end
 
-local function drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, allow_chips)
+-- Draws the pot pile + "Pot: $X" into the `pot` layout anchor
+-- (`{ center_x, chips_y, text_x, text_w, text_y, max_w, allow_chips }` from
+-- views/FeltLayout). The anchor is positioned BELOW the community row by the
+-- layout, so the pile can no longer sit on top of the community cards.
+local function drawPotLabel(tbl, pot, fonts)
     if tbl.state == "idle" then return end
     -- Pot reading. Two paths:
     --   * Theater on  → tbl.playback_state.pot is the running pot, mutated
     --                   by HandScript event applicators as bets land.
     --   * Theater off → 2 × |outcome_delta| (legacy assumption that the
     --                   pot is symmetric around the player's net delta).
-    local pot
+    local potval
     if tbl.playback_state and (tbl.playback_state.pot or 0) > 0 then
-        pot = tbl.playback_state.pot
+        potval = tbl.playback_state.pot
     else
-        pot = (tbl.outcome_delta and math.abs(tbl.outcome_delta) * 2) or 0
+        potval = (tbl.outcome_delta and math.abs(tbl.outcome_delta) * 2) or 0
     end
-    if pot <= 0 then return end
-
-    local center_x = felt_x + felt_w * 0.5
-    local center_y = felt_y + felt_h * 0.5    -- visual middle of the felt
+    if potval <= 0 then return end
 
     -- Chip pile when room permits — uses outcome_tier so jackpot pots
     -- visibly dwarf small ones. Falls back to text-only on mini panels.
-    if allow_chips then
+    if pot.allow_chips then
         local palette = ChipData.stake_palettes[tbl.stake_id]
                         or ChipData.full_palette
         local tier    = tbl.outcome_tier or "medium"
-        local chips   = Denoms.breakdown(pot, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
+        local chips   = Denoms.breakdown(potval, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
         local stake_theme = StakeThemes[tbl.stake_id]
         local tint    = stake_theme and stake_theme.chip_tint
-        -- Stack base anchored at felt center; chips grow upward via the
-        -- stack-offset, label below the pile. max_w prevents the pile
-        -- from overflowing the felt on huge pots — drawStack drops
-        -- smallest-denom columns until the pile fits.
-        local pot_max_w = felt_w - 24    -- leave a small margin from felt edges
-        Chips.drawStack(center_x, center_y + 6, chips,
-            { align = "center", tint = tint, max_w = pot_max_w })
-        Anchors.set(Table.anchorKey(tbl, "pot"), center_x, center_y + 6)
+        -- The base chip is CENTERED on chips_y (the community-row bottom edge,
+        -- per FeltLayout) and the pile grows UPWARD over the community cards
+        -- (overlap by design). The layout reserves the base chip's lower half +
+        -- the "Pot:" text BELOW chips_y, so the pile is never lifted further
+        -- over the cards and the text always has clear room underneath it.
+        local cs = pot.chip_scale or 1
+        if cs ~= 1 then
+            love.graphics.push()
+            love.graphics.translate(pot.center_x, pot.chips_y)
+            love.graphics.scale(cs, cs)
+            Chips.drawStack(0, 0, chips, { align = "center", tint = tint, max_w = pot.max_w / cs })
+            love.graphics.pop()
+        else
+            Chips.drawStack(pot.center_x, pot.chips_y, chips,
+                { align = "center", tint = tint, max_w = pot.max_w })
+        end
+        Anchors.set(Table.anchorKey(tbl, "pot"), pot.center_x, pot.chips_y)
     end
 
+    -- Pot amount uses the xs tier -- it's low-priority chrome that shouldn't
+    -- read as big as the cards (falls back to sm at 1×, see FontService).
     Theme.setColor(Theme.fg.muted)
-    love.graphics.setFont(fonts.sm)
-    -- Text sits below the chip pile (or, in mini-panel fallback, at the
-    -- felt center).
-    local text_y = allow_chips and (center_y + 12) or (center_y - 6)
-    love.graphics.printf("Pot: " .. Format.moneyExact(pot), felt_x, text_y, felt_w, "center")
+    love.graphics.setFont(fonts.xs or fonts.sm)
+    love.graphics.printf("Pot: " .. Format.moneyExact(potval),
+        pot.text_x, pot.text_y, pot.text_w, "center")
 end
 
--- Legacy MTT bottom-band: hand counter + payout ladder keyed by
--- hands_won. Used only when FEATURES.MTT_KO is off and the gtype is
--- the binary_outcome 8-round MTT. The new chip-stack ladder lives in
--- drawTournamentLadder below.
-local function drawLegacyMttLadder(tbl, gtype, ctx, x, y, w, fonts)
+-- Legacy MTT bottom row: "HAND N/M" on the left + the payout pip ladder
+-- filling the rest — ONE thin row that sits in the same bottom band the cash
+-- table uses for its chips/EV/YOU stats (so the cards never shrink and the
+-- ladder lands at the felt bottom). Used when FEATURES.MTT_KO is off and the
+-- gtype is the binary_outcome 8-round MTT.
+local function drawLegacyMttLadder(tbl, gtype, ctx, band, fonts)
     local hands_won = (tbl.mtt and tbl.mtt.hands_won) or 0
     local hand_cap  = gtype.hand_count or 8
+    local f, fh = fonts.sm, fonts.sm:getHeight()
+    local text_y = band.y + math.floor((band.h - fh) / 2)
 
+    love.graphics.setFont(f)
     Theme.setColor(Theme.fg.heading)
-    love.graphics.setFont(fonts.md)
-    love.graphics.printf(string.format("HAND %d / %d", hands_won, hand_cap),
-        x, y, w, "center")
+    local hand_txt = string.format("HAND %d/%d", hands_won, hand_cap)
+    love.graphics.print(hand_txt, band.x, text_y)
 
     local boost        = (ctx and ctx.mtt_payout_boost) or 0
     local payout_table = MttPayouts[boost] or MttPayouts[0]
     local thresholds   = {}
     for k in pairs(payout_table) do thresholds[#thresholds + 1] = k end
     table.sort(thresholds)
-
-    local pip_h   = 16
-    local pip_gap = 6
-    local n       = #thresholds
+    local n = #thresholds
     if n == 0 then return end
-    local pip_w   = math.floor((w - (n - 1) * pip_gap - 16) / n)
-    if pip_w < 36 then pip_w = 36 end
-    local strip_w = pip_w * n + (n - 1) * pip_gap
-    local strip_x = x + math.floor((w - strip_w) / 2)
-    local strip_y = y + 22
 
-    love.graphics.setFont(fonts.sm)
+    local pip_gap = 4
+    local left    = band.x + f:getWidth(hand_txt) + 10
+    local strip_w = (band.x + band.w) - left
+    local pip_w   = math.floor((strip_w - (n - 1) * pip_gap) / n)
+    if pip_w < 24 then pip_w = 24 end
+    local pip_h   = band.h
+    local pip_y   = band.y
+
     for i, th in ipairs(thresholds) do
-        local px      = strip_x + (i - 1) * (pip_w + pip_gap)
+        local px      = left + (i - 1) * (pip_w + pip_gap)
         local cleared = hands_won >= th
         local is_next = not cleared
         for _, t2 in ipairs(thresholds) do
-            if (not cleared) and t2 < th and hands_won < t2 then
-                is_next = false
-                break
-            end
+            if (not cleared) and t2 < th and hands_won < t2 then is_next = false; break end
         end
 
         local fill = cleared and Theme.status.good
                      or is_next and Theme.status.warn
                      or Theme.bg.sunken
-        local text_color = (cleared or is_next) and Theme.bg.window
-                                                 or Theme.fg.muted
+        local text_color = (cleared or is_next) and Theme.bg.window or Theme.fg.muted
         Theme.setColor(fill)
-        love.graphics.rectangle("fill", px, strip_y, pip_w, pip_h, Theme.space.radius)
+        love.graphics.rectangle("fill", px, pip_y, pip_w, pip_h, Theme.space.radius)
         Theme.setColor(Theme.border.soft)
-        love.graphics.rectangle("line", px, strip_y, pip_w, pip_h, Theme.space.radius)
-
+        love.graphics.rectangle("line", px, pip_y, pip_w, pip_h, Theme.space.radius)
         Theme.setColor(text_color)
         love.graphics.printf(string.format("%d:%dx", th, payout_table[th] or 0),
-            px, strip_y + math.floor((pip_h - fonts.sm:getHeight()) * 0.5),
-            pip_w, "center")
+            px, pip_y + math.floor((pip_h - fh) / 2), pip_w, "center")
     end
 
-    Anchors.set(Table.anchorKey(tbl, "you"),
-        x + math.floor(w * 0.5),
-        strip_y + pip_h * 0.5)
+    Anchors.set(Table.anchorKey(tbl, "you"), band.x + band.w * 0.5, band.y + band.h * 0.5)
 end
 
--- Tournament bottom-band for chip-stack tables: finish-position payout
--- strip. Same vertical slot the cash-table stack pile occupies, at the
--- same position the original ladder lived in — visually unchanged.
--- The alive-count / FINISH text is rendered separately on the left of
--- the player cards (drawPlayerSeat), not in this function.
-local function drawTournamentLadder(tbl, gtype, ctx, x, y, w, fonts)
-    -- Pip strip: payout multipliers by finish position. Threshold keys
-    -- in mtt_payouts.lua map as (n_seats - key + 1) → finish_position.
-    -- Sort descending so 1st reads leftmost (top spot first).
+-- Tournament bottom row for chip-stack tables: finish-position payout pips,
+-- a single row filling the `band` (same thin bottom band the cash stats use).
+-- The alive-count / FINISH text is rendered separately by drawPlayerSeat.
+local function drawTournamentLadder(tbl, gtype, ctx, band, fonts)
     local n_seats      = (gtype.seats or 0) + 1
     local boost        = (ctx and ctx.mtt_payout_boost) or 0
     local payout_table = MttPayouts[boost] or MttPayouts[0]
     local thresholds   = {}
     for k in pairs(payout_table) do thresholds[#thresholds + 1] = k end
-    table.sort(thresholds, function(a, b) return a > b end)
+    table.sort(thresholds, function(a, b) return a > b end)   -- 1st leftmost
 
-    local pip_h     = 16
-    local pip_gap   = 6
-    local n         = #thresholds
-    local pip_w     = math.floor((w - (n - 1) * pip_gap - 16) / n)
-    if pip_w < 36 then pip_w = 36 end
-    local strip_w   = pip_w * n + (n - 1) * pip_gap
-    local strip_x   = x + math.floor((w - strip_w) / 2)
-    -- y + 22 preserves the exact vertical slot the strip occupied when
-    -- the counter line lived above it inside this function — the bar's
-    -- on-screen position is unchanged from the original.
-    local strip_y   = y + 22
+    local f, fh   = fonts.sm, fonts.sm:getHeight()
+    local n       = #thresholds
+    if n == 0 then return end
+    local pip_gap = 4
+    local pip_w   = math.floor((band.w - (n - 1) * pip_gap) / n)
+    if pip_w < 24 then pip_w = 24 end
+    local pip_h, pip_y = band.h, band.y
 
-    love.graphics.setFont(fonts.sm)
+    love.graphics.setFont(f)
+    local function shortPos(p)
+        if p == 1 then return "1st" elseif p == 2 then return "2nd"
+        elseif p == 3 then return "3rd" else return p .. "th" end
+    end
     for i, th in ipairs(thresholds) do
-        local px            = strip_x + (i - 1) * (pip_w + pip_gap)
+        local px            = band.x + (i - 1) * (pip_w + pip_gap)
         local finish_pos    = n_seats - th + 1
         local is_player_won = tbl.last_finish == finish_pos
-
-        local fill = is_player_won and Theme.status.good
-                     or Theme.bg.sunken
-        local text_color = is_player_won and Theme.bg.window
-                           or Theme.fg.muted
-
+        local fill       = is_player_won and Theme.status.good or Theme.bg.sunken
+        local text_color = is_player_won and Theme.bg.window or Theme.fg.muted
         Theme.setColor(fill)
-        love.graphics.rectangle("fill", px, strip_y, pip_w, pip_h, Theme.space.radius)
+        love.graphics.rectangle("fill", px, pip_y, pip_w, pip_h, Theme.space.radius)
         Theme.setColor(Theme.border.soft)
-        love.graphics.rectangle("line", px, strip_y, pip_w, pip_h, Theme.space.radius)
-
+        love.graphics.rectangle("line", px, pip_y, pip_w, pip_h, Theme.space.radius)
         Theme.setColor(text_color)
-        local function shortPos(p)
-            if p == 1 then return "1st"
-            elseif p == 2 then return "2nd"
-            elseif p == 3 then return "3rd"
-            else return p .. "th" end
-        end
-        local pip_label = string.format("%s:%dx", shortPos(finish_pos), payout_table[th] or 0)
-        love.graphics.printf(pip_label, px,
-            strip_y + math.floor((pip_h - fonts.sm:getHeight()) * 0.5),
-            pip_w, "center")
+        love.graphics.printf(string.format("%s:%dx", shortPos(finish_pos), payout_table[th] or 0),
+            px, pip_y + math.floor((pip_h - fh) / 2), pip_w, "center")
     end
 
-    -- Anchor for chip-flight target (cash-out from tournament end). Pinned
-    -- to the strip center so payout chips fly to a coherent screen point.
-    Anchors.set(Table.anchorKey(tbl, "you"),
-        x + math.floor(w * 0.5),
-        strip_y + pip_h * 0.5)
+    Anchors.set(Table.anchorKey(tbl, "you"), band.x + band.w * 0.5, band.y + band.h * 0.5)
 end
 
-local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
-    -- Hole cards centered.
-    local card_w  = sizes.player_w
-    local card_h  = sizes.player_h
-    local cards_w = card_w * 2 + 4
-    local cards_x = x + math.floor((w - cards_w) / 2)
-    local cards_y = y
+-- Renders the player seat into the layout `hole` rect (centered hole cards +
+-- showdown hand-name) and `bottom` anchors (chips at the felt LEFT edge, YOU
+-- at the RIGHT edge — both from views/FeltLayout). Tournament tables draw
+-- their ladder as a single row in the bottom band (bottom.band).
+local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx)
+    local card_w  = hole.card_w
+    local card_h  = hole.card_h
+    local cards_w = card_w * 2 + hole.gap
+    local cards_x = hole.x + math.floor((hole.w - cards_w) / 2)
+    local cards_y = hole.y
 
     if holeVisible(tbl) and tbl.player_hole then
         drawCardFront(sl, tbl.player_hole[1], cards_x, cards_y, card_w, card_h, 1)
-        drawCardFront(sl, tbl.player_hole[2], cards_x + card_w + 4, cards_y, card_w, card_h, 1)
-        -- Hand-name label on showdown. Theater path keys off player_revealed;
-        -- legacy path falls back to state == "showdown"/"settling" which
-        -- already implies face-up for the player too. Either way we only
-        -- want the label visible once cards have meaning at showdown.
-        local revealed
-        if tbl.playback_state then
-            revealed = tbl.playback_state.player_revealed == true
-        else
-            local s = tbl.state
-            revealed = s == "showdown" or s == "settling"
-        end
-        if revealed and tbl.player_hand_name and fonts and fonts.sm then
-            Theme.setColor(Theme.fg.heading)
-            love.graphics.setFont(fonts.sm)
-            love.graphics.printf(tbl.player_hand_name,
-                cards_x - 20, cards_y + card_h + 2,
-                cards_w + 40, "center")
-        end
+        drawCardFront(sl, tbl.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1)
+        -- Showdown win emphasis (dim losers / grow winners) is applied later as
+        -- a single on-top overlay pass in TablePanel.draw (drawShowdownEmphasis).
     else
         drawCardSlot(cards_x, cards_y, card_w, card_h)
-        drawCardSlot(cards_x + card_w + 4, cards_y, card_w, card_h, 1)
+        drawCardSlot(cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1)
     end
 
-    -- Legacy MTT (FEATURES.MTT_KO off): hand counter + payout ladder
-    -- keyed by hands_won. Lives in the same bottom-band slot.
+    -- Legacy MTT (FEATURES.MTT_KO off): hand counter + payout ladder in the
+    -- bottom band (the felt-bottom slot), spanning the felt width.
     local gtype = Lookups.findById(GameTypes,tbl.game_type_id)
     if gtype and gtype.hand_count and not gtype.chip_stack_table then
-        local ladder_y = cards_y + card_h + 4
-        drawLegacyMttLadder(tbl, gtype, ctx, x, ladder_y, w, fonts)
+        drawLegacyMttLadder(tbl, gtype, ctx, bottom.band, fonts)
         return
     end
 
-    -- Chip-stack tournaments:
-    --   • Right of cards: YOU Nbb label (mirror of cash YOU $X.XX).
-    --   • Left of cards:  alive counter / FINISH text.
-    --   • Bottom band:    finish-position pip strip — the bar, in its
-    --                     original on-screen position, untouched.
+    -- Chip-stack tournaments: alive/FINISH counter at the felt LEFT edge,
+    -- YOU Nbb at the RIGHT edge, finish-position pip strip below — all in the
+    -- bottom band.
     if gtype and gtype.chip_stack_table then
-        local label_y = cards_y + card_h + 2
-        -- Right side: YOU Nbb (hidden post-bust; FINISH lives on left).
+        -- Alive/YOU labels sit just ABOVE the pip band (the band itself is one
+        -- thin row filled by the pips).
+        local label_y = bottom.band.y - fonts.sm:getHeight() - 2
         if not tbl.last_finish then
             local stake_for_bb = Lookups.findById(Stakes, tbl.stake_id)
             local bb_val       = (stake_for_bb and stake_for_bb.bb) or 0
@@ -824,11 +778,10 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
                 local bb    = math.floor(chips / bb_val + 0.5)
                 Theme.setColor(Theme.fg.heading)
                 love.graphics.setFont(fonts.sm)
-                love.graphics.print(string.format("YOU  %dbb", bb),
-                    cards_x + cards_w + 8, label_y - 12)
+                local txt = string.format("YOU  %dbb", bb)
+                love.graphics.print(txt, bottom.you.x - fonts.sm:getWidth(txt), label_y)
             end
         end
-        -- Left side: alive counter / final finish position.
         local n_seats = (gtype.seats or 0) + 1
         local alive   = 0
         if tbl.seat_busted then
@@ -852,64 +805,57 @@ local function drawPlayerSeat(tbl, x, y, w, sl, fonts, ctx, sizes)
         end
         Theme.setColor(Theme.fg.heading)
         love.graphics.setFont(fonts.sm)
-        local tw = fonts.sm:getWidth(counter_label)
-        love.graphics.print(counter_label, cards_x - 8 - tw, label_y - 12)
-        -- Bar at the bottom — original position, untouched.
-        local ladder_y = cards_y + card_h + 4
-        drawTournamentLadder(tbl, gtype, ctx, x, ladder_y, w, fonts)
+        love.graphics.print(counter_label, bottom.chips.x, label_y)
+        drawTournamentLadder(tbl, gtype, ctx, bottom.band, fonts)
         return
     end
 
-    -- Stack chip pile to the LEFT of the cards (small, ~8-12 chips), and
-    -- "YOU $X.XX" label to the RIGHT for the precise read. Caches the
-    -- chip-pile center on tbl so chip-flight emission can anchor here.
-    --
+    -- Cash: chip pile hugs the felt LEFT edge, "YOU $X.XX" the RIGHT edge.
     -- While poker theater is mid-hand (winner not yet set), deduct the
-    -- player's running per-street contribution from the displayed stack
-    -- so the pile visibly drains as chips fly into the pot. Once the
-    -- pot pushes (winner set), the actual tbl.stack update is imminent
-    -- — fall back to tbl.stack so we don't double-deduct against the
-    -- post-resolution value.
+    -- player's running per-street contribution so the pile visibly drains as
+    -- chips fly into the pot; once the pot pushes, fall back to tbl.stack.
     local stack = tbl.stack or 0
     local display_stack = stack
     if tbl.playback_state and not tbl.playback_state.winner then
-        -- per_seat_committed resets each street (used by the writer for
-        -- bet-matching math). For the stack-drain display we want
-        -- cumulative contribution across all streets — per_seat_total.
         local ps        = tbl.playback_state.player_seat
         local committed = (ps and tbl.playback_state.per_seat_total
                               and tbl.playback_state.per_seat_total[ps])
                           or 0
         display_stack = math.max(0, stack - committed)
     end
-    local label_y = cards_y + card_h + 2
 
     if display_stack > 0 then
         local palette = ChipData.stake_palettes[tbl.stake_id]
                         or ChipData.full_palette
-        -- Always render player stack at "medium" target (~12 chips) so the
-        -- pile stays compact regardless of stake — pot/bankroll are where
-        -- magnitude flexes via tier hints.
+        -- "medium" target (~12 chips) keeps the pile compact regardless of stake.
         local chips = Denoms.breakdown(display_stack, ChipData.denominations, palette, ChipData.tier_chip_target, "medium")
-        local pile_anchor_x = cards_x - 8   -- right edge of pile
-        local pile_y        = cards_y + card_h - 4
-        local stake_theme   = StakeThemes[tbl.stake_id]
-        local tint          = stake_theme and stake_theme.chip_tint
-        -- max_w = whatever room exists left of the cards. Prevents the
-        -- pile from marching off the panel's left edge on big stacks.
-        local pile_max_w = math.max(60, pile_anchor_x - x - 6)
-        Chips.drawStack(pile_anchor_x, pile_y, chips,
-            { align = "right", tint = tint, max_w = pile_max_w })
-        Anchors.set(Table.anchorKey(tbl, "you"), pile_anchor_x - 18, pile_y)
+        local stake_theme = StakeThemes[tbl.stake_id]
+        local tint        = stake_theme and stake_theme.chip_tint
+        -- The pile's base chip is centered on its y; offset up by the (scaled)
+        -- chip radius so the pile's visual BOTTOM sits on the YOU/EV baseline.
+        -- The pile scales with the cards (bottom.chip_scale) to stay proportional.
+        local cs = bottom.chip_scale or 1
+        local pile_y = bottom.chips.y - Chips.radius() * cs
+        if cs ~= 1 then
+            love.graphics.push()
+            love.graphics.translate(bottom.chips.x, pile_y)
+            love.graphics.scale(cs, cs)
+            Chips.drawStack(0, 0, chips, { align = "left", tint = tint, max_w = bottom.chips.max_w / cs })
+            love.graphics.pop()
+        else
+            Chips.drawStack(bottom.chips.x, pile_y, chips,
+                { align = "left", tint = tint, max_w = bottom.chips.max_w })
+        end
+        Anchors.set(Table.anchorKey(tbl, "you"), bottom.chips.x + 18, pile_y)
     else
-        Anchors.set(Table.anchorKey(tbl, "you"),
-            cards_x - 26, cards_y + card_h - 4)
+        Anchors.set(Table.anchorKey(tbl, "you"), bottom.chips.x, bottom.chips.y)
     end
 
+    -- YOU $X.XX right-aligned to the felt's right edge (bottom.you.x).
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.sm)
-    love.graphics.print("YOU  " .. Format.moneyExact(display_stack),
-        cards_x + cards_w + 8, label_y - 12)
+    local you_text = "YOU  " .. Format.moneyExact(display_stack)
+    love.graphics.printf(you_text, hole.x, bottom.you.y, bottom.you.x - hole.x, "right")
 end
 
 -- Shared felt-overlay button (DEAL when stacked, REBUY $X when busted).
@@ -1089,6 +1035,97 @@ end
 -- ─── Public API ──────────────────────────────────────────────────────
 
 -- Draw one panel and append any clickable hit-zones to hit_boxes.
+-- Gather the on-screen rect of every FACE-UP card (community + player hole +
+-- the revealed showcase opponent's hole), recomputing the exact same
+-- positions the draw functions used. Pure geometry — no rendering — so the
+-- emphasis pass can re-target each card after everything else has drawn.
+local function collectShownCards(tbl, L)
+    local out = {}
+    if L.community then
+        local comm    = L.community
+        local count   = communityCardCount(tbl)
+        local total_w = comm.card_w * 5 + 4 * comm.gap
+        local row_x   = comm.x + math.floor((comm.w - total_w) / 2)
+        for i = 1, count do
+            if tbl.community and tbl.community[i] then
+                out[#out + 1] = { card = tbl.community[i],
+                    x = row_x + (i - 1) * (comm.card_w + comm.gap),
+                    y = comm.y, w = comm.card_w, h = comm.card_h }
+            end
+        end
+    end
+    if L.hole and holeVisible(tbl) and tbl.player_hole then
+        local hole    = L.hole
+        local cards_w = hole.card_w * 2 + hole.gap
+        local cards_x = hole.x + math.floor((hole.w - cards_w) / 2)
+        out[#out + 1] = { card = tbl.player_hole[1], x = cards_x,
+                          y = hole.y, w = hole.card_w, h = hole.card_h }
+        out[#out + 1] = { card = tbl.player_hole[2], x = cards_x + hole.card_w + hole.gap,
+                          y = hole.y, w = hole.card_w, h = hole.card_h }
+    end
+    -- Only the revealed, in-seat showcase opponent shows hole cards.
+    local oi = tbl.opponent_idx
+    if oi and L.opponents and L.opponents.seats[oi] and tbl.opponent_hole and opponentFaceUp(tbl) then
+        local reveal = true
+        if tbl.playback_state and tbl.playback_state.player_seat then
+            local ps = tbl.playback_state.player_seat
+            local ss = (oi < ps) and oi or (oi + 1)
+            if not tbl.playback_state.in_seats[ss] then reveal = false end
+        end
+        if reveal then
+            local ob      = L.opponents
+            local seat    = ob.seats[oi]
+            local big     = tbl.game_type_id == "hu"
+            local cw      = big and (L.sizes.opp_w * 2) or L.sizes.opp_w
+            local ch      = big and (L.sizes.opp_h * 2) or L.sizes.opp_h
+            local cgap    = big and 6 or 3
+            local cards_w = cw * 2 + cgap
+            local cards_x = seat.x + math.floor((seat.w - cards_w) / 2)
+            local cards_y = ob.y + ob.cards_y_offset
+            out[#out + 1] = { card = tbl.opponent_hole[1], x = cards_x, y = cards_y, w = cw, h = ch }
+            out[#out + 1] = { card = tbl.opponent_hole[2], x = cards_x + cw + cgap, y = cards_y, w = cw, h = ch }
+        end
+    end
+    return out
+end
+
+-- Showdown emphasis. The "which cards won" signal, drawn after every card and
+-- animation pass so nothing buries it: cards NOT in the winning five are dimmed
+-- (board + both holes), and the winning cards stay lit and ENLARGED with a
+-- brief pop on reveal. No borders. `win5` is the winner's best-5 hand
+-- (player_combo on a player win, opponent_combo on an opp win).
+local function drawShowdownEmphasis(tbl, L, sl, win5)
+    if not win5 then return end
+    local shown = collectShownCards(tbl, L)
+    if #shown == 0 then return end
+
+    -- Pass 1: dim the cards that did NOT make the winning hand.
+    for _, c in ipairs(shown) do
+        if not inCombo(c.card, win5) then
+            Theme.setColor(Theme.bg.window, 0.62)
+            love.graphics.rectangle("fill", c.x, c.y, c.w, c.h, Theme.space.radius)
+        end
+    end
+    -- Pass 2: the winning cards stay full-bright and enlarged, with a single
+    -- POP at the reveal that eases back to the steady size. state_timer is the
+    -- per-state clock and resets on every phase change, so it would re-fire the
+    -- pop when chips move (settling). Gate it OFF during settling: the pop plays
+    -- once on the showdown reveal, then the cards just hold their enlarged size
+    -- through the chip move (same scale at the boundary -> no snap).
+    local st    = tbl.state_timer or 0
+    local pop   = (tbl.state ~= "settling") and math.max(0, 1 - st / 0.25) or 0
+    pop         = pop * pop                       -- ease-out
+    local scale = 1.13 + 0.13 * pop               -- pops to ~1.26, rests at 1.13
+    for _, c in ipairs(shown) do
+        if inCombo(c.card, win5) then
+            local gw, gh = c.w * scale, c.h * scale
+            local gx = c.x - (gw - c.w) / 2
+            local gy = c.y - (gh - c.h) / 2
+            CardSprites.front(sl, c.card, gx, gy, gw, gh, 1)
+        end
+    end
+end
+
 function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     if not tbl then
         TablePanel.drawEmpty(x, y, w, h, game.fonts)
@@ -1153,6 +1190,16 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- Screen-space center for floating-text spawn (read by GrindController
     -- via AnchorRegistry; written here once per draw).
     Anchors.set(Table.anchorKey(tbl, "center"), x + w / 2, y + h / 2)
+
+    -- Seed a default pot anchor BEFORE the script-event loop below runs. The
+    -- first bet of a hand flies its chips to the "pot" anchor during that loop,
+    -- but the precise pile position isn't computed until drawPotLabel later in
+    -- this frame — so on a table's very first bet the anchor would be unset and
+    -- the chips would fly to (0,0). Default it to the panel center (on the
+    -- felt); drawPotLabel overwrites it with the exact pile spot each frame.
+    if not Anchors.get(Table.anchorKey(tbl, "pot")) then
+        Anchors.set(Table.anchorKey(tbl, "pot"), x + w / 2, y + h / 2)
+    end
 
     local fonts = game.fonts
     local sl    = game.sprite_loader
@@ -1232,77 +1279,64 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     Theme.setColor(Theme.border.soft)
     love.graphics.rectangle("line", felt_x, felt_y, felt_w, felt_h, Theme.space.radius)
 
-    -- Card sizes are panel-relative — bigger panels get bigger cards. The
-    -- skip thresholds below stop drawing entirely on cramped grid cells.
-    local sizes = cardSizesFor(w)
+    -- ── Felt layout ─────────────────────────────────────────────────────
+    -- ONE pass (views/FeltLayout) maps the felt rect → an explicit rect/anchor
+    -- for every element; the draw functions below just render into what they
+    -- are handed. No more per-element offset math, no h<N degradation cliffs.
+    local sizes  = cardSizesFor(w)
+    local gtype  = Lookups.findById(GameTypes, tbl.game_type_id)
+    local is_tournament = (gtype and (gtype.chip_stack_table or gtype.hand_count)) and true or false
+    local sm_h2  = fonts.sm:getHeight()
+    local md_h   = fonts.md:getHeight()
+    local xs_h   = (fonts.xs or fonts.sm):getHeight()   -- opp names + pot text reserve
+    -- The caller measures text widths so FeltLayout stays pure geometry.
+    local ev_w   = Stats.measureEvReadout(tbl, controller, fonts) or 0
+    local you_w  = fonts.sm:getWidth("YOU  " .. Format.moneyExact(tbl.stack or 0))
 
-    -- Layout degradation thresholds. Small cells (high table count) drop
-    -- elements progressively so the panel stays readable.
-    local skip_opponents    = h < 170
-    local skip_player_cards = h < 120
-    local mini              = h < 90    -- only header + DEAL + pot label
+    -- UNIVERSAL LAYOUT: every game type uses the SAME thin bottom row (one
+    -- text-line tall) — cash draws chips/EV/YOU in it, a tournament draws its
+    -- HAND counter + payout ladder as a single row in it. No game type gets a
+    -- taller band, so cards/opponents/community/hole are identical everywhere
+    -- and stay full-size. (bottom_extra/card_bottom default to the thin row.)
+    local L = FeltLayout.compute({
+        felt_x = felt_x, felt_y = felt_y, felt_w = felt_w, felt_h = felt_h,
+        hu = (tbl.game_type_id == "hu"), n_opps = #tbl.opponents,
+        sizes = sizes, s = s, sm_h = sm_h2, md_h = md_h, xs_h = xs_h,
+        ev_w = ev_w, you_w = you_w, pile_r = Chips.radius(),
+    })
 
-    -- Resolve y offsets for each section based on which are present.
-    -- HU's "duel" seat is taller (80 px vs 6-max's 50 px) so push the
-    -- community-card row down to make room. Single boolean check on
-    -- gtype id, not a kind chain.
-    local hu_layout     = tbl.game_type_id == "hu"
-    -- HU's opponent band scales with the 2× card size used by drawOpponentSeat.
-    local opp_band_h    = hu_layout and (sizes.opp_h * 2 + 36) or (sizes.opp_h + 28)
-    local content_top   = skip_opponents and (felt_y + 4) or (felt_y + opp_band_h)
-    -- Mini layout uses the smallest panel-relative cards anyway; no extra
-    -- override needed (sizes.comm_w on a tiny panel is already tiny).
-    local comm_card_w   = sizes.comm_w
-    local comm_card_h   = sizes.comm_h
-    local pot_y         = content_top - 14
-    local comm_y        = content_top
+    -- Showdown winner state, computed once. At a reveal, win5 is the winner's
+    -- best-5 (player_combo on a player win, opponent_combo on an opp win; both
+    -- set by models/Table at deal time). The emphasis pass dims everything else
+    -- and grows those five; the hand-name label is parked AT the winner (above
+    -- your hole cards if you won, under the winning opp's seat if they did) so
+    -- position says who, the label just says with-what.
+    local show_winner = opponentFaceUp(tbl)
+    local player_won  = (tbl.outcome_delta or 0) > 0
+    local win5        = show_winner
+                        and (player_won and tbl.player_combo or tbl.opponent_combo)
+                        or nil
 
-    -- Opponents row across the top of the felt (full mode only). Count
-    -- comes from the table's actual opponent list, which the model fills
-    -- based on game_type.seats — 1 (HU), 5 (6-max / Zoom), 8 (9-max).
-    if not skip_opponents then
-        local opp_row_y = felt_y + 4
-        local n_opps    = #tbl.opponents
-        -- Record each opponent's seat-center as an AnchorRegistry anchor
-        -- so chip-flight emission can target the winner's cards on a loss.
-        -- Card center sits ~half-card-height below the seat top, computed
-        -- from the panel-relative sizes struct.
-        if n_opps > 0 then
-            -- HU: single seat centered, capped width so it doesn't sprawl
-            -- across the whole felt. Other game types: even-distribute.
-            if n_opps == 1 then
-                -- HU's "duel" seat — wider + taller than 6-max seats so
-                -- the single rival has visible presence. Sized relative
-                -- to the felt + the panel-relative card dims.
-                local seat_w = math.min(felt_w, math.max(180, sizes.opp_w * 2 + 80))
-                local seat_h = sizes.opp_h * 2 + 36
-                local ox     = felt_x + math.floor((felt_w - seat_w) / 2)
-                drawOpponentSeat(tbl.opponents[1], 1, tbl, ox, opp_row_y, seat_w, seat_h, sl, fonts, sizes, back_sprite)
-                -- Chip-flight target: roughly the card center under the
-                -- `big` layout.
-                Anchors.set(Table.anchorKey(tbl, "opp_1"),
-                    ox + seat_w * 0.5, opp_row_y + sizes.opp_h + 20)
-            else
-                local opp_w   = math.floor(felt_w / n_opps)
-                local seat_h  = sizes.opp_h + 28
-                for i = 1, n_opps do
-                    local ox = felt_x + (i - 1) * opp_w
-                    drawOpponentSeat(tbl.opponents[i], i, tbl, ox, opp_row_y, opp_w, seat_h, sl, fonts, sizes, back_sprite)
-                    Anchors.set(Table.anchorKey(tbl, "opp_" .. i),
-                        ox + opp_w * 0.5, opp_row_y + math.floor(sizes.opp_h * 0.5) + 20)
-                end
+    -- Opponents row (seats pre-split by the layout; chip-flight anchor per seat).
+    if L.opponents then
+        local ob = L.opponents
+        for i, seat in ipairs(ob.seats) do
+            local opp = tbl.opponents[i]
+            if opp then
+                drawOpponentSeat(opp, i, tbl, seat.x, ob.y, seat.w, ob.h,
+                    sl, fonts, L.sizes, ob.cards_y_offset, back_sprite)
+                Anchors.set(Table.anchorKey(tbl, "opp_" .. i),
+                    seat.x + seat.w * 0.5, ob.anchor_y)
             end
         end
     end
 
-    -- Community cards first, pot chips painted on TOP at the felt center
-    -- (mimics the real-table look where chips pile under/around community
-    -- cards). Mini panels still get the text-only fallback.
-    drawCommunity(tbl, felt_x, comm_y, felt_w, sl, comm_card_w, comm_card_h)
-    drawPotLabel(tbl, felt_x, felt_y, felt_w, felt_h, fonts, not mini)
+    -- Community cards. The pot pile is drawn LATER (after the showdown emphasis)
+    -- so the chips -- which by design overlap the community cards -- sit on top
+    -- of the dim/grow overlay instead of getting painted over by it.
+    if L.community then drawCommunity(tbl, L.community, sl) end
 
-    -- Default chip-flight anchors for this table — re-stamped every frame
-    -- so they track the panel through layout changes. drawPlayerSeat and
+    -- Default chip-flight anchors — re-stamped each frame; drawPlayerSeat /
     -- drawPotLabel overwrite with more specific positions when they run.
     if not Anchors.get(Table.anchorKey(tbl, "you")) then
         Anchors.set(Table.anchorKey(tbl, "you"),
@@ -1313,18 +1347,17 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             felt_x + felt_w * 0.5, felt_y + felt_h * 0.45)
     end
 
-    -- Player seat at bottom.
-    if not skip_player_cards then
-        local player_y = felt_y + felt_h - sizes.player_h - 18
-        local ctx = controller and controller.ctx
-        drawPlayerSeat(tbl, felt_x, player_y, felt_w, sl, fonts, ctx, sizes)
-    elseif not mini then
-        -- Compact mode: no hole-card sprites, just a YOU $X.XX text strip
-        -- (stack on this table, not global bankroll).
+    -- Player seat. Full/compact render the hole seat; the "tiny" tier (cards
+    -- dropped) shows just a centered YOU strip on the bottom row; mini shows
+    -- neither (pot text + DEAL only).
+    local ctx = controller and controller.ctx
+    if L.hole then
+        drawPlayerSeat(tbl, L.hole, L.bottom, sl, fonts, ctx)
+    elseif L.bottom then
         Theme.setColor(Theme.fg.heading)
         love.graphics.setFont(fonts.sm)
         love.graphics.printf("YOU  " .. Format.moneyExact(tbl.stack or 0),
-            felt_x, felt_y + felt_h - 16, felt_w, "center")
+            felt_x, L.bottom.you.y, felt_w, "center")
     end
 
     -- DEAL / REBUY overlay (only when idle). Stack > 0 → DEAL. Stack at
@@ -1362,10 +1395,64 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         end
     end
 
-    -- EV readout — bottom-of-panel "+/- N.N bb/h" text. The hover-tooltip
-    -- breakdown and the backtick debug overlay both live in
-    -- views/TablePanelStats; we just route the calls.
-    Stats.drawEvReadout(tbl, x, y, w, h, controller, fonts, hit_boxes)
+    -- EV readout — cash tables only (tournaments fill this row with their
+    -- ladder). Drawn into the layout's bottom-center slot, and dropped when
+    -- the chips/YOU on either side leave no room (L.bottom.ev.show).
+    if L.bottom and L.bottom.ev.show and not is_tournament then
+        Stats.drawEvReadout(tbl, L.bottom.ev, controller, fonts, hit_boxes)
+    end
+
+    -- Showdown emphasis — dim the losing/unused cards, grow + pop the winning
+    -- five. Runs here, after every card + EV pass, so it sits on top and reads.
+    drawShowdownEmphasis(tbl, L, sl, win5)
+
+    -- Pot pile + "Pot: $X", drawn AFTER the emphasis so the chips stay on top of
+    -- the dim/grow overlay (the pile is meant to overlap the community cards).
+    if L.pot then drawPotLabel(tbl, L.pot, fonts) end
+
+    -- Showdown hand-name label — the prefix-free name ("two pair, Ks and 3s")
+    -- of the WINNING hand, parked AT the winner so position names who: just
+    -- above your hole cards when you win, centered under the winning opp's seat
+    -- when they win (the seat's cards are glowing green to match). Dark pill,
+    -- on top, sized to the text and clamped inside the felt so it never crops.
+    if show_winner then
+        local hand = player_won and tbl.player_hand_name or tbl.opponent_hand_name
+        if hand and hand ~= "" then
+            local f = fonts.sm
+            love.graphics.setFont(f)
+            local tw = math.min(felt_w - 8, f:getWidth(hand) + 16)
+            local th = f:getHeight() + 4
+
+            -- Center-x + baseline depend on who won.
+            local cx, by
+            if player_won and L.hole then
+                cx = felt_x + felt_w * 0.5
+                by = L.hole.y + math.floor((L.hole.card_h - th) / 2)  -- centered OVER your cards
+            elseif (not player_won) and L.opponents
+                   and tbl.opponent_idx and L.opponents.seats[tbl.opponent_idx] then
+                local seat = L.opponents.seats[tbl.opponent_idx]
+                cx = seat.x + seat.w * 0.5
+                by = L.opponents.y + L.opponents.cards_y_offset
+                     + L.opponents.card_h + 2              -- just under their cards
+            else
+                cx = felt_x + felt_w * 0.5                 -- fallback: top-center
+                by = felt_y + 2
+            end
+
+            -- Clamp the pill fully inside the felt (so a wide name under a
+            -- narrow edge seat slides in rather than cropping).
+            local bx = math.floor(cx - tw / 2)
+            bx = math.max(felt_x + 4, math.min(bx, felt_x + felt_w - 4 - tw))
+
+            Theme.setColor(Theme.bg.window, 0.9)
+            love.graphics.rectangle("fill", bx, by, tw, th, Theme.space.radius)
+            Theme.setColor(Theme.border.soft)
+            love.graphics.rectangle("line", bx, by, tw, th, Theme.space.radius)
+            -- Gold text to match the gold cards it labels (one win language).
+            Theme.setColor(Theme.currency.chip)
+            love.graphics.printf(hand, bx, by + 2, tw, "center")
+        end
+    end
 
     -- Jackpot vignette — colored wash over the felt area when a jackpot
     -- resolution is fading. Drawn AFTER the gauge so the colored tint
