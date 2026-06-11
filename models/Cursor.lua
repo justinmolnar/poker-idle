@@ -100,6 +100,14 @@ end
 --   W, H        — current screen dimensions (for wander bounds)
 --   dispatcher  — callback fired with the hit_box on click-arrival
 function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher)
+    -- Brief freeze right after a click so the click pop is visible AT the button
+    -- before the cursor darts off (otherwise it's a blur, especially at high
+    -- Cursor Speed). The click already dispatched; this is purely the hold.
+    if self._hold and self._hold > 0 then
+        self._hold = self._hold - dt
+        return
+    end
+
     local step = speed_px * dt
 
     if self.state == "seeking" then
@@ -117,6 +125,7 @@ function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher)
                 -- Transient flag the pool consumes this same frame to play
                 -- the cursor-tap sound (distinct from the human-mouse path).
                 self._just_dispatched = true
+                self._hold = 0.22          -- hold in place so the click pop shows
                 claims[self.target_idx] = nil
                 self:releaseTarget()
                 pickWanderPoint(self, W, H)

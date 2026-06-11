@@ -14,6 +14,15 @@ local Theme       = require("views.Theme")
 local Modal       = require("views.widgets.Modal")
 local LabelButton = require("views.widgets.LabelButton")
 local Scrollbar   = require("views.Scrollbar")
+local FontService = require("services.FontService")
+
+-- The modal is text content, so it scales by the INTEGER font scale (1×/2×/3×),
+-- NOT game.ui_scale (the smooth FLOAT layout scale). Using the layout scale made
+-- the frame grow faster than its text -- e.g. at 1080p (layout 1.5×, font 1×) the
+-- box came out ~50% wider than the copy, leaving a big awkward empty gutter.
+local function modalScale()
+    return FontService.fontScale(love.graphics.getDimensions())
+end
 
 local ActionModal = {}
 ActionModal.__index = ActionModal
@@ -65,7 +74,7 @@ end
 --   keys    = { [keyname] = value, ... }
 --   body    = function(layout, fonts, s) end   (uses layout:para/gap/custom)
 function ActionModal:new(opts)
-    local s = (opts.game.ui_scale) or 1
+    local s = modalScale()
     return setmetatable({
         game         = opts.game,
         buttons      = opts.buttons or {},
@@ -73,6 +82,10 @@ function ActionModal:new(opts)
         body_fn      = opts.body,
         button_align = opts.button_align or "center",
         note         = opts.note,
+        -- Design width (pre-scale). The frame width is re-derived from the LIVE
+        -- ui_scale every :draw so the modal resizes when the window changes size
+        -- while it's open, instead of freezing at the creation-time scale.
+        _base_w      = opts.w,
         _resolved = nil,
         _rects    = {},
         _scroll_y = 0,
@@ -155,7 +168,10 @@ end
 
 function ActionModal:draw()
     local fonts  = self.game.fonts
-    local s      = (self.game.ui_scale) or 1
+    local s      = modalScale()
+    -- Re-sync the frame width to the live scale (window may have resized since
+    -- this modal was created). Position + height already recompute in Modal:draw.
+    if self._base_w then self._modal.w = math.floor(self._base_w * s) end
     local full_w = self._modal.w - self._modal.pad * 2
 
     -- Button-row metrics. Buttons size to the widest label so text can't wrap.

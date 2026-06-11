@@ -126,8 +126,9 @@ return {
             win_dist  = { small = 0.40, medium =  0.05, large = -0.05, jackpot = -0.40 },
             loss_dist = { small = 0.10, medium = -0.02, large = -0.03, jackpot = -0.05 },
         },
+        -- Shows real opponent names that reroll every deal (rerolls_opponents),
+        -- rather than anonymous "Seat N" placeholders.
         rerolls_opponents = true,
-        anonymous_opponents = true,
     },
     mtt_entry,
 

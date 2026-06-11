@@ -31,6 +31,14 @@
 -- one upgrade reshapes both magnitude tracks together. The stake's
 -- fill_window converts unit count → fill ratio → lerp toward the
 -- stake's *_capped values.
+--
+-- Prototype caps: with HIGH_TIER_STAKES off (PROTOTYPE_MODE), only T1-T3 are
+-- reachable. T3's fill window completes at 11 units, so Sharper Reads / Pot
+-- Control do nothing past level 11, and Focus past 5 levels (9 tables) just
+-- shaves penalty with no tables to use it on. Cap those levels in the prototype
+-- so players can't burn money on dead levels; the full game keeps them.
+local Constants = require("data.constants")
+local PROTO     = not Constants.FEATURES.HIGH_TIER_STAKES
 
 return {
 
@@ -48,7 +56,7 @@ return {
         icon        = "sharper_reads",
         -- Drives a per-stake range tooltip (win chance, current → next level).
         tooltip_metric = "win_chance",
-        max_level   = 18,
+        max_level   = PROTO and 11 or 18,   -- prototype: T3 fill completes at L11
         costs       = {
             0.25, 0.50, 1.50, 4, 10,
             25, 60, 150, 400, 1000,
@@ -77,7 +85,7 @@ return {
         icon        = "pot_control",
         -- Drives a per-stake range tooltip (Stack rate, current → next level).
         tooltip_metric = "win_dist",
-        max_level   = 14,
+        max_level   = PROTO and 11 or 14,   -- prototype: T3 fill completes at L11
         costs       = {
             1.50, 4.50, 14, 40, 113,
             375, 1100, 3000, 9000, 30000,

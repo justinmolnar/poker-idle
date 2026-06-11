@@ -22,11 +22,15 @@ local GameTypes = require("data.game_types")
 -- Fallback gtype for unknown ids in a saved spec (e.g. a deprecated mode
 -- from a prior build). Six-max is the safe baseline — same buy-in, same
 -- panel layout, no missing dist_shifts.
-local function gtypeExists(id)
+local function findGtype(id)
     for _, gt in ipairs(GameTypes) do
-        if gt.id == id then return true end
+        if gt.id == id then return gt end
     end
-    return false
+    return nil
+end
+
+local function gtypeExists(id)
+    return findGtype(id) ~= nil
 end
 
 local TablePool = {}
@@ -85,6 +89,17 @@ function TablePool:rebuildFromState(ctx)
             t.mtt.hands_won  = hands[i] or 0
             t.mtt.state      = mstate[i]
             t.mtt.plan       = mtt_plans[i]
+            -- Legacy binary MTT does NOT resume across reload: its stack isn't
+            -- persisted (always reloads to a full buy-in -> DEAL), so a carried
+            -- hands_won lets the next hand re-settle the tournament payout on
+            -- EVERY reload -- a money exploit, since the save is never consumed
+            -- (win, autosave, reopen, +payout, repeat). Force a fresh run on
+            -- load. Chip-stack KO tables DO resume (seat_stacks + plan below).
+            local gt = findGtype(gtype_id)
+            if gt and gt.binary_outcome then
+                t.mtt.hands_won = 0
+                t.mtt.state     = nil
+            end
             if seat_stacks[i] then
                 t.seat_stacks       = seat_stacks[i]
                 t.seat_busted       = seat_busted[i] or {}

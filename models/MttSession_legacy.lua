@@ -31,7 +31,17 @@ function MttSession:new()
 end
 
 function MttSession:begin()
-    if self.state == nil then self.state = "playing" end
+    if self.state == nil then
+        self.state = "playing"
+        -- A fresh run ALWAYS starts at 0. settle() leaves hands_won at the cap
+        -- and only the controller's payout drain zeroes it -- but that payout is
+        -- transient, so a save taken after a tournament finished (state back to
+        -- nil) but before the drain restores hands_won at the cap. Without this
+        -- reset the very first hand of the next run trips hands_won >= hand_count
+        -- and instantly "wins". state == nil means not-in-a-run (a genuine
+        -- mid-run save keeps state == "playing"), so this never wipes progress.
+        self.hands_won = 0
+    end
 end
 
 function MttSession:isPlaying()

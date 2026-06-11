@@ -282,6 +282,10 @@ function DeckSelectModal:draw()
     local fonts = self.game.fonts
     local s     = (self.game.ui_scale) or 1
 
+    -- Re-sync the frame width to the live scale so the modal resizes correctly
+    -- if the window changes size while it's open (width was baked at :new).
+    self._modal.w = math.floor(MODAL_W_BASE * s)
+
     local tile_w     = math.floor(TILE_W_BASE * s)
     local tile_h     = math.floor(TILE_H_BASE * s)
     local tile_gap_x = math.floor(TILE_GAP_X_BASE * s)

@@ -19,6 +19,7 @@ local MttPayouts  = require("data.mtt_payouts")
 local Lookups     = require("utils.lookups")
 local TierGlyph   = require("views.TierGlyph")
 local OutcomeMath = require("models.outcome_math")
+local IconText    = require("views.IconText")
 
 -- Canonical tier order (internal keys). Rendered as glyphs via TierGlyph.
 local TIER_ORDER  = { "small", "medium", "large", "jackpot" }
@@ -54,7 +55,11 @@ local function fmtMoney(n)
 end
 
 local function fmtPctClean(p)
-    return string.format("%.0f%%", (p or 0) * 100)
+    local pct = (p or 0) * 100
+    -- Sub-1% values keep a decimal so a small-but-real chance (e.g. a 0.3% stack
+    -- tier at low upgrade levels) doesn't collapse to a misleading "0%".
+    if pct > 0 and pct < 1 then return string.format("%.1f%%", pct) end
+    return string.format("%.0f%%", pct)
 end
 
 -- Tooltip rows are structured ({ text, style, color_token }) so the
@@ -213,12 +218,83 @@ local function buildMttLines(tbl, controller, stats)
     return lines
 end
 
+-- Legacy binary tournament breakdown: per-hand win rate + the consecutive-win
+-- payout ladder (6/7/8 → 3×/6×/20× × buy-in). The cash breakdown (avg win/loss,
+-- bb/h) is meaningless here -- the binary outcome forces delta=0 and the payout
+-- is keyed by win streak, not per-hand $ -- so this is its own shape.
+local function buildLegacyMttLines(tbl, controller, stats)
+    local p       = stats.pool.win_chance or 0
+    local gtype   = stats.gtype
+    local ctx     = controller and controller.ctx
+    local game    = controller and controller.game
+    local boost   = (ctx and ctx.mtt_payout_boost) or 0
+    local payouts = MttPayouts[boost] or MttPayouts[0]
+    local buy_in  = (stats.stake and stats.stake.buy_in) or 0
+    local cap     = gtype.hand_count or 8
+
+    local thresholds = {}
+    for k in pairs(payouts) do thresholds[#thresholds + 1] = k end
+    table.sort(thresholds)               -- ascending: 6, 7, 8
+
+    -- Win-streak math: the first loss ends the run, so finishing with exactly K
+    -- wins = K in a row then a loss (p^K·(1-p)); a full sweep = p^cap. {chip} is
+    -- awarded ONLY on the sweep (the win condition is hands_won>=cap). Net EV is
+    -- the probability-weighted cash return minus the buy-in.
+    local function finishOdds(k) return (k >= cap) and (p ^ k) or (p ^ k) * (1 - p) end
+    local exp_mult = 0
+    for _, k in ipairs(thresholds) do exp_mult = exp_mult + finishOdds(k) * (payouts[k] or 0) end
+    local net_ev = buy_in * (exp_mult - 1)
+
+    -- IconText render row so {chip} renders as the glyph (icon rule: never the
+    -- word). `color` is a concrete RGB (not a token) since it draws directly.
+    local function iconRow(str, color)
+        return {
+            measure = function(fonts) local f = fonts.sm; return IconText.measure(str, f), f:getHeight() end,
+            render  = function(x, y, fonts)
+                IconText.draw(game, str, x, y, fonts.sm, color or Theme.fg.heading, 1)
+            end,
+        }
+    end
+
+    local header = string.format("%s · %s",
+        stats.stake.display_name or stats.stake.id or "?",
+        gtype.short              or gtype.id       or "?")
+
+    local lines = {
+        row(header, "md"),
+        row("Win hands in a row — one loss ends the run.", "sm", "muted"),
+        row("Win rate: " .. fmtPctClean(p) .. " per hand"),
+        row("Payout · chance to finish there:", "sm", "muted"),
+    }
+    -- One row per win level: cash payout + the odds of finishing there. The top
+    -- rung is amber; the {chip} note below carries the chip detail.
+    for _, k in ipairs(thresholds) do
+        lines[#lines + 1] = row(
+            string.format("%d wins  $%.2f   %s", k, (payouts[k] or 0) * buy_in, fmtPctClean(finishOdds(k))),
+            "sm", (k >= cap) and "amber" or nil)
+    end
+    lines[#lines + 1] = iconRow(string.format(
+        "Winning all %d also pays {chip}.", cap), Theme.fg.muted)
+
+    -- Headline cash EV per run (the takeaway), colored by sign.
+    local ev_sign  = (net_ev >= 0) and "+" or "-"
+    local ev_color = (net_ev > 0.005) and "good"
+                  or (net_ev < -0.005) and "error"
+                  or "muted"
+    lines[#lines + 1] = row(string.format("Expected cash: %s$%.2f per run", ev_sign, math.abs(net_ev)),
+        "md", ev_color)
+    return lines
+end
+
 -- Dispatch stats → tooltip rows (cash vs tournament). The single breakdown
 -- path; both the per-table readout and the stake-add buttons go through it.
 local function breakdownFromStats(controller, stats)
     if not stats then return nil end
-    if stats.gtype and stats.gtype.chip_stack_table then
-        return buildMttLines(nil, controller, stats)
+    local gt = stats.gtype
+    if gt and gt.chip_stack_table then
+        return buildMttLines(nil, controller, stats)        -- 8-max KO
+    elseif gt and gt.hand_count then
+        return buildLegacyMttLines(nil, controller, stats)  -- legacy binary MTT
     end
     return buildCashLines(nil, controller, stats)
 end

@@ -69,7 +69,6 @@ function FeltLayout.compute(p)
     local botp     = scaled(sp.bottom_pad, p.s)
     local gap      = scaled(sp.band_gap,   p.s)
     local name_gap = scaled(sp.name_gap,   p.s)
-    local you_pad  = scaled(sp.you_pad,    p.s)
 
     local sm_h = p.sm_h
     local xs_h = p.xs_h or sm_h                             -- opp names + pot text (smaller tier)
@@ -77,7 +76,7 @@ function FeltLayout.compute(p)
     local usable_h = fh - botp                              -- leave the border clear
 
     local bottom_min = math.max(sm_h, p.bottom_extra or 0)  -- cash row OR MTT ladder
-    local opp_name_h = p.hu and p.md_h or xs_h              -- per-seat names are xs now
+    local opp_name_h = xs_h                                 -- all seat names are xs (incl. HU)
 
     -- ── Card scaling: size the cards so the stack FILLS the felt ──────────
     -- card-driven height scales with the cards; font-driven height is fixed.
@@ -215,22 +214,21 @@ function FeltLayout.compute(p)
         }
     end
 
-    -- Bottom row (rects[5]): chips (left edge) | EV (centered, droppable) |
-    -- YOU (right edge), one bottom_pad above the felt border.
+    -- Bottom row (rects[5]): the EV readout sits at the LEFT edge on the bottom
+    -- line, the player chip pile stacks just ABOVE it, and YOU is pinned to the
+    -- right edge. (EV left-aligned means it never collides with YOU.)
     local bot = rects[5]
     local base_bottom = fy + bot.y + bot.h
     local text_top    = base_bottom - sm_h
     local chips_w     = ifloor(fw * 0.25)
-    local tu = BandStack.threeUp(fw - 2 * edge, chips_w, p.you_w or 0, p.ev_w or 0, you_pad)
     L.bottom = {
         baseline_y = text_top,
         chip_scale = card_scale,                -- player pile scales with the cards
         band  = { x = fx, y = fy + bot.y, w = fw, h = bot.h },
-        chips = { x = fx + edge,                y = base_bottom, align = "left",  max_w = chips_w },
-        you   = { x = fx + fw - edge,           y = text_top,    align = "right" },
-        -- The EV readout is ALWAYS shown (never dropped). It renders centered
-        -- in the row; on a narrow felt it simply sits closer to the chips/YOU.
-        ev    = { x = fx + edge + tu.center_x,  y = text_top, w = p.ev_w or 0,
+        -- Chips raised just above the EV line so the pile sits on top of it.
+        chips = { x = fx + edge, y = text_top - name_gap, align = "left", max_w = chips_w },
+        you   = { x = fx + fw - edge, y = text_top, align = "right" },
+        ev    = { x = fx + edge,  y = text_top, w = p.ev_w or 0,
                   show = (p.ev_w or 0) > 0 },
     }
 

@@ -286,6 +286,26 @@ local function buildOutcome(ctx, gtype, stake)
         win_chance = win_chance * ctx.wc_mult
     end
 
+    -- 7. Jackpot emergence (MUST mirror models/outcome_math step 7 — this is the
+    --    Table_legacy copy). For gtypes with `jackpot_emerge`, overwrite the
+    --    jackpot cell: ramp it from the emerge fill point up to its target
+    --    (stake capped jackpot + the gtype's jackpot shift), so the Stack rate
+    --    climbs gradually over the upgrade's top levels instead of dumping the
+    --    whole gain into the final level. Without this the legacy path showed a
+    --    near-zero stack rate (the lerp+shift cancel out) — the Pot Control ramp
+    --    silently broke in the prototype.
+    if gtype and gtype.jackpot_emerge then
+        local sh     = gtype.dist_shifts and gtype.dist_shifts.win_dist
+        local offset = (sh and sh.jackpot) or 0
+        local capped = (stake and stake.win_dist_capped and stake.win_dist_capped.jackpot) or 0
+        local target = capped + offset
+        if target < 0 then target = 0 end
+        local thr  = gtype.jackpot_emerge
+        local ramp = (wd_fill - thr) / math.max(1e-6, 1 - thr)
+        if ramp < 0 then ramp = 0 elseif ramp > 1 then ramp = 1 end
+        win_dist.jackpot = target * ramp
+    end
+
     -- 8. Final clamps. Absolute WC ceiling (no 100% wins).
     if     win_chance < 0                 then win_chance = 0
     elseif win_chance > WC_ABSOLUTE_CAP   then win_chance = WC_ABSOLUTE_CAP end

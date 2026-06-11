@@ -20,6 +20,8 @@ local Panel          = require("views.Panel")
 local CR             = require("views.ComponentRenderer")
 local TablePanel     = require("views.TablePanel")
 local TablePanelStats = require("views.TablePanelStats")
+local Pop            = require("services.Pop")
+local RollingValue   = require("services.RollingValue")
 local CursorPool     = require("services.CursorPool")
 local Chips          = require("views.Chips")
 local Icons          = require("views.Icons")
@@ -302,10 +304,20 @@ function GrindView:_makeGameTypeStrip()
     local GTYPE_BLURB = {
         six_max  = "6-Max — the baseline. Standard pace, 5 seated opponents, no pot-shape bias.",
         hu       = "Heads-Up — duel with one opponent. Fast pace, you win less often, but pots run deep both ways.",
-        zoom     = "Zoom — anonymous reroll pool. Fastest mode, you win slightly more often, but pots stay small.",
+        zoom     = "Zoom — fast hands, random opponents. Easier to win, but pots smaller overall.",
         mtt      = Constants.FEATURES.MTT_KO
                    and "8-max KO — sit down with 100bb chips. Hands play normally; seats bust at zero. Win it all or finish top-3 to cash."
-                   or  "Tournament — 8 hands play out automatically. Win more hands to climb the payout ladder; lose one and the run ends.",
+                   or  {
+                       "Tournament — 8 hands play out automatically. Win more hands to climb the payout ladder; lose one and the run ends.",
+                       {  -- {chip} icon row: chips only come from winning all 8
+                           measure = function(fonts) local f = fonts.sm
+                               return IconText.measure("Winning all 8 also pays {chip}.", f), f:getHeight() end,
+                           render  = function(x, y, fonts)
+                               IconText.draw(self_ref.game,
+                                   "Winning all 8 also pays {chip}.",
+                                   x, y, fonts.sm, Theme.fg.heading, 1) end,
+                       },
+                   },
     }
     return {
         type = "custom",
@@ -439,6 +451,9 @@ function GrindView:_buildTablesTabComponents()
                 type     = "button",
                 id       = "add_table:" .. stake.id .. ":" .. gtype_id,
                 disabled = disabled,
+                -- Gold trim once this (stake, type) has banked its {chip} this
+                -- run — matches the gold border on the open table panel.
+                border_color = banked and Theme.currency.chip or nil,
                 -- EV breakdown tooltip only when the table can be opened.
                 tooltip  = affordable
                            and TablePanelStats.breakdownLinesFor(self.controller, stake, gtype_obj)
@@ -938,7 +953,10 @@ end
 -- returns true when it rendered; if so, the text label is skipped. When
 -- it returns false/nil (e.g. a not-yet-shipped sprite) the text label
 -- still draws, so a cell never loses its identity waiting on art.
-local function drawStatCell(x, w, label, value, value_color, fonts, icon_fn)
+-- value_scale (optional, default 1): a transient grow/pop applied to JUST the
+-- value number (scaled about its own center) so a stat can flag a change
+-- without disturbing its label.
+local function drawStatCell(x, w, label, value, value_color, fonts, icon_fn, value_scale)
     local drew_icon = false
     if icon_fn then
         drew_icon = icon_fn(x, TOPBAR_LABEL_Y, fonts.sm:getHeight()) and true or false
@@ -951,7 +969,18 @@ local function drawStatCell(x, w, label, value, value_color, fonts, icon_fn)
 
     love.graphics.setFont(fonts.md)
     Theme.setColor(value_color)
-    love.graphics.print(value, x, TOPBAR_VALUE_Y)
+    if value_scale and value_scale ~= 1 then
+        local vcx = x + fonts.md:getWidth(value) / 2
+        local vcy = TOPBAR_VALUE_Y + fonts.md:getHeight() / 2
+        love.graphics.push()
+        love.graphics.translate(vcx, vcy)
+        love.graphics.scale(value_scale, value_scale)
+        love.graphics.translate(-vcx, -vcy)
+        love.graphics.print(value, x, TOPBAR_VALUE_Y)
+        love.graphics.pop()
+    else
+        love.graphics.print(value, x, TOPBAR_VALUE_Y)
+    end
 end
 
 -- Draws the active-deck card-back chip at the given x, in a `w`-wide
@@ -1044,13 +1073,17 @@ function GrindView:_drawTopBar(W)
     local n_tables  = self.controller.pool:count()
     local focus_cap = self.controller:currentFocusCapacity()
     local focus_pct = math.floor(self.controller:currentFocusMult() * 100 + 0.5)
+    -- Shift the DISPLAYED % smoothly toward the target instead of snapping (same
+    -- roll feel as the money). The pop/change-watch still keys off focus_pct (the
+    -- real target) so it fires once per change, not on each roll step.
+    local focus_shown = math.floor(RollingValue.get("focus_pct", focus_pct) + 0.5)
 
-    -- Focus % color-coded: green = 100% (no penalty), amber = 70–99%,
-    -- red = <70%.
+    -- Color-coded off the SHOWN value so the tint tracks the rolling number:
+    -- green = 100% (no penalty), amber = 70–99%, red = <70%.
     local focus_color
-    if focus_pct >= 100     then focus_color = Theme.status.good
-    elseif focus_pct >= 70  then focus_color = Theme.status.warn
-    else                         focus_color = Theme.status.error end
+    if focus_shown >= 100     then focus_color = Theme.status.good
+    elseif focus_shown >= 70  then focus_color = Theme.status.warn
+    else                          focus_color = Theme.status.error end
 
     -- SHOVE: live gauntlet-clear readout. Same compute the gauntlet
     -- locks in at click time — players see the grind feed the rate in
@@ -1123,15 +1156,54 @@ function GrindView:_drawTopBar(W)
     }
 
     -- Workload cluster: TABLES (count / focus capacity) · FOCUS %.
-    -- The "N / cap" inline format makes the relationship to FOCUS
-    -- visible at a glance; the hover tooltip explains the mechanic.
+    -- Each number watches itself via Pop.onChange and pops when it changes:
+    -- the open-count X pops on buy/close, the capacity Y only when an upgrade
+    -- moves it, FOCUS% on any focus change. (Both pops are the SAME reusable
+    -- treatment as the showdown winning cards.)
+    local md = fonts.md
+    local function popText(str, px, scale, color)
+        love.graphics.setFont(md)
+        Theme.setColor(color)
+        if scale ~= 1 then
+            local cx, cy = px + md:getWidth(str) / 2, TOPBAR_VALUE_Y + md:getHeight() / 2
+            love.graphics.push()
+            love.graphics.translate(cx, cy)
+            love.graphics.scale(scale, scale)
+            love.graphics.translate(-cx, -cy)
+            love.graphics.print(str, px, TOPBAR_VALUE_Y)
+            love.graphics.pop()
+        else
+            love.graphics.print(str, px, TOPBAR_VALUE_Y)
+        end
+    end
+
+    -- TABLES: "X / Y" with X and Y popping independently.
     local workload_x0 = x
-    drawStatCell(x, CELL_W.tables, "TABLES",
-                 string.format("%d / %d", n_tables, focus_cap),
-                 Theme.fg.primary, fonts)
+    love.graphics.setFont(fonts.sm)
+    Theme.setColor(Theme.fg.muted)
+    love.graphics.print("TABLES", x, TOPBAR_LABEL_Y)
+    local x_str, sep, y_str = tostring(n_tables), " / ", tostring(focus_cap)
+    local xw, sw = md:getWidth(x_str), md:getWidth(sep)
+    popText(x_str, x,           Pop.changeScale("tables_x", n_tables, 1, 0.30, 0.45), Theme.fg.primary)
+    Theme.setColor(Theme.fg.primary)
+    love.graphics.setFont(md)
+    love.graphics.print(sep, x + xw, TOPBAR_VALUE_Y)
+    popText(y_str, x + xw + sw, Pop.changeScale("tables_y", focus_cap, 1, 0.30, 0.45), Theme.fg.primary)
     x = x + CELL_W.tables
-    drawStatCell(x, CELL_W.focus, "FOCUS",  focus_pct .. "%",   focus_color, fonts,
-                 function(ix, iy, isize) return Icons.draw(self.game, "focus", ix, iy, isize, isize) end)
+
+    -- FOCUS%: pops + flashes white when the focus value changes.
+    local fpop    = Pop.onChange("focus", focus_pct, 0.5)
+    local focusFn = function(ix, iy, isize) return Icons.draw(self.game, "focus", ix, iy, isize, isize) end
+    local fcolor  = focus_color
+    if fpop > 0 then
+        fcolor = {
+            focus_color[1] + (1 - focus_color[1]) * fpop,
+            focus_color[2] + (1 - focus_color[2]) * fpop,
+            focus_color[3] + (1 - focus_color[3]) * fpop,
+        }
+    end
+    drawStatCell(x, CELL_W.focus, "FOCUS", focus_shown .. "%", fcolor, fonts, focusFn,
+                 Pop.scale(fpop, 1, 0.45))
     x = x + CELL_W.focus
 
     -- Stash workload rect for the hover tooltip in update().
@@ -1538,16 +1610,20 @@ function GrindView:_drawFloatingText()
         local scale  = t.scale or 1.0
         local alpha  = t.alpha or 1
         local line_h = font:getHeight()
+        local step   = math.floor(line_h * 0.78)   -- tighter stack so the lines read as one group
         love.graphics.setFont(font)
 
-        -- Multi-line aware: split on "\n", center each line on t.x, and stack
-        -- them downward from t.y. The renderer owns the layout, so callers can
-        -- emit ONE float for a whole block (e.g. a win banner + payout lines)
-        -- with no manual per-line offsets to collide or drift off-screen.
+        -- Multi-line aware: split on "\n", center each line on t.x, and CENTER
+        -- the whole block on t.y (it used to stack downward from t.y, dropping a
+        -- win banner's payout lines well below the table center). The renderer
+        -- owns the layout, so callers emit ONE float for a whole block.
+        local n_lines = 1
+        for _ in t.text:gmatch("\n") do n_lines = n_lines + 1 end
+
         love.graphics.push()
         love.graphics.translate(t.x, t.y)
         if scale ~= 1 then love.graphics.scale(scale, scale) end
-        local ly = 0
+        local ly = -((n_lines - 1) * step + line_h) * 0.5
         for line in (t.text .. "\n"):gmatch("(.-)\n") do
             if line:find("{", 1, true) then
                 -- Inline icons (e.g. "+1 {chip}") — IconText, no stroke ring.
@@ -1563,7 +1639,7 @@ function GrindView:_drawFloatingText()
                 Theme.setColor(color, alpha)
                 love.graphics.print(line, -tw * 0.5, ly)
             end
-            ly = ly + line_h
+            ly = ly + step
         end
         love.graphics.pop()
     end

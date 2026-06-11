@@ -278,6 +278,19 @@ function CR._button(comp, px, pw, p, y, game)
         border = Theme.border.default
     end
 
+    -- Optional explicit border override (e.g. a gold "{chip} banked" trim on
+    -- the add-table button). Stays through hover; when the button is disabled
+    -- (can't afford / tables full) it persists but DIMMED, so the banked state
+    -- still reads even when you can't open another.
+    if comp.border_color then
+        if disabled then
+            local g = comp.border_color
+            border = { g[1] * 0.5, g[2] * 0.5, g[3] * 0.5 }
+        else
+            border = comp.border_color
+        end
+    end
+
     Button.draw(px + p, y, content_w, total_h, {
         fill_color   = fill,
         border_color = border,

@@ -42,6 +42,7 @@ local Format        = require("utils.format")
 local CardSprites   = require("views.CardSprites")
 local Effects       = require("views.TablePanelEffects")
 local FeltLayout    = require("views.FeltLayout")
+local Pop           = require("services.Pop")
 
 local TablePanel = {}
 
@@ -406,9 +407,10 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     local card_w   = big and (base_w * 2) or base_w
     local card_h   = big and (base_h * 2) or base_h
     local card_gap = big and 6 or 3
-    -- HU rival keeps the heading font (it IS a rival); the per-seat 6-/9-max
-    -- names drop to xs -- low-priority chrome, shouldn't rival the cards.
-    local name_font = big and fonts.md or (fonts.xs or fonts.sm)
+    -- All seat names use the small xs tier (HU included). HU was md, which
+    -- dwarfed the felt and shrank the opp/community cards -- it's low-priority
+    -- chrome, not worth the space.
+    local name_font = fonts.xs or fonts.sm
     -- cards_y_offset is supplied by views/FeltLayout (= reserved name height +
     -- gap) so cards always begin BELOW the name, at any font/panel size.
     local name_max = big and 14 or 8
@@ -643,15 +645,11 @@ end
 -- gtype is the binary_outcome 8-round MTT.
 local function drawLegacyMttLadder(tbl, gtype, ctx, band, fonts)
     local hands_won = (tbl.mtt and tbl.mtt.hands_won) or 0
-    local hand_cap  = gtype.hand_count or 8
     local f, fh = fonts.sm, fonts.sm:getHeight()
-    local text_y = band.y + math.floor((band.h - fh) / 2)
-
     love.graphics.setFont(f)
-    Theme.setColor(Theme.fg.heading)
-    local hand_txt = string.format("HAND %d/%d", hands_won, hand_cap)
-    love.graphics.print(hand_txt, band.x, text_y)
 
+    -- The HAND x/x counter lives at the (empty) pot slot now (drawn by the
+    -- orchestrator); the payout ladder gets the FULL bottom-band width here.
     local boost        = (ctx and ctx.mtt_payout_boost) or 0
     local payout_table = MttPayouts[boost] or MttPayouts[0]
     local thresholds   = {}
@@ -661,8 +659,8 @@ local function drawLegacyMttLadder(tbl, gtype, ctx, band, fonts)
     if n == 0 then return end
 
     local pip_gap = 4
-    local left    = band.x + f:getWidth(hand_txt) + 10
-    local strip_w = (band.x + band.w) - left
+    local left    = band.x
+    local strip_w = band.w
     local pip_w   = math.floor((strip_w - (n - 1) * pip_gap) / n)
     if pip_w < 24 then pip_w = 24 end
     local pip_h   = band.h
@@ -670,21 +668,32 @@ local function drawLegacyMttLadder(tbl, gtype, ctx, band, fonts)
 
     for i, th in ipairs(thresholds) do
         local px      = left + (i - 1) * (pip_w + pip_gap)
+        local prev    = thresholds[i - 1] or 0     -- previous tier (0 for the first)
         local cleared = hands_won >= th
-        local is_next = not cleared
-        for _, t2 in ipairs(thresholds) do
-            if (not cleared) and t2 < th and hands_won < t2 then is_next = false; break end
+        -- Progress toward THIS tier, measured from the previous tier. The first
+        -- pip fills over its full hand span (e.g. 0->6), so it starts empty and
+        -- gains ~1/span per won hand instead of flashing yellow at hand 0. Once
+        -- reached it's a solid green pip. Later (1-hand) tiers fill in one step.
+        local progress = 0
+        if cleared then
+            progress = 1
+        elseif hands_won > prev then
+            progress = (hands_won - prev) / math.max(1, th - prev)
         end
 
-        local fill = cleared and Theme.status.good
-                     or is_next and Theme.status.warn
-                     or Theme.bg.sunken
-        local text_color = (cleared or is_next) and Theme.bg.window or Theme.fg.muted
-        Theme.setColor(fill)
+        -- Empty pip background, then a left-anchored green fill for the progress.
+        Theme.setColor(Theme.bg.sunken)
         love.graphics.rectangle("fill", px, pip_y, pip_w, pip_h, Theme.space.radius)
+        if progress > 0 then
+            Theme.setColor(Theme.status.good)
+            love.graphics.rectangle("fill", px, pip_y,
+                math.max(1, math.floor(pip_w * progress)), pip_h, Theme.space.radius)
+        end
         Theme.setColor(Theme.border.soft)
         love.graphics.rectangle("line", px, pip_y, pip_w, pip_h, Theme.space.radius)
-        Theme.setColor(text_color)
+        -- Dark text on a solid (cleared) pip; light text otherwise so it reads
+        -- over both the sunken background and a partial green fill.
+        Theme.setColor(cleared and Theme.bg.window or Theme.fg.heading)
         love.graphics.printf(string.format("%d:%dx", th, payout_table[th] or 0),
             px, pip_y + math.floor((pip_h - fh) / 2), pip_w, "center")
     end
@@ -1113,9 +1122,8 @@ local function drawShowdownEmphasis(tbl, L, sl, win5)
     -- once on the showdown reveal, then the cards just hold their enlarged size
     -- through the chip move (same scale at the boundary -> no snap).
     local st    = tbl.state_timer or 0
-    local pop   = (tbl.state ~= "settling") and math.max(0, 1 - st / 0.25) or 0
-    pop         = pop * pop                       -- ease-out
-    local scale = 1.13 + 0.13 * pop               -- pops to ~1.26, rests at 1.13
+    local pop   = (tbl.state ~= "settling") and Pop.fromTimer(st, 0.25) or 0
+    local scale = Pop.scale(pop, 1.13, 0.13)      -- rests at 1.13, pops to ~1.26
     for _, c in ipairs(shown) do
         if inCombo(c.card, win5) then
             local gw, gh = c.w * scale, c.h * scale
@@ -1246,6 +1254,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     love.graphics.setLineWidth(border_width)
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
     love.graphics.setLineWidth(1)
+    -- Whether this (stake, game type) has banked its {chip} this run — used for
+    -- the gold chrome trim, drawn AFTER the header below so it wraps the whole
+    -- panel (the header draws its own border over the top edge otherwise).
+    local banked = controller and controller:bountyBanked(tbl.stake_id, tbl.game_type_id)
 
     -- Border-pulse flash on top of the static border. Decays in
     -- Table:update; color comes from the win/lost branch in the
@@ -1261,6 +1273,15 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     local cursor_on        = (controller and controller.ctx and controller.ctx.cursor_unlocked) or false
     local rebuy_cursor_on  = (controller and controller.ctx and controller.ctx.cursor_rebuy_unlocked) or false
     drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, true, cursor_on, rebuy_cursor_on, s, ui_s)
+
+    -- Gold "{chip} banked" trim around the WHOLE panel chrome. Drawn after the
+    -- header so it overdraws the header's own border on the top edge/sides.
+    if banked then
+        Theme.setColor(Theme.currency.chip)
+        love.graphics.setLineWidth(math.max(1, math.floor(2 * s)))
+        love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+        love.graphics.setLineWidth(1)
+    end
 
     -- Felt area.
     local felt_x = x + FELT_INSET
@@ -1409,6 +1430,38 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- Pot pile + "Pot: $X", drawn AFTER the emphasis so the chips stay on top of
     -- the dim/grow overlay (the pile is meant to overlap the community cards).
     if L.pot then drawPotLabel(tbl, L.pot, fonts) end
+
+    -- Legacy MTT: the binary-outcome pot is always empty, so the felt-center
+    -- pot slot shows the HAND x/x tournament counter instead (the payout ladder
+    -- spans the full bottom band below).
+    if L.pot and tbl.state ~= "idle"
+       and gtype and gtype.hand_count and not gtype.chip_stack_table then
+        local hands_won = (tbl.mtt and tbl.mtt.hands_won) or 0
+        local fh  = fonts.sm:getHeight()
+        -- Center vertically in the OPEN gap between the community and hole cards
+        -- (L.pot.text_y is offset low for the cash pile, which lands on the
+        -- hole cards when there's no pile).
+        local top = (L.community and (L.community.y + L.community.card_h)) or L.pot.text_y
+        local bot = (L.hole and L.hole.y) or (top + fh)
+        local hy  = top + math.floor((bot - top - fh) / 2)
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.setFont(fonts.sm)
+        love.graphics.printf(string.format("HAND %d/%d", hands_won, gtype.hand_count or 8),
+            L.pot.text_x, hy, L.pot.text_w, "center")
+    end
+
+    -- Payout-bar hover (legacy MTT): surface the SAME breakdown tooltip the EV
+    -- section / add-table button show, so the ladder explains itself. A
+    -- tooltip-only hit_box over the bottom band.
+    if hit_boxes and L.bottom and L.bottom.band
+       and gtype and gtype.hand_count and not gtype.chip_stack_table then
+        local stake = Lookups.findById(Stakes, tbl.stake_id)
+        local b     = L.bottom.band
+        hit_boxes[#hit_boxes + 1] = {
+            x = b.x, y = b.y, w = b.w, h = b.h,
+            tooltip = Stats.breakdownLinesFor(controller, stake, gtype),
+        }
+    end
 
     -- Showdown hand-name label — the prefix-free name ("two pair, Ks and 3s")
     -- of the WINNING hand, parked AT the winner so position names who: just

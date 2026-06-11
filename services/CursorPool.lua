@@ -27,6 +27,7 @@ local CursorPool = {}
 -- Module-private state.
 local _cursors = {}               -- list of Cursor instances
 local _last_W, _last_H = 1280, 720  -- last seen screen dimensions, for spawn-on-grow
+local _ripples = {}               -- {x, y, t} click ripples
 
 -- ── Tuning constants ───────────────────────────────────────────────────
 -- Speed expressed as a fraction of the screen diagonal per second so the
@@ -109,6 +110,8 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
         -- so it only fires once per click.
         if c._just_dispatched then
             c._just_dispatched = nil
+            -- Record a click ripple at the tap point (drawn in :draw).
+            _ripples[#_ripples + 1] = { x = c.x, y = c.y, t = love.timer.getTime() }
             SoundService.playNamed("cursor_tap")
         end
     end
@@ -148,18 +151,35 @@ local function drawShape(c, mode)
 end
 
 function CursorPool.draw()
-    if #_cursors == 0 then return end
-    -- Fill pass — warm cream so cursors pop above the felt green and
-    -- read distinctly from the player's white OS mouse pointer.
-    Theme.setColor(Theme.fg.heading, 0.95)
-    for _, c in ipairs(_cursors) do
-        drawShape(c, "fill")
+    if #_cursors == 0 and #_ripples == 0 then return end
+    local tnow = (love.timer and love.timer.getTime()) or 0
+
+    if #_cursors > 0 then
+        -- Fill pass — warm cream so cursors read above the felt green and
+        -- distinct from the player's white OS mouse pointer.
+        Theme.setColor(Theme.fg.heading, 0.95)
+        for _, c in ipairs(_cursors) do
+            drawShape(c, "fill")
+        end
+        -- Outline pass for contrast.
+        Theme.setColor(Theme.border.strong, 1.0)
+        love.graphics.setLineWidth(1)
+        for _, c in ipairs(_cursors) do
+            drawShape(c, "line")
+        end
     end
-    -- Outline pass for contrast.
-    Theme.setColor(Theme.border.strong, 1.0)
-    love.graphics.setLineWidth(1)
-    for _, c in ipairs(_cursors) do
-        drawShape(c, "line")
+
+    -- Click ripples: a ring expands + fades out from each tap point.
+    for i = #_ripples, 1, -1 do
+        local rp = _ripples[i]
+        local k  = (tnow - rp.t) / 0.35
+        if k >= 1 then
+            table.remove(_ripples, i)
+        else
+            Theme.setColor(Theme.fg.heading, (1 - k) * 0.8)
+            love.graphics.setLineWidth(2)
+            love.graphics.circle("line", rp.x, rp.y, 3 + 20 * k)
+        end
     end
 end
 
