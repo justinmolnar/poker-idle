@@ -162,10 +162,7 @@ function TitleState:_handleButton(id)
 end
 
 function TitleState:_doStart()
-    -- Fresh game: wipe disk + in-memory state, then drop into grind.
-    self.game.save_service:clearAll()
-    self.game.state:wipeAll()
-    self.game.state_machine:switch("grind")
+    if self.game.startNewGame then self.game.startNewGame() end
 end
 
 function TitleState:_doDelete()

@@ -67,6 +67,7 @@ local GLOSSARY = {
 
 -- Returns a configured ActionModal (:resolved() is truthy once dismissed).
 function OnboardingModal:new(game)
+    local consent_default = (game.settings and game.settings.analytics_consent == true)
     return ActionModal:new{
         game    = game,
         title   = "HOW TO PLAY",
@@ -75,6 +76,7 @@ function OnboardingModal:new(game)
         w       = 1240,
         buttons      = { { text = "Got it, deal me in", value = "ok", primary = true } },
         note         = "Got feedback or found a bug?\nLeave a comment — it really helps!",
+        checkbox     = { text = "Send Anonymous Gameplay Analytics", default = consent_default },
         keys    = { space = "ok", ["return"] = "ok", kpenter = "ok" },
         body    = function(ui, fonts, s)
             local sm  = fonts.sm

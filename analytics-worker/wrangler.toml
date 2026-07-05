@@ -1,0 +1,8 @@
+name = "poker-idle-analytics"
+main = "src/index.js"
+compatibility_date = "2026-07-05"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "poker-idle-analytics"
+database_id = "155507df-0838-4079-b2d8-0c6931348e72"

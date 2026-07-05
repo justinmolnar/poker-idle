@@ -12,6 +12,10 @@ local Constants      = require("data.constants")
 local Decks          = require("models.Decks")
 local DeckSpecs      = require("data.decks")
 
+local function genSaveId()
+    return string.format("%d_%05d", os.time(), math.random(10000, 99999))
+end
+
 local GameState = {}
 GameState.__index = GameState
 
@@ -35,6 +39,10 @@ function GameState:new(saved)
     instance.owned_items = {}
     instance.cleared     = false   -- true once the gauntlet is beaten — gates the credits screen on boot
     instance.onboarded   = false   -- true once the intro how-to-play modal has been dismissed
+    -- Analytics identity. save_id is stable for the lifetime of a save slot;
+    -- shove_count increments each prestige so analytics can track power level.
+    instance.save_id    = genSaveId()
+    instance.shove_count = 0
 
     -- Deck-system meta state (persists forever; never reset by prestige).
     -- Only the starter (DeckSpecs[1]) is unlocked at fresh start. The
@@ -144,6 +152,7 @@ function GameState:resetRun()
     self.stakes_won_this_run = {}
     self.chips_this_run      = 0
     self.effects_cache       = nil
+    self.shove_count         = (self.shove_count or 0) + 1
 end
 
 -- Resets BOTH meta and run sides to fresh-game defaults. Called from the
@@ -177,7 +186,12 @@ function GameState:wipeAll()
     self.lifetime_hands_played          = 0
     self.lifetime_hands_at_4plus_tables = 0
 
+    -- New save identity — fresh game, fresh analytics file.
+    self.save_id    = genSaveId()
+    self.shove_count = 0
     self:resetRun()
+    -- resetRun incremented shove_count to 1; wipeAll is shove 0 (first run).
+    self.shove_count = 0
 end
 
 -- Apply both meta and run payloads. Called from SaveService:loadAll wrapper
@@ -215,6 +229,9 @@ function GameState:applySaved(saved)
     self.lifetime_mtt_hands_won         = self.lifetime_mtt_hands_won         or 0
     self.lifetime_hands_played          = self.lifetime_hands_played          or 0
     self.lifetime_hands_at_4plus_tables = self.lifetime_hands_at_4plus_tables or 0
+    -- Analytics identity — backfill for saves predating this field.
+    self.save_id    = self.save_id    or genSaveId()
+    self.shove_count = self.shove_count or 0
 end
 
 -- Drop unknown deck ids from unlocked_decks / deck_levels / deck_xp and
@@ -256,6 +273,8 @@ end
 -- lifetime counters that drive unlock checks). For meta.save.
 function GameState:serializeMeta()
     return {
+        save_id                         = self.save_id,
+        shove_count                     = self.shove_count,
         chips                           = self.chips,
         owned_items                     = self.owned_items,
         cleared                         = self.cleared,

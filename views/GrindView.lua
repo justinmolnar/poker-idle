@@ -809,15 +809,32 @@ function GrindView:update(dt)
         end
     end
 
-    -- SHOVE button hover tooltip (direct rect — no hit_box entry). Same
-    -- breakdown the top-bar column shows, plus a final "click to lock"
-    -- line so the player understands the rate freezes at click time.
+    -- SHOVE button hover tooltip (direct rect — no hit_box entry). Leads
+    -- with what a shove actually does (all-in for the bankroll, ends the
+    -- run, prestige), then the {chip} the run will bank (mirrors the "+N"
+    -- readout on the button), the rate breakdown, and a "click to lock".
     local sb = self:_shoveButtonRect()
     if mx >= sb.x and mx < sb.x + sb.w and my >= sb.y and my < sb.y + sb.h then
         local state = self.game.state
         local ctx = (self.controller and self.controller.ctx) or {}
         local rates = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
-        local lines = ShoveRate.formatBreakdown(rates)
+        local pending    = state.chips_this_run or 0
+        local chip_line  = string.format("Banks +%d {chip} for the catalog.", pending)
+        local chip_color = (pending > 0) and Theme.status.good or Theme.fg.muted
+        local game       = self.game
+        local lines = {
+            { style = "sm", color_token = "muted",
+              text = "Bet everything on one all-in hand at the rate below."
+                  .. " Winning beats the prototype (you can keep playing"
+                  .. " after). Either way you bank this run's chips to spend"
+                  .. " in the catalog on permanent upgrades, then a new run"
+                  .. " starts." },
+            { measure = function(fonts) local f = fonts.sm
+                  return IconText.measure(chip_line, f), f:getHeight() end,
+              render  = function(x, y, fonts)
+                  IconText.draw(game, chip_line, x, y, fonts.sm, chip_color, 1) end },
+        }
+        for _, r in ipairs(ShoveRate.formatBreakdown(rates)) do lines[#lines + 1] = r end
         lines[#lines + 1] = "Click to lock this rate."
         TooltipSvc.set(lines, mx, my)
     end

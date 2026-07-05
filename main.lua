@@ -35,6 +35,7 @@ local Tooltip         = require("services.Tooltip")
 local Ghosts          = require("services.Ghosts")
 local AnchorRegistry  = require("services.AnchorRegistry")
 local ShaderRegistry  = require("services.ShaderRegistry")
+local HandAnalytics   = require("services.HandAnalytics")
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
@@ -54,6 +55,57 @@ local TitleState   = require("states.TitleState")
 
 local Game = nil
 
+-- ── Fixed-resolution rendering + sharp-bilinear scaling ─────────────────────
+-- A pixel font can't be rasterized at fractional sizes without artifacts
+-- (nearest → uneven strokes, antialias → gridlines). So the game renders ONCE
+-- at a fixed base resolution with the crisp 1-bit pixel font into a canvas, and
+-- that finished IMAGE is scaled to the window through a sharp-bilinear shader:
+-- each source pixel stays hard with only a ~1px antialiased seam at its edge.
+-- Crisp at ANY window size — no gridlines (we scale an image, not glyphs) and
+-- no uneven strokes (the whole frame scales uniformly). Standard pixel-art tech.
+--
+-- getDimensions/getWidth/getHeight report the base size so layout stays in base
+-- space; mouse coords map back through the fit. Scissor needs no override — the
+-- game draws into the base-sized canvas, so clip rects are already base coords.
+local BASE_W, BASE_H = 1600, 900
+local _realDimensions = love.graphics.getDimensions
+local _realGetPos     = love.mouse.getPosition
+local _frameCanvas, _scaleShader
+
+-- Uniform fit scale + centering offset that maps the base frame onto the window.
+local function fitTransform()
+    local ww, wh = _realDimensions()
+    if ww == 0 or wh == 0 then return 1, 0, 0 end
+    local s = math.min(ww / BASE_W, wh / BASE_H)
+    return s, (ww - BASE_W * s) / 2, (wh - BASE_H * s) / 2
+end
+
+love.graphics.getDimensions = function() return BASE_W, BASE_H end
+love.graphics.getWidth      = function() return BASE_W end
+love.graphics.getHeight     = function() return BASE_H end
+love.mouse.getPosition = function()
+    local x, y = _realGetPos()
+    local s, ox, oy = fitTransform()
+    return (x - ox) / s, (y - oy) / s
+end
+
+-- Sharp-bilinear: bilinear sampling confined to a 1-output-pixel band at each
+-- source-texel boundary, flat (hard) everywhere else. The canvas must use a
+-- linear filter so Texture() interpolates. u_scale = output px per source px.
+local SHARP_BILINEAR = [[
+extern vec2 u_sourceSize;
+extern vec2 u_scale;
+vec4 effect(vec4 color, Image tex, vec2 uv, vec2 px) {
+    vec2 texel        = uv * u_sourceSize;
+    vec2 texelFloored = floor(texel);
+    vec2 s            = fract(texel);
+    vec2 regionRange  = vec2(0.5) - vec2(0.5) / u_scale;
+    vec2 centerDist   = s - vec2(0.5);
+    vec2 f = (centerDist - clamp(centerDist, -regionRange, regionRange)) * u_scale + vec2(0.5);
+    return Texel(tex, (texelFloored + f) / u_sourceSize) * color;
+}
+]]
+
 -- Periodic auto-save accumulator. Only ticks while we're inside the
 -- gameplay states (not title/credits) and no menu-class modal is up.
 -- Persisted in love.update; reset whenever a save fires.
@@ -68,9 +120,9 @@ local function buildGame()
     }
 
     g.theme           = Theme
-    -- Fonts scale by an integer factor based on the current window
-    -- (1× at 1280×720, 2× at 2560×1440, 3× at 3840×2160). main.lua's
-    -- love.resize rebuilds the table in place on window changes.
+    -- Fonts scale as a smooth float with the window (antialiased TTF, so any
+    -- size rasterizes cleanly). love.resize rebuilds the table in place at the
+    -- new window size so the atlas is always rasterized at its display size.
     local _vw, _vh    = love.graphics.getDimensions()
     g.fonts           = FontService.build(ThemeData.font, _vw, _vh)
     -- Float layout scale exposed on the DI container so any view can
@@ -127,11 +179,15 @@ local function buildGame()
     local saved       = g.save_service:loadAll()
     g.state           = GameState:new(saved)
 
-    -- Apply persisted settings (volume only).
-    local prefs = g.save_service:loadSettings()
-    if prefs and type(prefs.volume) == "number" then
+    -- Apply persisted settings.
+    local prefs = g.save_service:loadSettings() or {}
+    if type(prefs.volume) == "number" then
         SoundService.setMasterVolume(prefs.volume)
     end
+    g.settings = {
+        volume            = SoundService.getMasterVolume(),
+        analytics_consent = prefs.analytics_consent == true,  -- nil → false
+    }
 
     g.effects = EffectsRegistry:new()
     PokerEffects.registerAll(g.effects)
@@ -162,6 +218,21 @@ local function buildGame()
     g.state_machine:register("shove",   ShoveState:new(g))
     g.state_machine:register("credits", CreditsState:new(g))
     g.state_machine:register("title",   TitleState:new(g))
+
+    g.startNewGame = function()
+        g.save_service:clearAll()
+        g.state:wipeAll()
+        if g.settings then
+            g.settings.analytics_consent = false
+            g.save_service:saveSettings(g.settings)
+        end
+        for _, st in pairs(g.state_machine.states) do
+            if type(st) == "table" and type(st.fullReset) == "function" then
+                st:fullReset()
+            end
+        end
+        g.state_machine:switch("grind")
+    end
 
     g.input_dispatcher = InputDispatcher:new()
     g.input_controller = InputController:new(g)
@@ -241,26 +312,49 @@ function love.update(dt)
                 autosave_timer = 0
                 local state = Game.state
                 Game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
+                HandAnalytics.flush(state)
             end
         end
     end
 end
 
 function love.draw()
+    if not _frameCanvas then
+        _frameCanvas = love.graphics.newCanvas(BASE_W, BASE_H)
+        _frameCanvas:setFilter("linear", "linear")   -- shader needs bilinear sampling
+        _scaleShader = love.graphics.newShader(SHARP_BILINEAR)
+    end
+
+    -- Render the game into the fixed base-resolution canvas (crisp, 1:1).
+    love.graphics.setCanvas(_frameCanvas)
+    love.graphics.clear(love.graphics.getBackgroundColor())
     Game.state_machine:draw()
+    love.graphics.setCanvas()
+
+    -- Scale the finished frame to the window via the sharp-bilinear shader.
+    local s, ox, oy = fitTransform()
+    _scaleShader:send("u_sourceSize", { BASE_W, BASE_H })
+    _scaleShader:send("u_scale",      { s, s })
+    love.graphics.setShader(_scaleShader)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(_frameCanvas, ox, oy, 0, s, s)
+    love.graphics.setShader()
 end
 
 function love.keypressed(key)    Game.input_dispatcher:dispatch("keypressed",   key)         end
 function love.keyreleased(key)   Game.input_dispatcher:dispatch("keyreleased",  key)         end
 
-function love.mousepressed(x, y, b)    Game.input_dispatcher:dispatch("mousepressed",  x, y, b)    end
-function love.mousereleased(x, y, b)   Game.input_dispatcher:dispatch("mousereleased", x, y, b)    end
-function love.mousemoved(x, y, dx, dy) Game.input_dispatcher:dispatch("mousemoved", x, y, dx, dy)  end
+function love.mousepressed(x, y, b)    local s, ox, oy = fitTransform(); Game.input_dispatcher:dispatch("mousepressed",  (x-ox)/s, (y-oy)/s, b)          end
+function love.mousereleased(x, y, b)   local s, ox, oy = fitTransform(); Game.input_dispatcher:dispatch("mousereleased", (x-ox)/s, (y-oy)/s, b)          end
+function love.mousemoved(x, y, dx, dy) local s, ox, oy = fitTransform(); Game.input_dispatcher:dispatch("mousemoved", (x-ox)/s, (y-oy)/s, dx/s, dy/s)    end
 function love.textinput(text)    Game.input_dispatcher:dispatch("textinput",    text)        end
 function love.wheelmoved(x, y)   Game.input_dispatcher:dispatch("wheelmoved",   x, y)        end
 
 function love.resize(w, h)
     if not Game then return end
+    -- The game always lays out at the base resolution; the canvas+shader handle
+    -- fitting to the window. Use the (fixed) base dims, ignore the window size.
+    w, h = love.graphics.getDimensions()
     if Game.viewport then
         Game.viewport.w, Game.viewport.h = w, h
     end
@@ -291,6 +385,7 @@ function love.quit()
     -- quit doesn't get lost. Skip from the menu-class states (no useful
     -- run state to commit).
     if Game then
+        HandAnalytics.flush(Game.state)
         local current = Game.state_machine and Game.state_machine:current()
         if current == "grind" or current == "shove" then
             local state = Game.state

@@ -35,13 +35,12 @@ function SettingsModal.configureFromFonts(fonts)
     ROW_H = fonts.md:getHeight() + 22
 end
 
--- Volume-only persistence. Display state is session-local.
-local function persistVolume(self)
+-- Merge-write the full settings table so analytics_consent is never wiped.
+local function persistSettings(self)
     local g = self.game
-    if not (g and g.save_service and g.save_service.saveSettings) then return end
-    g.save_service:saveSettings({
-        volume = SoundService.getMasterVolume(),
-    })
+    if not (g and g.save_service and g.settings) then return end
+    g.settings.volume = SoundService.getMasterVolume()
+    g.save_service:saveSettings(g.settings)
 end
 
 function SettingsModal.applySaved(payload)
@@ -65,11 +64,18 @@ function SettingsModal:new(game)
         value     = SoundService.getMasterVolume(),
         on_change = function(v)
             SoundService.setMasterVolume(v)
-            persistVolume(self_inst)
+            persistSettings(self_inst)
         end,
     }
 
     return self_inst
+end
+
+local function toggleAnalytics(self)
+    local g = self.game
+    if not (g and g.settings) then return end
+    g.settings.analytics_consent = not g.settings.analytics_consent
+    persistSettings(self)
 end
 
 -- Confirm-dialog factories per kind. Adding a new prompt = one entry here.
@@ -102,17 +108,7 @@ end
 -- equivalent of the title screen's "Start". Runs every state's fullReset
 -- first so the live cursor swarm / in-flight chips don't dangle past the wipe.
 function SettingsModal:_performNewGame()
-    local g = self.game
-    if g.save_service then g.save_service:clearAll() end
-    if g.state then g.state:wipeAll() end
-    if g.state_machine and g.state_machine.states then
-        for _, st in pairs(g.state_machine.states) do
-            if type(st) == "table" and type(st.fullReset) == "function" then
-                st:fullReset()
-            end
-        end
-        g.state_machine:switch("grind")
-    end
+    if self.game.startNewGame then self.game.startNewGame() end
 end
 
 function SettingsModal:_performLoad()
@@ -141,9 +137,10 @@ local ACTION_HANDLERS = {
             g.save_service:saveAll(g.state:serializeMeta(), g.state:serializeRun())
         end
     end,
-    load     = function(self) self:_performLoad() end,
-    new_game = function(self) self:_openConfirm("new_game") end,
-    quit     = function(self) self:_openConfirm("quit") end,
+    load      = function(self) self:_performLoad() end,
+    new_game  = function(self) self:_openConfirm("new_game") end,
+    quit      = function(self) self:_openConfirm("quit") end,
+    analytics = function(self) toggleAnalytics(self) end,
 }
 
 function SettingsModal:_runAction(action)
@@ -221,7 +218,7 @@ function SettingsModal:draw()
     -- Rebuild the modal frame each draw so its width tracks scale.
     self._modal = Modal:new{ title = "Settings", w = MODAL_W }
 
-    local rows = 5  -- volume, save, load, new game, quit
+    local rows = 6  -- volume, analytics, save, load, new game, quit
     local body_h = rows * ROW_H + (rows - 1) * ROW_GAP
 
     local body = self._modal:draw(fonts, body_h)
@@ -232,7 +229,7 @@ function SettingsModal:draw()
 
     -- Volume — label on the left, slider track in the middle,
     -- live percentage on the right. Drag-anywhere on the track sets
-    -- the knob; persistVolume runs on each on_change.
+    -- the knob; persistSettings runs on each on_change.
     local vol_pct = math.floor(SoundService.getMasterVolume() * 100 + 0.5)
     Theme.setColor(Theme.fg.muted)
     love.graphics.setFont(fonts.md)
@@ -275,6 +272,40 @@ function SettingsModal:draw()
         end
         y = y + ROW_H + ROW_GAP
     end
+
+    -- Analytics consent — same checkbox style as the onboarding modal.
+    do
+        local ana_on  = not (self.game.settings and self.game.settings.analytics_consent == false)
+        local ana_hov = mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H
+        local box_sz  = math.floor(12 * s)
+        local lh      = fonts.md:getHeight()
+        local label   = "Send Anonymous Gameplay Analytics"
+        local box_x   = row_x + math.floor(10 * s)
+        local box_y   = y + math.floor((ROW_H - box_sz) / 2)
+        local text_y  = y + math.floor((ROW_H - lh) / 2)
+        local label_x = box_x + box_sz + math.floor(8 * s)
+        if ana_hov then
+            Theme.setColor(Theme.bg.widget)
+            love.graphics.rectangle("fill", row_x, y, row_w, ROW_H, math.floor(3 * s))
+        end
+        Theme.setColor(ana_on and Theme.status.good or Theme.bg.widget)
+        love.graphics.rectangle("fill", box_x, box_y, box_sz, box_sz, math.floor(2*s))
+        Theme.setColor(ana_on and Theme.status.good or Theme.border.default)
+        love.graphics.rectangle("line", box_x, box_y, box_sz, box_sz, math.floor(2*s))
+        if ana_on then
+            love.graphics.setFont(fonts.sm)
+            Theme.setColor(Theme.bg.window)
+            love.graphics.print("\xE2\x9C\x93", box_x + math.floor(1*s), box_y - math.floor(1*s))
+        end
+        love.graphics.setFont(fonts.md)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.print(label, label_x, text_y)
+        self._row_rects[#self._row_rects + 1] = {
+            x = row_x, y = y, w = row_w, h = ROW_H, action = "analytics",
+        }
+        y = y + ROW_H + ROW_GAP
+    end
+
     action_row("Save now",       "save")
     action_row("Load save",      "load")
     action_row("Start new game", "new_game")

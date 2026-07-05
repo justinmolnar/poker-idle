@@ -24,6 +24,7 @@ local AnchorRegistry = require("services.AnchorRegistry")
 local Confetti       = require("services.Confetti")
 local StakeThemes    = require("data.stake_themes")
 local Lookups        = require("utils.lookups")
+local HandAnalytics  = require("services.HandAnalytics")
 
 -- Chip-bounty key: a (stake, game_type) combo locks one bounty per run.
 -- 4 game types × 6 stakes = 24 distinct bounty slots — total ~84 chips for
@@ -175,6 +176,21 @@ function GrindController:update(dt)
                 self.game.state.bankroll = self.game.state.bankroll + payout
                 self:_emitMttPayoutChips(t, payout)
             end
+            if Constants.DEBUG.HAND_ANALYTICS then
+                local mtt_stake = Lookups.findById(Stakes, t.stake_id)
+                HandAnalytics.recordHand({
+                    t_start      = love.timer.getTime(),
+                    duration     = 0,
+                    won          = is_win,
+                    delta        = payout,
+                    tier         = "mtt_payout",
+                    stake_id     = t.stake_id,
+                    stake_bb     = mtt_stake and mtt_stake.bb or nil,
+                    game_type_id = t.game_type_id,
+                    prototype    = Constants.PROTOTYPE_MODE,
+                    hands_played = hands_cleared,
+                })
+            end
 
             if is_win then
                 -- Chip bounty: first jackpot-equivalent per (stake, gtype) per
@@ -273,6 +289,33 @@ function GrindController:update(dt)
                 new_bankroll = 0
             end
             state.bankroll = new_bankroll
+        end
+
+        -- Analytics: record hand timing and outcome. The start timestamp was
+        -- stamped by dealHand() or by the auto-deal re-stamp below. After
+        -- recording, we check whether the table already re-entered dealing
+        -- (auto-deal MTT path fires inside Table:update before we get here)
+        -- and re-stamp so the next resolution has a valid duration.
+        if Constants.DEBUG.HAND_ANALYTICS and tbl then
+            if tbl._hand_start_t then
+                HandAnalytics.recordHand({
+                    t_start        = tbl._hand_start_t,
+                    duration       = love.timer.getTime() - tbl._hand_start_t,
+                    won            = r.won,
+                    delta          = r.delta,
+                    tier           = r.tier,
+                    stake_id       = tbl.stake_id,
+                    stake_bb       = stake and stake.bb or nil,
+                    game_type_id   = tbl.game_type_id,
+                    hand_pace_mult = (self.ctx and self.ctx.hand_pace_mult) or 1,
+                    deck_id        = self.game.state.active_deck_id,
+                    prototype      = Constants.PROTOTYPE_MODE,
+                })
+                tbl._hand_start_t = nil
+            end
+            if tbl.state ~= "idle" then
+                tbl._hand_start_t = love.timer.getTime()
+            end
         end
 
         -- Floater label & color. Three flavors:
@@ -571,6 +614,14 @@ function GrindController:buyRunUpgrade(upgrade_id)
 
     state.bankroll = state.bankroll - cost
     state.run_upgrade_levels[upgrade_id] = current + 1
+    HandAnalytics.recordEvent({
+        t            = love.timer.getTime(),
+        type         = "run_upgrade",
+        item_id      = upgrade_id,
+        level        = current + 1,
+        cost_dollars = cost,
+        bankroll     = state.bankroll,
+    })
     self:invalidateEffects()
     self:_playNamed("upgrade_purchased")
     return true
@@ -666,7 +717,15 @@ function GrindController:buyCatalogItem(item_id)
     for _, it in ipairs(Catalog) do
         if it.id == item_id then item = it; break end
     end
+    local chips_before = self.game.state.chips
     if not self.game.state:tryBuyCatalogItem(item) then return false end
+    HandAnalytics.recordEvent({
+        t          = love.timer.getTime(),
+        type       = "catalog",
+        item_id    = item_id,
+        cost_chips = chips_before - self.game.state.chips,
+        chips      = self.game.state.chips,
+    })
     self:invalidateEffects()
     self:_playNamed("upgrade_purchased")
     return true
@@ -826,6 +885,9 @@ function GrindController:dealHand(idx)
     -- Stack must be positive to play. Hitting 0 means the table is busted
     -- and the player must :rebuyTable before dealing again.
     if (t.stack or 0) <= 0 then return false end
+    if Constants.DEBUG.HAND_ANALYTICS then
+        t._hand_start_t = love.timer.getTime()
+    end
     local ok = t:deal(self.ctx)
     if ok then self:_emitDealChips(t) end
     return ok

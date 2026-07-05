@@ -26,6 +26,7 @@ local Catalog     = require("data.catalog")
 local LabelButton = require("views.widgets.LabelButton")
 local Icons       = require("views.Icons")
 local IconText    = require("views.IconText")
+local TooltipSvc     = require("services.Tooltip")
 
 local CatalogModal = {}
 CatalogModal.__index = CatalogModal
@@ -150,6 +151,10 @@ end
 
 function CatalogModal:consumeKey(key)
     if key == "space" or key == "return" or key == "kpenter" then
+        local _, owned = visibleItems(self.game.state)
+        if (not self.read_only) and (not owned["poker_poster"]) then
+            return true -- Block resolution, but consume the key
+        end
         self._resolved = true
         return true
     end
@@ -188,6 +193,10 @@ function CatalogModal:consumeMouse(mx, my, button)
     local r = self._continue_rect
     if r and mx >= r.x and mx < r.x + r.w
        and my >= r.y and my < r.y + r.h then
+        local _, owned = visibleItems(self.game.state)
+        if (not self.read_only) and (not owned["poker_poster"]) then
+            return true -- Block resolution
+        end
         self._resolved = true
         return true
     end
@@ -208,7 +217,7 @@ end
 
 local function moneyish(n) return string.format("%d", n or 0) end
 
-local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
+local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing_tutorial)
     local is_owned   = owned[item.id]
     local locked     = item.requires and not owned[item.requires]
     local affordable = (not is_owned) and (not locked) and state.chips >= (item.cost_chip or 0)
@@ -220,11 +229,15 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
     -- when affordable, faint when can't afford yet.
     local bg = Theme.bg.window
     local border = Theme.border.soft
+    local is_tutorial_target = forcing_tutorial and item.id == "poker_poster"
+
     if is_owned then
         bg = Theme.bg.sunken
         border = Theme.border.soft
     elseif locked then
         bg = Theme.bg.sunken
+    elseif is_tutorial_target then
+        border = Theme.currency.chip -- Gold border for the tutorial target
     elseif buyable then
         border = Theme.fg.heading
     end
@@ -232,10 +245,14 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
     Theme.setColor(bg)
     love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
     Theme.setColor(border)
+    local lw = is_tutorial_target and 2 or 1
+    love.graphics.setLineWidth(lw)
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+    love.graphics.setLineWidth(1)
 
     -- Header: name (left) + cost (right).
-    local name_color = is_owned and Theme.fg.muted
+    local name_color = is_tutorial_target and Theme.currency.chip
+                       or is_owned and Theme.fg.muted
                        or locked and Theme.fg.faint
                        or Theme.fg.heading
     Theme.setColor(name_color)
@@ -301,7 +318,13 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
     local sctx = {}
     self.game.effects:applyAll(item, sctx)
     local shove = sctx.shove_rate or 0
-    if shove > 0 then
+    if is_tutorial_target then
+        local stxt = "GET THIS TO START YOUR RUN"
+        love.graphics.setFont(fonts.sm)
+        Theme.setColor(Theme.status.good)
+        local sw = fonts.sm:getWidth(stxt)
+        love.graphics.print(stxt, x + w - CARD_PAD_X - sw, flavor_y)
+    elseif shove > 0 then
         local stxt = string.format("+%d%% shove", math.floor(shove * 100 + 0.5))
         love.graphics.setFont(fonts.sm)
         Theme.setColor(Theme.fg.muted)
@@ -309,7 +332,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts)
         love.graphics.print(stxt, x + w - CARD_PAD_X - sw, flavor_y)
     end
 
-    -- Stash for hit-testing.
+    -- Stash for hit-testing (screen space).
     self._cells[#self._cells + 1] = {
         x = x, y = y, w = w, h = h, item = item, buyable = buyable,
     }
@@ -346,6 +369,8 @@ function CatalogModal:draw()
                              pad = 0 }
 
     local items, owned = visibleItems(state)
+    local forcing_tutorial = (not owned["poker_poster"]) and (not self.read_only)
+
     local n_rows   = math.ceil(#items / GRID_COLS)
     local card_w   = math.floor((MODAL_W - 2 * MODAL_PAD - GRID_GAP_X) / GRID_COLS)
     local content_h = n_rows * CARD_H + math.max(0, n_rows - 1) * GRID_GAP_Y
@@ -386,7 +411,7 @@ function CatalogModal:draw()
         local cx = viewport_x + col * (card_w + GRID_GAP_X)
         local cy = viewport_y + row * (CARD_H + GRID_GAP_Y) - self._scroll_y
         if cy + CARD_H >= viewport_y and cy <= viewport_y + viewport_h then
-            drawItemCard(self, item, owned, state, cx, cy, card_w, CARD_H, fonts)
+            drawItemCard(self, item, owned, state, cx, cy, card_w, CARD_H, fonts, forcing_tutorial)
         end
     end
 
@@ -404,9 +429,7 @@ function CatalogModal:draw()
         love.graphics.rectangle("fill", track_x, thumb_y, 4, thumb_h, 2)
     end
 
-    -- Continue button at the bottom. Replaces the old "[ SPACE to
-    -- continue ]" text prompt so the modal works in prototype mode
-    -- (where every key is dead) — click to dismiss.
+    -- Continue button at the bottom.
     local s_ui    = (self.game.ui_scale) or 1
     local btn_w   = math.max(140, math.floor(200 * s_ui))
     local btn_h   = math.max(28, math.floor(40  * s_ui))
@@ -417,17 +440,26 @@ function CatalogModal:draw()
     local mx, my = love.mouse.getPosition()
     local hov = mx >= btn_x and mx < btn_x + btn_w
                 and my >= btn_y and my < btn_y + btn_h
+
     LabelButton.draw{
         x = btn_x, y = btn_y, w = btn_w, h = btn_h,
         text         = "Continue",
         fonts        = fonts,
         font         = fonts.md,
-        hovered      = hov,
+        hovered      = hov and (not forcing_tutorial),
+        disabled     = forcing_tutorial,
         depth        = 3,
-        fill_token   = hov and Theme.status.good or Theme.bg.widget,
-        border_token = Theme.status.good,
-        text_token   = hov and Theme.bg.window or Theme.status.good,
+        fill_token   = (hov and not forcing_tutorial) and Theme.status.good or Theme.bg.widget,
+        border_token = forcing_tutorial and Theme.fg.disabled or Theme.status.good,
+        text_token   = (hov and not forcing_tutorial) and Theme.bg.window or (forcing_tutorial and Theme.fg.disabled or Theme.status.good),
     }
+
+    -- Continue is disabled until the free Poker Poster is grabbed (intro).
+    -- Explain why on hover. Set here in draw (mx/my read this frame) so it
+    -- tracks the cursor smoothly — same pattern as SettingsModal's tooltips.
+    if hov and forcing_tutorial then
+        TooltipSvc.set("Get the Poker Poster to start your next run.", mx, my)
+    end
 
     if self._scroll_max > 0 then
         love.graphics.setFont(fonts.sm)
@@ -437,6 +469,9 @@ function CatalogModal:draw()
     end
 
     self._modal:endDraw()
+    
+    -- Tooltip draw at the very end to be on top.
+    TooltipSvc.draw(fonts)
 end
 
 return CatalogModal

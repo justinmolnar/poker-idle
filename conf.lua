@@ -43,10 +43,13 @@ function love.conf(t)
     t.window.resizable  = true
     t.window.vsync      = 1
     t.window.fullscreen = false
-    -- Bypass Windows' DPI scaling: ask LÖVE for actual physical pixels
-    -- so "1600" means 1600px on the panel, not 1600×<DPI scale>. Without
-    -- this, on a 175% DPI display the requested 1600×900 window
-    -- balloons to ~2800×1575 actual pixels.
+    -- Ask LÖVE for actual physical pixels. On desktop (with SetProcessDPIAware
+    -- above) the window opens at physical px. On web, highdpi makes
+    -- getPixelDimensions() report the true device resolution (3840×2160 on a
+    -- 4K/150% display) while getDimensions() reports the smaller CSS size
+    -- (2560×1440) — main.lua's web HiDPI layer lays the game out in that full
+    -- device-pixel space so web matches the native window. (Required on: with
+    -- highdpi off, pixel == CSS and that layer has nothing to scale.)
     t.window.highdpi    = true
 
     t.modules.physics  = false

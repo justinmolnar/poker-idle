@@ -29,6 +29,7 @@ local Catalog            = require("data.catalog")
 local RunUpgrades        = require("data.run_upgrades")
 local Constants          = require("data.constants")
 local ShoveRate          = require("models.shove_rate")
+local HandAnalytics      = require("services.HandAnalytics")
 
 local ShoveState = {}
 ShoveState.__index = ShoveState
@@ -130,19 +131,20 @@ end
 function ShoveState:exit() end
 
 function ShoveState:_beginGauntlet()
+    HandAnalytics.recordShoveStart(self.shove_rates)
     self.gauntlet = Gauntlet:new(self.game, self.shove_rates)
     local result = self.gauntlet:begin()
     self.overlay:recordAttempt(result)
     self.view:onGauntletBegin()
     self._ended_handled = false
 
-    -- Console echo for hand-verification. The HUD has the live aggregate;
-    -- this dump is the copy-pasteable record per attempt.
-    print(Gauntlet.formatResult(result, self.overlay.attempts))
-    print(string.format("  ↳ session: %d/%d wins (%.1f%%, expected %.1f%%)",
-        self.overlay.wins, self.overlay.attempts,
-        100 * self.overlay.wins / math.max(1, self.overlay.attempts),
-        100 * (self.shove_rates and self.shove_rates.clear or 0)))
+    if Constants.DEBUG.SHOW_DEBUG_OVERLAY then
+        print(Gauntlet.formatResult(result, self.overlay.attempts))
+        print(string.format("  ↳ session: %d/%d wins (%.1f%%, expected %.1f%%)",
+            self.overlay.wins, self.overlay.attempts,
+            100 * self.overlay.wins / math.max(1, self.overlay.attempts),
+            100 * (self.shove_rates and self.shove_rates.clear or 0)))
+    end
 end
 
 function ShoveState:_onGauntletEnded()
@@ -154,6 +156,7 @@ function ShoveState:_onGauntletEnded()
     -- state.chips during the run via GrindController on each
     -- first-win-at-stake. The modal just reads state.chips_this_run.
     local chips_banked = state.chips_this_run or 0
+    HandAnalytics.recordShoveResult(result, chips_banked)
 
     -- Demo-cut intercept: when FEATURES.DEMO_CUT is on, winning R1 then
     -- losing R2 is the natural cliffhanger that ends the demo. Show the

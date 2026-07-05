@@ -70,11 +70,13 @@ end
 
 -- opts:
 --   game, title, w (base design width, x ui_scale)
---   buttons = { { text=, value=, primary=bool }, ... }
---   keys    = { [keyname] = value, ... }
---   body    = function(layout, fonts, s) end   (uses layout:para/gap/custom)
+--   buttons  = { { text=, value=, primary=bool }, ... }
+--   keys     = { [keyname] = value, ... }
+--   body     = function(layout, fonts, s) end   (uses layout:para/gap/custom)
+--   checkbox = { text = "...", default = true }  (optional; renders above buttons)
 function ActionModal:new(opts)
     local s = modalScale()
+    local cb = opts.checkbox
     return setmetatable({
         game         = opts.game,
         buttons      = opts.buttons or {},
@@ -86,10 +88,13 @@ function ActionModal:new(opts)
         -- ui_scale every :draw so the modal resizes when the window changes size
         -- while it's open, instead of freezing at the creation-time scale.
         _base_w      = opts.w,
-        _resolved = nil,
-        _rects    = {},
-        _scroll_y = 0,
-        _drag     = false,
+        _resolved    = nil,
+        _rects       = {},
+        _scroll_y    = 0,
+        _drag        = false,
+        _checkbox      = cb,
+        _checkbox_on   = cb and cb.default ~= false,
+        _checkbox_rect = nil,
         _modal    = Modal:new{
             title       = opts.title,
             title_align = opts.title_align,
@@ -127,6 +132,12 @@ function ActionModal:consumeMouse(mx, my, button)
                 return true
             end
         end
+        -- Checkbox toggle — does not resolve the modal.
+        local cr = self._checkbox_rect
+        if cr and mx >= cr.x and mx < cr.x + cr.w and my >= cr.y and my < cr.y + cr.h then
+            self._checkbox_on = not self._checkbox_on
+            return true
+        end
         for _, r in ipairs(self._rects) do
             if mx >= r.x and mx < r.x + r.w and my >= r.y and my < r.y + r.h then
                 self._resolved = r.value
@@ -136,6 +147,8 @@ function ActionModal:consumeMouse(mx, my, button)
     end
     return true
 end
+
+function ActionModal:checkboxChecked() return self._checkbox_on end
 
 -- Scroll input. No-ops unless the last draw left a scrollable track.
 function ActionModal:wheelmoved(_, dy)
@@ -181,7 +194,8 @@ function ActionModal:draw()
     for _, spec in ipairs(self.buttons) do
         btn_w = math.max(btn_w, fonts.md:getWidth(spec.text) + math.floor(40 * s))
     end
-    local btn_area = math.floor(24 * s) + btn_h + math.floor(BTN_BOTTOM_PAD * s)
+    local cb_row_h = self._checkbox and (fonts.sm:getHeight() + math.floor(8 * s)) or 0
+    local btn_area = cb_row_h + btn_h + math.floor(BTN_BOTTOM_PAD * s)
 
     -- Measure the body, then size the frame to fit content + buttons (the Modal
     -- caps the height at its max_h_frac).
@@ -221,12 +235,11 @@ function ActionModal:draw()
         self._track = nil
     end
 
-    -- Button row at the bottom of the body. With a note it's a two-column row
-    -- distributed space-around (note + button group each sit a calculated
-    -- distance off their edge); otherwise centered (or right via button_align).
-    local n        = #self.buttons
-    local total    = n * btn_w + math.max(0, n - 1) * gap
-    local by       = body.y + body.h - btn_h - math.floor(BTN_BOTTOM_PAD * s)
+    local n      = #self.buttons
+    local total  = n * btn_w + math.max(0, n - 1) * gap
+    local by     = body.y + body.h - btn_h - math.floor(BTN_BOTTOM_PAD * s)
+
+    -- Note + button row — compute bx first so checkbox can sit above it.
     local has_note = self.note and self.note ~= ""
     local note_w, note_lines = 0, nil
     if has_note then note_w, note_lines = fonts.sm:getWrap(self.note, body.w) end
@@ -242,6 +255,32 @@ function ActionModal:draw()
         bx = body.x + body.w - total
     else
         bx = body.x + math.floor((body.w - total) / 2)
+    end
+
+    -- Checkbox: above the button column.
+    if self._checkbox then
+        local lh       = fonts.sm:getHeight()
+        local box_sz   = math.floor(12 * s)
+        local label_px = fonts.sm:getWidth(self._checkbox.text)
+        local row_w    = box_sz + math.floor(8 * s) + label_px
+        local cb_y     = by - cb_row_h
+        local box_x    = bx + math.floor((total - row_w) / 2)
+        local box_y    = cb_y + math.floor((cb_row_h - box_sz) / 2)
+        local label_x  = box_x + box_sz + math.floor(8 * s)
+        local text_y   = cb_y + math.floor((cb_row_h - lh) / 2)
+        self._checkbox_rect = { x = box_x, y = cb_y, w = row_w, h = cb_row_h }
+        Theme.setColor(self._checkbox_on and Theme.status.good or Theme.bg.widget)
+        love.graphics.rectangle("fill", box_x, box_y, box_sz, box_sz, math.floor(2*s))
+        Theme.setColor(self._checkbox_on and Theme.status.good or Theme.border.default)
+        love.graphics.rectangle("line", box_x, box_y, box_sz, box_sz, math.floor(2*s))
+        if self._checkbox_on then
+            love.graphics.setFont(fonts.sm)
+            Theme.setColor(Theme.bg.window)
+            love.graphics.print("\xE2\x9C\x93", box_x + math.floor(1*s), box_y - math.floor(1*s))
+        end
+        love.graphics.setFont(fonts.sm)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.print(self._checkbox.text, label_x, text_y)
     end
 
     if has_note then

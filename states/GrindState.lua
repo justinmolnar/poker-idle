@@ -20,8 +20,10 @@ local Ghosts          = require("services.Ghosts")
 local CatalogModal    = require("views.CatalogModal")
 local DeckSelectModal = require("views.DeckSelectModal")
 local SettingsModal   = require("views.SettingsModal")
-local OnboardingModal = require("views.OnboardingModal")
+local OnboardingModal        = require("views.OnboardingModal")
+local AnalyticsConsentModal  = require("views.AnalyticsConsentModal")
 local Constants       = require("data.constants")
+local HandAnalytics   = require("services.HandAnalytics")
 
 local GrindState = {}
 GrindState.__index = GrindState
@@ -41,6 +43,7 @@ function GrindState:new(game)
         -- One-page how-to-play. Auto-opens on first grind (state.onboarded);
         -- replayable any time via the top-bar "?" button.
         onboarding_modal   = nil,
+        analytics_modal    = nil,
     }, GrindState)
     self.controller = GrindController:new(game)
     self.view       = GrindView:new(game, self.controller)
@@ -110,7 +113,31 @@ end
 -- acknowledgement so it never auto-opens again. The view never sets this —
 -- the host owns the state mutation (MVC).
 function GrindState:_dismissOnboarding()
+    local consent = self.onboarding_modal:checkboxChecked()
     self.onboarding_modal = nil
+    if consent then
+        self:_saveConsent(true)
+        self:_finalizeOnboarding()
+    else
+        self.analytics_modal = AnalyticsConsentModal:new(self.game)
+    end
+end
+
+function GrindState:_resolveAnalyticsConsent()
+    local accepted = self.analytics_modal:resolved() == "accept"
+    self.analytics_modal = nil
+    self:_saveConsent(accepted)
+    self:_finalizeOnboarding()
+end
+
+function GrindState:_saveConsent(consent)
+    if self.game.settings then
+        self.game.settings.analytics_consent = consent
+        self.game.save_service:saveSettings(self.game.settings)
+    end
+end
+
+function GrindState:_finalizeOnboarding()
     if not self.game.state.onboarded then
         self.game.state.onboarded = true
         self.game.save_service:saveAll(
@@ -138,6 +165,8 @@ function GrindState:enter()
     -- pre-revealed attributes.
     self.controller:invalidateEffects()
     self.controller.pool:rebuildFromState(self.controller.ctx)
+
+    HandAnalytics.startRun(self.game.state)
 
     -- First-run how-to-play, shown before the player meets the scripted intro
     -- loss. Auto-opens once; dismissing it persists `onboarded`.
@@ -178,6 +207,9 @@ function GrindState:draw()
     if self.onboarding_modal then
         self.onboarding_modal:draw()
     end
+    if self.analytics_modal then
+        self.analytics_modal:draw()
+    end
 end
 
 -- Called by InputController F6/F7 handlers via the fullResetAllStates
@@ -205,6 +237,11 @@ function GrindState:keypressed(key)
     if self.onboarding_modal then
         self.onboarding_modal:consumeKey(key)
         if self.onboarding_modal:resolved() then self:_dismissOnboarding() end
+        return
+    end
+    if self.analytics_modal then
+        self.analytics_modal:consumeKey(key)
+        if self.analytics_modal:resolved() then self:_resolveAnalyticsConsent() end
         return
     end
     -- Modal-first input: ESC always closes; SPACE/RETURN dismiss the
@@ -252,6 +289,11 @@ function GrindState:mousepressed(x, y, b)
         if self.onboarding_modal:resolved() then self:_dismissOnboarding() end
         return
     end
+    if self.analytics_modal then
+        self.analytics_modal:consumeMouse(x, y, b)
+        if self.analytics_modal:resolved() then self:_resolveAnalyticsConsent() end
+        return
+    end
     if self.settings_modal then
         local consumed = self.settings_modal:consumeMouse(x, y, b)
         if not consumed then self:closeSettings() end
@@ -284,6 +326,10 @@ function GrindState:mousereleased(x, y, b)
         self.onboarding_modal:mousereleased(x, y, b)
         return
     end
+    if self.analytics_modal then
+        self.analytics_modal:mousereleased(x, y, b)
+        return
+    end
     if self.settings_modal then
         if self.settings_modal.mousereleased then
             self.settings_modal:mousereleased(x, y, b)
@@ -298,6 +344,10 @@ end
 function GrindState:mousemoved(x, y, dx, dy)
     if self.onboarding_modal then
         self.onboarding_modal:mousemoved(x, y)
+        return
+    end
+    if self.analytics_modal then
+        self.analytics_modal:mousemoved(x, y)
         return
     end
     if self.settings_modal then

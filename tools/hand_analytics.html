@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Poker Idle — Hand Analytics</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Consolas, monospace; background: #1a1a2e; color: #e0e0e0; padding: 16px; }
+h1 { color: #0ff; margin-bottom: 4px; font-size: 22px; }
+h1 small { font-size: 11px; color: #666; font-weight: normal; }
+h2 { color: #0ff; font-size: 16px; margin: 16px 0 8px; }
+h3 { font-size: 13px; color: #0ff; margin-bottom: 8px; }
+
+#load-section { margin: 12px 0; }
+#folder-drop {
+  border: 2px dashed #444; padding: 24px; text-align: center; color: #666;
+  border-radius: 8px; cursor: pointer; transition: border-color 0.2s; margin-bottom: 8px;
+}
+#folder-drop.hover { border-color: #0ff; color: #0ff; }
+#folder-drop.loaded { border-color: #0a0; color: #0a0; padding: 10px; font-size: 12px; }
+#load-status { font-size: 11px; color: #888; margin-top: 4px; }
+
+#tab-bar { display: flex; gap: 0; margin: 12px 0 0; border-bottom: 2px solid #333; flex-wrap: wrap; }
+.tab {
+  padding: 6px 14px; cursor: pointer; font-size: 12px; font-family: inherit;
+  background: #16213e; color: #888; border: 1px solid #333; border-bottom: none;
+  border-radius: 4px 4px 0 0; margin-bottom: -2px; transition: all 0.15s;
+}
+.tab:hover { color: #ccc; background: #1a2a4e; }
+.tab.active { color: #0ff; background: #1a1a2e; border-color: #0ff; border-bottom: 2px solid #1a1a2e; }
+.tab .count { font-size: 9px; color: #555; margin-left: 3px; }
+.tab.active .count { color: #088; }
+
+.controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+.controls label { font-size: 11px; color: #888; }
+.controls select, .controls input {
+  background: #16213e; color: #e0e0e0; border: 1px solid #444; padding: 3px 6px;
+  font-family: inherit; font-size: 11px; border-radius: 3px;
+}
+
+#content { margin-top: 12px; }
+.hidden { display: none !important; }
+
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.chart-grid.single { grid-template-columns: 1fr; }
+.chart-grid.three { grid-template-columns: 1fr 1fr 1fr; }
+.chart-box { background: #16213e; border: 1px solid #333; border-radius: 6px; padding: 12px; position: relative; height: 300px; }
+.chart-box.tall { height: 400px; }
+.chart-box .chart-wrap { position: relative; width: 100%; height: calc(100% - 24px); }
+
+table { width: 100%; border-collapse: collapse; font-size: 11px; }
+th { background: #0a3d62; color: #0ff; padding: 5px 6px; text-align: left; cursor: pointer; position: sticky; top: 0; white-space: nowrap; user-select: none; }
+th:hover { background: #0ff; color: #000; }
+td { padding: 3px 6px; border-bottom: 1px solid #222; white-space: nowrap; }
+tr:hover td { background: #1a2a4e; }
+.num { text-align: right; }
+.table-wrap { max-height: 480px; overflow-y: auto; margin-top: 8px; border: 1px solid #333; border-radius: 4px; }
+
+.c-win  { color: #0f0; }
+.c-loss { color: #f44; }
+.c-zero { color: #555; }
+.c-good { color: #0f0; font-weight: bold; }
+.c-ok   { color: #ff0; }
+.c-bad  { color: #f44; }
+
+.stats-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.stat-card { background: #16213e; border: 1px solid #333; border-radius: 6px; padding: 8px 14px; min-width: 110px; text-align: center; }
+.stat-card .val { font-size: 20px; color: #0ff; font-weight: bold; }
+.stat-card .lbl { font-size: 9px; color: #888; margin-top: 2px; }
+
+.shove-row { margin: 4px 0; font-size: 11px; }
+.shove-row .save-label { color: #666; margin-right: 6px; }
+.shove-chip {
+  display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px;
+  cursor: pointer; border: 1px solid #444; margin: 2px; transition: all 0.15s;
+}
+.shove-chip.active { border-color: #0ff; color: #0ff; }
+.shove-chip.inactive { color: #555; }
+</style>
+</head>
+<body>
+<h1>Poker Idle — Hand Analytics <small>drop analytics_*.json files to load</small></h1>
+
+<div id="load-section">
+  <div id="folder-drop" onclick="document.getElementById('file-input').click()">
+    Drop <b>analytics_*.json</b> files here, or click to select
+    <input type="file" id="file-input" multiple accept=".json" style="display:none">
+  </div>
+  <div style="font-size:11px; color:#555; margin-top:6px;">
+    Save folder:
+    <span id="save-path" style="color:#888; cursor:pointer; border-bottom:1px dashed #555;"
+      title="Click to copy"
+      onclick="navigator.clipboard.writeText(this.textContent).then(()=>{ this.style.color='#0f0'; setTimeout(()=>this.style.color='#888',1000); })">
+      C:\Users\chate\AppData\Roaming\LOVE\poker-idle
+    </span>
+    <span style="color:#444; margin-left:6px;">(click to copy — paste into file picker address bar)</span>
+  </div>
+  <div id="load-status"></div>
+</div>
+
+<div id="main-ui" class="hidden">
+  <div id="shove-bar" style="margin-bottom:8px;"></div>
+
+  <div id="tab-bar"></div>
+  <div id="content"></div>
+</div>
+
+<script>
+// ── Constants ─────────────────────────────────────────────────────────────
+const TYPE_COLORS = {
+  six_max: '#f80',
+  hu:      '#f44',
+  mtt:     '#84f',
+  zoom:    '#0ff',
+};
+const TIER_COLORS = {
+  small:   '#4a4',
+  medium:  '#ff0',
+  large:   '#f80',
+  jackpot: '#f44',
+};
+const TYPE_LABELS = { six_max: '6-Max', hu: 'HU', mtt: 'MTT', zoom: 'Zoom' };
+const TIER_ORDER  = ['small', 'medium', 'large', 'jackpot', 'mtt_payout'];
+const SHOVE_COLORS = ['#0ff','#f80','#0f0','#f44','#84f','#ff0','#f0f','#08f','#fa0','#0f8'];
+
+function typeColor(t) { return TYPE_COLORS[t] || '#888'; }
+function tierColor(t) { return TIER_COLORS[t] || '#888'; }
+function typeLabel(t) { return TYPE_LABELS[t] || t; }
+
+// ── State ─────────────────────────────────────────────────────────────────
+let saves      = [];   // [{ filename, save_id, shoves: [...] }]
+let shoveOn    = {};   // "saveIdx|shove_count" → bool
+let activeTab  = 'overview';
+let charts     = {};
+let sortState  = {};
+
+// ── Loading ────────────────────────────────────────────────────────────────
+const drop  = document.getElementById('folder-drop');
+const input = document.getElementById('file-input');
+
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('hover'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('hover'));
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.classList.remove('hover');
+  loadFiles([...e.dataTransfer.files].filter(f => f.name.endsWith('.json')));
+});
+input.addEventListener('change', e => {
+  loadFiles([...e.target.files].filter(f => f.name.endsWith('.json')));
+});
+
+async function loadFiles(files) {
+  let loaded = 0, skipped = 0;
+  for (const file of files) {
+    try {
+      const text = await file.text();
+      const raw  = JSON.parse(text);
+      // New format: { save_id, shoves: [...] }
+      if (raw.save_id && Array.isArray(raw.shoves)) {
+        const existing = saves.findIndex(s => s.save_id === raw.save_id);
+        if (existing >= 0) {
+          // Merge shoves from re-loaded file
+          for (const shove of raw.shoves) {
+            const ei = saves[existing].shoves.findIndex(s => s.shove_count === shove.shove_count);
+            if (ei >= 0) saves[existing].shoves[ei] = shove;
+            else saves[existing].shoves.push(shove);
+            const key = existing + '|' + shove.shove_count;
+            if (shoveOn[key] === undefined) shoveOn[key] = true;
+          }
+        } else {
+          const si = saves.length;
+          saves.push({ filename: file.name, save_id: raw.save_id, shoves: raw.shoves });
+          for (const shove of raw.shoves) {
+            shoveOn[si + '|' + shove.shove_count] = true;
+          }
+        }
+        loaded++;
+      } else {
+        skipped++;
+      }
+    } catch(e) { skipped++; console.warn('Failed:', file.name, e); }
+  }
+  document.getElementById('load-status').textContent =
+    `${saves.length} save(s) loaded${skipped ? ', ' + skipped + ' skipped' : ''}`;
+  drop.className = 'loaded';
+  drop.textContent = saves.map(s => s.filename).join('  |  ');
+  document.getElementById('main-ui').classList.remove('hidden');
+  renderShoveBar();
+  buildTabs();
+  renderTab();
+}
+
+// ── Shove bar ──────────────────────────────────────────────────────────────
+function shoveKey(si, sc) { return si + '|' + sc; }
+
+function renderShoveBar() {
+  const el = document.getElementById('shove-bar');
+  el.innerHTML = '';
+  saves.forEach((save, si) => {
+    const row = document.createElement('div');
+    row.className = 'shove-row';
+    row.innerHTML = `<span class="save-label">${save.filename.replace('analytics_','').replace('.json','')}</span>`;
+    const shovesSorted = [...save.shoves].sort((a,b) => a.shove_count - b.shove_count);
+    for (const shove of shovesSorted) {
+      const key = shoveKey(si, shove.shove_count);
+      const chip = document.createElement('span');
+      chip.className = 'shove-chip ' + (shoveOn[key] ? 'active' : 'inactive');
+      chip.textContent = 'Shove #' + shove.shove_count;
+      chip.onclick = () => {
+        shoveOn[key] = !shoveOn[key];
+        renderShoveBar(); renderTab();
+      };
+      row.appendChild(chip);
+    }
+    el.appendChild(row);
+  });
+}
+
+// ── Active hands + shoves ──────────────────────────────────────────────────
+function activeHands() {
+  const hands = [];
+  saves.forEach((save, si) => {
+    for (const shove of save.shoves) {
+      if (!shoveOn[shoveKey(si, shove.shove_count)]) continue;
+      for (const h of (shove.hands || [])) {
+        hands.push({ ...h, _save_idx: si, _shove_count: shove.shove_count });
+      }
+    }
+  });
+  return hands;
+}
+
+function activeShoves() {
+  const out = [];
+  saves.forEach((save, si) => {
+    for (const shove of save.shoves) {
+      if (!shoveOn[shoveKey(si, shove.shove_count)]) continue;
+      out.push({ ...shove, _save_idx: si, _save_id: save.save_id });
+    }
+  });
+  return out.sort((a,b) => a._save_idx !== b._save_idx ? a._save_idx - b._save_idx : a.shove_count - b.shove_count);
+}
+
+function groupBy(arr, key) {
+  const out = {};
+  for (const item of arr) {
+    const k = item[key] || 'unknown';
+    if (!out[k]) out[k] = [];
+    out[k].push(item);
+  }
+  return out;
+}
+
+function groupBySlot(arr) {
+  const out = {};
+  for (const item of arr) {
+    const k = (item.game_type_id || '?') + '|' + (item.stake_id || '?');
+    if (!out[k]) out[k] = { game_type_id: item.game_type_id, stake_id: item.stake_id, stake_bb: item.stake_bb, hands: [] };
+    out[k].hands.push(item);
+  }
+  return out;
+}
+
+function slotLabel(game_type_id, stake_id) {
+  return typeLabel(game_type_id) + ' ' + (stake_id || '?');
+}
+function slotColor(game_type_id) { return typeColor(game_type_id); }
+
+function avg(arr, fn) { return arr.length ? arr.reduce((s, x) => s + fn(x), 0) / arr.length : 0; }
+function sum(arr, fn) { return arr.reduce((s, x) => s + fn(x), 0); }
+
+function splitPayouts(hands) {
+  return {
+    hands:   hands.filter(h => h.tier !== 'mtt_payout'),
+    payouts: hands.filter(h => h.tier === 'mtt_payout'),
+  };
+}
+
+function statsForHands(hands) {
+  const { hands: hs, payouts } = splitPayouts(hands);
+  if (!hs.length && !payouts.length) return { count: 0, avg_dur: 0, avg_bb: 0, win_rate: 0, dpm: 0, total_delta: 0, window_s: 0 };
+  const all = [...hs, ...payouts];
+  const first = all.reduce((a, b) => a.t_start < b.t_start ? a : b);
+  const last  = hs.length ? hs.reduce((a, b) => a.t_start > b.t_start ? a : b) : first;
+  const window_s = Math.max(0.001, (last.t_start + (last.duration || 0)) - first.t_start);
+  const total_delta = sum(all, h => h.delta);
+  const bbHands = hs.filter(h => h.stake_bb > 0);
+  const avg_bb  = bbHands.length ? avg(bbHands, h => h.delta / h.stake_bb) : null;
+  return {
+    count:        hs.length,
+    payout_count: payouts.length,
+    avg_dur:      hs.length ? avg(hs, h => h.duration) : 0,
+    avg_bb,
+    avg_delta:    hs.length ? avg(hs, h => h.delta) : 0,
+    win_rate:     hs.length ? hs.filter(h => h.won).length / hs.length : 0,
+    dpm:          total_delta / (window_s / 60),
+    total_delta,
+    window_s,
+  };
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function buildTabs() {
+  const bar = document.getElementById('tab-bar');
+  bar.innerHTML = '';
+  const tabs = [
+    { id: 'overview',  label: 'Overview' },
+    { id: 'shoves',    label: 'Shoves', count: activeShoves().length },
+    { id: 'timeline',  label: 'Timeline' },
+    { id: 'bytype',    label: 'By Type' },
+    { id: 'bytier',    label: 'By Tier' },
+    { id: 'hands',     label: 'Hands', count: activeHands().length },
+  ];
+  for (const t of tabs) {
+    const el = document.createElement('div');
+    el.className = 'tab' + (activeTab === t.id ? ' active' : '');
+    el.innerHTML = t.label + (t.count != null ? `<span class="count">${t.count}</span>` : '');
+    el.onclick = () => { activeTab = t.id; buildTabs(); renderTab(); };
+    bar.appendChild(el);
+  }
+}
+
+function renderTab() {
+  const el = document.getElementById('content');
+  el.innerHTML = '';
+  destroyCharts();
+  buildTabs();
+  if      (activeTab === 'overview')  renderOverview(el);
+  else if (activeTab === 'shoves')    renderShoves(el);
+  else if (activeTab === 'timeline')  renderTimeline(el);
+  else if (activeTab === 'bytype')    renderByType(el);
+  else if (activeTab === 'bytier')    renderByTier(el);
+  else if (activeTab === 'hands')     renderHands(el);
+}
+
+function destroyCharts() {
+  Object.values(charts).forEach(c => { try { c.destroy(); } catch(e) {} });
+  charts = {};
+}
+
+// ── Overview ───────────────────────────────────────────────────────────────
+function renderOverview(el) {
+  const hands = activeHands();
+  if (!hands.length) { el.textContent = 'No hands in active shoves.'; return; }
+
+  const st = statsForHands(hands);
+  const bySlot = groupBySlot(hands);
+
+  const cards = document.createElement('div');
+  cards.className = 'stats-row';
+  const dpmColor = st.dpm >= 0 ? '#0ff' : '#f44';
+  cards.innerHTML = `
+    <div class="stat-card"><div class="val">${hands.length}</div><div class="lbl">Hands</div></div>
+    <div class="stat-card"><div class="val">${fmtDur(st.window_s)}</div><div class="lbl">Active Window</div></div>
+    <div class="stat-card"><div class="val">${st.avg_dur.toFixed(2)}s</div><div class="lbl">Avg Duration</div></div>
+    <div class="stat-card"><div class="val" style="color:${dpmColor}">${fmtDpm(st.dpm)}</div><div class="lbl">$/min (active)</div></div>
+    <div class="stat-card"><div class="val">${(st.win_rate*100).toFixed(1)}%</div><div class="lbl">Win Rate</div></div>
+    <div class="stat-card"><div class="val" style="color:${st.total_delta>=0?'#0f0':'#f44'}">${fmtDelta(st.total_delta)}</div><div class="lbl">Net $</div></div>
+  `;
+  el.appendChild(cards);
+
+  const grid = document.createElement('div');
+  grid.className = 'chart-grid';
+  el.appendChild(grid);
+
+  charts.cumul = makeCumulChart(grid, hands);
+  charts.durBySlot = makeDurBySlotChart(grid, bySlot);
+
+  el.appendChild(makeSlotTable(bySlot));
+}
+
+function makeCumulChart(container, _unused) {
+  const box = document.createElement('div');
+  box.className = 'chart-box tall';
+  box.innerHTML = '<h3>Cumulative $ over hands</h3>';
+  const wrap = document.createElement('div');
+  wrap.className = 'chart-wrap';
+  const canvas = document.createElement('canvas');
+  wrap.appendChild(canvas);
+  box.appendChild(wrap);
+  container.appendChild(box);
+
+  const datasets = [];
+  let colorIdx = 0;
+  saves.forEach((save, si) => {
+    const shovesSorted = [...save.shoves].sort((a,b) => a.shove_count - b.shove_count);
+    for (const shove of shovesSorted) {
+      if (!shoveOn[shoveKey(si, shove.shove_count)]) continue;
+      let running = 0;
+      const points = (shove.hands || []).map((h, idx) => {
+        running += h.delta; return { x: idx + 1, y: +running.toFixed(4) };
+      });
+      const col = SHOVE_COLORS[colorIdx++ % SHOVE_COLORS.length];
+      datasets.push({
+        label: `${save.save_id.slice(-6)} #${shove.shove_count}`,
+        data: points,
+        borderColor: col, backgroundColor: 'transparent',
+        borderWidth: 2, pointRadius: 0, tension: 0.2, showLine: true,
+      });
+    }
+  });
+
+  return new Chart(canvas, {
+    type: 'scatter',
+    data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#ccc', font: { size: 10 } } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label} hand ${ctx.parsed.x}: ${fmtDelta(ctx.parsed.y)}` } } },
+      scales: {
+        x: { title: { display: true, text: 'Hand #', color: '#888' }, ticks: { color: '#888' }, grid: { color: '#222' } },
+        y: { title: { display: true, text: 'Cumulative $', color: '#888' }, ticks: { color: '#888' }, grid: { color: '#222' } },
+      }
+    }
+  });
+}
+
+function makeDurBySlotChart(container, bySlot) {
+  const box = document.createElement('div');
+  box.className = 'chart-box tall';
+  box.innerHTML = '<h3>Avg Duration by Type + Stake</h3>';
+  const wrap = document.createElement('div');
+  wrap.className = 'chart-wrap';
+  const canvas = document.createElement('canvas');
+  wrap.appendChild(canvas);
+  box.appendChild(wrap);
+  container.appendChild(box);
+
+  const slots  = Object.values(bySlot).sort((a, b) => slotLabel(a.game_type_id, a.stake_id).localeCompare(slotLabel(b.game_type_id, b.stake_id)));
+  const labels = slots.map(s => slotLabel(s.game_type_id, s.stake_id));
+  const data   = slots.map(s => { const { hands: hs } = splitPayouts(s.hands); return hs.length ? +avg(hs, h => h.duration).toFixed(3) : 0; });
+  const colors = slots.map(s => slotColor(s.game_type_id));
+
+  return new Chart(canvas, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Avg Duration (s)', data, backgroundColor: colors, borderColor: colors, borderWidth: 1 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => `${ctx.parsed.x.toFixed(3)}s` } } },
+      scales: {
+        x: { beginAtZero: true, title: { display: true, text: 'seconds', color: '#888' }, ticks: { color: '#888' }, grid: { color: '#222' } },
+        y: { ticks: { color: '#ccc', font: { size: 10 } }, grid: { color: '#222' } },
+      }
+    }
+  });
+}
+
+function makeSlotTable(bySlot) {
+  const cols = [
+    { key: 'type',   label: 'Type',       get: r => r._type,   fmt: v => `<span style="color:${slotColor(v)}">${typeLabel(v)}</span>` },
+    { key: 'stake',  label: 'Stake',      get: r => r._stake,  num: false },
+    { key: 'bb_sz',  label: 'BB $',       get: r => r._bb_sz,  num: true, fmt: v => v ? '$' + v.toFixed(4) : '—' },
+    { key: 'count',  label: 'Hands',      get: r => r._count,  num: true },
+    { key: 'dur',    label: 'Avg Dur',    get: r => r._dur,    num: true, fmt: v => v.toFixed(3) + 's' },
+    { key: 'hpm',    label: 'Hands/min',  get: r => r._hpm,    num: true, fmt: v => v.toFixed(1) },
+    { key: 'bb',     label: 'Avg bb/hand',get: r => r._bb,     num: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) + 'bb' : '—', cls: v => v == null ? '' : deltaClass(v) },
+    { key: 'delta',  label: 'Avg $/hand', get: r => r._delta,  num: true, fmt: v => fmtDelta(v), cls: deltaClass },
+    { key: 'bbpm',   label: 'bb/min',     get: r => r._bbpm,   num: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(1) + 'bb/m' : '—', cls: v => v == null ? '' : deltaClass(v) },
+    { key: 'dpm',    label: '$/min',      get: r => r._dpm,    num: true, fmt: v => fmtDpm(v), cls: deltaClass },
+    { key: 'win',    label: 'Win%',       get: r => r._win,    num: true, fmt: v => (v * 100).toFixed(1) + '%' },
+    { key: 'payouts',label: 'Payouts $',  get: r => r._payouts,num: true, fmt: v => v > 0 ? fmtDelta(v) : '—', cls: deltaClass },
+    { key: 'net',    label: 'Net $',      get: r => r._net,    num: true, fmt: v => fmtDelta(v), cls: deltaClass },
+  ];
+  const rows = Object.values(bySlot).map(slot => {
+    const st  = statsForHands(slot.hands);
+    const { hands: hs } = splitPayouts(slot.hands);
+    const hpm  = st.window_s > 0 ? hs.length / (st.window_s / 60) : 0;
+    const bbpm = st.avg_bb != null ? st.avg_bb * hpm : null;
+    const payouts = sum(slot.hands.filter(h => h.tier === 'mtt_payout'), h => h.delta);
+    return {
+      _type: slot.game_type_id, _stake: slot.stake_id,
+      _bb_sz: slot.stake_bb || (hs[0] && hs[0].stake_bb) || null,
+      _count: st.count, _dur: st.avg_dur, _hpm: hpm,
+      _bb: st.avg_bb, _delta: st.avg_delta, _bbpm: bbpm, _dpm: st.dpm,
+      _win: st.win_rate, _payouts: payouts, _net: st.total_delta,
+    };
+  });
+  return makeTable('slot-summary', cols, rows);
+}
+
+// ── Shoves tab ─────────────────────────────────────────────────────────────
+function fmtGauntlet(r) {
+  if (!r) return '<span style="color:#555">—</span>';
+  if (r === 'won') return '<span style="color:#0f0;font-weight:bold">WON</span>';
+  const m = r.match(/lost_r(\d)/);
+  if (m) {
+    const colors = ['','#f44','#f80','#ff0'];
+    return `<span style="color:${colors[+m[1]]||'#888'}">LOST R${m[1]}</span>`;
+  }
+  return r;
+}
+
+function renderShoves(el) {
+  const shoves = activeShoves();
+  if (!shoves.length) { el.textContent = 'No active shoves.'; return; }
+
+  const cols = [
+    { key: 'save',    label: 'Save ID',    get: r => r._save_id.slice(-8) },
+    { key: 'shove',   label: 'Shove #',    get: r => r.shove_count, num: true },
+    { key: 'result',  label: 'Gauntlet',   get: r => r.gauntlet_result, fmt: fmtGauntlet },
+    { key: 'chips',   label: '{chip} Earned', get: r => r.chips_earned, num: true,
+      fmt: v => v != null ? String(v) : '—', cls: v => v > 0 ? 'c-win' : '' },
+    { key: 'r1',      label: 'R1%',        get: r => r._r1, num: true,
+      fmt: v => v != null ? (v*100).toFixed(1)+'%' : '—' },
+    { key: 'clear',   label: 'Clear%',     get: r => r._clear, num: true,
+      fmt: v => v != null ? (v*100).toFixed(2)+'%' : '—' },
+    { key: 'catalog', label: 'Cat base',   get: r => r._catalog, num: true,
+      fmt: v => v != null ? (v*100).toFixed(1)+'%' : '—' },
+    { key: 'mult',    label: 'BR mult',    get: r => r._mult, num: true,
+      fmt: v => v != null ? v.toFixed(2)+'×' : '—' },
+    { key: 'bankroll',label: 'Bankroll',   get: r => r._bankroll, num: true,
+      fmt: v => v != null ? fmtDelta(v) : '—' },
+    { key: 'deck',    label: 'Deck',       get: r => r.deck_id || '—' },
+    { key: 'hands',   label: 'Hands',      get: r => r._count, num: true },
+    { key: 'window',  label: 'Active Time',get: r => r._window_s, num: true, fmt: v => fmtDur(v) },
+    { key: 'dur',     label: 'Avg Dur',    get: r => r._avg_dur, num: true, fmt: v => v.toFixed(3) + 's' },
+    { key: 'hpm',     label: 'Hands/min',  get: r => r._hpm, num: true, fmt: v => v.toFixed(1) },
+    { key: 'bb',      label: 'Avg bb/hand',get: r => r._avg_bb, num: true,
+      fmt: v => v != null ? (v>=0?'+':'')+v.toFixed(2)+'bb' : '—', cls: v => v==null?'':deltaClass(v) },
+    { key: 'dpm',     label: '$/min',      get: r => r._dpm, num: true, fmt: v => fmtDpm(v), cls: deltaClass },
+    { key: 'net',     label: 'Net $',      get: r => r._net, num: true, fmt: v => fmtDelta(v), cls: deltaClass },
+    { key: 'win',     label: 'Win%',       get: r => r._win, num: true, fmt: v => (v*100).toFixed(1)+'%' },
+    { key: 'evts',    label: 'Upgrades',   get: r => r._evt_count, num: true,
+      fmt: v => v > 0 ? String(v) : '—' },
+  ];
+
+  const rows = shoves.map(shove => {
+    const st  = statsForHands(shove.hands || []);
+    const { hands: hs } = splitPayouts(shove.hands || []);
+    const hpm = st.window_s > 0 ? hs.length / (st.window_s / 60) : 0;
+    const sr  = shove.shove_rate || {};
+    return {
+      _save_id: shove._save_id, shove_count: shove.shove_count, deck_id: shove.deck_id,
+      gauntlet_result: shove.gauntlet_result, chips_earned: shove.chips_earned,
+      _r1: sr.r1 ?? null, _clear: sr.clear ?? null,
+      _catalog: sr.catalog ?? null, _mult: sr.mult ?? null, _bankroll: sr.bankroll ?? null,
+      _count: st.count, _window_s: st.window_s, _avg_dur: st.avg_dur, _hpm: hpm,
+      _avg_bb: st.avg_bb, _dpm: st.dpm, _net: st.total_delta, _win: st.win_rate,
+      _evt_count: (shove.events || []).length,
+    };
+  });
+
+  el.appendChild(makeTable('shoves', cols, rows));
+
+  // Catalog levels per shove
+  const hasCatalog = shoves.some(s => Object.keys(s.catalog_levels || {}).length > 0);
+  if (hasCatalog) {
+    const h = document.createElement('h3');
+    h.style.marginTop = '16px';
+    h.textContent = 'Catalog Levels at Shove Start';
+    el.appendChild(h);
+
+    const allKeys = [...new Set(shoves.flatMap(s => Object.keys(s.catalog_levels || {})))].sort();
+    const catCols = [
+      { key: 'save',  label: 'Save ID', get: r => r._save_id.slice(-8) },
+      { key: 'shove', label: 'Shove #', get: r => r.shove_count, num: true },
+      ...allKeys.map(k => ({ key: k, label: k, get: r => r[k] || 0, num: true, fmt: v => v > 0 ? String(v) : '—' })),
+    ];
+    const catRows = shoves.map(shove => {
+      const row = { _save_id: shove._save_id, shove_count: shove.shove_count };
+      for (const k of allKeys) row[k] = (shove.catalog_levels || {})[k] || 0;
+      return row;
+    });
+    el.appendChild(makeTable('catalog', catCols, catRows));
+  }
+}
+
+// ── Timeline tab ────────────────────────────────────────────────────────────
+function renderTimeline(el) {
+  const shoves = activeShoves();
+  if (!shoves.length) { el.textContent = 'No active shoves.'; return; }
+
+  const style = document.createElement('style');
+  style.textContent = `
+    .tl { border-left: 2px solid #333; margin-left: 12px; padding-left: 16px; }
+    .tl-shove { margin: 18px 0 4px -20px; padding: 6px 12px; background:#0a3d62;
+      border-radius:4px; font-size:12px; color:#0ff; font-weight:bold; }
+    .tl-gauntlet { margin: 4px 0 4px -20px; padding: 4px 12px; background:#1a1a2e;
+      border: 1px solid #333; border-radius:4px; font-size:11px; }
+    .tl-evt { margin: 3px 0; padding: 3px 8px; background:#16213e;
+      border-radius:3px; font-size:11px; border-left: 3px solid #555; }
+    .tl-evt.run-upgrade  { border-color: #f80; }
+    .tl-evt.catalog      { border-color: #84f; }
+    .tl-hands { margin: 2px 0; padding: 2px 8px; font-size:10px; color:#666; }
+    .tl-time  { color:#555; min-width:60px; display:inline-block; }
+  `;
+  el.appendChild(style);
+
+  const tl = document.createElement('div');
+  tl.className = 'tl';
+  el.appendChild(tl);
+
+  for (const shove of shoves) {
+    const sr    = shove.shove_rate || {};
+    const rStr  = sr.r1 != null
+      ? ` · R1 ${(sr.r1*100).toFixed(1)}% / clear ${(sr.clear*100).toFixed(2)}% · cat ${(sr.catalog*100).toFixed(1)}% × ${sr.mult?.toFixed(2)}BR`
+      : '';
+
+    const shoveHdr = document.createElement('div');
+    shoveHdr.className = 'tl-shove';
+    shoveHdr.innerHTML = `Shove #${shove.shove_count}${shove.deck_id ? ' · deck: ' + shove.deck_id : ''}${rStr}`;
+    tl.appendChild(shoveHdr);
+
+    // Merge hands + events into a single chronological stream
+    const hands  = (shove.hands  || []).filter(h => h.tier !== 'mtt_payout');
+    const events = (shove.events || []);
+    const items  = [
+      ...hands.map(h  => ({ _t: h.t_start,  _kind: 'hand',  d: h  })),
+      ...events.map(e => ({ _t: e.t,         _kind: 'event', d: e  })),
+    ].sort((a, b) => a._t - b._t);
+
+    // Find shove t0 for relative timestamps
+    const t0 = items.length ? items[0]._t : 0;
+
+    // Walk items; group consecutive hands into bands, emit events immediately
+    let pendingHands = [];
+    function flushHands() {
+      if (!pendingHands.length) return;
+      const hs = pendingHands; pendingHands = [];
+      const tFirst = hs[0].t_start;
+      const tLast  = hs[hs.length-1].t_start;
+      const won    = hs.filter(h => h.won).length;
+      const tot_d  = hs.reduce((s, h) => s + h.delta, 0);
+      const bbHs   = hs.filter(h => h.stake_bb > 0);
+      const bbStr  = bbHs.length ? ` · ${(bbHs.reduce((s,h)=>s+h.delta/h.stake_bb,0)/bbHs.length>=0?'+':'')+(bbHs.reduce((s,h)=>s+h.delta/h.stake_bb,0)/bbHs.length).toFixed(1)}bb/h` : '';
+      const durAvg = hs.reduce((s,h)=>s+h.duration,0)/hs.length;
+      const slot   = [...new Set(hs.map(h=>(TYPE_LABELS[h.game_type_id]||h.game_type_id)+' '+h.stake_id))].join(', ');
+      const row = document.createElement('div');
+      row.className = 'tl-hands';
+      row.innerHTML = `<span class="tl-time">${fmtRel(tFirst-t0)}</span>`
+        + `${hs.length} hands @ ${slot} · ${durAvg.toFixed(2)}s avg · `
+        + `${won}/${hs.length} wins · ${fmtDelta(tot_d)}${bbStr}`;
+      tl.appendChild(row);
+    }
+
+    for (const item of items) {
+      if (item._kind === 'hand') {
+        pendingHands.push(item.d);
+      } else {
+        flushHands();
+        const e = item.d;
+        const row = document.createElement('div');
+        const cls = e.type === 'run_upgrade' ? 'run-upgrade' : (e.type === 'catalog' ? 'catalog' : '');
+        row.className = 'tl-evt ' + cls;
+        if (e.type === 'run_upgrade') {
+          row.innerHTML = `<span class="tl-time">${fmtRel(e.t-t0)}</span>`
+            + `<span style="color:#f80">RUN UPGRADE</span> · ${e.item_id} → lvl ${e.level}`
+            + ` · cost $${e.cost_dollars?.toFixed(4) ?? '?'} · bankroll ${fmtDelta(e.bankroll ?? 0)}`;
+        } else if (e.type === 'catalog') {
+          row.innerHTML = `<span class="tl-time">${fmtRel(e.t-t0)}</span>`
+            + `<span style="color:#84f">CATALOG</span> · ${e.item_id}`
+            + ` · cost ${e.cost_chips ?? '?'}{chip} · remaining ${e.chips ?? '?'}{chip}`;
+        } else {
+          row.innerHTML = `<span class="tl-time">${fmtRel(e.t-t0)}</span>${JSON.stringify(e)}`;
+        }
+        tl.appendChild(row);
+      }
+    }
+    flushHands();
+
+    // Gauntlet result footer
+    if (shove.gauntlet_result) {
+      const gRow = document.createElement('div');
+      gRow.className = 'tl-gauntlet';
+      const chips = shove.chips_earned != null ? ` · ${shove.chips_earned}{chip} earned` : '';
+      gRow.innerHTML = `SHOVE → ${fmtGauntlet(shove.gauntlet_result)}${chips}`;
+      tl.appendChild(gRow);
+    }
+  }
+}
+
+function fmtRel(s) {
+  if (s < 0) s = 0;
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m > 0 ? `+${m}m${sec.toString().padStart(2,'0')}s` : `+${sec}s`;
+}
+
+// ── By Type ────────────────────────────────────────────────────────────────
+function renderByType(el) {
+  const hands = activeHands();
+  if (!hands.length) { el.textContent = 'No hands.'; return; }
+  const bySlot = groupBySlot(hands);
+  const slots  = Object.values(bySlot).sort((a, b) => slotLabel(a.game_type_id, a.stake_id).localeCompare(slotLabel(b.game_type_id, b.stake_id)));
+
+  const grid = document.createElement('div');
+  grid.className = 'chart-grid';
+  el.appendChild(grid);
+
+  charts.typeWin = makeSlotBarChart(grid, slots, 'Win Rate %',       s => statsForHands(s.hands).win_rate * 100,              v => v.toFixed(1)+'%');
+  charts.typeBb  = makeSlotBarChart(grid, slots, 'Avg bb/hand',      s => statsForHands(s.hands).avg_bb,                      v => v != null ? (v>=0?'+':'')+v.toFixed(2)+'bb' : 'no stake_bb');
+  charts.typeDur = makeSlotBarChart(grid, slots, 'Avg Duration (s)', s => { const {hands:hs}=splitPayouts(s.hands); return hs.length?avg(hs,h=>h.duration):0; }, v => v.toFixed(3)+'s');
+  charts.typeHpm = makeSlotBarChart(grid, slots, 'Hands / min',      s => { const st=statsForHands(s.hands); const {hands:hs}=splitPayouts(s.hands); return st.window_s>0?hs.length/(st.window_s/60):0; }, v => v.toFixed(1));
+
+  el.appendChild(document.createElement('br'));
+  el.appendChild(makeSlotDistTable(slots));
+}
+
+function makeSlotBarChart(container, slots, title, valFn, fmtFn) {
+  const box = document.createElement('div');
+  box.className = 'chart-box';
+  box.innerHTML = `<h3>${title}</h3>`;
+  const wrap = document.createElement('div');
+  wrap.className = 'chart-wrap';
+  const canvas = document.createElement('canvas');
+  wrap.appendChild(canvas);
+  box.appendChild(wrap);
+  container.appendChild(box);
+
+  const labels = slots.map(s => slotLabel(s.game_type_id, s.stake_id));
+  const raw    = slots.map(valFn);
+  const data   = raw.map(v => v == null ? NaN : v);
+  const colors = slots.map(s => slotColor(s.game_type_id));
+  const noData = data.every(v => isNaN(v));
+
+  return new Chart(canvas, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: title, data, backgroundColor: colors, borderColor: colors, borderWidth: 1 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => isNaN(ctx.parsed.y) ? 'no data (old file)' : fmtFn(ctx.parsed.y) } },
+      },
+      scales: {
+        x: { ticks: { color: '#ccc', font: { size: 10 } }, grid: { color: '#222' } },
+        y: { beginAtZero: true, ticks: { color: '#888' }, grid: { color: '#222' },
+             title: { display: noData, text: 'no stake_bb in this file', color: '#f44', font: { size: 11 } } },
+      }
+    }
+  });
+}
+
+function makeSlotDistTable(slots) {
+  const cols = [
+    { key: 'type',  label: 'Type',        get: r => r._gtype, fmt: v => `<span style="color:${slotColor(v)}">${typeLabel(v)}</span>` },
+    { key: 'stake', label: 'Stake',       get: r => r._stake },
+    { key: 'count', label: 'Hands',       get: r => r._count, num: true },
+    { key: 'min',   label: 'Min Dur',     get: r => r._min,   num: true, fmt: v => v.toFixed(3)+'s' },
+    { key: 'avg',   label: 'Avg Dur',     get: r => r._avg,   num: true, fmt: v => v.toFixed(3)+'s' },
+    { key: 'max',   label: 'Max Dur',     get: r => r._max,   num: true, fmt: v => v.toFixed(3)+'s' },
+    { key: 'hpm',   label: 'Hands/min',   get: r => r._hpm,   num: true, fmt: v => v.toFixed(1) },
+    { key: 'win',   label: 'Win%',        get: r => r._win,   num: true, fmt: v => (v*100).toFixed(1)+'%' },
+    { key: 'bb',    label: 'Avg bb/hand', get: r => r._bb,    num: true, fmt: v => v != null ? (v>=0?'+':'')+v.toFixed(2)+'bb' : '—', cls: v => v==null?'':deltaClass(v) },
+    { key: 'dhand', label: 'Avg $/hand',  get: r => r._dhand, num: true, fmt: v => fmtDelta(v), cls: deltaClass },
+    { key: 'bbpm',  label: 'bb/min',      get: r => r._bbpm,  num: true, fmt: v => v != null ? (v>=0?'+':'')+v.toFixed(1)+'bb/m' : '—', cls: v => v==null?'':deltaClass(v) },
+  ];
+  const rows = slots.map(slot => {
+    const { hands: hs } = splitPayouts(slot.hands);
+    if (!hs.length) return null;
+    const durs = hs.map(h => h.duration).sort((a, b) => a - b);
+    const st   = statsForHands(slot.hands);
+    const hpm  = st.window_s > 0 ? hs.length / (st.window_s / 60) : 0;
+    const bbpm = st.avg_bb != null ? st.avg_bb * hpm : null;
+    return {
+      _gtype: slot.game_type_id, _stake: slot.stake_id, _count: hs.length,
+      _min: durs[0], _avg: avg(hs, h => h.duration), _max: durs[durs.length-1],
+      _hpm: hpm, _win: st.win_rate, _bb: st.avg_bb, _dhand: st.avg_delta, _bbpm: bbpm,
+    };
+  }).filter(Boolean);
+  return makeTable('slot-dist', cols, rows);
+}
+
+// ── By Tier ────────────────────────────────────────────────────────────────
+function renderByTier(el) {
+  const hands = activeHands();
+  if (!hands.length) { el.textContent = 'No hands.'; return; }
+
+  const byTier = groupBy(hands, 'tier');
+  const grid = document.createElement('div');
+  grid.className = 'chart-grid';
+  el.appendChild(grid);
+
+  charts.tierWin = makeTierBarChart(grid, byTier, 'Win Rate %',   t => (byTier[t]||[]).filter(h=>h.won).length / Math.max(1,(byTier[t]||[]).length) * 100, v => v.toFixed(1)+'%');
+  charts.tierBb  = makeTierBarChart(grid, byTier, 'Avg bb/hand',  t => { const hs=(byTier[t]||[]).filter(h=>h.stake_bb>0&&h.tier!=='mtt_payout'); return hs.length?avg(hs,h=>h.delta/h.stake_bb):0; }, v => (v>=0?'+':'')+v.toFixed(2)+'bb');
+
+  el.appendChild(document.createElement('br'));
+  el.appendChild(makeTierTypeTable(hands));
+}
+
+function makeTierBarChart(container, byTier, title, valFn, fmtFn) {
+  const box = document.createElement('div');
+  box.className = 'chart-box';
+  box.innerHTML = `<h3>${title}</h3>`;
+  const wrap = document.createElement('div');
+  wrap.className = 'chart-wrap';
+  const canvas = document.createElement('canvas');
+  wrap.appendChild(canvas);
+  box.appendChild(wrap);
+  container.appendChild(box);
+
+  const tiers  = TIER_ORDER.filter(t => byTier[t]);
+  const labels = tiers.map(t => t.charAt(0).toUpperCase() + t.slice(1));
+  const data   = tiers.map(valFn);
+  const colors = tiers.map(tierColor);
+
+  return new Chart(canvas, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: title, data, backgroundColor: colors, borderColor: colors, borderWidth: 1 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => fmtFn(ctx.parsed.y) } } },
+      scales: {
+        x: { ticks: { color: '#ccc' }, grid: { color: '#222' } },
+        y: { beginAtZero: true, ticks: { color: '#888' }, grid: { color: '#222' } },
+      }
+    }
+  });
+}
+
+function makeTierTypeTable(hands) {
+  const bySlot = groupBySlot(hands);
+  const slots  = Object.values(bySlot).sort((a, b) => slotLabel(a.game_type_id, a.stake_id).localeCompare(slotLabel(b.game_type_id, b.stake_id)));
+  const tiers  = TIER_ORDER.filter(t => hands.some(h => h.tier === t));
+
+  const cols = [
+    { key: 'tier',  label: 'Tier',  get: r => r._tier,  fmt: v => `<span style="color:${tierColor(v)}">${v}</span>` },
+    { key: 'total', label: 'Total', get: r => r._total, num: true },
+  ];
+  for (const slot of slots) {
+    const key = slot.game_type_id + '|' + slot.stake_id;
+    cols.push({ key, label: slotLabel(slot.game_type_id, slot.stake_id), get: r => r[key] || 0, num: true,
+      fmt: v => v > 0 ? `<span style="color:${slotColor(slot.game_type_id)}">${v}</span>` : `<span style="color:#333">0</span>` });
+  }
+  cols.push({ key: 'win',   label: 'Win%',       get: r => r._win,   num: true, fmt: v => (v*100).toFixed(1)+'%' });
+  cols.push({ key: 'bb',    label: 'Avg bb/hand', get: r => r._bb,   num: true, fmt: v => v != null ? (v>=0?'+':'')+v.toFixed(2)+'bb' : '—', cls: v => v==null?'':deltaClass(v) });
+  cols.push({ key: 'dhand', label: 'Avg $/hand',  get: r => r._dhand,num: true, fmt: v => fmtDelta(v), cls: deltaClass });
+
+  const rows = tiers.map(tier => {
+    const ths  = hands.filter(h => h.tier === tier);
+    const bbHs = ths.filter(h => h.stake_bb > 0);
+    const row  = {
+      _tier: tier, _total: ths.length,
+      _win:   ths.length ? ths.filter(h => h.won).length / ths.length : 0,
+      _bb:    bbHs.length ? avg(bbHs, h => h.delta / h.stake_bb) : null,
+      _dhand: ths.length  ? avg(ths,  h => h.delta) : 0,
+    };
+    for (const slot of slots) {
+      const key = slot.game_type_id + '|' + slot.stake_id;
+      row[key] = ths.filter(h => h.game_type_id === slot.game_type_id && h.stake_id === slot.stake_id).length;
+    }
+    return row;
+  });
+
+  const wrap = document.createElement('div');
+  wrap.innerHTML = '<h3 style="margin:12px 0 6px">Tier × Type + Stake</h3>';
+  wrap.appendChild(makeTable('tier-type', cols, rows));
+  return wrap;
+}
+
+// ── Hands table ────────────────────────────────────────────────────────────
+function renderHands(el) {
+  const allHands = activeHands();
+
+  const ctrl = document.createElement('div');
+  ctrl.className = 'controls';
+  const types  = [...new Set(allHands.map(h => h.game_type_id))].sort();
+  const stakes = [...new Set(allHands.map(h => h.stake_id))].sort();
+  const decks  = [...new Set(allHands.map(h => h.deck_id).filter(Boolean))].sort();
+  const paces  = [...new Set(allHands.map(h => h.hand_pace_mult).filter(Boolean))].sort((a,b)=>a-b);
+
+  ctrl.innerHTML = `
+    <div><label>Type </label><select id="f-type"><option value="">All</option>${types.map(t=>`<option value="${t}">${typeLabel(t)}</option>`).join('')}</select></div>
+    <div><label>Tier </label><select id="f-tier"><option value="">All</option>${TIER_ORDER.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
+    <div><label>Stake </label><select id="f-stake"><option value="">All</option>${stakes.map(s=>`<option value="${s}">${s}</option>`).join('')}</select></div>
+    <div><label>Deck </label><select id="f-deck"><option value="">All</option>${decks.map(d=>`<option value="${d}">${d}</option>`).join('')}</select></div>
+    <div><label>Pace× </label><select id="f-pace"><option value="">All</option>${paces.map(p=>`<option value="${p}">${p.toFixed(2)}×</option>`).join('')}</select></div>
+    <div><label>Result </label><select id="f-won"><option value="">All</option><option value="win">Wins</option><option value="loss">Losses</option></select></div>
+  `;
+  el.appendChild(ctrl);
+
+  const tableWrap = document.createElement('div');
+  el.appendChild(tableWrap);
+
+  function applyFilter() {
+    const ft = document.getElementById('f-type')?.value  || '';
+    const fi = document.getElementById('f-tier')?.value  || '';
+    const fs = document.getElementById('f-stake')?.value || '';
+    const fw = document.getElementById('f-won')?.value   || '';
+    const fd = document.getElementById('f-deck')?.value  || '';
+    const fp = document.getElementById('f-pace')?.value  || '';
+    const filtered = allHands.filter(h =>
+      (!ft || h.game_type_id === ft) &&
+      (!fi || h.tier === fi) &&
+      (!fs || h.stake_id === fs) &&
+      (!fd || h.deck_id === fd) &&
+      (!fp || String(h.hand_pace_mult) === fp) &&
+      (!fw || (fw === 'win' ? h.won : !h.won))
+    );
+    renderHandTable(tableWrap, filtered);
+  }
+
+  ctrl.querySelectorAll('select').forEach(s => s.addEventListener('change', applyFilter));
+  applyFilter();
+}
+
+function renderHandTable(wrap, hands) {
+  const cols = [
+    { key: 't',     label: 'Time',     get: r => r.t_start, fmt: v => fmtDur(v) },
+    { key: 'shove', label: 'Shove',    get: r => r._shove_count, fmt: v => `#${v}` },
+    { key: 'type',  label: 'Type',     get: r => r.game_type_id, fmt: v => `<span style="color:${typeColor(v)}">${typeLabel(v)}</span>` },
+    { key: 'stake', label: 'Stake',    get: r => r.stake_id },
+    { key: 'tier',  label: 'Tier',     get: r => r.tier, fmt: v => `<span style="color:${tierColor(v)}">${v}</span>` },
+    { key: 'won',   label: 'Result',   get: r => r.won, fmt: v => v ? '<span class="c-win">WIN</span>' : '<span class="c-loss">LOSS</span>' },
+    { key: 'bb',    label: 'bb net',   get: r => r.stake_bb > 0 && r.tier !== 'mtt_payout' ? r.delta / r.stake_bb : null,
+      num: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(1) + 'bb' : '—', cls: v => v == null ? '' : deltaClass(v) },
+    { key: 'delta', label: '$ Net',    get: r => r.delta, num: true, fmt: v => fmtDelta(v), cls: deltaClass },
+    { key: 'dur',   label: 'Duration', get: r => r.duration, num: true, fmt: v => v > 0 ? v.toFixed(3)+'s' : '—' },
+    { key: 'dph',   label: '$/min',    get: r => r.duration > 0 ? r.delta / (r.duration / 60) : null, num: true, fmt: v => v != null ? fmtDpm(v) : '—', cls: v => v == null ? '' : deltaClass(v) },
+    { key: 'deck',  label: 'Deck',     get: r => r.deck_id || '—' },
+    { key: 'pace',  label: 'Pace×',    get: r => r.hand_pace_mult || 1, num: true, fmt: v => v.toFixed(2)+'×' },
+    { key: 'proto', label: 'Mode',     get: r => r.prototype, fmt: v => v ? '<span style="color:#555">proto</span>' : '<span style="color:#0ff">full</span>' },
+  ];
+  wrap.innerHTML = '';
+  wrap.appendChild(makeTable('hands', cols, hands));
+}
+
+// ── Generic sortable table ─────────────────────────────────────────────────
+function makeTable(id, cols, rows) {
+  const wrap = document.createElement('div');
+  wrap.className = 'table-wrap';
+  wrap.innerHTML = renderTableHtml(id, cols, rows);
+  bindSort(id, cols, rows, wrap);
+  return wrap;
+}
+
+function renderTableHtml(id, cols, rows, sortCol, sortDir) {
+  const sc = sortCol ?? (sortState[id]?.col ?? null);
+  const sd = sortDir  ?? (sortState[id]?.dir ?? 1);
+  let sorted = [...rows];
+  if (sc !== null) {
+    const col = cols[sc];
+    sorted.sort((a, b) => {
+      const va = col.get(a), vb = col.get(b);
+      if (typeof va === 'string') return va.localeCompare(vb) * sd;
+      return ((va ?? 0) - (vb ?? 0)) * sd;
+    });
+  }
+  let html = `<table data-id="${id}"><thead><tr>`;
+  cols.forEach((c, i) => {
+    const arrow = sc === i ? (sd === 1 ? ' ▲' : ' ▼') : '';
+    html += `<th data-col="${i}">${c.label}${arrow}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+  for (const row of sorted) {
+    html += '<tr>';
+    for (const col of cols) {
+      const raw = col.get(row);
+      const val = col.fmt ? col.fmt(raw) : (raw ?? '');
+      const cls = [col.num ? 'num' : '', col.cls ? col.cls(raw) : ''].filter(Boolean).join(' ');
+      html += `<td${cls ? ` class="${cls}"` : ''}>${val}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+function bindSort(id, cols, rows, wrap) {
+  wrap.querySelectorAll('th').forEach(th => {
+    th.addEventListener('click', () => {
+      const ci = parseInt(th.dataset.col);
+      if (!sortState[id]) sortState[id] = { col: null, dir: 1 };
+      if (sortState[id].col === ci) sortState[id].dir *= -1;
+      else { sortState[id].col = ci; sortState[id].dir = 1; }
+      wrap.innerHTML = renderTableHtml(id, cols, rows);
+      bindSort(id, cols, rows, wrap);
+    });
+  });
+}
+
+// ── Formatters ─────────────────────────────────────────────────────────────
+function fmtDelta(v) {
+  if (Math.abs(v) < 0.001) return '$0.00';
+  return (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(4);
+}
+function fmtDpm(v) {
+  if (Math.abs(v) < 0.0001) return '$0.00/m';
+  return (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(3) + '/m';
+}
+function fmtDur(s) {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m > 0 ? `${m}m${sec.toString().padStart(2,'0')}s` : `${sec}s`;
+}
+function deltaClass(v) {
+  if (Math.abs(v) < 0.0001) return 'c-zero';
+  return v > 0 ? 'c-win' : 'c-loss';
+}
+</script>
+</body>
+</html>
