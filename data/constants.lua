@@ -12,7 +12,7 @@ local C = {}
 --
 -- Things that always run regardless of this flag: auto-save, the title
 -- screen, the dealer-always-cheats outcome.
-C.PROTOTYPE_MODE = true
+C.PROTOTYPE_MODE = false
 
 -- Per-feature flags. Default values follow C.PROTOTYPE_MODE; override an
 -- individual entry below the assignment if you need a non-default mix
