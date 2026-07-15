@@ -38,6 +38,11 @@ h3 { font-size: 13px; color: #0ff; margin-bottom: 8px; }
   background: #16213e; color: #e0e0e0; border: 1px solid #444; padding: 3px 6px;
   font-family: inherit; font-size: 11px; border-radius: 3px;
 }
+.controls button {
+  background: #16213e; color: #0ff; border: 1px solid #0ff; border-radius: 3px;
+  padding: 4px 10px; font-family: inherit; font-size: 11px; cursor: pointer;
+}
+.controls button:hover { background: #0a3d62; }
 
 #content { margin-top: 12px; }
 .hidden { display: none !important; }
@@ -70,19 +75,26 @@ tr:hover td { background: #1a2a4e; }
 .stat-card .lbl { font-size: 9px; color: #888; margin-top: 2px; }
 
 .shove-row { margin: 4px 0; font-size: 11px; }
-.shove-row .save-label { color: #666; margin-right: 6px; }
+.shove-row .save-label { color: #888; margin-right: 6px; }
 .shove-chip {
   display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px;
   cursor: pointer; border: 1px solid #444; margin: 2px; transition: all 0.15s;
 }
-.shove-chip.active { border-color: #0ff; color: #0ff; }
+.shove-chip.active { color: #0ff; }
 .shove-chip.inactive { color: #555; }
+#control-save-list { max-height: 320px; overflow-y: auto; margin-top: 6px; }
 </style>
 </head>
 <body>
-<h1>Poker Idle — Hand Analytics <small>drop analytics_*.json files to load</small></h1>
+<h1>Poker Idle — Hand Analytics <small>auto-loads every save from the cloud backend</small></h1>
 
 <div id="load-section">
+  <div style="margin-bottom:8px;">
+    <button id="cloud-load-btn" style="background:#0a3d62; color:#0ff; border:1px solid #0ff; border-radius:4px; padding:8px 16px; font-family:inherit; font-size:12px; cursor:pointer;">
+      Load all saves from cloud
+    </button>
+    <span style="font-size:11px; color:#555; margin-left:8px;">pulls every save from the Cloudflare D1 backend — no manual download needed</span>
+  </div>
   <div id="folder-drop" onclick="document.getElementById('file-input').click()">
     Drop <b>analytics_*.json</b> files here, or click to select
     <input type="file" id="file-input" multiple accept=".json" style="display:none">
@@ -124,18 +136,71 @@ const TYPE_LABELS = { six_max: '6-Max', hu: 'HU', mtt: 'MTT', zoom: 'Zoom' };
 const TIER_ORDER  = ['small', 'medium', 'large', 'jackpot', 'mtt_payout'];
 const SHOVE_COLORS = ['#0ff','#f80','#0f0','#f44','#84f','#ff0','#f0f','#08f','#fa0','#0f8'];
 
+const COHORT_LETTERS = ['A', 'B', 'C', 'D'];
+const COHORT_COLORS  = { A: '#0ff', B: '#f80', C: '#0f0', D: '#f44' };
+const MIN_CONFIDENT_HANDS = 20;   // below this, a cohort gets a "low n" flag
+
 function typeColor(t) { return TYPE_COLORS[t] || '#888'; }
 function tierColor(t) { return TIER_COLORS[t] || '#888'; }
 function typeLabel(t) { return TYPE_LABELS[t] || t; }
 
+// Stable, deterministic color for an arbitrary id string (used for
+// colorBy:'save', where the number of distinct saves is unbounded).
+function colorForKey(id) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return SHOVE_COLORS[Math.abs(hash) % SHOVE_COLORS.length];
+}
+
 // ── State ─────────────────────────────────────────────────────────────────
 let saves      = [];   // [{ filename, save_id, shoves: [...] }]
-let shoveOn    = {};   // "saveIdx|shove_count" → bool
+let shoveOn    = {};   // "save_id|shove_count" → bool (which shoves feed the tabs)
+let cohortOf   = {};   // "save_id|shove_count" → 'A'|'B'|'C'|'D' (Compare tab grouping)
+let saveMeta   = {};   // save_id → { note: string, collapsed: bool }
+let filters    = { search: '', dateFrom: '', dateTo: '', minHands: 0 };
+let updatedSince = {}; // "save_id|shove_count" → true if hand count grew on last refresh
+let autoRefreshTimer  = null;
+let cumulColorMode    = 'shove';  // 'shove' | 'save' | 'cohort' — Overview/Compare overlay chart
 let activeTab  = 'overview';
 let charts     = {};
 let sortState  = {};
 
+function shoveKey(save_id, shove_count) { return save_id + '|' + shove_count; }
+
+// ── Persistence (localStorage) ──────────────────────────────────────────────
+const PERSIST_KEY = 'hand_analytics_state_v1';
+let _persistTimer = null;
+
+function persistState() {
+  try {
+    localStorage.setItem(PERSIST_KEY, JSON.stringify({ shoveOn, cohortOf, saveMeta, filters }));
+  } catch (e) { /* storage full/unavailable — ignore */ }
+}
+function persistStateDebounced() {
+  clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(persistState, 300);
+}
+function hydrateState() {
+  try {
+    const raw = localStorage.getItem(PERSIST_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed.shoveOn)  Object.assign(shoveOn, parsed.shoveOn);
+    if (parsed.cohortOf) Object.assign(cohortOf, parsed.cohortOf);
+    if (parsed.saveMeta) Object.assign(saveMeta, parsed.saveMeta);
+    if (parsed.filters)  Object.assign(filters, parsed.filters);
+  } catch (e) { console.warn('Failed to hydrate persisted state:', e); }
+}
+// Load any saved selection/filter/cohort state BEFORE the first cloud fetch —
+// mergeSave() only defaults a shove to "on" when its key is undefined, so
+// hydrating first means persisted choices always win over that default.
+hydrateState();
+
 // ── Loading ────────────────────────────────────────────────────────────────
+// Same Worker that ingests analytics from the game; ?all=1 dumps every save
+// reconstructed back into this tool's { save_id, shoves: [...] } shape.
+const CLOUD_ENDPOINT = 'https://poker-idle-analytics.noicegamestudio.workers.dev';
+
 const drop  = document.getElementById('folder-drop');
 const input = document.getElementById('file-input');
 
@@ -148,6 +213,48 @@ drop.addEventListener('drop', e => {
 input.addEventListener('change', e => {
   loadFiles([...e.target.files].filter(f => f.name.endsWith('.json')));
 });
+document.getElementById('cloud-load-btn').addEventListener('click', loadFromCloud);
+
+// Merges one save's shoves into the in-memory `saves`/`shoveOn` state,
+// shared by both the file-drop path and the cloud-fetch path. Keyed by the
+// stable save_id (not array position), so selection/cohort state survives
+// saves arriving in a different order on a later load.
+function mergeSave(save_id, shoves, label) {
+  const existing = saves.findIndex(s => s.save_id === save_id);
+  if (existing >= 0) {
+    for (const shove of shoves) {
+      const ei = saves[existing].shoves.findIndex(s => s.shove_count === shove.shove_count);
+      if (ei >= 0) saves[existing].shoves[ei] = shove;
+      else saves[existing].shoves.push(shove);
+      const key = shoveKey(save_id, shove.shove_count);
+      if (shoveOn[key] === undefined) shoveOn[key] = true;
+    }
+  } else {
+    saves.push({ filename: label, save_id, shoves });
+    for (const shove of shoves) {
+      const key = shoveKey(save_id, shove.shove_count);
+      if (shoveOn[key] === undefined) shoveOn[key] = true;
+    }
+  }
+}
+
+function snapshotHandCounts() {
+  const counts = {};
+  for (const save of saves) {
+    for (const sh of save.shoves) counts[shoveKey(save.save_id, sh.shove_count)] = (sh.hands || []).length;
+  }
+  return counts;
+}
+
+function finishLoad(statusText) {
+  document.getElementById('load-status').textContent = statusText;
+  drop.className = 'loaded';
+  drop.textContent = saves.map(s => s.filename).join('  |  ');
+  document.getElementById('main-ui').classList.remove('hidden');
+  renderControlPanel();
+  buildTabs();
+  renderTab();
+}
 
 async function loadFiles(files) {
   let loaded = 0, skipped = 0;
@@ -157,73 +264,274 @@ async function loadFiles(files) {
       const raw  = JSON.parse(text);
       // New format: { save_id, shoves: [...] }
       if (raw.save_id && Array.isArray(raw.shoves)) {
-        const existing = saves.findIndex(s => s.save_id === raw.save_id);
-        if (existing >= 0) {
-          // Merge shoves from re-loaded file
-          for (const shove of raw.shoves) {
-            const ei = saves[existing].shoves.findIndex(s => s.shove_count === shove.shove_count);
-            if (ei >= 0) saves[existing].shoves[ei] = shove;
-            else saves[existing].shoves.push(shove);
-            const key = existing + '|' + shove.shove_count;
-            if (shoveOn[key] === undefined) shoveOn[key] = true;
-          }
-        } else {
-          const si = saves.length;
-          saves.push({ filename: file.name, save_id: raw.save_id, shoves: raw.shoves });
-          for (const shove of raw.shoves) {
-            shoveOn[si + '|' + shove.shove_count] = true;
-          }
-        }
+        mergeSave(raw.save_id, raw.shoves, file.name);
         loaded++;
       } else {
         skipped++;
       }
     } catch(e) { skipped++; console.warn('Failed:', file.name, e); }
   }
-  document.getElementById('load-status').textContent =
-    `${saves.length} save(s) loaded${skipped ? ', ' + skipped + ' skipped' : ''}`;
-  drop.className = 'loaded';
-  drop.textContent = saves.map(s => s.filename).join('  |  ');
-  document.getElementById('main-ui').classList.remove('hidden');
-  renderShoveBar();
-  buildTabs();
-  renderTab();
+  finishLoad(`${saves.length} save(s) loaded${skipped ? ', ' + skipped + ' skipped' : ''}`);
 }
 
-// ── Shove bar ──────────────────────────────────────────────────────────────
-function shoveKey(si, sc) { return si + '|' + sc; }
-
-function renderShoveBar() {
-  const el = document.getElementById('shove-bar');
-  el.innerHTML = '';
-  saves.forEach((save, si) => {
-    const row = document.createElement('div');
-    row.className = 'shove-row';
-    row.innerHTML = `<span class="save-label">${save.filename.replace('analytics_','').replace('.json','')}</span>`;
-    const shovesSorted = [...save.shoves].sort((a,b) => a.shove_count - b.shove_count);
-    for (const shove of shovesSorted) {
-      const key = shoveKey(si, shove.shove_count);
-      const chip = document.createElement('span');
-      chip.className = 'shove-chip ' + (shoveOn[key] ? 'active' : 'inactive');
-      chip.textContent = 'Shove #' + shove.shove_count;
-      chip.onclick = () => {
-        shoveOn[key] = !shoveOn[key];
-        renderShoveBar(); renderTab();
-      };
-      row.appendChild(chip);
+async function loadFromCloud() {
+  const status = document.getElementById('load-status');
+  status.textContent = 'Loading from cloud…';
+  const before = snapshotHandCounts();
+  try {
+    const resp = await fetch(CLOUD_ENDPOINT + '?all=1');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    for (const s of (data.saves || [])) {
+      mergeSave(s.save_id, s.shoves, '(cloud) ' + s.save_id);
     }
+    const after = snapshotHandCounts();
+    updatedSince = {};
+    for (const key in after) {
+      if ((before[key] || 0) < after[key]) updatedSince[key] = true;
+    }
+    finishLoad(`${saves.length} save(s) loaded from cloud`);
+  } catch (e) {
+    status.textContent = 'Cloud load failed: ' + e.message;
+    console.warn('Cloud load failed:', e);
+  }
+}
+
+// Auto-load on open so there's nothing to click for the common case.
+loadFromCloud();
+
+// ── Control panel: search/date/min-hands filters, bulk select, cohorts ─────
+// visibleSaves() only affects what's SHOWN and what bulk actions in the
+// panel act on — it never changes shoveOn directly. Every tab's data still
+// comes from shoveOn via activeHands()/activeShoves(), independent of these
+// visibility filters.
+function visibleSaves() {
+  const q    = (filters.search || '').toLowerCase();
+  const df   = filters.dateFrom ? Math.floor(new Date(filters.dateFrom + 'T00:00:00').getTime() / 1000) : null;
+  const dt   = filters.dateTo   ? Math.floor(new Date(filters.dateTo   + 'T23:59:59').getTime() / 1000) : null;
+  const minH = Number(filters.minHands) || 0;
+  const out = [];
+  for (const save of saves) {
+    if (q && save.save_id.toLowerCase().indexOf(q) < 0) continue;
+    const shoves = save.shoves.filter(sh => {
+      if (df != null && (sh.started_at || 0) < df) return false;
+      if (dt != null && (sh.started_at || 0) > dt) return false;
+      if (minH > 0 && (sh.hands || []).length < minH) return false;
+      return true;
+    });
+    if (shoves.length > 0) out.push({ save, shoves });
+  }
+  return out;
+}
+
+function setVisibleSelection(on) {
+  for (const { save, shoves } of visibleSaves()) {
+    for (const sh of shoves) shoveOn[shoveKey(save.save_id, sh.shove_count)] = on;
+  }
+  persistStateDebounced();
+  renderControlPanel();
+  renderTab();
+}
+function setAllSelection(on) {
+  for (const save of saves) {
+    for (const sh of save.shoves) shoveOn[shoveKey(save.save_id, sh.shove_count)] = on;
+  }
+  persistStateDebounced();
+  renderControlPanel();
+  renderTab();
+}
+function soloSave(save_id) {
+  for (const key of Object.keys(shoveOn)) shoveOn[key] = false;
+  const save = saves.find(s => s.save_id === save_id);
+  if (save) for (const sh of save.shoves) shoveOn[shoveKey(save_id, sh.shove_count)] = true;
+  persistStateDebounced();
+  renderControlPanel();
+  renderTab();
+}
+function soloShove(save_id, shove_count) {
+  for (const key of Object.keys(shoveOn)) shoveOn[key] = false;
+  shoveOn[shoveKey(save_id, shove_count)] = true;
+  persistStateDebounced();
+  renderControlPanel();
+  renderTab();
+}
+function cycleCohort(key) {
+  const cur = cohortOf[key] || 'A';
+  const idx = COHORT_LETTERS.indexOf(cur);
+  cohortOf[key] = COHORT_LETTERS[(idx + 1) % COHORT_LETTERS.length];
+  persistStateDebounced();
+  renderSaveList();
+  if (activeTab === 'compare') renderTab();
+}
+function splitCohortsBySave() {
+  visibleSaves().forEach(({ save, shoves }, i) => {
+    const letter = COHORT_LETTERS[i % COHORT_LETTERS.length];
+    for (const sh of shoves) cohortOf[shoveKey(save.save_id, sh.shove_count)] = letter;
+  });
+  persistStateDebounced();
+  renderSaveList();
+  if (activeTab === 'compare') renderTab();
+}
+function splitCohortsByDate() {
+  const dateStr = document.getElementById('f-split-date').value;
+  if (!dateStr) { alert('Pick a split date first.'); return; }
+  const splitEpoch = Math.floor(new Date(dateStr + 'T00:00:00').getTime() / 1000);
+  visibleSaves().forEach(({ save, shoves }) => {
+    for (const sh of shoves) {
+      cohortOf[shoveKey(save.save_id, sh.shove_count)] = (sh.started_at || 0) < splitEpoch ? 'A' : 'B';
+    }
+  });
+  persistStateDebounced();
+  renderSaveList();
+  if (activeTab === 'compare') renderTab();
+}
+function toggleAutoRefresh(on) {
+  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  if (on) {
+    const secs = Number(document.getElementById('f-autorefresh-interval').value) || 60;
+    autoRefreshTimer = setInterval(loadFromCloud, secs * 1000);
+  }
+}
+
+// Builds the static shell (filter inputs, buttons) once; re-renders only the
+// save-list sub-container on every subsequent call so typing in a filter
+// input never gets its focus/cursor blown away by a full rebuild.
+function renderControlPanel() {
+  const el = document.getElementById('shove-bar');
+  if (!el.dataset.built) {
+    el.innerHTML = `
+      <div class="controls">
+        <div><label>Search </label><input id="f-search" type="text" placeholder="save id contains…" style="width:150px"></div>
+        <div><label>From </label><input id="f-date-from" type="date"></div>
+        <div><label>To </label><input id="f-date-to" type="date"></div>
+        <div><label>Min hands/shove </label><input id="f-min-hands" type="number" min="0" style="width:60px"></div>
+        <button id="btn-sel-all-visible">Select all visible</button>
+        <button id="btn-sel-none-visible">Select none visible</button>
+        <button id="btn-sel-all">Select all</button>
+        <button id="btn-sel-none">Select none</button>
+      </div>
+      <div class="controls">
+        <button id="btn-split-save">Split cohorts by save</button>
+        <div><label>Split date </label><input id="f-split-date" type="date"></div>
+        <button id="btn-split-date">Split cohorts by date</button>
+        <label style="margin-left:8px;"><input type="checkbox" id="f-autorefresh"> Auto-refresh</label>
+        <select id="f-autorefresh-interval"><option value="30">30s</option><option value="60" selected>1m</option><option value="300">5m</option></select>
+      </div>
+      <div id="control-summary" style="font-size:11px;color:#888;margin:4px 0;"></div>
+      <div id="control-save-list"></div>
+    `;
+    el.dataset.built = '1';
+
+    el.querySelector('#f-search').value    = filters.search   || '';
+    el.querySelector('#f-date-from').value = filters.dateFrom || '';
+    el.querySelector('#f-date-to').value   = filters.dateTo   || '';
+    el.querySelector('#f-min-hands').value = filters.minHands || 0;
+
+    el.querySelector('#f-search').addEventListener('input', e => { filters.search = e.target.value; persistStateDebounced(); renderSaveList(); });
+    el.querySelector('#f-date-from').addEventListener('change', e => { filters.dateFrom = e.target.value; persistStateDebounced(); renderSaveList(); });
+    el.querySelector('#f-date-to').addEventListener('change', e => { filters.dateTo = e.target.value; persistStateDebounced(); renderSaveList(); });
+    el.querySelector('#f-min-hands').addEventListener('input', e => { filters.minHands = e.target.value; persistStateDebounced(); renderSaveList(); });
+
+    el.querySelector('#btn-sel-all-visible').addEventListener('click', () => setVisibleSelection(true));
+    el.querySelector('#btn-sel-none-visible').addEventListener('click', () => setVisibleSelection(false));
+    el.querySelector('#btn-sel-all').addEventListener('click', () => setAllSelection(true));
+    el.querySelector('#btn-sel-none').addEventListener('click', () => setAllSelection(false));
+
+    el.querySelector('#btn-split-save').addEventListener('click', splitCohortsBySave);
+    el.querySelector('#btn-split-date').addEventListener('click', splitCohortsByDate);
+
+    el.querySelector('#f-autorefresh').addEventListener('change', e => toggleAutoRefresh(e.target.checked));
+    el.querySelector('#f-autorefresh-interval').addEventListener('change', () => {
+      if (autoRefreshTimer) toggleAutoRefresh(true);
+    });
+  }
+  renderSaveList();
+}
+
+function renderSaveList() {
+  const el = document.getElementById('control-save-list');
+  el.innerHTML = '';
+  const vis = visibleSaves();
+
+  const totalShoves  = saves.reduce((s, sv) => s + sv.shoves.length, 0);
+  const activeCount  = Object.values(shoveOn).filter(Boolean).length;
+  document.getElementById('control-summary').textContent =
+    `${activeCount}/${totalShoves} shoves selected across ${saves.length} save(s) (${vis.length} shown)`;
+
+  vis.forEach(({ save, shoves }) => {
+    const meta = saveMeta[save.save_id] || (saveMeta[save.save_id] = { note: '', collapsed: saves.length > 5 });
+    const row = document.createElement('div');
+    row.style.cssText = 'border:1px solid #222; border-radius:4px; padding:6px 8px; margin-bottom:4px;';
+
+    const allOn   = shoves.every(sh => shoveOn[shoveKey(save.save_id, sh.shove_count)]);
+    const updated = shoves.some(sh => updatedSince[shoveKey(save.save_id, sh.shove_count)]);
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex; align-items:center; gap:6px; flex-wrap:wrap;';
+    header.innerHTML = `
+      <span data-role="collapse" style="cursor:pointer;color:#888;">${meta.collapsed ? '▶' : '▼'}</span>
+      <input type="checkbox" data-role="save-toggle" ${allOn ? 'checked' : ''}>
+      <span class="save-label">${save.save_id.slice(-10)}${updated ? ' <span style="color:#0f0;">●new</span>' : ''}</span>
+      <button data-role="solo-save">Solo</button>
+      <input type="text" data-role="note" placeholder="note…" value="${(meta.note || '').replace(/"/g, '&quot;')}"
+        style="width:130px;font-size:10px;background:#16213e;color:#ccc;border:1px solid #444;border-radius:3px;padding:2px 4px;">
+      <span style="font-size:10px;color:#666;">${shoves.length} shove(s)</span>
+    `;
+    row.appendChild(header);
+
+    const chipsWrap = document.createElement('div');
+    chipsWrap.style.cssText = `margin-top:4px; display:${meta.collapsed ? 'none' : 'block'};`;
+    const shovesSorted = [...shoves].sort((a, b) => a.shove_count - b.shove_count);
+    for (const shove of shovesSorted) {
+      const key = shoveKey(save.save_id, shove.shove_count);
+      const on = !!shoveOn[key];
+      const cohort = cohortOf[key] || 'A';
+      const chip = document.createElement('span');
+      chip.className = 'shove-chip ' + (on ? 'active' : 'inactive');
+      chip.style.borderColor = on ? COHORT_COLORS[cohort] : '#444';
+      chip.title = 'Click: toggle · Shift+click: cycle cohort tag · Alt+click: solo this shove';
+      chip.innerHTML = `Shove #${shove.shove_count} <b style="color:${COHORT_COLORS[cohort]}">${cohort}</b>` +
+        (updatedSince[key] ? ' <span style="color:#0f0;">●</span>' : '');
+      chip.addEventListener('click', e => {
+        if (e.altKey)   { soloShove(save.save_id, shove.shove_count); return; }
+        if (e.shiftKey) { cycleCohort(key); return; }
+        shoveOn[key] = !shoveOn[key];
+        persistStateDebounced();
+        renderSaveList();
+        renderTab();
+      });
+      chipsWrap.appendChild(chip);
+    }
+    row.appendChild(chipsWrap);
     el.appendChild(row);
+
+    header.querySelector('[data-role="collapse"]').addEventListener('click', () => {
+      meta.collapsed = !meta.collapsed;
+      persistStateDebounced();
+      renderSaveList();
+    });
+    header.querySelector('[data-role="save-toggle"]').addEventListener('change', e => {
+      for (const sh of shoves) shoveOn[shoveKey(save.save_id, sh.shove_count)] = e.target.checked;
+      persistStateDebounced();
+      renderSaveList();
+      renderTab();
+    });
+    header.querySelector('[data-role="solo-save"]').addEventListener('click', () => soloSave(save.save_id));
+    header.querySelector('[data-role="note"]').addEventListener('input', e => {
+      meta.note = e.target.value;
+      persistStateDebounced();
+    });
   });
 }
 
 // ── Active hands + shoves ──────────────────────────────────────────────────
 function activeHands() {
   const hands = [];
-  saves.forEach((save, si) => {
+  saves.forEach(save => {
     for (const shove of save.shoves) {
-      if (!shoveOn[shoveKey(si, shove.shove_count)]) continue;
+      if (!shoveOn[shoveKey(save.save_id, shove.shove_count)]) continue;
       for (const h of (shove.hands || [])) {
-        hands.push({ ...h, _save_idx: si, _shove_count: shove.shove_count });
+        hands.push({ ...h, _save_id: save.save_id, _shove_count: shove.shove_count });
       }
     }
   });
@@ -232,13 +540,13 @@ function activeHands() {
 
 function activeShoves() {
   const out = [];
-  saves.forEach((save, si) => {
+  saves.forEach(save => {
     for (const shove of save.shoves) {
-      if (!shoveOn[shoveKey(si, shove.shove_count)]) continue;
-      out.push({ ...shove, _save_idx: si, _save_id: save.save_id });
+      if (!shoveOn[shoveKey(save.save_id, shove.shove_count)]) continue;
+      out.push({ ...shove, _save_id: save.save_id });
     }
   });
-  return out.sort((a,b) => a._save_idx !== b._save_idx ? a._save_idx - b._save_idx : a.shove_count - b.shove_count);
+  return out.sort((a, b) => a._save_id !== b._save_id ? a._save_id.localeCompare(b._save_id) : a.shove_count - b.shove_count);
 }
 
 function groupBy(arr, key) {
@@ -305,6 +613,7 @@ function buildTabs() {
   bar.innerHTML = '';
   const tabs = [
     { id: 'overview',  label: 'Overview' },
+    { id: 'compare',   label: 'Compare' },
     { id: 'shoves',    label: 'Shoves', count: activeShoves().length },
     { id: 'timeline',  label: 'Timeline' },
     { id: 'bytype',    label: 'By Type' },
@@ -326,6 +635,7 @@ function renderTab() {
   destroyCharts();
   buildTabs();
   if      (activeTab === 'overview')  renderOverview(el);
+  else if (activeTab === 'compare')   renderCompare(el);
   else if (activeTab === 'shoves')    renderShoves(el);
   else if (activeTab === 'timeline')  renderTimeline(el);
   else if (activeTab === 'bytype')    renderByType(el);
@@ -359,20 +669,32 @@ function renderOverview(el) {
   `;
   el.appendChild(cards);
 
+  const modeRow = document.createElement('div');
+  modeRow.className = 'controls';
+  modeRow.innerHTML = `<label>Color cumulative chart by </label>
+    <select id="f-colorby">
+      <option value="shove"${cumulColorMode === 'shove' ? ' selected' : ''}>Shove</option>
+      <option value="save"${cumulColorMode === 'save' ? ' selected' : ''}>Save</option>
+      <option value="cohort"${cumulColorMode === 'cohort' ? ' selected' : ''}>Cohort</option>
+    </select>`;
+  el.appendChild(modeRow);
+  modeRow.querySelector('#f-colorby').addEventListener('change', e => { cumulColorMode = e.target.value; renderTab(); });
+
   const grid = document.createElement('div');
   grid.className = 'chart-grid';
   el.appendChild(grid);
 
-  charts.cumul = makeCumulChart(grid, hands);
+  charts.cumul = makeCumulChart(grid, hands, cumulColorMode);
   charts.durBySlot = makeDurBySlotChart(grid, bySlot);
 
   el.appendChild(makeSlotTable(bySlot));
 }
 
-function makeCumulChart(container, _unused) {
+function makeCumulChart(container, _unused, mode) {
+  mode = mode || 'shove';
   const box = document.createElement('div');
   box.className = 'chart-box tall';
-  box.innerHTML = '<h3>Cumulative $ over hands</h3>';
+  box.innerHTML = `<h3>Cumulative $ over hands <span style="font-size:10px;color:#666;">(colored by ${mode})</span></h3>`;
   const wrap = document.createElement('div');
   wrap.className = 'chart-wrap';
   const canvas = document.createElement('canvas');
@@ -382,15 +704,19 @@ function makeCumulChart(container, _unused) {
 
   const datasets = [];
   let colorIdx = 0;
-  saves.forEach((save, si) => {
+  saves.forEach(save => {
     const shovesSorted = [...save.shoves].sort((a,b) => a.shove_count - b.shove_count);
     for (const shove of shovesSorted) {
-      if (!shoveOn[shoveKey(si, shove.shove_count)]) continue;
+      const key = shoveKey(save.save_id, shove.shove_count);
+      if (!shoveOn[key]) continue;
       let running = 0;
       const points = (shove.hands || []).map((h, idx) => {
         running += h.delta; return { x: idx + 1, y: +running.toFixed(4) };
       });
-      const col = SHOVE_COLORS[colorIdx++ % SHOVE_COLORS.length];
+      let col;
+      if (mode === 'save')        col = colorForKey(save.save_id);
+      else if (mode === 'cohort') col = COHORT_COLORS[cohortOf[key] || 'A'];
+      else                        col = SHOVE_COLORS[colorIdx++ % SHOVE_COLORS.length];
       datasets.push({
         label: `${save.save_id.slice(-6)} #${shove.shove_count}`,
         data: points,
@@ -477,6 +803,118 @@ function makeSlotTable(bySlot) {
     };
   });
   return makeTable('slot-summary', cols, rows);
+}
+
+// ── Compare tab ──────────────────────────────────────────────────────────
+function renderCompare(el) {
+  const hands = activeHands();
+  if (!hands.length) { el.textContent = 'No hands in active shoves.'; return; }
+
+  const byCohort = {};
+  for (const h of hands) {
+    const key = shoveKey(h._save_id, h._shove_count);
+    const cohort = cohortOf[key] || 'A';
+    (byCohort[cohort] || (byCohort[cohort] = [])).push(h);
+  }
+  const cohorts = COHORT_LETTERS.filter(c => byCohort[c] && byCohort[c].length);
+  if (!cohorts.length) { el.textContent = 'No cohort data.'; return; }
+
+  const note = document.createElement('div');
+  note.style.cssText = 'font-size:11px;color:#888;margin-bottom:10px;';
+  note.textContent = 'Tag shoves with a cohort (Shift+click a shove chip, or use "Split cohorts by…") to compare groups here. Untagged shoves default to cohort A.';
+  el.appendChild(note);
+
+  const cardsRow = document.createElement('div');
+  cardsRow.className = 'stats-row';
+  cohorts.forEach(c => {
+    const st = statsForHands(byCohort[c]);
+    const low = st.count < MIN_CONFIDENT_HANDS;
+    const card = document.createElement('div');
+    card.className = 'stat-card';
+    card.style.border = `1px solid ${COHORT_COLORS[c]}`;
+    card.innerHTML = `
+      <div class="val" style="color:${COHORT_COLORS[c]}">${c}</div>
+      <div class="lbl">Cohort${low ? ' — low n' : ''}</div>
+      <div style="font-size:10px;color:#aaa;margin-top:6px;line-height:1.5;">
+        ${st.count} hands · Win ${(st.win_rate*100).toFixed(1)}%<br>
+        ${fmtDpm(st.dpm)}${st.avg_bb != null ? ' · ' + (st.avg_bb>=0?'+':'') + st.avg_bb.toFixed(2) + 'bb/h' : ''}<br>
+        Net ${fmtDelta(st.total_delta)}
+      </div>
+    `;
+    cardsRow.appendChild(card);
+  });
+  el.appendChild(cardsRow);
+
+  if (cohorts.length === 2) {
+    const [c1, c2] = cohorts;
+    const s1 = statsForHands(byCohort[c1]), s2 = statsForHands(byCohort[c2]);
+    const rows = [
+      ['Hands',         s1.count,       s2.count,       v => String(Math.round(v))],
+      ['Win%',          s1.win_rate*100,s2.win_rate*100,v => v.toFixed(1) + '%'],
+      ['$/min',         s1.dpm,         s2.dpm,         fmtDpm],
+      ['Avg bb/hand',   s1.avg_bb,      s2.avg_bb,      v => (v>=0?'+':'') + v.toFixed(2) + 'bb'],
+      ['Avg Duration',  s1.avg_dur,     s2.avg_dur,     v => v.toFixed(3) + 's'],
+      ['Net $',         s1.total_delta, s2.total_delta, fmtDelta],
+    ];
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<h3 style="margin:12px 0 6px">${c1} vs ${c2}</h3>`;
+    let html = `<table><thead><tr><th>Metric</th><th>${c1}</th><th>${c2}</th><th>&Delta;</th></tr></thead><tbody>`;
+    for (const [label, v1, v2, fmt] of rows) {
+      const delta = (v1 != null && v2 != null) ? v2 - v1 : null;
+      const dCls  = delta == null ? '' : deltaClass(delta);
+      const dTxt  = delta == null ? '—' : (delta >= 0 ? '+' : '-') + fmt(Math.abs(delta)).replace(/^[-+]/, '');
+      html += `<tr><td>${label}</td>` +
+        `<td class="num">${v1 != null ? fmt(v1) : '—'}</td>` +
+        `<td class="num">${v2 != null ? fmt(v2) : '—'}</td>` +
+        `<td class="num ${dCls}">${dTxt}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    wrap.innerHTML += html;
+    el.appendChild(wrap);
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'chart-grid';
+  el.appendChild(grid);
+  charts.cohortWin = makeCohortBarChart(grid, cohorts, byCohort, 'Win Rate %',       hs => statsForHands(hs).win_rate * 100, v => v.toFixed(1) + '%');
+  charts.cohortDpm = makeCohortBarChart(grid, cohorts, byCohort, '$/min',            hs => statsForHands(hs).dpm,            fmtDpm);
+  charts.cohortBb  = makeCohortBarChart(grid, cohorts, byCohort, 'Avg bb/hand',      hs => statsForHands(hs).avg_bb,         v => v != null ? (v>=0?'+':'') + v.toFixed(2) + 'bb' : 'no stake_bb');
+  charts.cohortDur = makeCohortBarChart(grid, cohorts, byCohort, 'Avg Duration (s)', hs => statsForHands(hs).avg_dur,        v => v.toFixed(3) + 's');
+
+  const overlayGrid = document.createElement('div');
+  overlayGrid.className = 'chart-grid single';
+  el.appendChild(overlayGrid);
+  charts.compareCumul = makeCumulChart(overlayGrid, hands, 'cohort');
+}
+
+function makeCohortBarChart(container, cohorts, byCohort, title, valFn, fmtFn) {
+  const box = document.createElement('div');
+  box.className = 'chart-box';
+  box.innerHTML = `<h3>${title}</h3>`;
+  const wrap = document.createElement('div');
+  wrap.className = 'chart-wrap';
+  const canvas = document.createElement('canvas');
+  wrap.appendChild(canvas);
+  box.appendChild(wrap);
+  container.appendChild(box);
+
+  const raw    = cohorts.map(c => valFn(byCohort[c]));
+  const data   = raw.map(v => v == null ? NaN : v);
+  const colors = cohorts.map(c => COHORT_COLORS[c]);
+
+  return new Chart(canvas, {
+    type: 'bar',
+    data: { labels: cohorts, datasets: [{ label: title, data, backgroundColor: colors, borderColor: colors, borderWidth: 1 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => isNaN(ctx.parsed.y) ? 'no data' : fmtFn(ctx.parsed.y) } } },
+      scales: {
+        x: { ticks: { color: '#ccc' }, grid: { color: '#222' } },
+        y: { beginAtZero: true, ticks: { color: '#888' }, grid: { color: '#222' } },
+      }
+    }
+  });
 }
 
 // ── Shoves tab ─────────────────────────────────────────────────────────────
@@ -856,32 +1294,39 @@ function renderHands(el) {
 
   const ctrl = document.createElement('div');
   ctrl.className = 'controls';
+  const saveIds = [...new Set(allHands.map(h => h._save_id))].sort();
   const types  = [...new Set(allHands.map(h => h.game_type_id))].sort();
   const stakes = [...new Set(allHands.map(h => h.stake_id))].sort();
   const decks  = [...new Set(allHands.map(h => h.deck_id).filter(Boolean))].sort();
   const paces  = [...new Set(allHands.map(h => h.hand_pace_mult).filter(Boolean))].sort((a,b)=>a-b);
 
   ctrl.innerHTML = `
+    <div><label>Save </label><select id="f-save"><option value="">All</option>${saveIds.map(s=>`<option value="${s}">${s.slice(-8)}</option>`).join('')}</select></div>
     <div><label>Type </label><select id="f-type"><option value="">All</option>${types.map(t=>`<option value="${t}">${typeLabel(t)}</option>`).join('')}</select></div>
     <div><label>Tier </label><select id="f-tier"><option value="">All</option>${TIER_ORDER.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
     <div><label>Stake </label><select id="f-stake"><option value="">All</option>${stakes.map(s=>`<option value="${s}">${s}</option>`).join('')}</select></div>
     <div><label>Deck </label><select id="f-deck"><option value="">All</option>${decks.map(d=>`<option value="${d}">${d}</option>`).join('')}</select></div>
     <div><label>Pace× </label><select id="f-pace"><option value="">All</option>${paces.map(p=>`<option value="${p}">${p.toFixed(2)}×</option>`).join('')}</select></div>
     <div><label>Result </label><select id="f-won"><option value="">All</option><option value="win">Wins</option><option value="loss">Losses</option></select></div>
+    <button id="btn-csv">Export CSV</button>
   `;
   el.appendChild(ctrl);
 
   const tableWrap = document.createElement('div');
   el.appendChild(tableWrap);
 
+  let currentFiltered = [];
+
   function applyFilter() {
+    const fv = document.getElementById('f-save')?.value  || '';
     const ft = document.getElementById('f-type')?.value  || '';
     const fi = document.getElementById('f-tier')?.value  || '';
     const fs = document.getElementById('f-stake')?.value || '';
     const fw = document.getElementById('f-won')?.value   || '';
     const fd = document.getElementById('f-deck')?.value  || '';
     const fp = document.getElementById('f-pace')?.value  || '';
-    const filtered = allHands.filter(h =>
+    currentFiltered = allHands.filter(h =>
+      (!fv || h._save_id === fv) &&
       (!ft || h.game_type_id === ft) &&
       (!fi || h.tier === fi) &&
       (!fs || h.stake_id === fs) &&
@@ -889,15 +1334,17 @@ function renderHands(el) {
       (!fp || String(h.hand_pace_mult) === fp) &&
       (!fw || (fw === 'win' ? h.won : !h.won))
     );
-    renderHandTable(tableWrap, filtered);
+    renderHandTable(tableWrap, currentFiltered);
   }
 
   ctrl.querySelectorAll('select').forEach(s => s.addEventListener('change', applyFilter));
+  ctrl.querySelector('#btn-csv').addEventListener('click', () => exportHandsCsv(currentFiltered));
   applyFilter();
 }
 
 function renderHandTable(wrap, hands) {
   const cols = [
+    { key: 'save',  label: 'Save',     get: r => r._save_id.slice(-8) },
     { key: 't',     label: 'Time',     get: r => r.t_start, fmt: v => fmtDur(v) },
     { key: 'shove', label: 'Shove',    get: r => r._shove_count, fmt: v => `#${v}` },
     { key: 'type',  label: 'Type',     get: r => r.game_type_id, fmt: v => `<span style="color:${typeColor(v)}">${typeLabel(v)}</span>` },
@@ -915,6 +1362,27 @@ function renderHandTable(wrap, hands) {
   ];
   wrap.innerHTML = '';
   wrap.appendChild(makeTable('hands', cols, hands));
+}
+
+function csvEscape(v) {
+  if (v == null) return '';
+  const s = String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function exportHandsCsv(hands) {
+  if (!hands.length) { alert('No hands to export — adjust the filters first.'); return; }
+  const cols = ['_save_id','_shove_count','t_start','duration','game_type_id','stake_id','stake_bb','tier','won','delta','deck_id','hand_pace_mult','prototype'];
+  const header = cols.join(',');
+  const rows = hands.map(h => cols.map(c => csvEscape(h[c])).join(','));
+  const csv = [header, ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'hand_analytics_export.csv';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Generic sortable table ─────────────────────────────────────────────────

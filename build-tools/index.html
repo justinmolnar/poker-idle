@@ -139,10 +139,36 @@
         if ([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) e.preventDefault();
       }, false);
 
+      // ── Gameplay analytics telemetry ────────────────────────────────────
+      // This love.js build exports no Module.FS (no FORCE_FILESYSTEM /
+      // EXPORTED_RUNTIME_METHODS), so JS on the page can't read
+      // love.filesystem's virtual disk directly. Instead, Lua pushes data
+      // out itself: services/HandAnalytics.lua's flush() print()s the
+      // payload behind a marker (only on web, only with consent) whenever
+      // the 30s autosave tick or love.quit() fires. Every Emscripten build
+      // always routes print() through Module.print (or console.log if
+      // unset) regardless of build flags, so this needs no engine rebuild.
+      // Fill in ANALYTICS_ENDPOINT once your Cloudflare Worker (or
+      // equivalent) is live. Leave it empty to disable sending entirely.
+      var ANALYTICS_ENDPOINT = 'https://poker-idle-analytics.noicegamestudio.workers.dev';
+      var ANALYTICS_MARKER   = '@@POKERIDLE_ANALYTICS@@';
+
       var Module = {
         arguments: ["./game.love"],
         INITIAL_MEMORY: 268435456,
         printErr: console.error.bind(console),
+        print: function(text) {
+          if (ANALYTICS_ENDPOINT && typeof text === 'string' && text.indexOf(ANALYTICS_MARKER) === 0) {
+            fetch(ANALYTICS_ENDPOINT, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: text.slice(ANALYTICS_MARKER.length),
+              keepalive: true,
+            }).catch(function() {});   // fire-and-forget; ignore network errors
+            return;
+          }
+          console.log(text);
+        },
         canvas: (function() {
           var canvas = document.getElementById('canvas');
           canvas.addEventListener("webglcontextlost", function(e) {
@@ -162,8 +188,6 @@
             // after our first call. Each fit dispatches a window.resize so
             // love.resize fires with the new device-pixel dimensions.
             fitSoon();
-            // Initial analytics flush — delayed 2s so IDBFS finishes mounting.
-            setTimeout(tryFlushAnalytics, 2000);
           }
         },
         totalDependencies: 0,
@@ -183,57 +207,6 @@
       };
 
       var applicationLoad = function(e) { Love(Module); };
-    </script>
-    <script type="text/javascript">
-      // ── Gameplay analytics telemetry ────────────────────────────────────
-      // Reads analytics_*.json files from IDBFS and POSTs them to the
-      // configured endpoint, but only when the player has opted in.
-      // Fill in ANALYTICS_ENDPOINT once your Cloudflare Worker (or equivalent)
-      // is live. Leave it empty to disable sending entirely.
-      var ANALYTICS_ENDPOINT = 'https://poker-idle-analytics.noicegamestudio.workers.dev';
-
-      // Exact IDBFS path for love identity "poker-idle".
-      // If files aren't found, open devtools → Console, run:
-      //   Module.FS.readdir('/home/web_user/.local/share/love/')
-      // and confirm the subdirectory name, then update this constant.
-      var LOVE_SAVE_PATH = '/home/web_user/.local/share/love/poker-idle/';
-
-      function _readIdbfsText(path) {
-        try { return Module.FS.readFile(path, { encoding: 'utf8' }); }
-        catch(e) { return null; }
-      }
-
-      function tryFlushAnalytics() {
-        if (!ANALYTICS_ENDPOINT || typeof Module === 'undefined' || !Module.FS) return;
-        // Check consent from settings.save.
-        var raw = _readIdbfsText(LOVE_SAVE_PATH + 'settings.save');
-        if (!raw) return;
-        var envelope;
-        try { envelope = JSON.parse(raw); } catch(e) { return; }
-        if (!envelope || !envelope.data) return;
-        if (envelope.data.analytics_consent === false) return;
-        // Find and POST every analytics_*.json file.
-        var files;
-        try { files = Module.FS.readdir(LOVE_SAVE_PATH); } catch(e) { return; }
-        for (var i = 0; i < files.length; i++) {
-          var f = files[i];
-          if (f.indexOf('analytics_') !== 0 || f.indexOf('.json') < 0) continue;
-          var payload = _readIdbfsText(LOVE_SAVE_PATH + f);
-          if (!payload) continue;
-          fetch(ANALYTICS_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: payload,
-            keepalive: true,   // survives beforeunload
-          }).catch(function() {});   // fire-and-forget; ignore network errors
-        }
-      }
-
-      // Flush on tab close / navigate away.
-      window.addEventListener('beforeunload', tryFlushAnalytics);
-      // Periodic flush every 5 minutes while the tab is open.
-      setInterval(tryFlushAnalytics, 5 * 60 * 1000);
-      // Note: the initial flush after game load is triggered from Module.setStatus below.
     </script>
 
     <script type="text/javascript" src="game.js"></script>

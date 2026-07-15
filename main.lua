@@ -312,7 +312,7 @@ function love.update(dt)
                 autosave_timer = 0
                 local state = Game.state
                 Game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
-                HandAnalytics.flush(state)
+                HandAnalytics.flush(state, Game.settings and Game.settings.analytics_consent)
             end
         end
     end
@@ -385,7 +385,7 @@ function love.quit()
     -- quit doesn't get lost. Skip from the menu-class states (no useful
     -- run state to commit).
     if Game then
-        HandAnalytics.flush(Game.state)
+        HandAnalytics.flush(Game.state, Game.settings and Game.settings.analytics_consent)
         local current = Game.state_machine and Game.state_machine:current()
         if current == "grind" or current == "shove" then
             local state = Game.state

@@ -10,7 +10,7 @@ const MAX_SAVE_ID_LEN = 64;
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -23,11 +23,145 @@ function bad(msg, status = 400) {
   return withCors(new Response(msg, { status }));
 }
 
+// Rebuilds one save's data back into the exact shape HandAnalytics.lua
+// writes locally ({ save_id, shoves: [...] }) so it can be dropped straight
+// into tools/hand_analytics.html.
+async function exportSave(env, save_id) {
+  const shoveRows = await env.DB.prepare(
+    `SELECT * FROM shoves WHERE save_id = ? ORDER BY shove_count`
+  ).bind(save_id).all();
+
+  const shoves = [];
+  for (const s of shoveRows.results) {
+    const hands = await env.DB.prepare(
+      `SELECT t_start, duration, won, delta, tier, stake_id, stake_bb, game_type_id,
+              hand_pace_mult, deck_id, prototype, hands_played
+       FROM hands WHERE save_id = ? AND shove_count = ? ORDER BY t_start`
+    ).bind(save_id, s.shove_count).all();
+
+    const events = await env.DB.prepare(
+      `SELECT t, type, item_id, level, cost_dollars, bankroll, cost_chips, chips
+       FROM events WHERE save_id = ? AND shove_count = ? ORDER BY t`
+    ).bind(save_id, s.shove_count).all();
+
+    shoves.push({
+      shove_count: s.shove_count,
+      started_at: s.started_at,
+      deck_id: s.deck_id,
+      catalog_levels: JSON.parse(s.catalog_levels || "{}"),
+      run_upgrade_levels: JSON.parse(s.run_upgrade_levels || "{}"),
+      shove_rate: {
+        r1: s.shove_rate_r1, r2: s.shove_rate_r2, r3: s.shove_rate_r3,
+        clear: s.shove_rate_clear, catalog: s.shove_rate_catalog,
+        mult: s.shove_rate_mult, bankroll: s.shove_rate_bankroll,
+      },
+      gauntlet_result: s.gauntlet_result,
+      chips_earned: s.chips_earned,
+      hands: hands.results.map((h) => ({ ...h, won: !!h.won, prototype: !!h.prototype })),
+      events: events.results,
+    });
+  }
+
+  return { save_id, shoves };
+}
+
+// Same reconstruction as exportSave, but for every save in 3 flat queries
+// total instead of N+1 per save/shove — this is what powers "load
+// everything" from the dashboard without downloading saves one at a time.
+async function exportAll(env) {
+  const [shoveRows, handRows, eventRows] = await Promise.all([
+    env.DB.prepare(`SELECT * FROM shoves ORDER BY save_id, shove_count`).all(),
+    env.DB.prepare(
+      `SELECT save_id, shove_count, t_start, duration, won, delta, tier, stake_id,
+              stake_bb, game_type_id, hand_pace_mult, deck_id, prototype, hands_played
+       FROM hands ORDER BY save_id, shove_count, t_start`
+    ).all(),
+    env.DB.prepare(
+      `SELECT save_id, shove_count, t, type, item_id, level, cost_dollars, bankroll, cost_chips, chips
+       FROM events ORDER BY save_id, shove_count, t`
+    ).all(),
+  ]);
+
+  const key = (save_id, shove_count) => save_id + "|" + shove_count;
+
+  const handsByShove = {};
+  for (const h of handRows.results) {
+    const k = key(h.save_id, h.shove_count);
+    (handsByShove[k] ||= []).push({
+      t_start: h.t_start, duration: h.duration, won: !!h.won, delta: h.delta,
+      tier: h.tier, stake_id: h.stake_id, stake_bb: h.stake_bb,
+      game_type_id: h.game_type_id, hand_pace_mult: h.hand_pace_mult,
+      deck_id: h.deck_id, prototype: !!h.prototype, hands_played: h.hands_played,
+    });
+  }
+
+  const eventsByShove = {};
+  for (const e of eventRows.results) {
+    const k = key(e.save_id, e.shove_count);
+    (eventsByShove[k] ||= []).push({
+      t: e.t, type: e.type, item_id: e.item_id, level: e.level,
+      cost_dollars: e.cost_dollars, bankroll: e.bankroll,
+      cost_chips: e.cost_chips, chips: e.chips,
+    });
+  }
+
+  const savesById = {};
+  for (const s of shoveRows.results) {
+    const k = key(s.save_id, s.shove_count);
+    const save = (savesById[s.save_id] ||= { save_id: s.save_id, shoves: [] });
+    save.shoves.push({
+      shove_count: s.shove_count,
+      started_at: s.started_at,
+      deck_id: s.deck_id,
+      catalog_levels: JSON.parse(s.catalog_levels || "{}"),
+      run_upgrade_levels: JSON.parse(s.run_upgrade_levels || "{}"),
+      shove_rate: {
+        r1: s.shove_rate_r1, r2: s.shove_rate_r2, r3: s.shove_rate_r3,
+        clear: s.shove_rate_clear, catalog: s.shove_rate_catalog,
+        mult: s.shove_rate_mult, bankroll: s.shove_rate_bankroll,
+      },
+      gauntlet_result: s.gauntlet_result,
+      chips_earned: s.chips_earned,
+      hands: handsByShove[k] || [],
+      events: eventsByShove[k] || [],
+    });
+  }
+
+  return { saves: Object.values(savesById) };
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
       return withCors(new Response(null, { status: 204 }));
     }
+
+    if (request.method === "GET") {
+      const url = new URL(request.url);
+      const save_id = url.searchParams.get("save_id");
+
+      if (url.searchParams.has("all")) {
+        return withCors(Response.json(await exportAll(env)));
+      }
+
+      if (!save_id) {
+        // No save_id given — list what's available so you know what to ask for.
+        const rows = await env.DB.prepare(
+          `SELECT save_id, COUNT(*) AS shoves, MAX(received_at) AS last_received
+           FROM shoves GROUP BY save_id ORDER BY last_received DESC`
+        ).all();
+        return withCors(Response.json(rows.results));
+      }
+
+      const data = await exportSave(env, save_id);
+      const resp = Response.json(data);
+      resp.headers.set(
+        "Content-Disposition",
+        `attachment; filename="analytics_${save_id}.json"`
+      );
+      return withCors(resp);
+    }
+
     if (request.method !== "POST") {
       return bad("method not allowed", 405);
     }

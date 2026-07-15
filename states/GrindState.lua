@@ -112,11 +112,18 @@ end
 -- Close the how-to-play modal. The first time it's dismissed we persist the
 -- acknowledgement so it never auto-opens again. The view never sets this —
 -- the host owns the state mutation (MVC).
+--
+-- The extra "Help Balance the Game" consent modal only escalates on the
+-- true first run (fresh install) when the checkbox is left unchecked — a
+-- one-time nudge, not something that should reappear every time the player
+-- replays the how-to-play page via the top-bar "?". On a replay the
+-- checkbox here just sets consent directly, checked or not.
 function GrindState:_dismissOnboarding()
-    local consent = self.onboarding_modal:checkboxChecked()
+    local consent      = self.onboarding_modal:checkboxChecked()
+    local was_first_run = not self.game.state.onboarded
     self.onboarding_modal = nil
-    if consent then
-        self:_saveConsent(true)
+    if consent or not was_first_run then
+        self:_saveConsent(consent)
         self:_finalizeOnboarding()
     else
         self.analytics_modal = AnalyticsConsentModal:new(self.game)

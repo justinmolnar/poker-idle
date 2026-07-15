@@ -7,16 +7,35 @@
 -- startRun(state)   — call from GrindState:enter(); loads or creates the
 --                     per-save file and finds/creates the current shove entry.
 -- recordHand(rec)   — appends one hand record to the current shove.
--- flush(state)      — snapshots final run metadata and writes the file.
+-- flush(state, consent) — snapshots final run metadata, writes the file, and
+--                     (web + opted in) pushes it to the analytics backend.
+--
+-- Web transport: this love.js build exports no Module.FS (no
+-- FORCE_FILESYSTEM / EXPORTED_RUNTIME_METHODS), so JS on the page can't read
+-- love.filesystem's virtual disk directly — there is nothing to poll or
+-- guess a path for. Instead, on web, flush() print()s the payload behind a
+-- marker every Emscripten build always routes through Module.print (or
+-- console.log if unset) regardless of build flags. build-tools/index.html's
+-- Module.print hook watches for that marker and POSTs the JSON that follows.
 
 local json = require("lib.json")
 
 local HandAnalytics = {}
 
+local ANALYTICS_MARKER = "@@POKERIDLE_ANALYTICS@@"
+
 local _enabled      = false
 local _filename     = nil
 local _file_data    = nil   -- { save_id, shoves = [...] }
 local _current_run  = nil   -- reference into _file_data.shoves[i]
+
+-- love.js ships no FFI; failed require("ffi") = running on web. Mirrors the
+-- same check conf.lua uses for IS_WEB.
+local _is_web = false
+do
+    local ok = pcall(require, "ffi")
+    if not ok then _is_web = true end
+end
 
 local function _readRaw(filename)
     if not love.filesystem.getInfo(filename) then return nil end
@@ -108,14 +127,19 @@ function HandAnalytics.recordEvent(event)
     table.insert(_current_run.events, event)
 end
 
--- Called from love.quit(). Updates final run-upgrade snapshot and writes.
-function HandAnalytics.flush(state)
+-- Called from the autosave tick and love.quit(). Updates final run-upgrade
+-- snapshot, writes the local file, and (web + opted in) pushes the whole
+-- per-save payload out via the print() marker.
+function HandAnalytics.flush(state, consent)
     if not _enabled or not _current_run then return end
     if state then
         _current_run.run_upgrade_levels = state.run_upgrade_levels or {}
         _current_run.deck_id = state.active_deck_id or _current_run.deck_id
     end
     _writeRaw()
+    if _is_web and consent then
+        print(ANALYTICS_MARKER .. json.encode(_file_data))
+    end
 end
 
 return HandAnalytics

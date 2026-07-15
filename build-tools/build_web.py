@@ -25,6 +25,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 
 # love.js settings (matching the shipped build):
@@ -104,8 +105,23 @@ def main():
 
     log("2/4 running love.js (compatibility build)")
     lovejs = find_lovejs()
+    # Clear WEB_DIR's *contents* rather than removing the directory itself —
+    # on Windows something (a stale file-watcher, seemingly) can hold a raw
+    # handle on the directory entry itself long after every file inside it is
+    # gone, which makes rmdir/rename fail even on an empty folder. Deleting
+    # the children doesn't need that handle at all.
     if os.path.isdir(WEB_DIR):
-        shutil.rmtree(WEB_DIR)
+        for entry in os.listdir(WEB_DIR):
+            p = os.path.join(WEB_DIR, entry)
+            if os.path.isdir(p):
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                try:
+                    os.remove(p)
+                except PermissionError:
+                    pass
+    else:
+        os.makedirs(WEB_DIR)
     subprocess.run(
         ["node", lovejs, "-c", "-t", TITLE, LOVE_FILE, WEB_DIR],
         check=True,
