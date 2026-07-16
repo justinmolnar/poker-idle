@@ -78,6 +78,24 @@ function RoomState:draw()
     local btn_x = W - btn_w - fl(16 * s)
     local btn_y = fl((top_h - btn_h) * 0.5)
 
+    -- Render developer unlock cheat status
+    local Catalog = require("data.catalog")
+    local is_unlocked = true
+    for _, item in ipairs(Catalog) do
+        if not self.game.state.owned_items[item.id] then
+            is_unlocked = false
+            break
+        end
+    end
+    love.graphics.setFont(fonts.sm)
+    if is_unlocked then
+        Theme.setColor(Theme.status.warn)
+        love.graphics.print("ALL ITEMS UNLOCKED [U]", btn_x - fl(170 * s), btn_y + fl(10 * s))
+    else
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.print("PRESS [U] TO UNLOCK ALL", btn_x - fl(170 * s), btn_y + fl(10 * s))
+    end
+
     local mx, my = love.mouse.getPosition()
     local btn_hov = mx >= btn_x and mx < btn_x + btn_w
                 and my >= btn_y and my < btn_y + btn_h
@@ -94,6 +112,31 @@ end
 function RoomState:keypressed(key)
     if self.room_view and self.room_view:keypressed(key) then
         return
+    end
+
+    -- Toggle unlock all cheat
+    if key == "u" then
+        local Catalog = require("data.catalog")
+        local owned = self.game.state.owned_items
+        local any_unowned = false
+        for _, item in ipairs(Catalog) do
+            if not owned[item.id] then
+                any_unowned = true
+                break
+            end
+        end
+
+        if any_unowned then
+            for _, item in ipairs(Catalog) do
+                owned[item.id] = true
+            end
+            print("[debug] Unlocked all catalog items for room testing")
+        else
+            -- Reset owned items
+            self.game.state.owned_items = { poker_poster = true }
+            print("[debug] Reset owned catalog items to default")
+        end
+        return true
     end
 
     -- ESC or Tab exits the RoomState back to Grind

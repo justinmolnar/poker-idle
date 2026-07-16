@@ -80,21 +80,55 @@ function SpriteLoader:_scan(rel_dir)
     return count
 end
 
+function SpriteLoader:scanDirectory(dir_path, key_prefix)
+    if not love.filesystem.getInfo(dir_path) then return 0 end
+    local items = love.filesystem.getDirectoryItems(dir_path)
+    local count = 0
+    for _, item in ipairs(items) do
+        if item ~= "" and item ~= "." and item ~= ".." then
+            local item_path = dir_path .. "/" .. item
+            local info = love.filesystem.getInfo(item_path)
+            if info then
+                if info.type == "directory" then
+                    count = count + self:scanDirectory(item_path, key_prefix .. item .. "/")
+                elseif info.type == "file" and isSupported(item) then
+                    local name = stripExt(item)
+                    local sprite_name = key_prefix .. name
+                    local ok, image = pcall(love.graphics.newImage, item_path)
+                    if ok and image then
+                        self.sprites[sprite_name] = image
+                        count = count + 1
+                    end
+                end
+            end
+        end
+    end
+    return count
+end
+
 function SpriteLoader:loadAll()
     if self.loaded then return end
 
-    print("[SpriteLoader] Scanning " .. SPRITE_DIR)
+    local sprite_count = 0
 
-    if not love.filesystem.getInfo(SPRITE_DIR) then
-        print("[SpriteLoader] " .. SPRITE_DIR .. " does not exist; no sprites loaded.")
-        self.loaded = true
-        return
+    -- Scan assets/sprites
+    print("[SpriteLoader] Scanning " .. SPRITE_DIR)
+    if love.filesystem.getInfo(SPRITE_DIR) then
+        sprite_count = sprite_count + self:_scan("")
     end
 
-    local sprite_count = self:_scan("")
+    -- Scan assets/isometric
+    local iso_dir = "assets/isometric"
+    print("[SpriteLoader] Scanning " .. iso_dir)
+    if love.filesystem.getInfo(iso_dir) then
+        local iso_count = self:scanDirectory(iso_dir, "isometric/")
+        sprite_count = sprite_count + iso_count
+        print("[SpriteLoader] Loaded " .. iso_count .. " isometric sprites from " .. iso_dir)
+    end
+
     self:loadAliases()
 
-    print("[SpriteLoader] Loaded " .. sprite_count .. " sprites"
+    print("[SpriteLoader] Loaded " .. sprite_count .. " total sprites"
         .. (self.aliases and ", with aliases" or ""))
     self.loaded = true
 end

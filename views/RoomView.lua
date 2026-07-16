@@ -46,7 +46,9 @@ function RoomView:new(game)
     if game.sprite_loader and game.sprite_loader.sprites then
         local sprite_names = {}
         for name, _ in pairs(game.sprite_loader.sprites) do
-            sprite_names[#sprite_names + 1] = name
+            if name:sub(1, 10) == "isometric/" then
+                sprite_names[#sprite_names + 1] = name
+            end
         end
         table.sort(sprite_names)
         
@@ -208,6 +210,14 @@ function RoomView:draw(full_screen)
     local TOP_BAR_H = fl(56 * s)
     local cx, cy = getCenter(W, H, s, full_screen)
 
+    local state = game.state
+    local owned_set = {}
+    if state.owned_items then
+        for _, id in ipairs(state.owned_items) do
+            owned_set[id] = true
+        end
+    end
+
     local tw = TILE_W * s
     local th = TILE_H * s
     local wh = WALL_H * s
@@ -275,10 +285,9 @@ function RoomView:draw(full_screen)
     end
 
     -- 3. Gather items to render (owned only, unless in editor mode)
-    local state = self.game.state
     local render_list = {}
     for _, obj in ipairs(self.placed) do
-        local owned = state.owned_items and state.owned_items[obj.id]
+        local owned = owned_set[obj.id]
         if owned or self.editor_mode then
             render_list[#render_list + 1] = obj
         end
@@ -298,7 +307,7 @@ function RoomView:draw(full_screen)
     -- 5. Draw the items
     for _, obj in ipairs(render_list) do
         local color = obj.color
-        local is_owned = (state.owned_items and state.owned_items[obj.id]) or self.editor_mode
+        local is_owned = owned_set[obj.id] or self.editor_mode
         if not is_owned then
             -- Unowned items drawn slightly transparent/desaturated in editor mode
             color = { color[1], color[2], color[3], 0.40 }
@@ -467,7 +476,7 @@ function RoomView:draw(full_screen)
                 Theme.setColor(Theme.status.warn)
                 love.graphics.print("> " .. item.name, sidebar_x + text_margin, cat_y)
             else
-                Theme.setColor(state.owned_items[item.id] and Theme.fg.primary or Theme.fg.disabled)
+                Theme.setColor(owned_set[item.id] and Theme.fg.primary or Theme.fg.disabled)
                 love.graphics.print("  " .. item.name, sidebar_x + text_margin, cat_y)
             end
             cat_y = cat_y + fl(16 * s)
