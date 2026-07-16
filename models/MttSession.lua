@@ -238,7 +238,9 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
     -- Walk through hands, tracking the player's projected stack (bb) so
     -- filler-loss tiers don't accidentally bust the player early.
     local proj_player_bb = (gtype.starting_stack_bb or 100)
-    local SAFETY_BB      = 25      -- min remaining bb before downgrading filler losses
+    -- 10bb-turbo scale: low enough that filler hands can still roll
+    -- medium, high enough that the player never projects onto the felt.
+    local SAFETY_BB      = 3       -- min remaining bb before downgrading filler losses
 
     local plan_hands = {}
     for i = 1, n_hands do
@@ -250,20 +252,25 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
                 if s == player_seat then player_in_busts = true; break end
             end
             if player_in_busts then
-                -- Player-bust hand. Jackpot loss to a survivor.
+                -- Player-bust hand. Jackpot loss to a survivor; the
+                -- player is the bust target (HandScript keeps targets in
+                -- through showdown so their whole stack goes in).
                 entry = {
                     won           = false,
                     tier          = "jackpot",
+                    bust_seats    = { player_seat },
                     forced_winner = _pickSurvivor(
                         { bust_schedule = bust_schedule }, nil, n_seats, player_seat),
                 }
                 proj_player_bb = 0
             else
-                -- Opp-bust hand. Player wins jackpot pot; bust target(s)
-                -- get whittled to 0 by per-seat caps.
+                -- Opp-bust hand. Player wins jackpot pot; the scheduled
+                -- target(s) are handed to HandScript as bust_seats so
+                -- they stay in the pot and get drained by capChips.
                 entry = {
                     won           = true,
                     tier          = "jackpot",
+                    bust_seats    = busts_this_hand,
                     forced_winner = player_seat,
                 }
                 proj_player_bb = proj_player_bb + OutcomeMath.tierAvgBB("jackpot") * 0.7
@@ -271,9 +278,13 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
         else
             -- Filler hand. Roll won from eff_wc, tier from the actual
             -- win/loss dist — preserves the cash-table "feel" of the
-            -- per-hand pipeline.
+            -- per-hand pipeline. Tiers clamp at medium: on turbo stacks a
+            -- large/jackpot filler pot busts deep-staying seats the plan
+            -- never scheduled, skewing the finish distribution. Big pots
+            -- are reserved for the scheduled bust hands.
             local won = love.math.random() < eff_wc
             local tier = OutcomeMath.sampleDist(won and win_dist or loss_dist) or "small"
+            if tier == "jackpot" or tier == "large" then tier = "medium" end
             local forced_winner
             if won then
                 forced_winner = player_seat
@@ -374,12 +385,14 @@ function MttSession:reconcile(new_busts, seat_busted, n_seats, player_seat)
                     plan.hands[next_hand] = {
                         won           = false,
                         tier          = "jackpot",
+                        bust_seats    = { seat },
                         forced_winner = _pickSurvivor(plan, seat_busted, n_seats, player_seat),
                     }
                 else
                     plan.hands[next_hand] = {
                         won           = true,
                         tier          = "jackpot",
+                        bust_seats    = { seat },
                         forced_winner = player_seat,
                     }
                 end

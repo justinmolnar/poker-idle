@@ -21,6 +21,7 @@ local TierGlyph   = require("views.TierGlyph")
 local OutcomeMath = require("models.outcome_math")
 local IconText    = require("views.IconText")
 local Anchors     = require("services.AnchorRegistry")
+local RollingValue = require("services.RollingValue")
 
 -- Canonical tier order (internal keys). Rendered as glyphs via TierGlyph.
 local TIER_ORDER  = { "small", "medium", "large", "jackpot" }
@@ -360,11 +361,20 @@ local function evMetrics(tbl, controller, font)
     local bb = (stake and stake.bb) or 1
     if bb <= 0 then bb = 1 end
 
-    local ev_bb       = (stats.ev_per_hand or 0) / bb
-    local stack_p     = (stats.win_chance or 0)
-                        * ((stats.win_dist and stats.win_dist.jackpot) or 0)
-    local label       = TablePanelStats.evLabel(stats.ev_per_hand or 0)
-    local stack_label = string.format("%.1f%%", stack_p * 100)
+    -- Displayed values roll toward their targets (same feel as the
+    -- top-bar money) so an upgrade purchase sweeps the readout instead
+    -- of snapping it. Color derives from the ROLLED value so the tint
+    -- never disagrees with the number on screen.
+    local id        = tbl._id or 0
+    local ev        = RollingValue.get("table_ev:" .. id,
+                                       stats.ev_per_hand or 0)
+    local stack_pct = RollingValue.get("table_stackpct:" .. id,
+                          ((stats.win_chance or 0)
+                           * ((stats.win_dist and stats.win_dist.jackpot) or 0))
+                          * 100)
+    local ev_bb       = ev / bb
+    local label       = TablePanelStats.evLabel(ev)
+    local stack_label = string.format("%.1f%%", stack_pct)
 
     local text_h    = font:getHeight()
     local r         = TierGlyph.radius(text_h)

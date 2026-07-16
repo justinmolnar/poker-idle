@@ -390,20 +390,32 @@ function Table:deal(ctx)
 
     -- Outcome resolution: plan-driven for tournaments, sample-driven
     -- for cash. Both paths produce (won, tier); chip-stack tables also
-    -- produce a forced_winner_seat that flows into HandScript.write.
+    -- produce a forced_winner_seat + forced_bust_seats that flow into
+    -- HandScript.write.
     local won, tier
+    local forced_bust_seats = nil
     if gtype.chip_stack_table and self.mtt:isPlaying() then
         local entry = self.mtt:currentHand()
         if entry then
             won                 = entry.won
             tier                = entry.tier
             forced_winner_seat  = entry.forced_winner
+            forced_bust_seats   = entry.bust_seats
         else
-            -- Plan exhausted (shouldn't happen — _finalizeHand should
-            -- have called _endTournament). Defensive fallback: roll
-            -- the cash-table path.
-            local wc, wd, ld = OutcomeMath.buildOutcome(ctx, gtype, stake)
-            won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ctx, gtype)
+            -- Plan exhausted (all n_hands played + reconcile's extension
+            -- window burned). Settle at current standings instead of
+            -- falling into live per-hand rolls — that regime lets the
+            -- player structurally outlast the field and produced 50-100
+            -- hand near-guaranteed wins.
+            local n_seats = (gtype.seats or 0) + 1
+            local alive_opps = 0
+            for s = 1, n_seats do
+                if s ~= self.player_seat_fixed and not self.seat_busted[s] then
+                    alive_opps = alive_opps + 1
+                end
+            end
+            self:_endTournament(alive_opps + 1, n_seats)
+            return false
         end
     else
         -- Cash-table path: roll the 3-distribution outcome live. Tier-
@@ -574,10 +586,12 @@ function Table:deal(ctx)
                 gtype_id           = gtype.id,
                 stake_bb           = stake_bb,
                 -- Tournament plan supplies the winner_seat on player-loss
-                -- hands (and the bust-target on opp-bust hands). Nil for
-                -- cash games — the writer falls back to its existing
-                -- random pick. Guard against a dead seat in HandScript.
+                -- hands and the scheduled bust target(s) on bust hands.
+                -- Nil for cash games — the writer falls back to its
+                -- existing random pick. Dead seats are guarded against
+                -- inside HandScript.
                 forced_winner_seat = forced_winner_seat,
+                forced_bust_seats  = forced_bust_seats,
             },
             {
                 n_seats     = n_seats,

@@ -202,11 +202,17 @@ function GrindController:update(dt)
                 local key   = bountyKey(t.stake_id, t.game_type_id)
                 if not state.stakes_won_this_run[key] then
                     state.stakes_won_this_run[key] = true
-                    local stake = Lookups.findById(Stakes, t.stake_id)
-                    local base  = stake and stake.chip_award or 0
-                    local mult  = (self.ctx and self.ctx.chip_award_mult) or 1
-                    award = math.floor(base * mult + 0.5)
+                    state.hands_since_last_bank = 0
+                    -- Same award math as the cash jackpot path (incl.
+                    -- chip_award_mult AND Pen's flat bonus — this used to
+                    -- hand-roll the formula and dropped the Pen add).
+                    award = self:bountyAward(t.stake_id)
                     if award > 0 then state.chips_this_run = state.chips_this_run + award end
+                else
+                    -- Repeat tournament win on an already-banked combo:
+                    -- the same "denied" event the cash path counts (feeds
+                    -- the chip_denied tutorial hint).
+                    state.total_denied_stacks = (state.total_denied_stacks or 0) + 1
                 end
 
                 -- Jackpot-grade table FX + a confetti fountain — the MTT is the
@@ -470,11 +476,7 @@ function GrindController:update(dt)
                 if not state.stakes_won_this_run[key] then
                     state.stakes_won_this_run[key] = true
                     state.hands_since_last_bank = 0
-                    local stake = Lookups.findById(Stakes,tbl.stake_id)
-                    local base_award = stake and stake.chip_award or 0
-                    local mult  = (self.ctx and self.ctx.chip_award_mult) or 1
-                    local bonus = (self.ctx and self.ctx.jackpot_chip_add) or 0
-                    local award = math.floor(base_award * mult + 0.5) + bonus
+                    local award = self:bountyAward(tbl.stake_id)
                     if award > 0 then
                         -- Pending chips — commit to state.chips at SHOVE
                         -- time. The float is the satisfying "you locked a
@@ -602,11 +604,10 @@ function GrindController:bountyBanked(stake_id, game_type_id)
         and self.game.state.stakes_won_this_run[key] == true
 end
 
--- The chips that WOULD bank if the player hits a jackpot win at (stake,
--- gtype) — base stake.chip_award scaled by ctx.chip_award_mult, then any
--- flat ctx.jackpot_chip_add (Pen) added on top. Mirrors the actual
--- bounty math in the resolution loop so the sidebar "+N chips" badge
--- shows the real payout including catalog upgrades.
+-- THE bounty math — base stake.chip_award scaled by ctx.chip_award_mult,
+-- then any flat ctx.jackpot_chip_add (Pen) added on top. Every award
+-- site (cash jackpot, tournament win) and every display (sidebar "+N"
+-- badge) calls this, so payouts can never drift from what's advertised.
 function GrindController:bountyAward(stake_id)
     local stake = Lookups.findById(Stakes,stake_id)
     if not stake then return 0 end

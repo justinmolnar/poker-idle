@@ -6,7 +6,12 @@
 --     -> { events = { ... }, total_duration = N }
 --
 -- Inputs:
---   outcome    = { won, magnitude_bb, tier, gtype_id, stake_bb }
+--   outcome    = { won, magnitude_bb, tier, gtype_id, stake_bb,
+--                  forced_winner_seat?, forced_bust_seats? }
+--     forced_winner_seat — MTT plan: this alive seat wins the pot.
+--     forced_bust_seats  — MTT plan: these alive seats stay in through a
+--       forced showdown so stack caps drain them (their bust is the
+--       point of the hand). Dead/winner seats are ignored.
 --   table_ctx  = { n_seats, player_seat, button_seat,
 --                  alive_seats = { [seat] = true } | nil,
 --                  seat_stacks = { [seat] = $ } | nil }
@@ -222,6 +227,24 @@ local function plan(outcome, table_ctx)
         end
     end
 
+    -- Scheduled bust targets (MTT plan, outcome.forced_bust_seats).
+    -- Filtered to alive non-winner seats — same drift-safety as the
+    -- forced-winner guard above. A hand with targets is forced to
+    -- SHOWDOWN so they stay in through the later (biggest) streets: their
+    -- calls hit capChips → genuine all_in events → per_seat_total drains
+    -- their whole stack → Table:_reconcileChipFlow busts them on
+    -- schedule. (With 2+ targets the even pot split can leave a target
+    -- short — MttSession:reconcile re-attacks it next hand.)
+    local bust_targets = {}
+    if outcome.forced_bust_seats then
+        for _, s in ipairs(outcome.forced_bust_seats) do
+            if alive_seats[s] and s ~= winner_seat then
+                bust_targets[#bust_targets + 1] = s
+            end
+        end
+    end
+    if #bust_targets > 0 then showdown = true end
+
     -- Decide how many streets play out. Showdowns always go river (4).
     -- Fold-outs end at a tier-biased random street.
     local n_streets_played
@@ -237,29 +260,35 @@ local function plan(outcome, table_ctx)
     -- seats still in for that street.
     local street_pots = splitPot(pot_total, n_streets_played)
 
-    -- Plan the K_stay (seats still in) at the END of each street.
-    -- Always start at K=n_alive. Always end at 1 (fold-out) or 2 (showdown).
-    -- Linear interpolation in between is the simplest sane shape.
-    local K_at_end = {}
-    for s = 1, n_streets_played do
-        local frac = s / n_streets_played
-        local last_K = showdown and 2 or 1
-        K_at_end[s] = math.max(last_K, math.floor(n_alive - (n_alive - last_K) * frac + 0.5))
-    end
-    -- Force last value exactly so monotone decrease lands cleanly.
-    K_at_end[n_streets_played] = showdown and 2 or 1
-
-    -- Plan which seats fold on which street. Constraint: the winner_seat
-    -- never folds; the player follows the showdown/fold-out rule. After
-    -- assigning forced stays, drop the rest in random street order so
-    -- the K_at_end series is satisfied.
-    local fold_streets = {}     -- [seat] = STREET_IDX or nil if stays to end
+    -- Forced stays: the winner never folds; the player follows the
+    -- showdown/fold-out rule; scheduled bust targets ride to the end.
+    -- Computed BEFORE K_at_end so the survivor floor counts them.
     local stays = { [winner_seat] = true }
     if showdown then
         stays[player] = true
     elseif outcome.won then
         stays[player] = true
     end
+    for _, s in ipairs(bust_targets) do stays[s] = true end
+    local n_stays = 0
+    for _ in pairs(stays) do n_stays = n_stays + 1 end
+
+    -- Plan the K_stay (seats still in) at the END of each street.
+    -- Always start at K=n_alive. End at 1 (fold-out) or the showdown
+    -- floor (2, or more when bust targets are forced to the end — the
+    -- per-seat split math then sizes calls against the real headcount).
+    local K_at_end = {}
+    local last_K = showdown and math.max(2, n_stays) or 1
+    for s = 1, n_streets_played do
+        local frac = s / n_streets_played
+        K_at_end[s] = math.max(last_K, math.floor(n_alive - (n_alive - last_K) * frac + 0.5))
+    end
+    -- Force last value exactly so monotone decrease lands cleanly.
+    K_at_end[n_streets_played] = last_K
+
+    -- Plan which seats fold on which street. After the forced stays,
+    -- drop the rest in random street order so K_at_end is satisfied.
+    local fold_streets = {}     -- [seat] = STREET_IDX or nil if stays to end
     -- Build a shuffled list of non-stay alive seats.
     local foldables = {}
     for i = 1, n do

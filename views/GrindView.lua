@@ -437,8 +437,14 @@ function GrindView:_buildTablesTabComponents()
             else
                 sub_right = string.format("buy-in $%.2f", stake.buy_in or 0)
                 if affordable then
-                    local ev, ev_bb = TablePanelStats.evPerHand(self.controller, stake, gtype_obj)
+                    local ev = TablePanelStats.evPerHand(self.controller, stake, gtype_obj)
                     if ev then
+                        -- Rolls like the per-table readouts; color from the
+                        -- rolled value so tint and number always agree.
+                        ev = RollingValue.get(
+                            "btn_ev:" .. stake.id .. ":" .. gtype_id, ev)
+                        local bb    = (stake.bb and stake.bb > 0) and stake.bb or 1
+                        local ev_bb = ev / bb
                         sub_left  = TablePanelStats.evLabel(ev)
                         sub_color = (ev_bb > 0.05 and "good") or (ev_bb < -0.05 and "error") or "muted"
                     end

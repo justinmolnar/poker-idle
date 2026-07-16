@@ -102,6 +102,27 @@ function FeltLayout.compute(p)
     end
     local sz = scaleSizes(base, card_scale)
 
+    -- Multi-way seat clamp: each opponent seat is fw/n_opps wide and
+    -- draws two cards side by side. The base opponent fraction fits 5
+    -- seats (6-max); with 7 (8-max KO) the cards overflow their seat —
+    -- cap opponent card width to fit the seat (card gap + inter-seat
+    -- breathing room), aspect preserved. Runs AFTER the height solve so
+    -- MAX_CARD_SCALE growth can't reintroduce the overflow; the copy
+    -- keeps the caller's base sizes table untouched (scaleSizes returns
+    -- it unchanged at k == 1). HU (n_opps 1) has its own duel seat.
+    if (p.n_opps or 0) > 1 then
+        local seat_w = fw / p.n_opps
+        local max_ow = ifloor((seat_w - scaled(9, p.s)) / 2)
+        if max_ow > 0 and sz.opp_w > max_ow then
+            sz = {
+                player_w = sz.player_w, player_h = sz.player_h,
+                comm_w   = sz.comm_w,   comm_h   = sz.comm_h,
+                opp_w    = max_ow,
+                opp_h    = ifloor(max_ow / CARD_ASPECT),
+            }
+        end
+    end
+
     -- Minimums with the scaled cards.
     local opp_card_h = p.hu and (sz.opp_h * Data.hu_seat.card_mult) or sz.opp_h
     local opp_min    = opp_card_h + opp_name_h + name_gap

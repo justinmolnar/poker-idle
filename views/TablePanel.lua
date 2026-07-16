@@ -29,6 +29,7 @@ local Chips         = require("views.Chips")
 local Denoms        = require("services.DenominationBreakdown")
 local ChipData      = require("data.chips")
 local ClickFlash    = require("services.ClickFlash")
+local RollingValue  = require("services.RollingValue")
 local Hover         = require("services.HoverService")
 local Button        = require("views.Button")
 local Ghosts        = require("services.Ghosts")
@@ -868,10 +869,15 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
 
     -- "Tied up $X.XX" on the bottom line beneath the pile it prices — the
     -- same term as the top-bar TIED UP cell, which is the sum of these
-    -- (NOT "Stack": that word is the win/loss tier).
+    -- (NOT "Stack": that word is the win/loss tier). The printed number
+    -- rolls toward its target (top-bar money feel); the pile above stays
+    -- on the raw value so its denominations don't reshuffle every frame
+    -- mid-roll.
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.sm)
-    local tied_str = "Tied up  " .. Format.moneyExact(display_stack)
+    local rolled = RollingValue.get("table_tied:" .. (tbl._id or 0),
+                                    display_stack)
+    local tied_str = "Tied up  " .. Format.moneyExact(rolled)
     love.graphics.print(tied_str, bottom.tied.x, bottom.tied.y)
     if tied_anchor_key then
         Anchors.set(tied_anchor_key, bottom.tied.x, bottom.tied.y,
@@ -1397,7 +1403,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     elseif L.bottom then
         Theme.setColor(Theme.fg.heading)
         love.graphics.setFont(fonts.sm)
-        local tied_str = "Tied up  " .. Format.moneyExact(tbl.stack or 0)
+        local tied_str = "Tied up  " .. Format.moneyExact(
+            RollingValue.get("table_tied:" .. (tbl._id or 0), tbl.stack or 0))
         love.graphics.printf(tied_str, felt_x, L.bottom.tied.y, felt_w, "center")
         Anchors.set("tied:" .. idx,
             felt_x + math.floor((felt_w - fonts.sm:getWidth(tied_str)) / 2),

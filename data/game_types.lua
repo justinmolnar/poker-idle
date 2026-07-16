@@ -50,7 +50,12 @@ if mtt_ko then
         -- read from data/mtt_payouts.lua keyed by finish position
         -- (1st=8, 2nd=7, 3rd=6, 4th-8th=0).
         chip_stack_table    = true,
-        starting_stack_bb   = 100,
+        -- Turbo stacks: shallow enough that any big pot a seat stays deep
+        -- in is a genuine all-in (the writer's capChips path), which is
+        -- what makes the plan's scheduled busts actually land. At 100bb
+        -- busts almost never materialized and tournaments dragged 50+
+        -- hands in the fallback regime.
+        starting_stack_bb   = 10,
         auto_deal           = true,
         -- No per-gtype dist_shifts: tournament difficulty + length is
         -- driven by the two-level outcome model in models/MttSession
