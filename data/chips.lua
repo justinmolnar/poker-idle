@@ -52,14 +52,14 @@ return {
     -- Indices into the denominations list above.
     --
     --   T1 ($0.02 bb): $0.01 - $1
-    --   T2 ($0.25 bb): $0.05 - $5
+    --   T2 ($0.10 bb): $0.01 - $1 (same micro-stake ladder as T1)
     --   T3 ($1   bb):  $0.25 - $25
     --   T4 ($10  bb):  $1   - $100
     --   T5 ($100 bb):  $25  - $1k
     --   T6 ($1k  bb):  $500 - $25k
     stake_palettes = {
         s001 = { 1, 2, 3, 4 },
-        s002 = { 2, 3, 4, 5 },
+        s002 = { 1, 2, 3, 4 },
         s003 = { 3, 4, 5, 6 },
         s004 = { 4, 5, 6, 7 },
         s005 = { 6, 7, 8, 9 },

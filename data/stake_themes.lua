@@ -28,7 +28,7 @@ return {
         header_bg    = { 0.18, 0.18, 0.16, 0.92 },
         chip_tint    = { 0.85, 0.85, 0.80 },             -- desaturated, dim
     },
-    -- T2 — $0.10/$0.25. Cleaner green, the standard cash-game look.
+    -- T2 — $0.05/$0.10. Cleaner green, the standard cash-game look.
     s002 = {
         felt_tint    = { 0.12, 0.42, 0.22, 0.55 },
         border_color = { 0.55, 0.45, 0.25, 0.90 },        -- brass-ish

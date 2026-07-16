@@ -1,9 +1,10 @@
 -- states/CreditsState.lua
 --
 -- Reached when the player clears the gauntlet (3-of-3 runouts). Shows a
--- minimal "you walked out" screen with the option to wipe both saves and
--- start over. The win itself is the achievement; this state is the period
--- at the end of the sentence.
+-- minimal "you walked out" screen with the option to keep playing on the
+-- same save (the clear unlocks the deck system as post-win progression)
+-- or wipe both saves and start over. The win itself is the achievement;
+-- this state is the period at the end of the sentence.
 --
 -- For the vertical slice this is intentionally sparse — a polish pass can
 -- replace it with a proper credit roll, audio sting, etc. The mechanic to
@@ -47,12 +48,30 @@ function CreditsState:draw()
         0, math.floor(H * 0.46), W, "center")
 
     love.graphics.setFont(fonts.md)
+    Theme.setColor(Theme.fg.muted)
+    love.graphics.printf("[ SPACE to keep playing ]",
+        0, H - 90, W, "center")
     Theme.setColor(Theme.fg.faint)
     love.graphics.printf("[ R to wipe save and start over ]",
         0, H - 60, W, "center")
 end
 
 function CreditsState:keypressed(key)
+    -- Continue on the same save: the clear persists (state.cleared), which
+    -- is what unlocks the deck system as post-win progression. Mirrors the
+    -- post-bust return: fresh run, catalog perks re-applied, back to grind
+    -- (GrindState:enter rebuilds the pool).
+    if key == "space" or key == "return" or key == "kpenter" then
+        local state = self.game.state
+        state:resetRun()
+        local meta_ctx = state:computeEffects(
+            self.game.effects, self.game.catalog, self.game.run_upgrades)
+        state:applyStartingPerks(meta_ctx)
+        self.game.save_service:saveAll(
+            state:serializeMeta(), state:serializeRun())
+        self.game.state_machine:switch("grind")
+        return
+    end
     if key == "r" then
         -- In-memory reset only. Use F7 (delete) to wipe the disk slots too.
         local state = self.game.state

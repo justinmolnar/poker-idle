@@ -18,6 +18,7 @@ local ClickFlash  = require("services.ClickFlash")
 local Icons       = require("views.Icons")
 local IconText    = require("views.IconText")
 local AwardGlow   = require("views.AwardGlow")
+local Anchors     = require("services.AnchorRegistry")
 
 -- Icon row sizes — recomputed by CR.setScale at boot/resize.
 local ICON_SIZE_BASE    = 64
@@ -378,6 +379,16 @@ function CR._button(comp, px, pw, p, y, game)
                     Icons.drawChip(game, fx + indent + printf_w - icon_d, right_y, icon_d,
                         line.right_icon_alpha, line.right_icon_shade)
                 end
+                -- Optional hint-anchor on the icon-bearing right badge
+                -- ("+N ◆") — text through glyph, in screen space.
+                if comp.badge_anchor and icon_d > 0 then
+                    local bx0 = fx + indent + text_w
+                                - right_font:getWidth(line.right)
+                    local sx, sy = love.graphics.transformPoint(bx0, right_y)
+                    Anchors.set(comp.badge_anchor, sx, sy,
+                        (fx + indent + printf_w) - bx0,
+                        right_font:getHeight())
+                end
                 Theme.setColor(color)
                 love.graphics.setFont(font)
             end
@@ -389,6 +400,14 @@ function CR._button(comp, px, pw, p, y, game)
     -- Chip-award fanfare: a gold pulse over the button face the moment a
     -- bounty banks (GrindView fires it; shared with the game-type tab strip).
     AwardGlow.draw(comp.id, px + p, y, content_w, total_h)
+
+    -- Optional named anchor (tutorial-hint highlight target). Panel draws
+    -- components under a scroll translate, so run the local rect through
+    -- the current transform to land in screen space.
+    if comp.anchor then
+        local sx, sy = love.graphics.transformPoint(px + p, y)
+        Anchors.set(comp.anchor, sx, sy, content_w, total_h)
+    end
 
     return total_h
 end

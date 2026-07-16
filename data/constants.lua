@@ -12,7 +12,11 @@ local C = {}
 --
 -- Things that always run regardless of this flag: auto-save, the title
 -- screen, the dealer-always-cheats outcome.
-C.PROTOTYPE_MODE = true
+--
+-- itch/web builds ship whatever is committed here — build_web.py is a
+-- pure packager, it rewrites nothing. Set back to true before building
+-- for itch.
+C.PROTOTYPE_MODE = false
 
 -- Per-feature flags. Default values follow C.PROTOTYPE_MODE; override an
 -- individual entry below the assignment if you need a non-default mix
@@ -61,6 +65,18 @@ C.FEATURES = {
     -- browser tab — love.event.quit() hard-errors the canvas — so the
     -- prototype (web) build greys Quit out with a "disabled for web" tooltip.
     QUIT_DISABLED     = C.PROTOTYPE_MODE,
+
+    -- Tutorial-style onboarding. ON: no run-0 scripting — the handicap
+    -- phantom and free Poker Poster never load, the post-bust catalog
+    -- doesn't force a purchase, quick-reset isn't poster-gated; the
+    -- future captor-hint system lives behind this flag too. OFF: the
+    -- current scripted intro loss.
+    TUTORIAL          = not C.PROTOTYPE_MODE,
+
+    -- Force-open the how-to-play modal on a player's first grind. OFF:
+    -- the modal is reachable only via the top-bar "?", and first-run
+    -- setup goes straight to the analytics-consent ask.
+    ONBOARDING_MODAL  = C.PROTOTYPE_MODE,
 }
 
 C.WINDOW = {
@@ -88,6 +104,10 @@ C.DEBUG = {
 C.GAMEPLAY = {
     INITIAL_BANKROLL       = 2,        -- starting $ each run (just barely covers a $0.01/$0.02 buy-in)
     INITIAL_CHIP           = 0,        -- meta currency (Gold Chips) starts at zero
+    -- TUTORIAL builds: SHOVE (button + top-bar %) doesn't exist until the
+    -- first-ever run has banked this many chips — the prestige reveals
+    -- itself with something worth banking. Later runs are ungated.
+    SHOVE_UNLOCK_CHIPS     = 3,
     INITIAL_ACTIVE_TABLES  = 0,        -- fresh save / resetRun: no tables opened. Player buys first for the buy-in ($2 at $0.01/$0.02).
     -- The old 0.90 shove-rate soft cap is gone. Shove rate now multi-
     -- plies catalog × bankroll-tier (see models/shove_rate.lua) with a

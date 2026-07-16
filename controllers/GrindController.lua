@@ -459,12 +459,17 @@ function GrindController:update(dt)
         -- drainPayout block above. Without this skip, a jackpot pot
         -- mid-tournament would bank the (stake, mtt) bounty before
         -- the player has actually won the tournament.
+        -- Runs before the bounty check so a banking hand's reset (below)
+        -- leaves this at 0, not 1. Drives the tutorial's shove-stall hint.
+        state.hands_since_last_bank = (state.hands_since_last_bank or 0) + 1
+
         if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table then
             local tbl = self.pool.tables[r.table_idx]
             if tbl then
                 local key = bountyKey(tbl.stake_id, tbl.game_type_id)
                 if not state.stakes_won_this_run[key] then
                     state.stakes_won_this_run[key] = true
+                    state.hands_since_last_bank = 0
                     local stake = Lookups.findById(Stakes,tbl.stake_id)
                     local base_award = stake and stake.chip_award or 0
                     local mult  = (self.ctx and self.ctx.chip_award_mult) or 1
@@ -480,15 +485,32 @@ function GrindController:update(dt)
                             string.format("+%d {chip}", award),
                             r.x, (r.y or 0) - 28)
                     end
+                else
+                    -- Denied: this (stake, gtype) already paid its bounty
+                    -- this run. Counted (unconditionally, meta-side) so
+                    -- the tutorial can explain the once-per-run rule the
+                    -- first time it bites.
+                    state.total_denied_stacks = (state.total_denied_stacks or 0) + 1
                 end
             end
         end
 
+        -- Hands resolved, ever — unconditional, unlike the deck lifetime
+        -- counters below (those start at zero when decks unlock). Drives
+        -- tutorial-hint pacing (models/hint_rules.lua "hands_played").
+        state.total_hands_played = (state.total_hands_played or 0) + 1
+        if r.tier == "large" or r.tier == "jackpot" then
+            -- Big outcomes, win or loss — the tutorial's tier hint fires
+            -- on the first one.
+            state.total_big_outcomes = (state.total_big_outcomes or 0) + 1
+        end
+
         -- Deck-system meta bookkeeping. Lifetime counters drive unlock
         -- thresholds; the resolved-hand event drives active-deck XP. All
-        -- of this is gated on FEATURES.DECKS so the prototype build
-        -- accrues no silent state.
-        if Constants.FEATURES and Constants.FEATURES.DECKS then
+        -- of it gates on the system unlock (first gauntlet clear), so no
+        -- silent state accrues before decks exist — deck progression
+        -- starts from zero the moment the shove is first beaten.
+        if Decks.systemUnlocked(state) then
             local n_tables = self.pool:count()
             local gtype_id = tbl and tbl.game_type_id
 
@@ -674,6 +696,19 @@ function GrindController:wouldStrandRun(cost)
     return (self.game.state.bankroll - cost) < cheapest
 end
 
+-- TUTORIAL builds hide SHOVE entirely until the first-ever run banks
+-- SHOVE_UNLOCK_CHIPS — the prestige reveals itself when there's something
+-- worth banking (the shove_ready hint fires at the same moment). Anyone
+-- who has shoved before keeps the button from hand one. No softlock:
+-- quick-reset doesn't gate on chips, so a stranded sub-threshold player
+-- still has the rescue.
+function GrindController:shoveUnlocked()
+    if not Constants.FEATURES.TUTORIAL then return true end
+    local state = self.game.state
+    return (state.shove_count or 0) > 0
+        or (state.chips_this_run or 0) >= Constants.GAMEPLAY.SHOVE_UNLOCK_CHIPS
+end
+
 -- Bricked: nothing in play and can't afford even the cheapest buy-in — the
 -- soft-stuck state the quick-reset rescues.
 function GrindController:isStranded()
@@ -688,14 +723,17 @@ end
 -- this run's chips first, so a bricked player who can't yet afford anything in
 -- the shop can still bail to a fresh stake without losing them. Before the
 -- Poster a reset just lands you right back here, and the first bust should
--- teach Shove + the free Poster, not this.
+-- teach Shove + the free Poster, not this. Under FEATURES.TUTORIAL there is
+-- no scripted intro to protect, so the rescue is available from the start.
 function GrindController:canQuickReset()
     local state = self.game.state
-    local has_poster = false
-    for _, id in ipairs(state.owned_items) do
-        if id == "poker_poster" then has_poster = true; break end
+    if not Constants.FEATURES.TUTORIAL then
+        local has_poster = false
+        for _, id in ipairs(state.owned_items) do
+            if id == "poker_poster" then has_poster = true; break end
+        end
+        if not has_poster then return false end
     end
-    if not has_poster then return false end
     return self:isStranded()
 end
 

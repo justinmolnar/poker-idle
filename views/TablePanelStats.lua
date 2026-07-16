@@ -1,6 +1,6 @@
 -- views/TablePanelStats.lua
 --
--- Per-panel stats UI extracted from views/TablePanel: the "+N.N bb/h" EV
+-- Per-panel stats UI extracted from views/TablePanel: the "+$N.NN/h" EV
 -- readout (drawn into the felt layout's bottom-center slot), its hover-tooltip
 -- breakdown, and the backtick-toggled debug overlay (game.debug.overlay).
 -- Lives in its own module so TablePanel.lua stays focused on panel chrome /
@@ -8,7 +8,7 @@
 --
 -- Public surface used by TablePanel:
 --   • TablePanelStats.measureEvReadout(tbl, controller, fonts) -> width
---   • TablePanelStats.drawEvReadout(tbl, ev_slot, controller, fonts, hit_boxes)
+--   • TablePanelStats.drawEvReadout(tbl, ev_slot, controller, fonts, hit_boxes, anchor_key?)
 --   • TablePanelStats.stashDebugTooltipIfHover(tbl, panel_x, panel_y, panel_w, panel_h, game, controller)
 -- Public surface used by GrindView (deferred-render top-of-stack):
 --   • TablePanelStats.flushDebugOverlay(game)
@@ -20,6 +20,7 @@ local Lookups     = require("utils.lookups")
 local TierGlyph   = require("views.TierGlyph")
 local OutcomeMath = require("models.outcome_math")
 local IconText    = require("views.IconText")
+local Anchors     = require("services.AnchorRegistry")
 
 -- Canonical tier order (internal keys). Rendered as glyphs via TierGlyph.
 local TIER_ORDER  = { "small", "medium", "large", "jackpot" }
@@ -52,6 +53,20 @@ local function fmtMoney(n)
     if math.abs(n) >= 100 then return string.format("$%.0f",  n) end
     if math.abs(n) >= 10  then return string.format("$%.1f",  n) end
     return string.format("$%.2f", n)
+end
+
+-- Signed compact money: "+$0.07" / "-$1.2". Used by the $/h readouts,
+-- where the sign IS the message (winning vs losing table).
+local function fmtMoneySigned(n)
+    n = n or 0
+    return (n < 0 and "-" or "+") .. fmtMoney(math.abs(n))
+end
+
+-- Public: the headline per-hand EV label ("+$0.07/h"). Shared by the
+-- per-table readout and the stake-add buttons so the two always format
+-- identically. bb/h lives in the hover tooltips only.
+function TablePanelStats.evLabel(ev_dollars)
+    return fmtMoneySigned(ev_dollars) .. "/h"
 end
 
 local function fmtPctClean(p)
@@ -134,6 +149,9 @@ local function buildCashLines(tbl, controller, stats)
         stats.gtype.short        or stats.gtype.id or "?")
     local lines = {
         row(header, "md"),
+        -- Blind structure lives here and nowhere else (tooltip flavor).
+        -- bb only — the sb never renders.
+        row("1 bb = " .. fmtMoney(bb), "sm", "muted"),
         row("Win rate: " .. fmtPctClean(stats.pool.win_chance)),
         row(string.format("Avg win:  %s",  fmtMoney(win_avg_dollars))),
     }
@@ -193,6 +211,7 @@ local function buildMttLines(tbl, controller, stats)
 
     local lines = {
         row(header, "md"),
+        row("1 bb = " .. fmtMoney((stats.stake and stats.stake.bb) or 0), "sm", "muted"),
         row("Per-hand win rate: " .. fmtPctClean(p)),
         row(string.format("Buy-in: %s (%d bb stack)",
             fmtMoney(buy_in), gtype.starting_stack_bb or 100)),
@@ -310,21 +329,25 @@ function TablePanelStats.breakdownLinesFor(controller, stake, gtype)
         OutcomeMath.evStats(controller and controller.ctx, gtype, stake))
 end
 
--- Public: the bb/h figure for a (stake, gtype), matching the readout below
--- each table panel.
-function TablePanelStats.evBbPerHand(controller, stake, gtype)
+-- Public: the per-hand EV for a (stake, gtype), matching the readout below
+-- each table panel. Returns dollars (the headline figure) plus the
+-- bb-normalized value, which stays the sign/color threshold so the
+-- good/bad cutoff doesn't shift with stake size.
+function TablePanelStats.evPerHand(controller, stake, gtype)
     local s = OutcomeMath.evStats(controller and controller.ctx, gtype, stake)
     if not s then return nil end
     local bb = (stake and stake.bb) or 1
     if bb <= 0 then bb = 1 end
-    return (s.pool.ev_per_hand or 0) / bb
+    local ev = s.pool.ev_per_hand or 0
+    return ev, ev / bb
 end
 
 -- ─── EV readout ──────────────────────────────────────────────────────
--- "+1.9 bb/h  {stack-glyph} N%" — EV sign-colored (green / red / muted) with
--- the gold stack glyph marking the stack-win %. Position comes from the felt
--- layout's bottom-center slot (views/FeltLayout → L.bottom.ev); this module
--- no longer measures from the panel border.
+-- "+$0.07/h  {stack-glyph} N%" — EV sign-colored (green / red / muted) with
+-- the gold stack glyph marking the stack-win %. bb/h moved to the hover
+-- tooltip. Position comes from the felt layout's bottom-center slot
+-- (views/FeltLayout → L.bottom.ev); this module no longer measures from
+-- the panel border.
 
 -- Shared metric + measurement, so the width FeltLayout reserves and the width
 -- drawn here are the same number. Returns a metrics table, or nil when there
@@ -340,7 +363,7 @@ local function evMetrics(tbl, controller, font)
     local ev_bb       = (stats.ev_per_hand or 0) / bb
     local stack_p     = (stats.win_chance or 0)
                         * ((stats.win_dist and stats.win_dist.jackpot) or 0)
-    local label       = string.format("%+0.1f bb/h", ev_bb)
+    local label       = TablePanelStats.evLabel(stats.ev_per_hand or 0)
     local stack_label = string.format("%.1f%%", stack_p * 100)
 
     local text_h    = font:getHeight()
@@ -369,8 +392,9 @@ end
 
 -- Draw the readout left-anchored at the layout slot `ev = { x, y, w, show }`
 -- (TablePanel only calls this when ev.show is true). Pushes the breakdown
--- hover hit_box.
-function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes)
+-- hover hit_box. `anchor_key` (optional, e.g. "ev:1") registers the drawn
+-- rect as a hint-anchor.
+function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, anchor_key)
     if not ev then return end
     local font = fonts.sm
     local m = evMetrics(tbl, controller, font)
@@ -378,6 +402,9 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes)
 
     love.graphics.setFont(font)
     local tx, ty = ev.x, ev.y
+    if anchor_key then
+        Anchors.set(anchor_key, tx, ty, m.total_w, m.text_h)
+    end
     Theme.setColor(m.color)
     love.graphics.print(m.label, tx, ty)
 

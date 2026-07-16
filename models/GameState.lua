@@ -39,6 +39,13 @@ function GameState:new(saved)
     instance.owned_items = {}
     instance.cleared     = false   -- true once the gauntlet is beaten — gates the credits screen on boot
     instance.onboarded   = false   -- true once the intro how-to-play modal has been dismissed
+    instance.catalog_seen = false  -- true once the post-shove catalog has opened — gates the top-bar CATALOG button (TUTORIAL builds)
+    -- Tutorial hints already delivered (hint id → true). Meta-side so a
+    -- prestige doesn't re-teach; see controllers/HintController.lua.
+    instance.hints_seen = {}
+    -- Triggered-but-unread info hints (id list, queue order) — the [i]
+    -- strip. Persisted so an unread hint survives a reload.
+    instance.hints_queued = {}
     -- Analytics identity. save_id is stable for the lifetime of a save slot;
     -- shove_count increments each prestige so analytics can track power level.
     instance.save_id    = genSaveId()
@@ -59,6 +66,13 @@ function GameState:new(saved)
         instance.deck_xp[starter.id]     = 0
     end
     instance.active_deck_id = starter and starter.id or nil
+
+    -- Hands resolved over the save's whole life, unconditional. The
+    -- lifetime_* counters below only accrue once decks unlock; these
+    -- always tick — they pace the tutorial hints.
+    instance.total_hands_played  = 0
+    instance.total_big_outcomes  = 0   -- resolutions with a large/jackpot tier (wins AND losses)
+    instance.total_denied_stacks = 0   -- jackpot wins whose {chip} bounty was already banked this run
 
     -- Lifetime counters (persist forever; drive deck unlocks). Bumped
     -- by GrindController on each resolution. Read by deck_unlock_rules
@@ -116,6 +130,9 @@ function GameState:new(saved)
     instance.active_table_stack         = {}
     instance.stakes_won_this_run = {}           -- set keyed by stake_id; locks in chip bounties per run
     instance.chips_this_run      = 0            -- running counter for the prestige modal display
+    -- Hands resolved since a {chip} bounty last banked (0 on a banking
+    -- hand). Run-scoped; drives the tutorial's shove-stall nudge.
+    instance.hands_since_last_bank = 0
 
     -- Transient stat cache, recomputed lazily.
     instance.effects_cache = nil
@@ -151,6 +168,7 @@ function GameState:resetRun()
     self.active_table_stack         = {}
     self.stakes_won_this_run = {}
     self.chips_this_run      = 0
+    self.hands_since_last_bank = 0
     self.effects_cache       = nil
     self.shove_count         = (self.shove_count or 0) + 1
 end
@@ -164,6 +182,9 @@ function GameState:wipeAll()
     self.owned_items = {}
     self.cleared     = false
     self.onboarded   = false
+    self.catalog_seen = false
+    self.hints_seen   = {}
+    self.hints_queued = {}
     -- Deck state resets to starter-only with all unlock progress lost.
     -- Mirrors the fresh-:new defaults exactly.
     local starter = DeckSpecs[1]
@@ -179,6 +200,9 @@ function GameState:wipeAll()
 
     -- Lifetime counters reset too — the unlock conditions need a fresh
     -- start when the player wipes their game.
+    self.total_hands_played             = 0
+    self.total_big_outcomes             = 0
+    self.total_denied_stacks            = 0
     self.lifetime_money_won             = 0
     self.lifetime_money_lost            = 0
     self.lifetime_jackpot_count         = 0
@@ -229,9 +253,27 @@ function GameState:applySaved(saved)
     self.lifetime_mtt_hands_won         = self.lifetime_mtt_hands_won         or 0
     self.lifetime_hands_played          = self.lifetime_hands_played          or 0
     self.lifetime_hands_at_4plus_tables = self.lifetime_hands_at_4plus_tables or 0
+    -- total_hands_played postdates the (gated) deck counters. Old saves
+    -- accrued lifetime_hands_played ungated, so it's the best backfill.
+    self.total_hands_played             = self.total_hands_played
+                                          or self.lifetime_hands_played or 0
+    self.total_big_outcomes             = self.total_big_outcomes    or 0
+    self.total_denied_stacks            = self.total_denied_stacks   or 0
+    self.hands_since_last_bank          = self.hands_since_last_bank or 0
     -- Analytics identity — backfill for saves predating this field.
     self.save_id    = self.save_id    or genSaveId()
     self.shove_count = self.shove_count or 0
+    -- catalog_seen added with the tutorial redesign. A save that has
+    -- shoved has been through the post-shove catalog — count it as seen
+    -- so existing players keep their top-bar CATALOG button.
+    if self.catalog_seen == nil then
+        self.catalog_seen = (self.shove_count or 0) > 0
+    end
+    -- Saves predating the hint system start with an empty seen-set; no
+    -- deeper migration needed — HintController silently retires any hint
+    -- whose done-condition the save already satisfies.
+    self.hints_seen   = self.hints_seen   or {}
+    self.hints_queued = self.hints_queued or {}
 end
 
 -- Drop unknown deck ids from unlocked_decks / deck_levels / deck_xp and
@@ -279,6 +321,9 @@ function GameState:serializeMeta()
         owned_items                     = self.owned_items,
         cleared                         = self.cleared,
         onboarded                       = self.onboarded,
+        catalog_seen                    = self.catalog_seen,
+        hints_seen                      = self.hints_seen,
+        hints_queued                    = self.hints_queued,
         unlocked_decks                  = self.unlocked_decks,
         deck_levels                     = self.deck_levels,
         deck_xp                         = self.deck_xp,
@@ -289,6 +334,9 @@ function GameState:serializeMeta()
         lifetime_mtt_hands_won          = self.lifetime_mtt_hands_won,
         lifetime_hands_played           = self.lifetime_hands_played,
         lifetime_hands_at_4plus_tables  = self.lifetime_hands_at_4plus_tables,
+        total_hands_played              = self.total_hands_played,
+        total_big_outcomes              = self.total_big_outcomes,
+        total_denied_stacks             = self.total_denied_stacks,
     }
 end
 
@@ -313,6 +361,7 @@ function GameState:serializeRun()
         active_table_stack         = self.active_table_stack,
         stakes_won_this_run        = self.stakes_won_this_run,
         chips_this_run             = self.chips_this_run,
+        hands_since_last_bank      = self.hands_since_last_bank,
     }
 end
 
@@ -360,9 +409,9 @@ function GameState:computeEffects(registry, catalog, run_upgrades)
     -- Decks stack: every unlocked deck contributes its banked passive at
     -- the current level via the same registry pipeline. Active vs.
     -- inactive doesn't matter here — only XP accrual cares about that.
-    -- Gated on the feature flag so the prototype build's stat ctx stays
-    -- exactly as it was before the deck system existed.
-    if Constants.FEATURES and Constants.FEATURES.DECKS then
+    -- Gated on the system unlock (first gauntlet clear) so the stat ctx
+    -- carries no deck passives before decks exist.
+    if Decks.systemUnlocked(self) then
         Decks.applyEffects(self, registry, ctx)
     end
 

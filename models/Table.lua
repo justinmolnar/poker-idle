@@ -270,7 +270,7 @@ function Table:_initChipStackIfNeeded(stake, gtype)
     self.bust_order        = {}
     self.last_finish       = nil
     -- tbl.stack mirrors seat_stacks[player_seat_fixed] for visual reads
-    -- (chip pile + "YOU $X.XX" label). The reconciliation pass keeps
+    -- (chip pile + the felt's money label). The reconciliation pass keeps
     -- these in sync after every hand.
     self.stack             = start_chips
 end

@@ -9,7 +9,8 @@
 --   • felt area  — green rounded rect filling the rest of the cell
 --       └ top row: 5 opponent boxes (name / 2 mini face-down cards / stack)
 --       └ middle:  pot label + 5 community card slots
---       └ bottom:  2 player hole cards centered + "YOU" + bankroll-style stack label
+--       └ bottom:  2 player hole cards centered; chip pile + its $ amount
+--                  at the left edge, EV readout at the right
 --   • DEAL button overlay (when state == idle) covering the felt center
 --   • [STAKE↑ <next>] button overlay (when next stake is unlocked + affordable)
 --
@@ -67,7 +68,7 @@ local REMOVE_BTN_SIZE = 18
 local DEAL_BTN_W      = 140
 local DEAL_BTN_H      = 40
 
--- EV readout (bottom-of-panel "+/- N.N bb/h" text) and the backtick
+-- EV readout (bottom-of-panel "+/- $N.NN/h" text) and the backtick
 -- debug overlay both live in views/TablePanelStats — that module is the
 -- single source of truth for the pool-breakdown line list. We just route
 -- the calls through here.
@@ -640,7 +641,7 @@ end
 
 -- Legacy MTT bottom row: "HAND N/M" on the left + the payout pip ladder
 -- filling the rest — ONE thin row that sits in the same bottom band the cash
--- table uses for its chips/EV/YOU stats (so the cards never shrink and the
+-- table uses for its chips/tied-up/EV stats (so the cards never shrink and the
 -- ladder lands at the felt bottom). Used when FEATURES.MTT_KO is off and the
 -- gtype is the binary_outcome 8-round MTT.
 local function drawLegacyMttLadder(tbl, gtype, ctx, band, fonts)
@@ -744,10 +745,12 @@ local function drawTournamentLadder(tbl, gtype, ctx, band, fonts)
 end
 
 -- Renders the player seat into the layout `hole` rect (centered hole cards +
--- showdown hand-name) and `bottom` anchors (chips at the felt LEFT edge, YOU
--- at the RIGHT edge — both from views/FeltLayout). Tournament tables draw
--- their ladder as a single row in the bottom band (bottom.band).
-local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx)
+-- showdown hand-name) and `bottom` anchors (chip pile + its $ amount at the
+-- felt LEFT edge — both from views/FeltLayout; the EV readout takes the
+-- right edge later in :draw). Tournament tables draw their ladder as a
+-- single row in the bottom band (bottom.band). `tied_anchor_key` (e.g.
+-- "tied:1") registers the "Tied up $X" label as a hint-anchor.
+local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key)
     local card_w  = hole.card_w
     local card_h  = hole.card_h
     local cards_w = card_w * 2 + hole.gap
@@ -773,11 +776,11 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx)
     end
 
     -- Chip-stack tournaments: alive/FINISH counter at the felt LEFT edge,
-    -- YOU Nbb at the RIGHT edge, finish-position pip strip below — all in the
-    -- bottom band.
+    -- Depth Nbb at the RIGHT edge, finish-position pip strip below — all in
+    -- the bottom band.
     if gtype and gtype.chip_stack_table then
-        -- Alive/YOU labels sit just ABOVE the pip band (the band itself is one
-        -- thin row filled by the pips).
+        -- Alive/Depth labels sit just ABOVE the pip band (the band itself is
+        -- one thin row filled by the pips).
         local label_y = bottom.band.y - fonts.sm:getHeight() - 2
         if not tbl.last_finish then
             local stake_for_bb = Lookups.findById(Stakes, tbl.stake_id)
@@ -787,8 +790,10 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx)
                 local bb    = math.floor(chips / bb_val + 0.5)
                 Theme.setColor(Theme.fg.heading)
                 love.graphics.setFont(fonts.sm)
-                local txt = string.format("YOU  %dbb", bb)
-                love.graphics.print(txt, bottom.you.x - fonts.sm:getWidth(txt), label_y)
+                -- Tournament chips aren't reclaimable cash, so not "Tied
+                -- up" — "Depth" is the poker term for a stack in bb.
+                local txt = string.format("Depth  %dbb", bb)
+                love.graphics.print(txt, bottom.right_x - fonts.sm:getWidth(txt), label_y)
             end
         end
         local n_seats = (gtype.seats or 0) + 1
@@ -819,7 +824,8 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx)
         return
     end
 
-    -- Cash: chip pile hugs the felt LEFT edge, "YOU $X.XX" the RIGHT edge.
+    -- Cash: chip pile + its $ amount hug the felt LEFT edge; the EV
+    -- readout takes the RIGHT edge (drawn later from L.bottom.ev).
     -- While poker theater is mid-hand (winner not yet set), deduct the
     -- player's running per-street contribution so the pile visibly drains as
     -- chips fly into the pot; once the pot pushes, fall back to tbl.stack.
@@ -841,7 +847,7 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx)
         local stake_theme = StakeThemes[tbl.stake_id]
         local tint        = stake_theme and stake_theme.chip_tint
         -- The pile's base chip is centered on its y; offset up by the (scaled)
-        -- chip radius so the pile's visual BOTTOM sits on the YOU/EV baseline.
+        -- chip radius so the pile's visual BOTTOM sits on the tied-up baseline.
         -- The pile scales with the cards (bottom.chip_scale) to stay proportional.
         local cs = bottom.chip_scale or 1
         local pile_y = bottom.chips.y - Chips.radius() * cs
@@ -860,11 +866,17 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx)
         Anchors.set(Table.anchorKey(tbl, "you"), bottom.chips.x, bottom.chips.y)
     end
 
-    -- YOU $X.XX right-aligned to the felt's right edge (bottom.you.x).
+    -- "Tied up $X.XX" on the bottom line beneath the pile it prices — the
+    -- same term as the top-bar TIED UP cell, which is the sum of these
+    -- (NOT "Stack": that word is the win/loss tier).
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.sm)
-    local you_text = "YOU  " .. Format.moneyExact(display_stack)
-    love.graphics.printf(you_text, hole.x, bottom.you.y, bottom.you.x - hole.x, "right")
+    local tied_str = "Tied up  " .. Format.moneyExact(display_stack)
+    love.graphics.print(tied_str, bottom.tied.x, bottom.tied.y)
+    if tied_anchor_key then
+        Anchors.set(tied_anchor_key, bottom.tied.x, bottom.tied.y,
+            fonts.sm:getWidth(tied_str), fonts.sm:getHeight())
+    end
 end
 
 -- Shared felt-overlay button (DEAL when stacked, REBUY $X when busted).
@@ -938,6 +950,15 @@ local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, 
     if btn_h < 18 then btn_h = math.max(14, h - 4) end
     local bx = x + math.floor((w - btn_w) / 2)
     local by = y + math.floor((h - btn_h) / 2)
+    -- Hint-anchor on the visual button ("deal:1", "rebuy:3", ...). Goes
+    -- stale while a hand plays (button hidden) — fine, hints keyed to it
+    -- complete on the click that hides it. "rebuy:any" aliases whichever
+    -- busted table drew last, so a hint can point at "a" rebuy button
+    -- without knowing the panel index.
+    Anchors.set(action .. ":" .. idx, bx, by, btn_w, btn_h)
+    if action == "rebuy" then
+        Anchors.set("rebuy:any", bx, by, btn_w, btn_h)
+    end
     local fid     = action .. ":" .. idx
     local hovered = enabled and Hover.is("hit", fid)
     local press   = enabled and ClickFlash.alpha("hit", fid) or 0
@@ -1233,11 +1254,11 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         tbl.view_event_cursor = idx
     end
 
-    -- Card-back override per frame: when the deck system is on, the
-    -- active deck's sprite replaces the constant default for every
+    -- Card-back override per frame: once the deck system has unlocked,
+    -- the active deck's sprite replaces the constant default for every
     -- face-down card on this panel. Decks.activeSprite returns nil if
     -- the spec is missing → drawCardBack falls back to CARD_BACK.
-    local back_sprite = (Constants.FEATURES.DECKS and Decks.activeSprite(state))
+    local back_sprite = (Decks.systemUnlocked(state) and Decks.activeSprite(state))
                         or CARD_BACK
 
     -- Panel chrome — fill stays Theme.bg.widget for chrome contrast.
@@ -1312,10 +1333,9 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     local xs_h   = (fonts.xs or fonts.sm):getHeight()   -- opp names + pot text reserve
     -- The caller measures text widths so FeltLayout stays pure geometry.
     local ev_w   = Stats.measureEvReadout(tbl, controller, fonts) or 0
-    local you_w  = fonts.sm:getWidth("YOU  " .. Format.moneyExact(tbl.stack or 0))
 
     -- UNIVERSAL LAYOUT: every game type uses the SAME thin bottom row (one
-    -- text-line tall) — cash draws chips/EV/YOU in it, a tournament draws its
+    -- text-line tall) — cash draws chips/tied-up/EV in it, a tournament draws its
     -- HAND counter + payout ladder as a single row in it. No game type gets a
     -- taller band, so cards/opponents/community/hole are identical everywhere
     -- and stay full-size. (bottom_extra/card_bottom default to the thin row.)
@@ -1323,7 +1343,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         felt_x = felt_x, felt_y = felt_y, felt_w = felt_w, felt_h = felt_h,
         hu = (tbl.game_type_id == "hu"), n_opps = #tbl.opponents,
         sizes = sizes, s = s, sm_h = sm_h2, md_h = md_h, xs_h = xs_h,
-        ev_w = ev_w, you_w = you_w, pile_r = Chips.radius(),
+        ev_w = ev_w, pile_r = Chips.radius(),
     })
 
     -- Showdown winner state, computed once. At a reveal, win5 is the winner's
@@ -1369,16 +1389,19 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     end
 
     -- Player seat. Full/compact render the hole seat; the "tiny" tier (cards
-    -- dropped) shows just a centered YOU strip on the bottom row; mini shows
+    -- dropped) shows just the centered stack $ on the bottom row; mini shows
     -- neither (pot text + DEAL only).
     local ctx = controller and controller.ctx
     if L.hole then
-        drawPlayerSeat(tbl, L.hole, L.bottom, sl, fonts, ctx)
+        drawPlayerSeat(tbl, L.hole, L.bottom, sl, fonts, ctx, "tied:" .. idx)
     elseif L.bottom then
         Theme.setColor(Theme.fg.heading)
         love.graphics.setFont(fonts.sm)
-        love.graphics.printf("YOU  " .. Format.moneyExact(tbl.stack or 0),
-            felt_x, L.bottom.you.y, felt_w, "center")
+        local tied_str = "Tied up  " .. Format.moneyExact(tbl.stack or 0)
+        love.graphics.printf(tied_str, felt_x, L.bottom.tied.y, felt_w, "center")
+        Anchors.set("tied:" .. idx,
+            felt_x + math.floor((felt_w - fonts.sm:getWidth(tied_str)) / 2),
+            L.bottom.tied.y, fonts.sm:getWidth(tied_str), fonts.sm:getHeight())
     end
 
     -- DEAL / REBUY overlay (only when idle). Stack > 0 → DEAL. Stack at
@@ -1418,9 +1441,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
 
     -- EV readout — cash tables only (tournaments fill this row with their
     -- ladder). Drawn into the layout's bottom-center slot, and dropped when
-    -- the chips/YOU on either side leave no room (L.bottom.ev.show).
+    -- there's no room for it (L.bottom.ev.show).
     if L.bottom and L.bottom.ev.show and not is_tournament then
-        Stats.drawEvReadout(tbl, L.bottom.ev, controller, fonts, hit_boxes)
+        Stats.drawEvReadout(tbl, L.bottom.ev, controller, fonts, hit_boxes,
+            "ev:" .. idx)
     end
 
     -- Showdown emphasis — dim the losing/unused cards, grow + pop the winning

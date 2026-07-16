@@ -2,8 +2,8 @@
 --
 -- The single source of truth for where everything sits on a poker-table felt.
 -- ONE pure function maps the felt rect -> explicit rects / anchors for every
--- element, so bands can't overlap and edges are real anchors (chips->left,
--- YOU->right).
+-- element, so bands can't overlap and edges are real anchors (chips + their
+-- $ amount -> left, EV readout -> right).
 --
 -- Sizing philosophy: the cards are sized to FILL the felt's height (grow when
 -- there's room, shrink only when genuinely tight, never below a readable
@@ -12,7 +12,7 @@
 -- truly tiny felt does it fall back to the mini (DEAL + pot text) layout.
 --
 -- PURE (architecture rule 2): no rendering calls, no state mutation. It is
--- geometry only -- text widths (EV readout, YOU label) are MEASURED by the
+-- geometry only -- text widths (the EV readout) are MEASURED by the
 -- caller and passed in as numbers, so this needs neither a font nor a canvas.
 -- The reusable 1-D math lives in services/BandStack (rule 4, engine-agnostic).
 
@@ -59,7 +59,7 @@ end
 -- p = { felt_x, felt_y, felt_w, felt_h, hu, n_opps, sizes (cardSizes result),
 --       s (per-panel scale), sm_h, md_h, xs_h (font heights; xs_h is the small
 --       tier used by opp names + pot text, so those rows reserve less and the
---       cards grow into it), ev_w, you_w (measured widths),
+--       cards grow into it), ev_w (measured EV-readout width),
 --       bottom_extra = number? (taller bottom band; default thin) }
 --
 -- Returns a layout table; `.tier` is "full" | "compact" | "mini".
@@ -214,9 +214,10 @@ function FeltLayout.compute(p)
         }
     end
 
-    -- Bottom row (rects[5]): the EV readout sits at the LEFT edge on the bottom
-    -- line, the player chip pile stacks just ABOVE it, and YOU is pinned to the
-    -- right edge. (EV left-aligned means it never collides with YOU.)
+    -- Bottom row (rects[5]): the player chip pile hugs the LEFT edge with its
+    -- "Tied up $X" line beneath it (the money sits with the chips it prices),
+    -- and the EV readout is pinned to the RIGHT edge — the caller measured
+    -- ev_w so the layout can right-align its left-anchored draw.
     local bot = rects[5]
     local base_bottom = fy + bot.y + bot.h
     local text_top    = base_bottom - sm_h
@@ -225,11 +226,12 @@ function FeltLayout.compute(p)
         baseline_y = text_top,
         chip_scale = card_scale,                -- player pile scales with the cards
         band  = { x = fx, y = fy + bot.y, w = fw, h = bot.h },
-        -- Chips raised just above the EV line so the pile sits on top of it.
+        -- Chips raised just above the tied-up line so the pile sits on top of it.
         chips = { x = fx + edge, y = text_top - name_gap, align = "left", max_w = chips_w },
-        you   = { x = fx + fw - edge, y = text_top, align = "right" },
-        ev    = { x = fx + edge,  y = text_top, w = p.ev_w or 0,
-                  show = (p.ev_w or 0) > 0 },
+        tied  = { x = fx + edge, y = text_top, align = "left" },
+        ev    = { x = fx + fw - edge - (p.ev_w or 0), y = text_top,
+                  w = p.ev_w or 0, show = (p.ev_w or 0) > 0 },
+        right_x = fx + fw - edge,   -- right text edge (tournament labels)
     }
 
     return L

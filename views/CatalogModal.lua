@@ -22,6 +22,7 @@
 -- controller is the layer the view talks to).
 
 local Theme       = require("views.Theme")
+local Constants   = require("data.constants")
 local Catalog     = require("data.catalog")
 local LabelButton = require("views.widgets.LabelButton")
 local Icons       = require("views.Icons")
@@ -85,6 +86,9 @@ function CatalogModal:new(game, opts)
     return setmetatable({
         game      = game,
         read_only = opts.read_only == true,
+        -- One-time tutorial lede (first post-shove visit only; the host
+        -- decides via hints_seen["catalog_intro"] and marks it seen).
+        intro_callout = opts.intro_callout == true,
         -- Cached cell rects (built each :draw, consumed by :consumeMouse)
         _cells   = {},
         -- Vertical scroll offset (px). Positive = scrolled down.
@@ -151,8 +155,12 @@ end
 
 function CatalogModal:consumeKey(key)
     if key == "space" or key == "return" or key == "kpenter" then
+        -- Poster-forcing only exists in the scripted-intro build; under
+        -- TUTORIAL the poster isn't in the catalog at all, so this gate
+        -- would lock Continue forever.
         local _, owned = visibleItems(self.game.state)
-        if (not self.read_only) and (not owned["poker_poster"]) then
+        if (not Constants.FEATURES.TUTORIAL) and (not self.read_only)
+           and (not owned["poker_poster"]) then
             return true -- Block resolution, but consume the key
         end
         self._resolved = true
@@ -194,7 +202,8 @@ function CatalogModal:consumeMouse(mx, my, button)
     if r and mx >= r.x and mx < r.x + r.w
        and my >= r.y and my < r.y + r.h then
         local _, owned = visibleItems(self.game.state)
-        if (not self.read_only) and (not owned["poker_poster"]) then
+        if (not Constants.FEATURES.TUTORIAL) and (not self.read_only)
+           and (not owned["poker_poster"]) then
             return true -- Block resolution
         end
         self._resolved = true
@@ -369,12 +378,22 @@ function CatalogModal:draw()
                              pad = 0 }
 
     local items, owned = visibleItems(state)
-    local forcing_tutorial = (not owned["poker_poster"]) and (not self.read_only)
+    local forcing_tutorial = (not Constants.FEATURES.TUTORIAL)
+                             and (not owned["poker_poster"]) and (not self.read_only)
 
     local n_rows   = math.ceil(#items / GRID_COLS)
     local card_w   = math.floor((MODAL_W - 2 * MODAL_PAD - GRID_GAP_X) / GRID_COLS)
     local content_h = n_rows * CARD_H + math.max(0, n_rows - 1) * GRID_GAP_Y
-    local body_h   = HEADER_H + content_h + 2 * MODAL_PAD + FOOTER_H
+
+    -- First-visit tutorial callout: a recessed band between the header
+    -- and the grid. Measured here so the frame allocates its height.
+    local callout_pad = math.floor(10 * s)
+    local callout_h   = self.intro_callout
+                        and (fonts.sm:getHeight() + callout_pad * 2) or 0
+    local head_extra  = self.intro_callout
+                        and (callout_h + math.floor(8 * s)) or 0
+
+    local body_h   = HEADER_H + head_extra + content_h + 2 * MODAL_PAD + FOOTER_H
 
     self._modal:draw(fonts, body_h)
     local box = self._modal:boxRect()
@@ -392,11 +411,27 @@ function CatalogModal:draw()
     love.graphics.print(bal, bx, box.y + 16)
     Icons.drawChip(self.game, bx + bal_w + gap, box.y + 16, gsize)
 
+    if self.intro_callout then
+        local cx = box.x + MODAL_PAD
+        local cy = box.y + HEADER_H + math.floor(4 * s)
+        local cw = box.w - 2 * MODAL_PAD
+        local r  = math.floor(3 * s)
+        Theme.setColor(Theme.bg.sunken)
+        love.graphics.rectangle("fill", cx, cy, cw, callout_h, r)
+        Theme.setColor(Theme.border.default)
+        love.graphics.rectangle("line", cx, cy, cw, callout_h, r)
+        Theme.setColor(Theme.border.strong)
+        love.graphics.rectangle("fill", cx, cy, math.floor(4 * s), callout_h)
+        IconText.draw(self.game,
+            "Make your cell a home. Everything here is permanent.",
+            cx + math.floor(14 * s), cy + callout_pad, fonts.sm, Theme.fg.heading)
+    end
+
     -- Scroll viewport for the grid.
     local viewport_x = box.x + MODAL_PAD
-    local viewport_y = box.y + HEADER_H + MODAL_PAD
+    local viewport_y = box.y + HEADER_H + head_extra + MODAL_PAD
     local viewport_w = box.w - 2 * MODAL_PAD
-    local viewport_h = box.h - HEADER_H - 2 * MODAL_PAD - FOOTER_H
+    local viewport_h = box.h - HEADER_H - head_extra - 2 * MODAL_PAD - FOOTER_H
 
     self._scroll_max = math.max(0, content_h - viewport_h)
     if self._scroll_y > self._scroll_max then self._scroll_y = self._scroll_max end

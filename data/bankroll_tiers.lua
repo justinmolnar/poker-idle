@@ -15,7 +15,7 @@
 return {
     { threshold = 0,        mult = 1, label = "Sub-T1" },
     { threshold = 2,        mult = 1, label = "T1"     },
-    { threshold = 25,       mult = 2, label = "T2"     },
+    { threshold = 10,       mult = 2, label = "T2"     },
     { threshold = 100,      mult = 3, label = "T3"     },
     { threshold = 1000,     mult = 4, label = "T4"     },
     { threshold = 10000,    mult = 5, label = "T5"     },

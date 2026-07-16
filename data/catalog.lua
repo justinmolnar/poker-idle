@@ -26,6 +26,7 @@
 --     removed_by       = "<id>",  -- entry's effects suppressed when remover is owned
 --     requires         = "<id>",  -- gate: prerequisite item id
 --     requires_hide    = bool,    -- hide from UI until prerequisite owned
+--     run0             = bool,    -- scripted-intro entry; stripped when FEATURES.TUTORIAL
 --   }
 --
 -- ─── Phase ladder ───────────────────────────────────────────────────────
@@ -40,7 +41,9 @@
 -- A future UI can filter by phase to show only demo items during demo
 -- play; the data is tagged here so that filter is one line elsewhere.
 
-return {
+local Constants = require("data.constants")
+
+local items = {
 
     -- ─── System: phantom handicap entry ─────────────────────────────────
     -- Auto-granted at game start, neutralized when the Poker Poster is
@@ -53,6 +56,7 @@ return {
         name            = "(handicap)",
         description     = "Active until you receive the Poker Poster.",
         phase           = "system",
+        run0            = true,
         hidden          = true,
         granted_at_start = true,
         removed_by      = "poker_poster",
@@ -81,6 +85,7 @@ return {
         description   = "Do you not even know how to play poker?",
         sprite        = "poker_poster",
         phase         = "demo",
+        run0          = true,
         cost_chip       = 0,
         position      = { x = 80, y = 200 },
         effects       = {},
@@ -365,3 +370,16 @@ return {
     },
 
 }
+
+-- Under tutorial onboarding the run-0 scripted intro doesn't exist: strip
+-- its entries at module load (same feature-flag pattern as
+-- data/game_types.lua's MTT_KO swap — the only branch in this file).
+-- GameState:computeEffects iterates this catalog, so a live save that
+-- owns poker_poster no-ops cleanly once the entry is gone.
+if Constants.FEATURES.TUTORIAL then
+    for i = #items, 1, -1 do
+        if items[i].run0 then table.remove(items, i) end
+    end
+end
+
+return items

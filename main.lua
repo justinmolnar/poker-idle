@@ -47,6 +47,7 @@ local GameState        = require("models.GameState")
 local PokerEffects     = require("models.poker_effects")
 local DeckXpRules      = require("models.deck_xp_rules")
 local DeckUnlockRules  = require("models.deck_unlock_rules")
+local HintRules        = require("models.hint_rules")
 local PokerActionApply = require("models.poker_action_apply")
 local GrindState   = require("states.GrindState")
 local ShoveState   = require("states.ShoveState")
@@ -205,6 +206,12 @@ local function buildGame()
     g.unlock_rules = UnlockRegistry:new()
     DeckUnlockRules.registerAll(g.unlock_rules)
 
+    -- Same-shape registry for tutorial-hint trigger/done conditions.
+    -- Separate instance from g.unlock_rules — hint kinds check against
+    -- a { state, pool } ctx, not the bare GameState.
+    g.hint_rules = UnlockRegistry:new()
+    HintRules.registerAll(g.hint_rules)
+
     -- Same-shape registry for poker-event applicators (post_blind,
     -- fold, call, raise, etc.). Used by both the script writer
     -- (models/HandScript.lua) at write-time and the cinematic walker
@@ -326,6 +333,9 @@ function love.draw()
     end
 
     -- Render the game into the fixed base-resolution canvas (crisp, 1:1).
+    -- Anchor frame-stamp advances first so anchors registered during this
+    -- draw read age 0 and stale ones (widget no longer drawn) age up.
+    AnchorRegistry.tick()
     love.graphics.setCanvas(_frameCanvas)
     love.graphics.clear(love.graphics.getBackgroundColor())
     Game.state_machine:draw()

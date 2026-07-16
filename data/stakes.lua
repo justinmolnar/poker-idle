@@ -30,8 +30,10 @@
 -- Tier schema:
 --   {
 --     id              = "s00N",
---     name            = "long display",
---     display_name    = "$0.01/$0.02",
+--     name            = "blind-structure descriptor (data doc; not rendered)",
+--     display_name    = "NL10",               -- player-facing: NL + buy-in.
+--                       Blinds are tooltip flavor only (bb line in the EV
+--                       breakdown); sb never renders anywhere.
 --     sb              = number ($),
 --     bb              = number ($),
 --     buy_in          = number ($)            -- 100bb
@@ -50,7 +52,7 @@ return {
     {
         id           = "s001",
         name         = "$0.01/$0.02 NLHE",
-        display_name = "$0.01/$0.02",
+        display_name = "NL2",
         sb           = 0.01,
         bb           = 0.02,
         buy_in       = 2.00,
@@ -76,11 +78,11 @@ return {
     },
     {
         id           = "s002",
-        name         = "$0.10/$0.25 NLHE",
-        display_name = "$0.10/$0.25",
-        sb           = 0.10,
-        bb           = 0.25,
-        buy_in       = 25.00,
+        name         = "$0.05/$0.10 NLHE",
+        display_name = "NL10",
+        sb           = 0.05,
+        bb           = 0.10,
+        buy_in       = 10.00,
         chip_award     = 2,
         win_chance        = 0.30,
         win_chance_capped = 0.65,
@@ -93,7 +95,7 @@ return {
     {
         id           = "s003",
         name         = "$0.50/$1.00 NLHE",
-        display_name = "$0.50/$1.00",
+        display_name = "NL100",
         sb           = 0.50,
         bb           = 1.00,
         buy_in       = 100.00,
@@ -109,7 +111,7 @@ return {
     {
         id           = "s004",
         name         = "$5/$10 NLHE",
-        display_name = "$5/$10",
+        display_name = "NL1K",
         sb           = 5,
         bb           = 10,
         buy_in       = 1000,
@@ -125,7 +127,7 @@ return {
     {
         id           = "s005",
         name         = "$50/$100 NLHE",
-        display_name = "$50/$100",
+        display_name = "NL10K",
         sb           = 50,
         bb           = 100,
         buy_in       = 10000,
@@ -141,7 +143,7 @@ return {
     {
         id           = "s006",
         name         = "$500/$1000 NLHE",
-        display_name = "$500/$1000",
+        display_name = "NL100K",
         sb           = 500,
         bb           = 1000,
         buy_in       = 100000,

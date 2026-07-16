@@ -682,9 +682,9 @@ end
 function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key)
     local sl = self.game.sprite_loader
     -- Active-deck override for the gauntlet hole-card back. Falls back
-    -- to the constant default when the deck system is off or the active
-    -- spec is missing, so the prototype build still renders cleanly.
-    local back = (Constants.FEATURES.DECKS
+    -- to the constant default when the deck system hasn't unlocked or
+    -- the active spec is missing, so pre-clear builds render cleanly.
+    local back = (Decks.systemUnlocked(self.game.state)
                   and Decks.activeSprite(self.game.state))
                  or Constants.GAUNTLET.CARD_BACK_SPRITE
     local front = card:spriteName()

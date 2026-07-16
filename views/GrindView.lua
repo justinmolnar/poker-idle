@@ -86,6 +86,9 @@ local MARGIN               = 12
 -- Button heights are recomputed from font metrics in recomputeLayout
 -- so they grow/shrink with whatever sizes data/theme.lua picks.
 local SHOVE_BTN_H          = 64
+-- THE HOUSE poster (the captor) sits above the SHOVE button; hint
+-- bubbles speak from it (views/HintView anchors to "house").
+local HOUSE_H              = 92
 local CASH_OUT_BTN_W       = 110
 local CASH_OUT_BTN_H       = 36
 local CATALOG_BTN_W        = 110
@@ -128,6 +131,7 @@ local function recomputeLayout(W, H, fonts)
 
     -- Top-bar buttons + bottom band + table chrome bits scale too.
     SHOVE_BTN_H          = math.floor(64 * s)
+    HOUSE_H              = math.floor(92 * s)
     -- Top-bar button widths are derived from the longest label in
     -- their font so they don't waste horizontal space the stat cells
     -- could use. fonts.sm at any scale already grew with the integer
@@ -203,6 +207,10 @@ local function recomputeLayout(W, H, fonts)
     local cells_total    = CELL_W.tied  + CELL_W.total
                          + CELL_W.chip  + CELL_W.shove
                          + CELL_W.tables + CELL_W.focus
+    -- Reserve on the static flag, not Decks.systemUnlocked: the system
+    -- unlocks mid-session (first gauntlet clear) and this only reruns on
+    -- resize — reserving up front keeps the bar from reflowing under the
+    -- player when the chip appears.
     if Constants.FEATURES and Constants.FEATURES.DECKS then
         cells_total = cells_total + CELL_W.deck
     end
@@ -268,11 +276,13 @@ function GrindView:_buildPanels()
     -- Catalog tab removed — purchases now happen in views/CatalogModal.lua
     -- after each bust. The chip shop is only accessible between runs.
 
-    -- Right panel reserves space at the bottom for the SHOVE button, plus a
+    -- Right panel reserves space at the bottom for the SHOVE button, a
     -- few px so the quick-reset button can straddle the shove's top edge
-    -- without overlapping panel content.
+    -- without overlapping panel content, and THE HOUSE poster above that.
     local qr_reserve    = math.floor(18 * (self.game.ui_scale or 1))
-    local right_panel_h = H - TOP_BAR_H - SHOVE_BTN_H - 2 * MARGIN - qr_reserve
+    local house_reserve = HOUSE_H + MARGIN
+    local right_panel_h = H - TOP_BAR_H - SHOVE_BTN_H - 2 * MARGIN
+                          - qr_reserve - house_reserve
     self.right_panel = Panel:new(W - RIGHT_W, TOP_BAR_H, RIGHT_W, right_panel_h)
     self.right_panel:registerTab({
         id       = "upgrades",
@@ -418,16 +428,18 @@ function GrindView:_buildTablesTabComponents()
             local disabled     = full or cant_afford
             local affordable   = not disabled   -- can open this table right now
 
-            -- bb/h EV — only when the table can actually be opened.
+            -- $/h EV — only when the table can actually be opened. The
+            -- bb-normalized value stays the color threshold so good/bad
+            -- doesn't shift with stake size; bb/h itself is tooltip-only.
             local sub_left, sub_right, sub_color
             if full then
                 sub_left, sub_right = "tables full (max " .. cap .. ")", ""
             else
                 sub_right = string.format("buy-in $%.2f", stake.buy_in or 0)
                 if affordable then
-                    local ev_bb = TablePanelStats.evBbPerHand(self.controller, stake, gtype_obj)
-                    if ev_bb then
-                        sub_left  = string.format("%+0.1f bb/h", ev_bb)
+                    local ev, ev_bb = TablePanelStats.evPerHand(self.controller, stake, gtype_obj)
+                    if ev then
+                        sub_left  = TablePanelStats.evLabel(ev)
                         sub_color = (ev_bb > 0.05 and "good") or (ev_bb < -0.05 and "error") or "muted"
                     end
                 end
@@ -450,6 +462,13 @@ function GrindView:_buildTablesTabComponents()
             components[#components + 1] = {
                 type     = "button",
                 id       = "add_table:" .. stake.id .. ":" .. gtype_id,
+                -- Named hint-anchor (same string as the id) so tutorial
+                -- hints can highlight this button. Once this combo has
+                -- banked its bounty, the "+N {chip}" badge also registers
+                -- as "chip_badge:banked" (any banked button; last drawn
+                -- wins) for the chip-teaching hints.
+                anchor       = "add_table:" .. stake.id .. ":" .. gtype_id,
+                badge_anchor = banked and "chip_badge:banked" or nil,
                 disabled = disabled,
                 -- Gold trim once this (stake, type) has banked its {chip} this
                 -- run — matches the gold border on the open table panel.
@@ -711,6 +730,9 @@ function GrindView:_buildUpgradesTabComponents()
             components[#components + 1] = {
                 type     = "button",
                 id       = "buy_runup_" .. up.id,
+                -- Named hint-anchor (same string as the id) so tutorial
+                -- hints can highlight this card.
+                anchor   = "buy_runup_" .. up.id,
                 disabled = disabled,
                 tooltip  = self:_buildRangeTooltip(up),
                 icon     = up.icon,   -- icon id (data/icons); drawn when art ships
@@ -813,8 +835,11 @@ function GrindView:update(dt)
     -- with what a shove actually does (all-in for the bankroll, ends the
     -- run, prestige), then the {chip} the run will bank (mirrors the "+N"
     -- readout on the button), the rate breakdown, and a "click to lock".
+    -- Silent while the button is still locked (TUTORIAL reveal) — a
+    -- greyed button shouldn't pitch its own click.
     local sb = self:_shoveButtonRect()
-    if mx >= sb.x and mx < sb.x + sb.w and my >= sb.y and my < sb.y + sb.h then
+    if self.controller:shoveUnlocked()
+       and mx >= sb.x and mx < sb.x + sb.w and my >= sb.y and my < sb.y + sb.h then
         local state = self.game.state
         local ctx = (self.controller and self.controller.ctx) or {}
         local rates = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
@@ -861,7 +886,8 @@ function GrindView:update(dt)
     end
 
     -- Top-bar SHOVE cell hover tooltip — full breakdown of the live
-    -- shove-rate. Rect is stashed by _drawTopBar (1-frame stale).
+    -- shove-rate. Rect is stashed by _drawTopBar (1-frame stale); nil
+    -- while the shove hasn't revealed itself (TUTORIAL gate).
     local sh = self._shove_cell_rect
     if sh and mx >= sh.x and mx < sh.x + sh.w and my >= sh.y and my < sh.y + sh.h then
         local state = self.game.state
@@ -873,7 +899,7 @@ function GrindView:update(dt)
     -- Top-bar DECK chip hover tooltip — name + level + bonus + how to
     -- gain XP + progress + a footer note that all banked decks stack and
     -- a click hint pointing at the roster modal. Only fires when
-    -- FEATURES.DECKS is on (the cell rect is nil otherwise).
+    -- the deck system has unlocked (the cell rect is nil otherwise).
     local dr = self._deck_cell_rect
     if dr and mx >= dr.x and mx < dr.x + dr.w and my >= dr.y and my < dr.y + dr.h then
         local state = self.game.state
@@ -1002,7 +1028,7 @@ end
 
 -- Draws the active-deck card-back chip at the given x, in a `w`-wide
 -- column. Returns the cell hit rect for hover-tooltip dispatch in
--- update(). Caller should only invoke this when FEATURES.DECKS is on.
+-- update(). Caller should only invoke this once the deck system unlocked.
 function GrindView:_drawDeckCell(x, w, fonts)
     local state = self.game.state
     local active_id = state.active_deck_id
@@ -1084,7 +1110,12 @@ function GrindView:_drawTopBar(W)
     Theme.setColor(bankroll_tint)
     love.graphics.setFont(fonts.lg)
     local bank_y = math.floor((TOP_BAR_H - fonts.lg:getHeight()) * 0.5)
-    love.graphics.print(moneyText(d_bank), TOPBAR_PAD_X, bank_y)
+    local bank_str = moneyText(d_bank)
+    love.graphics.print(bank_str, TOPBAR_PAD_X, bank_y)
+    -- Hint-anchor on the big number (distinct from "bankroll", the chip
+    -- pile point anchor chip-flights target).
+    AnchorRegistry.set("cell:bankroll", TOPBAR_PAD_X, bank_y,
+        fonts.lg:getWidth(bank_str), fonts.lg:getHeight())
 
     local total     = d_bank + d_tied
     local n_tables  = self.controller.pool:count()
@@ -1134,11 +1165,16 @@ function GrindView:_drawTopBar(W)
     self._tied_cell_rect = {
         x = tied_cell_x, y = 2, w = CELL_W.tied, h = TOP_BAR_H - 4,
     }
+    AnchorRegistry.set("cell:tied", tied_cell_x, 2, CELL_W.tied, TOP_BAR_H - 4)
 
     -- Run cluster: CHIPS · SHOVE · (DECK). The Gold Chip is the meta
     -- currency — drawn prominently as a real-sized glyph + count, not a
     -- tiny label-slot dot. (Procedural until ui/icons/chip art lands.)
-    do
+    -- TUTORIAL builds hide it until the player has shoved once:
+    -- pre-shove the banked balance is always 0 and this-run chips live
+    -- on the SHOVE button's "+N" badge instead. Slot still advances —
+    -- no reflow at the reveal.
+    if (not Constants.FEATURES.TUTORIAL) or (state.shove_count or 0) > 0 then
         local cs = self.game.ui_scale or 1
         local cd = math.floor(TOP_BAR_H * 0.6)
         Icons.drawChip(self.game, x, math.floor((TOP_BAR_H - cd) / 2), cd)
@@ -1147,19 +1183,27 @@ function GrindView:_drawTopBar(W)
         love.graphics.print(chipsText(d_chips),
             x + cd + math.floor(6 * cs),
             math.floor((TOP_BAR_H - fonts.md:getHeight()) / 2))
+        AnchorRegistry.set("cell:chips", x, 2, CELL_W.chip, TOP_BAR_H - 4)
     end
     x = x + CELL_W.chip
+    -- SHOVE % cell — hidden until the shove reveals itself (TUTORIAL
+    -- gate: 3 chips banked on the first-ever run). The slot still
+    -- advances so the bar doesn't reflow at the reveal.
+    local shove_unlocked = self.controller:shoveUnlocked()
     local shove_cell_x = x
-    drawStatCell(x, CELL_W.shove, "SHOVE",
-                 string.format("%.0f%%", r1_raw * 100), rate_color, fonts,
-                 function(ix, iy, isize) return Icons.draw(self.game, "shove", ix, iy, isize, isize) end)
+    if shove_unlocked then
+        drawStatCell(x, CELL_W.shove, "SHOVE",
+                     string.format("%.0f%%", r1_raw * 100), rate_color, fonts,
+                     function(ix, iy, isize) return Icons.draw(self.game, "shove", ix, iy, isize, isize) end)
+    end
     x = x + CELL_W.shove
 
-    -- DECK chip (sprite) sits in the run cluster when FEATURES.DECKS is
-    -- on. The chip renders the active deck's card-back at icon size with
-    -- a level overlay; the hover tooltip in update() carries the full
-    -- name + bonus + XP-to-next breakdown.
-    if Constants.FEATURES and Constants.FEATURES.DECKS then
+    -- DECK chip (sprite) sits in the run cluster once the deck system
+    -- has unlocked (first gauntlet clear). The chip renders the active
+    -- deck's card-back at icon size with a level overlay; the hover
+    -- tooltip in update() carries the full name + bonus + XP-to-next
+    -- breakdown. Rect nil while locked, so clicks/tooltips no-op.
+    if Decks.systemUnlocked(self.game.state) then
         self._deck_cell_rect = self:_drawDeckCell(x, CELL_W.deck, fonts)
         x = x + CELL_W.deck
     else
@@ -1167,10 +1211,16 @@ function GrindView:_drawTopBar(W)
     end
     x = x + CLUSTER_GAP
 
-    -- Stash the SHOVE cell rect for hover tooltip in update().
-    self._shove_cell_rect = {
-        x = shove_cell_x, y = 2, w = CELL_W.shove, h = TOP_BAR_H - 4,
-    }
+    -- Stash the SHOVE cell rect for hover tooltip in update(); nil while
+    -- the cell is hidden so hover/hints stay inert.
+    if shove_unlocked then
+        self._shove_cell_rect = {
+            x = shove_cell_x, y = 2, w = CELL_W.shove, h = TOP_BAR_H - 4,
+        }
+        AnchorRegistry.set("cell:shove", shove_cell_x, 2, CELL_W.shove, TOP_BAR_H - 4)
+    else
+        self._shove_cell_rect = nil
+    end
 
     -- Workload cluster: TABLES (count / focus capacity) · FOCUS %.
     -- Each number watches itself via Pop.onChange and pops when it changes:
@@ -1221,6 +1271,7 @@ function GrindView:_drawTopBar(W)
     end
     drawStatCell(x, CELL_W.focus, "FOCUS", focus_shown .. "%", fcolor, fonts, focusFn,
                  Pop.scale(fpop, 1, 0.45))
+    AnchorRegistry.set("cell:focus", x, 2, CELL_W.focus, TOP_BAR_H - 4)
     x = x + CELL_W.focus
 
     -- Stash workload rect for the hover tooltip in update().
@@ -1254,6 +1305,7 @@ end
 
 function GrindView:_drawCashOutButton()
     local rect    = self:_cashOutButtonRect()
+    AnchorRegistry.set("btn:cash_out", rect.x, rect.y, rect.w, rect.h)
     local n       = self.controller.pool:count()
     local enabled = n > 0
     local mx, my  = love.mouse.getPosition()
@@ -1275,6 +1327,15 @@ end
 
 -- ─── Catalog button (top bar, between Cash-Out and Settings) ─────────
 
+-- Hidden until the post-shove catalog has introduced itself (persisted
+-- as state.catalog_seen, set by ShoveState when the modal first opens).
+-- Only the tutorial build gates it — the scripted-intro build always
+-- shows the button. The rect itself stays put, so the button pops into
+-- its slot on unlock without moving CASH OUT or SETTINGS.
+function GrindView:_catalogButtonVisible()
+    return (not Constants.FEATURES.TUTORIAL) or self.game.state.catalog_seen
+end
+
 function GrindView:_catalogButtonRect()
     local cb = self:_cashOutButtonRect()
     local bw = self:_topBarBtnW()
@@ -1288,6 +1349,7 @@ end
 
 function GrindView:_drawCatalogButton()
     local rect   = self:_catalogButtonRect()
+    AnchorRegistry.set("btn:catalog", rect.x, rect.y, rect.w, rect.h)
     local mx, my = love.mouse.getPosition()
     LabelButton.draw{
         x = rect.x, y = rect.y, w = rect.w, h = rect.h,
@@ -1337,8 +1399,13 @@ function GrindView:_helpButtonRect()
     }
 end
 
+-- TUTORIAL builds have no top-bar "?" — THE HOUSE poster is the help
+-- desk (click it). The button survives only for prototype builds, where
+-- it reopens the how-to-play modal.
 function GrindView:_drawHelpButton()
+    if Constants.FEATURES.TUTORIAL then return end
     local rect   = self:_helpButtonRect()
+    AnchorRegistry.set("btn:help", rect.x, rect.y, rect.w, rect.h)
     local mx, my = love.mouse.getPosition()
     LabelButton.draw{
         x = rect.x, y = rect.y, w = rect.w, h = rect.h,
@@ -1498,13 +1565,139 @@ function GrindView:_shoveButtonRect()
     }
 end
 
+-- ─── THE HOUSE (the captor's poster) ──────────────────────────────────
+
+-- Sits above the SHOVE button (what you shove against). The tutorial's
+-- hint bubbles speak from it (views/HintView anchors them to "house"),
+-- and the "?" help-desk button lives in its corner (TUTORIAL builds).
+-- Drawn from shapes until art lands: a framed poster with a gold-roofed
+-- house glyph.
+function GrindView:_houseRect()
+    local sb = self:_shoveButtonRect()
+    local qr = math.floor(18 * (self.game.ui_scale or 1))
+    return {
+        x = sb.x, w = sb.w,
+        y = sb.y - qr - HOUSE_H,
+        h = HOUSE_H,
+    }
+end
+
+-- The "?" badge in the poster's bottom-right corner (TUTORIAL builds only).
+function GrindView:_houseHelpBtnRect()
+    local r  = self:_houseRect()
+    local s  = self.game.ui_scale or 1
+    local sz = math.floor(r.h * 0.40)
+    local m  = math.floor(6 * s)
+    return { x = r.x + r.w - sz - m, y = r.y + r.h - sz - m, w = sz, h = sz }
+end
+
+-- The "i" badge in the poster's top-right corner (TUTORIAL builds only).
+function GrindView:_houseInfoBtnRect()
+    local r  = self:_houseRect()
+    local s  = self.game.ui_scale or 1
+    local sz = math.floor(r.h * 0.40)
+    local m  = math.floor(6 * s)
+    return { x = r.x + r.w - sz - m, y = r.y + m, w = sz, h = sz }
+end
+
+function GrindView:_drawHouse()
+    local r  = self:_houseRect()
+    local s  = self.game.ui_scale or 1
+    local fl = math.floor
+    AnchorRegistry.set("house", r.x, r.y, r.w, r.h)
+
+    -- Poster: sunken card + double frame.
+    local inset = fl(4 * s)
+    Theme.setColor(Theme.bg.sunken)
+    love.graphics.rectangle("fill", r.x, r.y, r.w, r.h, fl(3 * s))
+    Theme.setColor(Theme.border.strong)
+    love.graphics.rectangle("line", r.x, r.y, r.w, r.h, fl(3 * s))
+    Theme.setColor(Theme.border.default)
+    love.graphics.rectangle("line", r.x + inset, r.y + inset,
+        r.w - inset * 2, r.h - inset * 2, fl(2 * s))
+
+    -- House glyph, centered: gold roof, warm body, dark door.
+    local pad = fl(12 * s)
+    local gh  = r.h - pad * 2
+    local gw  = gh
+    local gx  = r.x + fl((r.w - gw) * 0.5)
+    local gy  = r.y + pad
+    local roof_y = gy + fl(gh * 0.42)
+    Theme.setColor(Theme.currency.chip)
+    love.graphics.polygon("fill",
+        gx - fl(gw * 0.08), roof_y,
+        gx + fl(gw * 0.5),  gy,
+        gx + gw + fl(gw * 0.08), roof_y)
+    Theme.setColor(Theme.border.strong)
+    love.graphics.rectangle("fill",
+        gx + fl(gw * 0.10), roof_y,
+        gw - fl(gw * 0.20), gy + gh - roof_y)
+    Theme.setColor(Theme.bg.sunken)
+    love.graphics.rectangle("fill",
+        gx + fl(gw * 0.40), gy + gh - fl(gh * 0.34),
+        fl(gw * 0.20), fl(gh * 0.34))
+
+    -- The "?" help-desk button, bottom-right corner of the poster.
+    if Constants.FEATURES.TUTORIAL then
+        local hb = self:_houseHelpBtnRect()
+        AnchorRegistry.set("btn:help", hb.x, hb.y, hb.w, hb.h)
+        local mx, my = love.mouse.getPosition()
+        local hov = mx >= hb.x and mx < hb.x + hb.w
+                and my >= hb.y and my < hb.y + hb.h
+        LabelButton.draw{
+            x = hb.x, y = hb.y, w = hb.w, h = hb.h,
+            text        = "?",
+            fonts       = self.game.fonts,
+            font        = self.game.fonts.md,
+            hovered     = hov,
+            -- Rest state matches the poster card; hover actually changes it.
+            fill_token  = hov and Theme.bg.widget_hover or Theme.bg.sunken,
+            press_alpha = ClickFlash.alpha("help_btn", "help_btn"),
+        }
+
+        -- Register the "btn:info" anchor for the HintView to draw the [i] button.
+        local ib = self:_houseInfoBtnRect()
+        AnchorRegistry.set("btn:info", ib.x, ib.y, ib.w, ib.h)
+    end
+end
+
+-- The shove face always draws; until unlocked (TUTORIAL:
+-- SHOVE_UNLOCK_CHIPS banked on the first-ever run) it renders greyed-out
+-- and ignores clicks — the "+N {chip}" badge stays live so the player
+-- watches their pile grow toward the reveal. The quick-reset rescue is
+-- independent and draws either way.
 function GrindView:_drawShoveButton()
     local sb = self:_shoveButtonRect()
+    self:_drawShoveFace(sb)
+    -- Quick-reset alternative, overlaid on the shove face when the player is
+    -- bricked with no chips to bank (GrindController:canQuickReset). Drawn
+    -- after the shove so it sits on top; the shove (when revealed) peeks as
+    -- a red frame + bottom readouts so it's clearly an alternative, not a
+    -- replacement.
+    if self.controller:canQuickReset() then
+        local qr     = self:_quickResetButtonRect()
+        AnchorRegistry.set("btn:quick_reset", qr.x, qr.y, qr.w, qr.h)
+        local mx, my = love.mouse.getPosition()
+        local hov    = mx >= qr.x and mx < qr.x + qr.w
+                   and my >= qr.y and my < qr.y + qr.h
+        LabelButton.draw{
+            x = qr.x, y = qr.y, w = qr.w, h = qr.h,
+            text = "Quick reset",
+            fonts = self.game.fonts, font = self.game.fonts.sm,
+            hovered = hov, depth = 4,
+            press_alpha = ClickFlash.alpha("quick_reset", "quick_reset"),
+        }
+    end
+end
+
+function GrindView:_drawShoveFace(sb)
+    AnchorRegistry.set("btn:shove", sb.x, sb.y, sb.w, sb.h)
     local state = self.game.state
-    -- Shove is always allowed. No bankroll floor — softlocking the player
-    -- with a "you can't even surrender" gate was strictly worse than letting
-    -- them shove with nothing and bank whatever chips they earned.
-    local can_shove = true
+    -- No bankroll floor — softlocking the player with a "you can't even
+    -- surrender" gate was strictly worse than letting them shove with
+    -- nothing. The only lock is the tutorial reveal (3 chips, first run);
+    -- while locked the button renders in its disabled state.
+    local can_shove = self.controller:shoveUnlocked()
     local ctx = self.controller.ctx or {}
     -- Live rates match the top-bar column. Headline is gauntlet-clear
     -- (r1·r2·r3); the math-reality clamps live inside ShoveRate.compute.
@@ -1558,34 +1751,21 @@ function GrindView:_drawShoveButton()
         -- bounty has landed so the player can glance at the SHOVE button
         -- and know whether they have anything riding on the click.
         local chip_text  = string.format("+%d", pending_chips)
+        -- Stays live-colored even while the button is locked — the badge
+        -- is the progress readout toward the reveal (and a hint target:
+        -- "chip_badge:shove").
         local chip_color = (pending_chips > 0) and Theme.status.good
                                                or  Theme.fg.faint
-        Theme.setColor(can_shove and chip_color or Theme.fg.faint)
+        Theme.setColor(chip_color)
         local ctw   = small:getWidth(chip_text)
         local gsize = small:getHeight()
         local cgap  = 3
         local crx   = fx + fw - pad - (ctw + cgap + gsize)
         love.graphics.print(chip_text, crx, sub_y)
         Icons.drawChip(self.game, crx + ctw + cgap, sub_y, gsize)
+        AnchorRegistry.set("chip_badge:shove", crx, sub_y,
+            ctw + cgap + gsize, gsize)
     end)
-
-    -- Quick-reset alternative, overlaid on the shove face when the player is
-    -- bricked with no chips to bank (GrindController:canQuickReset). Drawn
-    -- after the shove so it sits on top; the shove peeks as a red frame +
-    -- bottom readouts so it's clearly an alternative, not a replacement.
-    if self.controller:canQuickReset() then
-        local qr     = self:_quickResetButtonRect()
-        local mx, my = love.mouse.getPosition()
-        local hov    = mx >= qr.x and mx < qr.x + qr.w
-                   and my >= qr.y and my < qr.y + qr.h
-        LabelButton.draw{
-            x = qr.x, y = qr.y, w = qr.w, h = qr.h,
-            text = "Quick reset",
-            fonts = self.game.fonts, font = self.game.fonts.sm,
-            hovered = hov, depth = 4,
-            press_alpha = ClickFlash.alpha("quick_reset", "quick_reset"),
-        }
-    end
 end
 
 -- ─── Floating text overlay ────────────────────────────────────────────
@@ -1695,7 +1875,10 @@ end
 
 -- ─── Composite draw ───────────────────────────────────────────────────
 
-function GrindView:draw()
+-- `overlay_fn` (optional): host-provided layer (the tutorial hint) drawn
+-- above every gameplay layer but below the hover tooltip, so tooltips —
+-- including the one a hint asks the player to go look at — stay on top.
+function GrindView:draw(overlay_fn)
     local W, H = love.graphics.getDimensions()
 
     Theme.setColor(Theme.bg.window)
@@ -1705,13 +1888,20 @@ function GrindView:draw()
     self.hit_boxes = {}
 
     self:_drawTopBar(W)
+    -- Origin for the tutorial [i] hint-queue strip (views/HintView):
+    -- hugs the tables sidebar's right edge, below the top bar.
+    do
+        local m = math.floor(8 * (self.game.ui_scale or 1))
+        AnchorRegistry.set("hint_queue", LEFT_W + m, TOP_BAR_H + m)
+    end
     self:_drawHelpButton()
     self:_drawCashOutButton()
-    self:_drawCatalogButton()
+    if self:_catalogButtonVisible() then self:_drawCatalogButton() end
     self:_drawSettingsButton()
     self:_drawCenterGrid(W, H)
     self.left_panel:draw(self.game)
     self.right_panel:draw(self.game)
+    self:_drawHouse()
     self:_drawShoveButton()
     self:_drawFloatingText()
 
@@ -1733,6 +1923,8 @@ function GrindView:draw()
     -- Cursor swarm — drawn last so cursors are always on top, including
     -- on top of the press-fade ghost they just dispatched.
     CursorPool.draw()
+
+    if overlay_fn then overlay_fn() end
 
     -- Hover tooltip — sits above gameplay layers but below the backtick
     -- debug overlay (which is the absolute top).
@@ -1776,7 +1968,8 @@ function GrindView:mousepressed(x, y, b)
     -- the same modal the post-bust prestige flow uses, so the player
     -- can spend chips mid-grind without busting first.
     local cat = self:_catalogButtonRect()
-    if x >= cat.x and x < cat.x + cat.w
+    if self:_catalogButtonVisible()
+       and x >= cat.x and x < cat.x + cat.w
        and y >= cat.y and y < cat.y + cat.h then
         ClickFlash.flash("catalog_btn", "catalog_btn")
         if self.game.openCatalog then self.game.openCatalog() end
@@ -1803,18 +1996,35 @@ function GrindView:mousepressed(x, y, b)
         return
     end
 
-    -- Help button ("?", top bar). Reopens the how-to-play modal.
-    local help_rect = self:_helpButtonRect()
-    if x >= help_rect.x and x < help_rect.x + help_rect.w
-       and y >= help_rect.y and y < help_rect.y + help_rect.h then
-        ClickFlash.flash("help_btn", "help_btn")
-        if self.game.openHelp then self.game.openHelp() end
-        return
+    -- Help button ("?", top bar) — prototype builds only. Reopens the
+    -- how-to-play modal.
+    if not Constants.FEATURES.TUTORIAL then
+        local help_rect = self:_helpButtonRect()
+        if x >= help_rect.x and x < help_rect.x + help_rect.w
+           and y >= help_rect.y and y < help_rect.y + help_rect.h then
+            ClickFlash.flash("help_btn", "help_btn")
+            if self.game.openHelp then self.game.openHelp() end
+            return
+        end
     end
 
-    -- SHOVE button has priority — it's bottom-right and overlaps the right panel zone.
+    -- The "?" on THE HOUSE poster: the help desk (TUTORIAL builds — the
+    -- hint-log list rises from the poster).
+    if Constants.FEATURES.TUTORIAL then
+        local hb = self:_houseHelpBtnRect()
+        if x >= hb.x and x < hb.x + hb.w
+           and y >= hb.y and y < hb.y + hb.h then
+            ClickFlash.flash("help_btn", "help_btn")
+            if self.game.openHelp then self.game.openHelp() end
+            return
+        end
+    end
+
+    -- SHOVE button has priority — it's bottom-right and overlaps the right
+    -- panel zone. Inert until the shove has revealed itself.
     local sb = self:_shoveButtonRect()
-    if x >= sb.x and x < sb.x + sb.w and y >= sb.y and y < sb.y + sb.h then
+    if self.controller:shoveUnlocked()
+       and x >= sb.x and x < sb.x + sb.w and y >= sb.y and y < sb.y + sb.h then
         ClickFlash.flash("shove", "shove")
         self.controller:initiateShove()
         return

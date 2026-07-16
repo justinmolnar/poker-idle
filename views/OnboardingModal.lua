@@ -12,15 +12,21 @@
 -- if it overflows the viewport. All copy auto-wraps (see wrapText).
 
 local Theme       = require("views.Theme")
+local Constants   = require("data.constants")
 local ActionModal = require("views.widgets.ActionModal")
 local IconText    = require("views.IconText")
 
 local OnboardingModal = {}
 
-local INTRO = {
-    "The first run is rigged against you. Go broke, hit SHOVE.",
-    "This introduces you to shoving and the catalog. Grab the free poker poster to start for real.",
-}
+-- Run-0 callout: only in the scripted-intro build. Under FEATURES.TUTORIAL
+-- there is no rigged first run to warn about, so the callout is dropped.
+local INTRO
+if not Constants.FEATURES.TUTORIAL then
+    INTRO = {
+        "The first run is rigged against you. Go broke, hit SHOVE.",
+        "This introduces you to shoving and the catalog. Grab the free poker poster to start for real.",
+    }
+end
 
 local LOOP = {
     "Grind away. Open tables, earn money.",
@@ -35,7 +41,7 @@ local UPGRADES = {
 
 local TIPS = {
     "Hover anything for details (stats, buttons, upgrades, etc).",
-    "bb/h (big blinds per hand) is a table's edge per hand; big green number = winning. The gold {w:stack} % beside it is your odds of hitting a {w:stack}.",
+    "$/h is a table's earnings per hand; big green number = winning. The gold {w:stack} % beside it is your odds of hitting a {w:stack}.",
     "Wins and losses are tiered as {w:small} {w:medium} {w:large} {w:stack} and {l:small} {l:medium} {l:large} {l:stack}. Upgrade for more {w:stack} and less {l:stack}",
     "Purchase 'Box of Mice' from the catalog to unlock the idle-mode",
     "Bricked with no tables and no buy-in? A Quick Reset appears over SHOVE, banking your {chip} and resetting you to $2.",
@@ -43,7 +49,9 @@ local TIPS = {
 }
 
 local WINNING = {
-    "Beat the SHOVE to beat the prototype (more gameplay will be coming shortly)",
+    Constants.FEATURES.TUTORIAL
+        and "Win the SHOVE to beat the game."
+        or  "Beat the SHOVE to beat the prototype (more gameplay will be coming shortly)",
     "Catalog upgrades give base SHOVE %, and your current total earnings multiply it",
 }
 
@@ -53,16 +61,18 @@ local WINNING = {
 local GLOSSARY = {
     { "{chip} Gold Chip",    "Permanent currency. Earn via {w:stack} win; spend in the catalog." },
     { "{w:stack} {l:stack} Stack",     "The biggest win/loss tier." },
-    { "bb/h",                "Big blinds per hand. Big green number = winning." },
+    { "$/h",                 "Earnings per hand. Big green number = winning." },
+    { "bb/h",                "The same edge in big blinds; shown in tooltips." },
     { "Focus",               "Tables you can run at full strength (starts at 4). Over that, each extra table cuts your FOCUS % up top, lowering earnings on EVERY table. Green = full, red = overloaded." },
     { "Shove",               "Ends a run: banks your {chip} for the catalog, then starts a new run." },
+    { "NL10",                "No-Limit table, $10 buy-in. Tables are named by buy-in." },
     { "Buy-in",              "Cost to open a table (100 big blinds)." },
     { "Rebuy / Cash out",    "Refill a busted table." },
     { "Tied up",             "Cash locked inside open tables. Not spendable until you cash out or close the table." },
     { "6-Max / HU / Zoom",   "Table modes: 6 seats (vanilla), a heads-up duel, or fast hands vs random opponents." },
     { "MTT",                 "Multi-Table Tournament. Win hands in a row to climb a payout ladder; a full sweep of 8 wins banks a {chip}." },
     { "Hole / Board",        "Your 2 private cards / the 5 shared community cards." },
-    { "Blinds ($0.01/$0.02)", "The small/big blind size. Impacts Buy-in cost and pot sizes." },
+    { "bb (big blind)",      "A table's bet unit; sets Buy-in cost and pot sizes. Shown in table tooltips." },
 }
 
 -- Returns a configured ActionModal (:resolved() is truthy once dismissed).
@@ -201,12 +211,12 @@ function OnboardingModal:new(game)
 
             -- ── Build the two columns.
             local left = {
-                calloutBlock(INTRO),
                 sectionBlock("THE LOOP", LOOP),
                 sectionBlock("UPGRADES", UPGRADES),
                 sectionBlock("TIPS",     TIPS),
                 sectionBlock("WINNING",  WINNING),
             }
+            if INTRO then table.insert(left, 1, calloutBlock(INTRO)) end
             local right = { headerBlock("GLOSSARY") }
             for _, e in ipairs(GLOSSARY) do right[#right + 1] = glossaryBlock(e[1], e[2]) end
 

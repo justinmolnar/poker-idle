@@ -11,8 +11,20 @@
 -- inactive distinction matters only for XP accrual.
 
 local DeckSpecs = require("data.decks")
+local Constants = require("data.constants")
 
 local Decks = {}
+
+-- Whether the deck system exists for this player at all. Decks are
+-- post-first-clear progression: they unlock as a system once the gauntlet
+-- has been beaten (state.cleared, persisted in meta). Every deck surface —
+-- top-bar chip, roster modal, post-shove select, XP/lifetime accrual,
+-- stacked passives, card-back overrides — gates on this one predicate so
+-- the system appears as a unit. Distinct from per-spec unlocks below,
+-- which gate individual decks within the system.
+function Decks.systemUnlocked(state)
+    return Constants.FEATURES.DECKS and state ~= nil and state.cleared == true
+end
 
 -- Spec lookup. Cached at first call into a local index for O(1) reads
 -- thereafter. Specs are immutable data, so the cache is safe forever.

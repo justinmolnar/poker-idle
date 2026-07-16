@@ -208,7 +208,7 @@ Effects.kinds = {
         affects     = "ctx.start_bankroll_add",
     },
     start_table_count = {
-        description = "Number of $0.01/$0.02 6-max tables auto-opened at run start (free).",
+        description = "Number of NL2 6-max tables auto-opened at run start (free).",
         value_shape = "integer, e.g. 1 to start with one table already seated",
         affects     = "ctx.start_table_count",
     },

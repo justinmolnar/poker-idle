@@ -102,7 +102,7 @@ local PokerEventAnims = {
         local sl = game and game.sprite_loader
         if not sl then return end
         local back_sprite
-        if Constants.FEATURES and Constants.FEATURES.DECKS then
+        if Decks.systemUnlocked(game.state) then
             back_sprite = Decks.activeSprite(game.state)
         end
         back_sprite = back_sprite

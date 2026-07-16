@@ -9,19 +9,41 @@
 -- where things landed. 1-frame stale by design — the next frame's :set
 -- overwrites.
 --
+-- Anchors are points by default; pass w, h to store a rect (the hint
+-- system highlights whole widgets). Point readers only touch [1]/[2],
+-- so rect entries are backward-compatible.
+--
 -- Engine-agnostic: anchor names are opaque strings.
 
 local AnchorRegistry = {}
 
 local _anchors = {}
+local _frame   = 0
 
-function AnchorRegistry.set(name, x, y)
-    _anchors[name] = { x, y }
+-- Advance the frame stamp. Called once per frame (main.lua love.draw)
+-- BEFORE any view draws, so anchors :set during the frame read age 0.
+function AnchorRegistry.tick()
+    _frame = _frame + 1
 end
 
--- Returns the {x, y} table or nil if no anchor was ever set under this name.
+function AnchorRegistry.set(name, x, y, w, h)
+    _anchors[name] = { x, y, w, h, frame = _frame }
+end
+
+-- Returns the {x, y[, w, h]} table or nil if no anchor was ever set under
+-- this name. May be arbitrarily stale — the widget that registered it can
+-- be long gone. Use age() when that matters.
 function AnchorRegistry.get(name)
     return _anchors[name]
+end
+
+-- Frames since this anchor was last set (math.huge if never). An anchor
+-- whose widget is still being drawn reads 0-1; anything older means the
+-- widget stopped rendering (closed table, hidden button, swapped layout).
+function AnchorRegistry.age(name)
+    local a = _anchors[name]
+    if not a then return math.huge end
+    return _frame - (a.frame or 0)
 end
 
 -- Wipe all anchors. Called on hard resets (F7, prestige) so stale positions

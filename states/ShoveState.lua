@@ -25,6 +25,7 @@ local CatalogModal       = require("views.CatalogModal")
 local DeckSelectModal    = require("views.DeckSelectModal")
 local SettingsModal      = require("views.SettingsModal")
 local Gauntlet           = require("models.Gauntlet")
+local Decks              = require("models.Decks")
 local Catalog            = require("data.catalog")
 local RunUpgrades        = require("data.run_upgrades")
 local Constants          = require("data.constants")
@@ -51,7 +52,7 @@ function ShoveState:new(game)
         gauntlet        = nil,
         prestige_modal       = nil,    -- bust step 1: run-end summary
         catalog_modal        = nil,    -- bust step 2: post-run chip shop
-        deck_select_modal    = nil,    -- bust step 3: choose active deck for next run (FEATURES.DECKS)
+        deck_select_modal    = nil,    -- bust step 3: choose active deck for next run (post-first-clear)
         settings_modal       = nil,    -- ESC overlay (volume, resolution, quit)
         prototype_end_modal  = nil,    -- prototype-mode "you beat the demo" screen
         _ended_handled       = false,  -- guard so _onGauntletEnded fires once per gauntlet
@@ -173,6 +174,11 @@ function ShoveState:_onGauntletEnded()
 
     if result.won then
         state.cleared = true
+        -- Persist immediately: love.quit only saves from grind/shove, so
+        -- quitting at the credits screen would otherwise lose the clear
+        -- (and with it the deck-system unlock).
+        self.game.save_service:saveAll(
+            state:serializeMeta(), state:serializeRun())
         self.prestige_modal = nil
         self.gauntlet = nil
         self.view:resetTimeline()
@@ -208,24 +214,42 @@ function ShoveState:_resolvePrototypeEnd(choice)
     -- this is the moment to spend it). The catalog's Continue button
     -- runs _dismissCatalogAndReturn which handles the run reset and
     -- the switch back to grind.
-    self.catalog_modal = CatalogModal:new(self.game)
+    self.game.state.catalog_seen = true
+    self.catalog_modal = CatalogModal:new(self.game,
+        { intro_callout = self:_catalogIntroPending() })
+end
+
+-- The catalog's one-time tutorial lede shows on the first post-shove
+-- visit only (TUTORIAL builds; seen-flag set on dismiss).
+function ShoveState:_catalogIntroPending()
+    local seen = self.game.state.hints_seen
+    return Constants.FEATURES.TUTORIAL
+       and seen ~= nil
+       and not seen["catalog_intro"]
 end
 
 -- Step 1 of the post-bust flow: prestige summary modal closes, catalog
 -- modal opens. Run state stays put — the player still has their
 -- chips_this_run banked to state.chips at this point and can spend it.
+-- The catalog has now introduced itself: catalog_seen (meta, persisted
+-- on the next save) lets the grind top-bar CATALOG button render.
 function ShoveState:_advanceToCatalog()
     self.prestige_modal = nil
-    self.catalog_modal  = CatalogModal:new(self.game)
+    self.game.state.catalog_seen = true
+    self.catalog_modal  = CatalogModal:new(self.game,
+        { intro_callout = self:_catalogIntroPending() })
 end
 
 -- Step 2 of the post-bust flow: catalog modal closes, run resets, then —
--- when FEATURES.DECKS is on — the deck-select modal opens for step 3.
--- Without that feature on, the run goes straight to grind. New owned_items
+-- once the deck system has unlocked (first gauntlet clear) — the
+-- deck-select modal opens for step 3.
+-- Before that, the run goes straight to grind. New owned_items
 -- (Poker Poster + whatever was bought) propagate via computeEffects →
 -- applyStartingPerks before either branch.
 function ShoveState:_dismissCatalogAndReturn()
     local state = self.game.state
+    -- The intro callout (if it showed this visit) is now delivered.
+    if state.hints_seen then state.hints_seen["catalog_intro"] = true end
     state:resetRun()
     -- Apply meta-progression perks owned in the catalog (Pocket Cash,
     -- Free Sit, ...). Run-side state was just reset, so the ctx is
@@ -236,7 +260,7 @@ function ShoveState:_dismissCatalogAndReturn()
     state:applyStartingPerks(meta_ctx)
     self.catalog_modal = nil
 
-    if Constants.FEATURES and Constants.FEATURES.DECKS then
+    if Decks.systemUnlocked(state) then
         self.deck_select_modal = DeckSelectModal:new(self.game)
         return
     end

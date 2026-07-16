@@ -13,6 +13,8 @@
 local Theme           = require("views.Theme")
 local GrindView       = require("views.GrindView")
 local GrindController = require("controllers.GrindController")
+local HintController  = require("controllers.HintController")
+local HintView        = require("views.HintView")
 local CursorPool      = require("services.CursorPool")
 local FlightSystem    = require("services.FlightSystem")
 local ClickFlash      = require("services.ClickFlash")
@@ -21,9 +23,13 @@ local CatalogModal    = require("views.CatalogModal")
 local DeckSelectModal = require("views.DeckSelectModal")
 local SettingsModal   = require("views.SettingsModal")
 local OnboardingModal        = require("views.OnboardingModal")
+local HintLogPanel           = require("views.HintLogPanel")
 local AnalyticsConsentModal  = require("views.AnalyticsConsentModal")
 local Constants       = require("data.constants")
+local Decks           = require("models.Decks")
 local HandAnalytics   = require("services.HandAnalytics")
+local Tooltip         = require("services.Tooltip")
+local HoverService    = require("services.HoverService")
 
 local GrindState = {}
 GrindState.__index = GrindState
@@ -40,13 +46,21 @@ function GrindState:new(game)
         -- DECK chip; swap is still restricted to the post-shove flow.
         deck_roster_modal  = nil,
         settings_modal     = nil,
-        -- One-page how-to-play. Auto-opens on first grind (state.onboarded);
-        -- replayable any time via the top-bar "?" button.
+        -- One-page how-to-play. Prototype builds (ONBOARDING_MODAL)
+        -- auto-open it on first grind; TUTORIAL builds never show it —
+        -- their "?" opens the hint log instead.
         onboarding_modal   = nil,
+        -- "Help desk": the seen-hints log behind "?" in TUTORIAL builds.
+        -- A slide-in side panel, NOT a modal — the grind stays visible
+        -- so hovering a log entry can spotlight its targets in-game.
+        help_panel         = nil,
         analytics_modal    = nil,
     }, GrindState)
     self.controller = GrindController:new(game)
     self.view       = GrindView:new(game, self.controller)
+    -- Tutorial hint queue + bubble renderer (inert unless FEATURES.TUTORIAL).
+    self.hints      = HintController:new(game, self.controller)
+    self.hint_view  = HintView:new(game)
     -- Expose the controller on the DI container so other states (the
     -- shove-state's CatalogModal) can dispatch purchase intents through
     -- the proper layer instead of mutating GameState directly.
@@ -77,10 +91,10 @@ end
 
 -- Mid-grind read-only deck-roster popup. Same view as the post-shove
 -- swap modal but in read_only mode — clicking a tile does nothing,
--- clicking anywhere dismisses. Gated on FEATURES.DECKS so the prototype
--- build never opens it.
+-- clicking anywhere dismisses. Gated on the deck system's unlock (first
+-- gauntlet clear) so it never opens before decks exist.
 function GrindState:openDeckRoster()
-    if not Constants.FEATURES.DECKS then return end
+    if not Decks.systemUnlocked(self.game.state) then return end
     if not self.deck_roster_modal then
         self.deck_roster_modal = DeckSelectModal:new(self.game,
                                                      { read_only = true })
@@ -101,9 +115,18 @@ function GrindState:closeSettings()
     self.settings_modal = nil
 end
 
--- Open the how-to-play modal on demand (top-bar "?"). Does NOT touch the
--- `onboarded` flag — replays are free.
+-- Top-bar "?" — TUTORIAL builds toggle the hint-log side panel ("help
+-- desk", every hint delivered so far); prototype builds open the classic
+-- how-to-play modal. Neither touches the `onboarded` flag.
 function GrindState:openHelp()
+    if Constants.FEATURES.TUTORIAL then
+        if self.help_panel then
+            self.help_panel:beginClose()
+        else
+            self.help_panel = HintLogPanel:new(self.game, self.hint_view)
+        end
+        return
+    end
     if not self.onboarding_modal then
         self.onboarding_modal = OnboardingModal:new(self.game)
     end
@@ -175,18 +198,56 @@ function GrindState:enter()
 
     HandAnalytics.startRun(self.game.state)
 
-    -- First-run how-to-play, shown before the player meets the scripted intro
-    -- loss. Auto-opens once; dismissing it persists `onboarded`.
+    -- First-run setup. With ONBOARDING_MODAL the how-to-play force-opens
+    -- once (dismissing it persists `onboarded`). Without it the modal
+    -- stays behind the top-bar "?" and only the analytics-consent ask
+    -- remains — asked once, then onboarding finalizes; if consent is
+    -- already set (dev machine), finalize straight away.
     if not self.game.state.onboarded then
-        self:openHelp()
+        if Constants.FEATURES.ONBOARDING_MODAL then
+            self:openHelp()
+        elseif self.game.settings
+               and self.game.settings.analytics_consent == nil then
+            self.analytics_modal = AnalyticsConsentModal:new(self.game)
+        else
+            self:_finalizeOnboarding()
+        end
     end
 end
 
 function GrindState:exit() end
 
+-- Any overlay up? Hints neither evaluate nor render underneath one — a
+-- hint firing behind the catalog (or beside the consent dialog) is noise.
+function GrindState:_modalUp()
+    return (self.catalog_modal or self.deck_roster_modal
+            or self.settings_modal or self.onboarding_modal
+            or self.help_panel or self.analytics_modal) ~= nil
+end
+
 function GrindState:update(dt)
     self.controller:update(dt)
     self.view:update(dt)
+    if self.help_panel then
+        self.help_panel:update(dt)
+        if self.help_panel.done then self.help_panel = nil end
+    end
+    if self:_modalUp() then
+        if self.help_panel then
+            -- The help panel dropdown blocks what's under it: the view's hover pass
+            -- (just ran) has no idea it exists, so kill any tooltip/hover it set
+            -- for a widget beneath the pointer.
+            if self.help_panel:containsPoint(love.mouse.getPosition()) then
+                Tooltip.clear()
+                HoverService.clear()
+            end
+        else
+            -- A full-screen modal is active. Clear all background tooltips and hovers.
+            Tooltip.clear()
+            HoverService.clear()
+        end
+    end
+    if not self:_modalUp() then self.hints:update(dt) end
     -- Cursor swarm steps after the controller/view tick. Hit-boxes were
     -- populated by last frame's draw — 1-frame stale, invisible at 60fps.
     -- The dispatcher closure routes a synthetic click through the same
@@ -197,7 +258,18 @@ function GrindState:update(dt)
 end
 
 function GrindState:draw()
-    self.view:draw()
+    -- Tutorial hint layer (active sticky hint + the [i] info queue) —
+    -- passed into the view as its overlay (above gameplay, below the
+    -- hover tooltip), and dropped entirely while a modal is up.
+    local hint_overlay
+    if not self:_modalUp() then
+        local state_self = self
+        hint_overlay = function()
+            state_self.hint_view:draw(state_self.hints:activeHint(),
+                                      state_self.hints:queuedHints())
+        end
+    end
+    self.view:draw(hint_overlay)
     -- Mid-grind catalog modal — drawn over the live grind view so the
     -- player can shop without leaving the table layout behind. Same
     -- visual modal as the post-bust flow.
@@ -209,6 +281,10 @@ function GrindState:draw()
     end
     if self.settings_modal then
         self.settings_modal:draw()
+    end
+    -- Hint-log side panel rides over the grind but under real modals.
+    if self.help_panel then
+        self.help_panel:draw()
     end
     -- How-to-play sits on top of everything else.
     if self.onboarding_modal then
@@ -234,6 +310,10 @@ function GrindState:fullReset()
     self.settings_modal    = nil
     self.catalog_modal     = nil
     self.deck_roster_modal = nil
+    self.help_panel        = nil
+    -- Drop any active hint; the seen-set was wiped on GameState, so the
+    -- fresh game re-teaches from the top.
+    self.hints:reset()
 end
 
 -- Phase 2 debug: H deals one hand on table 1. J deals every idle table.
@@ -244,6 +324,11 @@ function GrindState:keypressed(key)
     if self.onboarding_modal then
         self.onboarding_modal:consumeKey(key)
         if self.onboarding_modal:resolved() then self:_dismissOnboarding() end
+        return
+    end
+    -- Hint-log panel: ESC slides it out; everything else is mouse-driven.
+    if self.help_panel then
+        if key == "escape" then self.help_panel:beginClose() end
         return
     end
     if self.analytics_modal then
@@ -296,6 +381,14 @@ function GrindState:mousepressed(x, y, b)
         if self.onboarding_modal:resolved() then self:_dismissOnboarding() end
         return
     end
+    -- Hint-log panel: clicks inside are consumed (hover does the work);
+    -- clicking anywhere else slides it away.
+    if self.help_panel then
+        if not self.help_panel:mousepressed(x, y) then
+            self.help_panel:beginClose()
+        end
+        return
+    end
     if self.analytics_modal then
         self.analytics_modal:consumeMouse(x, y, b)
         if self.analytics_modal:resolved() then self:_resolveAnalyticsConsent() end
@@ -323,6 +416,18 @@ function GrindState:mousepressed(x, y, b)
         if self.deck_roster_modal:resolved() then
             self:closeDeckRoster()
         end
+        return
+    end
+    -- Hint layer clicks: an [i] icon dismisses that queued info hint; the
+    -- active sticky hint's bubble dismisses it. Everything else falls
+    -- through — clicks on a highlighted widget are the advance-on-action
+    -- path, and info hints can never be lost to a stray click.
+    local hint_hit = self.hint_view:mousepressed(x, y)
+    if hint_hit == "bubble" then
+        self.hints:dismissActive()
+        return
+    elseif hint_hit then
+        self.hints:dismissQueued(hint_hit.id)
         return
     end
     self.view:mousepressed(x, y, b)
@@ -371,6 +476,10 @@ end
 function GrindState:wheelmoved(x, y)
     if self.onboarding_modal then
         self.onboarding_modal:wheelmoved(x, y)
+        return
+    end
+    if self.help_panel then
+        self.help_panel:wheelmoved(x, y)
         return
     end
     if self.settings_modal and self.settings_modal.wheelmoved then
