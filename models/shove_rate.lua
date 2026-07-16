@@ -90,12 +90,16 @@ local function buildRates(catalog, mult, tier)
     local r1   = clamp01(raw1)
     local r2   = clamp01(raw2)
     local r3   = clamp01(raw3)
-    -- Hard-gate R2 / R3 outcomes to losses: the dealer always cheats
-    -- once the cards reveal. In prototype this lands on the end-of-demo
-    -- modal; outside prototype the player sees the cheat play out,
-    -- busts, and returns to grind like it never happened. Universal.
-    r2 = 0
-    r3 = 0
+    -- Demo builds hard-gate R2 to a loss: the prototype IS runout 1, and
+    -- win-R1/lose-R2 is the deterministic cliffhanger the end-of-demo
+    -- modal hangs off. Full builds keep the real formula — the dealer's
+    -- cheats HALVE the factors, they don't nullify them, so a deeply
+    -- overshot player (raw_r1 ≥ 200% / 400%) genuinely beats cheat 1 /
+    -- cheat 2. Zeroing these universally made the full game unwinnable.
+    if Constants.FEATURES and Constants.FEATURES.DEMO_CUT then
+        r2 = 0
+        r3 = 0
+    end
 
     -- Demo-cut only: cap r1 + raw_r1 to 99% so the headline shove%
     -- never reads 100% / overshoot during the prototype build. Outside

@@ -53,6 +53,7 @@ local GrindState   = require("states.GrindState")
 local ShoveState   = require("states.ShoveState")
 local CreditsState = require("states.CreditsState")
 local TitleState   = require("states.TitleState")
+local RoomState    = require("states.RoomState")
 
 local Game = nil
 
@@ -225,6 +226,7 @@ local function buildGame()
     g.state_machine:register("shove",   ShoveState:new(g))
     g.state_machine:register("credits", CreditsState:new(g))
     g.state_machine:register("title",   TitleState:new(g))
+    g.state_machine:register("room",    RoomState:new(g))
 
     g.startNewGame = function()
         g.save_service:clearAll()

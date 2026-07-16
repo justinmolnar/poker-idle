@@ -73,6 +73,7 @@ function GrindState:new(game)
     game.openDeckRoster = function() state_self:openDeckRoster() end
     game.openHelp       = function() state_self:openHelp()       end
     game.quickReset     = function() state_self:quickReset()     end
+    game.toggleRoom     = function() state_self.game.state_machine:switch("room") end
     return self
 end
 
@@ -319,6 +320,11 @@ end
 -- Phase 2 debug: H deals one hand on table 1. J deals every idle table.
 -- Both are temporary — Phase 3 brings click-to-deal via TablePanel buttons.
 function GrindState:keypressed(key)
+    if key == "tab" then
+        self.game.state_machine:switch("room")
+        return
+    end
+
     -- How-to-play is the most forced modal — it owns input while up; only its
     -- button / space-return dismisses it (ESC does not escape it).
     if self.onboarding_modal then
@@ -430,6 +436,7 @@ function GrindState:mousepressed(x, y, b)
         self.hints:dismissQueued(hint_hit.id)
         return
     end
+
     self.view:mousepressed(x, y, b)
 end
 

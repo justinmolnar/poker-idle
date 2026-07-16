@@ -1288,14 +1288,15 @@ end
 
 -- ─── Cash-Out-All button (top bar, leftmost of the 3-button strip) ───
 
--- The three top-bar buttons span the upgrades-sidebar width:
---   [CASH OUT] gap [CATALOG] gap [SETTINGS] right_pad ‖ screen edge
+-- The four top-bar buttons span the upgrades-sidebar width:
+--   [CASH OUT] gap [CATALOG] gap [ROOM] gap [SETTINGS] right_pad ‖ screen edge
 -- Equal-width buttons, TOPBAR_BTN_GAP between them, MARGIN on the
 -- right so the rightmost button doesn't kiss the screen edge.
 function GrindView:_topBarBtnW()
     local pad_right = MARGIN
     local gap       = TOPBAR_BTN_GAP
-    return math.floor((RIGHT_W - 2 * gap - pad_right) / 3)
+    local num_btns  = 4
+    return math.floor((RIGHT_W - (num_btns - 1) * gap - pad_right) / num_btns)
 end
 
 function GrindView:_cashOutButtonRect()
@@ -1331,7 +1332,7 @@ function GrindView:_drawCashOutButton()
     }
 end
 
--- ─── Catalog button (top bar, between Cash-Out and Settings) ─────────
+-- ─── Catalog button (top bar, between Cash-Out and Room) ─────────
 
 -- Hidden until the post-shove catalog has introduced itself (persisted
 -- as state.catalog_seen, set by ShoveState when the modal first opens).
@@ -1367,13 +1368,43 @@ function GrindView:_drawCatalogButton()
     }
 end
 
--- ─── Settings button (top bar, rightmost) ────────────────────────────
+-- ─── Room button (top bar, between Catalog and Settings) ──────────────
 
-function GrindView:_settingsButtonRect()
+function GrindView:_roomButtonRect()
     local cb = self:_catalogButtonRect()
     local bw = self:_topBarBtnW()
     return {
         x = cb.x + bw + TOPBAR_BTN_GAP,
+        y = math.floor((TOP_BAR_H - CATALOG_BTN_H) / 2),
+        w = bw,
+        h = CATALOG_BTN_H,
+    }
+end
+
+function GrindView:_drawRoomButton()
+    local rect   = self:_roomButtonRect()
+    AnchorRegistry.set("btn:room", rect.x, rect.y, rect.w, rect.h)
+    local mx, my = love.mouse.getPosition()
+    local is_room_active = self.game.state_machine
+        and self.game.state_machine.current_state_name == "room"
+    local btn_text = is_room_active and "PLAY" or "ROOM"
+    LabelButton.draw{
+        x = rect.x, y = rect.y, w = rect.w, h = rect.h,
+        text        = btn_text,
+        fonts       = self.game.fonts,
+        hovered     = mx >= rect.x and mx < rect.x + rect.w
+                      and my >= rect.y and my < rect.y + rect.h,
+        press_alpha = ClickFlash.alpha("room_btn", "room_btn"),
+    }
+end
+
+-- ─── Settings button (top bar, rightmost) ────────────────────────────
+
+function GrindView:_settingsButtonRect()
+    local rb = self:_roomButtonRect()
+    local bw = self:_topBarBtnW()
+    return {
+        x = rb.x + bw + TOPBAR_BTN_GAP,
         y = math.floor((TOP_BAR_H - CATALOG_BTN_H) / 2),
         w = bw,
         h = CATALOG_BTN_H,
@@ -1903,8 +1934,11 @@ function GrindView:draw(overlay_fn)
     self:_drawHelpButton()
     self:_drawCashOutButton()
     if self:_catalogButtonVisible() then self:_drawCatalogButton() end
+    self:_drawRoomButton()
     self:_drawSettingsButton()
+
     self:_drawCenterGrid(W, H)
+
     self.left_panel:draw(self.game)
     self.right_panel:draw(self.game)
     self:_drawHouse()
@@ -1990,6 +2024,15 @@ function GrindView:mousepressed(x, y, b)
        and x >= deck_rect.x and x < deck_rect.x + deck_rect.w
        and y >= deck_rect.y and y < deck_rect.y + deck_rect.h then
         if self.game.openDeckRoster then self.game.openDeckRoster() end
+        return
+    end
+
+    -- Room toggle button (top bar, between catalog and settings).
+    local room_rect = self:_roomButtonRect()
+    if x >= room_rect.x and x < room_rect.x + room_rect.w
+       and y >= room_rect.y and y < room_rect.y + room_rect.h then
+        ClickFlash.flash("room_btn", "room_btn")
+        if self.game.toggleRoom then self.game.toggleRoom() end
         return
     end
 
