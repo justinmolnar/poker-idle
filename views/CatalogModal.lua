@@ -117,6 +117,7 @@ local function visibleItems(state)
         local locked = item.requires and not owned[item.requires]
         local skip = item.hidden
                   or (locked and item.requires_hide)
+                  or (item.requires_act3 and not state.shove_r2_won)
         if not skip then
             out[#out + 1] = item
         end
@@ -148,6 +149,13 @@ local function tryBuy(game, item)
     -- isn't registered yet (shouldn't happen in normal flow, but keeps the
     -- modal usable from contrived test setups).
     return game.state:tryBuyCatalogItem(item)
+end
+
+local function tryCorrupt(game, item)
+    if game.grind and game.grind.corruptCatalogItem then
+        return game.grind:corruptCatalogItem(item.id)
+    end
+    return game.state:tryCorruptItem(item)
 end
 
 -- ─── Input ────────────────────────────────────────────────────────────
@@ -240,7 +248,11 @@ function CatalogModal:consumeMouse(mx, my, button)
         if mx >= cell.x and mx < cell.x + cell.w
            and my >= cell.y and my < cell.y + cell.h then
             if cell.buyable and not self.read_only then
-                return tryBuy(self.game, cell.item)
+                if cell.corruptible then
+                    return tryCorrupt(self.game, cell.item)
+                else
+                    return tryBuy(self.game, cell.item)
+                end
             end
             return true   -- consumed even if not buyable (don't fall through)
         end
@@ -255,8 +267,27 @@ local function moneyish(n) return string.format("%d", n or 0) end
 local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing_tutorial, index)
     local is_owned   = owned[item.id]
     local locked     = item.requires and not owned[item.requires]
-    local affordable = (not is_owned) and (not locked) and state.chips >= (item.cost_chip or 0)
-    local buyable    = affordable and not self.read_only
+    local is_corrupted = false
+    if state.corrupted_items then
+        for _, cid in ipairs(state.corrupted_items) do
+            if cid == item.id then is_corrupted = true; break end
+        end
+    end
+    local is_corruptible = is_owned and item.corrupt and state.shove_r2_won and not is_corrupted
+
+    local affordable = false
+    local buyable    = false
+    local corruptible = false
+
+    if is_corruptible then
+        affordable = state.anti_chips >= (item.corrupt.cost_achip or 0)
+        buyable    = affordable and not self.read_only
+        corruptible = true
+    else
+        affordable = (not is_owned) and (not locked) and state.chips >= (item.cost_chip or 0)
+        buyable    = affordable and not self.read_only
+    end
+
     local is_tutorial_target = forcing_tutorial and item.id == "poker_poster"
 
     local s = self.game.ui_scale or 1
@@ -286,7 +317,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         local px = img_x + (img_w - sprite:getWidth() * scale_factor) * 0.5
         local py = img_y + (img_h - sprite:getHeight() * scale_factor) * 0.5
         
-        love.graphics.setColor(1, 1, 1, is_owned and 0.40 or 1.0)
+        love.graphics.setColor(1, 1, 1, (is_owned and not is_corruptible and not is_corrupted) and 0.40 or 1.0)
         love.graphics.draw(sprite, px, py, 0, scale_factor, scale_factor)
     else
         -- Draw classic blueprint cross placeholder
@@ -297,7 +328,11 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
 
     -- Stamp price tag in upper-right corner
     local price_color = { 0.15, 0.15, 0.12, 0.50 } -- black ink default
-    if not is_owned and not locked then
+    if is_corruptible then
+        price_color = { 0.55, 0.25, 0.85 } -- purple stamp for active corruption price
+    elseif is_corrupted then
+        price_color = { 0.40, 0.15, 0.60 } -- dark purple for corrupted
+    elseif not is_owned and not locked then
         price_color = { 0.75, 0.20, 0.20 } -- red rubber stamp for active purchase price
     end
     
@@ -313,7 +348,11 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     
     love.graphics.setFont(fonts.sm)
     local cost_text = string.format("%d", item.cost_chip or 0)
-    if is_owned then
+    if is_corruptible then
+        cost_text = string.format("%d", item.corrupt.cost_achip or 0)
+    elseif is_corrupted then
+        cost_text = "OWN"
+    elseif is_owned then
         cost_text = "OWN"
     elseif locked then
         cost_text = "LCK"
@@ -333,15 +372,16 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     love.graphics.print(index_text, text_x, title_y)
     
     local name_y = title_y + fonts.sm:getHeight() + 1
-    local name_color = is_owned and { 0.15, 0.15, 0.12, 0.40 } or { 0.15, 0.15, 0.12 }
+    local name_color = (is_owned and not is_corruptible and not is_corrupted) and { 0.15, 0.15, 0.12, 0.40 } or { 0.15, 0.15, 0.12 }
     Theme.setColor(name_color)
     love.graphics.setFont(fonts.md)
     love.graphics.print((item.name or "?"):upper(), text_x, name_y)
 
     -- Description / Effect
     local effect_y = name_y + fonts.md:getHeight() + 3
-    IconText.draw(self.game, item.effect_text or "", text_x, effect_y, fonts.sm,
-        is_owned and { 0.15, 0.15, 0.12, 0.40 } or { 0.15, 0.15, 0.12 })
+    local eff_text = is_corrupted and item.corrupt.effect_text or item.effect_text
+    IconText.draw(self.game, eff_text or "", text_x, effect_y, fonts.sm,
+        (is_owned and not is_corruptible and not is_corrupted) and { 0.15, 0.15, 0.12, 0.40 } or { 0.15, 0.15, 0.12 })
         
     local flavor_y = effect_y + fonts.sm:getHeight() + 2
     Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
@@ -356,11 +396,41 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
 
     -- Stash cell bounds for hit-testing
     self._cells[#self._cells + 1] = {
-        x = x, y = y, w = w, h = h, item = item, buyable = buyable,
+        x = x, y = y, w = w, h = h, item = item, buyable = buyable, corruptible = corruptible,
     }
 
-    -- Overlays: Rubber stamp "ORDERED" or "SOLD OUT"
-    if is_owned then
+    -- Overlays: Rubber stamp "ORDERED", "CORRUPTED", or "SOLD OUT"
+    if is_corrupted then
+        love.graphics.push()
+        love.graphics.translate(x + w * 0.55, y + h * 0.5)
+        love.graphics.rotate(-0.15)
+        
+        Theme.setColor({ 0.45, 0.15, 0.70, 0.90 })
+        love.graphics.setLineWidth(3)
+        love.graphics.rectangle("line", -fl(60 * s), -fl(14 * s), fl(120 * s), fl(28 * s), fl(4 * s))
+        love.graphics.setLineWidth(1)
+        
+        love.graphics.setFont(fonts.md)
+        local st_w = fonts.md:getWidth("CORRUPTED")
+        love.graphics.print("CORRUPTED", -st_w * 0.5, -fonts.md:getHeight() * 0.5)
+        
+        love.graphics.pop()
+    elseif is_corruptible then
+        love.graphics.push()
+        love.graphics.translate(x + w * 0.55, y + h * 0.5)
+        love.graphics.rotate(0.05)
+        
+        Theme.setColor({ 0.55, 0.25, 0.85, 0.85 })
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", -fl(50 * s), -fl(12 * s), fl(100 * s), fl(24 * s), fl(3 * s))
+        love.graphics.setLineWidth(1)
+        
+        love.graphics.setFont(fonts.sm)
+        local st_w = fonts.sm:getWidth("CORRUPT?")
+        love.graphics.print("CORRUPT?", -st_w * 0.5, -fonts.sm:getHeight() * 0.5)
+        
+        love.graphics.pop()
+    elseif is_owned then
         love.graphics.push()
         love.graphics.translate(x + w * 0.55, y + h * 0.5)
         love.graphics.rotate(-0.15)
@@ -382,7 +452,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         
         Theme.setColor({ 0.45, 0.45, 0.45, 0.70 })
         love.graphics.setLineWidth(2)
-        love.graphics.rectangle("line", -fl(60 * s), -fl(14 * s), fl(120 * s), fl(28 * s), fl(4 * s))
+        love.graphics.rectangle("line", -fl(60 * s), -fl(12 * s), fl(120 * s), fl(24 * s), fl(3 * s))
         love.graphics.setLineWidth(1)
         
         love.graphics.setFont(fonts.md)

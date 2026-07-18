@@ -61,4 +61,25 @@ function Icons.drawChip(game, x, y, size, alpha, shade)
     Chips.drawGlyph(x + r, y + r, r, alpha, shade)
 end
 
+function Icons.drawAntiChip(game, x, y, size, alpha, shade)
+    local spec  = IconData.achip
+    local atlas = spec and spriteReady(game, spec.sprite)
+    if atlas then
+        SpriteRenderer.draw(atlas, spec.sprite, x, y, size, size, resolveTint(spec.tint))
+        return
+    end
+    local r = math.floor(size / 2)
+    alpha = alpha or 1
+    shade = shade or 1
+    local achip, ring = Theme.currency.achip, Theme.currency.achip_ring
+    if shade ~= 1 then
+        achip = { achip[1] * shade, achip[2] * shade, achip[3] * shade }
+        ring = { ring[1] * shade, ring[2] * shade, ring[3] * shade }
+    end
+    Theme.setColor(ring, alpha)
+    love.graphics.circle("fill", x + r, y + r, r)
+    Theme.setColor(achip, alpha)
+    love.graphics.circle("fill", x + r, y + r, math.max(1, r - math.max(1, r * 0.28)))
+end
+
 return Icons

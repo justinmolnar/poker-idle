@@ -136,6 +136,7 @@ C.GAMEPLAY = {
     FOCUS_BASE_CAPACITY    = 4,        -- below this many tables, no penalty
     FOCUS_BASE_PENALTY     = 0.15,     -- per extra table over capacity (5 over → floor)
     FOCUS_FLOOR            = 0.05,     -- floor on focus_mult; running too many is actively bad
+    UNDERFLOW_THRESHOLD    = -100000000000, -- Act 3 negative bankroll threshold to overflow
     -- CHIP_AWARD_DIVISOR removed — chips come from per-stake first-win
     -- bounties, not from a peak-bankroll formula on bust.
 }

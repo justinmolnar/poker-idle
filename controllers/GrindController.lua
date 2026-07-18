@@ -79,6 +79,12 @@ end
 function GrindController:invalidateEffects()
     local n_tables = self.pool and self.pool:count() or 0
     self.ctx = self.game.state:computeEffects(self.game.effects, Catalog, RunUpgrades, { active_tables_count = n_tables })
+    -- Latch the transient ultra-unlock effect into persistent state so the
+    -- Ultra band stays available (stakeAvailable reads state.ultra_unlocked).
+    -- One-way — any effect granting it makes the unlock permanent.
+    if self.ctx.ultra_unlocked then
+        self.game.state.ultra_unlocked = true
+    end
 end
 
 -- Maximum concurrent tables. The catalog no longer gates *how many* tables
@@ -302,8 +308,14 @@ function GrindController:update(dt)
                 tbl.stack = cap
                 state.bankroll = state.bankroll + overflow_amount
             elseif new_stack < 0 then
-                r.delta = -tbl.stack
-                tbl.stack = 0
+                if state.shove_r2_won and stake and stake.band == "ultra" then
+                    local excess_loss = -new_stack
+                    tbl.stack = 0
+                    state.bankroll = state.bankroll - excess_loss
+                else
+                    r.delta = -tbl.stack
+                    tbl.stack = 0
+                end
             else
                 tbl.stack = new_stack
             end
@@ -312,8 +324,10 @@ function GrindController:update(dt)
             -- with the same negative clamp.
             local new_bankroll = state.bankroll + r.delta
             if new_bankroll < 0 then
-                r.delta = -state.bankroll
-                new_bankroll = 0
+                if not state.shove_r2_won then
+                    r.delta = -state.bankroll
+                    new_bankroll = 0
+                end
             end
             state.bankroll = new_bankroll
         end
@@ -526,6 +540,32 @@ function GrindController:update(dt)
             end
         end
 
+        -- Anti-chip award: stack loss (r.delta < 0 and r.tier == "jackpot") at High/Ultra stakes during Act 3.
+        if r.delta < 0 and r.tier == "jackpot" and not r.chip_stack_table then
+            local tbl = self.pool.tables[r.table_idx]
+            if tbl then
+                local stake = Lookups.findById(Stakes, tbl.stake_id)
+                if stake and (stake.band == "high" or stake.band == "ultra") and state.shove_r2_won then
+                    local cap = 1
+                    local key = bountyKey(tbl.stake_id, tbl.game_type_id)
+                    state.anti_stakes_won_this_run = state.anti_stakes_won_this_run or {}
+                    local cur = state.anti_stakes_won_this_run[key]
+                    local count = (cur == true and 1) or 0
+                    if count < cap then
+                        state.anti_stakes_won_this_run[key] = true
+                        state.hands_since_last_bank = 0
+                        local award = self:antiBountyAward(tbl.stake_id)
+                        if award > 0 then
+                            state.anti_chips_this_run = (state.anti_chips_this_run or 0) + award
+                            self.game.floating_text.emit(
+                                string.format("+%d {achip}", award),
+                                r.x, (r.y or 0) - 28)
+                        end
+                    end
+                end
+            end
+        end
+
         -- Hands resolved, ever — unconditional, unlike the deck lifetime
         -- counters below (those start at zero when decks unlock). Drives
         -- tutorial-hint pacing (models/hint_rules.lua "hands_played").
@@ -642,6 +682,12 @@ function GrindController:bountyBanked(stake_id, game_type_id)
     return count >= 1
 end
 
+function GrindController:antiBountyBanked(stake_id, game_type_id)
+    local key = bountyKey(stake_id, game_type_id)
+    local cur = self.game.state.anti_stakes_won_this_run and self.game.state.anti_stakes_won_this_run[key]
+    return cur == true
+end
+
 -- THE bounty math — base stake.chip_award scaled by ctx.chip_award_mult,
 -- then any flat ctx.jackpot_chip_add (Pen) added on top. Every award
 -- site (cash jackpot, tournament win) and every display (sidebar "+N"
@@ -652,6 +698,12 @@ function GrindController:bountyAward(stake_id)
     local mult  = (self.ctx and self.ctx.chip_award_mult) or 1
     local bonus = (self.ctx and self.ctx.jackpot_chip_add) or 0
     return math.floor((stake.chip_award or 0) * mult + 0.5) + bonus
+end
+
+function GrindController:antiBountyAward(stake_id)
+    local stake = Lookups.findById(Stakes, stake_id)
+    if not stake then return 0 end
+    return stake.anti_chip_award or 0
 end
 
 function GrindController:buyRunUpgrade(upgrade_id)
@@ -833,6 +885,7 @@ end
 function GrindController:quickReset()
     local state = self.game.state
     state.chips = state.chips + (state.chips_this_run or 0)
+    state.anti_chips = (state.anti_chips or 0) + (state.anti_chips_this_run or 0)
     state:resetRun()
     self:invalidateEffects()
     state:applyStartingPerks(self.ctx)
@@ -853,6 +906,17 @@ function GrindController:buyCatalogItem(item_id)
         cost_chips = chips_before - self.game.state.chips,
         chips      = self.game.state.chips,
     })
+    self:invalidateEffects()
+    self:_playNamed("upgrade_purchased")
+    return true
+end
+
+function GrindController:corruptCatalogItem(item_id)
+    local item
+    for _, it in ipairs(Catalog) do
+        if it.id == item_id then item = it; break end
+    end
+    if not self.game.state:tryCorruptItem(item) then return false end
     self:invalidateEffects()
     self:_playNamed("upgrade_purchased")
     return true
@@ -1269,6 +1333,7 @@ end
 function GrindController:initiateShove()
     local state = self.game.state
     state.chips = state.chips + (state.chips_this_run or 0)
+    state.anti_chips = (state.anti_chips or 0) + (state.anti_chips_this_run or 0)
     self.game.state_machine:switch("shove")
 end
 

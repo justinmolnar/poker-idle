@@ -17,6 +17,7 @@
 return {
     -- Meta-currency (Gold Chip). Procedural fallback in Icons.drawChip.
     chip = { sprite = "ui/icons/chip", tint = nil },
+    achip = { sprite = "ui/icons/achip", tint = nil },
 
     -- Top-bar jargon cells (icon hooks; silent until art lands).
     focus = { sprite = "ui/icons/focus", tint = "fg.heading" },

@@ -41,6 +41,9 @@ function GameState:new(saved)
     instance.cleared     = false   -- true once the gauntlet is beaten — gates the credits screen on boot
     instance.shove_r1_won = false  -- true once the player has won at least Runout 1 of the shove gauntlet
     instance.shove_r2_won = false  -- true once the player has won at least Runout 2 of the shove gauntlet
+    instance.anti_chips  = 0
+    instance.corrupted_items = {}
+    instance.ultra_unlocked = false
     instance.deck_overhaul_migrated = false -- true once the level-0, 5-level deck migration has run once
     instance.onboarded   = false   -- true once the intro how-to-play modal has been dismissed
     instance.catalog_seen = false  -- true once the post-shove catalog has opened — gates the top-bar CATALOG button (TUTORIAL builds)
@@ -134,6 +137,8 @@ function GameState:new(saved)
     instance.active_table_stack         = {}
     instance.stakes_won_this_run = {}           -- set keyed by stake_id; locks in chip bounties per run
     instance.chips_this_run      = 0            -- running counter for the prestige modal display
+    instance.anti_stakes_won_this_run = {}
+    instance.anti_chips_this_run      = 0
     -- Hands resolved since a {chip} bounty last banked (0 on a banking
     -- hand). Run-scoped; drives the tutorial's shove-stall nudge.
     instance.hands_since_last_bank = 0
@@ -172,6 +177,8 @@ function GameState:resetRun()
     self.active_table_stack         = {}
     self.stakes_won_this_run = {}
     self.chips_this_run      = 0
+    self.anti_stakes_won_this_run = {}
+    self.anti_chips_this_run      = 0
     self.hands_since_last_bank = 0
     self.effects_cache       = nil
     self.shove_count         = (self.shove_count or 0) + 1
@@ -187,6 +194,9 @@ function GameState:wipeAll()
     self.cleared     = false
     self.shove_r1_won = false
     self.shove_r2_won = false
+    self.anti_chips  = 0
+    self.corrupted_items = {}
+    self.ultra_unlocked = false
     self.onboarded   = false
     self.catalog_seen = false
     self.hints_seen   = {}
@@ -255,6 +265,9 @@ function GameState:applySaved(saved)
 
     self.shove_r1_won                   = self.shove_r1_won or false
     self.shove_r2_won                   = self.shove_r2_won or false
+    self.anti_chips                     = self.anti_chips or 0
+    self.corrupted_items                = self.corrupted_items or {}
+    self.ultra_unlocked                 = self.ultra_unlocked or false
 
     -- Lifetime counters added later than the deck-state fields. Older
     -- saves don't have them — backfill to 0 so unlock checks have a
@@ -286,6 +299,8 @@ function GameState:applySaved(saved)
     -- whose done-condition the save already satisfies.
     self.hints_seen   = self.hints_seen   or {}
     self.hints_queued = self.hints_queued or {}
+    self.anti_stakes_won_this_run = self.anti_stakes_won_this_run or {}
+    self.anti_chips_this_run      = self.anti_chips_this_run or 0
 end
 
 -- Drop unknown deck ids from unlocked_decks / deck_levels / deck_xp and
@@ -345,6 +360,9 @@ function GameState:serializeMeta()
         cleared                         = self.cleared,
         shove_r1_won                    = self.shove_r1_won,
         shove_r2_won                    = self.shove_r2_won,
+        anti_chips                      = self.anti_chips,
+        corrupted_items                 = self.corrupted_items,
+        ultra_unlocked                  = self.ultra_unlocked,
         deck_overhaul_migrated          = self.deck_overhaul_migrated,
         onboarded                       = self.onboarded,
         catalog_seen                    = self.catalog_seen,
@@ -387,6 +405,8 @@ function GameState:serializeRun()
         active_table_stack         = self.active_table_stack,
         stakes_won_this_run        = self.stakes_won_this_run,
         chips_this_run             = self.chips_this_run,
+        anti_stakes_won_this_run   = self.anti_stakes_won_this_run,
+        anti_chips_this_run        = self.anti_chips_this_run,
         hands_since_last_bank      = self.hands_since_last_bank,
     }
 end
@@ -406,6 +426,10 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
         end
     end
 
+    -- Act-3 gate exposed to the rollup so shove_rate.compute (which only
+    -- receives ctx + bankroll) can force the mult to 0 / underflow-999.
+    ctx.shove_r2_won = self.shove_r2_won or false
+
     -- Pass 1: seed owned_set from explicit owned_items, plus any
     -- `granted_at_start` phantoms (handicap, future debuffs).
     local owned_set = {}
@@ -416,6 +440,11 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
         end
     end
 
+    local corrupted_set = {}
+    if self.corrupted_items then
+        for _, id in ipairs(self.corrupted_items) do corrupted_set[id] = true end
+    end
+
     -- Pass 2: apply effects. `removed_by` is enforced HERE, uniformly —
     -- it doesn't matter whether the entry got into owned_set via owned_items
     -- or via granted_at_start. The handicap's removed_by="poker_poster"
@@ -424,7 +453,12 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
     for _, item in ipairs(catalog) do
         if owned_set[item.id]
            and not (item.removed_by and owned_set[item.removed_by]) then
-            registry:applyAll(item, ctx)
+            if corrupted_set[item.id] and item.corrupt and item.corrupt.effects then
+                local temp_item = { effects = item.corrupt.effects }
+                registry:applyAll(temp_item, ctx)
+            else
+                registry:applyAll(item, ctx)
+            end
         end
     end
 
@@ -500,6 +534,29 @@ function GameState:tryBuyCatalogItem(item)
     if self.chips < item.cost_chip then return false end
     self.chips = self.chips - item.cost_chip
     self.owned_items[#self.owned_items + 1] = item.id
+    self.effects_cache = nil
+    return true
+end
+
+-- Spend anti-chips on corrupting a catalog item: validates owned + corruptible +
+-- affordable + not already corrupted, applies the mutation, invalidates cache.
+function GameState:tryCorruptItem(item)
+    if not item or not item.corrupt or item.corrupt.cost_achip == nil then return false end
+    -- Must own the item first
+    local owned = false
+    for _, owned_id in ipairs(self.owned_items) do
+        if owned_id == item.id then owned = true; break end
+    end
+    if not owned then return false end
+    -- Must not already be corrupted
+    for _, corrupted_id in ipairs(self.corrupted_items) do
+        if corrupted_id == item.id then return false end
+    end
+    -- Must afford in anti-chips
+    if self.anti_chips < item.corrupt.cost_achip then return false end
+
+    self.anti_chips = self.anti_chips - item.corrupt.cost_achip
+    self.corrupted_items[#self.corrupted_items + 1] = item.id
     self.effects_cache = nil
     return true
 end

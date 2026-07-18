@@ -78,7 +78,7 @@ local BANKROLL_CELL_W      = 160
 -- walk in _drawTopBar.
 local CELL_W = {
     tied = 72, total = 72,                   -- money cluster
-    chip = 48, shove = 56, deck = 50,        -- run cluster (chip + deck are icon/sprite)
+    chip = 48, achip = 48, shove = 56, deck = 50, -- run cluster (chip + deck are icon/sprite)
     tables = 72, focus = 56,                 -- workload cluster
 }
 local TOPBAR_LABEL_Y       = 8
@@ -116,7 +116,7 @@ local PANEL_MAX_H = 390
 -- and the active fonts. Called on init and on resize. Reassigns the
 -- file-local upvalues above so every reference inside instance methods
 -- picks up the new values automatically.
-local function recomputeLayout(W, H, fonts)
+local function recomputeLayout(W, H, fonts, state)
     -- Float layout scale (smooth) — used for sizing visual elements
     -- so they grow with the window. Fonts use a separate INTEGER
     -- scale handled by FontService so they stay on the pixel grid.
@@ -196,6 +196,8 @@ local function recomputeLayout(W, H, fonts)
     -- so size it from the chip diameter + gap + the widest count.
     CELL_W.chip   = math.floor(TOP_BAR_H * 0.6) + math.floor(6 * s)
                     + math.ceil(fonts.md:getWidth("9999")) + cell_pad
+    CELL_W.achip  = math.floor(TOP_BAR_H * 0.6) + math.floor(6 * s)
+                    + math.ceil(fonts.md:getWidth("9999")) + cell_pad
     CELL_W.shove  = cellW("SHOVE",   "999%")
     -- Deck cell is a sprite chip, not a text value — size it from the
     -- label width plus a fixed icon footprint (~36px scaled). Only takes
@@ -205,10 +207,14 @@ local function recomputeLayout(W, H, fonts)
     CELL_W.tables = cellW("TABLES",  "99 / 99")
     CELL_W.focus  = cellW("FOCUS",   "100%")
 
+
     local ideal_bankroll = math.ceil(fonts.lg:getWidth("$999.99K")) + math.floor(24 * s)
     local cells_total    = CELL_W.tied  + CELL_W.total
                          + CELL_W.chip  + CELL_W.shove
                          + CELL_W.tables + CELL_W.focus
+    if state and state.shove_r2_won then
+        cells_total = cells_total + CELL_W.achip
+    end
     -- Reserve on the static flag, not Decks.systemUnlocked: the system
     -- unlocks mid-session (first gauntlet clear) and this only reruns on
     -- resize — reserving up front keeps the bar from reflowing under the
@@ -247,6 +253,7 @@ function GrindView:new(game, controller)
         -- frame doesn't tween from 0.
         displayed_bankroll = state.bankroll       or 0,
         displayed_chips    = state.chips           or 0,
+        displayed_anti_chips = state.anti_chips    or 0,
         displayed_tied     = controller:tiedUp(),
     }, GrindView)
 
@@ -266,7 +273,7 @@ end
 
 function GrindView:_buildPanels()
     local W, H = love.graphics.getDimensions()
-    recomputeLayout(W, H, self.game.fonts)
+    recomputeLayout(W, H, self.game.fonts, self.game.state)
 
     self.left_panel = Panel:new(0, TOP_BAR_H, LEFT_W, H - TOP_BAR_H)
     self.left_panel:registerTab({
@@ -453,10 +460,22 @@ function GrindView:_buildTablesTabComponents()
                 end
             end
 
-            -- Chip-bounty badge: green + full gold once banked this run; greyed
+            -- Chip-bounty badge: green + full gold/purple once banked this run; greyed
             -- while still unearned, greyer still when you can't even buy in.
-            local banked = self.controller:bountyBanked(stake.id, gtype_id)
-            local award  = self.controller:bountyAward(stake.id)
+            local is_achip = (stake.band == "high" or stake.band == "ultra")
+            local banked, award, icon_id, border_color
+            if is_achip then
+                banked = self.controller:antiBountyBanked(stake.id, gtype_id)
+                award  = self.controller:antiBountyAward(stake.id)
+                icon_id = "achip"
+                border_color = banked and { 0.65, 0.35, 0.95 } or nil
+            else
+                banked = self.controller:bountyBanked(stake.id, gtype_id)
+                award  = self.controller:bountyAward(stake.id)
+                icon_id = "chip"
+                border_color = banked and Theme.currency.chip or nil
+            end
+
             local chip_text = string.format("+%d", award)
             local chip_color_tok, chip_shade
             if banked then
@@ -478,9 +497,8 @@ function GrindView:_buildTablesTabComponents()
                 anchor       = "add_table:" .. stake.id .. ":" .. gtype_id,
                 badge_anchor = banked and "chip_badge:banked" or nil,
                 disabled = disabled,
-                -- Gold trim once this (stake, type) has banked its {chip} this
-                -- run — matches the gold border on the open table panel.
-                border_color = banked and Theme.currency.chip or nil,
+                -- Gold/Purple trim once this (stake, type) has banked its bounty this run
+                border_color = border_color,
                 -- EV breakdown tooltip only when the table can be opened.
                 tooltip  = affordable
                            and TablePanelStats.breakdownLinesFor(self.controller, stake, gtype_obj)
@@ -489,7 +507,7 @@ function GrindView:_buildTablesTabComponents()
                     {
                         text  = "+ " .. stake.display_name, style = "heading",
                         right = chip_text, right_color_token = chip_color_tok,
-                        right_icon = "chip", right_icon_shade = chip_shade,
+                        right_icon = icon_id, right_icon_shade = chip_shade,
                     },
                     { text = sub_left, style = "small", color_token = sub_color,
                       right = sub_right, right_color_token = "muted" },
@@ -969,6 +987,7 @@ function GrindView:update(dt)
     local state = self.game.state
     self.displayed_bankroll = tweenNumber(self.displayed_bankroll, state.bankroll,            dt)
     self.displayed_chips    = tweenNumber(self.displayed_chips,    state.chips,               dt)
+    self.displayed_anti_chips = tweenNumber(self.displayed_anti_chips or 0, state.anti_chips or 0, dt)
     self.displayed_tied     = tweenNumber(self.displayed_tied,     self.controller:tiedUp(),  dt)
 
     -- Drain the controller's chip-burst queue. Controller produces denomination
@@ -1197,6 +1216,20 @@ function GrindView:_drawTopBar(W)
         AnchorRegistry.set("cell:chips", x, 2, CELL_W.chip, TOP_BAR_H - 4)
     end
     x = x + CELL_W.chip
+
+    if state.shove_r2_won then
+        local cs = self.game.ui_scale or 1
+        local cd = math.floor(TOP_BAR_H * 0.6)
+        Icons.drawAntiChip(self.game, x, math.floor((TOP_BAR_H - cd) / 2), cd)
+        love.graphics.setFont(fonts.md)
+        Theme.setColor(Theme.fg.heading)
+        local d_achips = self.displayed_anti_chips or state.anti_chips or 0
+        love.graphics.print(chipsText(d_achips),
+            x + cd + math.floor(6 * cs),
+            math.floor((TOP_BAR_H - fonts.md:getHeight()) / 2))
+        AnchorRegistry.set("cell:achips", x, 2, CELL_W.achip, TOP_BAR_H - 4)
+        x = x + CELL_W.achip
+    end
     -- SHOVE % cell — hidden until the shove reveals itself (TUTORIAL
     -- gate: 3 chips banked on the first-ever run). The slot still
     -- advances so the bar doesn't reflow at the reveal.
@@ -1789,20 +1822,33 @@ function GrindView:_drawShoveFace(sb)
             string.format("%.0f%%", (rates.raw_r1 or 0) * 100),
             fx + pad, sub_y)
 
-        -- Chips-banked, bottom-right: "+N ◆". Muted when 0; green once a
-        -- bounty has landed so the player can glance at the SHOVE button
-        -- and know whether they have anything riding on the click.
+        -- Chips-banked, bottom-right: "+N ◆" and "+N (achip)". Muted when 0;
+        -- active color once a bounty has landed so the player can glance at
+        -- the SHOVE button and know whether they have anything riding.
+        local pending_achips = state.anti_chips_this_run or 0
+        local crx = fx + fw - pad
+        local gsize = small:getHeight()
+        local cgap  = 3
+
+        if state.shove_r2_won then
+            local achip_text = string.format("+%d", pending_achips)
+            local achip_color = (pending_achips > 0) and Theme.currency.achip or Theme.fg.faint
+            Theme.setColor(achip_color)
+            local actw = small:getWidth(achip_text)
+            crx = crx - (actw + cgap + gsize)
+            love.graphics.print(achip_text, crx, sub_y)
+            Icons.drawAntiChip(self.game, crx + actw + cgap, sub_y, gsize)
+            AnchorRegistry.set("achip_badge:shove", crx, sub_y,
+                actw + cgap + gsize, gsize)
+            crx = crx - 8 -- Gap between chips and anti-chips
+        end
+
         local chip_text  = string.format("+%d", pending_chips)
-        -- Stays live-colored even while the button is locked — the badge
-        -- is the progress readout toward the reveal (and a hint target:
-        -- "chip_badge:shove").
         local chip_color = (pending_chips > 0) and Theme.status.good
                                                or  Theme.fg.faint
         Theme.setColor(chip_color)
         local ctw   = small:getWidth(chip_text)
-        local gsize = small:getHeight()
-        local cgap  = 3
-        local crx   = fx + fw - pad - (ctw + cgap + gsize)
+        crx   = crx - (ctw + cgap + gsize)
         love.graphics.print(chip_text, crx, sub_y)
         Icons.drawChip(self.game, crx + ctw + cgap, sub_y, gsize)
         AnchorRegistry.set("chip_badge:shove", crx, sub_y,

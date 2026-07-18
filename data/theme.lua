@@ -193,6 +193,8 @@ Theme.debug = {
 Theme.currency = {
     chip      = { 0.93, 0.75, 0.30 },   -- warm gold disc
     chip_ring = { 0.52, 0.40, 0.14 },   -- darker rim / inner ring
+    achip     = { 0.65, 0.35, 0.95 },   -- purple disc for anti-chips
+    achip_ring= { 0.35, 0.15, 0.55 },   -- darker rim
 }
 
 -- ─── Type scale (theme-invariant) ───────────────────────────────────

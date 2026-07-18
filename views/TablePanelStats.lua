@@ -371,17 +371,32 @@ local function evMetrics(tbl, controller, font)
     local stack_pct = RollingValue.get("table_stackpct:" .. id,
                           ((stats.win_chance or 0)
                            * ((stats.win_dist and stats.win_dist.jackpot) or 0))
-                          * 100)
+                           * 100)
     local ev_bb       = ev / bb
     local label       = TablePanelStats.evLabel(ev)
     local stack_label = string.format("%.1f%%", stack_pct)
 
+    local state = controller and controller.game and controller.game.state
+    local show_loss = state and state.shove_r2_won
+    local loss_pct = 0
+    local loss_label = ""
+    
     local text_h    = font:getHeight()
     local r         = TierGlyph.radius(text_h)
     local gap       = math.floor(text_h * 0.6)
     local glyph_pad = math.floor(text_h * 0.25)
     local bb_w      = font:getWidth(label)
     local total_w   = bb_w + gap + r * 2 + glyph_pad + font:getWidth(stack_label)
+
+    if show_loss then
+        loss_pct = RollingValue.get("table_losspct:" .. id,
+                      ((1.0 - (stats.win_chance or 0))
+                       * ((stats.loss_dist and stats.loss_dist.jackpot) or 0))
+                       * 100)
+        loss_label = string.format("%.1f%%", loss_pct)
+        total_w = total_w + gap + r * 2 + glyph_pad + font:getWidth(loss_label)
+    end
+
     local color     = (ev_bb > 0.05 and Theme.status.good)
                    or (ev_bb < -0.05 and Theme.status.error)
                    or Theme.fg.muted
@@ -390,6 +405,7 @@ local function evMetrics(tbl, controller, font)
         label = label, stack_label = stack_label, color = color,
         total_w = total_w, text_h = text_h, r = r, gap = gap,
         glyph_pad = glyph_pad, bb_w = bb_w,
+        show_loss = show_loss, loss_label = loss_label,
     }
 end
 
@@ -423,6 +439,18 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
     TierGlyph.draw(sx + m.r, ty + m.text_h - m.r, "jackpot", m.r, "win")
     Theme.setColor(m.color)
     love.graphics.print(m.stack_label, sx + m.r * 2 + m.glyph_pad, ty)
+
+    -- Stack-loss chance: purple tier glyph + pct
+    if m.show_loss then
+        local lx = sx + m.r * 2 + m.glyph_pad + font:getWidth(m.stack_label) + m.gap
+        local old_color = Theme.tier.loss.jackpot
+        Theme.tier.loss.jackpot = { 0.55, 0.25, 0.85 }
+        TierGlyph.draw(lx + m.r, ty + m.text_h - m.r, "jackpot", m.r, "loss")
+        Theme.tier.loss.jackpot = old_color
+        
+        Theme.setColor({ 0.55, 0.25, 0.85 })
+        love.graphics.print(m.loss_label, lx + m.r * 2 + m.glyph_pad, ty)
+    end
 
     if hit_boxes then
         local lines = buildEvBreakdownLines(tbl, controller)

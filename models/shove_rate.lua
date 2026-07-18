@@ -157,6 +157,17 @@ function ShoveRate.compute(ctx, bankroll)
     if ctx and ctx.shove_base_double then deck = deck * 2 end
     local lower, upper = lookupBracket(bankroll or 0)
     local mult = interpolateMult(bankroll or 0, lower, upper)
+
+    -- Act 3 underflow mechanism: dealer zeroes mult, underflow overrides to 999x.
+    if ctx and ctx.shove_r2_won then
+        local threshold = Constants.GAMEPLAY.UNDERFLOW_THRESHOLD or -100000000000
+        if (bankroll or 0) < threshold then
+            mult = 999
+        else
+            mult = 0
+        end
+    end
+
     local rates = buildRates(base, deck, mult, lower)
     rates.bankroll = bankroll or 0
     return rates

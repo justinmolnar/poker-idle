@@ -44,6 +44,7 @@ local StateMachine    = require("controllers.StateMachine")
 local InputController = require("controllers.InputController")
 
 local GameState        = require("models.GameState")
+local Decks            = require("models.Decks")
 local PokerEffects     = require("models.poker_effects")
 local DeckXpRules      = require("models.deck_xp_rules")
 local DeckUnlockRules  = require("models.deck_unlock_rules")
@@ -206,6 +207,9 @@ local function buildGame()
     -- swapping the kinds registered from models/deck_unlock_rules.
     g.unlock_rules = UnlockRegistry:new()
     DeckUnlockRules.registerAll(g.unlock_rules)
+
+    -- Check and sync deck unlocks immediately at boot time using the loaded save data.
+    Decks.checkPendingUnlocks(g.state, g.unlock_rules)
 
     -- Same-shape registry for tutorial-hint trigger/done conditions.
     -- Separate instance from g.unlock_rules — hint kinds check against

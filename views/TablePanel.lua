@@ -1286,10 +1286,11 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     love.graphics.setLineWidth(border_width)
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
     love.graphics.setLineWidth(1)
-    -- Whether this (stake, game type) has banked its {chip} this run — used for
-    -- the gold chrome trim, drawn AFTER the header below so it wraps the whole
+    -- Whether this (stake, game type) has banked its bounty this run — used for
+    -- the chrome trim, drawn AFTER the header below so it wraps the whole
     -- panel (the header draws its own border over the top edge otherwise).
     local banked = controller and controller:bountyBanked(tbl.stake_id, tbl.game_type_id)
+    local anti_banked = controller and controller.antiBountyBanked and controller:antiBountyBanked(tbl.stake_id, tbl.game_type_id)
 
     -- Border-pulse flash on top of the static border. Decays in
     -- Table:update; color comes from the win/lost branch in the
@@ -1306,10 +1307,15 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     local rebuy_cursor_on  = (controller and controller.ctx and controller.ctx.cursor_rebuy_unlocked) or false
     drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, true, cursor_on, rebuy_cursor_on, s, ui_s)
 
-    -- Gold "{chip} banked" trim around the WHOLE panel chrome. Drawn after the
+    -- "{chip} banked" or "{achip} banked" trim around the WHOLE panel chrome. Drawn after the
     -- header so it overdraws the header's own border on the top edge/sides.
     if banked then
         Theme.setColor(Theme.currency.chip)
+        love.graphics.setLineWidth(math.max(1, math.floor(2 * s)))
+        love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+        love.graphics.setLineWidth(1)
+    elseif anti_banked then
+        Theme.setColor({ 0.65, 0.35, 0.95 })
         love.graphics.setLineWidth(math.max(1, math.floor(2 * s)))
         love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
         love.graphics.setLineWidth(1)

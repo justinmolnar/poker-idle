@@ -57,6 +57,11 @@ function DeckSelectModal:new(game, opts)
     local s = (game.ui_scale) or 1
     local modal_w = math.floor(MODAL_W_BASE * s)
     local title = opts.read_only and "YOUR DECKS" or "CHOOSE YOUR DECK"
+
+    -- Ensure any stats-based unlocks (such as the Master deck on loading a save)
+    -- are fully synced before the modal is rendered or deck choices are made.
+    Decks.checkPendingUnlocks(game.state, game.unlock_rules)
+
     return setmetatable({
         game           = game,
         read_only      = opts.read_only or false,

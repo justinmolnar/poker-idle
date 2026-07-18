@@ -370,6 +370,11 @@ function PokerEffects.registerAll(reg)
     reg:register("shove_base_double", function(_e, ctx)
         ctx.shove_base_double = true
     end)
+
+    -- Unlocks s010 Ultra stake.
+    reg:register("ultra_unlock_effect", function(_e, ctx)
+        ctx.ultra_unlocked = true
+    end)
 end
 
 return PokerEffects

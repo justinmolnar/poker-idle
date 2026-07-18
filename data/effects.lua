@@ -392,6 +392,11 @@ Effects.kinds = {
         value_shape = "no field (presence sets ctx.shove_base_double = true)",
         affects     = "ctx.shove_base_double",
     },
+    ultra_unlock_effect = {
+        description = "Flag — unlocks T10 Ultra stake.",
+        value_shape = "no field (presence sets ctx.ultra_unlocked = true)",
+        affects     = "ctx.ultra_unlocked",
+    },
 
 }
 

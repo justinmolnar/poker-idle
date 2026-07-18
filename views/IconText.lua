@@ -38,7 +38,7 @@ local OUTCOME = { w = "win", l = "loss" }
 
 -- Width of a {token}'s glyph at `size` (0 = not a known icon token).
 local function tokenWidth(token, size)
-    if token == "chip" or token == "arrow" then return size end
+    if token == "chip" or token == "achip" or token == "arrow" then return size end
     local _, name = token:match("^(%w+):(%w+)$")
     name = name or token
     if TierGlyph.has(name) then return TierGlyph.radius(size) * 2 end
@@ -49,6 +49,8 @@ end
 local function drawToken(game, token, x, y, size, color, alpha)
     if token == "chip" then
         Icons.drawChip(game, x, y, size, alpha)
+    elseif token == "achip" then
+        Icons.drawAntiChip(game, x, y, size, alpha)
     elseif token == "arrow" then
         drawArrow(x, y, size, color, alpha)
     else

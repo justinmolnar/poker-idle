@@ -109,6 +109,14 @@ local items = {
             { kind = "shove_rate_add", value = 0.04 },
             { kind = "jackpot_mult",   value = 1.20 },
         },
+        corrupt = {
+            cost_achip = 2,
+            effects = {
+                { kind = "shove_rate_add", value = 0.15 },
+                { kind = "jackpot_mult",   value = 5.00 },
+            },
+            effect_text = "{stack} pays 5.0×.",
+        },
     },
     {
         id          = "mirror",
@@ -227,8 +235,15 @@ local items = {
         -- large-loss cushion.
         effects     = {
             { kind = "shove_rate_add", value = 0.05 },
-            { kind = "loss_tier_shift",
-              from = "jackpot", to = "large", chance = 0.15 },
+            { kind = "loss_tier_shift", from = "jackpot", to = "large", chance = 0.15 },
+        },
+        corrupt = {
+            cost_achip = 5,
+            effects = {
+                { kind = "shove_rate_add", value = 0.20 },
+                { kind = "loss_tier_shift", from = "jackpot", to = "small", chance = 0.90 },
+            },
+            effect_text = "90% chance to soften {l:stack} {arrow} {l:small}.",
         },
     },
     {
@@ -280,6 +295,11 @@ local items = {
         cost_chip     = 5,
         position    = { x = 280, y = 200 },
         effects     = { { kind = "loss_mult", value = 0.95 } },
+        corrupt = {
+            cost_achip = 8,
+            effects = { { kind = "loss_mult", value = 0.50 } },
+            effect_text = "Losses 50% softer.",
+        },
     },
     {
         id          = "free_sit",
@@ -367,6 +387,22 @@ local items = {
         requires    = "plastic_trophy",
         position    = { x = 450, y = 400 },
         effects     = { { kind = "mtt_payout_boost", value = 2 } },
+    },
+    {
+        id          = "unlock_ultra",
+        name        = "Ultra Stake",
+        effect_text = "Unlock the T10 ULTRA stake.",
+        description = "Unwinnable. Bleed bankroll to underflow.",
+        sprite      = "unlock_ultra",
+        phase       = "late",
+        cost_chip     = 0,
+        requires_act3 = true,
+        effects     = {},
+        corrupt = {
+            cost_achip = 25,
+            effects = { { kind = "ultra_unlock_effect" } },
+            effect_text = "Ultra stake unlocked.",
+        },
     },
 
 }

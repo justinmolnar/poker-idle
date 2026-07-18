@@ -375,7 +375,10 @@ function CR._button(comp, px, pw, p, y, game)
                 local text_w = (icon_d > 0) and math.max(1, printf_w - icon_d - 4) or printf_w
                 love.graphics.printf(line.right,
                     fx + indent, right_y, text_w, "right")
-                if line.right_icon then
+                if line.right_icon == "achip" then
+                    Icons.drawAntiChip(game, fx + indent + printf_w - icon_d, right_y, icon_d,
+                        line.right_icon_alpha, line.right_icon_shade)
+                elseif line.right_icon then
                     Icons.drawChip(game, fx + indent + printf_w - icon_d, right_y, icon_d,
                         line.right_icon_alpha, line.right_icon_shade)
                 end
