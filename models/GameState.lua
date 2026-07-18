@@ -434,6 +434,10 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
     -- Gated on the system unlock (first gauntlet clear) so the stat ctx
     -- carries no deck passives before decks exist.
     if Decks.systemUnlocked(self) then
+        -- Total deck levels feeds the master deck's shove-base capability
+        -- (ctx.shove_base). Seeded before applyEffects so the applicator
+        -- reads it. Transient — not persisted.
+        ctx.total_deck_levels = Decks.totalLevels(self)
         Decks.applyEffects(self, registry, ctx)
     end
 

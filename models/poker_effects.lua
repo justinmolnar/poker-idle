@@ -355,6 +355,21 @@ function PokerEffects.registerAll(reg)
     reg:register("cursor_instant_click", function(_e, ctx)
         ctx.cursor_zero_click_delay = true
     end)
+
+    -- Shove base restored per total deck level (master deck). Reads the
+    -- ctx.total_deck_levels transient seeded in GameState:computeEffects.
+    -- MAX-idempotent: Decks.applyEffects runs numeric effects min(level,4)
+    -- times via applyN, so `max` keeps re-application from multiplying by
+    -- the master deck's own level — the level scaling comes through
+    -- total_deck_levels (which includes it), not through the repetition.
+    reg:register("shove_base_per_deck_level", function(e, ctx)
+        ctx.shove_base = math.max(ctx.shove_base or 0,
+                                  (e.value or 0) * (ctx.total_deck_levels or 0))
+    end)
+    -- Doubles the restored shove base (master deck capstone).
+    reg:register("shove_base_double", function(_e, ctx)
+        ctx.shove_base_double = true
+    end)
 end
 
 return PokerEffects

@@ -57,6 +57,7 @@ return {
         bb           = 0.02,
         buy_in       = 2.00,
         chip_award     = 1,
+        band              = "low",
         -- T1 naked WC stays at 0.50 (it's the demo's coinflip baseline).
         -- Loss tail is intentionally squashed at T1: Large losses are
         -- rare and Jackpot losses are basically a unicorn (0.1%). The
@@ -84,6 +85,7 @@ return {
         bb           = 0.10,
         buy_in       = 10.00,
         chip_award     = 2,
+        band              = "low",
         win_chance        = 0.30,
         win_chance_capped = 0.65,
         win_dist          = { small = 0.50, medium = 0.30, large = 0.18, jackpot = 0.02 },
@@ -100,6 +102,7 @@ return {
         bb           = 1.00,
         buy_in       = 100.00,
         chip_award     = 3,
+        band              = "low",
         win_chance        = 0.15,
         win_chance_capped = 0.55,
         win_dist          = { small = 0.55, medium = 0.30, large = 0.13, jackpot = 0.02 },
@@ -116,6 +119,7 @@ return {
         bb           = 10,
         buy_in       = 1000,
         chip_award     = 4,
+        band              = "mid",
         win_chance        = 0.10,
         win_chance_capped = 0.45,
         win_dist          = { small = 0.40, medium = 0.40, large = 0.20, jackpot = 0.00 },
@@ -132,6 +136,7 @@ return {
         bb           = 100,
         buy_in       = 10000,
         chip_award     = 5,
+        band              = "mid",
         win_chance        = 0.05,
         win_chance_capped = 0.35,
         win_dist          = { small = 0.50, medium = 0.40, large = 0.10, jackpot = 0.00 },
@@ -155,6 +160,87 @@ return {
         loss_dist         = { small = 0.05, medium = 0.15, large = 0.30, jackpot = 0.50 },
         loss_dist_capped  = { small = 0.35, medium = 0.20, large = 0.10, jackpot = 0.35 },
         fill_window       = { start = 15, complete = 20 },
+        band              = "mid",
+    },
+
+    -- ── High band (T7-T9) — unlocked by the R2 shove win. Fill windows
+    --    keep widening (span 5, offset 3) so these stay near-naked even
+    --    with a strong deck stack; naked WC ~0 and losses skew to jackpot.
+    --    This is where stack losses (and anti-chips, Act 3) come from.
+    --    PLACEHOLDER numbers — balance is a later pass.
+    {
+        id           = "s007",
+        name         = "$5,000/$10,000 NLHE",
+        display_name = "NL1M",
+        sb           = 5000,
+        bb           = 10000,
+        buy_in       = 1000000,
+        chip_award     = 7,
+        band              = "high",
+        win_chance        = 0.002,
+        win_chance_capped = 0.20,
+        win_dist          = { small = 0.65, medium = 0.35, large = 0.00, jackpot = 0.00 },
+        win_dist_capped   = { small = 0.20, medium = 0.25, large = 0.20, jackpot = 0.35 },
+        loss_dist         = { small = 0.04, medium = 0.11, large = 0.25, jackpot = 0.60 },
+        loss_dist_capped  = { small = 0.30, medium = 0.22, large = 0.13, jackpot = 0.35 },
+        fill_window       = { start = 18, complete = 23 },
+    },
+    {
+        id           = "s008",
+        name         = "$50,000/$100,000 NLHE",
+        display_name = "NL10M",
+        sb           = 50000,
+        bb           = 100000,
+        buy_in       = 10000000,
+        chip_award     = 8,
+        band              = "high",
+        win_chance        = 0.001,
+        win_chance_capped = 0.15,
+        win_dist          = { small = 0.70, medium = 0.30, large = 0.00, jackpot = 0.00 },
+        win_dist_capped   = { small = 0.20, medium = 0.25, large = 0.20, jackpot = 0.35 },
+        loss_dist         = { small = 0.03, medium = 0.09, large = 0.20, jackpot = 0.68 },
+        loss_dist_capped  = { small = 0.28, medium = 0.22, large = 0.15, jackpot = 0.35 },
+        fill_window       = { start = 21, complete = 26 },
+    },
+    {
+        id           = "s009",
+        name         = "$500,000/$1,000,000 NLHE",
+        display_name = "NL100M",
+        sb           = 500000,
+        bb           = 1000000,
+        buy_in       = 100000000,
+        chip_award     = 9,
+        band              = "high",
+        win_chance        = 0.0005,
+        win_chance_capped = 0.10,
+        win_dist          = { small = 0.75, medium = 0.25, large = 0.00, jackpot = 0.00 },
+        win_dist_capped   = { small = 0.20, medium = 0.25, large = 0.20, jackpot = 0.35 },
+        loss_dist         = { small = 0.02, medium = 0.08, large = 0.15, jackpot = 0.75 },
+        loss_dist_capped  = { small = 0.25, medium = 0.25, large = 0.15, jackpot = 0.35 },
+        fill_window       = { start = 24, complete = 29 },
+    },
+
+    -- ── Ultra (T10) — bought with anti-chips in Act 3. Astronomical
+    --    buy-in (magnitudes above High), ~0 win chance, unreachable fill
+    --    window, near-certain jackpot loss: a loss sink, not a grind tier.
+    --    Buying it begins the endgame (bankroll bleeds negative → underflow).
+    --    PLACEHOLDER numbers.
+    {
+        id           = "s010",
+        name         = "ULTRA — no limit",
+        display_name = "ULTRA",
+        sb           = 5000000,
+        bb           = 10000000,
+        buy_in       = 100000000000,
+        chip_award     = 10,
+        band              = "ultra",
+        win_chance        = 0.0001,
+        win_chance_capped = 0.001,
+        win_dist          = { small = 0.90, medium = 0.10, large = 0.00, jackpot = 0.00 },
+        win_dist_capped   = { small = 0.50, medium = 0.30, large = 0.15, jackpot = 0.05 },
+        loss_dist         = { small = 0.00, medium = 0.00, large = 0.10, jackpot = 0.90 },
+        loss_dist_capped  = { small = 0.05, medium = 0.10, large = 0.05, jackpot = 0.80 },
+        fill_window       = { start = 999, complete = 1000 },
     },
 
 }

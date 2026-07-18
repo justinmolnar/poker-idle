@@ -79,6 +79,20 @@ C.FEATURES = {
     ONBOARDING_MODAL  = C.PROTOTYPE_MODE,
 }
 
+-- Stake band → the state flag that unlocks it (false = always available).
+-- Milestone-gated ladder: low is always on; mid opens on the first shove
+-- win, high on the second, ultra once it's bought with anti-chips. The
+-- whole non-low ladder ALSO requires FEATURES.HIGH_TIER_STAKES, which is
+-- off in the prototype build (ships low stakes only). Consumed by
+-- GrindController:stakeAvailable — the single source of truth for which
+-- stakes the add-table UI offers.
+C.STAKE_BAND_GATE = {
+    low   = false,
+    mid   = "shove_r1_won",
+    high  = "shove_r2_won",
+    ultra = "ultra_unlocked",
+}
+
 C.WINDOW = {
     title  = "Poker Idle",
     width  = 1280,

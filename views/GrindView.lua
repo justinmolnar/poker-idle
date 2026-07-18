@@ -50,12 +50,14 @@ local Lookups        = require("utils.lookups")
 local GrindView = {}
 GrindView.__index = GrindView
 
--- A stake is visible when high-tier stakes are unlocked, or it's one of the
--- always-on demo stakes (T1-T3). Single source of truth for stake visibility
--- so the add-table buttons and the upgrade range tooltips never disagree.
-local function stakeVisible(stake)
-    if Constants.FEATURES.HIGH_TIER_STAKES then return true end
-    return not (stake.id == "s004" or stake.id == "s005" or stake.id == "s006")
+-- A stake is visible when its band's milestone is met. Delegates to
+-- GrindController:stakeAvailable (the single source of truth) so the
+-- add-table buttons and the win-chance / stack-rate range tooltips never
+-- disagree. Low band is always on; mid/high/ultra gate behind shove /
+-- anti-chip progression, and the whole non-low ladder is off in the
+-- prototype build.
+local function stakeVisible(view, stake)
+    return view.controller:stakeAvailable(stake)
 end
 
 
@@ -418,11 +420,11 @@ function GrindView:_buildTablesTabComponents()
     local gtype_id  = self.selected_gtype
     local gtype_obj = Lookups.findById(GameTypes, gtype_id)
     for _, stake in ipairs(Stakes) do
-        -- T4-T6 are designed but not balanced for the demo loop, so their
-        -- +ADD-TABLE buttons are hidden when FEATURES.HIGH_TIER_STAKES is off
-        -- (see stakeVisible). Existing T4-T6 tables in a save still render
-        -- through TablePanel — those die naturally on the next reset.
-        if stakeVisible(stake) then
+        -- Bands gate the +ADD-TABLE buttons by milestone (mid after R1,
+        -- high after R2, ultra once bought; see stakeVisible →
+        -- controller:stakeAvailable). Tables from a save in a now-locked
+        -- band still render through TablePanel and die on the next reset.
+        if stakeVisible(self, stake) then
             local full         = active >= cap
             local cant_afford  = state.bankroll < (stake.buy_in or 0)
             local disabled     = full or cant_afford
@@ -539,7 +541,7 @@ local function _winChanceRows(view, ctx, nextctx)
     local gtype = Lookups.findById(GameTypes, "six_max") or GameTypes[1]
     local data, name_w = {}, 0
     for _, stake in ipairs(Stakes) do
-        if stakeVisible(stake) then
+        if stakeVisible(view, stake) then
             local cw  = OutcomeMath.buildOutcome(ctx,     gtype, stake)
             local nw  = OutcomeMath.buildOutcome(nextctx, gtype, stake)
             local txt = _cell(_capped(ctx, "win_chance_fills", gtype, stake), nw - cw)
@@ -575,7 +577,7 @@ local function _stackRateRows(view, ctx, nextctx)
 
     local data, name_w = {}, 0
     for _, stake in ipairs(Stakes) do
-        if stakeVisible(stake) then
+        if stakeVisible(view, stake) then
             local cells = {}
             for i, gt in ipairs(gtypes) do
                 local _, cd = OutcomeMath.buildOutcome(ctx,     gt, stake)

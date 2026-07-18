@@ -300,6 +300,35 @@ local Decks = {
         },
     },
 
+    -- ── 12. The Master (Act 2 R2 key) ──────────────────────────────────────
+    -- Unlocks once 5 decks are maxed. Restores the shove base the dealer's
+    -- R2 cheat nullifies: +value shove-base per TOTAL deck level (its own
+    -- levels included), doubled at capstone. The only way to beat R2.
+    -- PLACEHOLDER name/copy/number — balance + captor voice are later passes.
+    {
+        id        = "master",
+        name      = "The Master",
+        sprite    = "cards/backs/06-nature",
+        max_level = 5,
+        xp_curve  = XP_CURVE_5,
+        xp_rule   = { kind = "hands_won" },
+        xp_action_text = "+1 XP per hand won",
+        effects   = {
+            { kind = "shove_base_per_deck_level", value = 0.01 },
+        },
+        capstone  = {
+            text    = "Doubles the shove base it restores",
+            effects = { { kind = "shove_base_double" } },
+        },
+        bonus_text  = "+1% shove base per total deck level",
+        flavor_text = "Every deck you've mastered, in one hand.",
+        unlock = {
+            kind      = "decks_maxed",
+            threshold = 5,
+            text      = "Max 5 decks to unlock",
+        },
+    },
+
 }
 
 return Decks

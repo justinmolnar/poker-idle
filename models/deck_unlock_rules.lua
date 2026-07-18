@@ -15,6 +15,8 @@
 -- interpret):
 --   { kind = "lifetime_xxx", threshold = N, text = "Display copy" }
 
+local Decks = require("models.Decks")
+
 local DeckUnlockRules = {}
 
 function DeckUnlockRules.registerAll(reg)
@@ -40,6 +42,12 @@ function DeckUnlockRules.registerAll(reg)
 
     reg:register("lifetime_hands_at_4plus_tables", function(cond, state)
         return (state and state.lifetime_hands_at_4plus_tables or 0) >= (cond.threshold or 0)
+    end)
+
+    -- Number of decks at max level. Gates the master deck (threshold 5).
+    -- Not a state field — computed from deck_levels vs each spec's cap.
+    reg:register("decks_maxed", function(cond, state)
+        return Decks.maxedCount(state) >= (cond.threshold or 0)
     end)
 end
 

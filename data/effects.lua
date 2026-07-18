@@ -382,6 +382,16 @@ Effects.kinds = {
         value_shape = "no field (presence sets ctx.cursor_zero_click_delay = true)",
         affects     = "ctx.cursor_zero_click_delay",
     },
+    shove_base_per_deck_level = {
+        description = "Restores shove base per TOTAL deck level (master deck). Reads ctx.total_deck_levels (seeded in GameState:computeEffects); max-combined so applyN re-application doesn't multiply by the master deck's own level. The base that survives the R2 cheat — see models/shove_rate.lua.",
+        value_shape = "number, e.g. 0.01 for +1% base per total deck level",
+        affects     = "ctx.shove_base (max-combined)",
+    },
+    shove_base_double = {
+        description = "Flag — doubles the restored shove base (master deck capstone).",
+        value_shape = "no field (presence sets ctx.shove_base_double = true)",
+        affects     = "ctx.shove_base_double",
+    },
 
 }
 

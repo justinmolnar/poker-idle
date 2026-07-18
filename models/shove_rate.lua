@@ -6,11 +6,18 @@
 -- truth; called both at-shove-time (ShoveState locks the value) and live-
 -- rendering-time (top bar + SHOVE button render every frame).
 --
--- ─── Formula (locked, see docs/math.md) ─────────────────────────────────
---   r1 = clamp(catalog × mult)              (no cheat)
---   r2 = clamp(catalog × (mult / 2))        (cheat 1: bankroll halved)
---   r3 = clamp((catalog / 2) × (mult / 2))  (cheat 2: catalog also halved)
+-- ─── Formula (locked, see docs/math.md + docs/act3-endgame-plan.md) ─────
+--   r1 = clamp((catalog + deck) × mult)         (no cheat)
+--   r2 = clamp(deck × (mult / 2))               (cheat 1: bankroll halved,
+--                                                catalog base nullified)
+--   r3 = clamp((deck / 2) × (mult / 2))         (cheat 2: deck also halved)
 --   clear = r1 × r2 × r3
+--
+-- Two base sources: `catalog` (ctx.shove_rate, from catalog shove_rate_add
+-- effects) and `deck` (ctx.shove_base, from the master deck). The master
+-- deck base is the ONLY base that survives the dealer's R2 cheat, so with no
+-- master deck (deck = 0) r2 = r3 = 0 and R2 is unwinnable — the Act 2 gate.
+-- Building the master deck lifts R1 too.
 --
 -- The 1.0 clamp is a math-reality clamp — you can't have >100% chance.
 -- `clear` is what the player is actually risking when they SHOVE; it's the
@@ -83,10 +90,11 @@ local function clamp01(v)
     return v
 end
 
-local function buildRates(catalog, mult, tier)
-    local raw1 = catalog * mult
-    local raw2 = catalog * (mult / 2)
-    local raw3 = (catalog / 2) * (mult / 2)
+local function buildRates(catalog, deck, mult, tier)
+    -- catalog base wins R1; the master-deck base survives the R2 cheat.
+    local raw1 = (catalog + deck) * mult
+    local raw2 = deck * (mult / 2)
+    local raw3 = (deck / 2) * (mult / 2)
     local r1   = clamp01(raw1)
     local r2   = clamp01(raw2)
     local r3   = clamp01(raw3)
@@ -113,6 +121,7 @@ local function buildRates(catalog, mult, tier)
     end
     return {
         catalog  = catalog,
+        deck     = deck,                -- master-deck base (ctx.shove_base)
         tier     = tier,                -- { threshold, mult, label }
         mult     = mult,
         -- Clamped values (used by the actual outcome roll — math reality
@@ -144,9 +153,11 @@ end
 -- landed.
 function ShoveRate.compute(ctx, bankroll)
     local base = (ctx and ctx.shove_rate) or 0
+    local deck = (ctx and ctx.shove_base) or 0
+    if ctx and ctx.shove_base_double then deck = deck * 2 end
     local lower, upper = lookupBracket(bankroll or 0)
     local mult = interpolateMult(bankroll or 0, lower, upper)
-    local rates = buildRates(base, mult, lower)
+    local rates = buildRates(base, deck, mult, lower)
     rates.bankroll = bankroll or 0
     return rates
 end
@@ -157,7 +168,8 @@ end
 function ShoveRate.computeFromBase(catalog, bankroll)
     local lower, upper = lookupBracket(bankroll or 0)
     local mult = interpolateMult(bankroll or 0, lower, upper)
-    local rates = buildRates(catalog or 0, mult, lower)
+    -- Debug-only synthesis from a raw catalog base; no deck base.
+    local rates = buildRates(catalog or 0, 0, mult, lower)
     rates.bankroll = bankroll or 0
     return rates
 end
@@ -178,11 +190,18 @@ function ShoveRate.formatBreakdown(rates)
     -- override on the total — it inherits the tooltip's default heading
     -- color, which keeps it consistent with the top-bar SHOVE cell that
     -- already paints the % red/amber/green from rate_color.
-    return {
-        { text = string.format("Catalog base: %.1f%%", rates.catalog * 100), style = "sm" },
-        { text = string.format("Bankroll Mult: %.1f×", rates.mult),         style = "sm" },
-        { text = string.format("ALL-IN: %.0f%% to win", rates.raw_r1 * 100), style = "md" },
+    local lines = {
+        { text = string.format("Catalog base: %.1f%%", (rates.catalog or 0) * 100), style = "sm" },
     }
+    -- Deck base only surfaces once the master deck exists — it's the term
+    -- that survives the R2 cheat, but the pre-reveal breakdown still hides
+    -- R2/R3 and the cheats; it just explains the headline % honestly.
+    if (rates.deck or 0) > 0 then
+        lines[#lines + 1] = { text = string.format("Deck base: %.1f%%", rates.deck * 100), style = "sm" }
+    end
+    lines[#lines + 1] = { text = string.format("Bankroll Mult: %.1f×", rates.mult),         style = "sm" }
+    lines[#lines + 1] = { text = string.format("ALL-IN: %.0f%% to win", rates.raw_r1 * 100), style = "md" }
+    return lines
 end
 
 -- Compact money formatter for the tooltip — keeps the breakdown line

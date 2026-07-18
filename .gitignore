@@ -20,3 +20,6 @@ build/
 crash.log
 *.log
 *.stackdump
+
+# Isometric room source art (not shipped/tracked)
+assets/sprites/isometric/

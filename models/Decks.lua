@@ -49,6 +49,34 @@ function Decks.specById(id)
     return _index()[id]
 end
 
+-- Sum of every deck's current level (locked decks contribute 0). Drives
+-- the master deck's shove-base contribution via ctx.total_deck_levels —
+-- includes the master deck's own level, so leveling it raises its own base.
+function Decks.totalLevels(state)
+    local total = 0
+    if state and state.deck_levels then
+        for _, spec in ipairs(DeckSpecs) do
+            total = total + (state.deck_levels[spec.id] or 0)
+        end
+    end
+    return total
+end
+
+-- Count of decks sitting at their max level. Drives the `decks_maxed`
+-- unlock gate (the master deck opens at 5). The master deck can't be
+-- maxed before it unlocks and unlocks are one-way, so the threshold is
+-- only ever reached via the base decks.
+function Decks.maxedCount(state)
+    local n = 0
+    if state and state.deck_levels then
+        for _, spec in ipairs(DeckSpecs) do
+            local cap = spec.max_level or #spec.xp_curve
+            if (state.deck_levels[spec.id] or 0) >= cap then n = n + 1 end
+        end
+    end
+    return n
+end
+
 -- Sprite path for the player's currently active deck, or nil if none is
 -- set / the spec is missing. Used by the table + gauntlet card-back
 -- renderers so the active deck's art is the back the player sees on

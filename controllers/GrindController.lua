@@ -859,6 +859,20 @@ function GrindController:buyCatalogItem(item_id)
 end
 
 -- Bankroll-cost-to-open. Adding a table deducts the stake's buy-in (100bb)
+-- Whether a stake is offered to the player right now. Low band is always
+-- available; mid/high/ultra gate behind their milestone flag (see
+-- data/constants STAKE_BAND_GATE), and the whole non-low ladder is off in
+-- the prototype build (FEATURES.HIGH_TIER_STAKES). Single source of truth
+-- for stake availability — the add-table buttons and the win-chance / stack-
+-- rate range tooltips all route through it so they never disagree.
+function GrindController:stakeAvailable(stake)
+    local band = (stake and stake.band) or "low"
+    local gate = Constants.STAKE_BAND_GATE[band]
+    if not gate then return true end
+    if not Constants.FEATURES.HIGH_TIER_STAKES then return false end
+    return self.game.state[gate] == true
+end
+
 -- from bankroll, optionally discounted by ctx.buy_in_mult (Discount Sits
 -- catalog perk). Game type doesn't change the buy-in. Returns false if
 -- not affordable / pool full / unknown stake-or-gametype.
@@ -972,6 +986,9 @@ function GrindController:changeTableStake(idx, new_stake_id)
     if not t then return false end
     local new_stake = Lookups.findById(Stakes,new_stake_id)
     if not new_stake then return false end
+    -- Never let a table cross into a band the player hasn't unlocked (the
+    -- STAKE↑ path must honor the same gate as the add-table buttons).
+    if not self:stakeAvailable(new_stake) then return false end
     local mult   = self:buyInMultFor(new_stake)
     local refund = t.stack or 0
     local cost   = (new_stake.buy_in or 0) * mult
