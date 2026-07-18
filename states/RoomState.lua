@@ -78,11 +78,14 @@ function RoomState:draw()
     local btn_x = W - btn_w - fl(16 * s)
     local btn_y = fl((top_h - btn_h) * 0.5)
 
-    -- Render developer unlock cheat status
+    -- Render developer unlock cheat status. owned_items is an ARRAY of
+    -- ids (see GameState) — build a set to test membership.
     local Catalog = require("data.catalog")
+    local owned_set = {}
+    for _, id in ipairs(self.game.state.owned_items) do owned_set[id] = true end
     local is_unlocked = true
     for _, item in ipairs(Catalog) do
-        if not self.game.state.owned_items[item.id] then
+        if not item.granted_at_start and not owned_set[item.id] then
             is_unlocked = false
             break
         end
@@ -114,27 +117,45 @@ function RoomState:keypressed(key)
         return
     end
 
-    -- Toggle unlock all cheat
+    -- Toggle unlock all cheat. owned_items is an ARRAY of ids everywhere
+    -- (computeEffects iterates it, serializeMeta persists it) — the old
+    -- version wrote set-style keys into it, which registered as nothing
+    -- and polluted saves. Rebuild as a clean array both ways, and drop
+    -- the effects cache so the rollup sees the change.
     if key == "u" then
         local Catalog = require("data.catalog")
-        local owned = self.game.state.owned_items
+        local state = self.game.state
+        -- Sanitize: keep only the array part (repairs saves the old
+        -- cheat polluted with hash keys).
+        local owned = {}
+        local owned_set = {}
+        for _, id in ipairs(state.owned_items) do
+            owned[#owned + 1] = id
+            owned_set[id] = true
+        end
+
         local any_unowned = false
         for _, item in ipairs(Catalog) do
-            if not owned[item.id] then
-                any_unowned = true
-                break
-            end
+            if not owned_set[item.id] then any_unowned = true; break end
         end
 
         if any_unowned then
             for _, item in ipairs(Catalog) do
-                owned[item.id] = true
+                if not owned_set[item.id] then
+                    owned[#owned + 1] = item.id
+                end
             end
-            print("[debug] Unlocked all catalog items for room testing")
+            state.owned_items = owned
+            state.cleared = true
+            print("[debug] Unlocked all catalog items and decks for room testing")
         else
-            -- Reset owned items
-            self.game.state.owned_items = { poker_poster = true }
-            print("[debug] Reset owned catalog items to default")
+            state.owned_items = {}
+            state.cleared = false
+            print("[debug] Reset owned catalog items and decks to none")
+        end
+        state.effects_cache = nil
+        if self.game.grind and self.game.grind.invalidateEffects then
+            self.game.grind:invalidateEffects()
         end
         return true
     end

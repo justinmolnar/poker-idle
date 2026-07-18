@@ -79,6 +79,41 @@ function DeckXpRules.registerAll(reg)
         if rule.gtype and event.gtype ~= rule.gtype then return 0 end
         return 1
     end)
+
+    -- Specialist XP rule: won hand on a single table
+    reg:register("hands_won_single_table", function(rule, event)
+        if not event or not event.won then return 0 end
+        if event.n_tables ~= 1 then return 0 end
+        return 2
+    end)
+
+    -- Multitasker XP rule: won hand while overwhelmed
+    reg:register("hands_won_overwhelmed", function(rule, event)
+        if not event or not event.won then return 0 end
+        local cap = event.focus_capacity or 3
+        local extra = event.n_tables - cap
+        if extra <= 0 then return 0 end
+        return extra
+    end)
+
+    -- Investor XP rule: purchased a run upgrade
+    reg:register("upgrades_bought", function(rule, event)
+        if not event or event.type ~= "run_upgrade" then return 0 end
+        return 15
+    end)
+
+    -- Tier Manipulator XP rule: won hand at T2+
+    reg:register("hands_won_above_t1", function(rule, event)
+        if not event or not event.won then return 0 end
+        if (event.stake_tier_idx or 1) <= 1 then return 0 end
+        return 1
+    end)
+
+    -- Short Stack XP rule: rebought a table stack
+    reg:register("table_rebuys", function(rule, event)
+        if not event or event.type ~= "table_rebuy" then return 0 end
+        return 10
+    end)
 end
 
 return DeckXpRules

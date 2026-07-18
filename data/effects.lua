@@ -92,8 +92,8 @@ Effects.kinds = {
     -- Run-upgrade WC fill. Each application contributes `strength` units
     -- (1.0 universal) to the WC fill total. Optional gtype filter.
     win_chance_fill = {
-        description = "Pushes a win_chance fill descriptor onto ctx.win_chance_fills.",
-        value_shape = "{ strength, gtype? }",
+        description = "Pushes a win_chance fill descriptor onto ctx.win_chance_fills. Optional tier_min/tier_max (1-based stake index) scope the fill to certain stakes (High Roller fills WC at T4+ only).",
+        value_shape = "{ strength, gtype?, tier_min?, tier_max? }",
         affects     = "ctx.win_chance_fills (ordered list)",
     },
 
@@ -213,9 +213,9 @@ Effects.kinds = {
         affects     = "ctx.start_table_count",
     },
     buy_in_mult = {
-        description = "Multiplier on table buy-in costs (lower = cheaper sits).",
-        value_shape = "number <1, e.g. 0.85 for 15% off buy-ins",
-        affects     = "ctx.buy_in_mult",
+        description = "Multiplier on table buy-in costs (lower = cheaper sits). Optional tier_min/tier_max (1-based stake index) scope the discount to certain stakes (High Roller halves T4+ buy-ins); tier-bounded entries go on ctx.buy_in_mult_tiered and are folded per-stake by GrindController:buyInMultFor.",
+        value_shape = "number <1, e.g. 0.85 for 15% off; { value, tier_min?, tier_max? } for tier-scoped",
+        affects     = "ctx.buy_in_mult (scalar) or ctx.buy_in_mult_tiered (list)",
     },
     run_upgrade_cost_mult = {
         description = "Multiplier on run-upgrade level-up costs.",
@@ -268,6 +268,10 @@ Effects.kinds = {
         description = "Multiplies the cursor pool's travel speed.",
         value_shape = "number, e.g. 1.25 for +25% per level",
         affects     = "ctx.cursor_speed_mult",
+        -- Multiplicative-around-1: the Investor upgrade-strength scaler
+        -- scales the (value - 1) bonus, not the raw value. See
+        -- GameState:computeEffects.
+        scale       = "value_mult1",
     },
 
     -- ── Focus / efficiency mechanic ─────────────────────────────────────
@@ -289,6 +293,94 @@ Effects.kinds = {
         description = "Bumps MTT cash-tier multipliers (max-stacking, not multiplicative).",
         value_shape = "integer 1 or 2 — selects the tier in data/mtt_payouts.lua",
         affects     = "ctx.mtt_payout_boost",
+    },
+
+    -- ── Deck capability kinds ───────────────────────────────────────────
+    -- Generic capabilities composed by decks in data/decks.lua (numbers
+    -- live there). None names a deck. Tier floors/ceilings clamp the
+    -- sampled tier in outcome_math.sampleOutcome (1-based ranks; max for
+    -- floors, min for ceilings). The rest set ctx fields their consumer
+    -- reads with `if ctx.<field>` — same flag pattern as cursor_unlocked.
+
+    win_tier_floor = {
+        description = "Wins can't roll below this tier (Standard capstone: medium).",
+        value_shape = "{ tier = 'small'|'medium'|'large'|'jackpot' }",
+        affects     = "ctx.win_tier_floor (rank, max-combined)",
+    },
+    loss_tier_ceiling = {
+        description = "Losses can't roll above this tier (Nit capstone: large — bans jackpot 'stack' losses).",
+        value_shape = "{ tier = 'small'|'medium'|'large'|'jackpot' }",
+        affects     = "ctx.loss_tier_ceiling (rank, min-combined)",
+    },
+    tier_bump_chance = {
+        description = "Per-resolve chance to bump the sampled tier one step, win or loss (Maniac capstone). Consumed via a NEXT_TIER lookup in models/Table.lua.",
+        value_shape = "{ value = 0..1 }",
+        affects     = "ctx.tier_bump_chance (max-combined)",
+    },
+    payout_double_chance = {
+        description = "Per-resolve chance to double the payout magnitude (Maniac capstone).",
+        value_shape = "{ value = 0..1 }",
+        affects     = "ctx.payout_double_chance (max-combined)",
+    },
+    rebuy_discount = {
+        description = "Additive rebuy-cost discount fraction (Short Stack). Consumed in GrindController:rebuyTable.",
+        value_shape = "number, e.g. 0.15 for 15% off per level",
+        affects     = "ctx.rebuy_discount (additive)",
+    },
+    free_rebuy_chance = {
+        description = "Chance for a rebuy to be completely free (Short Stack capstone).",
+        value_shape = "{ value = 0..1 }",
+        affects     = "ctx.free_rebuy_chance (max-combined)",
+    },
+    earnings_per_tier = {
+        description = "Additive earnings bonus per stake tier index (The Bank). earnings_mult *= (1 + value * tier_idx) in models/Table.lua.",
+        value_shape = "number, e.g. 0.15 for +15% per tier per level",
+        affects     = "ctx.earnings_per_tier (additive)",
+    },
+    earnings_scale_by_bankroll = {
+        description = "Flag — scales every hand's magnitude by a bankroll-log multiplier (The Bank capstone). Applied at resolve time in GrindController where live bankroll is available.",
+        value_shape = "no field (presence sets ctx.earnings_scale_by_bankroll = true)",
+        affects     = "ctx.earnings_scale_by_bankroll",
+    },
+    focus_penalty_immune = {
+        description = "Flag — removes the multi-table focus penalty (Multitasker capstone).",
+        value_shape = "no field (presence sets ctx.focus_penalty_immune = true)",
+        affects     = "ctx.focus_penalty_immune",
+    },
+    run_upgrade_strength_mult = {
+        description = "Multiplies the strength of every run-upgrade effect (Investor). Additive from 1.0; consumed in GameState:computeEffects (scales strength/value per each kind's `scale`).",
+        value_shape = "number, e.g. 0.15 for +15% per level",
+        affects     = "ctx.run_upgrade_strength_mult (additive from 1.0)",
+    },
+    run_upgrade_bonus_levels = {
+        description = "Adds extra purchasable levels to run upgrades (Investor capstone).",
+        value_shape = "integer, e.g. 1 for +1 level",
+        affects     = "ctx.run_upgrade_bonus_levels (additive)",
+    },
+    fill_window_widen = {
+        description = "Widens every stake's fill_window symmetrically (Tier Manipulator). Consumed in outcome_math.fillRatio.",
+        value_shape = "integer, e.g. 1 per level",
+        affects     = "ctx.fill_window_widen (additive)",
+    },
+    fill_cascade = {
+        description = "Flag — fills ignore tier bounds and complete regardless of stake (Tier Manipulator capstone). Consumed in outcome_math sumFills + fillRatio.",
+        value_shape = "no field (presence sets ctx.fill_cascade = true)",
+        affects     = "ctx.fill_cascade",
+    },
+    solo_table_bonus = {
+        description = "Earnings mult + win-chance shift that only apply while exactly one table is open (Specialist). active_tables_count is a transient param seeded by GrindController:invalidateEffects.",
+        value_shape = "{ earnings_mult = number, wc_bonus? = 0..1 }",
+        affects     = "ctx.earnings_mult / ctx.win_chance_shifts (only at 1 table)",
+    },
+    solo_table_pace = {
+        description = "Hand-pace mult that only applies at exactly one table (Specialist capstone).",
+        value_shape = "{ value = number, e.g. 2.0 }",
+        affects     = "ctx.hand_pace_mult (only at 1 table)",
+    },
+    cursor_instant_click = {
+        description = "Flag — zeroes the cursor per-click delay (Swarm capstone). Companion to cursor_speed_mult.",
+        value_shape = "no field (presence sets ctx.cursor_zero_click_delay = true)",
+        affects     = "ctx.cursor_zero_click_delay",
     },
 
 }

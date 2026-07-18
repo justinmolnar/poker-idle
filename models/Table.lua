@@ -431,6 +431,22 @@ function Table:deal(ctx)
         end
     end
 
+    -- Per-resolve tier bump + payout double (Maniac capstone). Generic
+    -- capability flags — one-step, non-chaining bump via the shared tier
+    -- ranking; magnitude double applied below.
+    local payout_double = 1.0
+    if ctx then
+        if ctx.tier_bump_chance and love.math.random() < ctx.tier_bump_chance then
+            local rank = OutcomeMath.TIER_INDEX[tier]
+            if rank then
+                tier = OutcomeMath.TIER_KEYS[math.min(#OutcomeMath.TIER_KEYS, rank + 1)]
+            end
+        end
+        if ctx.payout_double_chance and love.math.random() < ctx.payout_double_chance then
+            payout_double = 2.0
+        end
+    end
+
     local magnitude_bb = OutcomeMath.rollTierMagnitude(tier)
 
     self.outcome_won  = won
@@ -439,25 +455,32 @@ function Table:deal(ctx)
     -- earnings_mult / loss_mult scale magnitude only — they don't reshape
     -- the dists (Pot Odds Master, Damage Control, Headphones).
     local earnings_mult = ctx.earnings_mult or 1
+    if ctx.earnings_per_tier then
+        local tier_idx = stake and Lookups.indexById(StakesData, stake.id) or 0
+        earnings_mult = earnings_mult * (1.0 + ctx.earnings_per_tier * tier_idx)
+    end
     local loss_mult     = ctx.loss_mult     or 1
     -- jackpot_mult (Branded Hat) stacks on top of earnings_mult — only
     -- jackpot-tier WINS get the extra boost.
     local jackpot_mult  = (won and tier == "jackpot")
                           and (ctx.jackpot_mult or 1) or 1
     if won then
-        local raw_win = magnitude_bb * stake.bb * earnings_mult * jackpot_mult
+        local raw_win = magnitude_bb * stake.bb
         -- Pot cap: a hand's pot is at most 2× your at-table stack
         -- (your contribution + opponent matching it). So the most
         -- you can WIN from a hand is 2× stack. A $0.05 stack tops
         -- out at $0.10; a full $2 stack at $4. Keeps low-stack
         -- jackpots from feeling like free money while still letting
         -- a healthy stack catch a real haul.
-        self.outcome_delta = math.min(raw_win, 2 * (self.stack or 0))
+        local capped_win = math.min(raw_win, 2 * (self.stack or 0))
+        self.outcome_delta = capped_win * earnings_mult * jackpot_mult * payout_double
     else
         -- Loss side already capped downstream: GrindController clamps
         -- stack at 0 in its resolution loop.
-        self.outcome_delta = -magnitude_bb * stake.bb * loss_mult
+        self.outcome_delta = -magnitude_bb * stake.bb * loss_mult * payout_double
     end
+    -- earnings_scale_by_bankroll (Bank capstone) is applied at resolve time
+    -- in GrindController, where live bankroll is available.
 
     local p_hole, o_hole, board, natural = constructHand(won)
     self.player_hole     = p_hole
@@ -924,7 +947,7 @@ function Table:_endTournament(finish_position, n_seats)
     local payouts = MttPayouts[boost] or MttPayouts[0]
     local buy_in  = (stake and stake.buy_in) or 0
     self.last_finish = finish_position
-    self.mtt:settle(buy_in, payouts, finish_position, n_seats)
+    self.mtt:settle(buy_in, payouts, finish_position, n_seats, self._last_ctx)
     -- Per-seat state (seat_stacks / seat_busted / player_seat_fixed /
     -- button_seat / bust_order) is left in place — the post-tournament
     -- panel renders the final bust pattern until the player rebuys.

@@ -67,12 +67,29 @@ end
 function Gauntlet:begin()
     self.state = "running"
 
-    self.outcomes[1] = RNG.chance(self.rates.r1)
-    if self.outcomes[1] then
-        self.outcomes[2] = RNG.chance(self.rates.r2)
-        if self.outcomes[2] then
-            self.outcomes[3] = RNG.chance(self.rates.r3)
+    local state = self.game.state
+    local current_unlocked_act = 1
+    if state then
+        if state.shove_r2_won then
+            current_unlocked_act = 3
+        elseif state.shove_r1_won then
+            current_unlocked_act = 2
+        else
+            current_unlocked_act = 1
         end
+    end
+
+    self.outcomes[1] = RNG.chance(self.rates.r1)
+    if self.outcomes[1] and current_unlocked_act >= 2 then
+        self.outcomes[2] = RNG.chance(self.rates.r2)
+        if self.outcomes[2] and current_unlocked_act >= 3 then
+            self.outcomes[3] = RNG.chance(self.rates.r3)
+        else
+            self.outcomes[3] = false
+        end
+    else
+        self.outcomes[2] = false
+        self.outcomes[3] = false
     end
 
     self:_constructJointly()

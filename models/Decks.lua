@@ -23,7 +23,7 @@ local Decks = {}
 -- the system appears as a unit. Distinct from per-spec unlocks below,
 -- which gate individual decks within the system.
 function Decks.systemUnlocked(state)
-    return Constants.FEATURES.DECKS and state ~= nil and state.cleared == true
+    return Constants.FEATURES.DECKS and state ~= nil and (state.cleared == true or state.shove_r1_won == true)
 end
 
 -- Spec lookup. Cached at first call into a local index for O(1) reads
@@ -84,7 +84,8 @@ end
 
 -- Walk every spec; for each one not yet in `state.unlocked_decks`,
 -- check its unlock condition and (if satisfied) flip it into the
--- unlocked list with fresh L1 / 0 XP entries. Returns the list of
+-- unlocked list with fresh L0 / 0 XP entries. A freshly-unlocked deck
+-- carries no passive until it earns its way to L1. Returns the list of
 -- newly-unlocked ids so callers can react (toast, FX) — currently
 -- unused but the hook is there.
 function Decks.checkPendingUnlocks(state, unlock_registry)
@@ -106,7 +107,7 @@ function Decks.checkPendingUnlocks(state, unlock_registry)
             end
             if unlocked then
                 state.unlocked_decks[#state.unlocked_decks + 1] = spec.id
-                state.deck_levels[spec.id] = 1
+                state.deck_levels[spec.id] = 0
                 state.deck_xp[spec.id]     = 0
                 newly[#newly + 1]          = spec.id
             end
@@ -115,12 +116,13 @@ function Decks.checkPendingUnlocks(state, unlock_registry)
     return newly
 end
 
--- Resolve which level a given total XP value puts the deck at. Always
--- >= 1, capped at spec.max_level.
+-- Resolve which level a given total XP value puts the deck at. Fresh
+-- decks start at level 0 (no passive); xp_curve[i] is the cumulative XP
+-- to REACH level i. Returns 0..spec.max_level.
 function Decks.levelForXp(spec, xp)
     local cap = spec.max_level or #spec.xp_curve
-    local lvl = 1
-    for i = 2, cap do
+    local lvl = 0
+    for i = 1, cap do
         if (xp or 0) >= (spec.xp_curve[i] or math.huge) then
             lvl = i
         else
@@ -131,9 +133,10 @@ function Decks.levelForXp(spec, xp)
 end
 
 -- For a deck currently at `level`, return (xp_into_level, xp_needed_for_next).
--- If level == max_level, returns (xp_into_level, nil) — the "maxed" sentinel.
+-- Level 0 counts up from 0 toward xp_curve[1]. At max_level returns
+-- (xp_into_level, nil) — the "maxed" sentinel.
 function Decks.progressInLevel(spec, level, xp)
-    local floor_xp = spec.xp_curve[level] or 0
+    local floor_xp       = (level <= 0) and 0 or (spec.xp_curve[level] or 0)
     local next_threshold = spec.xp_curve[level + 1]
     local into = (xp or 0) - floor_xp
     if not next_threshold then
@@ -145,13 +148,21 @@ end
 -- Apply every unlocked deck's banked effects to ctx. Mirrors how
 -- GameState:computeEffects walks owned_items + run_upgrade_levels —
 -- registry-dispatched, no special-casing per kind.
+-- Levels 1-4 apply the deck's numeric `effects` block once per level.
+-- Level 5 is the capstone: the numeric block caps at 4 applications and
+-- the `capstone` block (same {effects={...}} shape) applies once on top —
+-- the same registry mechanism, so no per-kind branching. All unlocked
+-- decks stack; active vs. inactive matters only for XP.
 function Decks.applyEffects(state, registry, ctx)
     if not state.unlocked_decks then return end
     for _, id in ipairs(state.unlocked_decks) do
-        local spec = Decks.specById(id)
+        local spec  = Decks.specById(id)
         local level = (state.deck_levels and state.deck_levels[id]) or 0
         if spec and level > 0 then
-            registry:applyN(spec, ctx, level)
+            registry:applyN(spec, ctx, math.min(level, 4))
+            if level >= (spec.max_level or 5) and spec.capstone then
+                registry:applyN(spec.capstone, ctx, 1)
+            end
         end
     end
 end
@@ -169,7 +180,7 @@ function Decks.gainXp(state, xp_registry, event)
     if not spec then return 0, false end
 
     state.deck_levels = state.deck_levels or {}
-    local current_level = state.deck_levels[active_id] or 1
+    local current_level = state.deck_levels[active_id] or 0
     local cap = spec.max_level or #spec.xp_curve
     if current_level >= cap then return 0, false end
 

@@ -14,6 +14,11 @@
 --     color    = {r,g,b}, -- fallback shaded block color (graybox representation)
 --   }
 return {
+    __meta = {
+        room_size = 10,
+        floor_theme = "Default",
+        wall_theme = "Default",
+    },
     poker_poster        = { gx = 0, gy = 3, w = 1, h = 1, z_offset = 35, sh = 20, color = { 0.82, 0.42, 0.38 } },
     branded_hat         = { gx = 2, gy = 2, w = 1, h = 1, z_offset = 0,  sh = 10, color = { 0.40, 0.55, 0.75 } },
     whiteboard          = { gx = 4, gy = 1, w = 2, h = 1, z_offset = 25, sh = 30, color = { 0.90, 0.90, 0.90 } },

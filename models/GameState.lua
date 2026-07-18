@@ -11,6 +11,7 @@ local AutoSerializer = require("services.AutoSerializer")
 local Constants      = require("data.constants")
 local Decks          = require("models.Decks")
 local DeckSpecs      = require("data.decks")
+local EffectKinds    = require("data.effects").kinds
 
 local function genSaveId()
     return string.format("%d_%05d", os.time(), math.random(10000, 99999))
@@ -38,6 +39,9 @@ function GameState:new(saved)
     instance.chips       = Constants.GAMEPLAY.INITIAL_CHIP
     instance.owned_items = {}
     instance.cleared     = false   -- true once the gauntlet is beaten — gates the credits screen on boot
+    instance.shove_r1_won = false  -- true once the player has won at least Runout 1 of the shove gauntlet
+    instance.shove_r2_won = false  -- true once the player has won at least Runout 2 of the shove gauntlet
+    instance.deck_overhaul_migrated = false -- true once the level-0, 5-level deck migration has run once
     instance.onboarded   = false   -- true once the intro how-to-play modal has been dismissed
     instance.catalog_seen = false  -- true once the post-shove catalog has opened — gates the top-bar CATALOG button (TUTORIAL builds)
     -- Tutorial hints already delivered (hint id → true). Meta-side so a
@@ -62,7 +66,7 @@ function GameState:new(saved)
     instance.deck_xp        = {}
     if starter then
         instance.unlocked_decks[1]      = starter.id
-        instance.deck_levels[starter.id] = 1
+        instance.deck_levels[starter.id] = 0
         instance.deck_xp[starter.id]     = 0
     end
     instance.active_deck_id = starter and starter.id or nil
@@ -181,6 +185,8 @@ function GameState:wipeAll()
     self.chips       = Constants.GAMEPLAY.INITIAL_CHIP
     self.owned_items = {}
     self.cleared     = false
+    self.shove_r1_won = false
+    self.shove_r2_won = false
     self.onboarded   = false
     self.catalog_seen = false
     self.hints_seen   = {}
@@ -193,7 +199,7 @@ function GameState:wipeAll()
     self.deck_xp        = {}
     if starter then
         self.unlocked_decks[1]      = starter.id
-        self.deck_levels[starter.id] = 1
+        self.deck_levels[starter.id] = 0
         self.deck_xp[starter.id]     = 0
     end
     self.active_deck_id = starter and starter.id or nil
@@ -242,7 +248,13 @@ function GameState:applySaved(saved)
     -- (fish/acorns/patterns instead of the current seven). Drop unknown
     -- ids from unlocked_decks, prune their dangling level/xp entries,
     -- and ensure active_deck_id points at something real.
-    self:_migrateDeckState()
+    if not self.deck_overhaul_migrated then
+        self:_migrateDeckState()
+        self.deck_overhaul_migrated = true
+    end
+
+    self.shove_r1_won                   = self.shove_r1_won or false
+    self.shove_r2_won                   = self.shove_r2_won or false
 
     -- Lifetime counters added later than the deck-state fields. Older
     -- saves don't have them — backfill to 0 so unlock checks have a
@@ -293,20 +305,31 @@ function GameState:_migrateDeckState()
         self.unlocked_decks = {}
     end
 
-    if self.deck_levels then
-        for id in pairs(self.deck_levels) do
-            if not known[id] then self.deck_levels[id] = nil end
+    -- The deck overhaul changed the level scheme (10 levels → 5, and a
+    -- level-0 start). No shipped player has deck progress (decks ship OFF
+    -- in the prototype build), so the safe, simple migration is to reset
+    -- every surviving deck to L0 / 0 XP rather than reinterpret old
+    -- levels against the new curve. The starter is re-seeded at L0.
+    local starter = DeckSpecs[1]
+    local has_starter = false
+    if starter then
+        for _, id in ipairs(self.unlocked_decks) do
+            if id == starter.id then has_starter = true; break end
+        end
+        if not has_starter then
+            self.unlocked_decks[#self.unlocked_decks + 1] = starter.id
         end
     end
-    if self.deck_xp then
-        for id in pairs(self.deck_xp) do
-            if not known[id] then self.deck_xp[id] = nil end
-        end
+    self.deck_levels = {}
+    self.deck_xp     = {}
+    for _, id in ipairs(self.unlocked_decks) do
+        self.deck_levels[id] = 0
+        self.deck_xp[id]     = 0
     end
 
     if not self.active_deck_id or not known[self.active_deck_id] then
         self.active_deck_id = self.unlocked_decks[1]
-                              or (DeckSpecs[1] and DeckSpecs[1].id)
+                              or (starter and starter.id)
                               or nil
     end
 end
@@ -320,6 +343,9 @@ function GameState:serializeMeta()
         chips                           = self.chips,
         owned_items                     = self.owned_items,
         cleared                         = self.cleared,
+        shove_r1_won                    = self.shove_r1_won,
+        shove_r2_won                    = self.shove_r2_won,
+        deck_overhaul_migrated          = self.deck_overhaul_migrated,
         onboarded                       = self.onboarded,
         catalog_seen                    = self.catalog_seen,
         hints_seen                      = self.hints_seen,
@@ -372,8 +398,13 @@ end
 --
 -- `registry` is the EffectsRegistry; `catalog` and `run_upgrades` are the
 -- data tables (passed in instead of required so this stays testable).
-function GameState:computeEffects(registry, catalog, run_upgrades)
+function GameState:computeEffects(registry, catalog, run_upgrades, transient_params)
     local ctx = {}
+    if transient_params then
+        for k, v in pairs(transient_params) do
+            ctx[k] = v
+        end
+    end
 
     -- Pass 1: seed owned_set from explicit owned_items, plus any
     -- `granted_at_start` phantoms (handicap, future debuffs).
@@ -397,15 +428,6 @@ function GameState:computeEffects(registry, catalog, run_upgrades)
         end
     end
 
-    -- Run upgrades stack: each level applies the item's effect block once.
-    -- additive applicators sum to N×value, multiplicative to value^N.
-    for _, item in ipairs(run_upgrades) do
-        local lvl = self.run_upgrade_levels[item.id] or 0
-        if lvl > 0 then
-            registry:applyN(item, ctx, lvl)
-        end
-    end
-
     -- Decks stack: every unlocked deck contributes its banked passive at
     -- the current level via the same registry pipeline. Active vs.
     -- inactive doesn't matter here — only XP accrual cares about that.
@@ -413,6 +435,40 @@ function GameState:computeEffects(registry, catalog, run_upgrades)
     -- carries no deck passives before decks exist.
     if Decks.systemUnlocked(self) then
         Decks.applyEffects(self, registry, ctx)
+    end
+
+    -- Run upgrades stack: each level applies the item's effect block once.
+    -- additive applicators sum to N×value, multiplicative to value^N.
+    -- The Investor deck scales every upgrade's strength by
+    -- run_upgrade_strength_mult. How to scale a field is data (each kind's
+    -- `scale` in data/effects.lua) — no dispatch on the kind string here.
+    local upgrade_mult = ctx.run_upgrade_strength_mult or 1.0
+    for _, item in ipairs(run_upgrades) do
+        local lvl = self.run_upgrade_levels[item.id] or 0
+        if lvl > 0 then
+            if upgrade_mult ~= 1.0 then
+                local scaled_effects = {}
+                for _, e in ipairs(item.effects) do
+                    local copy = {}
+                    for k, v in pairs(e) do copy[k] = v end
+                    if copy.strength then
+                        copy.strength = copy.strength * upgrade_mult
+                    elseif copy.value then
+                        local kind_meta = EffectKinds[copy.kind]
+                        if kind_meta and kind_meta.scale == "value_mult1" then
+                            copy.value = (copy.value - 1) * upgrade_mult + 1
+                        else
+                            copy.value = copy.value * upgrade_mult
+                        end
+                    end
+                    table.insert(scaled_effects, copy)
+                end
+                local temp_item = { effects = scaled_effects }
+                registry:applyN(temp_item, ctx, lvl)
+            else
+                registry:applyN(item, ctx, lvl)
+            end
+        end
     end
 
     self.effects_cache = ctx

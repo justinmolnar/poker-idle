@@ -663,7 +663,7 @@ function GrindView:_buildRangeTooltip(up)
 
     local spec = up.tooltip_metric and RANGE_TOOLTIP[up.tooltip_metric]
     if spec then
-        if self.controller:getRunUpgradeLevel(up.id) >= (up.max_level or 1) then
+        if self.controller:getRunUpgradeLevel(up.id) >= self.controller:getRunUpgradeMaxLevel(up) then
             rows[#rows + 1] = { text = "MAX", style = "sm", color_token = "muted" }
         else
             -- blank spacer between the blurb and the range grid
@@ -701,7 +701,7 @@ function GrindView:_buildUpgradesTabComponents()
         local locked = up.requires and not owned[up.requires]
         if not (locked and up.requires_hide) then
             local level     = self.controller:getRunUpgradeLevel(up.id)
-            local max_lvl   = up.max_level or 1
+            local max_lvl   = self.controller:getRunUpgradeMaxLevel(up)
             local at_max    = level >= max_lvl
             local next_cost = self.controller:getRunUpgradeNextCost(up)
             local cant_afford = next_cost and state.bankroll < next_cost
@@ -912,15 +912,18 @@ function GrindView:update(dt)
         local active_id = state.active_deck_id
         local spec = active_id and Decks.specById(active_id)
         if spec then
-            local level = (state.deck_levels and state.deck_levels[active_id]) or 1
+            local level = (state.deck_levels and state.deck_levels[active_id]) or 0
             local xp    = (state.deck_xp and state.deck_xp[active_id]) or 0
             local into, span = Decks.progressInLevel(spec, level, xp)
             local lines = {
                 spec.name or active_id,
                 string.format("L%d / %d  ·  %s",
                     level, spec.max_level, spec.bonus_text or ""),
-                spec.xp_action_text or "",
             }
+            if spec.capstone and spec.capstone.text then
+                lines[#lines + 1] = "Capstone: " .. spec.capstone.text
+            end
+            lines[#lines + 1] = spec.xp_action_text or ""
             if span then
                 lines[#lines + 1] = string.format("%d / %d XP to L%d",
                     math.floor(into), math.floor(span), level + 1)
@@ -1072,7 +1075,7 @@ function GrindView:_drawDeckCell(x, w, fonts)
 
     -- Level badge overlay (bottom-right of the icon). Compact "L3" tag
     -- so the active level reads at a glance without the tooltip.
-    local level = (state.deck_levels and state.deck_levels[active_id]) or 1
+    local level = (state.deck_levels and state.deck_levels[active_id]) or 0
     local lvl_text = "L" .. tostring(level)
     love.graphics.setFont(fonts.sm)
     local lvl_w = fonts.sm:getWidth(lvl_text) + math.floor(6 * s)

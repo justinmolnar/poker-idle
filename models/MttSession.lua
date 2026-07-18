@@ -420,10 +420,11 @@ end
 -- so finish positions outside the top-3 yield no payout. Stashes
 -- pending_payout for the controller to drain and clears state so the
 -- next :begin starts a fresh run.
-function MttSession:settle(buy_in, payouts_for_boost, finish_position, n_seats)
+function MttSession:settle(buy_in, payouts_for_boost, finish_position, n_seats, ctx)
     local key  = (n_seats or 0) - (finish_position or 0) + 1
     local mult = (payouts_for_boost and payouts_for_boost[key]) or 0
-    self.pending_payout = mult * (buy_in or 0)
+    local payout = mult * (buy_in or 0)
+    self.pending_payout = payout
     self.last_finish    = finish_position
     self.state          = nil
     self.plan           = nil

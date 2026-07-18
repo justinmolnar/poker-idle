@@ -378,6 +378,9 @@ function GrindState:keypressed(key)
         self.controller:dealHand(1)
     elseif key == "j" then
         self.controller:dealAll()
+    elseif key == "y" then
+        self.game.state.cleared = not self.game.state.cleared
+        print("[debug] Toggled gauntlet clear state (decks unlocked = " .. tostring(self.game.state.cleared) .. ")")
     end
 end
 

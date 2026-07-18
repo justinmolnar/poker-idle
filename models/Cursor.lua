@@ -99,11 +99,13 @@ end
 --   speed_px    — pre-computed pixels-per-second from the pool
 --   W, H        — current screen dimensions (for wander bounds)
 --   dispatcher  — callback fired with the hit_box on click-arrival
-function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher)
+function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher, ctx)
     -- Brief freeze right after a click so the click pop is visible AT the button
     -- before the cursor darts off (otherwise it's a blur, especially at high
     -- Cursor Speed). The click already dispatched; this is purely the hold.
-    if self._hold and self._hold > 0 then
+    if ctx and ctx.cursor_zero_click_delay then
+        self._hold = 0
+    elseif self._hold and self._hold > 0 then
         self._hold = self._hold - dt
         return
     end
@@ -125,7 +127,7 @@ function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher)
                 -- Transient flag the pool consumes this same frame to play
                 -- the cursor-tap sound (distinct from the human-mouse path).
                 self._just_dispatched = true
-                self._hold = 0.22          -- hold in place so the click pop shows
+                self._hold = (ctx and ctx.cursor_zero_click_delay) and 0.0 or 0.22          -- hold in place so the click pop shows
                 claims[self.target_idx] = nil
                 self:releaseTarget()
                 pickWanderPoint(self, W, H)
@@ -141,9 +143,10 @@ function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher)
             self.wander_timer = self.wander_timer - dt
         end
         stepToward(self, step * 0.55)   -- wander is slower than seek
+        local interval = (ctx and ctx.cursor_zero_click_delay) and 0.0 or SCAN_INTERVAL
         self.scan_timer = self.scan_timer - dt
         if self.scan_timer <= 0 then
-            self.scan_timer = SCAN_INTERVAL
+            self.scan_timer = interval
             tryClaim(self, deal_hbs, claims)
         end
     end

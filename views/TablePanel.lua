@@ -590,7 +590,10 @@ end
 -- views/FeltLayout). The anchor is positioned BELOW the community row by the
 -- layout, so the pile can no longer sit on top of the community cards.
 local function drawPotLabel(tbl, pot, fonts)
-    if tbl.state == "idle" then return end
+    if tbl.state == "idle" then
+        RollingValue.reset("table_pot:" .. (tbl._id or 0))
+        return
+    end
     -- Pot reading. Two paths:
     --   * Theater on  → tbl.playback_state.pot is the running pot, mutated
     --                   by HandScript event applicators as bets land.
@@ -602,11 +605,13 @@ local function drawPotLabel(tbl, pot, fonts)
     else
         potval = (tbl.outcome_delta and math.abs(tbl.outcome_delta) * 2) or 0
     end
-    if potval <= 0 then return end
+
+    local rolled_pot = RollingValue.get("table_pot:" .. (tbl._id or 0), potval)
+    if rolled_pot <= 0.01 then return end
 
     -- Chip pile when room permits — uses outcome_tier so jackpot pots
     -- visibly dwarf small ones. Falls back to text-only on mini panels.
-    if pot.allow_chips then
+    if pot.allow_chips and potval > 0 then
         local palette = ChipData.stake_palettes[tbl.stake_id]
                         or ChipData.full_palette
         local tier    = tbl.outcome_tier or "medium"
@@ -636,7 +641,7 @@ local function drawPotLabel(tbl, pot, fonts)
     -- read as big as the cards (falls back to sm at 1×, see FontService).
     Theme.setColor(Theme.fg.muted)
     love.graphics.setFont(fonts.xs or fonts.sm)
-    love.graphics.printf("Pot: " .. Format.moneyExact(potval),
+    love.graphics.printf("Pot: " .. Format.moneyExact(rolled_pot),
         pot.text_x, pot.text_y, pot.text_w, "center")
 end
 

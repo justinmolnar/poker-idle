@@ -22,27 +22,121 @@ local TILE_W    = 64
 local TILE_H    = 32
 local WALL_H    = 96
 
+-- Cache for dynamic sprite bottom coordinate scanning
+local sprite_bottom_cache = {}
+local function getSpriteBottom(sprite, name)
+    if not sprite then return 0 end
+    if sprite_bottom_cache[name] then
+        return sprite_bottom_cache[name]
+    end
+    
+    local w, h = sprite:getDimensions()
+    local path = "assets/sprites/" .. name .. ".png"
+    if not love.filesystem.getInfo(path) then
+        path = "assets/" .. name .. ".png"
+    end
+    
+    if love.filesystem.getInfo(path) then
+        local ok, imgData = pcall(love.image.newImageData, path)
+        if ok and imgData then
+            local max_y = h - 1
+            local found = false
+            for y = h - 1, 0, -1 do
+                for x = 0, w - 1 do
+                    local r, g, b, a = imgData:getPixel(x, y)
+                    if a > 0 then
+                        max_y = y
+                        found = true
+                        break
+                    end
+                end
+                if found then break end
+            end
+            local oy = max_y + 1
+            sprite_bottom_cache[name] = oy
+            return oy
+        end
+    end
+    
+    -- Fallback to full height if file not found or failed to load
+    sprite_bottom_cache[name] = h
+    return h
+end
+
+-- Integer tile metrics for the current ui scale. The HALF-steps (the
+-- actual pixel deltas between neighboring tiles) are rounded to whole
+-- pixels and everything else derives from them: tile positions land on
+-- integers exactly one sprite-width apart, and the sprite draw scale
+-- comes FROM the rounded step so the 64px tile art tessellates exactly.
+-- The old approach (scale the art up 2% and round each tile's position
+-- independently) is where the wall/floor seams came from: fractional
+-- blits under linear filtering alpha-blend every tile edge over its
+-- neighbor. Returns tw, th, sprite_scale.
+local function tileMetrics(s)
+    local hh = math.max(1, math.floor(TILE_H * 0.5 * s + 0.5))
+    local tw = hh * 4                -- keeps the 2:1 diamond ratio exact
+    return tw, hh * 2, tw / TILE_W
+end
+
 function RoomView:new(game)
     -- Load all layout positions from room_layout
     local placed = {}
     for id, info in pairs(Layout) do
-        placed[#placed + 1] = {
-            id       = id,
-            gx       = info.gx or 0,
-            gy       = info.gy or 0,
-            w        = info.w or 1,
-            h        = info.h or 1,
-            z_offset = info.z_offset or 0,
-            sh       = info.sh or 16,
-            color    = info.color or { 0.5, 0.5, 0.5 },
-            scale    = info.scale or 1.0,
-            flip_x   = info.flip_x or false,
-        }
+        if id ~= "__meta" then
+            placed[#placed + 1] = {
+                id       = id,
+                gx       = info.gx or 0,
+                gy       = info.gy or 0,
+                w        = info.w or 1,
+                h        = info.h or 1,
+                z_offset = info.z_offset or 0,
+                sh       = info.sh or 16,
+                color    = info.color or { 0.5, 0.5, 0.5 },
+                scale    = info.scale or 1.0,
+                flip_x   = info.flip_x or false,
+                align    = info.align or "center",
+            }
+        end
     end
 
-    -- Create list of placeable catalog item specs dynamically from SpriteLoader and Catalog
+    -- Create list of placeable catalog item specs dynamically from
+    -- SpriteLoader and Catalog. `placeable` stays FLAT (selected_idx
+    -- indexes it everywhere); `groups` is the browser's presentation:
+    -- one collapsible group per top-level folder under isometric/, plus
+    -- a "Catalog" group up front for the actual game items.
     local placeable = {}
     local sprites_seen = {}
+    local groups   = {}       -- ordered: { name, indices = {..}, collapsed }
+    local group_of = {}       -- placeable idx -> group ref
+    local by_name  = {}       -- group name -> group ref
+    local function groupFor(name, default_collapsed)
+        local g = by_name[name]
+        if not g then
+            g = { name = name, indices = {}, collapsed = default_collapsed }
+            by_name[name] = g
+            groups[#groups + 1] = g
+        end
+        return g
+    end
+    local function addTo(group, idx)
+        group.indices[#group.indices + 1] = idx
+        group_of[idx] = group
+    end
+
+    -- Game catalog items first — they're the ones that matter in play.
+    groupFor("Catalog", false)
+    for _, item in ipairs(Catalog) do
+        if not item.hidden and item.id ~= "no_poster_handicap" then
+            placeable[#placeable + 1] = item
+            addTo(by_name["Catalog"], #placeable)
+        end
+    end
+
+    local floor_list = {}
+    local wall_list = {}
+    local floors_seen = {}
+    local walls_seen = {}
+
     if game.sprite_loader and game.sprite_loader.sprites then
         local sprite_names = {}
         for name, _ in pairs(game.sprite_loader.sprites) do
@@ -51,28 +145,66 @@ function RoomView:new(game)
             end
         end
         table.sort(sprite_names)
-        
+
         for _, name in ipairs(sprite_names) do
-            placeable[#placeable + 1] = {
-                id = name,
-                name = name:match("([^/]+)$") or name,
-                sprite = name,
-            }
-            sprites_seen[name] = true
-        end
-    end
-    for _, item in ipairs(Catalog) do
-        if not item.hidden and item.id ~= "no_poster_handicap" then
-            if not sprites_seen[item.id] then
-                placeable[#placeable + 1] = item
+            if not sprites_seen[name] then
+                sprites_seen[name] = true
+                -- "isometric/Bathroom/Bath_Ani/Bath_1" → group "Bathroom",
+                -- label "Bath_Ani/Bath_1". Root-level files group under
+                -- "Isometric". Sprite folders start collapsed — there are
+                -- hundreds of sprites; the browser would be unusable open.
+                local rest = name:sub(11)
+                local folder, label = rest:match("^([^/]+)/(.+)$")
+                if not folder then folder, label = "Isometric", rest end
+                placeable[#placeable + 1] = {
+                    id = name,
+                    name = label,
+                    sprite = name,
+                }
+                addTo(groupFor(folder, true), #placeable)
+            end
+
+            -- Also extract available Floor and Wall theme names
+            local f_theme = name:match("^isometric/Floor_Wall_Tiles_64/Floor_64_(.+)$")
+            if f_theme then
+                if not floors_seen[f_theme] then
+                    floors_seen[f_theme] = true
+                    floor_list[#floor_list + 1] = f_theme
+                end
+            end
+
+            local w_theme = name:match("^isometric/Floor_Wall_Tiles_64/Wall_L_64_(.+)$")
+            if w_theme then
+                if not walls_seen[w_theme] then
+                    walls_seen[w_theme] = true
+                    wall_list[#wall_list + 1] = w_theme
+                end
             end
         end
+    end
+    table.sort(floor_list)
+    table.sort(wall_list)
+
+    local meta = Layout.__meta or {}
+    local room_size = meta.room_size or GRID_SIZE
+    local floor_theme = meta.floor_theme or "Default"
+    local wall_theme = meta.wall_theme or "Default"
+
+    local floor_idx = 0
+    for i, t in ipairs(floor_list) do
+        if t == floor_theme then floor_idx = i; break end
+    end
+    local wall_idx = 0
+    for i, t in ipairs(wall_list) do
+        if t == wall_theme then wall_idx = i; break end
     end
 
     return setmetatable({
         game          = game,
         placed        = placed,     -- active placed furniture objects list
-        placeable     = placeable,  -- list of all placeable items from catalog.lua
+        placeable     = placeable,  -- flat list; selected_idx indexes this
+        groups        = groups,     -- collapsible browser groups (presentation)
+        group_of      = group_of,   -- placeable idx -> group (auto-expand)
         editor_mode   = false,      -- true = grid lines, placement selector, mouse controls
         selected_idx  = 1,          -- active item index in the placeable list
         active_w      = 1,          -- current placement footprint width
@@ -81,8 +213,29 @@ function RoomView:new(game)
         active_z      = 0,          -- current placement vertical height offset
         active_scale  = 1.0,        -- current sprite scale factor
         active_flip_x = false,      -- current sprite horizontal flip
+        active_align  = "center",   -- current sprite alignment mode ("center", "left_wall", "right_wall")
+        snap_options  = { 1.0, 0.5, 0.25, 0.125 },
+        snap_idx      = 4,          -- current grid snap option (defaults to 0.125)
         picked_item   = nil,
+        list_scroll   = 0,          -- item-browser scroll offset (px)
+        _list_rows    = {},         -- built each draw; consumed by mousepressed
+        _list_rect    = nil,        -- browser viewport rect (hit-test + wheel)
+        _scroll_to_sel = false,     -- draw() brings the selected row into view
+
+        room_size     = room_size,
+        floor_list    = floor_list,
+        wall_list     = wall_list,
+        floor_idx     = floor_idx,
+        wall_idx      = wall_idx,
     }, RoomView)
+end
+
+-- Selection moved (keys / wheel / pick-up): make sure its group is open
+-- and ask the next draw to scroll the row into view.
+function RoomView:_onSelectionChanged()
+    local g = self.group_of and self.group_of[self.selected_idx]
+    if g then g.collapsed = false end
+    self._scroll_to_sel = true
 end
 
 -- ─── Projection Math ────────────────────────────────────────────────────────
@@ -209,6 +362,8 @@ function RoomView:draw(full_screen)
     local fl   = math.floor
     local TOP_BAR_H = fl(56 * s)
     local cx, cy = getCenter(W, H, s, full_screen)
+    cx = fl(cx + 0.5)
+    cy = fl(cy + 0.5)
 
     local state = game.state
     local owned_set = {}
@@ -218,67 +373,133 @@ function RoomView:draw(full_screen)
         end
     end
 
-    local tw = TILE_W * s
-    local th = TILE_H * s
+    local tw, th, tile_k = tileMetrics(s)
     local wh = WALL_H * s
 
-    -- 1. Draw background walls (corner walls of the room)
-    -- Left-back wall
-    local lx1, ly1 = gridToScreen(0, 0, cx, cy, tw, th)
-    local lx2, ly2 = gridToScreen(GRID_SIZE, 0, cx, cy, tw, th)
-    Theme.setColor(Theme.bg.sunken)
-    love.graphics.polygon("fill",
-        lx1, ly1,
-        lx2, ly2,
-        lx2, ly2 - wh,
-        lx1, ly1 - wh
-    )
-    Theme.setColor(Theme.border.soft)
-    love.graphics.polygon("line",
-        lx1, ly1,
-        lx2, ly2,
-        lx2, ly2 - wh,
-        lx1, ly1 - wh
-    )
+    -- 1. Draw background walls (corner walls of the room - fallback vector or sprite segments)
+    local l_wall_sprite = nil
+    local r_wall_sprite = nil
+    if self.wall_idx > 0 then
+        local theme = self.wall_list[self.wall_idx]
+        local l_name = "isometric/Floor_Wall_Tiles_64/Wall_L_64_" .. theme
+        local r_name = "isometric/Floor_Wall_Tiles_64/Wall_R_64_" .. theme
+        l_wall_sprite = game.sprite_loader:getSprite(l_name)
+        r_wall_sprite = game.sprite_loader:getSprite(r_name)
+        -- Hard pixel edges: linear filtering (LÖVE's default — nothing
+        -- sets a default filter) bleeds each tile's transparent border
+        -- into its edge at any non-integer scale, which reads as seams.
+        if l_wall_sprite then l_wall_sprite:setFilter("nearest", "nearest") end
+        if r_wall_sprite then r_wall_sprite:setFilter("nearest", "nearest") end
+    end
 
-    -- Right-back wall
-    local rx1, ry1 = gridToScreen(0, 0, cx, cy, tw, th)
-    local rx2, ry2 = gridToScreen(0, GRID_SIZE, cx, cy, tw, th)
-    Theme.setColor(darken(Theme.bg.sunken, 0.90))
-    love.graphics.polygon("fill",
-        rx1, ry1,
-        rx2, ry2,
-        rx2, ry2 - wh,
-        rx1, ry1 - wh
-    )
-    Theme.setColor(Theme.border.soft)
-    love.graphics.polygon("line",
-        rx1, ry1,
-        rx2, ry2,
-        rx2, ry2 - wh,
-        rx1, ry1 - wh
-    )
+    if l_wall_sprite and r_wall_sprite then
+        -- One wall tile is a single ~40px course — the kit expects walls
+        -- to be STACKED for height. Measured from the art: the face
+        -- repeats every 40 sprite px (edge columns are 41px tall, so a
+        -- 40px offset gives a 1px overlap and no gap), and each face
+        -- runs clean to its bottom edge, so an upper course drawn AFTER
+        -- covers the course-below's top-cap trim; the cap shows only on
+        -- the topmost course.
+        local COURSE_PX    = 40
+        local WALL_COURSES = 2   -- courses to stack; 3 for a taller room
+        local course_dy    = COURSE_PX * tile_k
+
+        -- Draw Left-back wall segments (right side of the room, sloping down-right) using Wall_R
+        local r_ox = 16
+        local r_oy = 47
+        love.graphics.setColor(1, 1, 1, 1)
+        for x = 0, self.room_size - 1 do
+            local wx, wy = gridToScreen(x, 0, cx, cy, tw, th)
+            for level = 0, WALL_COURSES - 1 do
+                love.graphics.draw(r_wall_sprite, wx, wy - level * course_dy,
+                    0, tile_k, tile_k, r_ox, r_oy)
+            end
+        end
+
+        -- Draw Right-back wall segments (left side of the room, sloping down-left) using Wall_L
+        local l_ox = 47
+        local l_oy = 47
+        for y = 0, self.room_size - 1 do
+            local wx, wy = gridToScreen(0, y, cx, cy, tw, th)
+            for level = 0, WALL_COURSES - 1 do
+                love.graphics.draw(l_wall_sprite, wx, wy - level * course_dy,
+                    0, tile_k, tile_k, l_ox, l_oy)
+            end
+        end
+    else
+        -- Left-back wall fallback polygon
+        local lx1, ly1 = gridToScreen(0, 0, cx, cy, tw, th)
+        local lx2, ly2 = gridToScreen(self.room_size, 0, cx, cy, tw, th)
+        Theme.setColor(Theme.bg.sunken)
+        love.graphics.polygon("fill",
+            lx1, ly1,
+            lx2, ly2,
+            lx2, ly2 - wh,
+            lx1, ly1 - wh
+        )
+        Theme.setColor(Theme.border.soft)
+        love.graphics.polygon("line",
+            lx1, ly1,
+            lx2, ly2,
+            lx2, ly2 - wh,
+            lx1, ly1 - wh
+        )
+
+        -- Right-back wall fallback polygon
+        local rx1, ry1 = gridToScreen(0, 0, cx, cy, tw, th)
+        local rx2, ry2 = gridToScreen(0, self.room_size, cx, cy, tw, th)
+        Theme.setColor(darken(Theme.bg.sunken, 0.90))
+        love.graphics.polygon("fill",
+            rx1, ry1,
+            rx2, ry2,
+            rx2, ry2 - wh,
+            rx1, ry1 - wh
+        )
+        Theme.setColor(Theme.border.soft)
+        love.graphics.polygon("line",
+            rx1, ry1,
+            rx2, ry2,
+            rx2, ry2 - wh,
+            rx1, ry1 - wh
+        )
+    end
 
     -- 2. Draw floor tiles grid
-    for x = 0, GRID_SIZE - 1 do
-        for y = 0, GRID_SIZE - 1 do
-            local fx, fy = gridToScreen(x + 0.5, y + 0.5, cx, cy, tw, th)
-            -- Checkerboard floor pattern
-            if (x + y) % 2 == 0 then
-                Theme.setColor(Theme.bg.widget)
-            else
-                Theme.setColor(darken(Theme.bg.widget, 0.92))
-            end
-            -- Draw single floor tile polygon
+    local floor_sprite = nil
+    if self.floor_idx > 0 then
+        local theme = self.floor_list[self.floor_idx]
+        local sprite_name = "isometric/Floor_Wall_Tiles_64/Floor_64_" .. theme
+        floor_sprite = game.sprite_loader:getSprite(sprite_name)
+        if floor_sprite then floor_sprite:setFilter("nearest", "nearest") end
+    end
+
+    for x = 0, self.room_size - 1 do
+        for y = 0, self.room_size - 1 do
             local tx1, ty1 = gridToScreen(x, y, cx, cy, tw, th)
-            local tx2, ty2 = gridToScreen(x + 1, y, cx, cy, tw, th)
-            local tx3, ty3 = gridToScreen(x + 1, y + 1, cx, cy, tw, th)
-            local tx4, ty4 = gridToScreen(x, y + 1, cx, cy, tw, th)
-            love.graphics.polygon("fill", tx1, ty1, tx2, ty2, tx3, ty3, tx4, ty4)
+            if floor_sprite then
+                local ox = 32
+                local oy = 16
+                love.graphics.setColor(1, 1, 1, 1)
+                love.graphics.draw(floor_sprite, tx1, ty1, 0, tile_k, tile_k, ox, oy)
+            else
+                -- Checkerboard floor pattern fallback
+                if (x + y) % 2 == 0 then
+                    Theme.setColor(Theme.bg.widget)
+                else
+                    Theme.setColor(darken(Theme.bg.widget, 0.92))
+                end
+                local tx2, ty2 = gridToScreen(x + 1, y, cx, cy, tw, th)
+                local tx3, ty3 = gridToScreen(x + 1, y + 1, cx, cy, tw, th)
+                local tx4, ty4 = gridToScreen(x, y + 1, cx, cy, tw, th)
+                love.graphics.polygon("fill", tx1, ty1, tx2, ty2, tx3, ty3, tx4, ty4)
+            end
 
             -- Wireframe grid lines (only in editor mode)
             if self.editor_mode then
                 Theme.setColor(Theme.border.soft, 0.18)
+                local tx2, ty2 = gridToScreen(x + 1, y, cx, cy, tw, th)
+                local tx3, ty3 = gridToScreen(x + 1, y + 1, cx, cy, tw, th)
+                local tx4, ty4 = gridToScreen(x, y + 1, cx, cy, tw, th)
                 love.graphics.polygon("line", tx1, ty1, tx2, ty2, tx3, ty3, tx4, ty4)
             end
         end
@@ -315,13 +536,32 @@ function RoomView:draw(full_screen)
         
         local sprite = game.sprite_loader:getSprite(obj.id)
         if sprite then
-            local sx, sy = gridToScreen(obj.gx + obj.w*0.5, obj.gy + obj.h*0.5, cx, cy, tw, th)
+            local draw_gx, draw_gy
+            if obj.align == "left_wall" then
+                draw_gx = obj.gx + obj.w * 0.5
+                draw_gy = obj.gy
+            elseif obj.align == "right_wall" then
+                draw_gx = obj.gx
+                draw_gy = obj.gy + obj.h * 0.5
+            else
+                draw_gx = obj.gx + obj.w * 0.5
+                draw_gy = obj.gy + obj.h * 0.5
+            end
+            local sx, sy = gridToScreen(draw_gx, draw_gy, cx, cy, tw, th)
             local scale_factor = obj.scale or 1.0
             local draw_scale_x = s * scale_factor
             local draw_scale_y = s * scale_factor
             
             local ox = sprite:getWidth() * 0.5
-            local oy = sprite:getHeight()
+            local diff_y
+            if obj.align == "left_wall" then
+                diff_y = obj.w * 8
+            elseif obj.align == "right_wall" then
+                diff_y = obj.h * 8
+            else
+                diff_y = (obj.w + obj.h) * 8
+            end
+            local oy = getSpriteBottom(sprite, obj.id) - diff_y
             
             if obj.flip_x then
                 draw_scale_x = -draw_scale_x
@@ -345,14 +585,15 @@ function RoomView:draw(full_screen)
     -- 6. Editor overlay: Selected active item preview + cursor grid position
     local mx, my = love.mouse.getPosition()
     local gx, gy = screenToGrid(mx, my, cx, cy, tw, th)
-    gx = math.floor(gx)
-    gy = math.floor(gy)
+    local step = self.snap_options[self.snap_idx] or 0.125
+    gx = math.floor(gx / step + 0.5) * step
+    gy = math.floor(gy / step + 0.5) * step
 
     local active_spec = self.placeable[self.selected_idx]
 
     if self.editor_mode and active_spec then
         -- Hover preview tile highlighting
-        if gx >= 0 and gx < GRID_SIZE and gy >= 0 and gy < GRID_SIZE then
+        if gx >= 0 and gx + self.active_w <= self.room_size and gy >= 0 and gy + self.active_h <= self.room_size then
             local tx1, ty1 = gridToScreen(gx, gy, cx, cy, tw, th)
             local tx2, ty2 = gridToScreen(gx + self.active_w, gy, cx, cy, tw, th)
             local tx3, ty3 = gridToScreen(gx + self.active_w, gy + self.active_h, cx, cy, tw, th)
@@ -364,17 +605,35 @@ function RoomView:draw(full_screen)
             Theme.setColor(Theme.status.good, 0.8)
             love.graphics.polygon("line", tx1, ty1, tx2, ty2, tx3, ty3, tx4, ty4)
 
-            -- Draw placement preview block
             -- Draw placement preview block (sprite or fallback box)
             local sprite = game.sprite_loader:getSprite(active_spec.id)
             if sprite then
-                local sx, sy = gridToScreen(gx + self.active_w*0.5, gy + self.active_h*0.5, cx, cy, tw, th)
+                local draw_gx, draw_gy
+                if self.active_align == "left_wall" then
+                    draw_gx = gx + self.active_w * 0.5
+                    draw_gy = gy
+                elseif self.active_align == "right_wall" then
+                    draw_gx = gx
+                    draw_gy = gy + self.active_h * 0.5
+                else
+                    draw_gx = gx + self.active_w * 0.5
+                    draw_gy = gy + self.active_h * 0.5
+                end
+                local sx, sy = gridToScreen(draw_gx, draw_gy, cx, cy, tw, th)
                 local scale_factor = self.active_scale or 1.0
                 local draw_scale_x = s * scale_factor
                 local draw_scale_y = s * scale_factor
                 
                 local ox = sprite:getWidth() * 0.5
-                local oy = sprite:getHeight()
+                local diff_y
+                if self.active_align == "left_wall" then
+                    diff_y = self.active_w * 8
+                elseif self.active_align == "right_wall" then
+                    diff_y = self.active_h * 8
+                else
+                    diff_y = (self.active_w + self.active_h) * 8
+                end
+                local oy = getSpriteBottom(sprite, active_spec.id) - diff_y
                 
                 if self.active_flip_x then
                     draw_scale_x = -draw_scale_x
@@ -428,6 +687,8 @@ function RoomView:draw(full_screen)
             "9 / 0: Scale: " .. string.format("%.1f", self.active_scale),
             "F-Key: Flip Horiz: " .. (self.active_flip_x and "ON" or "OFF"),
             "R-Key: Rotate Footprint",
+            "G-Key: Snap Grid: " .. tostring(self.snap_options[self.snap_idx]),
+            "A-Key: Alignment: " .. self.active_align,
             "Enter-Key: Export positions",
             "F3-Key: Exit Room Editor",
         }
@@ -443,7 +704,7 @@ function RoomView:draw(full_screen)
         local btn_x = sidebar_x + text_margin
         
         -- EXPORT button
-        local exp_y = sidebar_y + fl(225 * s)
+        local exp_y = sidebar_y + fl(250 * s)
         local exp_hov = mx >= btn_x and mx < btn_x + btn_w and my >= exp_y and my < exp_y + btn_h
         LabelButton.draw{
             x = btn_x, y = exp_y, w = btn_w, h = btn_h,
@@ -462,24 +723,195 @@ function RoomView:draw(full_screen)
             hovered     = rst_hov,
         }
 
-        -- Catalog items selection list
-        local cat_y = rst_y + btn_h + fl(12 * s)
+        -- CLEAR button
+        local clr_y = rst_y + btn_h + btn_gap
+        local clr_hov = mx >= btn_x and mx < btn_x + btn_w and my >= clr_y and my < clr_y + btn_h
+        LabelButton.draw{
+            x = btn_x, y = clr_y, w = btn_w, h = btn_h,
+            text        = "CLEAR ROOM",
+            fonts       = game.fonts,
+            hovered     = clr_hov,
+        }
+
+        -- ── Room Meta Config selectors (Size, Floor, Wall)
+        local meta_y = clr_y + btn_h + fl(10 * s)
+        local arrow_w = fl(18 * s)
+        local arrow_h = fl(18 * s)
+        local prev_x = sidebar_x + sidebar_w - text_margin - arrow_w * 2 - fl(4 * s)
+        local next_x = sidebar_x + sidebar_w - text_margin - arrow_w
+
+        local function checkHov(row_y)
+            local p_hov = mx >= prev_x and mx < prev_x + arrow_w and my >= row_y and my < row_y + arrow_h
+            local n_hov = mx >= next_x and mx < next_x + arrow_w and my >= row_y and my < row_y + arrow_h
+            return p_hov, n_hov
+        end
+
+        local function drawSelectorRow(label, value, row_y, p_hov, n_hov)
+            love.graphics.setFont(game.fonts.sm)
+            Theme.setColor(Theme.fg.muted)
+            love.graphics.print(label .. ":", sidebar_x + text_margin, row_y + fl(3 * s))
+            
+            local val_x = sidebar_x + text_margin + fl(80 * s)
+            Theme.setColor(Theme.fg.heading)
+            love.graphics.print(value, val_x, row_y + fl(3 * s))
+            
+            LabelButton.draw{
+                x = prev_x, y = row_y, w = arrow_w, h = arrow_h,
+                text = "<", fonts = game.fonts, font = game.fonts.sm, hovered = p_hov
+            }
+            LabelButton.draw{
+                x = next_x, y = row_y, w = arrow_w, h = arrow_h,
+                text = ">", fonts = game.fonts, font = game.fonts.sm, hovered = n_hov
+            }
+            
+            return {
+                prev = { x = prev_x, y = row_y, w = arrow_w, h = arrow_h },
+                next = { x = next_x, y = row_y, w = arrow_w, h = arrow_h }
+            }
+        end
+
+        -- 1. Room Size Row
+        local size_val = tostring(self.room_size) .. "x" .. tostring(self.room_size)
+        local sp_hov, sn_hov = checkHov(meta_y)
+        local size_rects = drawSelectorRow("Room Size", size_val, meta_y, sp_hov, sn_hov)
+        self._size_prev_rect = size_rects.prev
+        self._size_next_rect = size_rects.next
+
+        -- 2. Floor Theme Row
+        local floor_val = self.floor_idx == 0 and "Default" or self.floor_list[self.floor_idx]
+        local fp_hov, fn_hov = checkHov(meta_y + fl(24 * s))
+        local floor_rects = drawSelectorRow("Floor Tile", floor_val, meta_y + fl(24 * s), fp_hov, fn_hov)
+        self._floor_prev_rect = floor_rects.prev
+        self._floor_next_rect = floor_rects.next
+
+        -- 3. Wall Theme Row
+        local wall_val = self.wall_idx == 0 and "Default" or self.wall_list[self.wall_idx]
+        local wp_hov, wn_hov = checkHov(meta_y + fl(48 * s))
+        local wall_rects = drawSelectorRow("Wall Tile", wall_val, meta_y + fl(48 * s), wp_hov, wn_hov)
+        self._wall_prev_rect = wall_rects.prev
+        self._wall_next_rect = wall_rects.next
+
+        -- ── Item browser: collapsible folder groups in a scrolling
+        -- viewport with a scrollbar. Click a folder to fold/unfold,
+        -- click an item to select it; draw() auto-scrolls to keep the
+        -- selection visible after keyboard/wheel cycling.
+        local cat_y = meta_y + fl(76 * s)
         love.graphics.setFont(game.fonts.md)
         Theme.setColor(Theme.fg.heading)
-        love.graphics.print("CATALOG ITEMS:", sidebar_x + text_margin, cat_y)
+        love.graphics.print(string.format("ITEMS (%d):", #self.placeable),
+            sidebar_x + text_margin, cat_y)
         cat_y = cat_y + fl(22 * s)
 
-        love.graphics.setFont(game.fonts.sm)
-        for idx, item in ipairs(self.placeable) do
-            local active = (idx == self.selected_idx)
-            if active then
-                Theme.setColor(Theme.status.warn)
-                love.graphics.print("> " .. item.name, sidebar_x + text_margin, cat_y)
-            else
-                Theme.setColor(owned_set[item.id] and Theme.fg.primary or Theme.fg.disabled)
-                love.graphics.print("  " .. item.name, sidebar_x + text_margin, cat_y)
+        local sm    = game.fonts.sm
+        local row_h = sm:getHeight() + fl(4 * s)
+        local view_y = cat_y
+        local view_h = (sidebar_y + sidebar_h) - view_y - fl(8 * s)
+        self._list_rect = { x = sidebar_x, y = view_y, w = sidebar_w, h = view_h }
+
+        -- Virtual layout pass: every visible row's y offset from list top.
+        local rows, vy, sel_vy = {}, 0, nil
+        for _, g in ipairs(self.groups) do
+            rows[#rows + 1] = { kind = "group", group = g, vy = vy }
+            vy = vy + row_h
+            if not g.collapsed then
+                for _, idx in ipairs(g.indices) do
+                    rows[#rows + 1] = { kind = "item", idx = idx, vy = vy }
+                    if idx == self.selected_idx then sel_vy = vy end
+                    vy = vy + row_h
+                end
             end
-            cat_y = cat_y + fl(16 * s)
+        end
+        local total_h    = vy
+        local max_scroll = math.max(0, total_h - view_h)
+
+        -- Bring the selection into view when it just moved.
+        if self._scroll_to_sel then
+            self._scroll_to_sel = false
+            if sel_vy then
+                if sel_vy < self.list_scroll then
+                    self.list_scroll = sel_vy
+                elseif sel_vy + row_h > self.list_scroll + view_h then
+                    self.list_scroll = sel_vy + row_h - view_h
+                end
+            end
+        end
+        if self.list_scroll > max_scroll then self.list_scroll = max_scroll end
+        if self.list_scroll < 0 then self.list_scroll = 0 end
+
+        -- Stamp absolute y on the rows for click hit-testing.
+        self._list_rows = rows
+        for _, row in ipairs(rows) do
+            row.y = view_y + row.vy - self.list_scroll
+            row.h = row_h
+        end
+
+        -- Truncate a label to the row width (cached per item + width).
+        local label_w = sidebar_w - text_margin * 2 - fl(14 * s)
+        local function trimmed(item)
+            if item._trim and item._trim_w == label_w then return item._trim end
+            local txt = item.name or item.id
+            if sm:getWidth(txt) > label_w then
+                repeat txt = txt:sub(1, -2)
+                until sm:getWidth(txt .. "…") <= label_w or #txt <= 1
+                txt = txt .. "…"
+            end
+            item._trim, item._trim_w = txt, label_w
+            return txt
+        end
+
+        love.graphics.setScissor(sidebar_x, view_y, sidebar_w, view_h)
+        love.graphics.setFont(sm)
+        local text_pad = fl(2 * s)
+        for _, row in ipairs(rows) do
+            if row.y + row_h >= view_y and row.y <= view_y + view_h then
+                if row.kind == "group" then
+                    local g   = row.group
+                    local hov = mx >= sidebar_x and mx < sidebar_x + sidebar_w
+                            and my >= row.y and my < row.y + row_h
+                    if hov then
+                        Theme.setColor(Theme.bg.widget_hover)
+                        love.graphics.rectangle("fill", sidebar_x, row.y, sidebar_w, row_h)
+                    end
+                    Theme.setColor(Theme.fg.heading)
+                    love.graphics.print(
+                        (g.collapsed and "+ " or "- ") .. g.name
+                        .. " (" .. #g.indices .. ")",
+                        sidebar_x + text_margin, row.y + text_pad)
+                else
+                    local item   = self.placeable[row.idx]
+                    local active = (row.idx == self.selected_idx)
+                    local hov = mx >= sidebar_x and mx < sidebar_x + sidebar_w
+                            and my >= row.y and my < row.y + row_h
+                    if active then
+                        Theme.setColor(Theme.bg.widget_hover)
+                        love.graphics.rectangle("fill", sidebar_x, row.y, sidebar_w, row_h)
+                        Theme.setColor(Theme.status.warn)
+                        love.graphics.print("> " .. trimmed(item),
+                            sidebar_x + text_margin, row.y + text_pad)
+                    else
+                        if hov then
+                            Theme.setColor(Theme.bg.widget_hover, 0.5)
+                            love.graphics.rectangle("fill", sidebar_x, row.y, sidebar_w, row_h)
+                        end
+                        Theme.setColor(owned_set[item.id] and Theme.fg.primary
+                                       or Theme.fg.disabled)
+                        love.graphics.print("  " .. trimmed(item),
+                            sidebar_x + text_margin, row.y + text_pad)
+                    end
+                end
+            end
+        end
+        love.graphics.setScissor()
+
+        -- Scrollbar.
+        if max_scroll > 0 then
+            local thumb_h = math.max(fl(20 * s), view_h * (view_h / total_h))
+            local thumb_y = view_y + (view_h - thumb_h)
+                            * (self.list_scroll / max_scroll)
+            Theme.setColor(Theme.bg.sunken, 0.6)
+            love.graphics.rectangle("fill", sidebar_x + sidebar_w - 6, view_y, 4, view_h, 2)
+            Theme.setColor(Theme.fg.muted)
+            love.graphics.rectangle("fill", sidebar_x + sidebar_w - 6, thumb_y, 4, thumb_h, 2)
         end
     end
 end
@@ -503,8 +935,9 @@ function RoomView:mousepressed(x, y, button)
         local btn_gap = math.floor(6 * s)
         local btn_x = sidebar_x + text_margin
         
-        local exp_y = sidebar_y + math.floor(225 * s)
+        local exp_y = sidebar_y + math.floor(250 * s)
         local rst_y = exp_y + btn_h + btn_gap
+        local clr_y = rst_y + btn_h + btn_gap
 
         if button == 1 then
             if x >= btn_x and x < btn_x + btn_w then
@@ -517,22 +950,92 @@ function RoomView:mousepressed(x, y, button)
                     -- Re-load initial layout to discard changes
                     self.placed = {}
                     for id, info in pairs(Layout) do
-                        self.placed[#self.placed + 1] = {
-                            id       = id,
-                            gx       = info.gx or 0,
-                            gy       = info.gy or 0,
-                            w        = info.w or 1,
-                            h        = info.h or 1,
-                            z_offset = info.z_offset or 0,
-                            sh       = info.sh or 16,
-                            color    = info.color or { 0.5, 0.5, 0.5 },
-                            scale    = info.scale or 1.0,
-                            flip_x   = info.flip_x or false,
-                        }
+                        if id ~= "__meta" then
+                            self.placed[#self.placed + 1] = {
+                                id       = id,
+                                gx       = info.gx or 0,
+                                gy       = info.gy or 0,
+                                w        = info.w or 1,
+                                h        = info.h or 1,
+                                z_offset = info.z_offset or 0,
+                                sh       = info.sh or 16,
+                                color    = info.color or { 0.5, 0.5, 0.5 },
+                                scale    = info.scale or 1.0,
+                                flip_x   = info.flip_x or false,
+                                align    = info.align or "center",
+                            }
+                        end
                     end
                     self.picked_item = nil
                     print("[room-editor] Reset all layout changes to saved defaults")
                     return true
+                elseif y >= clr_y and y < clr_y + btn_h then
+                    ClickFlash.flash("room_btn", "room_btn")
+                    self.placed = {}
+                    self.picked_item = nil
+                    print("[room-editor] Cleared all furniture items in room")
+                    return true
+                end
+            end
+
+            -- Hit test Room Size arrows
+            if self._size_prev_rect and x >= self._size_prev_rect.x and x < self._size_prev_rect.x + self._size_prev_rect.w
+               and y >= self._size_prev_rect.y and y < self._size_prev_rect.y + self._size_prev_rect.h then
+                self.room_size = math.max(4, self.room_size - 1)
+                ClickFlash.flash("room_btn", "room_btn")
+                return true
+            elseif self._size_next_rect and x >= self._size_next_rect.x and x < self._size_next_rect.x + self._size_next_rect.w
+               and y >= self._size_next_rect.y and y < self._size_next_rect.y + self._size_next_rect.h then
+                self.room_size = math.min(16, self.room_size + 1)
+                ClickFlash.flash("room_btn", "room_btn")
+                return true
+            end
+
+            -- Hit test Floor Theme arrows
+            if self._floor_prev_rect and x >= self._floor_prev_rect.x and x < self._floor_prev_rect.x + self._floor_prev_rect.w
+               and y >= self._floor_prev_rect.y and y < self._floor_prev_rect.y + self._floor_prev_rect.h then
+                self.floor_idx = self.floor_idx - 1
+                if self.floor_idx < 0 then self.floor_idx = #self.floor_list end
+                ClickFlash.flash("room_btn", "room_btn")
+                return true
+            elseif self._floor_next_rect and x >= self._floor_next_rect.x and x < self._floor_next_rect.x + self._floor_next_rect.w
+               and y >= self._floor_next_rect.y and y < self._floor_next_rect.y + self._floor_next_rect.h then
+                self.floor_idx = self.floor_idx + 1
+                if self.floor_idx > #self.floor_list then self.floor_idx = 0 end
+                ClickFlash.flash("room_btn", "room_btn")
+                return true
+            end
+
+            -- Hit test Wall Theme arrows
+            if self._wall_prev_rect and x >= self._wall_prev_rect.x and x < self._wall_prev_rect.x + self._wall_prev_rect.w
+               and y >= self._wall_prev_rect.y and y < self._wall_prev_rect.y + self._wall_prev_rect.h then
+                self.wall_idx = self.wall_idx - 1
+                if self.wall_idx < 0 then self.wall_idx = #self.wall_list end
+                ClickFlash.flash("room_btn", "room_btn")
+                return true
+            elseif self._wall_next_rect and x >= self._wall_next_rect.x and x < self._wall_next_rect.x + self._wall_next_rect.w
+               and y >= self._wall_next_rect.y and y < self._wall_next_rect.y + self._wall_next_rect.h then
+                self.wall_idx = self.wall_idx + 1
+                if self.wall_idx > #self.wall_list then self.wall_idx = 0 end
+                ClickFlash.flash("room_btn", "room_btn")
+                return true
+            end
+
+            -- Item-browser rows: click a folder header to fold/unfold,
+            -- click an item to select it (locked while holding a picked
+            -- item, same as Q/E).
+            local lr = self._list_rect
+            if lr and y >= lr.y and y < lr.y + lr.h then
+                for _, row in ipairs(self._list_rows) do
+                    if y >= row.y and y < row.y + row.h then
+                        if row.kind == "group" then
+                            row.group.collapsed = not row.group.collapsed
+                        elseif not self.picked_item then
+                            self.selected_idx = row.idx
+                            self:syncActiveParams()
+                        end
+                        return true
+                    end
                 end
             end
         end
@@ -540,23 +1043,29 @@ function RoomView:mousepressed(x, y, button)
     end
 
     local cx, cy = getCenter(W, H, s, self.full_screen)
+    cx = math.floor(cx + 0.5)
+    cy = math.floor(cy + 0.5)
 
-    local tw = TILE_W * s
-    local th = TILE_H * s
+    -- Same quantized metrics as draw() — click math must agree with
+    -- where the tiles actually rendered.
+    local tw, th = tileMetrics(s)
 
     local gx, gy = screenToGrid(x, y, cx, cy, tw, th)
-    gx = math.floor(gx)
-    gy = math.floor(gy)
+    local click_gx, click_gy = gx, gy
+
+    local step = self.snap_options[self.snap_idx] or 0.125
+    gx = math.floor(gx / step + 0.5) * step
+    gy = math.floor(gy / step + 0.5) * step
 
     -- Left click
     if button == 1 then
 
-        if gx >= 0 and gx < GRID_SIZE and gy >= 0 and gy < GRID_SIZE then
+        if gx >= 0 and gx + self.active_w <= self.room_size and gy >= 0 and gy + self.active_h <= self.room_size then
             -- 1. Check if hovering an existing object to PICK UP
             local clicked_obj = nil
             local clicked_idx = nil
             for i, o in ipairs(self.placed) do
-                if gx >= o.gx and gx < o.gx + o.w and gy >= o.gy and gy < o.gy + o.h then
+                if click_gx >= o.gx and click_gx < o.gx + o.w and click_gy >= o.gy and click_gy < o.gy + o.h then
                     clicked_obj = o
                     clicked_idx = i
                     break
@@ -576,6 +1085,7 @@ function RoomView:mousepressed(x, y, button)
                     color    = clicked_obj.color,
                     scale    = clicked_obj.scale or 1.0,
                     flip_x   = clicked_obj.flip_x or false,
+                    align    = clicked_obj.align or "center",
                 }
                 -- Load its specs to the active cursor parameters
                 self.active_w  = clicked_obj.w
@@ -584,11 +1094,13 @@ function RoomView:mousepressed(x, y, button)
                 self.active_z  = clicked_obj.z_offset
                 self.active_scale = clicked_obj.scale or 1.0
                 self.active_flip_x = clicked_obj.flip_x or false
+                self.active_align = clicked_obj.align or "center"
                 
-                -- Sync selected_idx to match this item
+                -- Sync selected_idx to match this item (browser follows)
                 for idx, item in ipairs(self.placeable) do
                     if item.id == clicked_obj.id then
                         self.selected_idx = idx
+                        self:_onSelectionChanged()
                         break
                     end
                 end
@@ -619,8 +1131,9 @@ function RoomView:mousepressed(x, y, button)
                         color    = active_spec.id == "poker_poster" and { 0.82, 0.42, 0.38 } or { 0.40, 0.55, 0.75 },
                         scale    = self.active_scale,
                         flip_x   = self.active_flip_x,
+                        align    = self.active_align,
                     })
-                    print(string.format("[room-editor] Placed %s at (%d, %d)", active_spec.id, gx, gy))
+                    print(string.format("[room-editor] Placed %s at (%.3f, %.3f)", active_spec.id, gx, gy))
                     self.picked_item = nil -- successfully placed, clear picked state
                 end
             end
@@ -638,10 +1151,10 @@ function RoomView:mousepressed(x, y, button)
             self:syncActiveParams() -- restore current tool parameters
         else
             -- Delete hovered item
-            if gx >= 0 and gx < GRID_SIZE and gy >= 0 and gy < GRID_SIZE then
+            if click_gx >= 0 and click_gx < self.room_size and click_gy >= 0 and click_gy < self.room_size then
                 for i = #self.placed, 1, -1 do
                     local o = self.placed[i]
-                    if gx >= o.gx and gx < o.gx + o.w and gy >= o.gy and gy < o.gy + o.h then
+                    if click_gx >= o.gx and click_gx < o.gx + o.w and click_gy >= o.gy and click_gy < o.gy + o.h then
                         print("[room-editor] Deleted object: " .. o.id)
                         table.remove(self.placed, i)
                         break
@@ -733,33 +1246,42 @@ function RoomView:keypressed(key)
         return true
     end
 
-    -- Selection cycling (Q / E)
-    if key == "q" then
-        if self.picked_item then return true end
-        self.selected_idx = self.selected_idx - 1
-        if self.selected_idx < 1 then self.selected_idx = #self.placeable end
-        self:syncActiveParams()
-        return true
-    elseif key == "e" then
-        if self.picked_item then return true end
-        self.selected_idx = self.selected_idx + 1
-        if self.selected_idx > #self.placeable then self.selected_idx = 1 end
-        self:syncActiveParams()
+    -- Grid snap cycling
+    if key == "g" then
+        self.snap_idx = self.snap_idx + 1
+        if self.snap_idx > #self.snap_options then self.snap_idx = 1 end
+        print("[room-editor] Grid snap step set to: " .. self.snap_options[self.snap_idx])
         return true
     end
 
-    -- Selection cycling backup (Up / Down)
-    if key == "up" then
+    -- Alignment cycling
+    if key == "a" then
+        if self.active_align == "center" then
+            self.active_align = "left_wall"
+        elseif self.active_align == "left_wall" then
+            self.active_align = "right_wall"
+        else
+            self.active_align = "center"
+        end
+        print("[room-editor] Alignment set to: " .. self.active_align)
+        return true
+    end
+
+    -- Selection cycling (Q/E, or Up/Down). The browser follows: the
+    -- selection's folder unfolds and the list scrolls it into view.
+    if key == "q" or key == "up" then
         if self.picked_item then return true end
         self.selected_idx = self.selected_idx - 1
         if self.selected_idx < 1 then self.selected_idx = #self.placeable end
         self:syncActiveParams()
+        self:_onSelectionChanged()
         return true
-    elseif key == "down" then
+    elseif key == "e" or key == "down" then
         if self.picked_item then return true end
         self.selected_idx = self.selected_idx + 1
         if self.selected_idx > #self.placeable then self.selected_idx = 1 end
         self:syncActiveParams()
+        self:_onSelectionChanged()
         return true
     end
 
@@ -786,6 +1308,7 @@ function RoomView:syncActiveParams()
             self.active_sh = o.sh
             self.active_scale = o.scale or 1.0
             self.active_flip_x = o.flip_x or false
+            self.active_align = o.align or "center"
             found = true
             break
         end
@@ -798,12 +1321,20 @@ function RoomView:syncActiveParams()
         self.active_z  = 0
         self.active_scale = 1.0
         self.active_flip_x = false
+        self.active_align = "center"
     end
 end
 
--- Cycle through selector via scroll wheel
+-- Wheel: over the sidebar it scrolls the item browser; over the room it
+-- cycles the selection (and the browser follows the selection).
 function RoomView:wheelmoved(dy)
     if not self.editor_mode then return false end
+    local mx = love.mouse.getX()
+    local s  = self.game.ui_scale or 1
+    if mx < math.floor(270 * s) then
+        self.list_scroll = self.list_scroll - dy * math.floor(40 * s)
+        return true   -- clamped in draw against the live layout
+    end
     if self.picked_item then return true end
     if dy > 0 then
         self.selected_idx = self.selected_idx - 1
@@ -813,6 +1344,7 @@ function RoomView:wheelmoved(dy)
         if self.selected_idx > #self.placeable then self.selected_idx = 1 end
     end
     self:syncActiveParams()
+    self:_onSelectionChanged()
     return true
 end
 
@@ -820,6 +1352,15 @@ end
 function RoomView:serializeLayout()
     print("---------------- COPY FROM LINE BELOW ----------------")
     print("return {")
+    
+    local floor_theme = self.floor_idx == 0 and "Default" or self.floor_list[self.floor_idx]
+    local wall_theme = self.wall_idx == 0 and "Default" or self.wall_list[self.wall_idx]
+    print("    __meta = {")
+    print(string.format("        room_size = %d,", self.room_size))
+    print(string.format("        floor_theme = %q,", floor_theme))
+    print(string.format("        wall_theme = %q,", wall_theme))
+    print("    },")
+
     -- Sort placed items alphabetically by id for neatness
     local sorted = {}
     for _, o in ipairs(self.placed) do sorted[#sorted + 1] = o end
@@ -828,8 +1369,9 @@ function RoomView:serializeLayout()
     for _, o in ipairs(sorted) do
         local scale_str = o.scale and string.format(", scale = %.2f", o.scale) or ""
         local flip_str = o.flip_x and ", flip_x = true" or ""
-        print(string.format("    %-20s = { gx = %d, gy = %d, w = %d, h = %d, z_offset = %d, sh = %d, color = { %.2f, %.2f, %.2f }%s%s },",
-            o.id, o.gx, o.gy, o.w, o.h, o.z_offset, o.sh, o.color[1], o.color[2], o.color[3], scale_str, flip_str))
+        local align_str = o.align and o.align ~= "center" and string.format(", align = %q", o.align) or ""
+        print(string.format("    %-20s = { gx = %.3f, gy = %.3f, w = %d, h = %d, z_offset = %d, sh = %d, color = { %.2f, %.2f, %.2f }%s%s%s },",
+            o.id, o.gx, o.gy, o.w, o.h, o.z_offset, o.sh, o.color[1], o.color[2], o.color[3], scale_str, flip_str, align_str))
     end
     print("}")
     print("------------------------------------------------------")

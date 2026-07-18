@@ -104,7 +104,7 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
     local speed_px   = speed_frac * diag
 
     for _, c in ipairs(_cursors) do
-        c:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher)
+        c:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher, ctx)
         -- Play the cursor-tap sound for cursors that just dispatched. The
         -- flag is set inside Cursor:update at the click site; consume here
         -- so it only fires once per click.

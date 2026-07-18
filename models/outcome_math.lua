@@ -40,6 +40,30 @@ local OutcomeMath = {}
 local TIER_KEYS = { "small", "medium", "large", "jackpot" }
 OutcomeMath.TIER_KEYS = TIER_KEYS
 
+-- Name → 1-based rank. Shared source of truth for tier ordering so
+-- effect applicators (poker_effects tier floors/ceilings) and the
+-- sampler agree. TIER_KEYS is the inverse (rank → name).
+local TIER_INDEX = { small = 1, medium = 2, large = 3, jackpot = 4 }
+OutcomeMath.TIER_INDEX = TIER_INDEX
+
+-- Raise `tier` to at least `floor_idx` (a rank). Used by deck capstones
+-- like Standard ("wins never roll Small") and Maniac ("no pot below Large").
+function OutcomeMath.clampTierFloor(tier, floor_idx)
+    if not floor_idx then return tier end
+    local idx = TIER_INDEX[tier] or 1
+    if idx < floor_idx then return TIER_KEYS[floor_idx] or tier end
+    return tier
+end
+
+-- Lower `tier` to at most `ceil_idx` (a rank). Used by the Nit capstone
+-- ("stack loss cannot happen" — caps the loss tier below jackpot).
+function OutcomeMath.clampTierCeiling(tier, ceil_idx)
+    if not ceil_idx then return tier end
+    local idx = TIER_INDEX[tier] or 1
+    if idx > ceil_idx then return TIER_KEYS[ceil_idx] or tier end
+    return tier
+end
+
 local WC_ABSOLUTE_CAP = 0.95   -- final WC ceiling regardless of fill/shifts
 OutcomeMath.WC_ABSOLUTE_CAP = WC_ABSOLUTE_CAP
 
@@ -111,12 +135,19 @@ local function shiftApplies(shift, gtype)
 end
 OutcomeMath.shiftApplies = shiftApplies
 
--- Sum strength across descriptors that match this gtype.
-local function sumFills(list, gtype)
+-- Sum strength across descriptors that match this gtype. Optional
+-- `tier_min` / `tier_max` bounds on a descriptor (1-based stake index)
+-- scope a fill to certain stakes only — e.g. High Roller fills WC at T4+
+-- exclusively. Unbounded descriptors apply everywhere.
+local function sumFills(list, gtype, tier_idx, ctx)
     if not list then return 0 end
     local total = 0
+    local cascade = ctx and ctx.fill_cascade
     for _, d in ipairs(list) do
-        if shiftApplies(d, gtype) then
+        local tier_ok = cascade
+                    or ((not d.tier_min or (tier_idx and tier_idx >= d.tier_min))
+                    and (not d.tier_max or (tier_idx and tier_idx <= d.tier_max)))
+        if tier_ok and shiftApplies(d, gtype) then
             total = total + (d.strength or 1)
         end
     end
@@ -125,16 +156,31 @@ end
 OutcomeMath.sumFills = sumFills
 
 -- Convert fill units to a [0, 1] ratio via the stake's fill_window.
--- Below window.start: 0 (warmup). At window.complete: 1. Linear in between.
-local function fillRatio(units, window)
+-- Below window.start: 0 (warmup). At window.complete: 1. Linear between,
+-- divided by the ACTUAL span and clamped to [0, 1]. Optional widening
+-- (fill_window_widen) grows the window symmetrically; cascade (fill_cascade,
+-- Tier Manipulator capstone) opens the window from 0 and completes at the
+-- current fill so every stake reaches full.
+local function fillRatio(units, window, ctx)
     if not window then return 1 end
     local start    = window.start    or 0
     local complete = window.complete or (start + 1)
-    local span     = complete - start
+
+    local L = ctx and ctx.fill_window_widen
+    if L and L > 0 then
+        start    = math.max(0, start - math.ceil(L / 2))
+        complete = complete + math.floor(L / 2)
+    end
+
+    if ctx and ctx.fill_cascade then
+        start    = 0
+        complete = math.max(complete, units)
+    end
+
+    local span = complete - start
     if span <= 0 then return units >= complete and 1 or 0 end
     local r = (units - start) / span
-    if r < 0 then return 0 end
-    if r > 1 then return 1 end
+    if r < 0 then return 0 elseif r > 1 then return 1 end
     return r
 end
 OutcomeMath.fillRatio = fillRatio
@@ -157,16 +203,20 @@ OutcomeMath.lerpDist = lerpDist
 -- table, given the player ctx. Returns three fresh values; caller may
 -- mutate the dist tables freely.
 function OutcomeMath.buildOutcome(ctx, gtype, stake)
-    -- 1. Sum fill units per dimension (filtered by gtype).
-    local wc_units = sumFills(ctx and ctx.win_chance_fills, gtype)
-    local wd_units = sumFills(ctx and ctx.win_dist_fills,   gtype)
-    local ld_units = sumFills(ctx and ctx.loss_dist_fills,  gtype)
+    -- Stake's 1-based tier index (T1..T6) — used both by tier-scoped fill
+    -- descriptors here and by the win_dist_shift bounds at step 4c.
+    local tier_idx = stake and Lookups.indexById(StakesData, stake.id) or nil
+
+    -- 1. Sum fill units per dimension (filtered by gtype + tier bounds).
+    local wc_units = sumFills(ctx and ctx.win_chance_fills, gtype, tier_idx, ctx)
+    local wd_units = sumFills(ctx and ctx.win_dist_fills,   gtype, tier_idx, ctx)
+    local ld_units = sumFills(ctx and ctx.loss_dist_fills,  gtype, tier_idx, ctx)
 
     -- 2. Convert to fill ratio via stake's window.
     local window = stake and stake.fill_window
-    local wc_fill = fillRatio(wc_units, window)
-    local wd_fill = fillRatio(wd_units, window)
-    local ld_fill = fillRatio(ld_units, window)
+    local wc_fill = fillRatio(wc_units, window, ctx)
+    local wd_fill = fillRatio(wd_units, window, ctx)
+    local ld_fill = fillRatio(ld_units, window, ctx)
 
     -- 3. Lerp naked → run-capped on each dimension.
     local naked_wc  = (stake and stake.win_chance)        or 0
@@ -199,7 +249,6 @@ function OutcomeMath.buildOutcome(ctx, gtype, stake)
     --     stakes. Stake tier index is the 1-based position in the
     --     Stakes data list — looked up via Lookups.indexById.
     if ctx and ctx.win_dist_shifts then
-        local tier_idx = stake and Lookups.indexById(StakesData, stake.id) or nil
         for _, sh in ipairs(ctx.win_dist_shifts) do
             local tier_ok = (not sh.tier_min or (tier_idx and tier_idx >= sh.tier_min))
                             and (not sh.tier_max or (tier_idx and tier_idx <= sh.tier_max))
@@ -286,6 +335,17 @@ function OutcomeMath.sampleOutcome(win_chance, win_dist, loss_dist, ctx, gtype)
         won = love.math.random() < win_chance
     end
     local tier = sampleDist(won and win_dist or loss_dist) or "small"
+
+    -- Deck-capstone tier rules clamp the sampled tier. Win side: floor
+    -- (Standard "no Small wins"). Loss side: ceiling (the Nit bans jackpot
+    -- "stack" losses by capping below jackpot).
+    if ctx then
+        if won then
+            tier = OutcomeMath.clampTierFloor(tier, ctx.win_tier_floor)
+        else
+            tier = OutcomeMath.clampTierCeiling(tier, ctx.loss_tier_ceiling)
+        end
+    end
     return won, tier
 end
 

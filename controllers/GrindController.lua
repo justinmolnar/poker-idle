@@ -77,7 +77,8 @@ end
 -- Recompute the effects context from the player's owned items + run upgrades.
 -- Called on construction and after any purchase / prestige reset.
 function GrindController:invalidateEffects()
-    self.ctx = self.game.state:computeEffects(self.game.effects, Catalog, RunUpgrades)
+    local n_tables = self.pool and self.pool:count() or 0
+    self.ctx = self.game.state:computeEffects(self.game.effects, Catalog, RunUpgrades, { active_tables_count = n_tables })
 end
 
 -- Maximum concurrent tables. The catalog no longer gates *how many* tables
@@ -92,6 +93,9 @@ end
 -- design discussion in the plan file. n_tables beyond capacity gets shaved
 -- by base_penalty * penalty_reduce_mult, floored at FOCUS_FLOOR.
 function GrindController:currentFocusMult()
+    if self.ctx and self.ctx.focus_penalty_immune then
+        return 1.0
+    end
     local n        = self.pool:count()
     local base_cap = Constants.GAMEPLAY.FOCUS_BASE_CAPACITY
     local cap      = base_cap + ((self.ctx and self.ctx.focus_capacity) or 0)
@@ -197,11 +201,19 @@ function GrindController:update(dt)
                 -- run. Tournaments only "jackpot" once — on the win — so it's
                 -- banked here, not on the per-hand cash path. Rides into the
                 -- celebration block below.
-                local award = 0
                 local state = self.game.state
-                local key   = bountyKey(t.stake_id, t.game_type_id)
-                if not state.stakes_won_this_run[key] then
-                    state.stakes_won_this_run[key] = true
+                local cap = 1
+                local key = bountyKey(t.stake_id, t.game_type_id)
+                local cur = state.stakes_won_this_run[key]
+                local count = 0
+                if cur == true then
+                    count = 1
+                elseif type(cur) == "number" then
+                    count = cur
+                end
+                local award = 0
+                if count < cap then
+                    state.stakes_won_this_run[key] = count + 1
                     state.hands_since_last_bank = 0
                     -- Same award math as the cash jackpot path (incl.
                     -- chip_award_mult AND Pen's flat bonus — this used to
@@ -256,6 +268,15 @@ function GrindController:update(dt)
         -- currentFocusMult prevents zero, so a tiny positive delta is
         -- still positive and counts as a win for the chip bounty.
         r.delta = r.delta * focus_mult
+
+        -- Bank capstone: scale every hand's magnitude by a bankroll-log
+        -- multiplier, read live here (magnitude-only, commutes with the
+        -- focus mult). Lives here rather than in Table so the effects
+        -- cache never has to carry live bankroll.
+        if self.ctx and self.ctx.earnings_scale_by_bankroll then
+            local br = self.game.state.bankroll or 0
+            r.delta = r.delta * (1.0 + math.log10(br + 1) * 0.1)
+        end
 
         -- Wins/losses land on the table's stack first. Above the 100bb
         -- cap (= stake.buy_in) the surplus spills to bankroll; below
@@ -472,9 +493,17 @@ function GrindController:update(dt)
         if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table then
             local tbl = self.pool.tables[r.table_idx]
             if tbl then
+                local cap = 1
                 local key = bountyKey(tbl.stake_id, tbl.game_type_id)
-                if not state.stakes_won_this_run[key] then
-                    state.stakes_won_this_run[key] = true
+                local cur = state.stakes_won_this_run[key]
+                local count = 0
+                if cur == true then
+                    count = 1
+                elseif type(cur) == "number" then
+                    count = cur
+                end
+                if count < cap then
+                    state.stakes_won_this_run[key] = count + 1
                     state.hands_since_last_bank = 0
                     local award = self:bountyAward(tbl.stake_id)
                     if award > 0 then
@@ -541,6 +570,8 @@ function GrindController:update(dt)
             -- can filter on.
             local bb           = (stake and stake.bb and stake.bb > 0) and stake.bb or nil
             local stake_tier_idx = stake and Lookups.indexById(Stakes, stake.id) or nil
+            local base_cap = Constants.GAMEPLAY.FOCUS_BASE_CAPACITY
+            local focus_cap = base_cap + ((self.ctx and self.ctx.focus_capacity) or 0)
             self:_grantDeckXp({
                 won            = r.won and true or false,
                 delta          = r.delta,
@@ -549,6 +580,7 @@ function GrindController:update(dt)
                 gtype          = gtype_id,
                 stake_tier_idx = stake_tier_idx,
                 n_tables       = n_tables,
+                focus_capacity = focus_cap,
             })
 
             -- Newly-met unlock thresholds flip locked decks into the
@@ -600,8 +632,14 @@ end
 -- keep both writers using the same key format.
 function GrindController:bountyBanked(stake_id, game_type_id)
     local key = bountyKey(stake_id, game_type_id)
-    return self.game.state.stakes_won_this_run
-        and self.game.state.stakes_won_this_run[key] == true
+    local cur = self.game.state.stakes_won_this_run and self.game.state.stakes_won_this_run[key]
+    local count = 0
+    if cur == true then
+        count = 1
+    elseif type(cur) == "number" then
+        count = cur
+    end
+    return count >= 1
 end
 
 -- THE bounty math — base stake.chip_award scaled by ctx.chip_award_mult,
@@ -627,11 +665,19 @@ function GrindController:buyRunUpgrade(upgrade_id)
     if not self:_requirementMet(upgrade.requires) then return false end
 
     local current = state.run_upgrade_levels[upgrade_id] or 0
-    local max_lvl = upgrade.max_level or 1
+    local max_lvl = self:getRunUpgradeMaxLevel(upgrade)
     if current >= max_lvl then return false end
 
     local cost_mult = (self.ctx and self.ctx.run_upgrade_cost_mult) or 1
-    local cost = (upgrade.costs and upgrade.costs[current + 1]) or 0
+    local cost = 0
+    if upgrade.costs then
+        if current + 1 <= #upgrade.costs then
+            cost = upgrade.costs[current + 1]
+        else
+            local last_cost = upgrade.costs[#upgrade.costs] or 0
+            cost = last_cost * 3.0
+        end
+    end
     cost = cost * cost_mult
     if state.bankroll < cost then return false end
 
@@ -645,6 +691,15 @@ function GrindController:buyRunUpgrade(upgrade_id)
         cost_dollars = cost,
         bankroll     = state.bankroll,
     })
+
+    -- Grant deck XP for purchasing upgrade
+    self:_grantDeckXp({
+        type         = "run_upgrade",
+        item_id      = upgrade_id,
+        level        = current + 1,
+        cost_dollars = cost,
+    })
+
     self:invalidateEffects()
     self:_playNamed("upgrade_purchased")
     return true
@@ -657,11 +712,27 @@ function GrindController:getRunUpgradeLevel(upgrade_id)
     return self.game.state.run_upgrade_levels[upgrade_id] or 0
 end
 
+function GrindController:getRunUpgradeMaxLevel(upgrade)
+    if not upgrade then return 0 end
+    local max_lvl = upgrade.max_level or 1
+    max_lvl = max_lvl + ((self.ctx and self.ctx.run_upgrade_bonus_levels) or 0)
+    return max_lvl
+end
+
 function GrindController:getRunUpgradeNextCost(upgrade)
     if not upgrade then return nil end
     local current = self.game.state.run_upgrade_levels[upgrade.id] or 0
-    if current >= (upgrade.max_level or 1) then return nil end
-    local cost = (upgrade.costs and upgrade.costs[current + 1]) or 0
+    local max_lvl = self:getRunUpgradeMaxLevel(upgrade)
+    if current >= max_lvl then return nil end
+    local cost = 0
+    if upgrade.costs then
+        if current + 1 <= #upgrade.costs then
+            cost = upgrade.costs[current + 1]
+        else
+            local last_cost = upgrade.costs[#upgrade.costs] or 0
+            cost = last_cost * 3.0
+        end
+    end
     return cost * ((self.ctx and self.ctx.run_upgrade_cost_mult) or 1)
 end
 
@@ -670,12 +741,29 @@ end
 -- playable tables (stack > 0) AND the post-purchase bankroll is below the
 -- cheapest stake's adjusted buy-in. Used by the upgrades tab to disable
 -- buttons that would silently end the run.
+-- Effective buy-in multiplier for a given stake: the unbounded scalar
+-- (Discount Sits) times any tier-scoped multipliers (High Roller halves
+-- T4+ buy-ins) whose bounds include this stake's tier index. The one
+-- place buy-in discounting resolves, so every buy site agrees.
+function GrindController:buyInMultFor(stake)
+    local ctx  = self.ctx
+    local mult = (ctx and ctx.buy_in_mult) or 1
+    if ctx and ctx.buy_in_mult_tiered and stake then
+        local idx = Lookups.indexById(Stakes, stake.id)
+        for _, e in ipairs(ctx.buy_in_mult_tiered) do
+            local tier_ok = (not e.tier_min or (idx and idx >= e.tier_min))
+                        and (not e.tier_max or (idx and idx <= e.tier_max))
+            if tier_ok then mult = mult * (e.value or 1) end
+        end
+    end
+    return mult
+end
+
 -- Cheapest table the player could open right now (min buy-in x buy_in_mult).
 function GrindController:_cheapestBuyIn()
-    local mult = (self.ctx and self.ctx.buy_in_mult) or 1
     local cheapest
     for _, s in ipairs(Stakes) do
-        local bi = (s.buy_in or 0) * mult
+        local bi = (s.buy_in or 0) * self:buyInMultFor(s)
         if not cheapest or bi < cheapest then cheapest = bi end
     end
     return cheapest
@@ -778,11 +866,12 @@ function GrindController:addTable(stake_id, game_type_id)
     if self.pool:count() >= self:tableSlotsCap() then return false end
     local stake = Lookups.findById(Stakes,stake_id)
     if not stake then return false end
-    local mult = (self.ctx and self.ctx.buy_in_mult) or 1
+    local mult = self:buyInMultFor(stake)
     local cost = (stake.buy_in or 0) * mult
     if self.game.state.bankroll < cost then return false end
     self.game.state.bankroll = self.game.state.bankroll - cost
     self.pool:addTable(stake_id, game_type_id or "six_max", self.ctx)
+    self:invalidateEffects()
     -- Any cash left on the table after the discount counts as the table's
     -- starting stack — Table:new already seeds stack to stake.buy_in (the
     -- 100bb cap), so the discount effectively lets the player keep the
@@ -847,6 +936,7 @@ function GrindController:_finalizeRemove(idx)
     self:_emitCashOutChips(t, refund)
     self.pool:removeTable(idx)
     self.game.state.bankroll = self.game.state.bankroll + refund
+    self:invalidateEffects()
     return true
 end
 
@@ -882,7 +972,7 @@ function GrindController:changeTableStake(idx, new_stake_id)
     if not t then return false end
     local new_stake = Lookups.findById(Stakes,new_stake_id)
     if not new_stake then return false end
-    local mult   = (self.ctx and self.ctx.buy_in_mult) or 1
+    local mult   = self:buyInMultFor(new_stake)
     local refund = t.stack or 0
     local cost   = (new_stake.buy_in or 0) * mult
     local diff   = cost - refund
@@ -1095,20 +1185,33 @@ function GrindController:rebuyTable(idx)
     if not t then return false end
     if (t.stack or 0) > 0 then return false end
     local stake = Lookups.findById(Stakes,t.stake_id)
-    local cost  = (stake and stake.buy_in) or 0
+    local buy_in = (stake and stake.buy_in) or 0
+    local cost  = buy_in
+    if self.ctx then
+        local discount = self.ctx.rebuy_discount or 0
+        cost = buy_in * (1.0 - discount)
+        local free_chance = self.ctx.free_rebuy_chance or 0
+        if free_chance > 0 and love.math.random() < free_chance then
+            cost = 0
+        end
+    end
     local state = self.game.state
     if state.bankroll < cost then return false end
     state.bankroll = state.bankroll - cost
-    t.stack = cost
+    t.stack = buy_in
     -- Tournament tables: rebuy is also "register again" — reset the
     -- per-tournament counter so the next DEAL starts a fresh 8-hand run.
     -- Sync the parallel save arrays so the next autosave tick captures
     -- the post-rebuy state cleanly.
     if t.mtt then t.mtt:reset() end
     self.pool:_syncStateList()
+    -- Grant deck XP for rebuy
+    self:_grantDeckXp({
+        type = "table_rebuy",
+    })
     -- Bankroll → YOU stack chip burst (table positions are already known
     -- because the table has been on screen long enough to bust).
-    self:_emitBuyInChips(t, cost)
+    self:_emitBuyInChips(t, buy_in)
     self:_playNamed("rebuy_clack")
     -- Auto-deal the first hand so REBUY is a one-click flow (was two:
     -- click REBUY, then click DEAL). The cursor swarm picks up subsequent

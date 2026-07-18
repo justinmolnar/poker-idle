@@ -15,6 +15,8 @@
 -- THERE IS NO if/elseif chain on `kind` strings ANYWHERE. If you find
 -- yourself writing one, you're doing it wrong — register a function instead.
 
+local OutcomeMath = require("models.outcome_math")
+
 local PokerEffects = {}
 
 function PokerEffects.registerAll(reg)
@@ -56,11 +58,15 @@ function PokerEffects.registerAll(reg)
     -- naked → run-capped via the stake's fill_window.
 
     -- WC fill: each level adds `strength` units toward closing the WC gap.
+    -- Optional tier_min / tier_max (1-based stake index) scope the fill to
+    -- certain stakes only — High Roller fills WC at T4+ exclusively.
     reg:register("win_chance_fill", function(e, ctx)
         ctx.win_chance_fills = ctx.win_chance_fills or {}
         ctx.win_chance_fills[#ctx.win_chance_fills + 1] = {
             strength = e.strength or 1,
             gtype    = e.gtype,
+            tier_min = e.tier_min,
+            tier_max = e.tier_max,
         }
     end)
 
@@ -186,8 +192,22 @@ function PokerEffects.registerAll(reg)
     reg:register("start_table_count", function(e, ctx)
         ctx.start_table_count = (ctx.start_table_count or 0) + e.value
     end)
+    -- Buy-in cost multiplier. Unbounded entries fold into the scalar
+    -- ctx.buy_in_mult (applies at every stake). Tier-bounded entries
+    -- (tier_min / tier_max, 1-based stake index) go on a descriptor list
+    -- so the buy site can apply them only at matching stakes — High
+    -- Roller halves buy-ins at T4+ only. See GrindController.buyInMultFor.
     reg:register("buy_in_mult", function(e, ctx)
-        ctx.buy_in_mult = (ctx.buy_in_mult or 1) * e.value
+        if e.tier_min or e.tier_max then
+            ctx.buy_in_mult_tiered = ctx.buy_in_mult_tiered or {}
+            ctx.buy_in_mult_tiered[#ctx.buy_in_mult_tiered + 1] = {
+                value    = e.value or 1,
+                tier_min = e.tier_min,
+                tier_max = e.tier_max,
+            }
+        else
+            ctx.buy_in_mult = (ctx.buy_in_mult or 1) * (e.value or 1)
+        end
     end)
     reg:register("run_upgrade_cost_mult", function(e, ctx)
         ctx.run_upgrade_cost_mult = (ctx.run_upgrade_cost_mult or 1) * e.value
@@ -231,6 +251,109 @@ function PokerEffects.registerAll(reg)
     -- tier in data/mtt_payouts.lua, not their sum.
     reg:register("mtt_payout_boost", function(e, ctx)
         ctx.mtt_payout_boost = math.max(ctx.mtt_payout_boost or 0, e.value or 0)
+    end)
+
+    -- ── Deck effect kinds (generic capabilities) ───────────────────────
+    -- These are CAPABILITY kinds — none names a deck. Decks compose them
+    -- from data/decks.lua (numbers live there, not here). Tier floors/
+    -- ceilings clamp the sampled tier in outcome_math.sampleOutcome
+    -- (stored as ranks, combined by max/min); the rest set ctx fields
+    -- their consumer sites read with `if ctx.<field>` — the same flag
+    -- pattern as cursor_unlocked.
+
+    -- Wins can't roll below this tier (Standard capstone: medium).
+    reg:register("win_tier_floor", function(e, ctx)
+        local idx = OutcomeMath.TIER_INDEX[e.tier]
+        if idx then ctx.win_tier_floor = math.max(ctx.win_tier_floor or 0, idx) end
+    end)
+    -- Losses can't roll ABOVE this tier (Nit capstone: large — bans the
+    -- jackpot "stack" loss entirely).
+    reg:register("loss_tier_ceiling", function(e, ctx)
+        local idx = OutcomeMath.TIER_INDEX[e.tier]
+        if idx then ctx.loss_tier_ceiling = math.min(ctx.loss_tier_ceiling or math.huge, idx) end
+    end)
+
+    -- Per-resolve chance to bump the sampled tier one step (win or loss).
+    -- Consumed via a NEXT_TIER lookup in models/Table.lua (Maniac capstone).
+    reg:register("tier_bump_chance", function(e, ctx)
+        ctx.tier_bump_chance = math.max(ctx.tier_bump_chance or 0, e.value or 0)
+    end)
+    -- Per-resolve chance to double the payout magnitude (Maniac capstone).
+    reg:register("payout_double_chance", function(e, ctx)
+        ctx.payout_double_chance = math.max(ctx.payout_double_chance or 0, e.value or 0)
+    end)
+
+    -- Additive rebuy-cost discount fraction (Short Stack). Consumed in
+    -- GrindController:rebuyTable as cost = buy_in * (1 - discount).
+    reg:register("rebuy_discount", function(e, ctx)
+        ctx.rebuy_discount = (ctx.rebuy_discount or 0) + (e.value or 0)
+    end)
+    -- Chance for a rebuy to be free (Short Stack capstone).
+    reg:register("free_rebuy_chance", function(e, ctx)
+        ctx.free_rebuy_chance = math.max(ctx.free_rebuy_chance or 0, e.value or 0)
+    end)
+
+    -- Additive earnings bonus per stake tier index (The Bank). Consumed in
+    -- models/Table.lua as earnings_mult *= (1 + value * tier_idx).
+    reg:register("earnings_per_tier", function(e, ctx)
+        ctx.earnings_per_tier = (ctx.earnings_per_tier or 0) + (e.value or 0)
+    end)
+    -- Scale every hand's magnitude by a bankroll-log multiplier (The Bank
+    -- capstone). Magnitude-only flag; applied at resolve time in
+    -- GrindController where live bankroll is available.
+    reg:register("earnings_scale_by_bankroll", function(_e, ctx)
+        ctx.earnings_scale_by_bankroll = true
+    end)
+
+    -- Removes the multi-table focus penalty (Multitasker capstone).
+    reg:register("focus_penalty_immune", function(_e, ctx)
+        ctx.focus_penalty_immune = true
+    end)
+
+    -- Multiplies the strength of every run-upgrade effect (Investor).
+    -- Additive accumulation from 1.0; consumed in GameState:computeEffects.
+    reg:register("run_upgrade_strength_mult", function(e, ctx)
+        ctx.run_upgrade_strength_mult = (ctx.run_upgrade_strength_mult or 1.0) + (e.value or 0)
+    end)
+    -- Adds extra purchasable levels to run upgrades (Investor capstone).
+    reg:register("run_upgrade_bonus_levels", function(e, ctx)
+        ctx.run_upgrade_bonus_levels = (ctx.run_upgrade_bonus_levels or 0) + (e.value or 0)
+    end)
+
+    -- Widens every stake's fill_window (Tier Manipulator). Consumed in
+    -- outcome_math.fillRatio.
+    reg:register("fill_window_widen", function(e, ctx)
+        ctx.fill_window_widen = (ctx.fill_window_widen or 0) + (e.value or 1)
+    end)
+    -- Ignores tier bounds and completes fills regardless of stake (Tier
+    -- Manipulator capstone). Consumed in outcome_math sumFills + fillRatio.
+    reg:register("fill_cascade", function(_e, ctx)
+        ctx.fill_cascade = true
+    end)
+
+    -- Single-table bonus (Specialist): magnitudes and win-chance shift that
+    -- only apply while exactly one table is open. active_tables_count is a
+    -- transient param seeded into ctx by GrindController:invalidateEffects.
+    reg:register("solo_table_bonus", function(e, ctx)
+        if ctx.active_tables_count == 1 then
+            ctx.earnings_mult = (ctx.earnings_mult or 1) * (e.earnings_mult or 1)
+            if e.wc_bonus then
+                ctx.win_chance_shifts = ctx.win_chance_shifts or {}
+                ctx.win_chance_shifts[#ctx.win_chance_shifts + 1] = { amount = e.wc_bonus }
+            end
+        end
+    end)
+    -- Single-table pace boost (Specialist capstone).
+    reg:register("solo_table_pace", function(e, ctx)
+        if ctx.active_tables_count == 1 then
+            ctx.hand_pace_mult = (ctx.hand_pace_mult or 1) * (e.value or 1)
+        end
+    end)
+
+    -- Cursor swarm: zero the per-click delay (Swarm capstone). Companion to
+    -- the generic cursor_speed_mult, which the same capstone also uses.
+    reg:register("cursor_instant_click", function(_e, ctx)
+        ctx.cursor_zero_click_delay = true
     end)
 end
 

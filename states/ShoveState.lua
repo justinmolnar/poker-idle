@@ -159,6 +159,23 @@ function ShoveState:_onGauntletEnded()
     local chips_banked = state.chips_this_run or 0
     HandAnalytics.recordShoveResult(result, chips_banked)
 
+    local save_needed = false
+    if result.outcomes then
+        if result.outcomes[1] == true and not state.shove_r1_won then
+            state.shove_r1_won = true
+            save_needed = true
+            print("[shove] Won Runout 1 of the gauntlet: unlocked Act 2!")
+        end
+        if result.outcomes[2] == true and not state.shove_r2_won then
+            state.shove_r2_won = true
+            save_needed = true
+            print("[shove] Won Runout 2 of the gauntlet: unlocked Act 3!")
+        end
+    end
+    if save_needed then
+        self.game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
+    end
+
     -- Demo-cut intercept: when FEATURES.DEMO_CUT is on, winning R1 then
     -- losing R2 is the natural cliffhanger that ends the demo. Show the
     -- end-of-prototype modal instead of the bust prestige flow. The

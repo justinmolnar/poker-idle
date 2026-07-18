@@ -40,12 +40,12 @@ DeckSelectModal.__index = DeckSelectModal
 -- tile to carry the name / level / bonus / xp action / xp bar text. The
 -- card art reads behind the panel for atmosphere; the text reads on top
 -- against the dark fill for legibility.
-local MODAL_W_BASE     = 920
-local TILE_W_BASE      = 200
-local TILE_H_BASE      = 240
+local MODAL_W_BASE     = 760
+local TILE_W_BASE      = 160
+local TILE_H_BASE      = 210
 local TILE_GAP_X_BASE  = 16
 local TILE_GAP_Y_BASE  = 12
-local INFO_PANEL_FRAC  = 0.70   -- bottom 70% of the tile is the info panel
+local INFO_PANEL_FRAC  = 0.75   -- bottom 75% of the tile is the info panel
 local INFO_PANEL_ALPHA = 0.88   -- panel opacity (1.0 = card art hidden behind it)
 local BTN_W_BASE       = 200
 local BTN_H_BASE       = 40
@@ -231,8 +231,8 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked)
         return
     end
 
-    -- Unlocked path: level / bonus / xp-action / bar.
-    local level = (state.deck_levels and state.deck_levels[spec.id]) or 1
+    -- Unlocked path: level / bonus / capstone / xp-action / bar.
+    local level = (state.deck_levels and state.deck_levels[spec.id]) or 0
     local xp    = (state.deck_xp     and state.deck_xp[spec.id])     or 0
 
     Theme.setColor(Theme.fg.muted)
@@ -245,7 +245,18 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked)
     Theme.setColor(Theme.fg.primary)
     cursor_y = printCenteredWrapped(spec.bonus_text or "",
                                     content_x, cursor_y, content_w, fonts.sm)
-    cursor_y = cursor_y + math.floor(2 * s)
+    cursor_y = cursor_y + math.floor(4 * s)
+
+    if spec.capstone and spec.capstone.text then
+        if level >= (spec.max_level or 5) then
+            Theme.setColor(Theme.fg.heading)
+        else
+            Theme.setColor(Theme.fg.muted)
+        end
+        cursor_y = printCenteredWrapped("Capstone: " .. spec.capstone.text,
+                                        content_x, cursor_y, content_w, fonts.sm)
+        cursor_y = cursor_y + math.floor(4 * s)
+    end
 
     Theme.setColor(Theme.fg.muted)
     cursor_y = printCenteredWrapped(spec.xp_action_text or "",
