@@ -90,6 +90,10 @@ function GameState:new(saved)
     instance.lifetime_mtt_hands_won         = 0
     instance.lifetime_hands_played          = 0
     instance.lifetime_hands_at_4plus_tables = 0
+    instance.lifetime_rebuys                = 0
+    instance.lifetime_upgrades_bought       = 0
+    instance.lifetime_hands_overwhelmed     = 0   -- hands played over the focus cap (Multitasker unlock)
+    instance.lifetime_chips_banked          = 0   -- {chip} bounties banked, ever (Dogs Playing Poker unlock)
 
     -- Run-side defaults (wiped on prestige).
     instance.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
@@ -139,6 +143,12 @@ function GameState:new(saved)
     instance.chips_this_run      = 0            -- running counter for the prestige modal display
     instance.anti_stakes_won_this_run = {}
     instance.anti_chips_this_run      = 0
+    -- Once-per-run catalog-item flags (Rubber Duck / Fridge / Copy Machine /
+    -- Dogs Playing Poker). Reset each run; the item only fires its first time.
+    instance.first_loss_voided_this_run       = false
+    instance.first_stack_loss_voided_this_run = false
+    instance.denied_copied_this_run           = false
+    instance.first_bounty_this_run            = false
     -- Hands resolved since a {chip} bounty last banked (0 on a banking
     -- hand). Run-scoped; drives the tutorial's shove-stall nudge.
     instance.hands_since_last_bank = 0
@@ -179,6 +189,10 @@ function GameState:resetRun()
     self.chips_this_run      = 0
     self.anti_stakes_won_this_run = {}
     self.anti_chips_this_run      = 0
+    self.first_loss_voided_this_run       = false
+    self.first_stack_loss_voided_this_run = false
+    self.denied_copied_this_run           = false
+    self.first_bounty_this_run            = false
     self.hands_since_last_bank = 0
     self.effects_cache       = nil
     self.shove_count         = (self.shove_count or 0) + 1
@@ -225,6 +239,10 @@ function GameState:wipeAll()
     self.lifetime_mtt_hands_won         = 0
     self.lifetime_hands_played          = 0
     self.lifetime_hands_at_4plus_tables = 0
+    self.lifetime_rebuys                = 0
+    self.lifetime_upgrades_bought       = 0
+    self.lifetime_hands_overwhelmed     = 0
+    self.lifetime_chips_banked          = 0
 
     -- New save identity — fresh game, fresh analytics file.
     self.save_id    = genSaveId()
@@ -278,6 +296,10 @@ function GameState:applySaved(saved)
     self.lifetime_mtt_hands_won         = self.lifetime_mtt_hands_won         or 0
     self.lifetime_hands_played          = self.lifetime_hands_played          or 0
     self.lifetime_hands_at_4plus_tables = self.lifetime_hands_at_4plus_tables or 0
+    self.lifetime_rebuys                = self.lifetime_rebuys or 0
+    self.lifetime_upgrades_bought       = self.lifetime_upgrades_bought or 0
+    self.lifetime_hands_overwhelmed     = self.lifetime_hands_overwhelmed or 0
+    self.lifetime_chips_banked          = self.lifetime_chips_banked or 0
     -- total_hands_played postdates the (gated) deck counters. Old saves
     -- accrued lifetime_hands_played ungated, so it's the best backfill.
     self.total_hands_played             = self.total_hands_played
@@ -301,6 +323,10 @@ function GameState:applySaved(saved)
     self.hints_queued = self.hints_queued or {}
     self.anti_stakes_won_this_run = self.anti_stakes_won_this_run or {}
     self.anti_chips_this_run      = self.anti_chips_this_run or 0
+    self.first_loss_voided_this_run       = self.first_loss_voided_this_run or false
+    self.first_stack_loss_voided_this_run = self.first_stack_loss_voided_this_run or false
+    self.denied_copied_this_run           = self.denied_copied_this_run or false
+    self.first_bounty_this_run            = self.first_bounty_this_run or false
 end
 
 -- Drop unknown deck ids from unlocked_decks / deck_levels / deck_xp and
@@ -378,6 +404,10 @@ function GameState:serializeMeta()
         lifetime_mtt_hands_won          = self.lifetime_mtt_hands_won,
         lifetime_hands_played           = self.lifetime_hands_played,
         lifetime_hands_at_4plus_tables  = self.lifetime_hands_at_4plus_tables,
+        lifetime_rebuys                 = self.lifetime_rebuys,
+        lifetime_upgrades_bought        = self.lifetime_upgrades_bought,
+        lifetime_hands_overwhelmed      = self.lifetime_hands_overwhelmed,
+        lifetime_chips_banked           = self.lifetime_chips_banked,
         total_hands_played              = self.total_hands_played,
         total_big_outcomes              = self.total_big_outcomes,
         total_denied_stacks             = self.total_denied_stacks,
@@ -407,6 +437,10 @@ function GameState:serializeRun()
         chips_this_run             = self.chips_this_run,
         anti_stakes_won_this_run   = self.anti_stakes_won_this_run,
         anti_chips_this_run        = self.anti_chips_this_run,
+        first_loss_voided_this_run       = self.first_loss_voided_this_run,
+        first_stack_loss_voided_this_run = self.first_stack_loss_voided_this_run,
+        denied_copied_this_run           = self.denied_copied_this_run,
+        first_bounty_this_run            = self.first_bounty_this_run,
         hands_since_last_bank      = self.hands_since_last_bank,
     }
 end

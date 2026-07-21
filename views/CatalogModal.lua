@@ -4,72 +4,58 @@
 -- catalog purchases now happen here, after the PrestigeModal has been
 -- dismissed but before the run is reset and we return to grind.
 --
--- Layout: single backdrop card with a 2-column grid of item cards. Each
--- item card shows:
---   ┌─ Name ─────────────── Cost ─┐
---   │ Effect text                  │
---   │ Italic flavor blurb          │
---   └──────────────────────────────┘
+-- Presented as a physical order-book on a dim backdrop. There is NO hard
+-- modal frame that resizes: a resizing frame made the whole UI (border,
+-- dog-ears, header) morph and jump when the book opened. Instead every PAGE
+-- is a self-contained leaf — its own running title, chip ledger (right page),
+-- three item cards, page number — and the WHOLE leaf turns, top to bottom.
+-- The closed cover is one narrow page; opening genuinely widens the book to
+-- a two-page spread by animating the leaves themselves.
 --
--- Click an affordable item to buy. Owned items render dimmed with "OWNED"
--- in the cost slot. Locked items (requires=...) render greyed out with
--- "Requires X". SPACE dismisses the modal — ShoveState consumes that key
--- and runs the actual run-reset / state-switch.
+-- Click an affordable item to buy. Owned items render dimmed with "ORDERED";
+-- unlock-gated items render as silhouettes with their requirement text. SPACE
+-- dismisses the modal — ShoveState consumes that key and runs the actual
+-- run-reset / state-switch.
 --
 -- Pure presentation. Buy clicks dispatch through GrindController:buyCatalogItem,
 -- which handles effects-cache invalidation, the purchase sound, and the
 -- guarded model mutation (the model still owns its own state — the
 -- controller is the layer the view talks to).
 
-local Theme       = require("views.Theme")
-local Constants   = require("data.constants")
-local Catalog     = require("data.catalog")
-local LabelButton = require("views.widgets.LabelButton")
-local Icons       = require("views.Icons")
-local IconText    = require("views.IconText")
+local Theme        = require("views.Theme")
+local Constants    = require("data.constants")
+local Catalog      = require("data.catalog")
+local CatalogPages = require("data.catalog_pages")
+local LabelButton  = require("views.widgets.LabelButton")
+local Icons        = require("views.Icons")
+local IconText     = require("views.IconText")
 local TooltipSvc     = require("services.Tooltip")
+
+-- Stable "No. NNN" code per item = its position in the master catalog, so the
+-- serial on a card doesn't shuffle as pages filter items in and out.
+local CATALOG_ORD = {}
+for i, it in ipairs(Catalog) do CATALOG_ORD[it.id] = i end
 
 local CatalogModal = {}
 CatalogModal.__index = CatalogModal
 
 -- ─── Layout constants ──────────────────────────────────────────────────
 
--- Base "design" sizes — scaled by ui_scale at draw time so the
--- modal grows with the window (a 4K screen shouldn't show a tiny
--- 980-wide card grid in the middle of empty void).
+-- Base "design" sizes — scaled by ui_scale at draw time so the book grows
+-- with the window (a 4K screen shouldn't show a tiny card grid in a void).
 local MODAL_W_BASE      = 980
-local MODAL_PAD_BASE    = 24
-local GRID_GAP_X_BASE   = 16
-local GRID_GAP_Y_BASE   = 12
-local CARD_PAD_X_BASE   = 14
-local CARD_PAD_Y_BASE   = 10
 
--- Live values populated each :draw from base × scale.
-local MODAL_W           = MODAL_W_BASE
-local MODAL_PAD         = MODAL_PAD_BASE
-local HEADER_H          = 56
-local FOOTER_H          = 44
-local GRID_COLS         = 2
-local GRID_GAP_X        = GRID_GAP_X_BASE
-local GRID_GAP_Y        = GRID_GAP_Y_BASE
-local CARD_PAD_X        = CARD_PAD_X_BASE
-local CARD_PAD_Y        = CARD_PAD_Y_BASE
+-- Live value; CARD_H is recomputed each :draw against the ui-scaled fonts.
 local CARD_H            = 84
 
--- Reconfigure layout from active fonts. Card layout is:
---   title  (md)  at PAD_Y
---   cost   (md)  on the same row, right-aligned
---   effect (sm)  at PAD_Y + md_h + 2
---   flavor (sm)  at PAD_Y + md_h + sm_h + 4
---
--- CARD_H is NOT cached here — it's recomputed in :draw against the live
--- ui-scaled CARD_PAD_Y so the bottom padding matches the top regardless
--- of when configureFromFonts last fired (boot vs resize).
+-- Kept for external callers (host measures header height off this).
+local HEADER_H          = 56
+local FOOTER_H          = 44
+
 function CatalogModal.configureFromFonts(fonts)
     if not (fonts and fonts.md) then return end
-    local mh = fonts.md:getHeight()
     HEADER_H = fonts.lg:getHeight() + 16
-    FOOTER_H = mh + 16
+    FOOTER_H = fonts.md:getHeight() + 16
 end
 
 -- ─── Construction ──────────────────────────────────────────────────────
@@ -91,7 +77,7 @@ function CatalogModal:new(game, opts)
         intro_callout = opts.intro_callout == true,
         -- Cached cell rects (built each :draw, consumed by :consumeMouse)
         _cells   = {},
-        -- Spread index (0 = pages 1-2, 1 = pages 3-4, etc.)
+        -- Spread index (0 = front cover, 1 = pages 1-2, ..., max = back cover)
         spread_index   = 0,
         -- Continue-button rect (built each :draw); click sets _resolved.
         _continue_rect = nil,
@@ -134,6 +120,68 @@ local function visibleItems(state)
     end)
 
     return out, owned
+end
+
+-- An item with an `unlock` condition stays a silhouette (visible, showing
+-- its requirement text) until the condition is met — the Vampire-Survivors
+-- "you can see how to get it" pattern. No unlock → always available. Reuses
+-- the same UnlockRegistry the decks use (see models/catalog_unlock_rules).
+-- Live-checked; the conditions are monotonic counters so once met they stay.
+local function catalogUnlocked(game, item, state)
+    if not item.unlock then return true end
+    if not (game and game.unlock_rules) then return true end
+    return game.unlock_rules:check(item.unlock, state)
+end
+
+-- ─── Page model ───────────────────────────────────────────────────────
+
+-- Build the ordered list of leaves (pages) from the authored layout in
+-- data/catalog_pages.lua, filtered by the same visibility rules as the flat
+-- list: hidden/handicap phantoms, prerequisite-hidden items, and act-3-gated
+-- items drop out. A leaf whose items all drop out is omitted. Any visible
+-- item not named on a page lands in a trailing "&c." catch-all so nothing is
+-- ever unreachable. Returns { {title=, items={item,...}}, ... }, owned.
+--
+-- Visibility is a plain field test — no cost sort here; order is authored.
+function CatalogModal:_pages()
+    local state = self.game.state
+    local owned = {}
+    for _, id in ipairs(state.owned_items) do owned[id] = true end
+
+    local function visible(item)
+        local locked = item.requires and not owned[item.requires]
+        if item.hidden then return false end
+        if locked and item.requires_hide then return false end
+        if item.requires_act3 and not state.shove_r2_won then return false end
+        return true
+    end
+
+    local byId = {}
+    for _, it in ipairs(Catalog) do byId[it.id] = it end
+
+    local placed, pages = {}, {}
+    for _, pdef in ipairs(CatalogPages) do
+        local leaf = {}
+        for _, id in ipairs(pdef.items) do
+            local it = byId[id]
+            placed[id] = true                       -- authored → never a leftover
+            if it and visible(it) then leaf[#leaf + 1] = it end
+        end
+        if #leaf > 0 then pages[#pages + 1] = { title = pdef.title, items = leaf } end
+    end
+
+    -- Catch-all for any visible item the author forgot to place, 3 per leaf.
+    local orphans = {}
+    for _, it in ipairs(Catalog) do
+        if not placed[it.id] and visible(it) then orphans[#orphans + 1] = it end
+    end
+    for i = 1, #orphans, 3 do
+        local leaf = {}
+        for j = i, math.min(i + 2, #orphans) do leaf[#leaf + 1] = orphans[j] end
+        pages[#pages + 1] = { title = "&c.", items = leaf }
+    end
+
+    return pages, owned
 end
 
 -- ─── Buy path ─────────────────────────────────────────────────────────
@@ -181,8 +229,8 @@ end
 function CatalogModal:wheelmoved(_, dy)
     if not dy or dy == 0 or self.flip_t then return end
     local step = (dy > 0) and -1 or 1
-    local items = visibleItems(self.game.state)
-    local max_spread = math.ceil(#items / 6) + 1
+    local pages = self:_pages()
+    local max_spread = math.ceil(#pages / 2) + 1
     local new_index = self.spread_index + step
     if new_index >= 0 and new_index <= max_spread then
         self.old_spread_index = self.spread_index
@@ -230,8 +278,8 @@ function CatalogModal:consumeMouse(mx, my, button)
     local nr = self._next_rect
     if nr and mx >= nr.x and mx < nr.x + nr.w
        and my >= nr.y and my < nr.y + nr.h then
-        local items = visibleItems(self.game.state)
-        local max_spread = math.ceil(#items / 6) + 1
+        local pages = self:_pages()
+        local max_spread = math.ceil(#pages / 2) + 1
         if self.spread_index < max_spread and not self.flip_t then
             self.old_spread_index = self.spread_index
             self.spread_index = self.spread_index + 1
@@ -262,11 +310,14 @@ end
 
 -- ─── Render ───────────────────────────────────────────────────────────
 
-local function moneyish(n) return string.format("%d", n or 0) end
-
-local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing_tutorial, index)
+-- hero = true renders a full-leaf feature card: big centered art with the
+-- name/effect/shove centered beneath, instead of the left-thumb row layout.
+-- All the buy/lock/stamp logic is identical either way — only the art + text
+-- placement branches, so there's one source of truth for state and hit-cells.
+local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing_tutorial, index, hero)
     local is_owned   = owned[item.id]
-    local locked     = item.requires and not owned[item.requires]
+    local unlock_locked = (not is_owned) and not catalogUnlocked(self.game, item, state)
+    local locked     = (item.requires and not owned[item.requires]) or unlock_locked
     local is_corrupted = false
     if state.corrupted_items then
         for _, cid in ipairs(state.corrupted_items) do
@@ -296,18 +347,27 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- Vintage newsprint border for this ad
     Theme.setColor({ 0.15, 0.15, 0.12, 0.30 })
     love.graphics.rectangle("line", x, y, w, h)
-    
-    -- Picture frame for illustration on the left
-    local img_w = fl(56 * s)
-    local img_h = fl(56 * s)
-    local img_x = x + fl(8 * s)
-    local img_y = y + fl(14 * s)
-    
+
+    -- Picture frame for the illustration. Hero: a large square centered in the
+    -- card's upper half. Normal: a small thumb on the left.
+    local img_w, img_h, img_x, img_y
+    if hero then
+        img_w = math.min(fl(140 * s), fl(h * 0.5))
+        img_h = img_w
+        img_x = x + (w - img_w) * 0.5
+        img_y = y + fl(24 * s)
+    else
+        img_w = fl(56 * s)
+        img_h = fl(56 * s)
+        img_x = x + fl(8 * s)
+        img_y = y + fl(14 * s)
+    end
+
     Theme.setColor({ 0.15, 0.15, 0.12, 0.08 })
     love.graphics.rectangle("fill", img_x, img_y, img_w, img_h)
     Theme.setColor({ 0.15, 0.15, 0.12, 0.35 })
     love.graphics.rectangle("line", img_x, img_y, img_w, img_h)
-    
+
     -- Draw sprite (if exists)
     local sprite = self.game.sprite_loader:getSprite(item.id)
     if sprite then
@@ -316,8 +376,13 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         local scale_factor = math.min(scale_x, scale_y)
         local px = img_x + (img_w - sprite:getWidth() * scale_factor) * 0.5
         local py = img_y + (img_h - sprite:getHeight() * scale_factor) * 0.5
-        
-        love.graphics.setColor(1, 1, 1, (is_owned and not is_corruptible and not is_corrupted) and 0.40 or 1.0)
+
+        if unlock_locked then
+            -- Silhouette: draw the art as a dark ink shape, no detail.
+            love.graphics.setColor(0.15, 0.15, 0.12, 0.55)
+        else
+            love.graphics.setColor(1, 1, 1, (is_owned and not is_corruptible and not is_corrupted) and 0.40 or 1.0)
+        end
         love.graphics.draw(sprite, px, py, 0, scale_factor, scale_factor)
     else
         -- Draw classic blueprint cross placeholder
@@ -335,17 +400,17 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     elseif not is_owned and not locked then
         price_color = { 0.75, 0.20, 0.20 } -- red rubber stamp for active purchase price
     end
-    
+
     local cx_stamp = x + w - fl(24 * s)
     local cy_stamp = y + fl(24 * s)
     local r_stamp = fl(16 * s)
-    
+
     Theme.setColor(price_color)
     love.graphics.setLineWidth(2)
     love.graphics.circle("line", cx_stamp, cy_stamp, r_stamp)
     love.graphics.setLineWidth(1)
     love.graphics.circle("line", cx_stamp, cy_stamp, r_stamp - fl(2 * s))
-    
+
     love.graphics.setFont(fonts.sm)
     local cost_text = string.format("%d", item.cost_chip or 0)
     if is_corruptible then
@@ -362,151 +427,360 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     local tw_c = fonts.sm:getWidth(cost_text)
     love.graphics.print(cost_text, cx_stamp - tw_c * 0.5, cy_stamp - fonts.sm:getHeight() * 0.5)
 
-    -- Item Header info: Number code + Name
-    local text_x = img_x + img_w + fl(12 * s)
-    local title_y = y + fl(8 * s)
-    
-    local index_text = string.format("No. %03d", index or 0)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.60 })
-    love.graphics.setFont(fonts.sm)
-    love.graphics.print(index_text, text_x, title_y)
-    
-    local name_y = title_y + fonts.sm:getHeight() + 1
-    local name_color = (is_owned and not is_corruptible and not is_corrupted) and { 0.15, 0.15, 0.12, 0.40 } or { 0.15, 0.15, 0.12 }
-    Theme.setColor(name_color)
-    love.graphics.setFont(fonts.md)
-    love.graphics.print((item.name or "?"):upper(), text_x, name_y)
+    local dim = (is_owned and not is_corruptible and not is_corrupted)
+    local ink = dim and { 0.15, 0.15, 0.12, 0.40 } or { 0.15, 0.15, 0.12 }
 
-    -- Description / Effect
-    local effect_y = name_y + fonts.md:getHeight() + 3
-    local eff_text = is_corrupted and item.corrupt.effect_text or item.effect_text
-    IconText.draw(self.game, eff_text or "", text_x, effect_y, fonts.sm,
-        (is_owned and not is_corruptible and not is_corrupted) and { 0.15, 0.15, 0.12, 0.40 } or { 0.15, 0.15, 0.12 })
-        
-    local flavor_y = effect_y + fonts.sm:getHeight() + 2
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
-    love.graphics.setFont(fonts.sm)
-    
-    local desc_w = w - (img_w + fl(20 * s)) - fl(44 * s)
-    local desc_txt = item.description or ""
-    if fonts.sm:getWidth(desc_txt) > desc_w then
-        desc_txt = desc_txt:sub(1, 30) .. "..."
+    -- Precompute the shove stat (registry-dispatched, no kind-string checks).
+    local sctx = {}
+    self.game.effects:applyAll(item, sctx)
+    local shove = sctx.shove_rate or 0
+    local shove_txt = shove > 0 and string.format("+%d%% shove", math.floor(shove * 100 + 0.5)) or nil
+    local shove_ink = dim and { 0.20, 0.35, 0.55, 0.45 } or { 0.20, 0.35, 0.55 }
+
+    if hero then
+        -- Centered feature layout beneath the big art.
+        local cxm = x + w * 0.5
+        local ty  = img_y + img_h + fl(10 * s)
+
+        love.graphics.setFont(fonts.sm)
+        Theme.setColor({ 0.15, 0.15, 0.12, 0.60 })
+        local code = string.format("No. %03d", index or 0)
+        love.graphics.print(code, cxm - fonts.sm:getWidth(code) * 0.5, ty)
+        ty = ty + fonts.sm:getHeight() + 2
+
+        love.graphics.setFont(fonts.md)
+        Theme.setColor(ink)
+        local nm = (item.name or "?"):upper()
+        love.graphics.print(nm, cxm - fonts.md:getWidth(nm) * 0.5, ty)
+        ty = ty + fonts.md:getHeight() + 4
+
+        if unlock_locked then
+            love.graphics.setFont(fonts.sm)
+            Theme.setColor({ 0.15, 0.15, 0.12, 0.55 })
+            local ut = (item.unlock and item.unlock.text) or "Locked"
+            love.graphics.print(ut, cxm - fonts.sm:getWidth(ut) * 0.5, ty)
+        else
+            local eff_text = (is_corrupted and item.corrupt.effect_text or item.effect_text) or ""
+            local ew = IconText.measure(eff_text, fonts.sm)
+            IconText.draw(self.game, eff_text, cxm - ew * 0.5, ty, fonts.sm, ink)
+            ty = ty + fonts.sm:getHeight() + 4
+            if shove_txt then
+                love.graphics.setFont(fonts.sm)
+                Theme.setColor(shove_ink)
+                love.graphics.print(shove_txt, cxm - fonts.sm:getWidth(shove_txt) * 0.5, ty)
+            end
+        end
+    else
+        -- Item Header info: Number code + Name
+        local text_x = img_x + img_w + fl(12 * s)
+        local title_y = y + fl(8 * s)
+
+        local index_text = string.format("No. %03d", index or 0)
+        Theme.setColor({ 0.15, 0.15, 0.12, 0.60 })
+        love.graphics.setFont(fonts.sm)
+        love.graphics.print(index_text, text_x, title_y)
+
+        local name_y = title_y + fonts.sm:getHeight() + 1
+        Theme.setColor(ink)
+        love.graphics.setFont(fonts.md)
+        love.graphics.print((item.name or "?"):upper(), text_x, name_y)
+
+        -- Description / Effect — or, when locked behind an unlock, the
+        -- requirement text in place of what it does (you learn how to get it,
+        -- the effect stays a surprise).
+        local effect_y = name_y + fonts.md:getHeight() + 3
+        if unlock_locked then
+            Theme.setColor({ 0.15, 0.15, 0.12, 0.55 })
+            love.graphics.setFont(fonts.sm)
+            love.graphics.print((item.unlock and item.unlock.text) or "Locked", text_x, effect_y)
+        else
+            local eff_text = is_corrupted and item.corrupt.effect_text or item.effect_text
+            IconText.draw(self.game, eff_text or "", text_x, effect_y, fonts.sm, ink)
+
+            local flavor_y = effect_y + fonts.sm:getHeight() + 2
+            Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
+            love.graphics.setFont(fonts.sm)
+
+            local desc_w = w - (img_w + fl(20 * s)) - fl(44 * s)
+            local desc_txt = item.description or ""
+            if fonts.sm:getWidth(desc_txt) > desc_w then
+                desc_txt = desc_txt:sub(1, 30) .. "..."
+            end
+            love.graphics.print(desc_txt, text_x, flavor_y)
+
+            -- Shove contribution: its own right-aligned stat on the flavor line.
+            -- Makes "buying builds your shove base" legible — every buyable
+            -- item advertises how much % it adds.
+            if shove_txt then
+                Theme.setColor(shove_ink)
+                love.graphics.setFont(fonts.sm)
+                love.graphics.print(shove_txt, x + w - fl(12 * s) - fonts.sm:getWidth(shove_txt), flavor_y)
+            end
+        end
     end
-    love.graphics.print(desc_txt, text_x, flavor_y)
 
-    -- Stash cell bounds for hit-testing
-    self._cells[#self._cells + 1] = {
-        x = x, y = y, w = w, h = h, item = item, buyable = buyable, corruptible = corruptible,
-    }
+    -- Stash cell bounds for hit-testing. Skipped mid-flip: leaves are drawn
+    -- under a scale transform then, so the logical rect wouldn't match what's
+    -- on screen — and clicks shouldn't land during a page turn anyway.
+    if not self.flip_t then
+        self._cells[#self._cells + 1] = {
+            x = x, y = y, w = w, h = h, item = item, buyable = buyable, corruptible = corruptible,
+        }
+    end
 
     -- Overlays: Rubber stamp "ORDERED", "CORRUPTED", or "SOLD OUT"
     if is_corrupted then
         love.graphics.push()
         love.graphics.translate(x + w * 0.55, y + h * 0.5)
         love.graphics.rotate(-0.15)
-        
+
         Theme.setColor({ 0.45, 0.15, 0.70, 0.90 })
         love.graphics.setLineWidth(3)
         love.graphics.rectangle("line", -fl(60 * s), -fl(14 * s), fl(120 * s), fl(28 * s), fl(4 * s))
         love.graphics.setLineWidth(1)
-        
+
         love.graphics.setFont(fonts.md)
         local st_w = fonts.md:getWidth("CORRUPTED")
         love.graphics.print("CORRUPTED", -st_w * 0.5, -fonts.md:getHeight() * 0.5)
-        
+
         love.graphics.pop()
     elseif is_corruptible then
         love.graphics.push()
         love.graphics.translate(x + w * 0.55, y + h * 0.5)
         love.graphics.rotate(0.05)
-        
+
         Theme.setColor({ 0.55, 0.25, 0.85, 0.85 })
         love.graphics.setLineWidth(2)
         love.graphics.rectangle("line", -fl(50 * s), -fl(12 * s), fl(100 * s), fl(24 * s), fl(3 * s))
         love.graphics.setLineWidth(1)
-        
+
         love.graphics.setFont(fonts.sm)
         local st_w = fonts.sm:getWidth("CORRUPT?")
         love.graphics.print("CORRUPT?", -st_w * 0.5, -fonts.sm:getHeight() * 0.5)
-        
+
         love.graphics.pop()
     elseif is_owned then
         love.graphics.push()
         love.graphics.translate(x + w * 0.55, y + h * 0.5)
         love.graphics.rotate(-0.15)
-        
+
         Theme.setColor({ 0.75, 0.20, 0.20, 0.85 })
         love.graphics.setLineWidth(3)
         love.graphics.rectangle("line", -fl(55 * s), -fl(14 * s), fl(110 * s), fl(28 * s), fl(4 * s))
         love.graphics.setLineWidth(1)
-        
+
         love.graphics.setFont(fonts.md)
         local st_w = fonts.md:getWidth("ORDERED")
         love.graphics.print("ORDERED", -st_w * 0.5, -fonts.md:getHeight() * 0.5)
-        
+
         love.graphics.pop()
     elseif locked then
         love.graphics.push()
         love.graphics.translate(x + w * 0.55, y + h * 0.5)
         love.graphics.rotate(-0.10)
-        
+
         Theme.setColor({ 0.45, 0.45, 0.45, 0.70 })
         love.graphics.setLineWidth(2)
         love.graphics.rectangle("line", -fl(60 * s), -fl(12 * s), fl(120 * s), fl(24 * s), fl(3 * s))
         love.graphics.setLineWidth(1)
-        
+
         love.graphics.setFont(fonts.md)
         local st_w = fonts.md:getWidth("SOLD OUT")
         love.graphics.print("SOLD OUT", -st_w * 0.5, -fonts.md:getHeight() * 0.5)
-        
+
         love.graphics.pop()
     elseif forcing_tutorial and item.id ~= "poker_poster" then
         love.graphics.push()
         love.graphics.translate(x + w * 0.55, y + h * 0.5)
         love.graphics.rotate(0.08)
-        
+
         Theme.setColor({ 0.55, 0.55, 0.55, 0.60 })
         love.graphics.setLineWidth(1.5)
         love.graphics.rectangle("line", -fl(55 * s), -fl(12 * s), fl(110 * s), fl(24 * s), fl(3 * s))
         love.graphics.setLineWidth(1)
-        
+
         love.graphics.setFont(fonts.sm)
         local st_w = fonts.sm:getWidth("WAIT POSTER")
         love.graphics.print("WAIT POSTER", -st_w * 0.5, -fonts.sm:getHeight() * 0.5)
-        
+
         love.graphics.pop()
     end
 end
 
--- Maximum modal height as a fraction of the viewport. Anything taller
--- and the inner grid scrolls.
-local MODAL_MAX_H_FRAC = 0.90
+-- ─── Book rendering ────────────────────────────────────────────────────
 
-local function drawPageContents(self, is_left, spread_idx, items, owned, state, fonts, forcing_tutorial, viewport_y, left_x, left_w, right_x, right_w, CARD_H, GRID_GAP_Y, s)
+-- Horizontal-scale flip around a vertical hinge: draws `fn` squished toward
+-- hinge_x by factor sx (1 = flat/full, 0 = edge-on). Turns a whole leaf.
+local function drawFlipped(hinge_x, sx, fn)
+    if sx <= 0.02 then return end
+    love.graphics.push()
+    love.graphics.translate(hinge_x, 0)
+    love.graphics.scale(sx, 1)
+    love.graphics.translate(-hinge_x, 0)
+    fn()
+    love.graphics.pop()
+end
+
+-- One complete page leaf: paper, its authored title, chip ledger (right page
+-- only), its item cards packed into 3 vertical slot-units by each item's
+-- `slots` (1 default; 3 = a full-leaf hero card), and the page number. `page`
+-- is { title, items } or nil (a blank verso — draw bare paper only).
+local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y, w, h, is_right, s, card_h)
     local fl = math.floor
-    local px = is_left and left_x or right_x
-    local pw = is_left and left_w or right_w
-    local offset = is_left and 0 or 3
-    
-    -- Spread 1 starts items index at 1. Spread 0 is Front Cover.
-    local page_start = (spread_idx - 1) * 6
-    
-    for slot = 1, 3 do
-        local idx = page_start + offset + slot
-        local item = items[idx]
-        if item then
-            local cx = px + fl(6 * s)
-            local cy = viewport_y + (slot - 1) * (CARD_H + GRID_GAP_Y)
-            drawItemCard(self, item, owned, state, cx, cy, pw - fl(12 * s), CARD_H, fonts, forcing_tutorial, idx)
-        end
+    Theme.setColor({ 0.94, 0.90, 0.83 })
+    love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
+    Theme.setColor({ 0.15, 0.15, 0.12, 0.40 })
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+    love.graphics.setLineWidth(1)
+    Theme.setColor({ 0.15, 0.15, 0.12, 0.12 })
+    love.graphics.rectangle("line", x + fl(4 * s), y + fl(4 * s), w - fl(8 * s), h - fl(8 * s), Theme.space.radius)
+
+    if not page then return end   -- blank verso
+
+    local pad = fl(12 * s)
+    -- Authored page title — turns WITH the leaf.
+    Theme.setColor({ 0.15, 0.15, 0.12 })
+    love.graphics.setFont(fonts.md)
+    love.graphics.print((page.title or ""):upper(), x + pad, y + fl(10 * s))
+    -- Chip ledger, right page only.
+    if is_right then
+        local bal   = string.format("%d", state.chips or 0)
+        local bal_w = fonts.md:getWidth(bal)
+        local gsize = fonts.md:getHeight()
+        local gap   = fl(5 * s)
+        local bx    = x + w - pad - (bal_w + gap + gsize)
+        Theme.setColor({ 0.75, 0.20, 0.20 })
+        love.graphics.print(bal, bx, y + fl(10 * s))
+        Icons.drawChip(self.game, bx + bal_w + gap, y + fl(10 * s), gsize)
     end
+    local head_h = fonts.md:getHeight() + fl(16 * s)
+    Theme.setColor({ 0.15, 0.15, 0.12, 0.20 })
+    love.graphics.line(x + pad, y + head_h, x + w - pad, y + head_h)
+
+    -- Pack item cards top-down. A slots=N item is N units tall; stop once the
+    -- 3-unit budget is spent (authored pages should sum to ≤ 3).
+    local cw    = w - 2 * pad
+    local gapc  = fl(10 * s)
+    local cy    = y + head_h + fl(8 * s)
+    local used  = 0
+    for _, item in ipairs(page.items) do
+        local sp = item.slots or 1
+        if used + sp > 3 then break end
+        local ch = sp * card_h + (sp - 1) * gapc
+        drawItemCard(self, item, owned, state, x + pad, cy, cw, ch, fonts, forcing,
+            CATALOG_ORD[item.id] or 0, sp >= 3)
+        cy   = cy + ch + gapc
+        used = used + sp
+    end
+
+    -- Page number, bottom-center.
+    love.graphics.setFont(fonts.sm)
+    Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
+    local ns = tostring(page_num)
+    love.graphics.print(ns, x + w * 0.5 - fonts.sm:getWidth(ns) * 0.5, y + h - fonts.sm:getHeight() - fl(8 * s))
+end
+
+-- Front cover face (single narrow page).
+local function drawFrontCover(self, x, y, w, h, fonts, s)
+    local fl = math.floor
+    Theme.setColor({ 0.90, 0.85, 0.76 })
+    love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
+    Theme.setColor({ 0.15, 0.15, 0.12, 0.55 })
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+    love.graphics.setLineWidth(1)
+    Theme.setColor({ 0.15, 0.15, 0.12, 0.20 })
+    love.graphics.rectangle("line", x + fl(5 * s), y + fl(5 * s), w - fl(10 * s), h - fl(10 * s), Theme.space.radius)
+
+    Theme.setColor({ 0.15, 0.15, 0.12 })
+    love.graphics.setFont(fonts.lg)
+    love.graphics.printf("SEARS, ROEBUCK & CO.", x, y + fl(40 * s), w, "center")
+
+    local dx, dy, dr = x + w * 0.5, y + h * 0.46, fl(48 * s)
+    Theme.setColor({ 0.15, 0.15, 0.12, 0.30 })
+    love.graphics.setLineWidth(2)
+    love.graphics.circle("line", dx, dy, dr)
+    love.graphics.circle("line", dx, dy, dr - fl(4 * s))
+    love.graphics.setLineWidth(1)
+    love.graphics.setFont(fonts.md)
+    love.graphics.print("1999", dx - fonts.md:getWidth("1999") * 0.5, dy - fonts.md:getHeight() - 2)
+    love.graphics.print("EDITION", dx - fonts.md:getWidth("EDITION") * 0.5, dy + 2)
+
+    Theme.setColor({ 0.15, 0.15, 0.12 })
+    love.graphics.setFont(fonts.lg)
+    love.graphics.printf("CELL FURNISHINGS", x, y + h * 0.66, w, "center")
+    love.graphics.setFont(fonts.md)
+    love.graphics.printf("CATALOG & ORDER BOOK", x, y + h * 0.74, w, "center")
+
+    love.graphics.setFont(fonts.sm)
+    Theme.setColor({ 0.75, 0.20, 0.20 })
+    love.graphics.printf("GRAB CORNER TO OPEN", x, y + h * 0.88, w, "center")
+end
+
+-- Back cover face. When interactive, mounts the prominent CLOSE button and
+-- sets self._continue_rect; mid-flip it's just the visual (no hit rect).
+local function drawBackCover(self, x, y, w, h, fonts, state, forcing, s, interactive)
+    local fl = math.floor
+    Theme.setColor({ 0.90, 0.85, 0.76 })
+    love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
+    Theme.setColor({ 0.15, 0.15, 0.12, 0.55 })
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+    love.graphics.setLineWidth(1)
+    Theme.setColor({ 0.15, 0.15, 0.12, 0.20 })
+    love.graphics.rectangle("line", x + fl(5 * s), y + fl(5 * s), w - fl(10 * s), h - fl(10 * s), Theme.space.radius)
+
+    Theme.setColor({ 0.15, 0.15, 0.12 })
+    love.graphics.setFont(fonts.lg)
+    love.graphics.printf("ORDER SUMMARY", x, y + fl(40 * s), w, "center")
+
+    local owned_count = 0
+    for _, id in ipairs(state.owned_items or {}) do
+        if id ~= "no_poster_handicap" then owned_count = owned_count + 1 end
+    end
+    love.graphics.setFont(fonts.md)
+    Theme.setColor({ 0.15, 0.15, 0.12, 0.70 })
+    love.graphics.printf(string.format("Items active in room: %d", owned_count), x, y + h * 0.34, w, "center")
+    love.graphics.setFont(fonts.sm)
+    love.graphics.printf("All mail orders processed immediately.\nDecorations persist across prestiges.", x, y + h * 0.42, w, "center")
+
+    local btn_w = math.max(160, fl(200 * s))
+    local btn_h = math.max(32, fl(42 * s))
+    local btn_x = x + fl((w - btn_w) / 2)
+    local btn_y = fl(y + h * 0.60)
+    local mx, my = love.mouse.getPosition()
+    local hov = interactive and mx >= btn_x and mx < btn_x + btn_w and my >= btn_y and my < btn_y + btn_h
+    if interactive then
+        self._continue_rect = { x = btn_x, y = btn_y, w = btn_w, h = btn_h }
+    end
+    Theme.setColor({ 0.15, 0.15, 0.12, 0.50 })
+    love.graphics.rectangle("line", btn_x, btn_y, btn_w, btn_h)
+    LabelButton.draw{
+        x = btn_x + 2, y = btn_y + 2, w = btn_w - 4, h = btn_h - 4,
+        text         = forcing and "ORDER COMPLETED" or "CLOSE CATALOG",
+        fonts        = fonts,
+        font         = fonts.md,
+        hovered      = hov and (not forcing),
+        disabled     = forcing,
+        depth        = 3,
+        fill_token   = (hov and not forcing) and { 0.75, 0.20, 0.20 } or { 0.90, 0.86, 0.78 },
+        border_token = forcing and Theme.fg.disabled or { 0.15, 0.15, 0.12 },
+        text_token   = (hov and not forcing) and { 0.94, 0.90, 0.83 } or (forcing and Theme.fg.disabled or { 0.15, 0.15, 0.12 }),
+    }
+    if hov and forcing then TooltipSvc.set("Get the Poker Poster to start your next run.", mx, my) end
+
+    love.graphics.setFont(fonts.sm)
+    Theme.setColor({ 0.75, 0.20, 0.20 })
+    love.graphics.printf("GRAB CORNER TO BROWSE", x, y + h * 0.88, w, "center")
 end
 
 function CatalogModal:draw()
     local fonts = self.game.fonts
     local state = self.game.state
+    local fl = math.floor
 
-    -- Update page flip animation timers self-contained via love.timer
+    -- Page-flip timer.
     local dt = love.timer.getDelta()
     if self.flip_t then
         self.flip_t = self.flip_t - dt
@@ -517,481 +791,192 @@ function CatalogModal:draw()
         end
     end
 
-    -- Scale design-space constants by the live ui_scale so the modal
-    -- and its card grid grow with the window.
-    local s = (self.game.ui_scale) or 1
-    local fl = math.floor
-    MODAL_W      = fl(MODAL_W_BASE   * s)
-    MODAL_PAD    = fl(MODAL_PAD_BASE * s)
-    GRID_GAP_X   = fl(GRID_GAP_X_BASE * s)
-    GRID_GAP_Y   = fl(GRID_GAP_Y_BASE * s)
-    CARD_PAD_X   = fl(CARD_PAD_X_BASE * s)
-    CARD_PAD_Y   = fl(CARD_PAD_Y_BASE * s)
-    -- Tight card height: serial code (sm) + title (md) + effect (sm) + flavor (sm) +
-    -- top/bottom pad + inter-line offsets.
-    -- Recomputed per-draw so it always tracks the live scaled padding.
-    CARD_H = fonts.md:getHeight() + 3 * fonts.sm:getHeight()
-             + fl(16 * s) + 8
-
-    -- First-visit tutorial callout: a recessed band between the header
-    -- and the grid. Measured here so the frame allocates its height.
-    local callout_pad = fl(10 * s)
-    local callout_h   = self.intro_callout
-                        and (fonts.sm:getHeight() + callout_pad * 2) or 0
-    local head_extra  = self.intro_callout
-                        and (callout_h + fl(8 * s)) or 0
-
-    -- Height calculation locked to exactly 3 items vertically per page, plus bottom page-numbers margin
-    local viewport_h = 3 * CARD_H + 2 * GRID_GAP_Y + fl(28 * s)
-    local body_h   = HEADER_H + head_extra + viewport_h + FOOTER_H
-
-    local items, owned = visibleItems(state)
-    local max_spread = math.ceil(#items / 6) + 1
-
-    -- Determine dynamic modal width based on cover (single page) vs open spread (double page)
-    local old_w = (self.old_spread_index == 0 or self.old_spread_index == max_spread) and (MODAL_W * 0.5) or MODAL_W
-    local new_w = (self.spread_index == 0 or self.spread_index == max_spread) and (MODAL_W * 0.5) or MODAL_W
-    local current_w = new_w
-    if self.flip_t and self.old_spread_index then
-        local progress = self.flip_t / 0.35
-        current_w = fl(new_w + (old_w - new_w) * progress)
-    end
-
-    -- Modal frame + dim backdrop come from the shared Modal widget so
-    -- the chrome stays consistent with the other overlays. Rebuild it
-    -- per-draw so width tracks the current scale.
-    local Modal = require("views.widgets.Modal")
-    self._modal = Modal:new{ w = current_w, max_h_frac = MODAL_MAX_H_FRAC,
-                             pad = 0 }
-
-    self._modal:draw(fonts, body_h)
-    local box = self._modal:boxRect()
-
-    -- Dim the outer book backdrop
-    Theme.setColor({ 0, 0, 0, 0.40 })
-
-    local forcing_tutorial = (not Constants.FEATURES.TUTORIAL)
-                             and (not owned["poker_poster"]) and (not self.read_only)
-
-    -- Geometry helpers for columns (always relative to screen center)
+    local s = self.game.ui_scale or 1
     local W, H = love.graphics.getDimensions()
-    local center_x = W * 0.5
-    local viewport_y = box.y + HEADER_H + head_extra + MODAL_PAD
 
-    local left_w = fl(((MODAL_W_BASE * s) - 2 * MODAL_PAD) * 0.5 - 8 * s)
-    local left_x = center_x - left_w - fl(4 * s)
-    local right_w = left_w
-    local right_x = center_x + fl(4 * s)
+    local pages, owned = self:_pages()
+    local max_spread = math.ceil(#pages / 2) + 1
+    local forcing = (not Constants.FEATURES.TUTORIAL)
+                    and (not owned["poker_poster"]) and (not self.read_only)
 
-    -- Track screen hit-boxes
+    -- Page + book geometry. One page = half the base modal width; an open
+    -- spread is two of them, centered on the spine at screen center.
+    CARD_H = fonts.md:getHeight() + 3 * fonts.sm:getHeight() + fl(16 * s) + 8
+    local card_h = CARD_H
+    local page_w = fl(MODAL_W_BASE * s * 0.5)
+    local head_h = fonts.md:getHeight() + fl(16 * s)
+    local page_h = fl(head_h + fl(8 * s) + 3 * card_h + 2 * fl(10 * s) + fonts.sm:getHeight() + fl(22 * s))
+    local cx     = W * 0.5
+    local top    = fl((H - page_h) * 0.5)
+
+    -- Dim backdrop only — no hard frame to morph.
+    love.graphics.setColor(0, 0, 0, 0.55)
+    love.graphics.rectangle("fill", 0, 0, W, H)
+
     self._cells = {}
+    self._continue_rect = nil
 
-    -- Render loop for spreads
-    local current_draw_idx = self.spread_index
+    local idx      = self.spread_index
+    local old      = self.old_spread_index
+    local flipping = self.flip_t ~= nil
+    local progress = flipping and (self.flip_t / 0.35) or 0   -- 1 -> 0
 
-    if self.flip_t then
-        -- During animation, background spread is the destination index
-        current_draw_idx = self.spread_index
+    -- leaf_idx indexes the pages list (1-based). Spread k shows leaves
+    -- 2k-1 (left) and 2k (right); an out-of-range index draws a blank verso.
+    local function leaf(leaf_idx, x, is_right)
+        drawLeaf(self, pages[leaf_idx], leaf_idx, owned, state, fonts, forcing, x, top, page_w, page_h, is_right, s, card_h)
     end
 
-    if current_draw_idx == 0 then
-        -- ─── FRONT COVER VIEW (Single page wide, centered) ───
-        Theme.setColor({ 0.94, 0.90, 0.83 })
-        love.graphics.rectangle("fill", box.x, box.y, box.w, box.h, Theme.space.radius)
-        
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
-        love.graphics.setLineWidth(2)
-        love.graphics.rectangle("line", box.x, box.y, box.w, box.h, Theme.space.radius)
-        love.graphics.setLineWidth(1)
-        
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.15 })
-        love.graphics.rectangle("line", box.x + fl(4 * s), box.y + fl(4 * s), box.w - fl(8 * s), box.h - fl(8 * s), Theme.space.radius)
-
-        Theme.setColor({ 0.15, 0.15, 0.12 })
-        love.graphics.setFont(fonts.lg)
-        love.graphics.printf("SEARS, ROEBUCK & CO.", box.x, box.y + fl(36 * s), box.w, "center")
-
-        -- Large decorative circular stamp in the center
-        local draw_x = box.x + box.w * 0.5
-        local draw_y = box.y + box.h * 0.46
-        local draw_r = fl(56 * s)
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.25 })
-        love.graphics.setLineWidth(2)
-        love.graphics.circle("line", draw_x, draw_y, draw_r)
-        love.graphics.circle("line", draw_x, draw_y, draw_r - fl(4 * s))
-        love.graphics.setLineWidth(1)
-
-        love.graphics.setFont(fonts.md)
-        local ctxt1 = "1999"
-        local ctxt2 = "EDITION"
-        love.graphics.print(ctxt1, draw_x - fonts.md:getWidth(ctxt1)*0.5, draw_y - fonts.md:getHeight() - 2)
-        love.graphics.print(ctxt2, draw_x - fonts.md:getWidth(ctxt2)*0.5, draw_y + 2)
-
-        Theme.setColor({ 0.15, 0.15, 0.12 })
-        love.graphics.setFont(fonts.lg)
-        local t_str = "CELL FURNISHINGS"
-        love.graphics.printf(t_str, box.x, box.y + box.h * 0.68, box.w, "center")
-
-        love.graphics.setFont(fonts.md)
-        local t_sub = "CATALOG & ORDER BOOK"
-        love.graphics.printf(t_sub, box.x, box.y + box.h * 0.75, box.w, "center")
-
-        love.graphics.setFont(fonts.sm)
-        local t_instr = "► GRAB CORNER TO OPEN CATALOG ◄"
-        Theme.setColor({ 0.75, 0.20, 0.20 })
-        love.graphics.printf(t_instr, box.x, box.y + box.h * 0.88, box.w, "center")
-
-    elseif current_draw_idx == max_spread then
-        -- ─── BACK COVER VIEW (Single page wide, centered) ───
-        Theme.setColor({ 0.94, 0.90, 0.83 })
-        love.graphics.rectangle("fill", box.x, box.y, box.w, box.h, Theme.space.radius)
-        
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
-        love.graphics.setLineWidth(2)
-        love.graphics.rectangle("line", box.x, box.y, box.w, box.h, Theme.space.radius)
-        love.graphics.setLineWidth(1)
-        
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.15 })
-        love.graphics.rectangle("line", box.x + fl(4 * s), box.y + fl(4 * s), box.w - fl(8 * s), box.h - fl(8 * s), Theme.space.radius)
-
-        Theme.setColor({ 0.15, 0.15, 0.12 })
-        love.graphics.setFont(fonts.lg)
-        love.graphics.printf("ORDER SUMMARY", box.x, box.y + fl(36 * s), box.w, "center")
-
-        local owned_count = 0
-        for _, id in ipairs(state.owned_items or {}) do
-            if id ~= "no_poster_handicap" then
-                owned_count = owned_count + 1
-            end
-        end
-
-        love.graphics.setFont(fonts.md)
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.70 })
-        love.graphics.printf(string.format("Items active in room: %d", owned_count), box.x, box.y + box.h * 0.32, box.w, "center")
-        
-        love.graphics.setFont(fonts.sm)
-        love.graphics.printf("All mail orders processed immediately.\nDecorations persist across presiges.", box.x, box.y + box.h * 0.40, box.w, "center")
-
-        -- Continue coupon placement inside center of back cover
-        local s_ui    = (self.game.ui_scale) or 1
-        local btn_w   = math.max(160, fl(220 * s_ui))
-        local btn_h   = math.max(32, fl(42 * s_ui))
-        local btn_x   = box.x + fl((box.w - btn_w) / 2)
-        local btn_y   = box.y + box.h * 0.58
-        self._continue_rect = { x = btn_x, y = btn_y, w = btn_w, h = btn_h }
-
-        local mx, my = love.mouse.getPosition()
-        local hov = mx >= btn_x and mx < btn_x + btn_w
-                    and my >= btn_y and my < btn_y + btn_h
-
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.50 })
-        love.graphics.rectangle("line", btn_x, btn_y, btn_w, btn_h)
-
-        LabelButton.draw{
-            x = btn_x + 2, y = btn_y + 2, w = btn_w - 4, h = btn_h - 4,
-            text         = forcing_tutorial and "ORDER COMPLETED" or "CLOSE CATALOG",
-            fonts        = fonts,
-            font         = fonts.md,
-            hovered      = hov and (not forcing_tutorial),
-            disabled     = forcing_tutorial,
-            depth        = 3,
-            fill_token   = (hov and not forcing_tutorial) and { 0.75, 0.20, 0.20 } or { 0.90, 0.86, 0.78 },
-            border_token = forcing_tutorial and Theme.fg.disabled or { 0.15, 0.15, 0.12 },
-            text_token   = (hov and not forcing_tutorial) and { 0.94, 0.90, 0.83 } or (forcing_tutorial and Theme.fg.disabled or { 0.15, 0.15, 0.12 }),
-        }
-
-        love.graphics.setFont(fonts.sm)
-        Theme.setColor({ 0.75, 0.20, 0.20 })
-        love.graphics.printf("◄ GRAB CORNER TO BROWSE PAGES", box.x, box.y + box.h * 0.88, box.w, "center")
-
-    else
-        -- ─── TWO-PAGE INSIDE SPREADS VIEW ───
-        -- Paint the modal box background with a gorgeous warm newsprint paper color
-        Theme.setColor({ 0.94, 0.90, 0.83 })
-        love.graphics.rectangle("fill", box.x, box.y, box.w, box.h, Theme.space.radius)
-        
-        -- Ink border outline
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.40 })
-        love.graphics.setLineWidth(2)
-        love.graphics.rectangle("line", box.x, box.y, box.w, box.h, Theme.space.radius)
-        love.graphics.setLineWidth(1)
-
-        -- Book-like double border layout around the entire sheet
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.15 })
-        love.graphics.rectangle("line", box.x + fl(4 * s), box.y + fl(4 * s), box.w - fl(8 * s), box.h - fl(8 * s), Theme.space.radius)
-
-        -- Draw vertical folding crease shadow down the center of the spread
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.15 })
-        love.graphics.setLineWidth(fl(3 * s))
-        love.graphics.line(center_x, box.y + fl(10 * s), center_x, box.y + box.h - fl(10 * s))
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.08 })
-        love.graphics.setLineWidth(fl(1 * s))
-        love.graphics.line(center_x - fl(2 * s), box.y + fl(10 * s), center_x - fl(2 * s), box.y + box.h - fl(10 * s))
-        love.graphics.line(center_x + fl(2 * s), box.y + fl(10 * s), center_x + fl(2 * s), box.y + box.h - fl(10 * s))
-
-        -- Header text: Sears styling in dark ink
-        Theme.setColor({ 0.15, 0.15, 0.12 })
-        love.graphics.setFont(fonts.lg)
-        love.graphics.print("SEARS, ROEBUCK & CO. ORDER BOOK", box.x + MODAL_PAD, box.y + 16)
-        
-        -- Chips balance as a vintage red rubber stamp ledger entry
-        local bal   = string.format("%d", state.chips or 0)
-        local bal_w = fonts.lg:getWidth(bal)
-        local gsize = fonts.lg:getHeight()
-        local gap   = fl(6 * s)
-        local bx    = box.x + box.w - MODAL_PAD - (bal_w + gap + gsize)
-        Theme.setColor({ 0.75, 0.20, 0.20 }) -- retro red ink stamp
-        love.graphics.print(bal, bx, box.y + 16)
-        Icons.drawChip(self.game, bx + bal_w + gap, box.y + 16, gsize)
-
-        if self.intro_callout then
-            local cx = box.x + MODAL_PAD
-            local cy = box.y + HEADER_H + fl(4 * s)
-            local cw = box.w - 2 * MODAL_PAD
-            local r  = fl(3 * s)
-            Theme.setColor({ 0.90, 0.86, 0.78 }) -- recessed sunken paper
-            love.graphics.rectangle("fill", cx, cy, cw, callout_h, r)
-            Theme.setColor({ 0.15, 0.15, 0.12, 0.30 })
-            love.graphics.rectangle("line", cx, cy, cw, callout_h, r)
-            Theme.setColor({ 0.75, 0.20, 0.20, 0.80 })
-            love.graphics.rectangle("fill", cx, cy, fl(4 * s), callout_h)
-            IconText.draw(self.game,
-                "Make your cell a home. Everything here is permanent.",
-                cx + fl(14 * s), cy + callout_pad, fonts.sm, { 0.15, 0.15, 0.12 })
-        end
-
-        if not self.flip_t then
-            -- Draw active spread pages contents
-            drawPageContents(self, true, self.spread_index, items, owned, state, fonts, forcing_tutorial, viewport_y, left_x, left_w, right_x, right_w, CARD_H, GRID_GAP_Y, s)
-            drawPageContents(self, false, self.spread_index, items, owned, state, fonts, forcing_tutorial, viewport_y, left_x, left_w, right_x, right_w, CARD_H, GRID_GAP_Y, s)
+    if not flipping then
+        -- ── Static views ──
+        if idx == 0 then
+            -- Front cover = the right leaf (spine at centre); grab its outer
+            -- right corner to open. Fixed slot, so the corner never moves.
+            drawFrontCover(self, cx, top, page_w, page_h, fonts, s)
+        elseif idx == max_spread then
+            -- Back cover = the left leaf; grab its outer left corner to browse.
+            drawBackCover(self, cx - page_w, top, page_w, page_h, fonts, state, forcing, s, true)
         else
-            -- Peeling page animated transition overlays
-            local progress = self.flip_t / 0.35
-            local scale_w = 1.0
-            
-            if self.flip_dir == "next" then
-                drawPageContents(self, true, self.spread_index, items, owned, state, fonts, forcing_tutorial, viewport_y, left_x, left_w, right_x, right_w, CARD_H, GRID_GAP_Y, s)
-                drawPageContents(self, false, self.spread_index, items, owned, state, fonts, forcing_tutorial, viewport_y, left_x, left_w, right_x, right_w, CARD_H, GRID_GAP_Y, s)
-                
-                if progress > 0.5 then
-                    scale_w = (progress - 0.5) * 2
-                    local flap_w = right_w * scale_w
-                    local flap_x = center_x
-                    
-                    Theme.setColor({ 0.92, 0.88, 0.81 })
-                    love.graphics.rectangle("fill", flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    Theme.setColor({ 0.15, 0.15, 0.12, 0.15 })
-                    love.graphics.rectangle("line", flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    
-                    love.graphics.setScissor(flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    drawPageContents(self, false, self.old_spread_index, items, owned, state, fonts, forcing_tutorial, viewport_y, left_x, left_w, right_x, right_w, CARD_H, GRID_GAP_Y, s)
-                    love.graphics.setScissor()
-                    
-                    local shadow_x = center_x + flap_w
-                    Theme.setColor({ 0.15, 0.15, 0.12, 0.15 * math.sin(progress * math.pi) })
-                    love.graphics.setLineWidth(fl(3 * s))
-                    love.graphics.line(shadow_x, viewport_y, shadow_x, viewport_y + viewport_h)
-                    love.graphics.setLineWidth(1)
-                else
-                    scale_w = (0.5 - progress) * 2
-                    local flap_w = left_w * scale_w
-                    local flap_x = center_x - flap_w
-                    
-                    Theme.setColor({ 0.92, 0.88, 0.81 })
-                    love.graphics.rectangle("fill", flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    Theme.setColor({ 0.15, 0.15, 0.12, 0.15 })
-                    love.graphics.rectangle("line", flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    
-                    love.graphics.setScissor(flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    drawPageContents(self, true, self.spread_index, items, owned, state, fonts, forcing_tutorial, viewport_y, left_x, left_w, right_x, right_w, CARD_H, GRID_GAP_Y, s)
-                    love.graphics.setScissor()
-                    
-                    local shadow_x = flap_x
-                    Theme.setColor({ 0.15, 0.15, 0.12, 0.15 * math.sin(progress * math.pi) })
-                    love.graphics.setLineWidth(fl(3 * s))
-                    love.graphics.line(shadow_x, viewport_y, shadow_x, viewport_y + viewport_h)
-                    love.graphics.setLineWidth(1)
-                end
+            leaf(idx * 2 - 1, cx - page_w, false)
+            leaf(idx * 2, cx, true)
+        end
+
+    elseif old == 0 or idx == 0 then
+        -- ── Front cover open/close. ONE leaf turns on the spine: it starts as
+        -- the cover in the right slot, flips to edge-on, then lands flat in the
+        -- left slot as page 1 (its inside face). Page 2 sits static in the right
+        -- slot, revealed as the cover lifts. Only a single leaf is ever in
+        -- motion — no double slide. q: 0 = closed, 1 = open. ──
+        local opening = (idx == 1)
+        local q = opening and (1 - progress) or progress
+        leaf(2, cx, true)                                  -- page 2, static right slot
+        if q < 0.5 then
+            drawFlipped(cx, 1 - q * 2, function()          -- cover flips to edge-on (right slot)
+                drawFrontCover(self, cx, top, page_w, page_h, fonts, s)
+            end)
+        else
+            drawFlipped(cx, (q - 0.5) * 2, function()      -- page 1 opens flat (left slot)
+                leaf(1, cx - page_w, false)
+            end)
+        end
+
+    elseif old == max_spread or idx == max_spread then
+        -- ── Back cover open/close. Mirror of the front, one leaf on the spine:
+        -- it starts as the back cover in the left slot, flips to edge-on, then
+        -- lands flat in the right slot as the spread's right page. The left
+        -- page sits static, revealed as the cover lifts. ──
+        local cs      = max_spread - 1
+        local opening = (idx == cs)
+        local q = opening and (1 - progress) or progress
+        leaf(cs * 2 - 1, cx - page_w, false)               -- left page, static left slot
+        if q < 0.5 then
+            drawFlipped(cx, 1 - q * 2, function()          -- back cover flips to edge-on (left slot)
+                drawBackCover(self, cx - page_w, top, page_w, page_h, fonts, state, forcing, s, false)
+            end)
+        else
+            drawFlipped(cx, (q - 0.5) * 2, function()      -- right page opens flat (right slot)
+                leaf(cs * 2, cx, true)
+            end)
+        end
+
+    else
+        -- ── Inner spread ⇄ inner spread: whole-leaf spine flip ──
+        local spine = cx
+        local a     = progress   -- 1 -> 0
+        if idx > old then
+            -- forward: old right leaf flips left across the spine
+            if a > 0.5 then
+                leaf(old * 2 - 1, cx - page_w, false)   -- old left stays
+                leaf(idx * 2, cx, true)                 -- new right revealed
+                drawFlipped(spine, (a - 0.5) * 2, function() leaf(old * 2, cx, true) end)
             else
-                drawPageContents(self, true, self.spread_index, items, owned, state, fonts, forcing_tutorial, viewport_y, left_x, left_w, right_x, right_w, CARD_H, GRID_GAP_Y, s)
-                drawPageContents(self, false, self.spread_index, items, owned, state, fonts, forcing_tutorial, viewport_y, left_x, left_w, right_x, right_w, CARD_H, GRID_GAP_Y, s)
-                
-                if progress > 0.5 then
-                    scale_w = (progress - 0.5) * 2
-                    local flap_w = left_w * scale_w
-                    local flap_x = center_x - flap_w
-                    
-                    Theme.setColor({ 0.92, 0.88, 0.81 })
-                    love.graphics.rectangle("fill", flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    Theme.setColor({ 0.15, 0.15, 0.12, 0.15 })
-                    love.graphics.rectangle("line", flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    
-                    love.graphics.setScissor(flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    drawPageContents(self, true, self.old_spread_index, items, owned, state, fonts, forcing_tutorial, viewport_y, left_x, left_w, right_x, right_w, CARD_H, GRID_GAP_Y, s)
-                    love.graphics.setScissor()
-                    
-                    local shadow_x = flap_x
-                    Theme.setColor({ 0.15, 0.15, 0.12, 0.15 * math.sin(progress * math.pi) })
-                    love.graphics.setLineWidth(fl(3 * s))
-                    love.graphics.line(shadow_x, viewport_y, shadow_x, viewport_y + viewport_h)
-                    love.graphics.setLineWidth(1)
-                else
-                    scale_w = (0.5 - progress) * 2
-                    local flap_w = right_w * scale_w
-                    local flap_x = center_x
-                    
-                    Theme.setColor({ 0.92, 0.88, 0.81 })
-                    love.graphics.rectangle("fill", flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    Theme.setColor({ 0.15, 0.15, 0.12, 0.15 })
-                    love.graphics.rectangle("line", flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    
-                    love.graphics.setScissor(flap_x, viewport_y - fl(4 * s), flap_w, viewport_h + fl(8 * s))
-                    drawPageContents(self, false, self.spread_index, items, owned, state, fonts, forcing_tutorial, viewport_y, left_x, left_w, right_x, right_w, CARD_H, GRID_GAP_Y, s)
-                    love.graphics.setScissor()
-                    
-                    local shadow_x = center_x + flap_w
-                    Theme.setColor({ 0.15, 0.15, 0.12, 0.15 * math.sin(progress * math.pi) })
-                    love.graphics.setLineWidth(fl(3 * s))
-                    love.graphics.line(shadow_x, viewport_y, shadow_x, viewport_y + viewport_h)
-                    love.graphics.setLineWidth(1)
-                end
+                leaf(idx * 2, cx, true)                 -- new right
+                leaf(old * 2 - 1, cx - page_w, false)   -- old left (about to be covered)
+                drawFlipped(spine, (0.5 - a) * 2, function() leaf(idx * 2 - 1, cx - page_w, false) end)
+            end
+        else
+            -- backward: old left leaf flips right across the spine
+            if a > 0.5 then
+                leaf(old * 2, cx, true)                 -- old right stays
+                leaf(idx * 2 - 1, cx - page_w, false)   -- new left revealed
+                drawFlipped(spine, (a - 0.5) * 2, function() leaf(old * 2 - 1, cx - page_w, false) end)
+            else
+                leaf(idx * 2 - 1, cx - page_w, false)   -- new left
+                leaf(old * 2, cx, true)                 -- old right (about to be covered)
+                drawFlipped(spine, (0.5 - a) * 2, function() leaf(idx * 2, cx, true) end)
             end
         end
-
-        -- 3. Page numbers watermarks at the bottom of pages (Spread 1 starts pages 1 and 2)
-        love.graphics.setFont(fonts.sm)
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.40 })
-        local left_num_str = tostring(self.spread_index * 2 - 1)
-        local right_num_str = tostring(self.spread_index * 2)
-        local l_num_w = fonts.sm:getWidth(left_num_str)
-        local r_num_w = fonts.sm:getWidth(right_num_str)
-        
-        local text_y_offset = viewport_y + 3 * (CARD_H + GRID_GAP_Y) + fl(4 * s)
-        love.graphics.print(left_num_str, left_x + left_w * 0.5 - l_num_w * 0.5, text_y_offset)
-        love.graphics.print(right_num_str, right_x + right_w * 0.5 - r_num_w * 0.5, text_y_offset)
     end
-    
-    -- 4. Page navigation dog-ear corner curls
+
+    -- ── Corner controls. Book bounds are ALWAYS the full open-spread extent,
+    -- cover or spread, so the dog-ear corners and the close ✕ never move
+    -- between views — that motion is what made the buttons annoying to hit.
+    -- Non-interactive during a flip. ──
+    local book_l = fl(cx - page_w)
+    local book_r = fl(cx + page_w)
+    local book_b = top + page_h
     local mx, my = love.mouse.getPosition()
-    local max_spread = math.ceil(#items / 6) + 1
 
-    -- Left corner fold (PREVIOUS PAGE)
-    local left_corner_sz = fl(28 * s)
-    local is_prev_hov = false
-    if self.spread_index > 0 then
-        -- Hover zone check
-        if mx >= box.x and mx <= box.x + fl(48 * s)
-           and my >= box.y + box.h - fl(48 * s) and my <= box.y + box.h then
-            is_prev_hov = true
-            left_corner_sz = fl(38 * s)
-        end
-
-        -- Cut space backdrop
-        Theme.setColor(Theme.debug.hud_bg or {0, 0, 0, 0.7})
-        love.graphics.polygon("fill",
-            box.x, box.y + box.h,
-            box.x + left_corner_sz, box.y + box.h,
-            box.x, box.y + box.h - left_corner_sz
-        )
-        -- Folded flap
+    -- Previous-page dog-ear (bottom-left).
+    self._prev_rect = nil
+    if idx > 0 then
+        local sz  = fl(28 * s)
+        local hov = mx >= book_l and mx <= book_l + fl(48 * s) and my >= book_b - fl(48 * s) and my <= book_b
+        if hov then sz = fl(38 * s) end
         Theme.setColor({ 0.88, 0.84, 0.77 })
-        love.graphics.polygon("fill",
-            box.x + left_corner_sz, box.y + box.h,
-            box.x + left_corner_sz, box.y + box.h - left_corner_sz,
-            box.x, box.y + box.h - left_corner_sz
-        )
+        love.graphics.polygon("fill", book_l + sz, book_b, book_l + sz, book_b - sz, book_l, book_b - sz)
         Theme.setColor({ 0.15, 0.15, 0.12, 0.35 })
-        love.graphics.line(box.x + left_corner_sz, box.y + box.h, box.x, box.y + box.h - left_corner_sz)
-        love.graphics.line(box.x + left_corner_sz, box.y + box.h - left_corner_sz, box.x + left_corner_sz, box.y + box.h)
-        
+        love.graphics.line(book_l + sz, book_b, book_l, book_b - sz)
         love.graphics.setFont(fonts.sm)
-        Theme.setColor({ 0.15, 0.15, 0.12, is_prev_hov and 0.85 or 0.35 })
-        love.graphics.print("◄", box.x + left_corner_sz * 0.4, box.y + box.h - left_corner_sz * 0.8)
-        
-        self._prev_rect = { x = box.x, y = box.y + box.h - left_corner_sz, w = left_corner_sz, h = left_corner_sz }
-    else
-        self._prev_rect = nil
+        Theme.setColor({ 0.15, 0.15, 0.12, hov and 0.85 or 0.40 })
+        love.graphics.print("<", book_l + sz * 0.35, book_b - sz * 0.8)
+        if not flipping then self._prev_rect = { x = book_l, y = book_b - sz, w = sz, h = sz } end
     end
 
-    -- Right corner fold (NEXT PAGE)
-    local right_corner_sz = fl(28 * s)
-    local is_next_hov = false
-    if self.spread_index < max_spread then
-        -- Hover zone check
-        if mx >= box.x + box.w - fl(48 * s) and mx <= box.x + box.w
-           and my >= box.y + box.h - fl(48 * s) and my <= box.y + box.h then
-            is_next_hov = true
-            right_corner_sz = fl(38 * s)
-        end
-
-        -- Cut space backdrop
-        Theme.setColor(Theme.debug.hud_bg or {0, 0, 0, 0.7})
-        love.graphics.polygon("fill",
-            box.x + box.w, box.y + box.h,
-            box.x + box.w - right_corner_sz, box.y + box.h,
-            box.x + box.w, box.y + box.h - right_corner_sz
-        )
-        -- Folded flap
+    -- Next-page dog-ear (bottom-right).
+    self._next_rect = nil
+    if idx < max_spread then
+        local sz  = fl(28 * s)
+        local hov = mx >= book_r - fl(48 * s) and mx <= book_r and my >= book_b - fl(48 * s) and my <= book_b
+        if hov then sz = fl(38 * s) end
         Theme.setColor({ 0.88, 0.84, 0.77 })
-        love.graphics.polygon("fill",
-            box.x + box.w - right_corner_sz, box.y + box.h,
-            box.x + box.w - right_corner_sz, box.y + box.h - right_corner_sz,
-            box.x + box.w, box.y + box.h - right_corner_sz
-        )
+        love.graphics.polygon("fill", book_r - sz, book_b, book_r - sz, book_b - sz, book_r, book_b - sz)
         Theme.setColor({ 0.15, 0.15, 0.12, 0.35 })
-        love.graphics.line(box.x + box.w - right_corner_sz, box.y + box.h, box.x + box.w, box.y + box.h - right_corner_sz)
-        love.graphics.line(box.x + box.w - right_corner_sz, box.y + box.h - right_corner_sz, box.x + box.w - right_corner_sz, box.y + box.h)
-        
+        love.graphics.line(book_r - sz, book_b, book_r, book_b - sz)
         love.graphics.setFont(fonts.sm)
-        Theme.setColor({ 0.15, 0.15, 0.12, is_next_hov and 0.85 or 0.35 })
-        love.graphics.print("►", box.x + box.w - right_corner_sz * 0.7, box.y + box.h - right_corner_sz * 0.8)
-        
-        self._next_rect = { x = box.x + box.w - right_corner_sz, y = box.y + box.h - right_corner_sz, w = right_corner_sz, h = right_corner_sz }
-    else
-        self._next_rect = nil
+        Theme.setColor({ 0.15, 0.15, 0.12, hov and 0.85 or 0.40 })
+        love.graphics.print(">", book_r - sz * 0.65, book_b - sz * 0.8)
+        if not flipping then self._next_rect = { x = book_r - sz, y = book_b - sz, w = sz, h = sz } end
     end
 
-    -- Continue button at the bottom (coupon-style cutout button)
-    local s_ui    = (self.game.ui_scale) or 1
-    local btn_w   = math.max(160, fl(220 * s_ui))
-    local btn_h   = math.max(32, fl(42 * s_ui))
-    local btn_x   = box.x + fl((box.w - btn_w) / 2)
-    local btn_y   = box.y + box.h - btn_h - 14
-    self._continue_rect = { x = btn_x, y = btn_y, w = btn_w, h = btn_h }
-
-    local hov = mx >= btn_x and mx < btn_x + btn_w
-                and my >= btn_y and my < btn_y + btn_h
-
-    -- Draw dashed border surrounding the order coupon button
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.50 })
-    love.graphics.rectangle("line", btn_x, btn_y, btn_w, btn_h)
-
-    LabelButton.draw{
-        x = btn_x + 2, y = btn_y + 2, w = btn_w - 4, h = btn_h - 4,
-        text         = forcing_tutorial and "ORDER COMPLETED" or "CLOSE CATALOG",
-        fonts        = fonts,
-        font         = fonts.md,
-        hovered      = hov and (not forcing_tutorial),
-        disabled     = forcing_tutorial,
-        depth        = 3,
-        fill_token   = (hov and not forcing_tutorial) and { 0.75, 0.20, 0.20 } or { 0.90, 0.86, 0.78 },
-        border_token = forcing_tutorial and Theme.fg.disabled or { 0.15, 0.15, 0.12 },
-        text_token   = (hov and not forcing_tutorial) and { 0.94, 0.90, 0.83 } or (forcing_tutorial and Theme.fg.disabled or { 0.15, 0.15, 0.12 }),
-    }
-
-    -- Continue tooltip check
-    if hov and forcing_tutorial then
-        TooltipSvc.set("Get the Poker Poster to start your next run.", mx, my)
+    -- Subtle close: a small muted ✕ in the margin just ABOVE the book's
+    -- top-right corner (on the dim backdrop) on every view except the back
+    -- cover (which owns the prominent CLOSE). Sits clear of the right page's
+    -- {chip} ledger, which lives inside that same corner. Suppressed while the
+    -- intro forces a poster purchase, and during a flip.
+    if idx ~= max_spread and not flipping and not forcing then
+        local cz   = fl(20 * s)
+        local cxr  = book_r - cz
+        local cyr  = math.max(fl(6 * s), top - cz - fl(6 * s))
+        local hovx = mx >= cxr and mx < cxr + cz and my >= cyr and my < cyr + cz
+        Theme.setColor({ 0.15, 0.15, 0.12, hovx and 0.85 or 0.40 })
+        love.graphics.setLineWidth(fl(2 * s))
+        local xp = fl(5 * s)
+        love.graphics.line(cxr + xp, cyr + xp, cxr + cz - xp, cyr + cz - xp)
+        love.graphics.line(cxr + cz - xp, cyr + xp, cxr + xp, cyr + cz - xp)
+        love.graphics.setLineWidth(1)
+        self._continue_rect = { x = cxr, y = cyr, w = cz, h = cz }
+        if hovx then TooltipSvc.set("Close catalog", mx, my) end
     end
 
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.50 })
-    love.graphics.printf("scroll wheel or grab corners to turn pages",
-        box.x, btn_y - fonts.sm:getHeight() - 4, box.w, "center")
+    -- Page-turn hint under an open spread.
+    if idx ~= 0 and idx ~= max_spread then
+        love.graphics.setFont(fonts.sm)
+        Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
+        love.graphics.printf("scroll wheel or grab a corner to turn pages",
+            book_l, book_b + fl(6 * s), book_r - book_l, "center")
+    end
 
-    self._modal:endDraw()
-    
-    -- Tooltip draw at the very end to be on top.
     TooltipSvc.draw(fonts)
 end
 

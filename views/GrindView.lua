@@ -1078,11 +1078,34 @@ function GrindView:_drawDeckCell(x, w, fonts)
     local icon_x = x + math.floor((w - icon_w) / 2)
     local icon_y = inset
 
+    local level = (state.deck_levels and state.deck_levels[active_id]) or 0
+
     if sprite then
         local sx = icon_w / sprite:getWidth()
         local sy = icon_h / sprite:getHeight()
+
+        -- Shaders for level progression
+        local ShaderRegistry = require("services.ShaderRegistry")
+        local active_shader = nil
+        if level == 0 then
+            active_shader = ShaderRegistry.get("dirty")
+        elseif level == 5 then
+            active_shader = ShaderRegistry.get("foil")
+            if active_shader then
+                active_shader:send("u_time", self.game.time.total_time)
+            end
+        end
+
+        if active_shader then
+            love.graphics.setShader(active_shader)
+        end
+
         Theme.setColor(Theme.fg.heading)
         love.graphics.draw(sprite, icon_x, icon_y, 0, sx, sy)
+
+        if active_shader then
+            love.graphics.setShader()
+        end
     else
         -- Fallback rect with a "?" marker if the asset failed to load.
         Theme.setColor(Theme.bg.sunken)
@@ -1092,6 +1115,22 @@ function GrindView:_drawDeckCell(x, w, fonts)
         love.graphics.printf("?", icon_x,
             icon_y + math.floor((icon_h - fonts.sm:getHeight()) / 2),
             icon_w, "center")
+    end
+
+    -- Draw border for level 2, 3, 4 active deck
+    if level >= 2 and level <= 4 then
+        local border_colors = {
+            [2] = { 0.72, 0.45, 0.20, 1.0 }, -- Bronze
+            [3] = { 0.80, 0.80, 0.85, 1.0 }, -- Silver
+            [4] = { 0.98, 0.82, 0.12, 1.0 }, -- Gold
+        }
+        local bc = border_colors[level]
+        local bw = math.max(2, math.floor(4 * s))
+        local inset = math.floor(bw / 2)
+        love.graphics.setLineWidth(bw)
+        Theme.setColor(bc)
+        love.graphics.rectangle("line", icon_x + inset, icon_y + inset, icon_w - inset * 2, icon_h - inset * 2, 2)
+        love.graphics.setLineWidth(1)
     end
 
     -- Level badge overlay (bottom-right of the icon). Compact "L3" tag

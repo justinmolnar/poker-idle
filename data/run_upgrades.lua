@@ -32,13 +32,12 @@
 -- fill_window converts unit count → fill ratio → lerp toward the
 -- stake's *_capped values.
 --
--- Prototype caps: with HIGH_TIER_STAKES off (PROTOTYPE_MODE), only T1-T3 are
--- reachable. T3's fill window completes at 11 units, so Sharper Reads / Pot
--- Control do nothing past level 11, and Focus past 5 levels (9 tables) just
--- shaves penalty with no tables to use it on. Cap those levels in the prototype
--- so players can't burn money on dead levels; the full game keeps them.
-local Constants = require("data.constants")
-local PROTO     = not Constants.FEATURES.HIGH_TIER_STAKES
+-- Fill upgrades (Sharper Reads, Pot Control) are `fill_scaled`: the
+-- controller caps their buyable level to the top currently-buyable stake's
+-- fill_window.complete (GrindController:getRunUpgradeMaxLevel), so they
+-- never offer a dead level and need no build-flag special-case — with the
+-- high-tier bands locked, only T1-T3 are buyable and the cap lands at T3's
+-- 11 on its own; it follows the ladder as bands unlock.
 
 return {
 
@@ -56,12 +55,26 @@ return {
         icon        = "sharper_reads",
         -- Drives a per-stake range tooltip (win chance, current → next level).
         tooltip_metric = "win_chance",
-        max_level   = PROTO and 11 or 18,   -- prototype: T3 fill completes at L11
+        -- Cap is DYNAMIC (fill_scaled): the controller sets the buyable max
+        -- to the top currently-buyable stake's fill_window.complete, so it
+        -- grows/shrinks with the ladder + band gating on its own (T3→11 in
+        -- Act 1, T6→20 once mid unlocks, T9→29 once high unlocks). max_level
+        -- is only the absolute ceiling matching the cost array. Costs past
+        -- ~L18 are placeholder pending the cost-curve pass.
+        fill_scaled = true,
+        max_level   = 29,
+        -- Fast-early / slow-late idle curve: cheap opening (L1 ~$0.20, a few
+        -- T1 hands) ramping ~x2.5/level to ~$28B at L29. The `fill_scaled`
+        -- cap keeps you to your tier's window, and the expensive high levels
+        -- give the through-game depth — so the early levels stay cheap.
+        -- Placeholder — tune against the §1 earning table.
         costs       = {
-            0.25, 0.50, 1.50, 4, 10,
-            25, 60, 150, 400, 1000,
-            2500, 6000, 15000, 40000, 100000,
-            250000, 600000, 1500000,
+            0.20, 0.50, 1.25, 3, 8,
+            20, 50, 125, 300, 750,
+            1800, 4500, 11000, 28000, 70000,
+            175000, 440000, 1100000, 2800000, 7000000,
+            18000000, 45000000, 110000000, 280000000, 700000000,
+            1800000000, 4500000000, 11000000000, 28000000000,
         },
         effects     = {
             { kind = "win_chance_fill", strength = 1.0 },
@@ -85,11 +98,24 @@ return {
         icon        = "pot_control",
         -- Drives a per-stake range tooltip (Stack rate, current → next level).
         tooltip_metric = "win_dist",
-        max_level   = PROTO and 11 or 14,   -- prototype: T3 fill completes at L11
+        -- Cap is DYNAMIC (fill_scaled), same as Sharper Reads: the buyable
+        -- max tracks the top currently-buyable stake's fill_window.complete,
+        -- so Pot Control reaches exactly as deep as the ladder currently
+        -- exposes (and no further — no dead levels). This is what fixes the
+        -- old "can't touch T6" bug without hardcoding T6. Costs past ~L20 are
+        -- placeholder pending the cost-curve pass.
+        fill_scaled = true,
+        max_level   = 29,
+        -- Same fast-early / slow-late shape as Sharper Reads, ~2x its cost
+        -- per level (Pot Control pushes TWO fills — win_dist + loss_dist).
+        -- L1 ~$0.40 → ~$55B at L29. Placeholder, tune against §1.
         costs       = {
-            1.50, 4.50, 14, 40, 113,
-            375, 1100, 3000, 9000, 30000,
-            90000, 263000, 800000, 2400000,
+            0.40, 1, 2.5, 6, 16,
+            40, 100, 250, 600, 1500,
+            3600, 9000, 22000, 55000, 140000,
+            350000, 900000, 2200000, 5600000, 14000000,
+            36000000, 90000000, 220000000, 560000000, 1400000000,
+            3600000000, 9000000000, 22000000000, 55000000000,
         },
         effects     = {
             { kind = "win_dist_fill",  strength = 1.0 },
@@ -118,10 +144,12 @@ return {
         requires      = "cursor_pool",
         requires_hide = true,
         max_level     = 12,
+        -- Steepened so cursor investment spans the game (tops ~$40M ≈ T6),
+        -- not a first-hour dump. Placeholder.
         costs       = {
-            3, 10, 30, 100, 300,
-            900, 3000, 9000, 27000, 80000,
-            240000, 720000,
+            3, 12, 45, 170, 650,
+            2500, 10000, 45000, 220000, 1200000,
+            8000000, 40000000,
         },
         effects     = { { kind = "cursor_count_add", value = 1 } },
     },
@@ -139,9 +167,10 @@ return {
         requires      = "cursor_pool",
         requires_hide = true,
         max_level     = 8,
+        -- Steepened (8 levels, tops ~$30M). Placeholder.
         costs       = {
-            5, 25, 125, 625, 3000,
-            15000, 75000, 375000,
+            5, 40, 350, 3000, 25000,
+            220000, 2000000, 30000000,
         },
         effects     = { { kind = "cursor_speed_mult", value = 1.25 } },
     },
@@ -158,9 +187,10 @@ return {
         },
         icon        = "focus",
         max_level   = 10,
+        -- Steepened (10 levels, tops ~$30M ≈ T6). Placeholder.
         costs       = {
-            5, 20, 80, 320, 1300,
-            5000, 20000, 80000, 325000, 1300000,
+            5, 25, 130, 650, 3300,
+            16000, 85000, 450000, 3000000, 30000000,
         },
         effects     = { { kind = "focus_capacity_add", value = 1 } },
     },

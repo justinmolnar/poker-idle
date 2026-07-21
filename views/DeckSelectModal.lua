@@ -40,17 +40,19 @@ DeckSelectModal.__index = DeckSelectModal
 -- tile to carry the name / level / bonus / xp action / xp bar text. The
 -- card art reads behind the panel for atmosphere; the text reads on top
 -- against the dark fill for legibility.
-local MODAL_W_BASE     = 760
-local TILE_W_BASE      = 160
-local TILE_H_BASE      = 210
-local TILE_GAP_X_BASE  = 16
-local TILE_GAP_Y_BASE  = 12
-local INFO_PANEL_FRAC  = 0.75   -- bottom 75% of the tile is the info panel
+local TILE_W_BASE      = 130
+local TILE_H_BASE      = 160
+local TILE_GAP_X_BASE  = 12
+local TILE_GAP_Y_BASE  = 10
+local TILES_PER_ROW    = 4
+local DETAILS_W_BASE   = 250
+local GAP_MIDDLE_BASE  = 24
+local MODAL_W_BASE     = (TILE_W_BASE * TILES_PER_ROW + TILE_GAP_X_BASE * (TILES_PER_ROW - 1)) + GAP_MIDDLE_BASE + DETAILS_W_BASE + 48  -- 878px total width
+local INFO_PANEL_FRAC  = 0.40   -- bottom 40% of the tile is the info panel
 local INFO_PANEL_ALPHA = 0.88   -- panel opacity (1.0 = card art hidden behind it)
 local BTN_W_BASE       = 200
 local BTN_H_BASE       = 40
 local XP_BAR_H_BASE    = 6
-local TILES_PER_ROW    = 4
 
 function DeckSelectModal:new(game, opts)
     opts = opts or {}
@@ -140,14 +142,9 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked)
     Theme.setColor(Theme.bg.sunken)
     love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
 
-    -- Card-back sprite as the entire tile background — only when the
-    -- deck is unlocked. Locked decks keep the dark sunken fill so they
-    -- read as silhouettes (card shape only, no art revealed). Scale
-    -- to FILL (cover) — pick the larger of the two ratios so neither
-    -- dimension shows background; clip via scissor so the overflow is
-    -- cropped at the tile bounds.
+    local level = (state.deck_levels and state.deck_levels[spec.id]) or 0
     local sprite = self.game.sprite_loader:getSprite(spec.sprite)
-    if sprite and unlocked then
+    if sprite then
         local sw, sh = sprite:getWidth(), sprite:getHeight()
         local scale = math.max(w / sw, h / sh)
         local draw_w = sw * scale
@@ -155,28 +152,62 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked)
         local draw_x = x + math.floor((w - draw_w) / 2)
         local draw_y = y + math.floor((h - draw_h) / 2)
         love.graphics.setScissor(x, y, w, h)
+
+        -- Dynamic shaders for level progression:
+        -- L0 = sepia/dirty desaturated card back
+        -- L5 = holographic foil shader
+        local ShaderRegistry = require("services.ShaderRegistry")
+        local active_shader = nil
+        if level == 0 then
+            active_shader = ShaderRegistry.get("dirty")
+        elseif level == 5 then
+            active_shader = ShaderRegistry.get("foil")
+            if active_shader then
+                active_shader:send("u_time", self.game.time.total_time)
+            end
+        end
+
+        if active_shader then
+            love.graphics.setShader(active_shader)
+        end
+
         Theme.setColor(Theme.fg.heading)
         love.graphics.draw(sprite, draw_x, draw_y, 0, scale, scale)
+
+        if active_shader then
+            love.graphics.setShader()
+        end
         love.graphics.setScissor()
-    elseif not unlocked then
-        -- Silhouette treatment: the dark sunken background already
-        -- covers the tile. Drop a faint "?" glyph centered in the card-
-        -- art band as a visual placeholder for the hidden deck.
-        local panel_h_preview = math.floor(h * INFO_PANEL_FRAC)
-        local art_band_h      = h - panel_h_preview
-        love.graphics.setFont(fonts.md)
-        Theme.setColor(Theme.fg.faint, 0.5)
-        love.graphics.printf("?", x,
-            y + math.floor((art_band_h - fonts.md:getHeight()) / 2),
-            w, "center")
     end
 
-    -- Border. Active gets the heading-color stronger line for the
-    -- "currently equipped" read.
-    local border_color = active and Theme.fg.heading or Theme.border.soft
+    -- Unified Border drawing: L2-L4 use Bronze/Silver/Gold borders, L5 uses Epic Purple, L0-L1 use standard soft/active highlights.
+    local border_color = Theme.border.soft
+    local border_width = 1
+    local border_inset = 0
+
+    if active then
+        border_color = Theme.fg.heading
+        border_width = Theme.space.line_strong or 2
+    end
+
+    if level >= 2 and level <= 4 then
+        local border_colors = {
+            [2] = { 0.72, 0.45, 0.20, 1.0 }, -- Bronze
+            [3] = { 0.80, 0.80, 0.85, 1.0 }, -- Silver
+            [4] = { 0.98, 0.82, 0.12, 1.0 }, -- Gold
+        }
+        border_color = border_colors[level]
+        if active then
+            border_width = math.max(6, math.floor(10 * s))
+        else
+            border_width = math.max(4, math.floor(6 * s))
+        end
+        border_inset = math.floor(border_width / 2)
+    end
+
     Theme.setColor(border_color)
-    love.graphics.setLineWidth(active and Theme.space.line_strong or 1)
-    love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+    love.graphics.setLineWidth(border_width)
+    love.graphics.rectangle("line", x + border_inset, y + border_inset, w - border_inset * 2, h - border_inset * 2, Theme.space.radius)
     love.graphics.setLineWidth(1)
 
     -- ACTIVE badge top-right (drawn over the card art).
@@ -208,26 +239,20 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked)
     local content_x  = x + cx_pad
     local content_w  = w - cx_pad * 2
 
-    -- Name (md). Wrap-aware advance.
+    -- Name (sm). Wrap-aware advance.
     local name_color = unlocked
         and (active and Theme.fg.heading or Theme.fg.primary)
         or  Theme.fg.faint
     Theme.setColor(name_color)
-    love.graphics.setFont(fonts.md)
+    love.graphics.setFont(fonts.sm)
     cursor_y = printCenteredWrapped(spec.name or spec.id,
-                                    content_x, cursor_y, content_w, fonts.md)
-    cursor_y = cursor_y + math.floor(4 * s)
+                                    content_x, cursor_y, content_w, fonts.sm)
+    cursor_y = cursor_y + math.floor(2 * s)
 
     if not unlocked then
         love.graphics.setFont(fonts.sm)
         Theme.setColor(Theme.status.error)
         cursor_y = printCenteredWrapped("LOCKED",
-                                        content_x, cursor_y, content_w, fonts.sm)
-        cursor_y = cursor_y + math.floor(8 * s)
-
-        Theme.setColor(Theme.fg.muted)
-        local unlock_text = (spec.unlock and spec.unlock.text) or "Locked."
-        cursor_y = printCenteredWrapped(unlock_text,
                                         content_x, cursor_y, content_w, fonts.sm)
 
         self._tiles[#self._tiles + 1] = {
@@ -236,7 +261,7 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked)
         return
     end
 
-    -- Unlocked path: level / bonus / capstone / xp-action / bar.
+    -- Unlocked path: level / XP progress bar.
     local level = (state.deck_levels and state.deck_levels[spec.id]) or 0
     local xp    = (state.deck_xp     and state.deck_xp[spec.id])     or 0
 
@@ -245,33 +270,16 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked)
     local lvl_text = "L" .. tostring(level) .. " / " .. tostring(spec.max_level)
     cursor_y = printCenteredWrapped(lvl_text,
                                     content_x, cursor_y, content_w, fonts.sm)
-    cursor_y = cursor_y + math.floor(4 * s)
 
-    Theme.setColor(Theme.fg.primary)
-    cursor_y = printCenteredWrapped(spec.bonus_text or "",
-                                    content_x, cursor_y, content_w, fonts.sm)
-    cursor_y = cursor_y + math.floor(4 * s)
+    -- Draw XP progress bar at a fixed bottom position
+    local bar_h  = math.floor(XP_BAR_H_BASE * s)
+    local bar_y  = y + h - bar_h - math.floor(6 * s)
 
-    if spec.capstone and spec.capstone.text then
-        if level >= (spec.max_level or 5) then
-            Theme.setColor(Theme.fg.heading)
-        else
-            Theme.setColor(Theme.fg.muted)
-        end
-        cursor_y = printCenteredWrapped("Capstone: " .. spec.capstone.text,
-                                        content_x, cursor_y, content_w, fonts.sm)
-        cursor_y = cursor_y + math.floor(4 * s)
-    end
-
-    Theme.setColor(Theme.fg.muted)
-    cursor_y = printCenteredWrapped(spec.xp_action_text or "",
-                                    content_x, cursor_y, content_w, fonts.sm)
-    cursor_y = cursor_y + math.floor(6 * s)
-
-    local bar_h = math.floor(XP_BAR_H_BASE * s)
+    -- Draw the XP progress bar background
     Theme.setColor(Theme.bg.sunken)
-    love.graphics.rectangle("fill", content_x, cursor_y, content_w, bar_h, 2)
+    love.graphics.rectangle("fill", content_x, bar_y, content_w, bar_h, 2)
 
+    -- Draw the XP progress bar fill
     local into, span = Decks.progressInLevel(spec, level, xp)
     local fill_frac
     local bar_color = Theme.status.good
@@ -282,21 +290,183 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked)
         fill_frac = 1
     end
     Theme.setColor(bar_color)
-    love.graphics.rectangle("fill", content_x, cursor_y,
+    love.graphics.rectangle("fill", content_x, bar_y,
         math.floor(content_w * fill_frac), bar_h, 2)
-
-    -- Explicit XP numbers were removed from the tile — the bar carries
-    -- the progress read here. The full "X / Y XP to L_n" breakdown lives
-    -- in the top-bar deck-chip tooltip for the active deck.
 
     self._tiles[#self._tiles + 1] = {
         id = spec.id, x = x, y = y, w = w, h = h, unlocked = true,
     }
 end
 
+local function drawDetailsPanel(self, spec, rx, ry, rw, rh, fonts, s, unlocked)
+    local state = self.game.state
+    local pad = math.floor(12 * s)
+    local cx = rx + pad
+    local cw = rw - pad * 2
+    local cy = ry + pad
+
+    -- Title
+    love.graphics.setFont(fonts.md)
+    Theme.setColor(Theme.fg.heading)
+    cy = printCenteredWrapped(spec.name or spec.id, cx, cy, cw, fonts.md)
+    cy = cy + math.floor(4 * s)
+
+    -- Status / Level
+    love.graphics.setFont(fonts.sm)
+    if not unlocked then
+        Theme.setColor(Theme.status.error)
+        cy = printCenteredWrapped("LOCKED", cx, cy, cw, fonts.sm)
+    else
+        local level = (state.deck_levels and state.deck_levels[spec.id]) or 0
+        Theme.setColor(Theme.fg.muted)
+        cy = printCenteredWrapped("Level " .. level .. " / " .. spec.max_level, cx, cy, cw, fonts.sm)
+    end
+    cy = cy + math.floor(8 * s)
+
+    -- Mini card back preview
+    local preview_w = math.floor(70 * s)
+    local preview_h = math.floor(95 * s)
+    local preview_x = rx + math.floor((rw - preview_w) / 2)
+    
+    -- Draw sunken preview box
+    Theme.setColor(Theme.bg.sunken)
+    love.graphics.rectangle("fill", preview_x, cy, preview_w, preview_h, Theme.space.radius)
+    Theme.setColor(Theme.border.soft)
+    love.graphics.rectangle("line", preview_x, cy, preview_w, preview_h, Theme.space.radius)
+
+    local level = (state.deck_levels and state.deck_levels[spec.id]) or 0
+    local sprite = self.game.sprite_loader:getSprite(spec.sprite)
+    if sprite then
+        local sw, sh = sprite:getWidth(), sprite:getHeight()
+        local scale = math.min(preview_w / sw, preview_h / sh)
+        local draw_w = sw * scale
+        local draw_h = sh * scale
+        local draw_x = preview_x + math.floor((preview_w - draw_w) / 2)
+        local draw_y = cy + math.floor((preview_h - draw_h) / 2)
+        love.graphics.setScissor(preview_x, cy, preview_w, preview_h)
+
+        -- Shaders for level progression
+        local ShaderRegistry = require("services.ShaderRegistry")
+        local active_shader = nil
+        if level == 0 then
+            active_shader = ShaderRegistry.get("dirty")
+        elseif level == 5 then
+            active_shader = ShaderRegistry.get("foil")
+            if active_shader then
+                active_shader:send("u_time", self.game.time.total_time)
+            end
+        end
+
+        if active_shader then
+            love.graphics.setShader(active_shader)
+        end
+
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.draw(sprite, draw_x, draw_y, 0, scale, scale)
+
+        if active_shader then
+            love.graphics.setShader()
+        end
+        love.graphics.setScissor()
+
+        -- Unified border drawing for details preview
+        local active = (spec.id == state.active_deck_id)
+        local border_color = Theme.border.soft
+        local border_width = 1
+        local border_inset = 0
+
+        if active then
+            border_color = Theme.fg.heading
+            border_width = Theme.space.line_strong or 2
+        end
+
+        if level >= 2 and level <= 4 then
+            local border_colors = {
+                [2] = { 0.72, 0.45, 0.20, 1.0 }, -- Bronze
+                [3] = { 0.80, 0.80, 0.85, 1.0 }, -- Silver
+                [4] = { 0.98, 0.82, 0.12, 1.0 }, -- Gold
+            }
+            border_color = border_colors[level]
+            if active then
+                border_width = math.max(5, math.floor(8 * s))
+            else
+                border_width = math.max(3, math.floor(5 * s))
+            end
+            border_inset = math.floor(border_width / 2)
+        end
+
+        Theme.setColor(border_color)
+        love.graphics.setLineWidth(border_width)
+        love.graphics.rectangle("line", preview_x + border_inset, cy + border_inset, preview_w - border_inset * 2, preview_h - border_inset * 2, Theme.space.radius)
+        love.graphics.setLineWidth(1)
+    else
+        love.graphics.setFont(fonts.md)
+        Theme.setColor(Theme.fg.faint, 0.4)
+        love.graphics.printf("?", preview_x, cy + math.floor((preview_h - fonts.md:getHeight()) / 2), preview_w, "center")
+    end
+    cy = cy + preview_h + math.floor(10 * s)
+
+    -- Thin separator
+    Theme.setColor(Theme.border.soft, 0.7)
+    love.graphics.rectangle("fill", rx + 8, cy, rw - 16, 1)
+    cy = cy + math.floor(8 * s)
+
+    -- Info text area
+    love.graphics.setFont(fonts.sm)
+    if not unlocked then
+        Theme.setColor(Theme.status.error)
+        cy = printCenteredWrapped("Unlock Requirement:", cx, cy, cw, fonts.sm)
+        cy = cy + math.floor(4 * s)
+        Theme.setColor(Theme.fg.primary)
+        cy = printCenteredWrapped((spec.unlock and spec.unlock.text) or "Locked.", cx, cy, cw, fonts.sm)
+    else
+        local level = (state.deck_levels and state.deck_levels[spec.id]) or 0
+        -- Passive
+        Theme.setColor(Theme.fg.muted)
+        cy = printCenteredWrapped("Passive Bonus:", cx, cy, cw, fonts.sm)
+        cy = cy + math.floor(2 * s)
+        Theme.setColor(Theme.fg.primary)
+        cy = printCenteredWrapped(spec.bonus_text or "", cx, cy, cw, fonts.sm)
+        cy = cy + math.floor(8 * s)
+
+        -- Capstone
+        if spec.capstone and spec.capstone.text then
+            local active = level >= (spec.max_level or 5)
+            Theme.setColor(active and Theme.fg.heading or Theme.fg.muted)
+            local label = active and "Capstone (Active):" or "Capstone (Locked):"
+            cy = printCenteredWrapped(label, cx, cy, cw, fonts.sm)
+            cy = cy + math.floor(2 * s)
+            Theme.setColor(active and Theme.fg.heading or Theme.fg.faint)
+            cy = printCenteredWrapped(spec.capstone.text, cx, cy, cw, fonts.sm)
+            cy = cy + math.floor(8 * s)
+        end
+
+        -- XP Rule
+        Theme.setColor(Theme.fg.muted)
+        cy = printCenteredWrapped("XP Action:", cx, cy, cw, fonts.sm)
+        cy = cy + math.floor(2 * s)
+        Theme.setColor(Theme.fg.primary)
+        cy = printCenteredWrapped(spec.xp_action_text or "", cx, cy, cw, fonts.sm)
+    end
+end
+
 function DeckSelectModal:draw()
     local fonts = self.game.fonts
+    local W, H  = love.graphics.getDimensions()
     local s     = (self.game.ui_scale) or 1
+
+    -- Clamp scale to ensure the modal never overflows the screen width or height.
+    -- This prevents the modal box from getting capped and overlapping the button/text.
+    local max_modal_w = W * 0.95
+    local max_s_width = max_modal_w / MODAL_W_BASE
+
+    local h_base = fonts.lg:getHeight() + fonts.sm:getHeight() * 2 + 76
+    local h_scale = 596
+    local max_modal_h = H * 0.90
+    local max_s_height = (max_modal_h - h_base) / h_scale
+
+    s = math.min(s, max_s_width, max_s_height)
+    if s < 0.4 then s = 0.4 end
 
     -- Re-sync the frame width to the live scale so the modal resizes correctly
     -- if the window changes size while it's open (width was baked at :new).
@@ -321,11 +491,12 @@ function DeckSelectModal:draw()
     self._tiles = {}
     local state = self.game.state
     local unlock_registry = self.game.unlock_rules
+    local grid_panel_w = (TILE_W_BASE * TILES_PER_ROW + TILE_GAP_X_BASE * (TILES_PER_ROW - 1)) * s
 
+    -- Left panel: Grid of 12 compact deck tiles (4 columns x 3 rows)
     for idx, spec in ipairs(all_specs) do
         local row    = math.floor((idx - 1) / TILES_PER_ROW)
         local col    = (idx - 1) % TILES_PER_ROW
-        -- Last row may have fewer than TILES_PER_ROW tiles; centre it.
         local tiles_in_row
         if row == n_rows - 1 then
             tiles_in_row = n - row * TILES_PER_ROW
@@ -333,12 +504,52 @@ function DeckSelectModal:draw()
             tiles_in_row = TILES_PER_ROW
         end
         local row_w = tiles_in_row * tile_w + math.max(0, tiles_in_row - 1) * tile_gap_x
-        local row_x = body.x + math.floor((body.w - row_w) / 2)
+        local row_x = body.x + math.floor((grid_panel_w - row_w) / 2)
         local tx    = row_x + col * (tile_w + tile_gap_x)
         local ty    = body.y + row * (tile_h + tile_gap_y)
         local unlocked = Decks.isUnlocked(state, spec, unlock_registry)
         drawTile(self, spec, tx, ty, tile_w, tile_h, fonts, s, unlocked)
     end
+
+    -- Right panel: Details panel showing the full rules/passive/capstone of the hovered/equipped deck
+    local rx = body.x + grid_panel_w + math.floor(GAP_MIDDLE_BASE * s)
+    local ry = body.y
+    local rw = math.floor(DETAILS_W_BASE * s)
+    local rh = grid_h
+
+    -- Draw details panel container box
+    Theme.setColor(Theme.bg.sunken)
+    love.graphics.rectangle("fill", rx, ry, rw, rh, Theme.space.radius)
+    Theme.setColor(Theme.border.soft)
+    love.graphics.rectangle("line", rx, ry, rw, rh, Theme.space.radius)
+
+    -- Hover detection
+    local mx, my = love.mouse.getPosition()
+    local hovered_spec = nil
+    for _, tile in ipairs(self._tiles) do
+        if mx >= tile.x and mx < tile.x + tile.w
+           and my >= tile.y and my < tile.y + tile.h then
+            for _, spec in ipairs(all_specs) do
+                if spec.id == tile.id then
+                    hovered_spec = { spec = spec, unlocked = tile.unlocked }
+                    break
+                end
+            end
+            break
+        end
+    end
+
+    local detail_spec, detail_unlocked
+    if hovered_spec then
+        detail_spec = hovered_spec.spec
+        detail_unlocked = hovered_spec.unlocked
+    else
+        local active_id = state.active_deck_id or "standard"
+        detail_spec = Decks.specById(active_id) or all_specs[1]
+        detail_unlocked = Decks.isUnlocked(state, detail_spec, unlock_registry)
+    end
+
+    drawDetailsPanel(self, detail_spec, rx, ry, rw, rh, fonts, s, detail_unlocked)
 
     -- Footer: active-only-XP rule + stacking rule + mode hint.
     local footer_y = body.y + grid_h + math.floor(12 * s)
@@ -365,7 +576,6 @@ function DeckSelectModal:draw()
     local btn_y = body.y + body.h - btn_h - math.floor(4 * s)
     self._continue_rect = { x = btn_x, y = btn_y, w = btn_w, h = btn_h }
 
-    local mx, my = love.mouse.getPosition()
     local hov = mx >= btn_x and mx < btn_x + btn_w
                 and my >= btn_y and my < btn_y + btn_h
     LabelButton.draw{

@@ -398,6 +398,30 @@ Effects.kinds = {
         affects     = "ctx.ultra_unlocked",
     },
 
+    -- ── Catalog once-per-run item flags ─────────────────────────────────
+    -- Consumed in GrindController's resolution loop; the "first per run"
+    -- gating lives in run-scoped GameState flags.
+    void_first_loss = {
+        description = "Flag — voids the first losing hand each run (Rubber Duck).",
+        value_shape = "no field (presence sets ctx.void_first_loss = true)",
+        affects     = "ctx.void_first_loss",
+    },
+    void_first_stack_loss = {
+        description = "Flag — voids the first jackpot-tier (stack) loss each run (The Fridge).",
+        value_shape = "no field (presence sets ctx.void_first_stack_loss = true)",
+        affects     = "ctx.void_first_stack_loss",
+    },
+    copy_first_denied = {
+        description = "Flag — the first denied {chip} bounty each run banks anyway (Copy Machine).",
+        value_shape = "no field (presence sets ctx.copy_first_denied = true)",
+        affects     = "ctx.copy_first_denied",
+    },
+    first_bounty_bonus = {
+        description = "The first {chip} bounty each run pays +value extra (Dogs Playing Poker).",
+        value_shape = "integer, e.g. 1 for +1 {chip} on the run's first bounty",
+        affects     = "ctx.first_bounty_bonus (additive)",
+    },
+
 }
 
 return Effects

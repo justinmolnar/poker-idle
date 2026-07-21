@@ -1,22 +1,26 @@
 -- data/decks.lua
 --
--- The OVERHAULED roster of 11 decks.
+-- The OVERHAULED roster of 11 decks (+ the Master).
 --
 -- Defines:
 --   • id        = unique identifier string
 --   • name      = player-facing display name
 --   • sprite    = card-back texture path (reused across the roster)
 --   • max_level = always 5
---   • xp_curve  = table of cumulative XP thresholds for levels 1..5
---   • xp_rule   = parameter block passed to the deck-XP registry
+--   • xp_curve  = PER-DECK cumulative thresholds for levels 1..5, in the
+--                 UNITS of that deck's xp_rule. Money-based rules use
+--                 DOLLAR magnitudes (millions) so a single high-tier pot
+--                 can't one-shot the curve; count-based rules use event
+--                 counts tuned so ~30 min of standard play (6-max single
+--                 table ≈ 4.4s/hand ≈ 400 hands / 30 min) maxes the deck.
+--   • xp_rule   = parameter block passed to the deck-XP registry (the
+--                 level-up condition — each deck's is its own identity)
 --   • effects   = numeric perk list applied once per level (capped at 4)
 --   • capstone  = single perk list applied once at L5
 --   • bonus_text= L1-4 UI text description
 --   • flavor_text= deck description text
---   • unlock    = unlock criteria
+--   • unlock    = unlock criteria (distinct per deck)
 --
-
-local XP_CURVE_5 = { 10, 40, 120, 320, 800 }
 
 local Decks = {
 
@@ -26,7 +30,7 @@ local Decks = {
         name      = "Standard",
         sprite    = "cards/backs/06-nature",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 10, 40, 100, 180, 280 },   -- hands won (count)
         xp_rule   = { kind = "hands_won" },
         xp_action_text = "+1 XP per hand won",
         effects   = {
@@ -46,7 +50,7 @@ local Decks = {
         name      = "Hustler",
         sprite    = "cards/backs/05-patterns",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 25, 90, 200, 340, 480 },   -- hands played (count)
         xp_rule   = { kind = "hands_played" },
         xp_action_text = "+1 XP per hand played",
         effects   = {
@@ -60,8 +64,8 @@ local Decks = {
         flavor_text = "Fast cards, fast deals, fast money.",
         unlock = {
             kind      = "lifetime_hands_played",
-            threshold = 2500,
-            text      = "Play 2,500 hands cumulatively to unlock",
+            threshold = 10000,
+            text      = "Play 10,000 hands cumulatively to unlock",
         },
     },
 
@@ -71,7 +75,7 @@ local Decks = {
         name      = "Nit",
         sprite    = "cards/backs/05-nature",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 10000, 100000, 800000, 3000000, 10000000 },  -- $ lost
         xp_rule   = { kind = "money_lost" },
         xp_action_text = "+1 XP per dollar lost",
         effects   = {
@@ -86,8 +90,8 @@ local Decks = {
         flavor_text = "Tight is right. Play safe, live to grind another day.",
         unlock = {
             kind      = "lifetime_money_lost",
-            threshold = 1000,
-            text      = "Lose $1,000 cumulatively to unlock",
+            threshold = 1000000,
+            text      = "Lose $1,000,000 cumulatively to unlock",
         },
     },
 
@@ -97,7 +101,7 @@ local Decks = {
         name      = "Maniac",
         sprite    = "cards/backs/05-acorns",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 50000, 300000, 2000000, 7000000, 20000000 },  -- $ won in jackpots
         xp_rule   = { kind = "jackpot_dollars" },
         xp_action_text = "+1 XP per dollar won in Jackpots",
         effects   = {
@@ -116,9 +120,9 @@ local Decks = {
         bonus_text  = "Shifts win and loss distributions heavily toward Large/Jackpot",
         flavor_text = "Put the pedal to the floor. Wild swings, huge pots.",
         unlock = {
-            kind      = "lifetime_money_won",
-            threshold = 10000,
-            text      = "Earn $10,000 cumulatively to unlock",
+            kind      = "lifetime_jackpot_count",
+            threshold = 1500,
+            text      = "Hit 1,500 Jackpots to unlock",
         },
     },
 
@@ -128,7 +132,7 @@ local Decks = {
         name      = "Short Stack",
         sprite    = "cards/backs/04-patterns",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 30, 80, 140, 200, 260 },   -- table_rebuys grants +10/rebuy
         xp_rule   = { kind = "table_rebuys" },
         xp_action_text = "+10 XP per table rebuy",
         effects   = {
@@ -141,9 +145,9 @@ local Decks = {
         bonus_text  = "Rebuys are 15% cheaper per level",
         flavor_text = "Low buy-in specialist. Keep refilling the stacks.",
         unlock = {
-            kind      = "lifetime_hands_played",
-            threshold = 1500,
-            text      = "Play 1,500 hands cumulatively to unlock",
+            kind      = "lifetime_rebuys",
+            threshold = 500,
+            text      = "Rebuy tables 500 times to unlock",
         },
     },
 
@@ -153,7 +157,7 @@ local Decks = {
         name      = "The Bank",
         sprite    = "cards/backs/04-acorns",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 100000, 700000, 4000000, 15000000, 50000000 },  -- $ won
         xp_rule   = { kind = "money_won" },
         xp_action_text = "+1 XP per dollar won",
         effects   = {
@@ -167,8 +171,8 @@ local Decks = {
         flavor_text = "Earnings grow with stakes. Watch the capital accumulate.",
         unlock = {
             kind      = "lifetime_money_won",
-            threshold = 2500,
-            text      = "Earn $2,500 cumulatively to unlock",
+            threshold = 5000000,
+            text      = "Earn $5,000,000 cumulatively to unlock",
         },
     },
 
@@ -178,7 +182,7 @@ local Decks = {
         name      = "Swarm",
         sprite    = "cards/backs/02-fish",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 30, 120, 280, 450, 650 },   -- hands played (count)
         xp_rule   = { kind = "hands_played" },
         xp_action_text = "+1 XP per hand played",
         effects   = {
@@ -195,8 +199,8 @@ local Decks = {
         flavor_text = "The swarm grows. Let the clicks deal the cards.",
         unlock = {
             kind      = "lifetime_hands_played",
-            threshold = 3000,
-            text      = "Play 3,000 hands cumulatively to unlock",
+            threshold = 15000,
+            text      = "Play 15,000 hands cumulatively to unlock",
         },
     },
 
@@ -206,7 +210,7 @@ local Decks = {
         name      = "Specialist",
         sprite    = "cards/backs/03-fish",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 30, 110, 240, 380, 520 },   -- single-table wins grant +2 each
         xp_rule   = { kind = "hands_won_single_table" },
         xp_action_text = "+2 XP per hand won on a single table",
         effects   = {
@@ -220,20 +224,23 @@ local Decks = {
         flavor_text = "One table. One focus. Perfect execution.",
         unlock = {
             kind      = "lifetime_hands_played",
-            threshold = 1000,
-            text      = "Play 1,000 hands cumulatively to unlock",
+            threshold = 1500,
+            text      = "Play 1,500 hands cumulatively to unlock",
         },
     },
 
     -- ── 9. Multitasker (Focus / Overwhelm Deck) ────────────────────────────
+    -- Levels on hands won WHILE OVERWHELMED — the more tables you're running
+    -- over your focus cap, the more XP each win grants. Unique on purpose; do
+    -- not flatten to a plain table-count threshold.
     {
         id        = "multitasker",
         name      = "Multitasker",
         sprite    = "cards/backs/05-patterns",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 30, 110, 250, 400, 550 },   -- overwhelmed wins (scales w/ overload)
         xp_rule   = { kind = "hands_won_overwhelmed" },
-        xp_action_text = "+1 XP per table overflow won",
+        xp_action_text = "+1 XP per table over your cap, per hand won",
         effects   = {
             { kind = "focus_capacity_add", value = 3 },
         },
@@ -244,9 +251,9 @@ local Decks = {
         bonus_text  = "+3 Focus Capacity per level",
         flavor_text = "Thrive in the swarm. Keep adding tables.",
         unlock = {
-            kind      = "lifetime_hands_at_4plus_tables",
-            threshold = 100,
-            text      = "Play 100 hands at 4+ tables to unlock",
+            kind      = "lifetime_hands_overwhelmed",
+            threshold = 5000,
+            text      = "Play 5,000 hands over your focus cap to unlock",
         },
     },
 
@@ -256,7 +263,7 @@ local Decks = {
         name      = "Investor",
         sprite    = "cards/backs/05-acorns",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 45, 120, 240, 360, 480 },   -- upgrades_bought grants +15 each
         xp_rule   = { kind = "upgrades_bought" },
         xp_action_text = "+15 XP per purchased run upgrade",
         effects   = {
@@ -269,9 +276,9 @@ local Decks = {
         bonus_text  = "All run upgrades are 15% stronger per level",
         flavor_text = "Invest in upgrades. Compound your poker edge.",
         unlock = {
-            kind      = "lifetime_money_won",
-            threshold = 5000,
-            text      = "Earn $5,000 cumulatively to unlock",
+            kind      = "lifetime_upgrades_bought",
+            threshold = 50,
+            text      = "Buy 50 run-upgrade levels to unlock",
         },
     },
 
@@ -281,7 +288,7 @@ local Decks = {
         name      = "Tier Manipulator",
         sprite    = "cards/backs/05-nature",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 15, 55, 120, 200, 280 },   -- wins at T2+ only (count)
         xp_rule   = { kind = "hands_won_above_t1" },
         xp_action_text = "+1 XP per hand won at T2+ stakes",
         effects   = {
@@ -295,8 +302,8 @@ local Decks = {
         flavor_text = "Manipulate the stakes. Bend the limits.",
         unlock = {
             kind      = "lifetime_money_won",
-            threshold = 20000,
-            text      = "Earn $20,000 cumulatively to unlock",
+            threshold = 50000000,
+            text      = "Earn $50,000,000 cumulatively to unlock",
         },
     },
 
@@ -310,7 +317,7 @@ local Decks = {
         name      = "The Master",
         sprite    = "cards/backs/06-nature",
         max_level = 5,
-        xp_curve  = XP_CURVE_5,
+        xp_curve  = { 40, 130, 280, 450, 650 },   -- hands won (count; endgame, longer)
         xp_rule   = { kind = "hands_won" },
         xp_action_text = "+1 XP per hand won",
         effects   = {

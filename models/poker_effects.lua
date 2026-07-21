@@ -371,6 +371,26 @@ function PokerEffects.registerAll(reg)
         ctx.shove_base_double = true
     end)
 
+    -- ── Catalog once-per-run item flags ─────────────────────────────────
+    -- Each is a flag/value consumed at an event the resolution loop already
+    -- fires; the "first per run" gating lives in run-scoped state flags.
+    -- Rubber Duck: void the first losing hand each run.
+    reg:register("void_first_loss", function(_e, ctx)
+        ctx.void_first_loss = true
+    end)
+    -- The Fridge: void the first jackpot-tier (stack) loss each run.
+    reg:register("void_first_stack_loss", function(_e, ctx)
+        ctx.void_first_stack_loss = true
+    end)
+    -- Copy Machine: the first denied {chip} bounty each run banks anyway.
+    reg:register("copy_first_denied", function(_e, ctx)
+        ctx.copy_first_denied = true
+    end)
+    -- Dogs Playing Poker: the first {chip} bounty each run pays +value.
+    reg:register("first_bounty_bonus", function(e, ctx)
+        ctx.first_bounty_bonus = (ctx.first_bounty_bonus or 0) + (e.value or 0)
+    end)
+
     -- Unlocks s010 Ultra stake.
     reg:register("ultra_unlock_effect", function(_e, ctx)
         ctx.ultra_unlocked = true

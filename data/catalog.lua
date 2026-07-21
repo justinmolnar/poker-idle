@@ -103,7 +103,7 @@ local items = {
         description = "Snug fit. Logo's barely noticeable.",
         sprite      = "branded_hat",
         phase       = "demo",
-        cost_chip     = 1,
+        cost_chip     = 2,
         position    = { x = 120, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.04 },
@@ -125,7 +125,7 @@ local items = {
         description = "A nice big one. You should see yourself sometimes.",
         sprite      = "mirror",
         phase       = "demo",
-        cost_chip     = 2,
+        cost_chip     = 4,
         position    = { x = 160, y = 220 },
         effects     = {
             { kind = "shove_rate_add",   value = 0.03 },
@@ -139,7 +139,7 @@ local items = {
         description = "Tastes terrible. Works fine.",
         sprite      = "energy_drink",
         phase       = "demo",
-        cost_chip     = 2,
+        cost_chip     = 4,
         position    = { x = 200, y = 220 },
         effects     = {
             { kind = "shove_rate_add",  value = 0.02 },
@@ -153,7 +153,7 @@ local items = {
         description = "Every room could use a whiteboard.",
         sprite      = "whiteboard",
         phase       = "demo",
-        cost_chip     = 3,
+        cost_chip     = 6,
         position    = { x = 240, y = 220 },
         effects     = {
             { kind = "shove_rate_add",   value = 0.03 },
@@ -167,7 +167,7 @@ local items = {
         description = "Bestseller. Life-changing, they say.",
         sprite      = "self_help_book",
         phase       = "demo",
-        cost_chip     = 3,
+        cost_chip     = 6,
         position    = { x = 280, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.04 },
@@ -182,7 +182,7 @@ local items = {
         description = "For when things get tense.",
         sprite      = "stress_ball",
         phase       = "demo",
-        cost_chip     = 3,
+        cost_chip     = 6,
         position    = { x = 320, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.05 },
@@ -197,7 +197,7 @@ local items = {
         description = "Heavy. Older than it looks.",
         sprite      = "lucky_coin",
         phase       = "demo",
-        cost_chip     = 3,
+        cost_chip     = 6,
         position    = { x = 360, y = 220 },
         effects     = {
             { kind = "shove_rate_add",     value = 0.03 },
@@ -211,7 +211,7 @@ local items = {
         description = "Soothing to watch. Hypnotic, almost.",
         sprite      = "lava_lamp",
         phase       = "demo",
-        cost_chip     = 3,
+        cost_chip     = 6,
         position    = { x = 400, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.04 },
@@ -226,7 +226,7 @@ local items = {
         description = "Worn smooth by someone.",
         sprite      = "worry_stone",
         phase       = "demo",
-        cost_chip     = 3,
+        cost_chip     = 6,
         position    = { x = 440, y = 220 },
         -- 4-tier note: spec called this "15% Big loss → Medium". The code's
         -- outcome model has 4 tiers (small/medium/large/jackpot — no Big).
@@ -253,7 +253,7 @@ local items = {
         description = "Participation award. Handsome on a shelf.",
         sprite      = "plastic_trophy",
         phase       = "demo",
-        cost_chip     = 3,
+        cost_chip     = 6,
         position    = { x = 350, y = 300 },
         effects     = {
             { kind = "shove_rate_add",   value = 0.03 },
@@ -272,7 +272,10 @@ local items = {
         phase       = "mid",
         cost_chip     = 4,
         position    = { x = 180, y = 200 },
-        effects     = { { kind = "win_chance_shift", amount = 0.02 } },
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.01 },
+            { kind = "win_chance_shift", amount = 0.02 },
+        },
     },
     {
         id          = "pen",
@@ -283,7 +286,10 @@ local items = {
         phase       = "mid",
         cost_chip     = 4,
         position    = { x = 230, y = 200 },
-        effects     = { { kind = "jackpot_chip_add", value = 1 } },
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.008 },
+            { kind = "jackpot_chip_add", value = 1 },
+        },
     },
     {
         id          = "headphones",
@@ -294,7 +300,10 @@ local items = {
         phase       = "mid",
         cost_chip     = 5,
         position    = { x = 280, y = 200 },
-        effects     = { { kind = "loss_mult", value = 0.95 } },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.01 },
+            { kind = "loss_mult",      value = 0.95 },
+        },
         corrupt = {
             cost_achip = 8,
             effects = { { kind = "loss_mult", value = 0.50 } },
@@ -310,7 +319,10 @@ local items = {
         phase       = "mid",
         cost_chip     = 5,
         position    = { x = 330, y = 200 },
-        effects     = { { kind = "start_table_count", value = 1 } },
+        effects     = {
+            { kind = "shove_rate_add",    value = 0.01 },
+            { kind = "start_table_count", value = 1 },
+        },
     },
     {
         id          = "pocket_cash",
@@ -321,7 +333,10 @@ local items = {
         phase       = "mid",
         cost_chip     = 8,
         position    = { x = 100, y = 300 },
-        effects     = { { kind = "start_bankroll_add", value = 5 } },
+        effects     = {
+            { kind = "shove_rate_add",     value = 0.008 },
+            { kind = "start_bankroll_add", value = 5 },
+        },
     },
     {
         id          = "discount_sits",
@@ -332,7 +347,110 @@ local items = {
         phase       = "mid",
         cost_chip     = 14,
         position    = { x = 600, y = 300 },
-        effects     = { { kind = "buy_in_mult", value = 0.85 } },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.012 },
+            { kind = "buy_in_mult",    value = 0.85 },
+        },
+    },
+
+    -- ─── Unlock-gated passives (first tranche) ──────────────────────────
+    -- Each shows as a silhouette with its `unlock.text` until the condition
+    -- is met (see views/CatalogModal + models/catalog_unlock_rules). Effects
+    -- fire themselves at events the resolution loop already emits.
+    {
+        id          = "gaming_chair",
+        name        = "Gaming Chair",
+        effect_text = "Focus penalty halved.",
+        description = "Ergonomic. Overload hurts less.",
+        sprite      = "gaming_chair",
+        phase       = "mid",
+        cost_chip     = 12,
+        position    = { x = 150, y = 400 },
+        effects     = {
+            { kind = "shove_rate_add",            value = 0.01 },
+            { kind = "focus_penalty_reduce_mult", value = 0.5 },
+        },
+        unlock = {
+            kind      = "lifetime_hands_overwhelmed",
+            threshold = 1,
+            text      = "Play a hand over your focus cap to unlock",
+        },
+    },
+    {
+        id          = "rubber_duck",
+        name        = "Rubber Duck",
+        effect_text = "Your run's first loss is voided.",
+        description = "Squeak. It never happened.",
+        sprite      = "rubber_duck",
+        phase       = "mid",
+        cost_chip     = 4,
+        position    = { x = 210, y = 400 },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.006 },
+            { kind = "void_first_loss" },
+        },
+        unlock = {
+            kind      = "total_hands_played",
+            threshold = 100,
+            text      = "Play 100 hands to unlock",
+        },
+    },
+    {
+        id          = "fridge",
+        name        = "The Fridge",
+        effect_text = "Your run's first {l:stack} is voided.",
+        description = "The cooler. Eats the worst beat.",
+        sprite      = "fridge",
+        phase       = "mid",
+        cost_chip     = 15,
+        position    = { x = 270, y = 400 },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.01 },
+            { kind = "void_first_stack_loss" },
+        },
+        unlock = {
+            kind      = "total_big_outcomes",
+            threshold = 5,
+            text      = "Ride 5 big pots to unlock",
+        },
+    },
+    {
+        id          = "copy_machine",
+        name        = "Copy Machine",
+        effect_text = "First denied {chip} each run banks anyway.",
+        description = "It just prints another.",
+        sprite      = "copy_machine",
+        phase       = "mid",
+        cost_chip     = 45,
+        position    = { x = 330, y = 400 },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.012 },
+            { kind = "copy_first_denied" },
+        },
+        unlock = {
+            kind      = "total_denied_stacks",
+            threshold = 1,
+            text      = "Get denied a {chip} to unlock",
+        },
+    },
+    {
+        id          = "dogs_playing_poker",
+        name        = "Dogs Playing Poker",
+        effect_text = "First {chip} bounty each run pays +1.",
+        description = "The painting winks.",
+        sprite      = "dogs_playing_poker",
+        phase       = "mid",
+        cost_chip     = 5,
+        position    = { x = 390, y = 400 },
+        effects     = {
+            { kind = "shove_rate_add",     value = 0.006 },
+            { kind = "first_bounty_bonus", value = 1 },
+        },
+        unlock = {
+            kind      = "lifetime_chips_banked",
+            threshold = 1,
+            text      = "Bank your first {chip} to unlock",
+        },
     },
 
     -- ─── Late phase: T6 unlock content ──────────────────────────────────
@@ -345,8 +463,10 @@ local items = {
         sprite      = "cursor_pool",
         phase       = "late",
         cost_chip     = 10,
+        slots       = 3,  -- full-leaf hero card (see data/catalog_pages.lua)
         position    = { x = 100, y = 500 },
         effects     = {
+            { kind = "shove_rate_add", value = 0.012 },
             { kind = "cursor_unlocked" },
         },
     },
@@ -361,7 +481,10 @@ local items = {
         requires      = "cursor_pool",
         requires_hide = true,
         position      = { x = 200, y = 500 },
-        effects       = { { kind = "cursor_count_add", value = 1 } },
+        effects       = {
+            { kind = "shove_rate_add",   value = 0.008 },
+            { kind = "cursor_count_add", value = 1 },
+        },
     },
     {
         id            = "tireless_assistants",
@@ -374,7 +497,10 @@ local items = {
         requires      = "cursor_pool",
         requires_hide = true,
         position      = { x = 300, y = 500 },
-        effects       = { { kind = "cursor_rebuy_unlocked" } },
+        effects       = {
+            { kind = "shove_rate_add",       value = 0.008 },
+            { kind = "cursor_rebuy_unlocked" },
+        },
     },
     {
         id          = "engraved_plaque",
@@ -386,7 +512,10 @@ local items = {
         cost_chip     = 25,
         requires    = "plastic_trophy",
         position    = { x = 450, y = 400 },
-        effects     = { { kind = "mtt_payout_boost", value = 2 } },
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.012 },
+            { kind = "mtt_payout_boost", value = 2 },
+        },
     },
     {
         id          = "unlock_ultra",

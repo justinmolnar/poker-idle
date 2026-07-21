@@ -44,6 +44,18 @@ function DeckUnlockRules.registerAll(reg)
         return (state and state.lifetime_hands_at_4plus_tables or 0) >= (cond.threshold or 0)
     end)
 
+    reg:register("lifetime_rebuys", function(cond, state)
+        return (state and state.lifetime_rebuys or 0) >= (cond.threshold or 0)
+    end)
+
+    reg:register("lifetime_upgrades_bought", function(cond, state)
+        return (state and state.lifetime_upgrades_bought or 0) >= (cond.threshold or 0)
+    end)
+
+    reg:register("lifetime_hands_overwhelmed", function(cond, state)
+        return (state and state.lifetime_hands_overwhelmed or 0) >= (cond.threshold or 0)
+    end)
+
     -- Number of decks at max level. Gates the master deck (threshold 5).
     -- Not a state field — computed from deck_levels vs each spec's cap.
     reg:register("decks_maxed", function(cond, state)

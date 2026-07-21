@@ -48,6 +48,7 @@ local Decks            = require("models.Decks")
 local PokerEffects     = require("models.poker_effects")
 local DeckXpRules      = require("models.deck_xp_rules")
 local DeckUnlockRules  = require("models.deck_unlock_rules")
+local CatalogUnlockRules = require("models.catalog_unlock_rules")
 local HintRules        = require("models.hint_rules")
 local PokerActionApply = require("models.poker_action_apply")
 local GrindState   = require("states.GrindState")
@@ -207,6 +208,9 @@ local function buildGame()
     -- swapping the kinds registered from models/deck_unlock_rules.
     g.unlock_rules = UnlockRegistry:new()
     DeckUnlockRules.registerAll(g.unlock_rules)
+    -- Catalog items reuse the same registry — adds total_*/chips-banked kinds
+    -- on top of the deck-registered lifetime_* kinds (see catalog_unlock_rules).
+    CatalogUnlockRules.registerAll(g.unlock_rules)
 
     -- Check and sync deck unlocks immediately at boot time using the loaded save data.
     Decks.checkPendingUnlocks(g.state, g.unlock_rules)
@@ -277,6 +281,8 @@ function love.load()
     -- Compile shaders at boot. ShaderRegistry caches by name; compile
     -- failures log a warning and degrade gracefully (no crash).
     ShaderRegistry.loadFromFile("radial_glow", "shaders/radial_glow.frag")
+    ShaderRegistry.loadFromFile("dirty", "shaders/dirty.frag")
+    ShaderRegistry.loadFromFile("foil", "shaders/foil.frag")
 
     if Constants.DEBUG.START_IN_SHOVE then
         Game.state_machine:switch("shove")

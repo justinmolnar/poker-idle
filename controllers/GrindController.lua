@@ -225,12 +225,30 @@ function GrindController:update(dt)
                     -- chip_award_mult AND Pen's flat bonus — this used to
                     -- hand-roll the formula and dropped the Pen add).
                     award = self:bountyAward(t.stake_id)
-                    if award > 0 then state.chips_this_run = state.chips_this_run + award end
+                    if award > 0 then
+                        -- Dogs Playing Poker: the run's first bounty pays +bonus.
+                        if not state.first_bounty_this_run then
+                            state.first_bounty_this_run = true
+                            award = award + ((self.ctx and self.ctx.first_bounty_bonus) or 0)
+                        end
+                        state.chips_this_run = state.chips_this_run + award
+                        state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
+                    end
                 else
-                    -- Repeat tournament win on an already-banked combo:
-                    -- the same "denied" event the cash path counts (feeds
-                    -- the chip_denied tutorial hint).
-                    state.total_denied_stacks = (state.total_denied_stacks or 0) + 1
+                    -- Copy Machine: the run's first denied bounty banks anyway.
+                    if self.ctx and self.ctx.copy_first_denied and not state.denied_copied_this_run then
+                        state.denied_copied_this_run = true
+                        local cp = self:bountyAward(t.stake_id)
+                        if cp > 0 then
+                            state.chips_this_run = state.chips_this_run + cp
+                            state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
+                        end
+                    else
+                        -- Repeat tournament win on an already-banked combo:
+                        -- the same "denied" event the cash path counts (feeds
+                        -- the chip_denied tutorial hint).
+                        state.total_denied_stacks = (state.total_denied_stacks or 0) + 1
+                    end
                 end
 
                 -- Jackpot-grade table FX + a confetti fountain — the MTT is the
@@ -282,6 +300,22 @@ function GrindController:update(dt)
         if self.ctx and self.ctx.earnings_scale_by_bankroll then
             local br = self.game.state.bankroll or 0
             r.delta = r.delta * (1.0 + math.log10(br + 1) * 0.1)
+        end
+
+        -- Once-per-run loss voids: The Fridge (first jackpot-tier stack loss)
+        -- then Rubber Duck (first loss of any size). Zero the delta before it
+        -- lands on stack/bankroll, so the beat simply didn't happen. Cash
+        -- tables only — an MTT r.delta is informational (the bust is already
+        -- in tbl.stack), so voiding it there just wastes the once-per-run use.
+        if r.delta < 0 and not r.chip_stack_table and self.ctx then
+            if self.ctx.void_first_stack_loss and r.tier == "jackpot"
+               and not state.first_stack_loss_voided_this_run then
+                state.first_stack_loss_voided_this_run = true
+                r.delta = 0
+            elseif self.ctx.void_first_loss and not state.first_loss_voided_this_run then
+                state.first_loss_voided_this_run = true
+                r.delta = 0
+            end
         end
 
         -- Wins/losses land on the table's stack first. Above the 100bb
@@ -521,21 +555,40 @@ function GrindController:update(dt)
                     state.hands_since_last_bank = 0
                     local award = self:bountyAward(tbl.stake_id)
                     if award > 0 then
+                        -- Dogs Playing Poker: the run's first bounty pays +bonus.
+                        if not state.first_bounty_this_run then
+                            state.first_bounty_this_run = true
+                            award = award + ((self.ctx and self.ctx.first_bounty_bonus) or 0)
+                        end
                         -- Pending chips — commit to state.chips at SHOVE
                         -- time. The float is the satisfying "you locked a
                         -- bounty" signal; the top bar's chip figure stays
                         -- static until shove pulls the trigger on banking.
                         state.chips_this_run = state.chips_this_run + award
+                        state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
                         self.game.floating_text.emit(
                             string.format("+%d {chip}", award),
                             r.x, (r.y or 0) - 28)
                     end
                 else
-                    -- Denied: this (stake, gtype) already paid its bounty
-                    -- this run. Counted (unconditionally, meta-side) so
-                    -- the tutorial can explain the once-per-run rule the
-                    -- first time it bites.
-                    state.total_denied_stacks = (state.total_denied_stacks or 0) + 1
+                    -- Copy Machine: the run's first denied bounty banks anyway.
+                    if self.ctx and self.ctx.copy_first_denied and not state.denied_copied_this_run then
+                        state.denied_copied_this_run = true
+                        local cp = self:bountyAward(tbl.stake_id)
+                        if cp > 0 then
+                            state.chips_this_run = state.chips_this_run + cp
+                            state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
+                            self.game.floating_text.emit(
+                                string.format("+%d {chip}", cp),
+                                r.x, (r.y or 0) - 28)
+                        end
+                    else
+                        -- Denied: this (stake, gtype) already paid its bounty
+                        -- this run. Counted (unconditionally, meta-side) so
+                        -- the tutorial can explain the once-per-run rule the
+                        -- first time it bites.
+                        state.total_denied_stacks = (state.total_denied_stacks or 0) + 1
+                    end
                 end
             end
         end
@@ -612,6 +665,11 @@ function GrindController:update(dt)
             local stake_tier_idx = stake and Lookups.indexById(Stakes, stake.id) or nil
             local base_cap = Constants.GAMEPLAY.FOCUS_BASE_CAPACITY
             local focus_cap = base_cap + ((self.ctx and self.ctx.focus_capacity) or 0)
+            -- Hands played while OVER the focus cap — matches the Multitasker
+            -- deck's overwhelmed identity (its unlock, mirroring its XP rule).
+            if n_tables > focus_cap then
+                state.lifetime_hands_overwhelmed = (state.lifetime_hands_overwhelmed or 0) + 1
+            end
             self:_grantDeckXp({
                 won            = r.won and true or false,
                 delta          = r.delta,
@@ -752,6 +810,13 @@ function GrindController:buyRunUpgrade(upgrade_id)
         cost_dollars = cost,
     })
 
+    -- Lifetime counter drives the Investor deck's unlock. Gated like the
+    -- other lifetime_* counters (accrue only once the deck system exists).
+    if Decks.systemUnlocked(state) then
+        state.lifetime_upgrades_bought = (state.lifetime_upgrades_bought or 0) + 1
+        Decks.checkPendingUnlocks(state, self.game.unlock_rules)
+    end
+
     self:invalidateEffects()
     self:_playNamed("upgrade_purchased")
     return true
@@ -764,9 +829,28 @@ function GrindController:getRunUpgradeLevel(upgrade_id)
     return self.game.state.run_upgrade_levels[upgrade_id] or 0
 end
 
+-- Highest run-upgrade level worth buying right now. For fill upgrades
+-- (fill_scaled) this is FULLY DYNAMIC: the largest fill_window.complete
+-- among the stakes currently BUYABLE (stakeAvailable — ultra excluded, it's
+-- unfillable), clamped to the cost array. Nothing is hardcoded per tier or
+-- act: add/remove/re-gate stakes and the cap follows on its own. Non-fill
+-- upgrades keep their static max_level. Investor's bonus levels stack on top.
 function GrindController:getRunUpgradeMaxLevel(upgrade)
     if not upgrade then return 0 end
-    local max_lvl = upgrade.max_level or 1
+    local max_lvl
+    if upgrade.fill_scaled then
+        local best = 0
+        for _, s in ipairs(Stakes) do
+            if s.band ~= "ultra" and self:stakeAvailable(s) then
+                local complete = (s.fill_window and s.fill_window.complete) or 0
+                if complete > best then best = complete end
+            end
+        end
+        local cap = (upgrade.costs and #upgrade.costs) or best
+        max_lvl = math.min(best, cap)
+    else
+        max_lvl = upgrade.max_level or 1
+    end
     max_lvl = max_lvl + ((self.ctx and self.ctx.run_upgrade_bonus_levels) or 0)
     return max_lvl
 end
@@ -896,6 +980,12 @@ function GrindController:buyCatalogItem(item_id)
     local item
     for _, it in ipairs(Catalog) do
         if it.id == item_id then item = it; break end
+    end
+    -- Defensive unlock gate: a locked item can't be bought even if the UI is
+    -- bypassed. Reuses the same registry the catalog silhouettes check.
+    if item and item.unlock and self.game.unlock_rules
+       and not self.game.unlock_rules:check(item.unlock, self.game.state) then
+        return false
     end
     local chips_before = self.game.state.chips
     if not self.game.state:tryBuyCatalogItem(item) then return false end
@@ -1290,6 +1380,12 @@ function GrindController:rebuyTable(idx)
     self:_grantDeckXp({
         type = "table_rebuy",
     })
+    -- Lifetime counter drives the Short Stack deck's unlock. Gated like the
+    -- other lifetime_* counters (accrue only once the deck system exists).
+    if Decks.systemUnlocked(state) then
+        state.lifetime_rebuys = (state.lifetime_rebuys or 0) + 1
+        Decks.checkPendingUnlocks(state, self.game.unlock_rules)
+    end
     -- Bankroll → YOU stack chip burst (table positions are already known
     -- because the table has been on screen long enough to bust).
     self:_emitBuyInChips(t, buy_in)
