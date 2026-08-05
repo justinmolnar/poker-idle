@@ -43,6 +43,12 @@ function GameState:new(saved)
     instance.shove_r2_won = false  -- true once the player has won at least Runout 2 of the shove gauntlet
     instance.anti_chips  = 0
     instance.corrupted_items = {}
+    -- Item ids whose COMING SOON sticker the player has physically peeled off.
+    -- An item that meets its unlock condition keeps wearing the sticker until
+    -- this happens: the reveal is a thing you do, not a thing that happens to
+    -- you while you are looking elsewhere. Owned items never show one, so no
+    -- migration is needed for saves made before peeling existed.
+    instance.peeled_items    = {}
     instance.ultra_unlocked = false
     instance.deck_overhaul_migrated = false -- true once the level-0, 5-level deck migration has run once
     instance.onboarded   = false   -- true once the intro how-to-play modal has been dismissed
@@ -235,6 +241,7 @@ function GameState:wipeAll()
     self.shove_r2_won = false
     self.anti_chips  = 0
     self.corrupted_items = {}
+    self.peeled_items    = {}
     self.ultra_unlocked = false
     self.onboarded   = false
     self.catalog_seen = false
@@ -323,6 +330,7 @@ function GameState:applySaved(saved)
     self.shove_r2_won                   = self.shove_r2_won or false
     self.anti_chips                     = self.anti_chips or 0
     self.corrupted_items                = self.corrupted_items or {}
+    self.peeled_items                   = self.peeled_items or {}
     self.ultra_unlocked                 = self.ultra_unlocked or false
 
     -- Lifetime counters added later than the deck-state fields. Older
@@ -443,6 +451,7 @@ function GameState:serializeMeta()
         shove_r2_won                    = self.shove_r2_won,
         anti_chips                      = self.anti_chips,
         corrupted_items                 = self.corrupted_items,
+        peeled_items                    = self.peeled_items,
         ultra_unlocked                  = self.ultra_unlocked,
         deck_overhaul_migrated          = self.deck_overhaul_migrated,
         onboarded                       = self.onboarded,

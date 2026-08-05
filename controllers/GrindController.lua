@@ -103,8 +103,7 @@ function GrindController:currentFocusMult()
         return 1.0
     end
     local n        = self.pool:count()
-    local base_cap = Constants.GAMEPLAY.FOCUS_BASE_CAPACITY
-    local cap      = base_cap + ((self.ctx and self.ctx.focus_capacity) or 0)
+    local cap      = self:currentFocusCapacity()
     local reduce   = (self.ctx and self.ctx.focus_penalty_reduce_mult) or 1
     local penalty  = Constants.GAMEPLAY.FOCUS_BASE_PENALTY * reduce
     local floor_v  = Constants.GAMEPLAY.FOCUS_FLOOR
@@ -116,10 +115,19 @@ function GrindController:currentFocusMult()
     return mult
 end
 
--- Effective capacity for the UI — base + ctx bonus (no penalty math).
+-- Effective capacity — base + ctx bonus (no penalty math). THE single source:
+-- the penalty math, the overwhelmed counter and the UI all read this, so they
+-- cannot disagree about how many tables you can watch.
+--
+-- Floored, because capacity is a count of tables. Anything that scales run
+-- upgrades (the Calculator perk, the Investor deck) multiplies the +1/level
+-- that Focus grants, so 3 levels at +15% strength is 3.45 and the top bar
+-- cheerfully offered "4 / 7.45 tables". You cannot watch 0.45 of a table. The
+-- fractional part still accumulates and pays out when it crosses a whole
+-- table, exactly like CursorPool already floors its swarm size.
 function GrindController:currentFocusCapacity()
     local base_cap = Constants.GAMEPLAY.FOCUS_BASE_CAPACITY
-    return base_cap + ((self.ctx and self.ctx.focus_capacity) or 0)
+    return base_cap + math.floor((self.ctx and self.ctx.focus_capacity) or 0)
 end
 
 function GrindController:update(dt)
@@ -640,8 +648,7 @@ function GrindController:update(dt)
         -- the deck-gated counters are not.
         local n_tables = self.pool:count()
         local gtype_id = tbl and tbl.game_type_id
-        local focus_cap = Constants.GAMEPLAY.FOCUS_BASE_CAPACITY
-                          + ((self.ctx and self.ctx.focus_capacity) or 0)
+        local focus_cap = self:currentFocusCapacity()
 
         state.total_hands_played = (state.total_hands_played or 0) + 1
         if r.tier == "large" or r.tier == "jackpot" then
@@ -1025,6 +1032,20 @@ function GrindController:quickReset()
     self:invalidateEffects()
     state:applyStartingPerks(self.ctx)
     self.pool:rebuildFromState(self.ctx)
+end
+
+-- The player physically pulled the COMING SOON sticker off `item_id`. Records
+-- it so the reveal sticks across sessions; the view owns the drag, the model
+-- owns the fact. No-op if already peeled.
+function GrindController:peelCatalogSticker(item_id)
+    local state = self.game.state
+    state.peeled_items = state.peeled_items or {}
+    for _, id in ipairs(state.peeled_items) do
+        if id == item_id then return false end
+    end
+    state.peeled_items[#state.peeled_items + 1] = item_id
+    self:_playNamed("hole_card_flip")
+    return true
 end
 
 function GrindController:buyCatalogItem(item_id)

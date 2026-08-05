@@ -42,6 +42,10 @@ local IconText = require("views.IconText")
 
 local Sticker = {}
 
+-- Only the lifted flap casts one. A label lying flat is flush with the paper
+-- and has no shadow at all; a peeled corner hovering above it does.
+local SHADOW = { 0, 0, 0 }
+
 -- Shared metrics, so draw / widthFor / heightFor cannot drift apart.
 local function PAD(s)      return math.max(2, math.floor(3 * s)) end
 local function MARGIN(s)   return math.max(2, math.floor(3 * s)) end
@@ -86,6 +90,9 @@ function Sticker.draw(opts)
     local fill  = opts.fill_token  or Theme.status.warn
     local ink   = opts.ink_token   or Theme.fg.heading
     local edge  = opts.edge_token  or Theme.border.strong
+    -- The adhesive side: the same stock seen from behind, so a touch duller.
+    local underside = opts.underside_token
+                      or { stock[1] * 0.90, stock[2] * 0.89, stock[3] * 0.86 }
 
     local frac = opts.progress or 0
     if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
@@ -94,13 +101,33 @@ function Sticker.draw(opts)
     local margin = MARGIN(s)
     local radius = math.max(3, fl(6 * s))
 
+    -- Peel: 0 stuck flat, 1 fully lifted off. Grab the left edge, pull right.
+    -- The freed part FOLDS BACK over the part still stuck, so what you see to
+    -- the right of the crease is the label's blank underside, and what is left
+    -- of the crease is bare page. The stuck part is CLIPPED at the crease, not
+    -- squeezed — squeezing narrows the printed text, which reads as the label
+    -- melting rather than coming off.
+    local peel   = math.max(0, math.min(1, opts.peel or 0))
+    local fold_x = opts.x + w * peel          -- crease, in the caller's space
+
+    -- A label straightens out as you pull it, which is also what makes the
+    -- clip honest: setScissor is an axis-aligned screen rect, so the crease
+    -- has to be vertical by the time there is enough flap to notice.
+    local rot = (opts.rotation or -0.03) * math.max(0, 1 - peel * 4)
+
+    if peel > 0 then
+        -- Everything from the crease rightward is still stuck down.
+        love.graphics.setScissor(fl(fold_x), fl(opts.y - h),
+                                 math.ceil(opts.x + w - fold_x) + 1, fl(h * 3))
+    end
+
     -- Everything below is drawn around the sticker's own centre so the whole
-    -- label rotates as one object. No drop shadow: a sticker is stuck flush
-    -- to the paper. What sells it instead is the die-cut white margin around
-    -- a printed panel, which is how an actual applied label is made.
+    -- label rotates as one object. No shadow on the stuck face: a sticker
+    -- lying flat is flush with the paper. What sells it instead is the die-cut
+    -- white margin around a printed panel, which is how a real label is made.
     love.graphics.push()
     love.graphics.translate(opts.x + w * 0.5, opts.y + h * 0.5)
-    love.graphics.rotate(opts.rotation or -0.03)
+    love.graphics.rotate(rot)
     local left, top = -w * 0.5, -h * 0.5
 
     -- 1. The die-cut backing: the blank stock the label was punched out of.
@@ -117,9 +144,9 @@ function Sticker.draw(opts)
 
     -- 3. Fill, left to right, inside the printed panel. Square corners on
     --    purpose: love.graphics rounds ALL four corners, so a rounded fill
-    --    would bulge away from the panel's left edge at low fractions. Not
-    --    setScissor — scissor is axis-aligned in screen space and we are
-    --    inside a rotation, so it would clip crooked.
+    --    would bulge away from the panel's left edge at low fractions. This
+    --    one is drawn to width rather than clipped — unlike the peel, it sits
+    --    under the text and never needs to cut through a glyph.
     if frac > 0 then
         local fill_w = fl(pw * frac)
         if fill_w > 0 then
@@ -162,6 +189,49 @@ function Sticker.draw(opts)
         IconText.draw(opts.game, fitLine(opts.line, f_line, (tx + text_w) - lx),
                       lx, ty, f_line, ink)
     end
+
+    love.graphics.pop()
+
+    if peel <= 0 then return end
+    love.graphics.setScissor()
+
+    -- 6. The flap: the peeled length folded back over the stuck part, so it
+    --    runs from the crease RIGHTWARD by exactly as much as has come away,
+    --    showing the blank underside. This is the half that makes it a peel —
+    --    without it the label just disappears from the left.
+    local flap_len = w * peel
+    love.graphics.push()
+    love.graphics.translate(fold_x, opts.y + h * 0.5)
+    love.graphics.rotate(rot)
+
+    -- Curl: the far edge of the flap lifts, so it reads slightly shorter than
+    -- the piece it came from.
+    local curl = fl(h * 0.10 * peel)
+    local y0, y1 = -h * 0.5, h * 0.5
+    local far = flap_len
+
+    -- Shadow the flap casts on whatever it is now hovering over.
+    Theme.setColor(SHADOW, 0.18)
+    love.graphics.polygon("fill",
+        fl(3 * s), y0 + curl + fl(3 * s),
+        far + fl(3 * s), y0 + curl * 2 + fl(3 * s),
+        far + fl(3 * s), y1 - curl * 2 + fl(3 * s),
+        fl(3 * s), y1 - curl + fl(3 * s))
+
+    -- Underside: same stock, no print on it, a shade duller than the face
+    -- because it is the adhesive side.
+    Theme.setColor(underside)
+    love.graphics.polygon("fill",
+        0, y0, far, y0 + curl, far, y1 - curl, 0, y1)
+    Theme.setColor(edge, 0.28)
+    love.graphics.setLineWidth(math.max(1, fl(1 * s)))
+    love.graphics.polygon("line",
+        0, y0, far, y0 + curl, far, y1 - curl, 0, y1)
+
+    -- The crease itself: the fold is the sharpest line on the whole thing.
+    Theme.setColor(edge, 0.55)
+    love.graphics.line(0, y0, 0, y1)
+    love.graphics.setLineWidth(1)
 
     love.graphics.pop()
 end

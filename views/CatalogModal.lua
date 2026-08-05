@@ -28,6 +28,8 @@ local Catalog      = require("data.catalog")
 local CatalogPages = require("data.catalog_pages")
 local LabelButton  = require("views.widgets.LabelButton")
 local Sticker      = require("views.widgets.Sticker")
+local Stamp        = require("views.widgets.Stamp")
+local Pop          = require("services.Pop")
 local Icons        = require("views.Icons")
 local IconText     = require("views.IconText")
 local Format       = require("utils.format")
@@ -86,6 +88,10 @@ function CatalogModal:new(game, opts)
         intro_callout = opts.intro_callout == true,
         -- Cached cell rects (built each :draw, consumed by :consumeMouse)
         _cells   = {},
+        -- Peelable sticker rects (same lifecycle as _cells), and the drag in
+        -- progress: { id, x0, w, amount }.
+        _stickers = {},
+        _peel     = nil,
         -- Spread index (0 = front cover, 1 = pages 1-2, ..., max = back cover)
         spread_index   = 0,
         -- Continue-button rect (built each :draw); click sets _resolved.
@@ -142,6 +148,14 @@ local function catalogUnlocked(game, item, state)
     return game.unlock_rules:check(item.unlock, state)
 end
 
+-- Has the player pulled this item's sticker off? (models/GameState.peeled_items)
+local function isPeeled(state, item_id)
+    for _, id in ipairs(state.peeled_items or {}) do
+        if id == item_id then return true end
+    end
+    return false
+end
+
 -- Counter formatters for the sticker, picked by the condition's `format`
 -- field. Table lookup, never a branch on the unlock kind — a new format is
 -- one entry here plus one field in data/catalog.lua.
@@ -150,8 +164,18 @@ local COUNTER_FORMAT = {
     money = function(n) return Format.money(n) end,
 }
 
--- Headline on the locked-item sticker.
+-- Headlines on the locked-item sticker: still counting down, vs. earned and
+-- waiting to be pulled off.
 local STICKER_TITLE = "COMING SOON!"
+local STICKER_READY = "PEEL TO OPEN"
+
+-- How far right the sticker has to be dragged (as a fraction of its own
+-- width) before letting go actually removes it. Under this it springs back.
+local PEEL_COMMIT   = 0.55
+
+-- Stamp slam. Long enough to read as a physical impact, short enough that it
+-- is over before you look away.
+local STAMP_IMPACT_SECS = 0.22
 
 -- Trim a plain string (no icon markers) to a pixel width, measured with the
 -- real font rather than an assumed character width — the card layout has to
@@ -329,9 +353,47 @@ function CatalogModal:wheelmoved(_, dy)
     end
 end
 
+-- Advance an in-progress peel from the live mouse position, and finish it when
+-- the button comes up. Polled from :draw rather than driven by mousereleased
+-- because ShoveState has no mousereleased handler and GrindState deliberately
+-- swallows it while a modal is open; the modal already polls the mouse for
+-- hover, so this keeps the input in one place instead of threading a new
+-- callback through two states.
+function CatalogModal:_updatePeel()
+    local p = self._peel
+    if not p then return end
+    local mx = love.mouse.getPosition()
+
+    if love.mouse.isDown(1) then
+        -- Drag right to peel. Travel is measured against the sticker's own
+        -- width so a small label peels in a short pull.
+        local travel = (mx - p.x0) / math.max(1, p.w * 0.85)
+        p.amount = math.max(0, math.min(1, travel))
+        return
+    end
+
+    -- Released. Past the commit point it comes off for good; short of it the
+    -- label falls back onto the paper.
+    if (p.amount or 0) >= PEEL_COMMIT then
+        if self.game.grind and self.game.grind.peelCatalogSticker then
+            self.game.grind:peelCatalogSticker(p.id)
+        end
+    end
+    self._peel = nil
+end
+
 -- Returns true if the click landed on a button or a buyable card.
 function CatalogModal:consumeMouse(mx, my, button)
     if button ~= 1 then return false end
+
+    -- A peelable sticker takes the click before the card underneath it does —
+    -- it is physically on top, and the item is not buyable through it anyway.
+    for _, st in ipairs(self._stickers) do
+        if mx >= st.x and mx < st.x + st.w and my >= st.y and my < st.y + st.h then
+            self._peel = { id = st.id, x0 = mx, w = st.w, amount = 0 }
+            return true
+        end
+    end
 
     -- 1. Continue/Close coupon button
     local r = self._continue_rect
@@ -403,8 +465,19 @@ end
 -- placement branches, so there's one source of truth for state and hit-cells.
 local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing_tutorial, index, hero)
     local is_owned   = owned[item.id]
-    local unlock_locked = (not is_owned) and not catalogUnlocked(self.game, item, state)
-    local locked     = (item.requires and not owned[item.requires]) or unlock_locked
+    -- Three separate facts, deliberately not one:
+    --   met        — the unlock condition is satisfied
+    --   peeled     — the player has pulled the sticker off
+    --   sticker_on — the sticker is still physically covering the ad
+    -- Meeting the condition does NOT clear the sticker. It fills, and then it
+    -- sits there being peelable until someone peels it, so the reveal is an
+    -- act rather than something that quietly happened between sessions.
+    local has_gate   = item.unlock ~= nil
+    local met        = (not has_gate) or catalogUnlocked(self.game, item, state)
+    local peeled     = (not has_gate) or isPeeled(state, item.id)
+    local sticker_on = (not is_owned) and has_gate and ((not met) or (not peeled))
+    local unlock_locked = sticker_on
+    local locked     = (item.requires and not owned[item.requires]) or sticker_on
     local is_corrupted = false
     if state.corrupted_items then
         for _, cid in ipairs(state.corrupted_items) do
@@ -678,15 +751,14 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
             flavor_y = effect_y + fonts.sm:getHeight() + 2
         end
 
-        -- Flavor prints whenever it fits. On a short locked card the sticker
-        -- claims that band and the blurb is dropped rather than drawn
-        -- underneath it; taller cards (feature ads) keep both.
-        local flavor_fits = (not st_y) or (flavor_y + fonts.sm:getHeight() <= st_y - fl(2 * s))
-        if flavor_fits then
-            Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
-            love.graphics.setFont(fonts.sm)
-            love.graphics.print(clampText(item.description, fonts.sm, col_w), text_x, flavor_y)
-        end
+        -- Flavor always prints, locked or not. It used to be suppressed when
+        -- the sticker would have covered it, but the sticker now lands
+        -- wherever it lands, so that test made the blurb blink in and out
+        -- depending on where a hash put a label. A sticker covering some
+        -- flavor text is exactly what a sticker on a catalog does.
+        Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
+        love.graphics.setFont(fonts.sm)
+        love.graphics.print(clampText(item.description, fonts.sm, col_w), text_x, flavor_y)
 
         -- Shove contribution: its own right-aligned stat on the flavor line.
         -- Makes "buying builds your shove base" legible — every buyable
@@ -703,14 +775,32 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- message: the requirement, the raw count, and a stock that fills as you
     -- close the gap. Everything before this is deliberately quiet about the
     -- lock (darker paper, dimmed name) — the sticker is the loud part.
-    if unlock_locked then
+    if sticker_on then
+        -- A met-but-unpeeled sticker is the one you can grab. Record its rect
+        -- so :consumeMouse can hit-test it, and read back how far the current
+        -- drag has pulled it.
+        local peel = 0
+        if met then
+            if not self.flip_t then
+                self._stickers[#self._stickers + 1] = {
+                    x = st_x, y = st_y, w = st_w, h = st_h, id = item.id,
+                }
+            end
+            if self._peel and self._peel.id == item.id then
+                peel = self._peel.amount or 0
+            end
+        end
+
         Sticker.draw{
             game     = self.game,
             fonts    = fonts,
             x = st_x, y = st_y, w = st_w, h = st_h,
             scale    = s,
             rotation = st_angle,
-            title    = STICKER_TITLE,
+            peel     = peel,
+            -- Once the condition is met the sticker stops counting down and
+            -- starts asking to be removed.
+            title    = met and STICKER_READY or STICKER_TITLE,
             line     = st_line,
             counter  = st_counter,
             progress = st_frac,
@@ -766,6 +856,13 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
                   hw = 55, hh = 12, r = 3 }
     end
 
+    -- Watched EVERY frame, stamped or not: Pop.onChange ignores first sight, so
+    -- if this only ran while a stamp existed then a freshly-bought item's
+    -- ORDERED would be its own first sighting and would never slam. Tracking
+    -- "none" while unstamped makes the purchase a real transition.
+    local impact = Pop.onChange("stamp:" .. item.id,
+                                stamp and stamp.label or "none", STAMP_IMPACT_SECS)
+
     if stamp then
         -- Hand-stamped: anywhere across the middle of the card, not a fixed
         -- anchor with a few pixels of wobble. Keyed off the item id, so it is
@@ -781,20 +878,17 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         -- same angle" no matter how random the number technically was.
         local _, _, angle = Decal.place("stamp:" .. item.id, { angle = 0.30 })
 
-        love.graphics.push()
-        love.graphics.translate(cx, cy)
-        love.graphics.rotate(angle)
-
-        Theme.setColor(stamp.color)
-        love.graphics.setLineWidth(stamp.lw)
-        love.graphics.rectangle("line", -hw, -hh, hw * 2, hh * 2, fl(stamp.r * s))
-        love.graphics.setLineWidth(1)
-
-        love.graphics.setFont(stamp.font)
-        local tw = stamp.font:getWidth(stamp.label)
-        love.graphics.print(stamp.label, -tw * 0.5, -stamp.font:getHeight() * 0.5)
-
-        love.graphics.pop()
+        Stamp.draw{
+            x = cx, y = cy, hw = hw, hh = hh,
+            label       = stamp.label,
+            fonts       = fonts,
+            font        = stamp.font,
+            color_token = stamp.color,
+            angle       = angle,
+            radius      = fl(stamp.r * s),
+            line_width  = stamp.lw,
+            impact      = impact,
+        }
     end
 end
 
@@ -1020,7 +1114,12 @@ function CatalogModal:draw()
     love.graphics.setColor(0, 0, 0, 0.55)
     love.graphics.rectangle("fill", 0, 0, W, H)
 
+    -- Advance any in-progress peel BEFORE the cards draw, using last frame's
+    -- sticker rects, so the label renders at the pull the mouse is actually at.
+    self:_updatePeel()
+
     self._cells = {}
+    self._stickers = {}
     self._continue_rect = nil
 
     local idx      = self.spread_index
