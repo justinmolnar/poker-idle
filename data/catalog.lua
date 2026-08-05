@@ -9,6 +9,13 @@
 -- progression lives in data/run_upgrades.lua, where the same item can be
 -- bought up to its max_level for compounding effect.
 --
+-- ─── THE RULE ───────────────────────────────────────────────────────────
+-- This is a catalog of OBJECTS FOR A ROOM, sold by the people holding you.
+-- Every entry is a thing a department store would ship in a box. Nothing is
+-- named after a poker concept. The Poker Poster is the single exception and
+-- it is the joke. The same rule governs the page headers in
+-- data/catalog_pages.lua — those are store departments, not stat groups.
+--
 -- ─── Item schema ────────────────────────────────────────────────────────
 --   {
 --     id          = "snake_case_unique",   -- key in GameState.owned_items
@@ -16,9 +23,10 @@
 --     effect_text = "Explicit mechanical effect, e.g. '+5% win chance'",
 --     description = "Italic flavor blurb under the effect line",
 --     sprite      = "sprite_name",          -- looked up via SpriteLoader
---     cost_chip     = number,
+--     cost_chip   = number,
 --     phase       = "demo" | "mid" | "late" | "system",
---     position    = { x = px, y = px },     -- room placement (deferred)
+--     position    = { x = px, y = px },     -- vestigial; room placement is
+--                                           -- data/room_layout.lua
 --     effects     = { { kind = "...", value = ... }, ... }
 --     -- optional flags:
 --     hidden           = bool,    -- never shown in catalog UI
@@ -27,19 +35,52 @@
 --     requires         = "<id>",  -- gate: prerequisite item id
 --     requires_hide    = bool,    -- hide from UI until prerequisite owned
 --     run0             = bool,    -- scripted-intro entry; stripped when FEATURES.TUTORIAL
+--     unlock           = { kind, threshold, text, format? }
 --   }
 --
--- ─── Phase ladder ───────────────────────────────────────────────────────
--- Items are tagged by demo phase per docs/math.md and docs/demo-balance.md:
+-- ─── Writing unlock.text ────────────────────────────────────────────────
+-- A locked item wears a COMING SOON sticker whose stock fills as you close
+-- the gap. The sticker prints the running count IMMEDIATELY BEFORE this
+-- string, on one line, so `text` has to finish the sentence the number
+-- starts:
 --
---   demo  — reachable in the first ~12 chips. The 11-item starter set
---           (Poster + 10 paid totaling 29 chips, ~46% base shove available).
---   mid   — phase 2 / T4-T5. Higher-cost utility perks.
---   late  — phase 3 / T6 unlock. Cursor swarm, MTT advanced cash tiers.
---   system — phantom entries that drive game-wide mechanisms (handicap).
+--     "tables busted"        renders as   "0 / 100 tables busted"
+--     "hands over focus cap" renders as   "0 / 2.5K hands over focus cap"
 --
--- A future UI can filter by phase to show only demo items during demo
--- play; the data is tagged here so that filter is one line elsewhere.
+-- So: a lowercase plural noun phrase, no leading number (the counter owns
+-- it), no imperative. Icon markers work exactly as they do in effect_text.
+--
+-- A gate with no meaningful ratio (a flag, like shove_r1_won) prints no
+-- counter, so it keeps a standalone imperative: "Win your first shove".
+--
+-- `format = "money"` switches the counter to dollar formatting. Default is a
+-- plain abbreviated count.
+--
+-- IDS ARE FROZEN. owned_items / corrupted_items serialize ids into player
+-- saves that are live on itch. Rename a `name` freely; never an `id`.
+--
+-- ─── The bands ──────────────────────────────────────────────────────────
+-- Costs are tuned so the WHOLE catalog is 800 {chip}, split across the two
+-- acts it has to last. A T1-T3 bounty sweep (Act 1's ceiling) banks up to
+-- 24 {chip} per run; a T1-T6 sweep banks up to 84.
+--
+--   A — Act 1 early, T1-T2.        12 items ·  47 {chip} · shove 0.115
+--   B — Act 1 late, T2-T3.         14 items · 190 {chip} · shove 0.135
+--   C — Act 2, deck era, T4-T6.    15 items · 330 {chip} · shove 0.200
+--   D — Act 2 late.                 7 items · 233 {chip} · shove 0.120
+--                                            ─────────────────────────────
+--                                            800 {chip} · shove 0.570
+--
+-- Shove total matches docs/math.md's catalog_target(T6) = 0.57, and A+B
+-- alone carry 0.250 = catalog_target(T3), so a fully-bought Act 1 catalog
+-- is exactly enough to make the first shove winnable. Later items buy
+-- capability rather than shove — the "two phases" split in math.md.
+--
+-- ─── Unlock gates ───────────────────────────────────────────────────────
+-- Gates read the ungated total_* counters (see models/catalog_unlock_rules),
+-- never the deck-gated lifetime_* ones, so an Act 1 item can actually be
+-- unlocked in Act 1. Each gate is the scar the item treats: you bust, then
+-- the Rubber Duck shows up.
 
 local Constants = require("data.constants")
 
@@ -73,7 +114,8 @@ local items = {
         },
     },
 
-    -- ─── Demo phase: free tutorial item ─────────────────────────────────
+    -- ═══ BAND A — Act 1 early (T1-T2) · 47 {chip} · shove 0.115 ═════════
+
     -- The only catalog item that names poker directly. The player buys it
     -- for 0 chips from the post-bust catalog modal — buying it is what lifts
     -- the no-poster handicap (via the `removed_by` hook above). Mechanism
@@ -90,12 +132,6 @@ local items = {
         position      = { x = 80, y = 200 },
         effects       = {},
     },
-
-    -- ─── Demo phase: 10 paid items totaling 29 chips ────────────────────
-    -- Each item carries both a `shove_rate_add` (catalog base contributor)
-    -- and a felt-side mechanical effect. Build archetypes laid out in
-    -- docs/demo-balance.md §Lever Coverage.
-
     {
         id          = "branded_hat",
         name        = "Branded Hat",
@@ -106,7 +142,7 @@ local items = {
         cost_chip     = 2,
         position    = { x = 120, y = 220 },
         effects     = {
-            { kind = "shove_rate_add", value = 0.04 },
+            { kind = "shove_rate_add", value = 0.012 },
             { kind = "jackpot_mult",   value = 1.20 },
         },
         corrupt = {
@@ -121,14 +157,14 @@ local items = {
     {
         id          = "mirror",
         name        = "Mirror",
-        effect_text = "+10% win chance at HU tables.",
+        effect_text = "+10% win chance at Heads-Up.",
         description = "A nice big one. You should see yourself sometimes.",
         sprite      = "mirror",
         phase       = "demo",
-        cost_chip     = 4,
+        cost_chip     = 3,
         position    = { x = 160, y = 220 },
         effects     = {
-            { kind = "shove_rate_add",   value = 0.03 },
+            { kind = "shove_rate_add",   value = 0.010 },
             { kind = "win_chance_shift", amount = 0.10, gtype = "hu" },
         },
     },
@@ -139,10 +175,10 @@ local items = {
         description = "Tastes terrible. Works fine.",
         sprite      = "energy_drink",
         phase       = "demo",
-        cost_chip     = 4,
+        cost_chip     = 3,
         position    = { x = 200, y = 220 },
         effects     = {
-            { kind = "shove_rate_add",  value = 0.02 },
+            { kind = "shove_rate_add",  value = 0.008 },
             { kind = "hand_pace_mult",  value = 1.25 },
         },
     },
@@ -153,10 +189,10 @@ local items = {
         description = "Every room could use a whiteboard.",
         sprite      = "whiteboard",
         phase       = "demo",
-        cost_chip     = 6,
+        cost_chip     = 4,
         position    = { x = 240, y = 220 },
         effects     = {
-            { kind = "shove_rate_add",   value = 0.03 },
+            { kind = "shove_rate_add",   value = 0.010 },
             { kind = "win_chance_shift", amount = 0.05 },
         },
     },
@@ -167,10 +203,10 @@ local items = {
         description = "Bestseller. Life-changing, they say.",
         sprite      = "self_help_book",
         phase       = "demo",
-        cost_chip     = 6,
+        cost_chip     = 4,
         position    = { x = 280, y = 220 },
         effects     = {
-            { kind = "shove_rate_add", value = 0.04 },
+            { kind = "shove_rate_add", value = 0.012 },
             { kind = "win_tier_shift",
               from = "small", to = "medium", chance = 0.25 },
         },
@@ -182,10 +218,10 @@ local items = {
         description = "For when things get tense.",
         sprite      = "stress_ball",
         phase       = "demo",
-        cost_chip     = 6,
+        cost_chip     = 4,
         position    = { x = 320, y = 220 },
         effects     = {
-            { kind = "shove_rate_add", value = 0.05 },
+            { kind = "shove_rate_add", value = 0.014 },
             { kind = "loss_tier_shift",
               from = "large", to = "medium", chance = 0.25 },
         },
@@ -197,10 +233,10 @@ local items = {
         description = "Heavy. Older than it looks.",
         sprite      = "lucky_coin",
         phase       = "demo",
-        cost_chip     = 6,
+        cost_chip     = 5,
         position    = { x = 360, y = 220 },
         effects     = {
-            { kind = "shove_rate_add",     value = 0.03 },
+            { kind = "shove_rate_add",     value = 0.010 },
             { kind = "start_bankroll_pct", value = 0.50 },
         },
     },
@@ -211,10 +247,10 @@ local items = {
         description = "Soothing to watch. Hypnotic, almost.",
         sprite      = "lava_lamp",
         phase       = "demo",
-        cost_chip     = 6,
+        cost_chip     = 5,
         position    = { x = 400, y = 220 },
         effects     = {
-            { kind = "shove_rate_add", value = 0.04 },
+            { kind = "shove_rate_add", value = 0.012 },
             { kind = "win_tier_shift",
               from = "medium", to = "large", chance = 0.15 },
         },
@@ -226,7 +262,7 @@ local items = {
         description = "Worn smooth by someone.",
         sprite      = "worry_stone",
         phase       = "demo",
-        cost_chip     = 6,
+        cost_chip     = 5,
         position    = { x = 440, y = 220 },
         -- 4-tier note: spec called this "15% Big loss → Medium". The code's
         -- outcome model has 4 tiers (small/medium/large/jackpot — no Big).
@@ -234,8 +270,13 @@ local items = {
         -- insurance reading is preserved. Pairs with Stress Ball's
         -- large-loss cushion.
         effects     = {
-            { kind = "shove_rate_add", value = 0.05 },
+            { kind = "shove_rate_add", value = 0.014 },
             { kind = "loss_tier_shift", from = "jackpot", to = "large", chance = 0.15 },
+        },
+        unlock = {
+            kind      = "total_stack_losses",
+            threshold = 3,
+            text      = "{l:stack} losses taken",
         },
         corrupt = {
             cost_achip = 5,
@@ -247,133 +288,16 @@ local items = {
         },
     },
     {
-        id          = "plastic_trophy",
-        name        = "Plastic Trophy",
-        effect_text = "MTT cashes pay 4× / 8× / 20×.",
-        description = "Participation award. Handsome on a shelf.",
-        sprite      = "plastic_trophy",
+        id          = "sticky_notes",
+        name        = "Sticky Notes",
+        effect_text = "Wins pay 25% more.",
+        description = "A whole pad of them. Mostly unused.",
+        sprite      = "sticky_notes",
         phase       = "demo",
-        cost_chip     = 6,
-        position    = { x = 350, y = 300 },
+        cost_chip   = 8,
         effects     = {
-            { kind = "shove_rate_add",   value = 0.03 },
-            { kind = "mtt_payout_boost", value = 1 },
-        },
-    },
-
-    -- ─── Mid phase: T4–T5 perks (priced 4–14 chips) ─────────────────────
-
-    {
-        id          = "calculator",
-        name        = "Calculator",
-        effect_text = "+2% win chance at all tables.",
-        description = "Sharper reads, every hand.",
-        sprite      = "calculator",
-        phase       = "mid",
-        cost_chip     = 4,
-        position    = { x = 180, y = 200 },
-        effects     = {
-            { kind = "shove_rate_add",   value = 0.01 },
-            { kind = "win_chance_shift", amount = 0.02 },
-        },
-    },
-    {
-        id          = "pen",
-        name        = "Pen",
-        effect_text = "+1 {chip} on every stake bounty.",
-        description = "Bank a little extra every time you lock in a new tier.",
-        sprite      = "pen",
-        phase       = "mid",
-        cost_chip     = 4,
-        position    = { x = 230, y = 200 },
-        effects     = {
-            { kind = "shove_rate_add",   value = 0.008 },
-            { kind = "jackpot_chip_add", value = 1 },
-        },
-    },
-    {
-        id          = "headphones",
-        name        = "Headphones",
-        effect_text = "Losses 5% softer.",
-        description = "Soften your losses.",
-        sprite      = "headphones",
-        phase       = "mid",
-        cost_chip     = 5,
-        position    = { x = 280, y = 200 },
-        effects     = {
-            { kind = "shove_rate_add", value = 0.01 },
-            { kind = "loss_mult",      value = 0.95 },
-        },
-        corrupt = {
-            cost_achip = 8,
-            effects = { { kind = "loss_mult", value = 0.50 } },
-            effect_text = "Losses 50% softer.",
-        },
-    },
-    {
-        id          = "free_sit",
-        name        = "Free Sit",
-        effect_text = "Start each run with 1 free table.",
-        description = "Start each run with a table seated.",
-        sprite      = "free_sit",
-        phase       = "mid",
-        cost_chip     = 5,
-        position    = { x = 330, y = 200 },
-        effects     = {
-            { kind = "shove_rate_add",    value = 0.01 },
-            { kind = "start_table_count", value = 1 },
-        },
-    },
-    {
-        id          = "pocket_cash",
-        name        = "Pocket Cash",
-        effect_text = "+$5 starting bankroll.",
-        description = "Start each run with $5 extra.",
-        sprite      = "pocket_cash",
-        phase       = "mid",
-        cost_chip     = 8,
-        position    = { x = 100, y = 300 },
-        effects     = {
-            { kind = "shove_rate_add",     value = 0.008 },
-            { kind = "start_bankroll_add", value = 5 },
-        },
-    },
-    {
-        id          = "discount_sits",
-        name        = "Discount Sits",
-        effect_text = "Buy-ins cost 15% less.",
-        description = "Cheaper buy-ins.",
-        sprite      = "discount_sits",
-        phase       = "mid",
-        cost_chip     = 14,
-        position    = { x = 600, y = 300 },
-        effects     = {
-            { kind = "shove_rate_add", value = 0.012 },
-            { kind = "buy_in_mult",    value = 0.85 },
-        },
-    },
-
-    -- ─── Unlock-gated passives (first tranche) ──────────────────────────
-    -- Each shows as a silhouette with its `unlock.text` until the condition
-    -- is met (see views/CatalogModal + models/catalog_unlock_rules). Effects
-    -- fire themselves at events the resolution loop already emits.
-    {
-        id          = "gaming_chair",
-        name        = "Gaming Chair",
-        effect_text = "Focus penalty halved.",
-        description = "Ergonomic. Overload hurts less.",
-        sprite      = "gaming_chair",
-        phase       = "mid",
-        cost_chip     = 12,
-        position    = { x = 150, y = 400 },
-        effects     = {
-            { kind = "shove_rate_add",            value = 0.01 },
-            { kind = "focus_penalty_reduce_mult", value = 0.5 },
-        },
-        unlock = {
-            kind      = "lifetime_hands_overwhelmed",
-            threshold = 1,
-            text      = "Play a hand over your focus cap to unlock",
+            { kind = "shove_rate_add", value = 0.008 },
+            { kind = "earnings_mult",  value = 1.25 },
         },
     },
     {
@@ -382,55 +306,34 @@ local items = {
         effect_text = "Your run's first loss is voided.",
         description = "Squeak. It never happened.",
         sprite      = "rubber_duck",
-        phase       = "mid",
-        cost_chip     = 4,
+        phase       = "demo",
+        cost_chip     = 6,
         position    = { x = 210, y = 400 },
         effects     = {
-            { kind = "shove_rate_add", value = 0.006 },
+            { kind = "shove_rate_add", value = 0.005 },
             { kind = "void_first_loss" },
         },
         unlock = {
-            kind      = "total_hands_played",
-            threshold = 100,
-            text      = "Play 100 hands to unlock",
+            kind      = "total_busts",
+            threshold = 3,
+            text      = "tables busted",
         },
     },
+
+    -- ═══ BAND B — Act 1 late (T2-T3) · 190 {chip} · shove 0.135 ═════════
+
     {
-        id          = "fridge",
-        name        = "The Fridge",
-        effect_text = "Your run's first {l:stack} is voided.",
-        description = "The cooler. Eats the worst beat.",
-        sprite      = "fridge",
+        id          = "pocket_cash",
+        name        = "Money Clip",
+        effect_text = "+$5 starting bankroll.",
+        description = "Folded twice, in a back pocket.",
+        sprite      = "pocket_cash",
         phase       = "mid",
-        cost_chip     = 15,
-        position    = { x = 270, y = 400 },
+        cost_chip     = 8,
+        position    = { x = 100, y = 300 },
         effects     = {
-            { kind = "shove_rate_add", value = 0.01 },
-            { kind = "void_first_stack_loss" },
-        },
-        unlock = {
-            kind      = "total_big_outcomes",
-            threshold = 5,
-            text      = "Ride 5 big pots to unlock",
-        },
-    },
-    {
-        id          = "copy_machine",
-        name        = "Copy Machine",
-        effect_text = "First denied {chip} each run banks anyway.",
-        description = "It just prints another.",
-        sprite      = "copy_machine",
-        phase       = "mid",
-        cost_chip     = 45,
-        position    = { x = 330, y = 400 },
-        effects     = {
-            { kind = "shove_rate_add", value = 0.012 },
-            { kind = "copy_first_denied" },
-        },
-        unlock = {
-            kind      = "total_denied_stacks",
-            threshold = 1,
-            text      = "Get denied a {chip} to unlock",
+            { kind = "shove_rate_add",     value = 0.006 },
+            { kind = "start_bankroll_add", value = 5 },
         },
     },
     {
@@ -440,34 +343,266 @@ local items = {
         description = "The painting winks.",
         sprite      = "dogs_playing_poker",
         phase       = "mid",
-        cost_chip     = 5,
+        cost_chip     = 8,
         position    = { x = 390, y = 400 },
         effects     = {
             { kind = "shove_rate_add",     value = 0.006 },
             { kind = "first_bounty_bonus", value = 1 },
         },
         unlock = {
-            kind      = "lifetime_chips_banked",
+            kind      = "total_chips_banked",
+            threshold = 25,
+            text      = "{chip} banked",
+        },
+    },
+    {
+        id          = "calculator",
+        name        = "Calculator",
+        effect_text = "Upgrades are 15% stronger.",
+        description = "Solar. Works under the desk lamp.",
+        sprite      = "calculator",
+        phase       = "mid",
+        cost_chip     = 10,
+        position    = { x = 180, y = 200 },
+        effects     = {
+            { kind = "shove_rate_add",            value = 0.006 },
+            { kind = "run_upgrade_strength_mult", value = 0.15 },
+        },
+    },
+    {
+        id          = "ring_binder",
+        name        = "Ring Binder",
+        effect_text = "Upgrades cost 15% less.",
+        description = "Three rings, one broken clasp.",
+        sprite      = "ring_binder",
+        phase       = "mid",
+        cost_chip   = 10,
+        effects     = {
+            { kind = "shove_rate_add",        value = 0.006 },
+            { kind = "run_upgrade_cost_mult", value = 0.85 },
+        },
+        unlock = {
+            kind      = "total_upgrade_levels",
+            threshold = 25,
+            text      = "upgrade levels bought",
+        },
+    },
+    {
+        id          = "headphones",
+        name        = "Headphones",
+        effect_text = "Losses 20% softer.",
+        description = "Padded. The cable is fraying.",
+        sprite      = "headphones",
+        phase       = "mid",
+        cost_chip     = 12,
+        position    = { x = 280, y = 200 },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.008 },
+            { kind = "loss_mult",      value = 0.80 },
+        },
+        corrupt = {
+            cost_achip = 8,
+            effects = { { kind = "loss_mult", value = 0.50 } },
+            effect_text = "Losses 50% softer.",
+        },
+    },
+    {
+        id          = "pen",
+        name        = "Pen",
+        effect_text = "+1 {chip} on every bounty.",
+        description = "Chewed cap. Still writes.",
+        sprite      = "pen",
+        phase       = "mid",
+        cost_chip     = 12,
+        position    = { x = 230, y = 200 },
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.006 },
+            { kind = "jackpot_chip_add", value = 1 },
+        },
+        unlock = {
+            kind      = "total_chips_banked",
+            threshold = 60,
+            text      = "{chip} banked",
+        },
+    },
+    {
+        id          = "water_cooler",
+        name        = "Water Cooler",
+        effect_text = "+6% win chance at 6-max.",
+        description = "Gurgles. Everyone ends up standing here.",
+        sprite      = "water_cooler",
+        phase       = "mid",
+        cost_chip   = 14,
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.010 },
+            { kind = "win_chance_shift", amount = 0.06, gtype = "six_max" },
+        },
+        unlock = {
+            kind      = "total_hands_at_gtype",
+            gtype     = "six_max",
+            threshold = 2000,
+            text      = "hands at 6-max",
+        },
+    },
+    {
+        id          = "free_sit",
+        name        = "Gift Certificate",
+        effect_text = "Start each run with 1 table.",
+        description = "A voucher, stamped and countersigned.",
+        sprite      = "free_sit",
+        phase       = "mid",
+        cost_chip     = 14,
+        position    = { x = 330, y = 200 },
+        effects     = {
+            { kind = "shove_rate_add",    value = 0.010 },
+            { kind = "start_table_count", value = 1 },
+        },
+    },
+    {
+        id          = "punch_card",
+        name        = "Punch Card",
+        effect_text = "Rebuys cost 25% less.",
+        description = "Nine holes punched. You don't remember the first four.",
+        sprite      = "punch_card",
+        phase       = "mid",
+        cost_chip   = 15,
+        effects     = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "rebuy_discount", value = 0.25 },
+        },
+        unlock = {
+            kind      = "total_rebuys",
+            threshold = 50,
+            text      = "rebuys",
+        },
+    },
+    {
+        id          = "gaming_chair",
+        name        = "Gaming Chair",
+        effect_text = "Focus penalty halved.",
+        description = "Ergonomic. Overload hurts less.",
+        sprite      = "gaming_chair",
+        phase       = "mid",
+        cost_chip     = 15,
+        position    = { x = 150, y = 400 },
+        effects     = {
+            { kind = "shove_rate_add",            value = 0.012 },
+            { kind = "focus_penalty_reduce_mult", value = 0.5 },
+        },
+        unlock = {
+            kind      = "total_hands_overwhelmed",
+            threshold = 500,
+            text      = "hands over focus cap",
+        },
+    },
+    {
+        id          = "headset",
+        name        = "Headset",
+        effect_text = "+6% win chance at Zoom.",
+        description = "Foam mic cover. Someone else's earwax.",
+        sprite      = "headset",
+        phase       = "mid",
+        cost_chip   = 16,
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.010 },
+            { kind = "win_chance_shift", amount = 0.06, gtype = "zoom" },
+        },
+        unlock = {
+            kind      = "total_hands_at_gtype",
+            gtype     = "zoom",
+            threshold = 2000,
+            text      = "Zoom hands",
+        },
+    },
+    {
+        id          = "plastic_trophy",
+        name        = "Plastic Trophy",
+        effect_text = "Tournament cashes pay 4× / 8× / 20×.",
+        description = "Participation award. Handsome on a shelf.",
+        sprite      = "plastic_trophy",
+        phase       = "mid",
+        cost_chip     = 18,
+        position    = { x = 350, y = 300 },
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.010 },
+            { kind = "mtt_payout_boost", value = 1 },
+        },
+        unlock = {
+            kind      = "total_mtt_wins",
             threshold = 1,
-            text      = "Bank your first {chip} to unlock",
+            text      = "tournament wins",
+        },
+    },
+    {
+        id          = "fridge",
+        name        = "Compact Fridge",
+        effect_text = "Your run's first {l:stack} is voided.",
+        description = "The cooler. Eats the worst beat.",
+        sprite      = "fridge",
+        phase       = "mid",
+        cost_chip     = 18,
+        position    = { x = 270, y = 400 },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.012 },
+            { kind = "void_first_stack_loss" },
+        },
+        unlock = {
+            kind      = "total_stack_losses",
+            threshold = 25,
+            text      = "{l:stack} losses taken",
+        },
+    },
+    {
+        id          = "wall_clock",
+        name        = "Wall Clock",
+        effect_text = "3% of hands win outright.",
+        description = "The second hand ticks a little loud.",
+        sprite      = "wall_clock",
+        phase       = "mid",
+        cost_chip   = 20,
+        effects     = {
+            { kind = "shove_rate_add",  value = 0.013 },
+            { kind = "auto_win_chance", amount = 0.03 },
+        },
+        unlock = {
+            kind      = "total_hands_played",
+            threshold = 5000,
+            text      = "hands played",
         },
     },
 
-    -- ─── Late phase: T6 unlock content ──────────────────────────────────
+    -- ═══ BAND C — Act 2, deck era (T4-T6) · 330 {chip} · shove 0.200 ════
 
     {
-        id          = "cursor_pool",
-        name        = "Box of Mice",
-        effect_text = "Unlocks the cursor swarm and the Cursor upgrade.",
-        description = "More mice. More clicks.",
-        sprite      = "cursor_pool",
-        phase       = "late",
-        cost_chip     = 10,
-        slots       = 3,  -- full-leaf hero card (see data/catalog_pages.lua)
-        position    = { x = 100, y = 500 },
+        id          = "discount_sits",
+        name        = "Coupon Book",
+        effect_text = "Buy-ins cost 15% less.",
+        description = "Most pages already torn out.",
+        sprite      = "discount_sits",
+        phase       = "mid",
+        cost_chip     = 14,
+        position    = { x = 600, y = 300 },
         effects     = {
-            { kind = "shove_rate_add", value = 0.012 },
-            { kind = "cursor_unlocked" },
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "buy_in_mult",    value = 0.85 },
+        },
+    },
+    {
+        id          = "second_monitor",
+        name        = "Second Monitor",
+        effect_text = "+1 focus capacity.",
+        description = "Mismatched stand. You stop turning your head.",
+        sprite      = "second_monitor",
+        phase       = "mid",
+        cost_chip   = 16,
+        effects     = {
+            { kind = "shove_rate_add",     value = 0.012 },
+            { kind = "focus_capacity_add", value = 1 },
+        },
+        unlock = {
+            kind      = "total_hands_at_4plus",
+            threshold = 1000,
+            text      = "hands at 4+ tables",
         },
     },
     {
@@ -477,13 +612,43 @@ local items = {
         description   = "Another set of hands.",
         sprite        = "first_cursor",
         phase         = "late",
-        cost_chip       = 5,
+        cost_chip       = 18,
         requires      = "cursor_pool",
         requires_hide = true,
         position      = { x = 200, y = 500 },
         effects       = {
-            { kind = "shove_rate_add",   value = 0.008 },
+            { kind = "shove_rate_add",   value = 0.010 },
             { kind = "cursor_count_add", value = 1 },
+        },
+    },
+    {
+        id            = "mouse_pad",
+        name          = "Mouse Pad",
+        effect_text   = "Cursors travel 30% faster.",
+        description   = "Frayed edge. Slick where the wrist goes.",
+        sprite        = "mouse_pad",
+        phase         = "late",
+        cost_chip     = 18,
+        requires      = "cursor_pool",
+        requires_hide = true,
+        effects       = {
+            { kind = "shove_rate_add",    value = 0.010 },
+            { kind = "cursor_speed_mult", value = 1.30 },
+        },
+    },
+    {
+        id          = "cursor_pool",
+        name        = "Box of Mice",
+        effect_text = "Unlocks the cursor swarm and the Cursor upgrade.",
+        description = "More mice. More clicks.",
+        sprite      = "cursor_pool",
+        phase       = "late",
+        cost_chip     = 20,
+        slots       = 3,  -- full-leaf hero card (see data/catalog_pages.lua)
+        position    = { x = 100, y = 500 },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.014 },
+            { kind = "cursor_unlocked" },
         },
     },
     {
@@ -493,30 +658,319 @@ local items = {
         description   = "Some of them have been here a while.",
         sprite        = "tireless_assistants",
         phase         = "late",
-        cost_chip       = 5,
+        cost_chip       = 20,
         requires      = "cursor_pool",
         requires_hide = true,
         position      = { x = 300, y = 500 },
         effects       = {
-            { kind = "shove_rate_add",       value = 0.008 },
+            { kind = "shove_rate_add",       value = 0.012 },
             { kind = "cursor_rebuy_unlocked" },
+        },
+    },
+    {
+        id          = "the_sink",
+        name        = "Utility Sink",
+        effect_text = "Busted tables refund 30% of the buy-in.",
+        description = "It goes down the drain, then comes back up.",
+        sprite      = "the_sink",
+        phase       = "late",
+        cost_chip   = 22,
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.012 },
+            { kind = "bust_refund_pct",  value = 0.30 },
+        },
+        unlock = {
+            kind      = "total_busts",
+            threshold = 100,
+            text      = "tables busted",
+        },
+    },
+    {
+        id          = "toaster",
+        name        = "Chrome Toaster",
+        effect_text = "8% chance a pot bumps one tier.",
+        description = "Two slots. One setting. Pops without warning.",
+        sprite      = "toaster",
+        phase       = "late",
+        cost_chip   = 22,
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.014 },
+            { kind = "tier_bump_chance", value = 0.08 },
+        },
+        unlock = {
+            kind      = "total_jackpots",
+            threshold = 250,
+            text      = "Jackpots hit",
+        },
+    },
+    {
+        id          = "medical_kit",
+        name        = "First Aid Kit",
+        effect_text = "20% of rebuys are free.",
+        description = "Wall-mounted. Break glass, sit back down.",
+        sprite      = "medical_kit",
+        phase       = "late",
+        cost_chip   = 24,
+        effects     = {
+            { kind = "shove_rate_add",    value = 0.012 },
+            { kind = "free_rebuy_chance", value = 0.20 },
+        },
+        unlock = {
+            kind      = "total_rebuys",
+            threshold = 250,
+            text      = "rebuys",
+        },
+    },
+    {
+        id          = "filing_cabinet",
+        name        = "Filing Cabinet",
+        effect_text = "Upgrades reach one level further.",
+        description = "Four drawers. The bottom one sticks.",
+        sprite      = "filing_cabinet",
+        phase       = "late",
+        cost_chip   = 24,
+        effects     = {
+            { kind = "shove_rate_add",    value = 0.014 },
+            { kind = "fill_window_widen", value = 1 },
+        },
+        unlock = {
+            kind      = "total_upgrade_levels",
+            threshold = 150,
+            text      = "upgrade levels bought",
+        },
+    },
+    {
+        id          = "copy_machine",
+        name        = "Copy Machine",
+        effect_text = "First denied {chip} each run banks anyway.",
+        description = "It just prints another.",
+        sprite      = "copy_machine",
+        phase       = "late",
+        cost_chip     = 26,
+        position    = { x = 330, y = 400 },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.014 },
+            { kind = "copy_first_denied" },
+        },
+        unlock = {
+            kind      = "total_denied_stacks",
+            threshold = 10,
+            text      = "{chip} denied",
+        },
+    },
+    {
+        id          = "microwave",
+        name        = "Microwave Oven",
+        effect_text = "5% chance a pot pays double.",
+        description = "Turntable squeaks. Clock blinks 12:00.",
+        sprite      = "microwave",
+        phase       = "late",
+        cost_chip   = 28,
+        effects     = {
+            { kind = "shove_rate_add",       value = 0.014 },
+            { kind = "payout_double_chance", value = 0.05 },
+        },
+        unlock = {
+            kind      = "total_jackpots",
+            threshold = 500,
+            text      = "Jackpots hit",
         },
     },
     {
         id          = "engraved_plaque",
         name        = "Engraved Plaque",
-        effect_text = "MTT cashes pay 5× / 10× / 20×.",
-        description = "Maxed tournament cashes.",
+        effect_text = "Tournament cashes pay 5× / 10× / 20×.",
+        description = "Your name, spelled wrong.",
         sprite      = "engraved_plaque",
         phase       = "late",
-        cost_chip     = 25,
+        cost_chip     = 28,
         requires    = "plastic_trophy",
         position    = { x = 450, y = 400 },
         effects     = {
-            { kind = "shove_rate_add",   value = 0.012 },
+            { kind = "shove_rate_add",   value = 0.014 },
             { kind = "mtt_payout_boost", value = 2 },
         },
     },
+    {
+        id          = "study_chart",
+        name        = "Study Chart",
+        effect_text = "Active deck earns 50% more XP.",
+        description = "Somebody's system, laminated.",
+        sprite      = "study_chart",
+        phase       = "late",
+        cost_chip   = 30,
+        effects     = {
+            { kind = "shove_rate_add", value = 0.014 },
+            { kind = "deck_xp_mult",   value = 1.50 },
+        },
+        unlock = {
+            kind      = "decks_unlocked_count",
+            threshold = 3,
+            text      = "decks unlocked",
+        },
+    },
+    {
+        id          = "big_tv",
+        name        = "Console Television",
+        effect_text = "+2 focus capacity. Wins pay 10% less.",
+        description = "Always on. You stop noticing the sound.",
+        sprite      = "big_tv",
+        phase       = "late",
+        cost_chip   = 40,
+        slots       = 2,  -- feature ad: two slot-units tall
+        effects     = {
+            { kind = "shove_rate_add",     value = 0.014 },
+            { kind = "focus_capacity_add", value = 2 },
+            { kind = "earnings_mult",      value = 0.90 },
+        },
+        unlock = {
+            kind      = "total_hands_overwhelmed",
+            threshold = 2500,
+            text      = "hands over focus cap",
+        },
+    },
+
+    -- ═══ BAND D — Act 2 late · 233 {chip} · shove 0.120 ═════════════════
+
+    {
+        id          = "glass_door",
+        name        = "Frosted Glass Door",
+        effect_text = "Buy-ins 30% cheaper at NL1K and above.",
+        description = "You hear them before they arrive.",
+        sprite      = "glass_door",
+        phase       = "late",
+        cost_chip   = 28,
+        effects     = {
+            { kind = "shove_rate_add", value = 0.014 },
+            { kind = "buy_in_mult",    value = 0.70, tier_min = 4 },
+        },
+        unlock = {
+            kind      = "highest_stake_idx",
+            threshold = 4,
+            text      = "stake tiers reached",
+        },
+    },
+    {
+        id          = "projector",
+        name        = "Ceiling Projector",
+        effect_text = "At NL1K and above, wins skew bigger.",
+        description = "Bulb sold separately. The fan never stops.",
+        sprite      = "projector",
+        phase       = "late",
+        cost_chip   = 30,
+        effects     = {
+            { kind = "shove_rate_add", value = 0.016 },
+            { kind = "win_dist_shift",
+              shift = { small = -0.10, medium = -0.05, large = 0.08, jackpot = 0.07 },
+              tier_min = 4 },
+        },
+        unlock = {
+            kind      = "lifetime_money_won",
+            threshold = 50000000,
+            text      = "won",
+            -- The only dollar-denominated gate in the catalog. Picks the money
+            -- formatter for the sticker's counter ("$2.1M / $50.0M") instead of
+            -- the plain count one.
+            format    = "money",
+        },
+    },
+    {
+        id          = "supply_closet",
+        name        = "Supply Closet",
+        effect_text = "+1 level on every upgrade.",
+        description = "Stocked for a building with more people in it.",
+        sprite      = "supply_closet",
+        phase       = "late",
+        cost_chip   = 32,
+        slots       = 2,  -- feature ad: two slot-units tall
+        effects     = {
+            { kind = "shove_rate_add",           value = 0.016 },
+            { kind = "run_upgrade_bonus_levels", value = 1 },
+        },
+        unlock = {
+            kind      = "total_upgrade_levels",
+            threshold = 300,
+            text      = "upgrade levels bought",
+        },
+    },
+    {
+        id          = "dishwasher",
+        name        = "Portable Dishwasher",
+        effect_text = "Start each run with 10% of last run's losses.",
+        description = "Runs overnight. Everything comes out clean.",
+        sprite      = "dishwasher",
+        phase       = "late",
+        cost_chip   = 35,
+        slots       = 2,  -- feature ad: two slot-units tall
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.016 },
+            { kind = "loss_recycle_pct", value = 0.10 },
+        },
+        unlock = {
+            kind = "shove_r1_won",
+            text = "Win your first shove",
+        },
+    },
+    {
+        id          = "fire_extinguisher",
+        name        = "Fire Extinguisher",
+        effect_text = "Losses never roll {l:stack}.",
+        description = "Inspection tag expired a long time ago.",
+        sprite      = "fire_extinguisher",
+        phase       = "late",
+        cost_chip   = 35,
+        slots       = 2,  -- feature ad: two slot-units tall
+        effects     = {
+            { kind = "shove_rate_add",     value = 0.018 },
+            { kind = "loss_tier_ceiling",  tier = "large" },
+        },
+        unlock = {
+            kind      = "total_stack_losses",
+            threshold = 250,
+            text      = "{l:stack} losses taken",
+        },
+    },
+    {
+        id          = "bathtub",
+        name        = "Claw-Foot Tub",
+        effect_text = "Wins never roll {w:small}.",
+        description = "Takes an hour to fill. Worth it.",
+        sprite      = "bathtub",
+        phase       = "late",
+        cost_chip   = 36,
+        slots       = 2,  -- feature ad: two slot-units tall
+        effects     = {
+            { kind = "shove_rate_add", value = 0.018 },
+            { kind = "win_tier_floor", tier = "medium" },
+        },
+        unlock = {
+            kind      = "decks_maxed",
+            threshold = 1,
+            text      = "decks maxed",
+        },
+    },
+    {
+        id          = "tip_jar",
+        name        = "Change Jar",
+        effect_text = "{chip} bounties pay 50% more.",
+        description = "Handwritten label. The tape has gone yellow.",
+        sprite      = "tip_jar",
+        phase       = "late",
+        cost_chip   = 37,
+        slots       = 2,  -- feature ad: two slot-units tall
+        effects     = {
+            { kind = "shove_rate_add",  value = 0.022 },
+            { kind = "chip_award_mult", value = 1.50 },
+        },
+        unlock = {
+            kind      = "total_chips_banked",
+            threshold = 500,
+            text      = "{chip} banked",
+        },
+    },
+
+    -- ═══ Act 3 — anti-{chip} corruption ═════════════════════════════════
+
     {
         id          = "unlock_ultra",
         name        = "Ultra Stake",

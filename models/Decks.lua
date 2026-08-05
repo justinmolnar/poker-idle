@@ -201,7 +201,11 @@ end
 --
 -- Returns (xp_gained, leveled_up). Caller invalidates effects_cache on
 -- a level-up.
-function Decks.gainXp(state, xp_registry, event)
+--
+-- `xp_mult` (default 1) scales whatever the rule returns — the catalog's
+-- deck_xp_mult perk. Applied here rather than inside the rules so every
+-- registered rule benefits without knowing the perk exists.
+function Decks.gainXp(state, xp_registry, event, xp_mult)
     local active_id = state.active_deck_id
     if not active_id then return 0, false end
     local spec = Decks.specById(active_id)
@@ -212,7 +216,7 @@ function Decks.gainXp(state, xp_registry, event)
     local cap = spec.max_level or #spec.xp_curve
     if current_level >= cap then return 0, false end
 
-    local delta = xp_registry:apply(spec.xp_rule, event)
+    local delta = xp_registry:apply(spec.xp_rule, event) * (xp_mult or 1)
     if delta <= 0 then return 0, false end
 
     state.deck_xp = state.deck_xp or {}

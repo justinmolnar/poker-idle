@@ -19,48 +19,39 @@ local Decks = require("models.Decks")
 
 local DeckUnlockRules = {}
 
+-- Every deck gate is the same shape: one named GameState counter compared to
+-- a threshold, where the kind name IS the field name. Listing them as data
+-- rather than writing nine near-identical closures means a new gate is one
+-- line, and it lets the predicate and the progress reporter be generated
+-- together (see services/UnlockRegistry:progress).
+local COUNTER_KINDS = {
+    "lifetime_money_won",
+    "lifetime_money_lost",
+    "lifetime_jackpot_count",
+    "lifetime_mtt_hands_won",
+    "lifetime_hands_played",
+    "lifetime_hands_at_4plus_tables",
+    "lifetime_rebuys",
+    "lifetime_upgrades_bought",
+    "lifetime_hands_overwhelmed",
+}
+
 function DeckUnlockRules.registerAll(reg)
-    reg:register("lifetime_money_won", function(cond, state)
-        return (state and state.lifetime_money_won or 0) >= (cond.threshold or 0)
-    end)
-
-    reg:register("lifetime_money_lost", function(cond, state)
-        return (state and state.lifetime_money_lost or 0) >= (cond.threshold or 0)
-    end)
-
-    reg:register("lifetime_jackpot_count", function(cond, state)
-        return (state and state.lifetime_jackpot_count or 0) >= (cond.threshold or 0)
-    end)
-
-    reg:register("lifetime_mtt_hands_won", function(cond, state)
-        return (state and state.lifetime_mtt_hands_won or 0) >= (cond.threshold or 0)
-    end)
-
-    reg:register("lifetime_hands_played", function(cond, state)
-        return (state and state.lifetime_hands_played or 0) >= (cond.threshold or 0)
-    end)
-
-    reg:register("lifetime_hands_at_4plus_tables", function(cond, state)
-        return (state and state.lifetime_hands_at_4plus_tables or 0) >= (cond.threshold or 0)
-    end)
-
-    reg:register("lifetime_rebuys", function(cond, state)
-        return (state and state.lifetime_rebuys or 0) >= (cond.threshold or 0)
-    end)
-
-    reg:register("lifetime_upgrades_bought", function(cond, state)
-        return (state and state.lifetime_upgrades_bought or 0) >= (cond.threshold or 0)
-    end)
-
-    reg:register("lifetime_hands_overwhelmed", function(cond, state)
-        return (state and state.lifetime_hands_overwhelmed or 0) >= (cond.threshold or 0)
-    end)
+    for _, field in ipairs(COUNTER_KINDS) do
+        reg:register(field,
+            function(cond, state)
+                return (state and state[field] or 0) >= (cond.threshold or 0)
+            end,
+            function(cond, state)
+                return (state and state[field] or 0), (cond.threshold or 0)
+            end)
+    end
 
     -- Number of decks at max level. Gates the master deck (threshold 5).
     -- Not a state field — computed from deck_levels vs each spec's cap.
-    reg:register("decks_maxed", function(cond, state)
-        return Decks.maxedCount(state) >= (cond.threshold or 0)
-    end)
+    reg:register("decks_maxed",
+        function(cond, state) return Decks.maxedCount(state) >= (cond.threshold or 0) end,
+        function(cond, state) return Decks.maxedCount(state), (cond.threshold or 0) end)
 end
 
 return DeckUnlockRules

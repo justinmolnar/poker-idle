@@ -422,6 +422,27 @@ Effects.kinds = {
         affects     = "ctx.first_bounty_bonus (additive)",
     },
 
+    -- ── Catalog appliances ──────────────────────────────────────────────
+    -- All three are consumed in the controller / model layer, never in the
+    -- outcome roll — so they behave identically under both per-hand models
+    -- (Table.lua and Table_legacy.lua).
+
+    bust_refund_pct = {
+        description = "Fraction of the buy-in refunded to bankroll when a cash table busts (The Sink).",
+        value_shape = "number 0..1, e.g. 0.30 for 30% back",
+        affects     = "ctx.bust_refund_pct (additive, capped at 1)",
+    },
+    deck_xp_mult = {
+        description = "Multiplies XP granted to the active deck (Tori Gate). Applied in models/Decks.gainXp.",
+        value_shape = "number, e.g. 1.50 for +50% XP",
+        affects     = "ctx.deck_xp_mult (multiplicative)",
+    },
+    loss_recycle_pct = {
+        description = "Fraction of the previous run's total losses seeded into the next run's starting bankroll (The Dishwasher).",
+        value_shape = "number 0..1, e.g. 0.10 for 10%",
+        affects     = "ctx.loss_recycle_pct (additive)",
+    },
+
 }
 
 return Effects

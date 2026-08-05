@@ -391,6 +391,23 @@ function PokerEffects.registerAll(reg)
         ctx.first_bounty_bonus = (ctx.first_bounty_bonus or 0) + (e.value or 0)
     end)
 
+    -- ── Catalog appliances ──────────────────────────────────────────────
+    -- The Sink: a busted table hands part of its buy-in back. Additive,
+    -- clamped at 1 so stacking can never mint money on a bust.
+    reg:register("bust_refund_pct", function(e, ctx)
+        ctx.bust_refund_pct = math.min(1, (ctx.bust_refund_pct or 0) + (e.value or 0))
+    end)
+    -- Tori Gate: the active deck learns faster. Consumed in Decks.gainXp
+    -- via GrindController:_grantDeckXp.
+    reg:register("deck_xp_mult", function(e, ctx)
+        ctx.deck_xp_mult = (ctx.deck_xp_mult or 1) * (e.value or 1)
+    end)
+    -- The Dishwasher: a slice of last run's losses comes back as next run's
+    -- seed. Consumed in GameState:applyStartingPerks.
+    reg:register("loss_recycle_pct", function(e, ctx)
+        ctx.loss_recycle_pct = (ctx.loss_recycle_pct or 0) + (e.value or 0)
+    end)
+
     -- Unlocks s010 Ultra stake.
     reg:register("ultra_unlock_effect", function(_e, ctx)
         ctx.ultra_unlocked = true

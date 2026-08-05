@@ -80,6 +80,22 @@ function GameState:new(saved)
     instance.total_hands_played  = 0
     instance.total_big_outcomes  = 0   -- resolutions with a large/jackpot tier (wins AND losses)
     instance.total_denied_stacks = 0   -- jackpot wins whose {chip} bounty was already banked this run
+    -- The rest of the ungated family. Catalog unlock gates read THESE, never
+    -- the lifetime_* fields below: lifetime_* only start accruing once decks
+    -- unlock (post-R1-win), so an Act 1 item gated on one would stay a
+    -- silhouette until Act 2. Several deliberately mirror a lifetime_*
+    -- counter — same event, no deck gate.
+    instance.total_busts             = 0   -- cash tables busted (stack hit 0)
+    instance.total_stack_losses      = 0   -- jackpot-tier LOSSES taken
+    instance.total_jackpots          = 0   -- jackpot-tier WINS hit
+    instance.total_rebuys            = 0
+    instance.total_upgrade_levels    = 0   -- run-upgrade levels bought, ever
+    instance.total_hands_overwhelmed = 0   -- hands played over the focus cap
+    instance.total_hands_at_4plus    = 0
+    instance.total_chips_banked      = 0   -- sum of bounty AWARDS (lifetime_chips_banked counts events)
+    instance.total_mtt_wins          = 0   -- tournaments finished 1st
+    instance.total_hands_by_gtype    = {}  -- game_type_id → hands resolved there
+    instance.highest_stake_idx       = 0   -- highest 1-based stake index ever played
 
     -- Lifetime counters (persist forever; drive deck unlocks). Bumped
     -- by GrindController on each resolution. Read by deck_unlock_rules
@@ -152,6 +168,11 @@ function GameState:new(saved)
     -- Hands resolved since a {chip} bounty last banked (0 on a banking
     -- hand). Run-scoped; drives the tutorial's shove-stall nudge.
     instance.hands_since_last_bank = 0
+    -- Total $ lost this run, and the value it froze at when the run ended.
+    -- The Dishwasher seeds a percentage of the frozen figure into the next
+    -- run's bankroll (see applyStartingPerks).
+    instance.run_money_lost      = 0
+    instance.last_run_money_lost = 0
 
     -- Transient stat cache, recomputed lazily.
     instance.effects_cache = nil
@@ -194,6 +215,10 @@ function GameState:resetRun()
     self.denied_copied_this_run           = false
     self.first_bounty_this_run            = false
     self.hands_since_last_bank = 0
+    -- Freeze the run's losses before wiping them — the Dishwasher spends
+    -- the frozen figure at the next applyStartingPerks.
+    self.last_run_money_lost = self.run_money_lost or 0
+    self.run_money_lost      = 0
     self.effects_cache       = nil
     self.shove_count         = (self.shove_count or 0) + 1
 end
@@ -243,6 +268,19 @@ function GameState:wipeAll()
     self.lifetime_upgrades_bought       = 0
     self.lifetime_hands_overwhelmed     = 0
     self.lifetime_chips_banked          = 0
+    -- The ungated family the catalog gates read.
+    self.total_busts             = 0
+    self.total_stack_losses      = 0
+    self.total_jackpots          = 0
+    self.total_rebuys            = 0
+    self.total_upgrade_levels    = 0
+    self.total_hands_overwhelmed = 0
+    self.total_hands_at_4plus    = 0
+    self.total_chips_banked      = 0
+    self.total_mtt_wins          = 0
+    self.total_hands_by_gtype    = {}
+    self.highest_stake_idx       = 0
+    self.last_run_money_lost     = 0
 
     -- New save identity — fresh game, fresh analytics file.
     self.save_id    = genSaveId()
@@ -306,6 +344,23 @@ function GameState:applySaved(saved)
                                           or self.lifetime_hands_played or 0
     self.total_big_outcomes             = self.total_big_outcomes    or 0
     self.total_denied_stacks            = self.total_denied_stacks   or 0
+    -- Ungated counters added with the catalog expansion. The three that
+    -- mirror a lifetime_* field backfill from it — an existing save already
+    -- earned those, and the mirror only differs going forward (it keeps
+    -- ticking before the deck gate opens, where lifetime_* does not).
+    self.total_busts             = self.total_busts             or 0
+    self.total_stack_losses      = self.total_stack_losses      or 0
+    self.total_jackpots          = self.total_jackpots          or self.lifetime_jackpot_count or 0
+    self.total_rebuys            = self.total_rebuys            or self.lifetime_rebuys or 0
+    self.total_upgrade_levels    = self.total_upgrade_levels    or self.lifetime_upgrades_bought or 0
+    self.total_hands_overwhelmed = self.total_hands_overwhelmed or self.lifetime_hands_overwhelmed or 0
+    self.total_hands_at_4plus    = self.total_hands_at_4plus    or self.lifetime_hands_at_4plus_tables or 0
+    self.total_chips_banked      = self.total_chips_banked      or 0
+    self.total_mtt_wins          = self.total_mtt_wins          or 0
+    self.total_hands_by_gtype    = self.total_hands_by_gtype    or {}
+    self.highest_stake_idx       = self.highest_stake_idx       or 0
+    self.run_money_lost          = self.run_money_lost          or 0
+    self.last_run_money_lost     = self.last_run_money_lost     or 0
     self.hands_since_last_bank          = self.hands_since_last_bank or 0
     -- Analytics identity — backfill for saves predating this field.
     self.save_id    = self.save_id    or genSaveId()
@@ -411,6 +466,18 @@ function GameState:serializeMeta()
         total_hands_played              = self.total_hands_played,
         total_big_outcomes              = self.total_big_outcomes,
         total_denied_stacks             = self.total_denied_stacks,
+        total_busts                     = self.total_busts,
+        total_stack_losses              = self.total_stack_losses,
+        total_jackpots                  = self.total_jackpots,
+        total_rebuys                    = self.total_rebuys,
+        total_upgrade_levels            = self.total_upgrade_levels,
+        total_hands_overwhelmed         = self.total_hands_overwhelmed,
+        total_hands_at_4plus            = self.total_hands_at_4plus,
+        total_chips_banked              = self.total_chips_banked,
+        total_mtt_wins                  = self.total_mtt_wins,
+        total_hands_by_gtype            = self.total_hands_by_gtype,
+        highest_stake_idx               = self.highest_stake_idx,
+        last_run_money_lost             = self.last_run_money_lost,
     }
 end
 
@@ -442,6 +509,7 @@ function GameState:serializeRun()
         denied_copied_this_run           = self.denied_copied_this_run,
         first_bounty_this_run            = self.first_bounty_this_run,
         hands_since_last_bank      = self.hands_since_last_bank,
+        run_money_lost             = self.run_money_lost,
     }
 end
 
@@ -618,9 +686,12 @@ end
 --   ctx.start_bankroll_add  — added to the fresh INITIAL_BANKROLL (flat $)
 --   ctx.start_bankroll_pct  — additive % on the post-add bankroll (Lucky Coin)
 --   ctx.start_table_count   — N s001:six_max tables auto-seeded (free)
+--   ctx.loss_recycle_pct    — % of LAST run's losses seeded back (Dishwasher)
 --
 -- Order: flat add applies first, then the percentage multiplies the result.
 -- "+$5 + 50%" on a $2 base = ($2 + $5) × 1.5 = $10.50, not $2 + $5 + $1 = $8.
+-- The loss recycle lands last, so Lucky Coin's percentage doesn't compound
+-- against a late-game run's losses.
 --
 -- Idempotency: this is meant to be called once per resetRun. Calling it
 -- twice would double-apply, so don't.
@@ -630,6 +701,10 @@ function GameState:applyStartingPerks(ctx)
     end
     if (ctx.start_bankroll_pct or 0) > 0 then
         self.bankroll = self.bankroll * (1 + ctx.start_bankroll_pct)
+    end
+    if (ctx.loss_recycle_pct or 0) > 0 then
+        self.bankroll = self.bankroll
+                        + (self.last_run_money_lost or 0) * ctx.loss_recycle_pct
     end
     for _ = 1, (ctx.start_table_count or 0) do
         self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"

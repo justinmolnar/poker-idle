@@ -1,51 +1,98 @@
 -- data/catalog_pages.lua
 --
--- Authored page layout for the catalog order-book. PURE DATA — no logic.
+-- Authored DEPARTMENT layout for the catalog order-book. PURE DATA — no logic.
 --
--- Each entry is ONE leaf (a single page). A two-page spread pairs two
--- consecutive leaves, so leaf order here is also spread order: leaves 1-2 are
--- the first spread, 3-4 the second, and so on. A themed spread (e.g. the
--- cursor hero on the left, its sub-items on the right) is just two adjacent
--- leaves — keep the "big" leaf on an odd index so it lands on the left.
+-- ─── A DEPARTMENT IS NOT A PAGE ─────────────────────────────────────────
+-- Each entry below is a department holding as many items as it needs: five,
+-- nine, whatever. views/CatalogModal:_pages packs each one into as many
+-- leaves as it takes (3 slot-units per leaf), and ONLY the first of those
+-- leaves prints the heading. Do NOT split a department into three-item
+-- chunks to make pages — that is what produced seventeen headings for
+-- forty-nine items.
 --
---   { title = "Shown at the top of the leaf",
---     items = { "item_id", ... } }   -- in draw order, top to bottom
+-- ─── TWO RULES FOR A DEPARTMENT ─────────────────────────────────────────
+-- 1. The title is something a department store prints above a shelf. Never a
+--    poker concept: no "Reads & Tempo", no "Big Swings", no "Cushions".
+-- 2. Its items share a MECHANIC, and they ladder cheap → expensive inside
+--    it, so shopping a department reads as an upgrade path: Stationery bends
+--    the run-upgrade economy, Bed & Bath takes the sting out of losses,
+--    Appliances are the machines that fire on their own.
 --
--- A leaf holds 3 SLOT-UNITS. Items are 1 unit unless they declare `slots`
--- in data/catalog.lua (e.g. cursor_pool = 3 → fills its whole leaf as a hero
--- card). Items beyond the 3-unit budget on a leaf are dropped, so keep each
--- leaf's slot total ≤ 3.
+-- The one deliberate exception is VALUE BUYS, which is the cheap starter
+-- shelf. Those items have nothing in common except being the first things
+-- worth owning, and that is the point of the shelf.
+--
+--   { title = "Shown at the top of every leaf it spans",
+--     items = { "item_id", ... } }   -- in draw order, cheap to dear
 --
 -- Items are matched by id against data/catalog.lua. An id that isn't visible
 -- yet (locked/hidden/act-3-gated, or owned-prereq not met) is simply skipped;
--- a leaf whose items are all skipped drops out of the book entirely. Any
--- visible catalog item not listed on a page here falls into a trailing
--- "&c." catch-all leaf, so nothing is ever unreachable.
+-- a department whose items are all skipped drops out of the book entirely.
+-- Any visible catalog item not listed here falls into a trailing "&c."
+-- department, so nothing is ever unreachable.
 
 return {
-    { title = "Value Picks",
-      items = { "poker_poster", "branded_hat", "whiteboard" } },
-    { title = "Reads & Tempo",
-      items = { "mirror", "energy_drink", "calculator" } },
 
-    { title = "Big Swings",
-      items = { "self_help_book", "lava_lamp", "lucky_coin" } },
-    { title = "Cushions",
-      items = { "stress_ball", "worry_stone", "headphones" } },
+    -- The starter shelf. No shared mechanic by design — these are just the
+    -- cheap things worth buying first.
+    { title = "Value Buys",
+      items = {
+          "poker_poster", "branded_hat", "mirror", "energy_drink",
+          "whiteboard", "self_help_book", "lucky_coin", "lava_lamp",
+          "sticky_notes",
+      } },
 
-    { title = "Creature Comforts",
-      items = { "gaming_chair", "rubber_duck", "fridge" } },
-    { title = "Petty Cash",
-      items = { "pocket_cash", "free_sit", "discount_sits" } },
+    -- Softens what losing costs you: tier downgrades, loss multipliers,
+    -- voids, and the free rebuy when it still goes wrong.
+    { title = "Bed & Bath",
+      items = {
+          "stress_ball", "worry_stone", "rubber_duck", "headphones",
+          "medical_kit", "bathtub",
+      } },
 
-    { title = "Curiosities",
-      items = { "pen", "copy_machine", "dogs_playing_poker" } },
-    { title = "Big Cashes",
-      items = { "plastic_trophy", "engraved_plaque", "unlock_ultra" } },
+    -- Machines that fire on their own at an event: a pot bumps, a beat gets
+    -- eaten, a bust drains back, last run's losses come back clean.
+    { title = "Kitchen & Appliances",
+      items = {
+          "fridge", "toaster", "the_sink", "microwave", "dishwasher",
+          "fire_extinguisher",
+      } },
 
-    -- Cursor spread: the hero (slots=3, left leaf) faces its crew (right leaf).
-    { title = "The Swarm",
-      items = { "cursor_pool" } },
-    { title = "Cursor Crew",
-      items = { "first_cursor", "tireless_assistants" } },
+    -- Attention: focus capacity, the penalty for exceeding it, and the
+    -- per-game-type edges you get from paying attention at one kind of table.
+    { title = "Home Office",
+      items = {
+          "water_cooler", "gaming_chair", "second_monitor", "headset",
+          "wall_clock", "projector", "big_tv",
+      } },
+
+    -- Paper goods. Everything here bends the run-upgrade economy or the
+    -- bounty paperwork around it.
+    { title = "Desk & Stationery",
+      items = {
+          "calculator", "ring_binder", "pen", "filing_cabinet",
+          "copy_machine", "supply_closet",
+      } },
+
+    -- The cursor swarm. cursor_pool is slots=3, so it fills its own leaf as
+    -- a hero card and the crew lands on the next one.
+    { title = "Computer Accessories",
+      items = {
+          "cursor_pool", "first_cursor", "mouse_pad", "tireless_assistants",
+      } },
+
+    -- Things on the wall that pay you: bounty bonuses, tournament payout
+    -- tiers, deck XP.
+    { title = "Awards & Wall Art",
+      items = {
+          "dogs_playing_poker", "plastic_trophy", "engraved_plaque",
+          "study_chart", "tip_jar",
+      } },
+
+    -- Paperwork that makes sitting down cheaper or richer.
+    { title = "Memberships & Vouchers",
+      items = {
+          "pocket_cash", "free_sit", "discount_sits", "punch_card",
+          "glass_door", "unlock_ultra",
+      } },
 }

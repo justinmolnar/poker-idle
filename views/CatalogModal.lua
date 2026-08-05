@@ -27,8 +27,11 @@ local Constants    = require("data.constants")
 local Catalog      = require("data.catalog")
 local CatalogPages = require("data.catalog_pages")
 local LabelButton  = require("views.widgets.LabelButton")
+local Sticker      = require("views.widgets.Sticker")
 local Icons        = require("views.Icons")
 local IconText     = require("views.IconText")
+local Format       = require("utils.format")
+local Decal        = require("services.Decal")
 local TooltipSvc     = require("services.Tooltip")
 
 -- Stable "No. NNN" code per item = its position in the master catalog, so the
@@ -47,6 +50,12 @@ local MODAL_W_BASE      = 980
 
 -- Live value; CARD_H is recomputed each :draw against the ui-scaled fonts.
 local CARD_H            = 84
+
+-- Slot-units per leaf. An item costs 1 unless it declares `slots` (the
+-- cursor hero is 3, filling a leaf on its own). Both the department packer
+-- in :_pages and the card loop in drawLeaf budget against this.
+local LEAF_SLOTS        = 3
+
 
 -- Kept for external callers (host measures header height off this).
 local HEADER_H          = 56
@@ -133,14 +142,56 @@ local function catalogUnlocked(game, item, state)
     return game.unlock_rules:check(item.unlock, state)
 end
 
+-- Counter formatters for the sticker, picked by the condition's `format`
+-- field. Table lookup, never a branch on the unlock kind — a new format is
+-- one entry here plus one field in data/catalog.lua.
+local COUNTER_FORMAT = {
+    count = function(n) return Format.formatBig(n) end,
+    money = function(n) return Format.money(n) end,
+}
+
+-- Headline on the locked-item sticker.
+local STICKER_TITLE = "COMING SOON!"
+
+-- Trim a plain string (no icon markers) to a pixel width, measured with the
+-- real font rather than an assumed character width — the card layout has to
+-- hold at every ui_scale, and "Thin Sans" is not monospaced.
+local function clampText(str, font, avail)
+    str = str or ""
+    if avail <= 0 or str == "" or font:getWidth(str) <= avail then return str end
+    while #str > 1 and font:getWidth(str .. "...") > avail do
+        str = str:sub(1, #str - 1)
+    end
+    return str .. "..."
+end
+
+-- "2 / 3" for a gated item, or nil when the condition is a flag (no ratio to
+-- report — see services/UnlockRegistry:progress).
+local function unlockCounter(cond, current, target)
+    if not (current and target) then return nil end
+    local fmt = COUNTER_FORMAT[cond and cond.format or "count"] or COUNTER_FORMAT.count
+    return fmt(current) .. " / " .. fmt(target)
+end
+
 -- ─── Page model ───────────────────────────────────────────────────────
 
--- Build the ordered list of leaves (pages) from the authored layout in
+-- Build the ordered list of leaves (pages) from the authored DEPARTMENTS in
 -- data/catalog_pages.lua, filtered by the same visibility rules as the flat
 -- list: hidden/handicap phantoms, prerequisite-hidden items, and act-3-gated
--- items drop out. A leaf whose items all drop out is omitted. Any visible
--- item not named on a page lands in a trailing "&c." catch-all so nothing is
--- ever unreachable. Returns { {title=, items={item,...}}, ... }, owned.
+-- items drop out.
+--
+-- A DEPARTMENT IS NOT A PAGE. It's a group of mechanically-related items of
+-- any size, and this function is what turns departments into pages: each
+-- one's visible items are packed into leaves of LEAF_SLOTS units, so a
+-- nine-item department simply runs for three leaves under one heading. The
+-- previous model forced one department per leaf, which is why the book ended
+-- up with seventeen headings for forty-nine items.
+--
+-- Continuation leaves get " cont." appended so a repeated heading doesn't
+-- read as a rendering bug. A department whose items are all invisible
+-- produces no leaves. Any visible item not named in a department lands in a
+-- trailing "&c." catch-all so nothing is ever unreachable.
+-- Returns { {title=, items={item,...}}, ... }, owned.
 --
 -- Visibility is a plain field test — no cost sort here; order is authored.
 function CatalogModal:_pages()
@@ -159,27 +210,63 @@ function CatalogModal:_pages()
     local byId = {}
     for _, it in ipairs(Catalog) do byId[it.id] = it end
 
-    local placed, pages = {}, {}
-    for _, pdef in ipairs(CatalogPages) do
-        local leaf = {}
-        for _, id in ipairs(pdef.items) do
-            local it = byId[id]
-            placed[id] = true                       -- authored → never a leftover
-            if it and visible(it) then leaf[#leaf + 1] = it end
+    local pages = {}
+
+    -- Spread a department's items over the fewest leaves that hold them,
+    -- balanced rather than greedy. Greedy packing fills 3/3/3/1 and leaves a
+    -- near-empty last page; targeting `remaining units / remaining leaves`
+    -- gives 3/3/2/2, so no leaf looks like an afterthought.
+    --
+    -- Only the FIRST leaf of a department carries the heading. The rest pass
+    -- title = nil and draw a bare header band, because a department running
+    -- for three pages is what a catalog looks like — repeating the name on
+    -- every page (or worse, "cont.") is noise.
+    local function addLeaves(title, list)
+        local units = 0
+        for _, it in ipairs(list) do units = units + math.min(it.slots or 1, LEAF_SLOTS) end
+        if units == 0 then return end
+        local leaves_left = math.ceil(units / LEAF_SLOTS)
+
+        local leaf, used, emitted = {}, 0, 0
+        local target = math.ceil(units / leaves_left)
+        local function flush()
+            if #leaf == 0 then return end
+            emitted = emitted + 1
+            pages[#pages + 1] = { title = (emitted == 1) and title or nil, items = leaf }
+            units       = units - used
+            leaves_left = math.max(1, leaves_left - 1)
+            target      = math.ceil(units / leaves_left)
+            leaf, used  = {}, 0
         end
-        if #leaf > 0 then pages[#pages + 1] = { title = pdef.title, items = leaf } end
+        for _, it in ipairs(list) do
+            local sp = math.min(it.slots or 1, LEAF_SLOTS)
+            -- Break when this item would exceed the leaf's fair share, but
+            -- never break a leaf that can still physically fit the item and
+            -- is still empty.
+            if #leaf > 0 and (used + sp > LEAF_SLOTS or used + sp > target) then flush() end
+            leaf[#leaf + 1] = it
+            used = used + sp
+        end
+        flush()
     end
 
-    -- Catch-all for any visible item the author forgot to place, 3 per leaf.
+    local placed = {}
+    for _, dept in ipairs(CatalogPages) do
+        local list = {}
+        for _, id in ipairs(dept.items) do
+            local it = byId[id]
+            placed[id] = true                       -- authored → never a leftover
+            if it and visible(it) then list[#list + 1] = it end
+        end
+        addLeaves(dept.title, list)
+    end
+
+    -- Catch-all for any visible item the author forgot to place.
     local orphans = {}
     for _, it in ipairs(Catalog) do
         if not placed[it.id] and visible(it) then orphans[#orphans + 1] = it end
     end
-    for i = 1, #orphans, 3 do
-        local leaf = {}
-        for j = i, math.min(i + 2, #orphans) do leaf[#leaf + 1] = orphans[j] end
-        pages[#pages + 1] = { title = "&c.", items = leaf }
-    end
+    addLeaves("&c.", orphans)
 
     return pages, owned
 end
@@ -344,6 +431,14 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     local s = self.game.ui_scale or 1
     local fl = math.floor
 
+    -- A locked ad sits on darker paper than the rest of the page, the way a
+    -- catalog greys out a line it can't sell you. Drawn under everything else
+    -- so the whole card reads unavailable before you read a word of it.
+    if unlock_locked then
+        Theme.setColor({ 0.15, 0.15, 0.12, 0.10 })
+        love.graphics.rectangle("fill", x, y, w, h)
+    end
+
     -- Vintage newsprint border for this ad
     Theme.setColor({ 0.15, 0.15, 0.12, 0.30 })
     love.graphics.rectangle("line", x, y, w, h)
@@ -357,8 +452,12 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         img_x = x + (w - img_w) * 0.5
         img_y = y + fl(24 * s)
     else
-        img_w = fl(56 * s)
-        img_h = fl(56 * s)
+        -- Thumb grows with the card, so a 2-slot feature ad gets real art
+        -- instead of a small thumb marooned in white space. A 1-slot card
+        -- clamps to the same 56px it always was.
+        local box = math.max(fl(56 * s), math.min(h - fl(28 * s), fl(150 * s)))
+        img_w = box
+        img_h = box
         img_x = x + fl(8 * s)
         img_y = y + fl(14 * s)
     end
@@ -391,6 +490,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         love.graphics.line(img_x + img_w, img_y, img_x, img_y + img_h)
     end
 
+
     -- Stamp price tag in upper-right corner
     local price_color = { 0.15, 0.15, 0.12, 0.50 } -- black ink default
     if is_corruptible then
@@ -420,7 +520,11 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     elseif is_owned then
         cost_text = "OWN"
     elseif locked then
-        cost_text = "LCK"
+        -- Show the real price rather than "LCK": you can't order it yet, but
+        -- knowing what it costs is how you decide whether to save. The stamp
+        -- stays black instead of the red orderable ink, and the red
+        -- requirement line carries the "not yet" message.
+        cost_text = ((item.cost_chip or 0) <= 0) and "FREE" or cost_text
     elseif (item.cost_chip or 0) <= 0 then
         cost_text = "FREE"
     end
@@ -429,6 +533,57 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
 
     local dim = (is_owned and not is_corruptible and not is_corrupted)
     local ink = dim and { 0.15, 0.15, 0.12, 0.40 } or { 0.15, 0.15, 0.12 }
+    -- An unlock-gated item is dimmed like an owned one — it is not orderable
+    -- either way. The requirement itself lives on the sticker, not in the
+    -- text column.
+    local name_ink = unlock_locked and { 0.15, 0.15, 0.12, 0.45 } or ink
+
+    -- Sticker rect is computed BEFORE any text is drawn, because the text
+    -- column has to know where the sticker starts in order to stay out from
+    -- under it. Guessing a reserve from a character-width estimate is how you
+    -- get a name running beneath a sticker at one font scale and not another.
+    local st_x, st_y, st_w, st_h, st_angle
+    local st_line, st_counter, st_frac
+    if unlock_locked then
+        local reg = self.game.unlock_rules
+        local cur, target
+        st_frac = 0
+        if reg then st_frac, cur, target = reg:progress(item.unlock, state) end
+        st_line    = (item.unlock and item.unlock.text) or ""
+        st_counter = unlockCounter(item.unlock, cur, target)
+
+        st_h = Sticker.heightFor(fonts, s, true)
+        -- Sized to its own text, then clamped to the band. A sticker stretched
+        -- across the whole card is 80% blank paper and its fill stops meaning
+        -- anything.
+        local want_w = Sticker.widthFor(fonts, s, STICKER_TITLE, st_line, st_counter)
+        if hero then
+            st_w = math.min(w * 0.62, want_w)
+            st_x = x + (w - st_w) * 0.5
+            st_y = y + h - st_h - fl(18 * s)
+        else
+            -- BELOW the name, not beside it. Beside it, the sticker and the
+            -- item name fight over the same 200px and the name loses
+            -- ("CHROME TOAS..."). In the band under the name there is nothing
+            -- to compete with, the price badge is well above it, and the
+            -- sticker gets to be wide enough to read at a glance.
+            -- Applied by hand: land anywhere in the free space rather than
+            -- jittering a few pixels around one anchor, which just reads as
+            -- "always the same place". Left bound clears the illustration,
+            -- right bound is the card edge less the sticker's own width.
+            st_w = math.min((x + w - fl(12 * s)) - (img_x + img_w + fl(12 * s)), want_w)
+            st_x = Decal.lerp("cs_x:" .. item.id, 1,
+                              img_x + img_w + fl(10 * s),
+                              x + w - fl(10 * s) - st_w)
+            st_y = Decal.lerp("cs_y:" .. item.id, 2,
+                              y + fl(3 * s),
+                              y + h - st_h - fl(3 * s))
+        end
+        -- Stickers get pressed on straighter than a stamp gets banged down,
+        -- but still both ways.
+        local _, _, angle = Decal.place("coming_soon:" .. item.id, { angle = 0.10 })
+        st_angle = angle
+    end
 
     -- Precompute the shove stat (registry-dispatched, no kind-string checks).
     local sctx = {}
@@ -449,31 +604,55 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         ty = ty + fonts.sm:getHeight() + 2
 
         love.graphics.setFont(fonts.md)
-        Theme.setColor(ink)
+        Theme.setColor(name_ink)
         local nm = (item.name or "?"):upper()
         love.graphics.print(nm, cxm - fonts.md:getWidth(nm) * 0.5, ty)
         ty = ty + fonts.md:getHeight() + 4
 
-        if unlock_locked then
-            love.graphics.setFont(fonts.sm)
-            Theme.setColor({ 0.15, 0.15, 0.12, 0.55 })
-            local ut = (item.unlock and item.unlock.text) or "Locked"
-            love.graphics.print(ut, cxm - fonts.sm:getWidth(ut) * 0.5, ty)
-        else
-            local eff_text = (is_corrupted and item.corrupt.effect_text or item.effect_text) or ""
-            local ew = IconText.measure(eff_text, fonts.sm)
-            IconText.draw(self.game, eff_text, cxm - ew * 0.5, ty, fonts.sm, ink)
+        -- Locked: no effect line and no shove stat. The requirement rides on
+        -- the COMING SOON sticker instead (drawn last, below); the flavor
+        -- blurb still prints, so a locked hero card says what the object is
+        -- and how to earn it, never what it does.
+        if not unlock_locked then
+            local line = (is_corrupted and item.corrupt.effect_text or item.effect_text) or ""
+            local lw = IconText.measure(line, fonts.sm)
+            IconText.draw(self.game, line, cxm - lw * 0.5, ty, fonts.sm, ink)
             ty = ty + fonts.sm:getHeight() + 4
-            if shove_txt then
-                love.graphics.setFont(fonts.sm)
-                Theme.setColor(shove_ink)
-                love.graphics.print(shove_txt, cxm - fonts.sm:getWidth(shove_txt) * 0.5, ty)
-            end
+        end
+
+        local desc_txt = item.description or ""
+        if desc_txt ~= "" then
+            love.graphics.setFont(fonts.sm)
+            Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
+            love.graphics.print(desc_txt, cxm - fonts.sm:getWidth(desc_txt) * 0.5, ty)
+            ty = ty + fonts.sm:getHeight() + 4
+        end
+
+        if shove_txt and not unlock_locked then
+            love.graphics.setFont(fonts.sm)
+            Theme.setColor(shove_ink)
+            love.graphics.print(shove_txt, cxm - fonts.sm:getWidth(shove_txt) * 0.5, ty)
         end
     else
-        -- Item Header info: Number code + Name
+        -- Item Header info: Number code + Name. On a multi-slot feature ad
+        -- the text block centres against the taller art; a 1-slot card is
+        -- shorter than the threshold so it stays top-aligned as before.
         local text_x = img_x + img_w + fl(12 * s)
-        local title_y = y + fl(8 * s)
+        local block_h = fonts.md:getHeight() + 3 * fonts.sm:getHeight() + fl(6 * s)
+        local title_y
+        if unlock_locked then
+            -- Locked copy hugs the top; the sticker takes the bottom and is
+            -- allowed to run into this band if its text needs the room.
+            title_y = y + fl(4 * s)
+        elseif h > block_h + fl(24 * s) then
+            title_y = y + fl((h - block_h) * 0.5)
+        else
+            title_y = y + fl(8 * s)
+        end
+
+        -- The sticker sits BELOW this column now, so the name gets the full
+        -- width and only has to clear the price badge in the corner.
+        local col_w = (x + w - fl(44 * s)) - text_x
 
         local index_text = string.format("No. %03d", index or 0)
         Theme.setColor({ 0.15, 0.15, 0.12, 0.60 })
@@ -481,42 +660,67 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         love.graphics.print(index_text, text_x, title_y)
 
         local name_y = title_y + fonts.sm:getHeight() + 1
-        Theme.setColor(ink)
+        Theme.setColor(name_ink)
         love.graphics.setFont(fonts.md)
-        love.graphics.print((item.name or "?"):upper(), text_x, name_y)
+        love.graphics.print(clampText((item.name or "?"):upper(), fonts.md, col_w),
+                            text_x, name_y)
 
-        -- Description / Effect — or, when locked behind an unlock, the
-        -- requirement text in place of what it does (you learn how to get it,
-        -- the effect stays a surprise).
+        -- Locked cards say what the object IS and how to earn it, never what it
+        -- does: the effect line and the shove stat are withheld, and the
+        -- requirement moves onto the COMING SOON sticker (drawn last, below).
+        -- The flavor blurb slides up into the vacated effect slot so the text
+        -- column has no hole in it.
         local effect_y = name_y + fonts.md:getHeight() + 3
-        if unlock_locked then
-            Theme.setColor({ 0.15, 0.15, 0.12, 0.55 })
-            love.graphics.setFont(fonts.sm)
-            love.graphics.print((item.unlock and item.unlock.text) or "Locked", text_x, effect_y)
-        else
-            local eff_text = is_corrupted and item.corrupt.effect_text or item.effect_text
-            IconText.draw(self.game, eff_text or "", text_x, effect_y, fonts.sm, ink)
+        local flavor_y = effect_y
+        if not unlock_locked then
+            local line = (is_corrupted and item.corrupt.effect_text or item.effect_text) or ""
+            IconText.draw(self.game, line, text_x, effect_y, fonts.sm, ink)
+            flavor_y = effect_y + fonts.sm:getHeight() + 2
+        end
 
-            local flavor_y = effect_y + fonts.sm:getHeight() + 2
+        -- Flavor prints whenever it fits. On a short locked card the sticker
+        -- claims that band and the blurb is dropped rather than drawn
+        -- underneath it; taller cards (feature ads) keep both.
+        local flavor_fits = (not st_y) or (flavor_y + fonts.sm:getHeight() <= st_y - fl(2 * s))
+        if flavor_fits then
             Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
             love.graphics.setFont(fonts.sm)
-
-            local desc_w = w - (img_w + fl(20 * s)) - fl(44 * s)
-            local desc_txt = item.description or ""
-            if fonts.sm:getWidth(desc_txt) > desc_w then
-                desc_txt = desc_txt:sub(1, 30) .. "..."
-            end
-            love.graphics.print(desc_txt, text_x, flavor_y)
-
-            -- Shove contribution: its own right-aligned stat on the flavor line.
-            -- Makes "buying builds your shove base" legible — every buyable
-            -- item advertises how much % it adds.
-            if shove_txt then
-                Theme.setColor(shove_ink)
-                love.graphics.setFont(fonts.sm)
-                love.graphics.print(shove_txt, x + w - fl(12 * s) - fonts.sm:getWidth(shove_txt), flavor_y)
-            end
+            love.graphics.print(clampText(item.description, fonts.sm, col_w), text_x, flavor_y)
         end
+
+        -- Shove contribution: its own right-aligned stat on the flavor line.
+        -- Makes "buying builds your shove base" legible — every buyable
+        -- item advertises how much % it adds. Withheld while locked.
+        if shove_txt and not unlock_locked then
+            Theme.setColor(shove_ink)
+            love.graphics.setFont(fonts.sm)
+            love.graphics.print(shove_txt, x + w - fl(12 * s) - fonts.sm:getWidth(shove_txt), flavor_y)
+        end
+    end
+
+    -- COMING SOON sticker. Drawn after the card's own contents so it sits ON
+    -- the ad the way a real sticker does, and it carries the whole "not yet"
+    -- message: the requirement, the raw count, and a stock that fills as you
+    -- close the gap. Everything before this is deliberately quiet about the
+    -- lock (darker paper, dimmed name) — the sticker is the loud part.
+    if unlock_locked then
+        Sticker.draw{
+            game     = self.game,
+            fonts    = fonts,
+            x = st_x, y = st_y, w = st_w, h = st_h,
+            scale    = s,
+            rotation = st_angle,
+            title    = STICKER_TITLE,
+            line     = st_line,
+            counter  = st_counter,
+            progress = st_frac,
+            -- Catalog paper palette, passed in from the call site: the widget
+            -- itself holds no literal colors.
+            stock_token = { 0.99, 0.97, 0.92 },
+            fill_token  = { 0.93, 0.80, 0.45 },
+            ink_token   = { 0.15, 0.15, 0.12 },
+            edge_token  = { 0.15, 0.15, 0.12, 0.45 },
+        }
     end
 
     -- Stash cell bounds for hit-testing. Skipped mid-flip: leaves are drawn
@@ -528,80 +732,67 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         }
     end
 
-    -- Overlays: Rubber stamp "ORDERED", "CORRUPTED", or "SOLD OUT"
+    -- Rubber stamps. One stamp per card at most, so this is a chain of
+    -- conditions picking WHICH, then a single shared draw — these were five
+    -- copies of the same twelve lines with different labels.
+    -- hw/hh/r are the ORIGINAL hand-tuned box dimensions per stamp, kept
+    -- verbatim: sizing the box to its label instead changed how they look,
+    -- which was never the ask.
+    local stamp
     if is_corrupted then
-        love.graphics.push()
-        love.graphics.translate(x + w * 0.55, y + h * 0.5)
-        love.graphics.rotate(-0.15)
-
-        Theme.setColor({ 0.45, 0.15, 0.70, 0.90 })
-        love.graphics.setLineWidth(3)
-        love.graphics.rectangle("line", -fl(60 * s), -fl(14 * s), fl(120 * s), fl(28 * s), fl(4 * s))
-        love.graphics.setLineWidth(1)
-
-        love.graphics.setFont(fonts.md)
-        local st_w = fonts.md:getWidth("CORRUPTED")
-        love.graphics.print("CORRUPTED", -st_w * 0.5, -fonts.md:getHeight() * 0.5)
-
-        love.graphics.pop()
+        stamp = { label = "CORRUPTED", color = { 0.45, 0.15, 0.70, 0.90 },
+                  font = fonts.md, lw = 3,
+                  hw = 60, hh = 14, r = 4 }
     elseif is_corruptible then
-        love.graphics.push()
-        love.graphics.translate(x + w * 0.55, y + h * 0.5)
-        love.graphics.rotate(0.05)
-
-        Theme.setColor({ 0.55, 0.25, 0.85, 0.85 })
-        love.graphics.setLineWidth(2)
-        love.graphics.rectangle("line", -fl(50 * s), -fl(12 * s), fl(100 * s), fl(24 * s), fl(3 * s))
-        love.graphics.setLineWidth(1)
-
-        love.graphics.setFont(fonts.sm)
-        local st_w = fonts.sm:getWidth("CORRUPT?")
-        love.graphics.print("CORRUPT?", -st_w * 0.5, -fonts.sm:getHeight() * 0.5)
-
-        love.graphics.pop()
+        stamp = { label = "CORRUPT?", color = { 0.55, 0.25, 0.85, 0.85 },
+                  font = fonts.sm, lw = 2,
+                  hw = 50, hh = 12, r = 3 }
     elseif is_owned then
-        love.graphics.push()
-        love.graphics.translate(x + w * 0.55, y + h * 0.5)
-        love.graphics.rotate(-0.15)
-
-        Theme.setColor({ 0.75, 0.20, 0.20, 0.85 })
-        love.graphics.setLineWidth(3)
-        love.graphics.rectangle("line", -fl(55 * s), -fl(14 * s), fl(110 * s), fl(28 * s), fl(4 * s))
-        love.graphics.setLineWidth(1)
-
-        love.graphics.setFont(fonts.md)
-        local st_w = fonts.md:getWidth("ORDERED")
-        love.graphics.print("ORDERED", -st_w * 0.5, -fonts.md:getHeight() * 0.5)
-
-        love.graphics.pop()
-    elseif locked then
-        love.graphics.push()
-        love.graphics.translate(x + w * 0.55, y + h * 0.5)
-        love.graphics.rotate(-0.10)
-
-        Theme.setColor({ 0.45, 0.45, 0.45, 0.70 })
-        love.graphics.setLineWidth(2)
-        love.graphics.rectangle("line", -fl(60 * s), -fl(12 * s), fl(120 * s), fl(24 * s), fl(3 * s))
-        love.graphics.setLineWidth(1)
-
-        love.graphics.setFont(fonts.md)
-        local st_w = fonts.md:getWidth("SOLD OUT")
-        love.graphics.print("SOLD OUT", -st_w * 0.5, -fonts.md:getHeight() * 0.5)
-
-        love.graphics.pop()
+        stamp = { label = "ORDERED", color = { 0.75, 0.20, 0.20, 0.85 },
+                  font = fonts.md, lw = 3,
+                  hw = 55, hh = 14, r = 4 }
+    elseif locked and not unlock_locked then
+        -- SOLD OUT is only honest for a PREREQUISITE lock (you can't order
+        -- the Engraved Plaque without the Plastic Trophy). An unlock-gated
+        -- item gets no stamp; it wears the COMING SOON sticker instead, and
+        -- "SOLD OUT" over an item that is merely not-yet-earned is a second,
+        -- contradictory story about the same card.
+        stamp = { label = "SOLD OUT", color = { 0.45, 0.45, 0.45, 0.70 },
+                  font = fonts.md, lw = 2,
+                  hw = 60, hh = 12, r = 3 }
     elseif forcing_tutorial and item.id ~= "poker_poster" then
-        love.graphics.push()
-        love.graphics.translate(x + w * 0.55, y + h * 0.5)
-        love.graphics.rotate(0.08)
+        stamp = { label = "WAIT POSTER", color = { 0.55, 0.55, 0.55, 0.60 },
+                  font = fonts.sm, lw = 1.5,
+                  hw = 55, hh = 12, r = 3 }
+    end
 
-        Theme.setColor({ 0.55, 0.55, 0.55, 0.60 })
-        love.graphics.setLineWidth(1.5)
-        love.graphics.rectangle("line", -fl(55 * s), -fl(12 * s), fl(110 * s), fl(24 * s), fl(3 * s))
+    if stamp then
+        -- Hand-stamped: anywhere across the middle of the card, not a fixed
+        -- anchor with a few pixels of wobble. Keyed off the item id, so it is
+        -- stable forever but no two cards on a page match.
+        local hw, hh = fl(stamp.hw * s), fl(stamp.hh * s)
+        local cx = Decal.lerp("stamp_x:" .. item.id, 1,
+                              x + hw + fl(10 * s), x + w - hw - fl(10 * s))
+        local cy = Decal.lerp("stamp_y:" .. item.id, 2,
+                              y + hh + fl(6 * s), y + h - hh - fl(6 * s))
+        -- Wide and centred on zero, so stamps lean BOTH ways. A narrow range
+        -- around a per-stamp base angle made every ORDERED on the page tilt
+        -- the same direction by the same amount, which reads as "all the
+        -- same angle" no matter how random the number technically was.
+        local _, _, angle = Decal.place("stamp:" .. item.id, { angle = 0.30 })
+
+        love.graphics.push()
+        love.graphics.translate(cx, cy)
+        love.graphics.rotate(angle)
+
+        Theme.setColor(stamp.color)
+        love.graphics.setLineWidth(stamp.lw)
+        love.graphics.rectangle("line", -hw, -hh, hw * 2, hh * 2, fl(stamp.r * s))
         love.graphics.setLineWidth(1)
 
-        love.graphics.setFont(fonts.sm)
-        local st_w = fonts.sm:getWidth("WAIT POSTER")
-        love.graphics.print("WAIT POSTER", -st_w * 0.5, -fonts.sm:getHeight() * 0.5)
+        love.graphics.setFont(stamp.font)
+        local tw = stamp.font:getWidth(stamp.label)
+        love.graphics.print(stamp.label, -tw * 0.5, -stamp.font:getHeight() * 0.5)
 
         love.graphics.pop()
     end
@@ -639,10 +830,14 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
     if not page then return end   -- blank verso
 
     local pad = fl(12 * s)
-    -- Authored page title — turns WITH the leaf.
-    Theme.setColor({ 0.15, 0.15, 0.12 })
-    love.graphics.setFont(fonts.md)
-    love.graphics.print((page.title or ""):upper(), x + pad, y + fl(10 * s))
+    -- Department heading — turns WITH the leaf. Only the first leaf of a
+    -- department has one (see :_pages); continuation leaves keep the header
+    -- band for the ledger and the rule, but print no name.
+    if page.title then
+        Theme.setColor({ 0.15, 0.15, 0.12 })
+        love.graphics.setFont(fonts.md)
+        love.graphics.print(page.title:upper(), x + pad, y + fl(10 * s))
+    end
     -- Chip ledger, right page only.
     if is_right then
         local bal   = string.format("%d", state.chips or 0)
@@ -658,20 +853,31 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
     Theme.setColor({ 0.15, 0.15, 0.12, 0.20 })
     love.graphics.line(x + pad, y + head_h, x + w - pad, y + head_h)
 
-    -- Pack item cards top-down. A slots=N item is N units tall; stop once the
-    -- 3-unit budget is spent (authored pages should sum to ≤ 3).
+    -- Lay the cards out top-down, dividing the leaf's full card area between
+    -- them in proportion to each item's slot cost. The leaf always fills:
+    -- three 1-slot cards come out exactly card_h each (unchanged), while a
+    -- leaf holding one 2-slot feature ad gives it the whole page instead of
+    -- leaving a third of the paper blank.
     local cw    = w - 2 * pad
     local gapc  = fl(10 * s)
     local cy    = y + head_h + fl(8 * s)
-    local used  = 0
+    local avail = LEAF_SLOTS * card_h + (LEAF_SLOTS - 1) * gapc
+
+    local units, shown = 0, {}
     for _, item in ipairs(page.items) do
-        local sp = item.slots or 1
-        if used + sp > 3 then break end
-        local ch = sp * card_h + (sp - 1) * gapc
-        drawItemCard(self, item, owned, state, x + pad, cy, cw, ch, fonts, forcing,
-            CATALOG_ORD[item.id] or 0, sp >= 3)
-        cy   = cy + ch + gapc
-        used = used + sp
+        local sp = math.min(item.slots or 1, LEAF_SLOTS)
+        if units + sp > LEAF_SLOTS then break end   -- guard; :_pages pre-fits
+        units = units + sp
+        shown[#shown + 1] = { item = item, sp = sp }
+    end
+    if units <= 0 then units = 1 end
+
+    local card_area = avail - gapc * math.max(0, #shown - 1)
+    for _, e in ipairs(shown) do
+        local ch = fl(card_area * e.sp / units)
+        drawItemCard(self, e.item, owned, state, x + pad, cy, cw, ch, fonts, forcing,
+            CATALOG_ORD[e.item.id] or 0, e.sp >= 3)
+        cy = cy + ch + gapc
     end
 
     -- Page number, bottom-center.
@@ -805,7 +1011,8 @@ function CatalogModal:draw()
     local card_h = CARD_H
     local page_w = fl(MODAL_W_BASE * s * 0.5)
     local head_h = fonts.md:getHeight() + fl(16 * s)
-    local page_h = fl(head_h + fl(8 * s) + 3 * card_h + 2 * fl(10 * s) + fonts.sm:getHeight() + fl(22 * s))
+    local page_h = fl(head_h + fl(8 * s) + LEAF_SLOTS * card_h
+                      + (LEAF_SLOTS - 1) * fl(10 * s) + fonts.sm:getHeight() + fl(22 * s))
     local cx     = W * 0.5
     local top    = fl((H - page_h) * 0.5)
 

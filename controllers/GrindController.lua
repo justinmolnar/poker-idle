@@ -208,6 +208,7 @@ function GrindController:update(dt)
                 -- banked here, not on the per-hand cash path. Rides into the
                 -- celebration block below.
                 local state = self.game.state
+                state.total_mtt_wins = (state.total_mtt_wins or 0) + 1
                 local cap = 1
                 local key = bountyKey(t.stake_id, t.game_type_id)
                 local cur = state.stakes_won_this_run[key]
@@ -233,6 +234,7 @@ function GrindController:update(dt)
                         end
                         state.chips_this_run = state.chips_this_run + award
                         state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
+                        state.total_chips_banked = (state.total_chips_banked or 0) + award
                     end
                 else
                     -- Copy Machine: the run's first denied bounty banks anyway.
@@ -242,6 +244,7 @@ function GrindController:update(dt)
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
                             state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
+                            state.total_chips_banked = (state.total_chips_banked or 0) + cp
                         end
                     else
                         -- Repeat tournament win on an already-banked combo:
@@ -349,6 +352,14 @@ function GrindController:update(dt)
                 else
                     r.delta = -tbl.stack
                     tbl.stack = 0
+                    -- The table is busted: its stack is gone. Counted for
+                    -- catalog gates, and The Sink drains part of the buy-in
+                    -- back to bankroll (bust_refund_pct).
+                    state.total_busts = (state.total_busts or 0) + 1
+                    local refund_pct = (self.ctx and self.ctx.bust_refund_pct) or 0
+                    if refund_pct > 0 and cap > 0 then
+                        state.bankroll = state.bankroll + cap * refund_pct
+                    end
                 end
             else
                 tbl.stack = new_stack
@@ -566,6 +577,7 @@ function GrindController:update(dt)
                         -- static until shove pulls the trigger on banking.
                         state.chips_this_run = state.chips_this_run + award
                         state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
+                        state.total_chips_banked = (state.total_chips_banked or 0) + award
                         self.game.floating_text.emit(
                             string.format("+%d {chip}", award),
                             r.x, (r.y or 0) - 28)
@@ -578,6 +590,7 @@ function GrindController:update(dt)
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
                             state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
+                            state.total_chips_banked = (state.total_chips_banked or 0) + cp
                             self.game.floating_text.emit(
                                 string.format("+%d {chip}", cp),
                                 r.x, (r.y or 0) - 28)
@@ -619,14 +632,49 @@ function GrindController:update(dt)
             end
         end
 
-        -- Hands resolved, ever — unconditional, unlike the deck lifetime
-        -- counters below (those start at zero when decks unlock). Drives
-        -- tutorial-hint pacing (models/hint_rules.lua "hands_played").
+        -- ── Ungated counters ────────────────────────────────────────────
+        -- Unconditional, unlike the deck lifetime counters below (those
+        -- start at zero when decks unlock). These drive tutorial-hint
+        -- pacing (models/hint_rules.lua "hands_played") AND every catalog
+        -- unlock gate — a catalog gate must be reachable in Act 1, which
+        -- the deck-gated counters are not.
+        local n_tables = self.pool:count()
+        local gtype_id = tbl and tbl.game_type_id
+        local focus_cap = Constants.GAMEPLAY.FOCUS_BASE_CAPACITY
+                          + ((self.ctx and self.ctx.focus_capacity) or 0)
+
         state.total_hands_played = (state.total_hands_played or 0) + 1
         if r.tier == "large" or r.tier == "jackpot" then
             -- Big outcomes, win or loss — the tutorial's tier hint fires
             -- on the first one.
             state.total_big_outcomes = (state.total_big_outcomes or 0) + 1
+        end
+        if r.won and r.tier == "jackpot" then
+            state.total_jackpots = (state.total_jackpots or 0) + 1
+        elseif (not r.won) and r.tier == "jackpot" then
+            state.total_stack_losses = (state.total_stack_losses or 0) + 1
+        end
+        if r.delta < 0 then
+            -- Fuels the Dishwasher's next-run seed (GameState:resetRun
+            -- freezes this into last_run_money_lost).
+            state.run_money_lost = (state.run_money_lost or 0) + (-r.delta)
+        end
+        if n_tables >= 4 then
+            state.total_hands_at_4plus = (state.total_hands_at_4plus or 0) + 1
+        end
+        if n_tables > focus_cap then
+            state.total_hands_overwhelmed = (state.total_hands_overwhelmed or 0) + 1
+        end
+        if gtype_id then
+            state.total_hands_by_gtype = state.total_hands_by_gtype or {}
+            state.total_hands_by_gtype[gtype_id] =
+                (state.total_hands_by_gtype[gtype_id] or 0) + 1
+        end
+        if stake then
+            local idx = Lookups.indexById(Stakes, stake.id) or 0
+            if idx > (state.highest_stake_idx or 0) then
+                state.highest_stake_idx = idx
+            end
         end
 
         -- Deck-system meta bookkeeping. Lifetime counters drive unlock
@@ -635,8 +683,8 @@ function GrindController:update(dt)
         -- silent state accrues before decks exist — deck progression
         -- starts from zero the moment the shove is first beaten.
         if Decks.systemUnlocked(state) then
-            local n_tables = self.pool:count()
-            local gtype_id = tbl and tbl.game_type_id
+            -- n_tables / gtype_id / focus_cap are hoisted above with the
+            -- ungated counters.
 
             -- Lifetime counters: every resolution bumps hands_played; the
             -- rest fire on their conditional events. Bumped BEFORE
@@ -663,8 +711,6 @@ function GrindController:update(dt)
             -- can filter on.
             local bb           = (stake and stake.bb and stake.bb > 0) and stake.bb or nil
             local stake_tier_idx = stake and Lookups.indexById(Stakes, stake.id) or nil
-            local base_cap = Constants.GAMEPLAY.FOCUS_BASE_CAPACITY
-            local focus_cap = base_cap + ((self.ctx and self.ctx.focus_capacity) or 0)
             -- Hands played while OVER the focus cap — matches the Multitasker
             -- deck's overwhelmed identity (its unlock, mirroring its XP rule).
             if n_tables > focus_cap then
@@ -703,7 +749,9 @@ end
 -- level-up so the controller can invalidate the effects cache; the model
 -- side handles the math + state writes.
 function GrindController:_grantDeckXp(event)
-    local _, leveled = Decks.gainXp(self.game.state, self.game.xp_rules, event)
+    -- Tori Gate multiplies whatever the deck's XP rule returns.
+    local xp_mult = (self.ctx and self.ctx.deck_xp_mult) or 1
+    local _, leveled = Decks.gainXp(self.game.state, self.game.xp_rules, event, xp_mult)
     if leveled then
         self:invalidateEffects()
     end
@@ -810,6 +858,9 @@ function GrindController:buyRunUpgrade(upgrade_id)
         cost_dollars = cost,
     })
 
+    -- Ungated mirror — catalog gates (Ring Binder, Filing Cabinet, Supply
+    -- Closet) read this one, so it has to tick in Act 1 too.
+    state.total_upgrade_levels = (state.total_upgrade_levels or 0) + 1
     -- Lifetime counter drives the Investor deck's unlock. Gated like the
     -- other lifetime_* counters (accrue only once the deck system exists).
     if Decks.systemUnlocked(state) then
@@ -1348,6 +1399,21 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
     end
 end
 
+-- What a rebuy at table `idx` costs right now: the stake's buy-in less
+-- ctx.rebuy_discount. DETERMINISTIC — free_rebuy_chance is deliberately not
+-- rolled here, because the view calls this every frame to label the REBUY
+-- button and to test affordability; rolling would reroll on every draw. The
+-- free roll happens once, inside rebuyTable, and only ever lowers the price.
+-- Mirrors buyInMultFor: the controller owns cost math, the view reads it.
+function GrindController:rebuyCostFor(idx)
+    local t = self.pool:get(idx)
+    if not t then return 0 end
+    local stake  = Lookups.findById(Stakes, t.stake_id)
+    local buy_in = (stake and stake.buy_in) or 0
+    local discount = (self.ctx and self.ctx.rebuy_discount) or 0
+    return buy_in * (1.0 - discount)
+end
+
 -- Refill a busted table's stack to a fresh 100bb buy-in by spending from
 -- bankroll. No-op if the table isn't actually busted, or if the player
 -- can't afford the rebuy.
@@ -1357,10 +1423,8 @@ function GrindController:rebuyTable(idx)
     if (t.stack or 0) > 0 then return false end
     local stake = Lookups.findById(Stakes,t.stake_id)
     local buy_in = (stake and stake.buy_in) or 0
-    local cost  = buy_in
+    local cost   = self:rebuyCostFor(idx)
     if self.ctx then
-        local discount = self.ctx.rebuy_discount or 0
-        cost = buy_in * (1.0 - discount)
         local free_chance = self.ctx.free_rebuy_chance or 0
         if free_chance > 0 and love.math.random() < free_chance then
             cost = 0
@@ -1380,6 +1444,9 @@ function GrindController:rebuyTable(idx)
     self:_grantDeckXp({
         type = "table_rebuy",
     })
+    -- Ungated mirror — catalog gates (Night Table, Medical Kit) read this
+    -- one, so it has to tick in Act 1 too.
+    state.total_rebuys = (state.total_rebuys or 0) + 1
     -- Lifetime counter drives the Short Stack deck's unlock. Gated like the
     -- other lifetime_* counters (accrue only once the deck system exists).
     if Decks.systemUnlocked(state) then

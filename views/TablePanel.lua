@@ -1428,8 +1428,15 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- button gated on bankroll.
     if tbl.state == "idle" then
         if (tbl.stack or 0) <= 0 then
+            -- Price comes from the controller, which owns the discount math
+            -- (Night Table's rebuy_discount). Reading raw stake.buy_in here
+            -- made the button lie about the price and refuse affordable
+            -- rebuys. rebuyCostFor is deterministic — Medical Kit's free
+            -- roll happens inside rebuyTable, and only ever costs less.
             local stake = Lookups.findById(Stakes,tbl.stake_id)
-            local cost  = (stake and stake.buy_in) or 0
+            local cost  = (controller and controller.rebuyCostFor)
+                          and controller:rebuyCostFor(idx)
+                          or ((stake and stake.buy_in) or 0)
             local can_rebuy = state.bankroll >= cost
             local label = string.format("REBUY %s", Format.moneyExact(cost))
             drawFeltButton(felt_x, felt_y, felt_w, felt_h,
