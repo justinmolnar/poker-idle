@@ -63,6 +63,12 @@ function GameState:new(saved)
     -- shove_count increments each prestige so analytics can track power level.
     instance.save_id    = genSaveId()
     instance.shove_count = 0
+    -- True once the player has actually SHOVED. Distinct from shove_count,
+    -- which counts run resets (resetRun bumps it) and so is already 1 after a
+    -- single quick-reset bail-out. The tutorial's "SHOVE hides until you have
+    -- banked 3 {chip} on your first run" gate reads this, because reading
+    -- shove_count let the rescue button reveal the shove without shoving.
+    instance.has_shoved = false
 
     -- Deck-system meta state (persists forever; never reset by prestige).
     -- Only the starter (DeckSpecs[1]) is unlocked at fresh start. The
@@ -292,6 +298,7 @@ function GameState:wipeAll()
     -- New save identity — fresh game, fresh analytics file.
     self.save_id    = genSaveId()
     self.shove_count = 0
+    self.has_shoved  = false
     self:resetRun()
     -- resetRun incremented shove_count to 1; wipeAll is shove 0 (first run).
     self.shove_count = 0
@@ -376,6 +383,13 @@ function GameState:applySaved(saved)
     -- catalog_seen added with the tutorial redesign. A save that has
     -- shoved has been through the post-shove catalog — count it as seen
     -- so existing players keep their top-bar CATALOG button.
+    -- Saves predating has_shoved: anything with a shove_count had almost
+    -- certainly shoved, so keep their SHOVE button. Guarded on nil rather
+    -- than falsy, or a current save that merely quick-reset would be
+    -- promoted to has_shoved every time it loads.
+    if self.has_shoved == nil then
+        self.has_shoved = (self.shove_count or 0) > 0
+    end
     if self.catalog_seen == nil then
         self.catalog_seen = (self.shove_count or 0) > 0
     end
@@ -444,6 +458,7 @@ function GameState:serializeMeta()
     return {
         save_id                         = self.save_id,
         shove_count                     = self.shove_count,
+        has_shoved                      = self.has_shoved,
         chips                           = self.chips,
         owned_items                     = self.owned_items,
         cleared                         = self.cleared,

@@ -26,7 +26,8 @@ local Stakes        = require("data.stakes")
 local GameTypes     = require("data.game_types")
 local MttPayouts    = require("data.mtt_payouts")
 local Chips         = require("views.Chips")
-local Denoms        = require("services.DenominationBreakdown")
+local ChipFlight    = require("views.ChipFlight")
+local ChipPile      = require("views.ChipPile")
 local ChipData      = require("data.chips")
 local ClickFlash    = require("services.ClickFlash")
 local RollingValue  = require("services.RollingValue")
@@ -590,8 +591,26 @@ end
 -- views/FeltLayout). The anchor is positioned BELOW the community row by the
 -- layout, so the pile can no longer sit on top of the community cards.
 local function drawPotLabel(tbl, pot, fonts)
+    local pot_key = Table.anchorKey(tbl, "pot")
+    -- Record the pile's spot before any early-out. The first bet of a hand
+    -- is reserved into this pile on a frame where the pot is still empty
+    -- and nothing below here runs, and it has to land somewhere real.
+    if pot.allow_chips then
+        local stake_theme_pot = StakeThemes[tbl.stake_id]
+        ChipPile.place(pot_key, pot.center_x, pot.chips_y, {
+            align = "center",
+            max_w = pot.max_w,
+            scale = pot.chip_scale or 1,
+            tint  = stake_theme_pot and stake_theme_pot.chip_tint,
+        })
+    end
+
     if tbl.state == "idle" then
         RollingValue.reset("table_pot:" .. (tbl._id or 0))
+        -- Next hand gets its pile back.
+        tbl.pot_exploded       = nil
+        tbl.pot_explode_pending = nil
+        ChipPile.clear(pot_key)
         return
     end
     -- Pot reading. Two paths:
@@ -611,11 +630,15 @@ local function drawPotLabel(tbl, pot, fonts)
 
     -- Chip pile when room permits — uses outcome_tier so jackpot pots
     -- visibly dwarf small ones. Falls back to text-only on mini panels.
-    if pot.allow_chips and potval > 0 then
+    --
+    -- The pile is a COLLECTION owned by views/ChipPile, not a breakdown of
+    -- potval recomputed here every frame. Bets are reserved into it by the
+    -- theater's chip flights and fill in as they land, so the pot grows
+    -- with the chips arriving instead of jumping the instant they launch.
+    if pot.allow_chips then
         local palette = ChipData.stake_palettes[tbl.stake_id]
                         or ChipData.full_palette
         local tier    = tbl.outcome_tier or "medium"
-        local chips   = Denoms.breakdown(potval, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
         local stake_theme = StakeThemes[tbl.stake_id]
         local tint    = stake_theme and stake_theme.chip_tint
         -- The base chip is CENTERED on chips_y (the community-row bottom edge,
@@ -624,17 +647,48 @@ local function drawPotLabel(tbl, pot, fonts)
         -- the "Pot:" text BELOW chips_y, so the pile is never lifted further
         -- over the cards and the text always has clear room underneath it.
         local cs = pot.chip_scale or 1
-        if cs ~= 1 then
-            love.graphics.push()
-            love.graphics.translate(pot.center_x, pot.chips_y)
-            love.graphics.scale(cs, cs)
-            Chips.drawStack(0, 0, chips, { align = "center", tint = tint, max_w = pot.max_w / cs })
-            love.graphics.pop()
+
+        if potval > 0 then
+            ChipPile.sync(pot_key, potval, { palette = palette, tier = tier })
         else
-            Chips.drawStack(pot.center_x, pot.chips_y, chips,
-                { align = "center", tint = tint, max_w = pot.max_w })
+            ChipPile.clear(pot_key)
         end
-        Anchors.set(Table.anchorKey(tbl, "pot"), pot.center_x, pot.chips_y)
+
+        -- Jackpot detonation: the pile comes apart INSTEAD of being drawn.
+        -- The controller raises pot_explode_pending on a stack win; we
+        -- consume it here and hand ChipFlight the pile's own chips, so the
+        -- debris IS the collection that was sitting there — not a
+        -- breakdown recomputed at the moment of the explosion. The debris
+        -- then regroups into your stack, so the explosion IS the payout.
+        --
+        -- With poker theater on this never fires: the script's pot_push
+        -- handler detonates at the moment the pot is pushed and sets
+        -- pot_exploded itself. This is the legacy build's path.
+        if tbl.pot_explode_pending and not tbl.pot_exploded then
+            tbl.pot_explode_pending = nil
+            local debris = ChipPile.takeAll(pot_key)
+            if debris then
+                tbl.pot_exploded = true
+                local you_key = Table.anchorKey(tbl, "you")
+                -- Scale the burst to this panel (see the center anchor,
+                -- stamped with the panel size each draw) so a table one of
+                -- twelve doesn't detonate at the size of a solo table.
+                local c = Anchors.get(Table.anchorKey(tbl, "center"))
+                ChipFlight.explodeTaken(debris, {
+                    tint         = tint,
+                    scale        = cs,
+                    dest_key     = you_key,
+                    dest         = Anchors.get(you_key),
+                    within       = (c and c[3] and c[4]) and { c[3], c[4] } or nil,
+                    gather_sound = "chip_land_you",
+                })
+            end
+        end
+
+        if not tbl.pot_exploded then
+            ChipPile.draw(pot_key)
+        end
+        Anchors.set(pot_key, pot.center_x, pot.chips_y)
     end
 
     -- Pot amount uses the xs tier -- it's low-priority chrome that shouldn't
@@ -832,44 +886,56 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
 
     -- Cash: chip pile + its $ amount hug the felt LEFT edge; the EV
     -- readout takes the RIGHT edge (drawn later from L.bottom.ev).
-    -- While poker theater is mid-hand (winner not yet set), deduct the
-    -- player's running per-street contribution so the pile visibly drains as
-    -- chips fly into the pot; once the pot pushes, fall back to tbl.stack.
+    --
+    -- The player's RUNNING stack through a theater hand: what they sat down
+    -- with, minus what they've pushed in, plus the pot if they've just been
+    -- pushed it. tbl.stack itself doesn't move until the table enters
+    -- settling and the controller applies the resolution — so reading it
+    -- raw mid-hand would claim the player still holds the chips they bet.
+    --
+    -- Crossing pot_push has to stay CONTINUOUS. Falling back to tbl.stack
+    -- there (what this used to do the moment a winner was set) jumps the
+    -- number back up for the second or so between the pot pushing and the
+    -- resolution landing, and the pile would tidy down to it and straight
+    -- back up again.
     local stack = tbl.stack or 0
     local display_stack = stack
-    if tbl.playback_state and not tbl.playback_state.winner then
-        local ps        = tbl.playback_state.player_seat
-        local committed = (ps and tbl.playback_state.per_seat_total
-                              and tbl.playback_state.per_seat_total[ps])
-                          or 0
-        display_stack = math.max(0, stack - committed)
+    local pbs = tbl.playback_state
+    if pbs and tbl.state ~= "idle" and tbl.state ~= "settling" then
+        local seat      = pbs.player_seat
+        local committed = (seat and pbs.per_seat_total and pbs.per_seat_total[seat]) or 0
+        local won       = (seat and pbs.winner == seat and (pbs.pot_at_push or 0)) or 0
+        display_stack   = math.max(0, stack - committed + won)
     end
 
-    if display_stack > 0 then
-        local palette = ChipData.stake_palettes[tbl.stake_id]
-                        or ChipData.full_palette
-        -- "medium" target (~12 chips) keeps the pile compact regardless of stake.
-        local chips = Denoms.breakdown(display_stack, ChipData.denominations, palette, ChipData.tier_chip_target, "medium")
-        local stake_theme = StakeThemes[tbl.stake_id]
-        local tint        = stake_theme and stake_theme.chip_tint
-        -- The pile's base chip is centered on its y; offset up by the (scaled)
-        -- chip radius so the pile's visual BOTTOM sits on the tied-up baseline.
-        -- The pile scales with the cards (bottom.chip_scale) to stay proportional.
-        local cs = bottom.chip_scale or 1
-        local pile_y = bottom.chips.y - Chips.radius() * cs
-        if cs ~= 1 then
-            love.graphics.push()
-            love.graphics.translate(bottom.chips.x, pile_y)
-            love.graphics.scale(cs, cs)
-            Chips.drawStack(0, 0, chips, { align = "left", tint = tint, max_w = bottom.chips.max_w / cs })
-            love.graphics.pop()
-        else
-            Chips.drawStack(bottom.chips.x, pile_y, chips,
-                { align = "left", tint = tint, max_w = bottom.chips.max_w })
-        end
-        Anchors.set(Table.anchorKey(tbl, "you"), bottom.chips.x + 18, pile_y)
+    -- No hold-back ledger any more: the pile no longer follows the scalar
+    -- while chips are in the air. Chips the player bets are TAKEN out of
+    -- this collection and chips they win are RESERVED into it, so it is
+    -- already showing exactly what has actually arrived. It reconciles
+    -- against display_stack only once everything has landed (rake, rebuys,
+    -- anything that moves the number without a flight) — see ChipPile.sync.
+    local you_key = Table.anchorKey(tbl, "you")
+    local palette = ChipData.stake_palettes[tbl.stake_id]
+                    or ChipData.full_palette
+    local stake_theme = StakeThemes[tbl.stake_id]
+    local tint        = stake_theme and stake_theme.chip_tint
+    -- The pile's base chip is centered on its y; offset up by the (scaled)
+    -- chip radius so the pile's visual BOTTOM sits on the tied-up baseline.
+    -- The pile scales with the cards (bottom.chip_scale) to stay proportional.
+    local cs     = bottom.chip_scale or 1
+    local pile_y = bottom.chips.y - Chips.radius() * cs
+
+    ChipPile.place(you_key, bottom.chips.x, pile_y, {
+        align = "left", max_w = bottom.chips.max_w, scale = cs, tint = tint,
+    })
+    -- "medium" target (~12 chips) keeps the pile compact regardless of stake.
+    ChipPile.sync(you_key, display_stack, { palette = palette, tier = "medium" })
+    ChipPile.draw(you_key)
+
+    if ChipPile.count(you_key) > 0 then
+        Anchors.set(you_key, bottom.chips.x + 18, pile_y)
     else
-        Anchors.set(Table.anchorKey(tbl, "you"), bottom.chips.x, bottom.chips.y)
+        Anchors.set(you_key, bottom.chips.x, bottom.chips.y)
     end
 
     -- "Tied up $X.XX" on the bottom line beneath the pile it prices — the
@@ -1228,8 +1294,12 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     end
 
     -- Screen-space center for floating-text spawn (read by GrindController
-    -- via AnchorRegistry; written here once per draw).
-    Anchors.set(Table.anchorKey(tbl, "center"), x + w / 2, y + h / 2)
+    -- via AnchorRegistry; written here once per draw). Carries the panel's
+    -- SIZE as well, so effects that should be scaled to this table rather
+    -- than to the screen — the pot detonation, which otherwise throws the
+    -- same 600px cloud over a panel a quarter that wide — have something
+    -- to measure against. Point readers only touch [1]/[2].
+    Anchors.set(Table.anchorKey(tbl, "center"), x + w / 2, y + h / 2, w, h)
 
     -- Seed a default pot anchor BEFORE the script-event loop below runs. The
     -- first bet of a hand flies its chips to the "pot" anchor during that loop,

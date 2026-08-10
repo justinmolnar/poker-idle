@@ -181,31 +181,47 @@ function Chips.stackFootprint(chip_indices)
     return w, h
 end
 
--- ── Stack render — multi-column pile, anchored at (x, y) ─────────────
+-- ── Stack LAYOUT — where every chip in a pile sits ───────────────────
+-- Returns an array of { x, y, idx, with_label, src } in draw order, one
+-- entry per chip that would be rendered by drawStack for the same
+-- arguments. `src` is the chip's index in the INPUT list — the layout
+-- groups by denomination and can clip the tail, so draw order is not
+-- input order and a caller that tracks individual chips (views/ChipPile)
+-- needs the mapping back. Chips dropped by the max_w clip simply have no
+-- placement, so a `src` can be absent.
+--
+-- Split out from drawStack so a pile and anything that needs to act on
+-- its INDIVIDUAL chips (the pot detonating out of its own pile, see
+-- views/ChipFlight.explodeStack) agree on position exactly. Two
+-- implementations would drift the moment the clipping rules change, and
+-- the explosion would visibly start somewhere the pile wasn't.
+--
 -- Default align = "center" (pile centered on x). y is the BOTTOM of
 -- each column (chips stack upward via STACK_OFFSET_Y).
 --
 -- Groups chips by denomination in their first-appearance order. A
 -- showcase chip (when present) renders as its own group at the front,
 -- so it visually sits on its own short column at the left end.
-function Chips.drawStack(x, y, chip_indices, options)
-    if not chip_indices or #chip_indices == 0 then return end
+function Chips.stackLayout(x, y, chip_indices, options)
+    local placed = {}
+    if not chip_indices or #chip_indices == 0 then return placed end
     options = options or {}
     local align = options.align or "center"
-    local tint  = options.tint                       -- nil = identity (no tint)
     local max_w = options.max_w                      -- nil = unbounded width
 
     -- Group by denomination preserving first-appearance order. Breakdown
     -- returns chips largest-denom-first, so the FIRST groups are the
     -- biggest chips and the LAST groups are the smallest.
     local groups, group_for = {}, {}
-    for _, idx in ipairs(chip_indices) do
+    for i, idx in ipairs(chip_indices) do
         local g = group_for[idx]
         if not g then
-            groups[#groups + 1] = { idx = idx, count = 1 }
+            groups[#groups + 1] = { idx = idx, count = 1, src = { i } }
             group_for[idx]      = #groups
         else
-            groups[g].count = groups[g].count + 1
+            local gr = groups[g]
+            gr.count = gr.count + 1
+            gr.src[#gr.src + 1] = i
         end
     end
 
@@ -234,7 +250,7 @@ function Chips.drawStack(x, y, chip_indices, options)
             end
             total_cols = total_cols - 1
         end
-        if #groups == 0 then return end   -- everything got dropped
+        if #groups == 0 then return placed end   -- everything got dropped
     end
 
     -- Recompute total cols / width after any clipping.
@@ -250,17 +266,36 @@ function Chips.drawStack(x, y, chip_indices, options)
     local cx = origin_x + CHIP_RADIUS
     for _, g in ipairs(groups) do
         local cols = math.ceil(g.count / MAX_PER_COLUMN)
+        local taken = 0        -- how many of this group's src entries are placed
         for c = 1, cols do
             local in_col = math.min(MAX_PER_COLUMN, g.count - (c - 1) * MAX_PER_COLUMN)
             for i = 1, in_col do
                 local cy = y + (i - 1) * STACK_OFFSET_Y
+                taken = taken + 1
                 -- Label only the topmost chip of each column — labels on
                 -- buried chips would be obscured anyway.
-                local with_label = (i == in_col)
-                Chips.drawChip(cx, cy, g.idx, 1, with_label, tint)
+                placed[#placed + 1] = {
+                    x          = cx,
+                    y          = cy,
+                    idx        = g.idx,
+                    with_label = (i == in_col),
+                    src        = g.src[taken],
+                }
             end
             cx = cx + CHIP_DIAMETER + COL_GAP
         end
+    end
+    return placed
+end
+
+-- ── Stack render ─────────────────────────────────────────────────────
+-- Draws what stackLayout places. Kept as a separate entry point so every
+-- existing caller is unaffected by the layout extraction.
+function Chips.drawStack(x, y, chip_indices, options)
+    options = options or {}
+    local tint = options.tint
+    for _, p in ipairs(Chips.stackLayout(x, y, chip_indices, options)) do
+        Chips.drawChip(p.x, p.y, p.idx, 1, p.with_label, tint)
     end
 end
 

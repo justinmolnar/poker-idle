@@ -9,7 +9,7 @@
 -- than teleport-as-one.
 --
 -- Engine-agnostic — operates on opaque render callbacks. Each flying
--- entity stores a `render_fn(x, y)` closure; the system invokes it at the
+-- entity stores a `render_fn(x, y, t)` closure; the system invokes it at the
 -- entity's bezier-interpolated position. No domain knowledge: the visual
 -- breakdown / colour palette / sprite atlas all live caller-side. The
 -- caller wraps each individual entity (chip, coin, particle, droplet,
@@ -40,6 +40,14 @@ local DEFAULT_STAGGER     = 0.03    -- 30 ms between staggered launches
 local DEFAULT_ARC         = 60      -- baseline arc height in px
 local ARC_JITTER          = 30      -- ± px of arc-height jitter
 
+-- Per-projectile variance for directed bursts. Without these every chip in
+-- a burst flies an identical curve to an identical pixel and lands in
+-- lockstep — the burst reads as one rigid object with beads on it rather
+-- than a handful of separate chips. Small numbers; the point is to break
+-- the formation, not to scatter it.
+local DEFAULT_LAND_SPREAD = 14      -- px radius of per-chip landing jitter
+local DEFAULT_DUR_JITTER  = 0.12    -- ± fraction of flight duration
+
 -- ── Helpers ────────────────────────────────────────────────────────
 local function bezierAt(p0, p1, p2, t)
     local u  = 1 - t
@@ -51,18 +59,34 @@ end
 
 -- Push one entity onto the flight queue.
 --   start_xy / end_xy: { x, y } tables in screen coords
---   render_fn:         function(x, y) — opaque render callback. Called
+--   render_fn:         function(x, y, t) — opaque render callback. Called
 --                      once per draw-frame at the entity's interpolated
---                      bezier position.
+--                      bezier position. `t` is flight progress 0..1 (0
+--                      while still delayed); ignore it unless the entity
+--                      animates along its flight.
 --   options.delay:     seconds before this entity "launches" (renders at
 --                      start until then)
 --   options.arc_height: bezier control-point Y-offset
 --   options.duration:  seconds in flight after launch
+--   options.on_arrive: function(x, y) — fired ONCE as the entity leaves
+--                      the queue, given the point it arrived at. The seam
+--                      a caller needs to hand the entity over to whatever
+--                      it was flying into (views/ChipPile fills the
+--                      destination slot with the chip that just landed),
+--                      or to launch a SECOND leg from where this one ended
+--                      (scattered debris regrouping toward a pile). Also
+--                      fired on the drop-oldest overflow path below, so an
+--                      entity the cap discards still completes its
+--                      handover and the destination is never left
+--                      permanently short.
 function FlightSystem.emit(start_xy, end_xy, render_fn, options)
     options = options or {}
     if not render_fn then return end
     if #_flying >= MAX_IN_FLIGHT then
-        table.remove(_flying, 1)
+        local dropped = table.remove(_flying, 1)
+        if dropped and dropped.on_arrive then
+            dropped.on_arrive(dropped.p2[1], dropped.p2[2])
+        end
     end
 
     local arc = options.arc_height or (DEFAULT_ARC + (love.math.random() * 2 - 1) * ARC_JITTER)
@@ -79,6 +103,7 @@ function FlightSystem.emit(start_xy, end_xy, render_fn, options)
         duration  = options.duration or DEFAULT_DURATION,
         delay     = options.delay    or 0,
         render_fn = render_fn,
+        on_arrive = options.on_arrive,
         x         = start_xy[1],
         y         = start_xy[2],
     }
@@ -101,15 +126,39 @@ function FlightSystem.emitBurst(start_xy, end_xy, render_fns, options)
     local duration = options.duration or DEFAULT_DURATION
     local cap      = options.max_per_event or MAX_PER_EVENT
 
+    -- Per-projectile variance. Each chip gets its own landing point in a
+    -- small disc around the destination and its own flight time, so the
+    -- burst arrives as a scatter of separate objects instead of a rigid
+    -- formation collapsing onto one pixel. Pass 0 for either to restore
+    -- the old lockstep behaviour.
+    local land_spread = options.land_spread or DEFAULT_LAND_SPREAD
+    local dur_jitter  = options.duration_jitter or DEFAULT_DUR_JITTER
+
     -- Sample down to cap, preserving the original order so the showcase
     -- entity (always at index 1 from breakdown) leads.
     local count = math.min(#render_fns, cap)
     local step  = #render_fns / count
     for i = 1, count do
         local src_idx = math.max(1, math.floor((i - 1) * step + 1))
-        FlightSystem.emit(start_xy, end_xy, render_fns[src_idx], {
+
+        local dest = end_xy
+        if land_spread > 0 then
+            local theta  = love.math.random() * math.pi * 2
+            local radius = love.math.random() * land_spread
+            dest = {
+                end_xy[1] + math.cos(theta) * radius,
+                end_xy[2] + math.sin(theta) * radius,
+            }
+        end
+
+        local dur = duration
+        if dur_jitter > 0 then
+            dur = duration * (1 + (love.math.random() * 2 - 1) * dur_jitter)
+        end
+
+        FlightSystem.emit(start_xy, dest, render_fns[src_idx], {
             delay      = (i - 1) * stagger,
-            duration   = duration,
+            duration   = dur,
             arc_height = options.arc_height,
         })
     end
@@ -125,6 +174,107 @@ function FlightSystem.emitBurst(start_xy, end_xy, render_fns, options)
     end
 end
 
+-- Omnidirectional burst — N projectiles thrown outward from ONE origin to
+-- scattered destinations sampled in an annulus around it. The sibling of
+-- emitBurst: that one flies A → B, this one has no destination, only a
+-- direction. Use it for explosion / fountain / spray moments.
+--
+-- render_fns is CYCLED when options.count exceeds it, so a caller holding
+-- 12 distinct render callbacks can throw 120 projectiles and every one is a
+-- real entity rather than a generic particle.
+--
+-- Deliberately does NOT route through emitBurst — that caps at
+-- MAX_PER_EVENT (7) because a directed chip flight should read as a handful
+-- of chips. A scatter is a spectacle and wants its full count.
+--
+-- options:
+--   count        — projectiles to throw (default #render_fns)
+--   min_spread   — inner annulus radius in px (default 90)
+--   max_spread   — outer annulus radius in px (default 300)
+--   rise         — upward bias added to every destination (default 90)
+--   duration     — seconds in flight (default 1.1)
+--   arc_min/max  — bezier arc-height range (default 80..220)
+--   stagger      — max random launch delay (default 0.06; 0 = all at once)
+function FlightSystem.emitScatter(origin, render_fns, options)
+    if not origin or not render_fns or #render_fns == 0 then return end
+    options = options or {}
+    local count = options.count or #render_fns
+    -- Build one entity per projectile, all sharing the single origin.
+    local entities = {}
+    for i = 1, count do
+        entities[i] = {
+            x         = origin[1],
+            y         = origin[2],
+            render_fn = render_fns[((i - 1) % #render_fns) + 1],
+        }
+    end
+    FlightSystem.emitScatterEach(entities, options)
+end
+
+-- The general form: every entity flies outward from ITS OWN position.
+--
+-- This is what "the arrangement comes apart" needs — a pile of chips
+-- disintegrating in place, each chip leaving from exactly where it was
+-- sitting, rather than N copies spawning at one point and fanning out.
+-- The single-origin emitScatter above is just this with every entity
+-- starting from the same spot.
+--
+-- entities: array of { x, y, render_fn [, on_arrive] }. Each entity may
+-- carry its OWN on_arrive — the scatter picks the destinations, so this is
+-- the only way a caller learns where a given piece of debris came to rest,
+-- and therefore the hook a second leg launches from (see
+-- views/ChipFlight.explodeTaken's gather).
+-- options: as emitScatter (min_spread, max_spread, rise, duration,
+--          arc_min, arc_max, stagger, arrival_sound). `count` is ignored
+--          here — the entity list IS the count.
+function FlightSystem.emitScatterEach(entities, options)
+    if not entities or #entities == 0 then return end
+    options = options or {}
+    local min_spread = options.min_spread or 90
+    local max_spread = options.max_spread or 300
+    local rise       = options.rise       or 90
+    local duration   = options.duration   or 1.1
+    local arc_min    = options.arc_min    or 80
+    local arc_max    = options.arc_max    or 220
+    local stagger    = options.stagger    or 0.06
+
+    for _, e in ipairs(entities) do
+        if e.render_fn then
+            local start  = { e.x, e.y }
+            local theta  = love.math.random() * math.pi * 2
+            local radius = min_spread + love.math.random() * (max_spread - min_spread)
+            local dest   = {
+                e.x + math.cos(theta) * radius,
+                e.y + math.sin(theta) * radius - rise,
+            }
+            FlightSystem.emit(start, dest, e.render_fn, {
+                duration   = duration,
+                arc_height = arc_min + love.math.random() * (arc_max - arc_min),
+                delay      = love.math.random() * stagger,
+                on_arrive  = e.on_arrive,
+            })
+        end
+    end
+
+    if options.arrival_sound then
+        _scheduled_sounds[#_scheduled_sounds + 1] = {
+            t    = math.max(0, duration * 0.35),
+            name = options.arrival_sound,
+        }
+    end
+end
+
+-- Queue a one-shot sound to play `at` seconds from now. Exposed so
+-- callers that emit their own per-entity flights (rather than going
+-- through emitBurst) still get the single arrival thunk.
+function FlightSystem.scheduleSound(name, at)
+    if not name then return end
+    _scheduled_sounds[#_scheduled_sounds + 1] = {
+        t    = math.max(0, at or 0),
+        name = name,
+    }
+end
+
 function FlightSystem.update(dt)
     for i = #_flying, 1, -1 do
         local f = _flying[i]
@@ -136,6 +286,7 @@ function FlightSystem.update(dt)
             f.t = f.t + dt / f.duration
             if f.t >= 1 then
                 table.remove(_flying, i)
+                if f.on_arrive then f.on_arrive(f.p2[1], f.p2[2]) end
             else
                 f.x, f.y = bezierAt(f.p0, f.p1, f.p2, f.t)
             end
@@ -156,10 +307,17 @@ end
 function FlightSystem.draw()
     if #_flying == 0 then return end
     for _, f in ipairs(_flying) do
-        f.render_fn(f.x, f.y)
+        -- Third arg is flight progress, 0..1. Callbacks that don't care
+        -- (every plain chip / quad) simply ignore it; motion decorators
+        -- like services/Tumble use it to drive spin so the animation is
+        -- tied to the flight rather than to wall-clock frames.
+        f.render_fn(f.x, f.y, f.t)
     end
 end
 
+-- Teardown. Deliberately does NOT fire on_arrive — this is a state wipe,
+-- not an arrival, and the destinations are being cleared in the same
+-- sweep (see GrindState:fullReset).
 function FlightSystem.clear()
     _flying           = {}
     _scheduled_sounds = {}

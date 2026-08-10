@@ -57,9 +57,10 @@ return {
             lifetime    = 2.0,
             color_token = "amber",
         },
-        -- No confetti at Large — confetti is reserved for Jackpot so the
-        -- player never mistakes a Large win for the big one. Large still
-        -- carries full shake/vignette/border-pulse and a large floater.
+        -- No chip burst at Large — the detonating pot is reserved for
+        -- Jackpot so the player never mistakes a Large win for the big one.
+        -- Large still carries full shake/vignette/border-pulse and a large
+        -- floater.
     },
     jackpot = {
         shake        = 1.00,
@@ -73,7 +74,13 @@ return {
             lifetime    = 2.5,
             color_token = "amber",
         },
-        confetti_count = 120,
-        glow           = 1.00,
+        -- The pot detonates — the pile itself comes apart, each chip
+        -- leaving from where it sat. No count here on purpose: the number
+        -- of chips in the air IS the number of chips that were in the pot.
+        -- To make the explosion thicker, raise tier_chip_target.jackpot in
+        -- data/chips.lua, which makes the PILE thicker too — they can't
+        -- disagree, which is the point.
+        chip_burst = true,
+        glow       = 1.00,
     },
 }

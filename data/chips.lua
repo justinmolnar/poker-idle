@@ -84,8 +84,12 @@ return {
     -- Per-tier cap on the chip-burst fountain (services/FlightSystem.lua).
     -- Default MAX_PER_EVENT (7) bottlenecks high tiers — bump it for
     -- large and jackpot so the fountain actually shows the magnitude.
-    -- Read by GrindController:_emitResolutionChips, passed as
-    -- options.max_per_event on emitBurst.
+    -- Passed as options.max_per_event on emitBurst.
+    --
+    -- Applies to LOOSE bursts only. Pile-to-pile transfers
+    -- (views/ChipFlight.transfer) are uncapped by design: a cap there
+    -- would leave the destination short by every chip it declined to
+    -- carry. tier_chip_target above is what sizes those.
     tier_burst_cap = {
         small    = 7,
         medium   = 8,

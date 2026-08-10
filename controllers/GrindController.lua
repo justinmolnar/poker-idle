@@ -21,7 +21,6 @@ local ChipData       = require("data.chips")
 local FeedbackIntensity = require("data.feedback_intensity")
 local Denoms         = require("services.DenominationBreakdown")
 local AnchorRegistry = require("services.AnchorRegistry")
-local Confetti       = require("services.Confetti")
 local StakeThemes    = require("data.stake_themes")
 local Lookups        = require("utils.lookups")
 local HandAnalytics  = require("services.HandAnalytics")
@@ -59,8 +58,25 @@ end
 function GrindController:_queueBurst(source, dest, chips, options)
     if not source or not dest or not chips or #chips == 0 then return end
     self.pending_bursts[#self.pending_bursts + 1] = {
+        -- "fly" = loose burst toward a point, "stack" = slot-to-slot
+        -- between two real piles. GrindView dispatches on this.
+        kind    = (options and options.kind) or "fly",
         source  = source,
         dest    = dest,
+        chips   = chips,
+        options = options,
+    }
+end
+
+-- Push a chip-SCATTER intent (an explosion out of one point, no
+-- destination) onto the same queue. GrindView dispatches on `kind`.
+-- Same contract as _queueBurst otherwise: chips is a denomination-index
+-- list, the view owns every rendering decision.
+function GrindController:_queueScatter(origin, chips, options)
+    if not origin or not chips or #chips == 0 then return end
+    self.pending_bursts[#self.pending_bursts + 1] = {
+        kind    = "scatter",
+        source  = origin,
         chips   = chips,
         options = options,
     }
@@ -262,8 +278,9 @@ function GrindController:update(dt)
                     end
                 end
 
-                -- Jackpot-grade table FX + a confetti fountain — the MTT is the
-                -- top of the ladder, so the win gets the full spectacle.
+                -- Jackpot-grade table FX + the payout detonating — the MTT is
+                -- the top of the ladder, so the win gets the full spectacle.
+                -- 1.5× the standard chip count for the same reason.
                 local jp = FeedbackIntensity.jackpot
                 t.shake_trauma       = math.max(t.shake_trauma or 0, jp.shake)
                 t.vignette_kind      = "good"
@@ -271,7 +288,7 @@ function GrindController:update(dt)
                 t.border_pulse_t     = 1.0
                 t.border_pulse_color = "good"
                 t.glow_t             = math.max(t.glow_t or 0, jp.glow or 1.0)
-                Confetti.burst(center, math.floor((jp.confetti_count or 120) * 1.5))
+                self:_emitAmountExplosion(center, payout, t.stake_id)
 
                 -- ONE multi-line celebration float anchored at the table center.
                 -- The renderer stacks the lines itself, so there are no manual
@@ -519,20 +536,20 @@ function GrindController:update(dt)
             local pulse_sound = is_win and "border_pulse_win" or "border_pulse_loss"
             self:_playNamed(pulse_sound, { volume_mult = intensity.border_pulse })
             -- Spectacle layer: jackpot wins only. Radial-glow shader on
-            -- the panel + confetti fountain from the table center. Both
+            -- the panel + the pot detonating out of its own pile. Both
             -- gated on intensity fields existing (only jackpot defines
             -- them in data/feedback_intensity.lua) so future tiers can
             -- opt in by adding the same fields.
             if is_win and intensity.glow and intensity.glow > 0 then
                 tbl.glow_t = math.max(tbl.glow_t or 0, intensity.glow)
             end
-            if is_win and intensity.confetti_count and intensity.confetti_count > 0 then
-                -- Inline AnchorRegistry lookup — _anchor() helper is
-                -- defined further down in the file and isn't visible
-                -- at this point of the load order.
-                local center = AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
-                                or { r.x or 0, r.y or 0 }
-                Confetti.burst(center, intensity.confetti_count)
+            -- The pot detonates. Raised as a per-table FX flag exactly like
+            -- shake_trauma / glow_t above, because only the view knows
+            -- where the pile actually is — views/TablePanel:drawPotLabel
+            -- consumes this, blows apart the pile it was about to draw,
+            -- and stops drawing it.
+            if is_win and intensity.chip_burst then
+                tbl.pot_explode_pending = true
             end
         end
 
@@ -988,7 +1005,11 @@ end
 function GrindController:shoveUnlocked()
     if not Constants.FEATURES.TUTORIAL then return true end
     local state = self.game.state
-    return (state.shove_count or 0) > 0
+    -- has_shoved, NOT shove_count: shove_count is bumped by GameState.resetRun,
+    -- which the quick-reset rescue button also calls, so bailing out of a
+    -- bricked first run used to reveal SHOVE permanently without the player
+    -- ever banking the 3 {chip} the gate is supposed to require.
+    return state.has_shoved
         or (state.chips_this_run or 0) >= Constants.GAMEPLAY.SHOVE_UNLOCK_CHIPS
 end
 
@@ -1248,6 +1269,73 @@ function GrindController:toggleCursorRebuyMute(idx)
     return true
 end
 
+-- ── Bulk table actions, scoped to one (stake, game type) ────────────────
+-- The sidebar's +ADD row for a combo owns the tables it opened, so its
+-- trailing buttons operate on exactly that set. `stake_id` / `gtype_id` nil
+-- means "every table", which is what the global cursor controls pass.
+
+local function tableMatches(t, stake_id, gtype_id)
+    return (stake_id == nil or t.stake_id == stake_id)
+       and (gtype_id == nil or t.game_type_id == gtype_id)
+end
+
+-- Close every table of this combo, banking each one's stack. Reverse
+-- iteration: removeTable is synchronous for idle tables and shifts indices.
+function GrindController:cashOutType(stake_id, gtype_id)
+    local n = 0
+    for i = #self.pool.tables, 1, -1 do
+        local t = self.pool.tables[i]
+        if t and tableMatches(t, stake_id, gtype_id) then
+            self:removeTable(i)
+            n = n + 1
+        end
+    end
+    return n
+end
+
+-- How many tables of this combo are open, and how many of them the cursors
+-- are currently muted on. The view needs both: the first to disable a button
+-- with nothing to act on, the second to decide whether the toggle reads as
+-- ON or OFF for the group.
+function GrindController:typeCursorState(stake_id, gtype_id)
+    local total, deal_muted, rebuy_muted = 0, 0, 0
+    for _, t in ipairs(self.pool.tables) do
+        if tableMatches(t, stake_id, gtype_id) then
+            total = total + 1
+            if t.cursor_muted == true       then deal_muted  = deal_muted + 1 end
+            if t.cursor_rebuy_muted == true then rebuy_muted = rebuy_muted + 1 end
+        end
+    end
+    return total, deal_muted, rebuy_muted
+end
+
+-- Set (not toggle) the cursor-deal mute across a combo. Setting rather than
+-- toggling is what makes a group control predictable: a mixed group snaps to
+-- one state instead of inverting each table into a different mixed state.
+function GrindController:setTypeCursorMute(stake_id, gtype_id, muted)
+    local n = 0
+    for _, t in ipairs(self.pool.tables) do
+        if tableMatches(t, stake_id, gtype_id) then
+            t.cursor_muted = muted and true or false
+            n = n + 1
+        end
+    end
+    if n > 0 then self.pool:_syncStateList() end
+    return n
+end
+
+function GrindController:setTypeCursorRebuyMute(stake_id, gtype_id, muted)
+    local n = 0
+    for _, t in ipairs(self.pool.tables) do
+        if tableMatches(t, stake_id, gtype_id) then
+            t.cursor_rebuy_muted = muted and true or false
+            n = n + 1
+        end
+    end
+    if n > 0 then self.pool:_syncStateList() end
+    return n
+end
+
 -- Click-to-deal entry point. Triggers the per-hand state machine on a
 -- specific table. Returns false if the table is already animating a hand
 -- or doesn't exist.
@@ -1261,7 +1349,14 @@ function GrindController:dealHand(idx)
         t._hand_start_t = love.timer.getTime()
     end
     local ok = t:deal(self.ctx)
-    if ok then self:_emitDealChips(t) end
+    if ok then
+        -- New hand, new pile: clear any spent detonation so the pot draws
+        -- again. Set here rather than in Table:deal because these are view
+        -- FX fields, and because the model has two implementations
+        -- (Table / Table_legacy) that would both need it.
+        t.pot_exploded, t.pot_explode_pending = nil, nil
+        self:_emitDealChips(t)
+    end
     return ok
 end
 
@@ -1311,7 +1406,15 @@ function GrindController:_emitDealChips(t)
                                    _paletteForStake(t.stake_id),
                                    ChipData.tier_chip_target,
                                    t.outcome_tier or "medium")
-    self:_queueBurst(you, pot, chips, { arrival_sound = "chip_land_pot" })
+    -- Chips are composed at the seat rather than taken from your pile —
+    -- outside the theater the stack isn't debited at deal time, so
+    -- draining it here would only have to slide back. The pot end IS a
+    -- pile, so the pot grows as they land.
+    self:_queueBurst(you, pot, chips, {
+        kind          = "stack",
+        arrival_sound = "chip_land_pot",
+        dest_key      = TableModel.anchorKey(t, "pot"),
+    })
 end
 
 function GrindController:_emitBuyInChips(t, amount)
@@ -1324,7 +1427,13 @@ function GrindController:_emitBuyInChips(t, amount)
     local palette = _paletteForStake(t.stake_id)
     local tier    = Denoms.tierFromUnit(amount / bb)
     local chips   = Denoms.breakdown(amount, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
-    self:_queueBurst(bank_xy, you, chips, { arrival_sound = "chip_land_you" })
+    self:_queueBurst(bank_xy, you, chips, {
+        kind          = "stack",
+        amount        = amount,
+        arrival_sound = "chip_land_you",
+        source_key    = "bankroll",
+        dest_key      = TableModel.anchorKey(t, "you"),
+    })
 end
 
 function GrindController:_emitCashOutChips(t, amount)
@@ -1337,7 +1446,13 @@ function GrindController:_emitCashOutChips(t, amount)
     local palette = _paletteForStake(t.stake_id)
     local tier    = Denoms.tierFromUnit(amount / bb)
     local chips   = Denoms.breakdown(amount, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
-    self:_queueBurst(you, bank_xy, chips, { arrival_sound = "chip_land_bankroll" })
+    self:_queueBurst(you, bank_xy, chips, {
+        kind          = "stack",
+        amount        = amount,
+        arrival_sound = "chip_land_bankroll",
+        source_key    = TableModel.anchorKey(t, "you"),
+        dest_key      = "bankroll",
+    })
 end
 
 -- Tournament cash-out: pot/center → bankroll pile. Same shape as cash-out
@@ -1358,7 +1473,13 @@ function GrindController:_emitMttPayoutChips(t, amount)
     local palette = _paletteForStake(t.stake_id)
     local tier    = Denoms.tierFromUnit(amount / bb)
     local chips   = Denoms.breakdown(amount, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
-    self:_queueBurst(source, bank_xy, chips, { arrival_sound = "chip_land_bankroll" })
+    self:_queueBurst(source, bank_xy, chips, {
+        kind          = "stack",
+        amount        = amount,
+        arrival_sound = "chip_land_bankroll",
+        source_key    = pot and TableModel.anchorKey(t, "pot") or nil,
+        dest_key      = "bankroll",
+    })
 end
 
 function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
@@ -1368,9 +1489,11 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
     if not you_xy or not pot_xy then return end
     local palette = _paletteForStake(tbl.stake_id)
     local tier    = r.tier or "medium"
-    -- Tier-scaled visible chip-count cap (data/chips.lua). Jackpots
-    -- fountain bigger than the default; tinies stay contained.
-    local burst_cap = (ChipData.tier_burst_cap and ChipData.tier_burst_cap[tier])
+    -- No per-tier burst cap here any more. These are pile-to-pile
+    -- transfers: capping the count would leave the destination short by
+    -- every chip the cap declined to carry. The pile's own tier already
+    -- decides how many chips there are to move (data/chips.lua
+    -- tier_chip_target), which is the honest version of the same knob.
     -- Per-stake chip tint (data/stake_themes.lua) — T6 = warm gold cast,
     -- T1 = desaturated dim, etc. Multiplied into the chip body color
     -- inside Chips.drawChip.
@@ -1379,17 +1502,39 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
 
     -- Skip the main pot-to-winner burst when poker theater is on — the
     -- script's pot_push anim handler emits that burst with the correct
-    -- visible-pot amount and timing. The overflow spill (pot → bankroll
-    -- when stack caps) stays unconditional because the script doesn't
-    -- model stack-cap overflow.
+    -- visible-pot amount and timing. The overflow spill (stack → bankroll
+    -- when the stack caps) is otherwise unconditional, because the script
+    -- doesn't model stack-cap overflow.
     local theater_on = Constants.FEATURES and Constants.FEATURES.POKER_THEATER
+
+    -- A tier that detonates the pot doesn't ALSO carry it over: the
+    -- explosion's debris IS the payout — it splits in the air between
+    -- your stack and the bankroll and lands in both piles. Firing these
+    -- bursts too would deliver the same chips twice. Same tier data the
+    -- FX block below reads when it raises pot_explode_pending.
+    --
+    -- Only under the theater, where views/PokerEventAnims detonates at
+    -- pot_push and owns the whole split. The legacy path detonates from
+    -- TablePanel into the stack alone, so its overflow spill still has a
+    -- job to do.
+    local ft = FeedbackIntensity[tier]
+    local detonating = theater_on and (r.delta > 0) and ft and ft.chip_burst
 
     if not theater_on and r.delta > 0 then
         local chips = Denoms.breakdown(r.delta, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
+        -- Pot → your stack. Pile to pile: the chips leave the pot's
+        -- collection and are inserted into yours as they land, which is
+        -- what keeps your pile from completing before they get there —
+        -- the stack has already been credited in state by this point.
+        -- Mirrors what the theater's pot_push handler does, so the two
+        -- builds behave the same.
         self:_queueBurst(pot_xy, you_xy, chips, {
+            kind          = "stack",
+            amount        = r.delta,
             arrival_sound = "chip_land_you",
-            max_per_event = burst_cap,
             chip_tint     = chip_tint,
+            source_key    = TableModel.anchorKey(tbl, "pot"),
+            dest_key      = TableModel.anchorKey(tbl, "you"),
         })
     elseif not theater_on and r.delta < 0 then
         local chips = Denoms.breakdown(-r.delta, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
@@ -1402,13 +1547,17 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
         end
         target_xy = target_xy or self:_offscreenAnchor(pot_xy[1])
         self:_queueBurst(pot_xy, target_xy, chips, {
+            kind          = "stack",
+            amount        = -r.delta,
             arrival_sound = "chip_land_pot",
-            max_per_event = burst_cap,
             chip_tint     = chip_tint,
+            -- The opponent's seat is not a pile, so nothing is reserved
+            -- there; the pot still empties out of its own collection.
+            source_key    = TableModel.anchorKey(tbl, "pot"),
         })
     end
 
-    if overflow_amount and overflow_amount > 0 then
+    if overflow_amount and overflow_amount > 0 and not detonating then
         local v = self.game.viewport or { w = 0, h = 0 }
         local bank_xy = AnchorRegistry.get("bankroll")
                         or { v.w * 0.5, v.h - 30 }
@@ -1416,8 +1565,42 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
                                        ChipData.full_palette,
                                        ChipData.tier_chip_target,
                                        Denoms.tierFromAmount(overflow_amount))
-        self:_queueBurst(you_xy, bank_xy, chips, { arrival_sound = "chip_land_bankroll" })
+        self:_queueBurst(you_xy, bank_xy, chips, {
+            kind          = "stack",
+            amount        = overflow_amount,
+            arrival_sound = "chip_land_bankroll",
+            source_key    = TableModel.anchorKey(tbl, "you"),
+            dest_key      = "bankroll",
+        })
     end
+end
+
+-- Detonation for celebrations with NO pot pile on screen to come apart —
+-- the tournament win, whose felt-center pot slot holds the HAND x/x counter
+-- instead of chips. Forms a pile out of the amount at `origin` and blows it
+-- apart in the same motion.
+--
+-- The cash-table jackpot does NOT come through here: that pile is real and
+-- already drawn, so it detonates in place via the pot_explode_pending flag
+-- (see the resolution FX block above).
+--
+-- Chip count is whatever the breakdown produces — never padded out to a
+-- target, so this stays the real chips rather than a multiplied copy.
+-- `origin` is the table's center anchor, which carries the panel size —
+-- the burst scales to the table it came off rather than throwing a fixed
+-- 300px cloud over a panel that may be a quarter that wide.
+function GrindController:_emitAmountExplosion(origin, amount, stake_id)
+    if not origin or not amount or amount <= 0 then return end
+    local chips = Denoms.breakdown(amount, ChipData.denominations,
+                                   _paletteForStake(stake_id),
+                                   ChipData.tier_chip_target,
+                                   Denoms.tierFromAmount(amount))
+    if not chips or #chips == 0 then return end
+    local stake_theme = StakeThemes[stake_id]
+    self:_queueScatter(origin, chips, {
+        chip_tint = stake_theme and stake_theme.chip_tint,
+        within    = (origin[3] and origin[4]) and { origin[3], origin[4] } or nil,
+    })
 end
 
 -- What a rebuy at table `idx` costs right now: the stake's buy-in less
@@ -1518,6 +1701,9 @@ function GrindController:initiateShove()
     local state = self.game.state
     state.chips = state.chips + (state.chips_this_run or 0)
     state.anti_chips = (state.anti_chips or 0) + (state.anti_chips_this_run or 0)
+    -- The only place this is set: the tutorial's SHOVE gate needs a signal
+    -- that means "actually shoved", not "started another run".
+    state.has_shoved = true
     self.game.state_machine:switch("shove")
 end
 
@@ -1527,7 +1713,10 @@ function GrindController:dealAll()
     local n = 0
     for _, t in ipairs(self.pool.tables) do
         if not t:isBusy() and (t.stack or 0) > 0 then
-            if t:deal(self.ctx) then n = n + 1 end
+            if t:deal(self.ctx) then
+                t.pot_exploded, t.pot_explode_pending = nil, nil
+                n = n + 1
+            end
         end
     end
     return n

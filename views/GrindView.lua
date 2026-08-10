@@ -23,13 +23,13 @@ local TablePanelStats = require("views.TablePanelStats")
 local Pop            = require("services.Pop")
 local RollingValue   = require("services.RollingValue")
 local CursorPool     = require("services.CursorPool")
-local Chips          = require("views.Chips")
 local Icons          = require("views.Icons")
 local IconText       = require("views.IconText")
 local Denoms        = require("services.DenominationBreakdown")
 local ChipData       = require("data.chips")
 local FlightSystem   = require("services.FlightSystem")
 local ChipFlight     = require("views.ChipFlight")
+local ChipPile       = require("views.ChipPile")
 local ClickFlash     = require("services.ClickFlash")
 local TooltipSvc     = require("services.Tooltip")
 local AnchorRegistry = require("services.AnchorRegistry")
@@ -426,6 +426,11 @@ function GrindView:_buildTablesTabComponents()
     -- to controller:addTable(stake_id, game_type_id).
     local gtype_id  = self.selected_gtype
     local gtype_obj = Lookups.findById(GameTypes, gtype_id)
+    -- Cursor perks gate the per-row cursor toggles, same two flags the
+    -- per-table [D] / [R] header buttons read.
+    local ctx       = self.controller and self.controller.ctx
+    local cursor_on = (ctx and ctx.cursor_unlocked) or false
+    local rebuy_on  = (ctx and ctx.cursor_rebuy_unlocked) or false
     for _, stake in ipairs(Stakes) do
         -- Bands gate the +ADD-TABLE buttons by milestone (mid after R1,
         -- high after R2, ultra once bought; see stakeVisible →
@@ -486,8 +491,57 @@ function GrindView:_buildTablesTabComponents()
                 chip_color_tok, chip_shade = "muted", 0.35
             end
 
+            -- Trailing QOL strip: acts on the tables THIS row opened, not on
+            -- the whole pool. Always present, greyed when the row has no open
+            -- tables — appearing on the first buy-in would shove the row's
+            -- text sideways every time you opened or closed a table.
+            local open_n, deal_muted, rebuy_muted =
+                self.controller:typeCursorState(stake.id, gtype_id)
+            local none    = open_n == 0
+            local suffix  = ":" .. stake.id .. ":" .. gtype_id
+            local actions = {
+                -- "x", the same glyph and neutral ink the per-table close
+                -- button uses. Closing a table IS how you cash it out, so the
+                -- group control must not invent a different symbol.
+                { id = "cash_out_type" .. suffix, label = "x",
+                  tint_token = Theme.fg.heading,
+                  disabled = none,
+                  tooltip = (not none) and string.format("Cash out all %d %s %s table%s",
+                                open_n, stake.display_name,
+                                (gtype_obj and gtype_obj.name) or "",
+                                open_n == 1 and "" or "s") },
+            }
+            -- Cursor controls mirror the per-table [D] / [R] header toggles,
+            -- applied to the whole group. Same letters and same colours so
+            -- the two read as the same control.
+            if cursor_on then
+                actions[#actions + 1] = {
+                    id = "type_cursor_deal" .. suffix, label = "D",
+                    tint_token = Theme.status.good,
+                    disabled = none,
+                    muted = (not none) and deal_muted >= open_n,
+                    tooltip = none and nil
+                              or (deal_muted >= open_n)
+                              and "Let cursors deal these tables"
+                              or  "Stop cursors dealing these tables",
+                }
+                if rebuy_on then
+                    actions[#actions + 1] = {
+                        id = "type_cursor_rebuy" .. suffix, label = "R",
+                        tint_token = Theme.status.error,
+                        disabled = none,
+                        muted = (not none) and rebuy_muted >= open_n,
+                        tooltip = none and nil
+                                  or (rebuy_muted >= open_n)
+                                  and "Let cursors rebuy these tables"
+                                  or  "Stop cursors rebuying these tables",
+                    }
+                end
+            end
+
             components[#components + 1] = {
                 type     = "button",
+                actions  = actions,
                 id       = "add_table:" .. stake.id .. ":" .. gtype_id,
                 -- Named hint-anchor (same string as the id) so tutorial
                 -- hints can highlight this button. Once this combo has
@@ -753,8 +807,45 @@ function GrindView:_buildUpgradesTabComponents()
                 desc_text = "open or rebuy a table first — buying now ends the run"
             end
 
+            -- The Cursor upgrade owns the GLOBAL cursor controls: same two
+            -- toggles as the per-stake rows, scoped to every open table. They
+            -- hang off this row because it is the thing that made cursors
+            -- exist, so that is where you look for their master switch.
+            local up_actions
+            if up.id == "box_of_mice" then
+                local ctx = self.controller and self.controller.ctx
+                if ctx and ctx.cursor_unlocked then
+                    local total, deal_muted, rebuy_muted =
+                        self.controller:typeCursorState(nil, nil)
+                    local none = total == 0
+                    up_actions = { {
+                        id = "type_cursor_deal", label = "D",
+                        tint_token = Theme.status.good,
+                        disabled = none,
+                        muted = (not none) and deal_muted >= total,
+                        tooltip = none and nil
+                                  or (deal_muted >= total)
+                                  and "Let cursors deal every table"
+                                  or  "Stop cursors dealing any table",
+                    } }
+                    if ctx.cursor_rebuy_unlocked then
+                        up_actions[#up_actions + 1] = {
+                            id = "type_cursor_rebuy", label = "R",
+                            tint_token = Theme.status.error,
+                            disabled = none,
+                            muted = (not none) and rebuy_muted >= total,
+                            tooltip = none and nil
+                                      or (rebuy_muted >= total)
+                                      and "Let cursors rebuy every table"
+                                      or  "Stop cursors rebuying any table",
+                        }
+                    end
+                end
+            end
+
             components[#components + 1] = {
                 type     = "button",
+                actions  = up_actions,
                 id       = "buy_runup_" .. up.id,
                 -- Named hint-anchor (same string as the id) so tutorial
                 -- hints can highlight this card.
@@ -997,7 +1088,20 @@ function GrindView:update(dt)
     -- and shares the same path the script's per-event handlers use.
     local bursts = self.controller:drainBursts()
     for _, b in ipairs(bursts) do
-        ChipFlight.flyChipsList(b.source, b.dest, b.chips, b.options)
+        if b.kind == "scatter" then
+            -- No destination — form the pile at b.source and blow it apart.
+            ChipFlight.explodeStack(b.source[1], b.source[2], b.chips, b.options)
+        elseif b.kind == "stack" then
+            -- Pile to pile: the chips leave one collection and join the
+            -- other. b.options carries the ChipPile keys the controller
+            -- built from the table's anchor keys; b.chips is the fallback
+            -- composition for when the source end has no pile.
+            local o = b.options or {}
+            o.chips = b.chips
+            ChipFlight.transfer(b.source, b.dest, o)
+        else
+            ChipFlight.flyChipsList(b.source, b.dest, b.chips, b.options)
+        end
     end
 end
 
@@ -1986,18 +2090,22 @@ function GrindView:_drawBankrollChips(W, H)
     -- Stash for emission code (1-frame stale, fine).
     AnchorRegistry.set("bankroll", center_x, stack_y)
 
+    -- A collection, not a breakdown of the scalar (views/ChipPile). Chips
+    -- flown here — a table cashing out, a stack-cap overflow — are
+    -- inserted as they land, so the pile grows with the chips instead of
+    -- ahead of them. No hold-back ledger needed.
+    --
+    -- max_w caps the pile to the bottom band's width so a huge bankroll
+    -- doesn't march past the center-column edges; the layout drops
+    -- smallest-denom columns from the tail until it fits.
     local bankroll = self.game.state.bankroll or 0
-    if bankroll <= 0 then return end
-
-    local tier = Denoms.tierFromAmount(bankroll)
-    local chips = Denoms.breakdown(bankroll, ChipData.denominations,
-                                   ChipData.full_palette,
-                                   ChipData.tier_chip_target, tier)
-    -- Cap to the bottom band's width so a huge bankroll doesn't march
-    -- past the center-column edges. drawStack drops smallest-denom
-    -- columns from the tail until it fits.
-    Chips.drawStack(center_x, stack_y, chips,
+    ChipPile.place("bankroll", center_x, stack_y,
         { align = "center", max_w = band_w - 32 })
+    ChipPile.sync("bankroll", bankroll, {
+        palette = ChipData.full_palette,
+        tier    = Denoms.tierFromAmount(bankroll),
+    })
+    ChipPile.draw("bankroll")
 end
 
 -- ─── Composite draw ───────────────────────────────────────────────────
@@ -2220,6 +2328,37 @@ function GrindView:_handleSidebarButton(id)
     local stake_id, gtype_id = id:match("^add_table:(.-):(.+)$")
     if stake_id and gtype_id then
         self.controller:addTable(stake_id, gtype_id)
+        return
+    end
+
+    -- Trailing action strip on the +ADD rows. Same non-greedy split as
+    -- add_table; a nil stake means the global control on the Cursor upgrade,
+    -- which applies to every open table.
+    local function scopeOf(prefix)
+        local s, g = id:match("^" .. prefix .. ":(.-):(.+)$")
+        if s then return s, g, true end
+        if id == prefix then return nil, nil, true end
+        return nil, nil, false
+    end
+
+    local s_id, g_id, ok = scopeOf("cash_out_type")
+    if ok then
+        self.controller:cashOutType(s_id, g_id)
+        return
+    end
+    s_id, g_id, ok = scopeOf("type_cursor_deal")
+    if ok then
+        -- Set, not toggle: read the group's current state and flip the whole
+        -- group to the opposite, so a mixed group resolves instead of
+        -- inverting into another mixed one.
+        local total, muted = self.controller:typeCursorState(s_id, g_id)
+        self.controller:setTypeCursorMute(s_id, g_id, muted < total)
+        return
+    end
+    s_id, g_id, ok = scopeOf("type_cursor_rebuy")
+    if ok then
+        local total, _, muted = self.controller:typeCursorState(s_id, g_id)
+        self.controller:setTypeCursorRebuyMute(s_id, g_id, muted < total)
         return
     end
     local up_id = id:match("^buy_runup_(.+)$")

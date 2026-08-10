@@ -19,6 +19,7 @@ local Icons       = require("views.Icons")
 local IconText    = require("views.IconText")
 local AwardGlow   = require("views.AwardGlow")
 local Anchors     = require("services.AnchorRegistry")
+local MiniButton  = require("views.widgets.MiniButton")
 
 -- Icon row sizes — recomputed by CR.setScale at boot/resize.
 local ICON_SIZE_BASE    = 64
@@ -164,7 +165,53 @@ local function _drawCustom(comp, px, pw, _p, y, game)
     return h
 end
 
+-- Where a button's trailing action strip lives, and how big each square is.
+-- One source for the layout so the draw and the hit test cannot disagree
+-- about which pixels belong to an action vs. to the button underneath.
+local ACTION_PAD = 4
+local function actionSize(h) return math.max(12, math.min(h - ACTION_PAD * 2, 26)) end
+local function actionRect(comp, panel_x, panel_w, p, y, h, i)
+    local size  = actionSize(h)
+    local right = panel_x + panel_w - p - ACTION_PAD
+    -- Laid out right-to-left, so adding one never shifts the others.
+    local n     = #(comp.actions or {})
+    local x     = right - (n - i + 1) * (size + ACTION_PAD) + ACTION_PAD
+    -- Top-aligned, not centred: these sit in the button's top-right corner
+    -- the way the per-table controls sit in a table's header.
+    return x, y + ACTION_PAD, size
+end
+
+-- Horizontal space the action strip eats, so the button's own text can be
+-- measured/clipped against what is actually left.
+function CR.actionStripW(comp, h)
+    local n = comp and comp.actions and #comp.actions or 0
+    if n == 0 then return 0 end
+    return n * (actionSize(h) + ACTION_PAD) + ACTION_PAD
+end
+
 local function _hitButton(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
+    -- Trailing actions are hit-tested FIRST and independently of the button's
+    -- own disabled state: "cash out every table of this type" is exactly the
+    -- thing you want when the parent +ADD is greyed out because you're broke.
+    -- Each returns its own descriptor, so the dispatcher routes on its id.
+    if comp.actions and cy >= cursor_y and cy < cursor_y + h then
+        for i, act in ipairs(comp.actions) do
+            local ax, ay, size = actionRect(comp, panel_x, panel_w, p, cursor_y, h, i)
+            if cx >= ax and cx < ax + size and cy >= ay and cy < ay + size then
+                -- No tooltip on a dead action: it has nothing to tell you.
+                -- (Unlike the parent button, where "can't afford" is the
+                -- information you actually want while deciding to save.)
+                if act.disabled then return nil end
+                if act.tooltip then
+                    local mx, my = love.mouse.getPosition()
+                    require("services.Tooltip").set(act.tooltip, mx, my)
+                end
+                if act.id then HoverSvc.set("button", act.id) end
+                return act
+            end
+        end
+    end
+
     if cy >= cursor_y and cy < cursor_y + h
        and cx >= panel_x + p and cx < panel_x + panel_w - p then
         -- Tooltip shows even when the button is disabled (can't afford / would
@@ -328,7 +375,10 @@ function CR._button(comp, px, pw, p, y, game)
             Theme.setColor(color)
 
             local indent = lineIndent(style)
-            local printf_w = fw - indent - 4
+            -- Give up the right end to the action strip, so right-aligned
+            -- text ("+2 {chip}", "buy-in $2.00") stops where the buttons
+            -- start instead of rendering underneath them.
+            local printf_w = fw - indent - 4 - CR.actionStripW(comp, total_h)
 
             -- Optional right-aligned segment on the same row. Lets a
             -- single line carry "name (left) | value (right)" without
@@ -399,6 +449,28 @@ function CR._button(comp, px, pw, p, y, game)
             cursor = cursor + lineRenderedHeight(line, game, fw)
         end
     end)
+
+    -- Trailing action strip: small square toggles living in the button's right
+    -- end. Drawn AFTER the face so they sit on top of it, and they keep their
+    -- own colour when the parent button is disabled — they are separate
+    -- affordances that merely share the row.
+    if comp.actions then
+        for i, act in ipairs(comp.actions) do
+            local ax, ay, size = actionRect(comp, px, pw, p, y, total_h, i)
+            MiniButton.draw{
+                x = ax, y = ay, size = size,
+                label      = act.label,
+                icon       = act.icon,
+                game       = game,
+                fonts      = game and game.fonts,
+                muted      = act.muted,
+                disabled   = act.disabled,
+                tint_token = act.tint_token,
+                hovered    = act.id and HoverSvc.is("button", act.id),
+                press_alpha = (act.id and ClickFlash.alpha("button", act.id)) or 0,
+            }
+        end
+    end
 
     -- Chip-award fanfare: a gold pulse over the button face the moment a
     -- bounty banks (GrindView fires it; shared with the game-type tab strip).

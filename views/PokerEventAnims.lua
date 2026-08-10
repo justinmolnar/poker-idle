@@ -26,8 +26,13 @@ local Table       = require("models.Table")
 local Constants   = require("data.constants")
 local Decks       = require("models.Decks")
 local ChipFlight  = require("views.ChipFlight")
+local ChipPile    = require("views.ChipPile")
 local FlightSystem = require("services.FlightSystem")
 local CardSprites = require("views.CardSprites")
+local FeedbackIntensity = require("data.feedback_intensity")
+local StakeThemes = require("data.stake_themes")
+local Stakes      = require("data.stakes")
+local Lookups     = require("utils.lookups")
 
 -- Card render size for the muck-fold animation. Matches the typical
 -- opponent hole-card draw size in TablePanel; tunable.
@@ -55,12 +60,70 @@ local function seatScreenPos(tbl, seat)
     return Anchors.get(key)
 end
 
--- Convenience wrapper: fly chips for an action's $ amount from the
--- actor's seat into the pot anchor. Used by post_blind/call/raise/all_in.
+-- Fly chips for an action's $ amount from the actor's seat into the pot
+-- pile. Used by post_blind/call/raise/all_in.
+--
+-- The pot is a real pile (views/ChipPile), so the chips are RESERVED into
+-- it: it grows as they land, not when they launch. When the actor is the
+-- player, the chips are taken out of their stack pile too, so the same
+-- chips leave one collection and join the other.
 local function flyChipsToPot(tbl, seat, amount)
     local seat_pos = seatScreenPos(tbl, seat)
-    local pot_pos  = Anchors.get(Table.anchorKey(tbl, "pot"))
-    ChipFlight.fly(seat_pos, pot_pos, amount, tbl.stake_id, {})
+    local pot_key  = Table.anchorKey(tbl, "pot")
+    local pot_pos  = Anchors.get(pot_key)
+    local is_player = tbl.playback_state and seat == tbl.playback_state.player_seat
+    ChipFlight.transfer(seat_pos, pot_pos, {
+        amount     = amount,
+        stake_id   = tbl.stake_id,
+        source_key = is_player and Table.anchorKey(tbl, "you") or nil,
+        dest_key   = pot_key,
+    })
+end
+
+-- The panel this table is drawn in, as { w, h }, off the size TablePanel
+-- stamps on its center anchor. Effects belonging to one table scale to it
+-- instead of to the screen. nil before the panel's first draw.
+local function panelSize(tbl)
+    local c = Anchors.get(Table.anchorKey(tbl, "center"))
+    if c and c[3] and c[4] then return { c[3], c[4] } end
+    return nil
+end
+
+-- Where a pot the player just won actually ENDS UP, in order, for a burst
+-- that splits between piles.
+--
+-- A cash table can only hold its buy-in. A pot bigger than the headroom
+-- left in the stack fills the stack to the cap and the remainder lands in
+-- the bankroll — so the chips have two destinations, and the burst has to
+-- show that rather than pouring everything into the stack and then
+-- re-emitting the excess a beat later.
+--
+-- The cap arithmetic mirrors GrindController's resolution branch
+-- (new_stack > cap → overflow), read off the same running stack the panel
+-- is displaying. This decides where chips FLY; the controller stays
+-- authoritative for the money, and a disagreement just means the piles
+-- reconcile, which is what they're for.
+--
+-- Chip-stack tournaments have no cap — a winning seat can hold the whole
+-- pool — so everything goes to the stack. tbl.seat_stacks is the same
+-- signal TablePanel uses to tell the two table kinds apart.
+local function potDestinations(tbl, seat_pos)
+    local you = { key = Table.anchorKey(tbl, "you"), xy = seat_pos }
+    if tbl.seat_stacks then return { you } end
+
+    local stake = Lookups.findById(Stakes, tbl.stake_id)
+    local cap   = (stake and stake.buy_in) or 0
+    if cap <= 0 then return { you } end
+
+    local ps        = tbl.playback_state
+    local seat      = ps and ps.player_seat
+    local committed = (seat and ps.per_seat_total and ps.per_seat_total[seat]) or 0
+    local running   = math.max(0, (tbl.stack or 0) - committed)
+    you.amount      = math.max(0, cap - running)
+
+    local bank_xy = Anchors.get("bankroll")
+    if not bank_xy then return { you } end
+    return { you, { key = "bankroll", xy = bank_xy } }
 end
 
 local PokerEventAnims = {
@@ -117,19 +180,55 @@ local PokerEventAnims = {
         })
     end,
 
-    -- Pot push to the winner. Reads ev.amount (snapshot of ws.pot taken
-    -- by HandScript BEFORE the applicator zeroes it) so the burst size
-    -- matches the visible pot pile right when the chips start flying.
+    -- Pot push to the winner. The pot pile is emptied INTO the winner —
+    -- every chip departs the slot it was occupying in the pot, and when
+    -- the winner is the player each one is inserted into their stack at
+    -- the pixel its flight ended. Reads ev.amount (snapshot of ws.pot
+    -- taken by HandScript BEFORE the applicator zeroes it) so the take
+    -- matches the pile the player is looking at.
     pot_push = function(ev, tbl, _game)
         if not ev.seat or not ev.amount or ev.amount <= 0 then return end
-        local pot_pos    = Anchors.get(Table.anchorKey(tbl, "pot"))
+        local pot_key    = Table.anchorKey(tbl, "pot")
+        local pot_pos    = Anchors.get(pot_key)
         local target_pos = seatScreenPos(tbl, ev.seat)
-        if not pot_pos or not target_pos then return end
-        local arrival = (ev.seat == tbl.playback_state.player_seat)
-                        and "chip_land_you" or "chip_land_pot"
-        ChipFlight.fly(pot_pos, target_pos, ev.amount, tbl.stake_id, {
+        if not target_pos then return end
+        local is_player = (ev.seat == tbl.playback_state.player_seat)
+
+        -- Jackpot win: the pot doesn't get carried over, it DETONATES —
+        -- and then the debris regroups into your stack, so the spectacle
+        -- and the payout are the same chips. Decided here rather than from
+        -- the controller's pot_explode_pending flag because that flag
+        -- arrives at settling, a beat after this event has already emptied
+        -- the pot pile; by then there'd be nothing left to blow apart.
+        -- Same tier data the controller reads, so the two can't disagree.
+        -- Needs a pile with visible chips to come apart. A surface too
+        -- small to draw one (mini panels register no pot pile at all)
+        -- falls through to the ordinary carry-over below rather than
+        -- losing the payout to an explosion with nothing to explode.
+        local intensity = FeedbackIntensity[tbl.outcome_tier or ""]
+        if is_player and intensity and intensity.chip_burst and not tbl.pot_exploded then
+            local debris = ChipPile.takeAll(pot_key)
+            if debris then
+                local stake_theme = StakeThemes[tbl.stake_id]
+                tbl.pot_exploded = true
+                ChipFlight.explodeTaken(debris, {
+                    tint         = stake_theme and stake_theme.chip_tint,
+                    scale        = ChipPile.scale(pot_key),
+                    dests        = potDestinations(tbl, target_pos),
+                    within       = panelSize(tbl),
+                    gather_sound = "chip_land_you",
+                })
+                return
+            end
+        end
+
+        ChipFlight.transfer(pot_pos, target_pos, {
+            amount        = ev.amount,
+            stake_id      = tbl.stake_id,
             tier          = tbl.outcome_tier,
-            arrival_sound = arrival,
+            source_key    = pot_key,
+            dest_key      = is_player and Table.anchorKey(tbl, "you") or nil,
+            arrival_sound = is_player and "chip_land_you" or "chip_land_pot",
         })
     end,
 
