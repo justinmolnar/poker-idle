@@ -615,18 +615,51 @@ local function drawPotLabel(tbl, pot, fonts)
     end
     -- Pot reading. Two paths:
     --   * Theater on  → tbl.playback_state.pot is the running pot, mutated
-    --                   by HandScript event applicators as bets land.
+    --                   by HandScript event applicators as bets land. Taken
+    --                   RAW, zero included.
     --   * Theater off → 2 × |outcome_delta| (legacy assumption that the
     --                   pot is symmetric around the player's net delta).
+    --
+    -- The theater path must not fall through to the outcome_delta guess
+    -- when the running pot is zero. That value is the PREVIOUS hand's, so
+    -- the pot never reads as empty, and the pile below never gets the
+    -- `potval <= 0` clear that ends a hand — it carries its chips into the
+    -- next one and the next hand's bets pile on top of them. Harmless when
+    -- the pile was a number recomputed every frame; not harmless now that
+    -- it's a collection that persists.
+    local theater = Constants.FEATURES and Constants.FEATURES.POKER_THEATER
     local potval
-    if tbl.playback_state and (tbl.playback_state.pot or 0) > 0 then
+    if theater then
+        potval = (tbl.playback_state and tbl.playback_state.pot) or 0
+    elseif tbl.playback_state and (tbl.playback_state.pot or 0) > 0 then
         potval = tbl.playback_state.pot
     else
         potval = (tbl.outcome_delta and math.abs(tbl.outcome_delta) * 2) or 0
     end
 
+    -- What the PILE is allowed to show: chips that have actually been
+    -- committed, and nothing else. Never outcome_delta.
+    --
+    -- outcome_delta is decided at deal, so feeding it to the pile fills
+    -- the pot the instant DEAL is clicked, before a blind is posted —
+    -- and its SIZE is the tier, which hands the player the result of the
+    -- hand up front. It also runs straight past what the stake's chips
+    -- can express: a four-figure delta through a $1 top denomination is a
+    -- wall of hundreds of identical chips. The reading above keeps it for
+    -- the text, but under the theater the pile only ever draws real
+    -- committed chips. A legacy build has no per-action pot to read and
+    -- no per-action flights either, so it keeps the estimate — its pile
+    -- would otherwise be empty all hand.
+    local pile_val = theater
+        and ((tbl.playback_state and tbl.playback_state.pot) or 0)
+        or potval
+
     local rolled_pot = RollingValue.get("table_pot:" .. (tbl._id or 0), potval)
-    if rolled_pot <= 0.01 then return end
+    -- NB: no early-out on a near-zero rolled_pot here. The pile below has
+    -- to be told the pot is empty — that's the call that ends its hand —
+    -- and the rolling value lags behind the real one, so bailing on it
+    -- would skip exactly the frames where potval first reads zero. Only
+    -- the text at the bottom of this function is suppressed.
 
     -- Chip pile when room permits — uses outcome_tier so jackpot pots
     -- visibly dwarf small ones. Falls back to text-only on mini panels.
@@ -638,7 +671,17 @@ local function drawPotLabel(tbl, pot, fonts)
     if pot.allow_chips then
         local palette = ChipData.stake_palettes[tbl.stake_id]
                         or ChipData.full_palette
-        local tier    = tbl.outcome_tier or "medium"
+        -- FIXED tier while the hand is live — NOT tbl.outcome_tier.
+        --
+        -- outcome_tier is decided at deal, and it drives the pile's chip
+        -- COUNT (data/chips.lua tier_chip_target: 4 for small, 50 for
+        -- jackpot). Composing the running pot against it means a $2 pot
+        -- that is about to become a Stack sits there as fifty chips from
+        -- the first blind — the pile announces the tier before a single
+        -- card is dealt. The pot is worth what's been bet and should look
+        -- like it; the tier is the payout's business, and the payout is
+        -- what the detonation and the resolution bursts are for.
+        local tier    = "medium"
         local stake_theme = StakeThemes[tbl.stake_id]
         local tint    = stake_theme and stake_theme.chip_tint
         -- The base chip is CENTERED on chips_y (the community-row bottom edge,
@@ -648,8 +691,8 @@ local function drawPotLabel(tbl, pot, fonts)
         -- over the cards and the text always has clear room underneath it.
         local cs = pot.chip_scale or 1
 
-        if potval > 0 then
-            ChipPile.sync(pot_key, potval, { palette = palette, tier = tier })
+        if pile_val > 0 then
+            ChipPile.sync(pot_key, pile_val, { palette = palette, tier = tier })
         else
             ChipPile.clear(pot_key)
         end
@@ -693,10 +736,14 @@ local function drawPotLabel(tbl, pot, fonts)
 
     -- Pot amount uses the xs tier -- it's low-priority chrome that shouldn't
     -- read as big as the cards (falls back to sm at 1×, see FontService).
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.setFont(fonts.xs or fonts.sm)
-    love.graphics.printf("Pot: " .. Format.moneyExact(rolled_pot),
-        pot.text_x, pot.text_y, pot.text_w, "center")
+    -- Hidden while there's no pot to speak of, which is what the early-out
+    -- up top used to do for this whole function.
+    if rolled_pot > 0.01 then
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.setFont(fonts.xs or fonts.sm)
+        love.graphics.printf("Pot: " .. Format.moneyExact(rolled_pot),
+            pot.text_x, pot.text_y, pot.text_w, "center")
+    end
 end
 
 -- Legacy MTT bottom row: "HAND N/M" on the left + the payout pip ladder

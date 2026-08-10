@@ -82,6 +82,21 @@ local TAKE_LOCKOUT    = 1.0
 -- chips nobody ever renders — those transfers fall back to plain
 -- point-to-point flights, which is what they were before.
 local PLACE_FRESH     = 0.5
+-- How long a chip may claim to be in the air before the pile stops
+-- believing it.
+--
+-- n_air gates EVERY reconcile path — sync, tidy, the empty-pile refill.
+-- As an exact counter it is also a single point of failure: one chip that
+-- never reports its arrival (a flight dropped somewhere it can't call
+-- back, a chip list swapped underneath it) and the pile is frozen for the
+-- rest of the session, silently accumulating whatever is reserved into it
+-- next. services/PendingChips released on a timer for exactly this reason
+-- and said so; replacing it with exact bookkeeping threw that away.
+--
+-- So the count is DERIVED from the chips each frame rather than tracked,
+-- and a chip that overstays lands itself. Worst case a pile completes a
+-- little early. Always prefer the failure that corrects itself.
+local AIR_TTL         = 4.0
 local GC_SECONDS      = 30     -- drop keys nothing has touched (closed tables)
 local TIDY_FACTOR     = 2      -- tidy once the pile exceeds N× its tier target
 local EPS             = 1e-9
@@ -118,11 +133,24 @@ local function pileValue(e)
     return sum
 end
 
--- Flat denomination-index list, which is what Chips.stackLayout eats.
-local function denomList(e)
-    local list = {}
-    for i, c in ipairs(e.chips) do list[i] = c.d end
-    return list
+-- Flat denomination-index list, which is what Chips.stackLayout eats,
+-- plus the e.chips index each entry came from.
+--
+-- `settled_only` drops airborne chips. That's what the pile DRAWS: a
+-- chip that hasn't landed yet has no business occupying a slot, and
+-- holding one open leaves a gap in the stack that reads as a rendering
+-- fault rather than as anticipation. The full list is still what an
+-- ARRIVAL is measured against — a chip in the air needs to know where it
+-- will sit once it's part of the pile.
+local function denomList(e, settled_only)
+    local list, from = {}, {}
+    for i, c in ipairs(e.chips) do
+        if not (settled_only and c.air) then
+            list[#list + 1] = c.d
+            from[#list]     = i
+        end
+    end
+    return list, from
 end
 
 -- Same chips in the same order? Breakdown is deterministic, so a straight
@@ -167,13 +195,18 @@ end
 
 -- Screen-space slot per position in e.chips. Positions clipped out by the
 -- max_w budget simply have no entry.
-local function slotsByPos(e)
+--
+-- `settled_only` picks which layout to measure against: where chips are
+-- actually DRAWN right now (departures), or where they will sit once
+-- everything in the air has landed (arrivals).
+local function slotsByPos(e, settled_only)
     local out = {}
     if not e.place then return out end
-    for _, p in ipairs(layoutLocal(denomList(e), e.place)) do
-        if p.src then
+    local list, from = denomList(e, settled_only)
+    for _, p in ipairs(layoutLocal(list, e.place)) do
+        if p.src and from[p.src] then
             local sx, sy = toScreen(e.place, p.x, p.y)
-            out[p.src] = { x = sx, y = sy, with_label = p.with_label }
+            out[from[p.src]] = { x = sx, y = sy, with_label = p.with_label }
         end
     end
     return out
@@ -323,7 +356,7 @@ function ChipPile.tidy(key, value, opts)
     local target_denoms = {}
     for i, c in ipairs(target) do target_denoms[i] = c.d end
 
-    local from = layoutLocal(denomList(e), e.place)
+    local from = layoutLocal(denomList(e, true), e.place)
     local to   = layoutLocal(target_denoms, e.place)
 
     -- Pair by denomination: a $5 already on the felt slides to wherever a
@@ -434,8 +467,9 @@ function ChipPile.take(key, amount)
     end
 
     -- Positions are read AFTER any change-making, so a chip departs from
-    -- where it is actually sitting at this instant.
-    local slots = slotsByPos(e)
+    -- where it is actually sitting at this instant — the drawn layout,
+    -- not the one that includes chips still on their way here.
+    local slots = slotsByPos(e, true)
     local taken = {}
     for i = #e.chips, 1, -1 do
         local c = e.chips[i]
@@ -470,7 +504,7 @@ function ChipPile.takeAll(key)
     local e = _piles[key]
     if not e or #e.chips == 0 then return nil end
     finishSettle(e)
-    local slots = slotsByPos(e)
+    local slots = slotsByPos(e, true)
     local taken = {}
     for i, c in ipairs(e.chips) do
         if not c.air then
@@ -507,14 +541,17 @@ function ChipPile.reserve(key, denom_indices)
     local base = #e.chips
     local refs = {}
     for i, d in ipairs(denom_indices) do
-        local c = { d = d, air = true, gen = e.gen }
+        local c = { d = d, air = true, gen = e.gen, ttl = AIR_TTL }
         e.chips[base + i] = c
         refs[i] = c
     end
     e.n_air   = e.n_air + #refs
     e.wrong_t = 0
 
-    local slots = slotsByPos(e)
+    -- Measured against the FULL layout: an arriving chip aims for where
+    -- it will sit once everything in the air has landed, so it doesn't
+    -- have to shuffle after touching down.
+    local slots = slotsByPos(e, false)
     local out   = {}
     for i, c in ipairs(refs) do
         local s = slots[base + i]
@@ -564,12 +601,13 @@ function ChipPile.draw(key)
         return
     end
 
-    for _, p in ipairs(layoutLocal(denomList(e), place)) do
-        local c = p.src and e.chips[p.src]
-        -- Airborne chips are drawn by their flight, not by the pile.
-        if c and not c.air then
-            drawChipLocal(place, tint, p.x, p.y, p.idx, 1, p.with_label)
-        end
+    -- Settled chips only, laid out compactly. Airborne ones are drawn by
+    -- their flight and are simply not in this layout, so the pile is
+    -- always a solid stack — never a stack with slots punched out of it
+    -- waiting to be filled. It shifts a little when an arrival tips a
+    -- column over its limit, which reads as the stack making room.
+    for _, p in ipairs(layoutLocal(denomList(e, true), place)) do
+        drawChipLocal(place, tint, p.x, p.y, p.idx, 1, p.with_label)
     end
 end
 
@@ -587,6 +625,22 @@ function ChipPile.update(dt)
                 e.chips  = e.settle.chips
                 e.settle = nil
             end
+        end
+
+        -- Re-derive how much is actually in the air, and land anything
+        -- that has overstayed. This is what stops a single lost arrival
+        -- from wedging the pile forever: the count can only be as large
+        -- as the chips that are really still marked airborne, and none of
+        -- them can stay marked for more than AIR_TTL.
+        if e.n_air > 0 then
+            local still = 0
+            for _, c in ipairs(e.chips) do
+                if c.air then
+                    c.ttl = (c.ttl or AIR_TTL) - dt
+                    if c.ttl <= 0 then c.air = nil else still = still + 1 end
+                end
+            end
+            e.n_air = still
         end
 
         -- Reconcile toward the synced scalar, but only while quiet and
@@ -613,9 +667,27 @@ function ChipPile.update(dt)
                 -- that gap. Anything under a chip is not a disagreement.
                 local target = (ChipData.tier_chip_target[e.tier or "medium"]) or 12
                 local tol    = smallestIn(e.palette) - EPS
-                local off    = math.abs(pileValue(e) - e.want) > tol
-                               or #e.chips > target * TIDY_FACTOR
-                if off then
+                local pv     = pileValue(e)
+
+                -- HARD CEILING. A pile may lag its scalar — that's the
+                -- whole design, chips are the truth while they're moving
+                -- — but it may never grossly EXCEED it. Anything that
+                -- leaves chips behind (a hand boundary that doesn't
+                -- clear, an arrival credited twice, a take that removed
+                -- less than it sent) accumulates silently otherwise, and
+                -- the debounced settle below is too polite to catch it:
+                -- it waits, then animates, and the next hand's chips land
+                -- on top before it finishes.
+                --
+                -- So a pile worth half again what it should be, or three
+                -- times as many chips as its tier asks for, snaps. No
+                -- debounce, no animation — it is already wrong on screen
+                -- and the honest thing is to stop showing it.
+                if pv > e.want * 1.5 + tol or #e.chips > target * 3 then
+                    ChipPile.tidy(key, e.want, { instant = true })
+                    e.wrong_t = 0
+                elseif math.abs(pv - e.want) > tol
+                       or #e.chips > target * TIDY_FACTOR then
                     e.wrong_t = e.wrong_t + dt
                     if e.wrong_t >= RECONCILE_DELAY then
                         ChipPile.tidy(key, e.want)

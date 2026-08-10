@@ -60,6 +60,26 @@ local function seatScreenPos(tbl, seat)
     return Anchors.get(key)
 end
 
+-- Wall-clock seconds until the next scripted event fires, or nil when
+-- this is the last one.
+--
+-- The script's timestamps are in SCRIPT time, which runs at
+-- tbl._script_pace × wall time (game-type pace, Energy Drink, and so on).
+-- At a fast pace two actions can be a couple of hundred milliseconds
+-- apart, and a flight built for a leisurely 0.6s is then still crossing
+-- the felt while the next three bets land on top of it. Flights that
+-- know their budget can fit inside it.
+local function timeToNextEvent(tbl)
+    local script = tbl and tbl.script
+    local nxt    = script and script[(tbl.script_idx or 0) + 1]
+    if not nxt or not nxt.t then return nil end
+    local pace = tbl._script_pace or 1
+    if pace <= 0 then return nil end
+    local left = (nxt.t - (tbl.script_timer or 0)) / pace
+    if left <= 0 then return nil end
+    return left
+end
+
 -- Fly chips for an action's $ amount from the actor's seat into the pot
 -- pile. Used by post_blind/call/raise/all_in.
 --
@@ -77,6 +97,8 @@ local function flyChipsToPot(tbl, seat, amount)
         stake_id   = tbl.stake_id,
         source_key = is_player and Table.anchorKey(tbl, "you") or nil,
         dest_key   = pot_key,
+        -- Land before the next action does.
+        budget     = timeToNextEvent(tbl),
     })
 end
 
@@ -107,23 +129,26 @@ end
 -- Chip-stack tournaments have no cap — a winning seat can hold the whole
 -- pool — so everything goes to the stack. tbl.seat_stacks is the same
 -- signal TablePanel uses to tell the two table kinds apart.
+-- Returns the dests list and the player's committed chips, which the
+-- caller needs to size the burst: winning gets you your own contribution
+-- BACK on top of the net delta, and the two land in different piles.
 local function potDestinations(tbl, seat_pos)
     local you = { key = Table.anchorKey(tbl, "you"), xy = seat_pos }
-    if tbl.seat_stacks then return { you } end
-
-    local stake = Lookups.findById(Stakes, tbl.stake_id)
-    local cap   = (stake and stake.buy_in) or 0
-    if cap <= 0 then return { you } end
-
     local ps        = tbl.playback_state
     local seat      = ps and ps.player_seat
     local committed = (seat and ps.per_seat_total and ps.per_seat_total[seat]) or 0
+    if tbl.seat_stacks then return { you }, committed end
+
+    local stake = Lookups.findById(Stakes, tbl.stake_id)
+    local cap   = (stake and stake.buy_in) or 0
+    if cap <= 0 then return { you }, committed end
+
     local running   = math.max(0, (tbl.stack or 0) - committed)
     you.amount      = math.max(0, cap - running)
 
     local bank_xy = Anchors.get("bankroll")
-    if not bank_xy then return { you } end
-    return { you, { key = "bankroll", xy = bank_xy } }
+    if not bank_xy then return { you }, committed end
+    return { you, { key = "bankroll", xy = bank_xy } }, committed
 end
 
 local PokerEventAnims = {
@@ -211,23 +236,47 @@ local PokerEventAnims = {
             if debris then
                 local stake_theme = StakeThemes[tbl.stake_id]
                 tbl.pot_exploded = true
+                -- Same fabrication as the ordinary push below: what comes
+                -- apart is the real pot, what regroups is the real payout.
+                local payout = math.abs(tbl.outcome_delta or 0)
+                local dests, committed = potDestinations(tbl, target_pos)
                 ChipFlight.explodeTaken(debris, {
                     tint         = stake_theme and stake_theme.chip_tint,
                     scale        = ChipPile.scale(pot_key),
-                    dests        = potDestinations(tbl, target_pos),
+                    dests        = dests,
                     within       = panelSize(tbl),
+                    fabricate    = payout + committed,
                     gather_sound = "chip_land_you",
                 })
                 return
             end
         end
 
+        -- The payout, not the pot. Late-game multipliers mean a $2 pot can
+        -- settle for four figures; the pot itself stays honest all hand
+        -- (see drawPotLabel) and the difference is fabricated HERE, at the
+        -- moment it becomes real. outcome_delta is the same number the
+        -- controller applies a beat later, so the chips and the money
+        -- agree.
+        local payout = math.abs(tbl.outcome_delta or 0)
+        local dests, committed
+        if is_player then dests, committed = potDestinations(tbl, target_pos) end
+        -- What actually moves. outcome_delta is the NET result, so a win
+        -- also hands back the chips you put in: the stack refills to the
+        -- cap by `committed` and the bankroll takes the delta. That's
+        -- exactly what the controller's resolution does to the numbers a
+        -- beat later, so the chips and the money can't disagree.
+        local moving = math.max(ev.amount, payout + (committed or 0))
         ChipFlight.transfer(pot_pos, target_pos, {
-            amount        = ev.amount,
+            amount        = moving,
+            fabricate     = moving > ev.amount,
             stake_id      = tbl.stake_id,
             tier          = tbl.outcome_tier,
             source_key    = pot_key,
-            dest_key      = is_player and Table.anchorKey(tbl, "you") or nil,
+            -- Split across the stack and the bankroll: a payout past the
+            -- table's buy-in cap lands in both, and flying it all into the
+            -- stack only to spill it out again a moment later is a lie.
+            dests         = dests,
             arrival_sound = is_player and "chip_land_you" or "chip_land_pot",
         })
     end,

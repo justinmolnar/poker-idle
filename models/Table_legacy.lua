@@ -766,6 +766,11 @@ function Table:update(dt, ctx)
     -- top of the gtype baseline.
     local ctx_pace = (self._last_ctx and self._last_ctx.hand_pace_mult) or 1
     local effective_dt = (dt or 0) * pace_mult * ctx_pace
+    -- Script time runs at this multiple of wall time. Published so the
+    -- view can convert a gap between script events into the real seconds
+    -- it has to animate in — a chip flight that outruns the action it
+    -- represents is worse than a fast one. Mirrors models/Table.lua.
+    self._script_pace = pace_mult * ctx_pace
 
     self.state_timer = self.state_timer + effective_dt
 

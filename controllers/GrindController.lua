@@ -52,6 +52,29 @@ function GrindController:new(game)
     return self
 end
 
+-- ── "(pot × mult)" suffix for the resolution floater ─────────────────
+-- Late-game multipliers (decks, catalog) settle a $2.44 pot for four
+-- figures. The pot on the felt stays honest all hand and the difference
+-- is fabricated at the push — which is right, but it leaves the player
+-- watching a mound of chips appear from nowhere. This is the receipt:
+-- what was actually on the table, and what it got multiplied by.
+--
+-- Suppressed when the multiplier is barely there, because "+$2.60
+-- ($2.44 × 1.1)" is noise, and when there's no pot snapshot to divide by
+-- (a legacy build with no script has nothing honest to report).
+local MULT_SUFFIX_MIN = 1.5
+
+local function _multSuffix(tbl, delta)
+    local ps   = tbl and tbl.playback_state
+    local base = (ps and ps.pot_at_push) or 0
+    if base <= 0 then return "" end
+    local mult = math.abs(delta or 0) / base
+    if mult < MULT_SUFFIX_MIN then return "" end
+    local m = (mult >= 10) and string.format("%.0f", mult)
+                            or string.format("%.1f", mult)
+    return string.format("\n($%.2f × %s)", base, m)
+end
+
 -- Push a chip-flight intent onto the queue. GrindView drains this each
 -- frame. Source/dest are { x, y } pairs (or nil — burst is dropped). chips
 -- is the denomination-index list from DenominationBreakdown.
@@ -457,9 +480,9 @@ function GrindController:update(dt)
                 floater_opts_override = { color_token = "error" }
             end
         elseif r.delta >= 0 then
-            label = string.format("+$%.2f", r.delta)
+            label = string.format("+$%.2f", r.delta) .. _multSuffix(tbl, r.delta)
         else
-            label = string.format("-$%.2f", -r.delta)
+            label = string.format("-$%.2f", -r.delta) .. _multSuffix(tbl, r.delta)
             -- Loss: override the data-file's amber default with red so
             -- losses read correctly. Without this every tier picks up
             -- color_token="amber" and "-$X.XX" floaters render in gold
@@ -1383,6 +1406,33 @@ local function _paletteForStake(stake_id)
     return ChipData.stake_palettes[stake_id] or ChipData.full_palette
 end
 
+-- Palette for an amount that may be a PAYOUT rather than table money.
+--
+-- A stake's four-chip window exists to keep one table legible: NL10's
+-- tops out at $1. Late-game multipliers settle a hand for four figures,
+-- and pushing that through a $1 top denomination makes
+-- DenominationBreakdown emit one token per dollar — hundreds of identical
+-- chips, stopped only by its own token ceiling. Whenever the amount
+-- outruns what the window can express, compose off the full ladder
+-- instead; it has a rung for every magnitude.
+--
+-- Anything derived from outcome_delta or r.delta is a payout and belongs
+-- here. Bets and blinds are table money and can use the stake window
+-- directly.
+local PALETTE_MAX_CHIPS = 60
+
+local function _paletteForAmount(stake_id, amount)
+    local pal, top = _paletteForStake(stake_id), 0
+    for _, idx in ipairs(pal) do
+        local d = ChipData.denominations[idx]
+        if d and d.value > top then top = d.value end
+    end
+    if top > 0 and (amount or 0) / top > PALETTE_MAX_CHIPS then
+        return ChipData.full_palette
+    end
+    return pal
+end
+
 -- Bottom-edge fallback for "this thing has no anchor yet" cases (first
 -- frame after table add — the view hasn't drawn yet so positions aren't
 -- known). Reads viewport from DI rather than poking love.graphics.
@@ -1395,15 +1445,27 @@ local function _anchor(t, slot)
     return AnchorRegistry.get(TableModel.anchorKey(t, slot))
 end
 
+-- The legacy "ante up" burst: chips shoved to the middle the instant a
+-- hand is dealt, from back when nothing else moved chips during a hand.
+--
+-- DEAD under the theater, which emits a real flight per post_blind /
+-- call / raise as the action happens. Running both meant every deal
+-- opened by throwing the hand's whole outcome into the pot before a
+-- blind was posted — and because outcome_delta is the MULTIPLIED payout,
+-- composing it against the stake's four-chip window produced one $1 chip
+-- per dollar, hundreds of them, stopped only by the breakdown's token
+-- ceiling. It also gave the tier away before a card was dealt.
 function GrindController:_emitDealChips(t)
     if not t then return end
+    if Constants.FEATURES and Constants.FEATURES.POKER_THEATER then return end
     local you = _anchor(t, "you")
     local pot = _anchor(t, "pot")
     if not you or not pot then return end
     local amount = math.abs(t.outcome_delta or 0)
     if amount <= 0 then return end
+    -- outcome_delta is a payout, so the palette has to be able to hold it.
     local chips = Denoms.breakdown(amount, ChipData.denominations,
-                                   _paletteForStake(t.stake_id),
+                                   _paletteForAmount(t.stake_id, amount),
                                    ChipData.tier_chip_target,
                                    t.outcome_tier or "medium")
     -- Chips are composed at the seat rather than taken from your pile —
@@ -1424,7 +1486,7 @@ function GrindController:_emitBuyInChips(t, amount)
     if not you or not bank_xy then return end
     local stake   = Lookups.findById(Stakes,t.stake_id)
     local bb      = (stake and stake.bb) or 1
-    local palette = _paletteForStake(t.stake_id)
+    local palette = _paletteForAmount(t.stake_id, amount)
     local tier    = Denoms.tierFromUnit(amount / bb)
     local chips   = Denoms.breakdown(amount, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
     self:_queueBurst(bank_xy, you, chips, {
@@ -1443,7 +1505,7 @@ function GrindController:_emitCashOutChips(t, amount)
     if not you or not bank_xy then return end
     local stake   = Lookups.findById(Stakes,t.stake_id)
     local bb      = (stake and stake.bb) or 1
-    local palette = _paletteForStake(t.stake_id)
+    local palette = _paletteForAmount(t.stake_id, amount)
     local tier    = Denoms.tierFromUnit(amount / bb)
     local chips   = Denoms.breakdown(amount, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
     self:_queueBurst(you, bank_xy, chips, {
@@ -1470,7 +1532,7 @@ function GrindController:_emitMttPayoutChips(t, amount)
                     or { v.w * 0.5, v.h * 0.5 }
     local stake   = Lookups.findById(Stakes,t.stake_id)
     local bb      = (stake and stake.bb) or 1
-    local palette = _paletteForStake(t.stake_id)
+    local palette = _paletteForAmount(t.stake_id, amount)
     local tier    = Denoms.tierFromUnit(amount / bb)
     local chips   = Denoms.breakdown(amount, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
     self:_queueBurst(source, bank_xy, chips, {
@@ -1487,7 +1549,9 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
     local you_xy = _anchor(tbl, "you")
     local pot_xy = _anchor(tbl, "pot")
     if not you_xy or not pot_xy then return end
-    local palette = _paletteForStake(tbl.stake_id)
+    -- r.delta is a payout, not table money — at high multipliers it runs
+    -- straight past what the stake's four chips can express.
+    local palette = _paletteForAmount(tbl.stake_id, math.abs(r.delta or 0))
     local tier    = r.tier or "medium"
     -- No per-tier burst cap here any more. These are pile-to-pile
     -- transfers: capping the count would leave the destination short by
@@ -1507,18 +1571,12 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
     -- doesn't model stack-cap overflow.
     local theater_on = Constants.FEATURES and Constants.FEATURES.POKER_THEATER
 
-    -- A tier that detonates the pot doesn't ALSO carry it over: the
-    -- explosion's debris IS the payout — it splits in the air between
-    -- your stack and the bankroll and lands in both piles. Firing these
-    -- bursts too would deliver the same chips twice. Same tier data the
-    -- FX block below reads when it raises pot_explode_pending.
-    --
-    -- Only under the theater, where views/PokerEventAnims detonates at
-    -- pot_push and owns the whole split. The legacy path detonates from
-    -- TablePanel into the stack alone, so its overflow spill still has a
-    -- job to do.
-    local ft = FeedbackIntensity[tier]
-    local detonating = theater_on and (r.delta > 0) and ft and ft.chip_burst
+    -- Under the theater, the script's pot_push handler owns the entire
+    -- payout — it fabricates whatever the multipliers added on top of the
+    -- visible pot and splits it across the stack and the bankroll per the
+    -- buy-in cap, whether or not the pot detonated. So the overflow spill
+    -- below would be the same chips a second time.
+    local push_pays_out = theater_on and r.delta > 0
 
     if not theater_on and r.delta > 0 then
         local chips = Denoms.breakdown(r.delta, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
@@ -1557,7 +1615,7 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
         })
     end
 
-    if overflow_amount and overflow_amount > 0 and not detonating then
+    if overflow_amount and overflow_amount > 0 and not push_pays_out then
         local v = self.game.viewport or { w = 0, h = 0 }
         local bank_xy = AnchorRegistry.get("bankroll")
                         or { v.w * 0.5, v.h - 30 }
@@ -1592,7 +1650,7 @@ end
 function GrindController:_emitAmountExplosion(origin, amount, stake_id)
     if not origin or not amount or amount <= 0 then return end
     local chips = Denoms.breakdown(amount, ChipData.denominations,
-                                   _paletteForStake(stake_id),
+                                   _paletteForAmount(stake_id, amount),
                                    ChipData.tier_chip_target,
                                    Denoms.tierFromAmount(amount))
     if not chips or #chips == 0 then return end

@@ -38,6 +38,26 @@ local function _palette(stake_id)
     return ChipData.stake_palettes[stake_id] or ChipData.full_palette
 end
 
+-- As GrindController's _paletteForAmount: a stake's four-chip window is
+-- sized for table money, and a payout pushed through it composes as one
+-- top-denomination chip per unit. Fall back to the full ladder once the
+-- amount outruns the window. Matters here because pot_push asks for the
+-- whole payout, and if the pot pile can't supply the chips this is what
+-- composes them.
+local PALETTE_MAX_CHIPS = 60
+
+local function _paletteForAmount(stake_id, amount)
+    local pal, top = _palette(stake_id), 0
+    for _, idx in ipairs(pal) do
+        local d = ChipData.denominations[idx]
+        if d and d.value > top then top = d.value end
+    end
+    if top > 0 and (amount or 0) / top > PALETTE_MAX_CHIPS then
+        return ChipData.full_palette
+    end
+    return pal
+end
+
 -- Lay a pile out and return its chip slots in SCREEN space. One
 -- implementation, in views/ChipPile — a pile and anything acting on its
 -- individual chips have to agree to the pixel.
@@ -61,6 +81,54 @@ local function _chipFn(idx, with_label, tint, s)
     end
 end
 
+-- ── Splitting a burst across destinations ────────────────────────────
+-- `dests` is an ordered list of { key, xy [, amount] }: chips fill the
+-- first destination until its amount is used up, then spill into the
+-- next; the last has no limit. That's what a win bigger than the table's
+-- buy-in cap actually does — the stack takes what it can hold and the
+-- rest is yours — so the chips visibly split up in the air rather than
+-- all landing in one pile and quietly re-emitting the excess.
+local function _assignDests(taken, dests)
+    local out, di, filled = {}, 1, 0
+    for i, t in ipairs(taken) do
+        local d = ChipData.denominations[t.d]
+        local v = (d and d.value) or 0
+        while di < #dests and dests[di].amount
+              and (filled + v) > dests[di].amount + 1e-9 do
+            di, filled = di + 1, 0
+        end
+        out[i] = di
+        filled = filled + v
+    end
+    return out
+end
+
+-- Assign, then reserve each destination's share in its own pile, all
+-- before a single chip flies. Returns taken-index → dest entry and
+-- taken-index → reserved slot. Shared by transfer and explodeTaken so
+-- the two can't drift on how a split burst is booked.
+local function _reserveAcross(taken, dests)
+    local dest_of, slot_of = {}, {}
+    if not dests or #dests == 0 then return dest_of, slot_of end
+
+    local assign, grouped = _assignDests(taken, dests), {}
+    for i = 1, #taken do
+        local d = assign[i]
+        dest_of[i] = dests[d]
+        local g = grouped[d]
+        if not g then g = { idx = {}, den = {} }; grouped[d] = g end
+        g.idx[#g.idx + 1] = i
+        g.den[#g.den + 1] = taken[i].d
+    end
+    for d, g in pairs(grouped) do
+        local reserved = dests[d].key and ChipPile.reserve(dests[d].key, g.den)
+        if reserved then
+            for j, ti in ipairs(g.idx) do slot_of[ti] = reserved[j] end
+        end
+    end
+    return dest_of, slot_of
+end
+
 -- Compose a burst from a dollar amount. Picks a chip-tier (used for
 -- denomination weighting) from options.tier or by inferring from the
 -- amount. Bails silently if breakdown is empty.
@@ -68,7 +136,7 @@ function ChipFlight.fly(source, dest, amount, stake_id, options)
     if not source or not dest then return end
     if not amount or amount <= 0 then return end
     options = options or {}
-    local palette = _palette(stake_id)
+    local palette = _paletteForAmount(stake_id, amount)
     local tier    = options.tier or Denoms.tierFromAmount(amount)
     local chips   = Denoms.breakdown(amount, ChipData.denominations,
                                      palette, ChipData.tier_chip_target, tier)
@@ -131,6 +199,9 @@ end
 --   chips                 — pre-broken-down denomination list, used
 --                           instead of breaking down `amount`
 --   stake_id / palette / tier — how to compose when there's no source pile
+--   budget                — real seconds this burst has before whatever
+--                           comes next; the flight time and stagger are
+--                           scaled down together to fit inside it
 --   tumble / tumble_opts / chip_tint / arrival_sound / duration / stagger
 --   plus FlightSystem.emit options (arc_height)
 --
@@ -139,6 +210,8 @@ end
 -- point. FlightSystem's own MAX_IN_FLIGHT is the backstop, and it deposits
 -- what it drops.
 local TRANSFER_SPREAD = 0.35   -- seconds the whole column takes to launch
+local MIN_FLIGHT      = 0.14   -- below this a flight reads as a teleport
+local BUDGET_USE      = 0.85   -- land a little before the next thing happens
 
 function ChipFlight.transfer(source, dest, options)
     options = options or {}
@@ -156,7 +229,8 @@ function ChipFlight.transfer(source, dest, options)
         if not chips or #chips == 0 then
             local amount = options.amount
             if not amount or amount <= 0 then return end
-            local palette = options.palette or _palette(options.stake_id)
+            local palette = options.palette
+                            or _paletteForAmount(options.stake_id, amount)
             local tier    = options.tier or Denoms.tierFromAmount(amount)
             chips = Denoms.breakdown(amount, ChipData.denominations, palette,
                                      ChipData.tier_chip_target, tier)
@@ -168,39 +242,92 @@ function ChipFlight.transfer(source, dest, options)
         end
     end
 
-    -- ── 2. Slots open at the destination.
-    local slots
-    if options.dest_key then
-        local denoms = {}
-        for i, t in ipairs(taken) do denoms[i] = t.d end
-        slots = ChipPile.reserve(options.dest_key, denoms)
+    -- ── 1b. Fabrication. A payout can be worth far more than the chips
+    -- that were physically on the table — late-game multipliers turn a
+    -- $2.44 pot into a four-figure win — and the pot must NOT be inflated
+    -- during the hand to hint at that. So the shortfall is conjured HERE,
+    -- at the moment of the payout, and flies alongside the real chips.
+    --
+    -- It composes off the full ladder rather than the stake's four-chip
+    -- window: the stake palette exists to keep a table's chips legible,
+    -- and forcing a four-figure sum through a $1 top denomination is what
+    -- produces a hundred identical chips.
+    if options.fabricate and options.amount then
+        local have = 0
+        for _, t in ipairs(taken) do
+            local d = ChipData.denominations[t.d]
+            have = have + ((d and d.value) or 0)
+        end
+        local short = options.amount - have
+        if short > 0 then
+            local pal   = options.fab_palette or ChipData.full_palette
+            local extra = Denoms.breakdown(short, ChipData.denominations, pal,
+                                           ChipData.tier_chip_target,
+                                           options.tier or Denoms.tierFromAmount(short))
+            local sx = (source and source[1]) or taken[1] and taken[1].x
+            local sy = (source and source[2]) or taken[1] and taken[1].y
+            for _, d in ipairs(extra or {}) do
+                taken[#taken + 1] = { d = d, x = sx, y = sy }
+            end
+        end
     end
-    if not slots and not dest then return end
+
+    -- ── 2. Slots open at the destination(s). A payout bigger than the
+    -- table's buy-in cap lands in two piles, so this takes the same
+    -- ordered dests list the detonation does; dest_key is the shorthand
+    -- for the ordinary single-destination case.
+    local dests = options.dests
+    if not dests and options.dest_key then
+        dests = { { key = options.dest_key, xy = dest } }
+    end
+    local dest_of, slot_of = _reserveAcross(taken, dests)
+    if not dests and not dest then return end
 
     -- Chips render at the scale of the pile they're joining — they're
     -- about to become part of it.
     local scale = options.scale
-                  or (options.dest_key and ChipPile.scale(options.dest_key))
+                  or (dests and dests[1] and dests[1].key and ChipPile.scale(dests[1].key))
                   or (options.source_key and ChipPile.scale(options.source_key))
                   or 1
 
     -- ── 3. One flight per chip.
+    --
+    -- The burst is (last chip's launch delay) + (one flight) long, and
+    -- `budget` is how many real seconds it has before whatever comes next
+    -- — the next action in the hand, usually. Overrunning it means chips
+    -- still crossing the felt while the thing they represent is over, so
+    -- the flight time and the stagger are scaled DOWN together to fit,
+    -- keeping the burst's character instead of just truncating it.
+    --
+    -- Never below MIN_FLIGHT: past that it stops reading as travel and
+    -- becomes the teleport this whole system exists to get rid of.
     local n       = #taken
-    local stagger = options.stagger or math.min(0.03, TRANSFER_SPREAD / n)
+    local spread  = math.min(0.03 * math.max(0, n - 1), TRANSFER_SPREAD)
+    if options.budget then
+        local avail = math.max(MIN_FLIGHT, options.budget * BUDGET_USE)
+        local want  = duration + spread
+        if want > avail then
+            local k  = avail / want
+            duration = math.max(MIN_FLIGHT, duration * k)
+            spread   = spread * k
+        end
+    end
+    local stagger = options.stagger or ((n > 1) and (spread / (n - 1)) or 0)
     for i = 1, n do
         local t  = taken[i]
-        local s  = slots and slots[i]
+        local s  = slot_of[i]
+        local d  = dest_of[i]
         local sx = t.x or (source and source[1]) or (dest and dest[1])
         local sy = t.y or (source and source[2]) or (dest and dest[2])
-        local dx = (s and s.x) or (dest and dest[1]) or sx
-        local dy = (s and s.y) or (dest and dest[2]) or sy
+        local dx = (s and s.x) or (d and d.xy and d.xy[1]) or (dest and dest[1]) or sx
+        local dy = (s and s.y) or (d and d.xy and d.xy[2]) or (dest and dest[2]) or sy
 
         -- A pile that has never been drawn has no slots and a seat whose
         -- panel hasn't rendered yet has no anchor. Skip the flight rather
         -- than launching from nowhere — but still complete the handover,
         -- or the destination would sit permanently one chip short.
         if not (sx and sy and dx and dy) then
-            if s then ChipPile.accept(options.dest_key, s.chip) end
+            if s then ChipPile.accept(d and d.key, s.chip) end
         else
             local fn = _chipFn(t.d, (s and s.with_label) ~= false, tint, scale)
             if options.tumble ~= false then
@@ -213,7 +340,7 @@ function ChipFlight.transfer(source, dest, options)
                 -- ── 4. The handover. The chip stops being a flight and
                 -- becomes part of the pile at the pixel it stopped on.
                 on_arrive  = s and function()
-                    ChipPile.accept(options.dest_key, s.chip)
+                    ChipPile.accept(d and d.key, s.chip)
                 end or nil,
             })
         end
@@ -295,28 +422,6 @@ local function _scatterWithin(options)
     options.rise       = options.rise       or m * 0.22
     options.arc_min    = options.arc_min    or m * 0.18
     options.arc_max    = options.arc_max    or m * 0.45
-end
-
--- Hand each chip a destination. `dests` is an ordered list of
--- { key, xy [, amount] }: chips fill the first destination until its
--- amount is used up, then spill into the next. That's what a win bigger
--- than the table's buy-in cap actually does — the stack takes what it can
--- hold and the rest is yours, so the chips should visibly split up in the
--- air rather than all landing in one pile and quietly re-emitting.
--- The final destination has no limit; it soaks up whatever is left.
-local function _assignDests(taken, dests)
-    local out, di, filled = {}, 1, 0
-    for i, t in ipairs(taken) do
-        local d = ChipData.denominations[t.d]
-        local v = (d and d.value) or 0
-        while di < #dests and dests[di].amount
-              and (filled + v) > dests[di].amount + 1e-9 do
-            di, filled = di + 1, 0
-        end
-        out[i] = di
-        filled = filled + v
-    end
-    return out
 end
 
 -- ── Explode a pile in place ──────────────────────────────────────────
@@ -430,6 +535,30 @@ function ChipFlight.explodeTaken(taken, options)
     local s      = options.scale or 1
     local labels = (options.labels ~= false)
 
+    -- Fabrication, as in transfer: the pile that comes apart is the real
+    -- pot, but what regroups is the real PAYOUT, which late-game
+    -- multipliers can push orders of magnitude higher. The extra chips
+    -- join the burst from inside the pile's own footprint so they come
+    -- apart with it instead of appearing beside it.
+    if options.fabricate then
+        local have, base_n = 0, #taken
+        for _, t in ipairs(taken) do
+            local d = ChipData.denominations[t.d]
+            have = have + ((d and d.value) or 0)
+        end
+        local short = options.fabricate - have
+        if short > 0 then
+            local extra = Denoms.breakdown(short, ChipData.denominations,
+                                           options.fab_palette or ChipData.full_palette,
+                                           ChipData.tier_chip_target,
+                                           Denoms.tierFromAmount(short))
+            for _, d in ipairs(extra or {}) do
+                local src = taken[love.math.random(1, base_n)]
+                taken[#taken + 1] = { d = d, x = src.x, y = src.y }
+            end
+        end
+    end
+
     local dests = options.dests
     if not dests and (options.dest_key or options.dest) then
         dests = { { key = options.dest_key, xy = options.dest } }
@@ -441,24 +570,7 @@ function ChipFlight.explodeTaken(taken, options)
     -- in its own destination pile. Those piles hold the slots open for the
     -- whole explosion, so neither can complete itself while its chips are
     -- still in the air.
-    local dest_of, slot_of = {}, {}
-    if gathering then
-        local assign, grouped = _assignDests(taken, dests), {}
-        for i = 1, #taken do
-            local d = assign[i]
-            dest_of[i] = dests[d]
-            local g = grouped[d]
-            if not g then g = { idx = {}, den = {} }; grouped[d] = g end
-            g.idx[#g.idx + 1] = i
-            g.den[#g.den + 1] = taken[i].d
-        end
-        for d, g in pairs(grouped) do
-            local reserved = dests[d].key and ChipPile.reserve(dests[d].key, g.den)
-            if reserved then
-                for j, ti in ipairs(g.idx) do slot_of[ti] = reserved[j] end
-            end
-        end
-    end
+    local dest_of, slot_of = _reserveAcross(taken, gathering and dests or nil)
 
     local entities = {}
     for i, t in ipairs(taken) do
@@ -529,7 +641,8 @@ function ChipFlight.explodeAmount(x, y, amount, stake_id, options)
     options = options or {}
     local tier  = options.tier or Denoms.tierFromAmount(amount)
     local chips = Denoms.breakdown(amount, ChipData.denominations,
-                                   _palette(stake_id), ChipData.tier_chip_target, tier)
+                                   _paletteForAmount(stake_id, amount),
+                                   ChipData.tier_chip_target, tier)
     if not chips or #chips == 0 then return end
     ChipFlight.explodeStack(x, y, chips, options)
 end

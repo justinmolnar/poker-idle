@@ -17,6 +17,20 @@
 
 local DenominationBreakdown = {}
 
+-- Hard ceiling on tokens returned, whatever the amount.
+--
+-- Without it this is unbounded: the fill loop emits one token per unit of
+-- the primary denomination, so an amount far past the top of the ladder
+-- emits amount/top_value tokens. A trillion against a ladder topping out
+-- at $1M is a MILLION-entry table — built on every recomposition, then
+-- walked every frame by whatever lays the pile out. That is a freeze, not
+-- a slowdown, and it arrives exactly when a player's numbers get big.
+--
+-- The ladder in data/chips.lua should always reach high enough that this
+-- never binds; the cap is here so that running off the end of it degrades
+-- to "the pile under-represents the value" instead of locking the game.
+local MAX_TOKENS = 200
+
 -- ── Tier inference for surfaces without an explicit tier hint ────────
 -- Maps a magnitude in caller-defined units to the four target buckets.
 -- Thresholds match the unit conventions in the consuming data file's tier
@@ -94,19 +108,31 @@ function DenominationBreakdown.breakdown(amount, denominations, palette_indices,
         end
     end
 
-    -- Fill primary.
-    while remaining >= primary.value - 1e-9 do
+    -- Fill primary. Counted rather than looped-until-empty: the count is
+    -- what the cap has to be applied to, and an amount past the top of
+    -- the ladder makes that count astronomically large.
+    -- Relative epsilon, not the absolute 1e-9 the old loop compared
+    -- against: it has to absorb float residue on a $0.01 rung and on a
+    -- $5e17 one, and an absolute tolerance can only suit one of them.
+    local n_primary = math.floor(remaining / primary.value + 1e-6)
+    if n_primary > MAX_TOKENS - #tokens then n_primary = MAX_TOKENS - #tokens end
+    for _ = 1, n_primary do
         tokens[#tokens + 1] = primary.idx
-        remaining = remaining - primary.value
     end
+    remaining = remaining - n_primary * primary.value
 
-    -- Greedy change with smaller denominations.
+    -- Greedy change with smaller denominations. Naturally short — each
+    -- rung contributes fewer tokens than its ratio to the next — but it
+    -- shares the same budget so the total can't drift past the cap.
     for i = primary_idx + 1, #denoms do
+        if #tokens >= MAX_TOKENS then break end
         local d = denoms[i]
-        while remaining >= d.value - 1e-9 do
+        local n = math.floor(remaining / d.value + 1e-6)
+        if n > MAX_TOKENS - #tokens then n = MAX_TOKENS - #tokens end
+        for _ = 1, n do
             tokens[#tokens + 1] = d.idx
-            remaining = remaining - d.value
         end
+        remaining = remaining - n * d.value
     end
 
     return tokens

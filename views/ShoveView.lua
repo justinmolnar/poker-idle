@@ -28,6 +28,7 @@ local Constants              = require("data.constants")
 local Decks                  = require("models.Decks")
 local SpriteRenderer         = require("services.SpriteRenderer")
 local Chips                  = require("views.Chips")
+local Tumble                 = require("services.Tumble")
 local DenominationBreakdown  = require("services.DenominationBreakdown")
 local ChipData               = require("data.chips")
 local CardSprites            = require("views.CardSprites")
@@ -125,6 +126,18 @@ local BUILDUP_INTERVAL_START   = 0.30      -- delay before chip 1
 local BUILDUP_INTERVAL_END     = 0.05      -- delay before final chip
 local BUILDUP_MAX_CHIPS        = 30
 local BUILDUP_MIN_CHIPS        = 8
+-- Fake-3D character for a buildup chip's flight (services/Tumble). Exactly
+-- one flip and one spin from phase 0, so the chip is face-on and upright
+-- at BOTH ends: it leaves looking like a chip in the stack and arrives
+-- looking like a chip in the pot, with no pose to snap out of when the
+-- pile takes over drawing it. `loft` is the new part — the chip comes
+-- toward the camera on the way over, which is what makes the arc the
+-- flight already has read as height rather than as a detour. Axis and
+-- spin direction are left to randomise per chip.
+local BUILDUP_TUMBLE = {
+    flips = 1, spins = 1, phase = 0, min_squash = 0.28,
+    loft  = { 0.30, 0.50 },
+}
 
 function ShoveView:new(game, ss)
     local self = setmetatable({
@@ -216,10 +229,18 @@ function ShoveView:beginBuildup(rates)
         local interval = BUILDUP_INTERVAL_START
             + (BUILDUP_INTERVAL_END - BUILDUP_INTERVAL_START) * frac
         t_acc = t_acc + interval
+        local denom = chips[i]
         self.buildup_chips[i] = {
-            denom_idx = chips[i],
+            denom_idx = denom,
             emit_t    = t_acc,
             arrive_t  = t_acc + BUILDUP_FLIGHT_DURATION,
+            -- Fake-3D motion for the flight, rolled ONCE per chip here.
+            -- services/Tumble randomises its axis and spin direction per
+            -- wrap, so wrapping in the draw would reroll them every frame
+            -- and the chip would jitter instead of tumble.
+            render_fn = Tumble.wrap(function(px, py)
+                Chips.drawChip(px, py, denom, 1.0, false, nil)
+            end, BUILDUP_TUMBLE),
         }
     end
     self.buildup_arrived_count = 0
@@ -620,8 +641,10 @@ function ShoveView:_drawBuildup(W, H)
             { align = "center" })
     end
 
-    -- In-flight chips: parabolic arc from stack to pot. Drawn as
-    -- single chips at their interpolated positions.
+    -- In-flight chips: parabolic arc from stack to pot, tumbling and
+    -- rising toward the camera as they go. Position eases out; the
+    -- tumble takes RAW t, so its loft peaks at the same instant the arc
+    -- does and the chip is largest at the top of its own arc.
     for _, c in ipairs(in_flight) do
         local t   = (self.phase_t - c.emit_t) / BUILDUP_FLIGHT_DURATION
         if t < 0 then t = 0 elseif t > 1 then t = 1 end
@@ -629,7 +652,11 @@ function ShoveView:_drawBuildup(W, H)
         local cx  = stack_cx + (pot_cx - stack_cx) * et
         local cy  = stack_cy + (pot_cy - stack_cy) * et
         cy = cy - arc_lift * math.sin(math.pi * t)
-        Chips.drawChip(cx, cy, c.denom_idx, 1.0, false, nil)
+        if c.render_fn then
+            c.render_fn(cx, cy, t)
+        else
+            Chips.drawChip(cx, cy, c.denom_idx, 1.0, false, nil)
+        end
     end
 
     -- Lock-in flash + "ALL IN" headline.
