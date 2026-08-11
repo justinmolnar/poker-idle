@@ -97,13 +97,21 @@ Work:
 - Record: chips banked, bounties hit, hands played, tables run, minutes
   elapsed, run-upgrade purchases made.
 
-Done when: you have those six numbers written down.
+**MEASURED RESULTS (from analytics log `analytics_1784478043_72896.json`, 2026-08-10):**
+- **Chips Banked:** 12 chips
+- **Bounties Hit / Pot Tiers:** 301 Jackpot, 215 Small, 183 Large, 85 Medium, 8 MTT payouts
+- **Hands Played:** 792 hands (~43.5 hands/min)
+- **Tables Run / Game Types:** Primary Heads-Up (657 hands, 83%), MTT (91 hands), Zoom (30 hands), 6-Max (14 hands)
+- **Minutes Elapsed:** 18.22 minutes
+- **Run Upgrades Purchased:** 20 upgrades (9 Sharper Reads, 9 Pot Control, 2 Focus)
 
-Timebox: 30 minutes. This is the stall-breaker. It is small, concrete,
-finishes in one sitting, and unblocks the largest unknown in the project.
+**Conclusion:** Current yield is ~12-13 chips per 20-min run, which is ~1/3 of the spec's ~37 chip target.
+
+Done when: you have those six numbers written down. **[COMPLETE - 2026-08-10]**
 
 
-## Phase 1 — Make numbers derivable (Aug 10-16)
+
+## Phase 1 — Make numbers derivable (Aug 10-16) 
 
 Goal: one file holds the taste inputs; everything else is computed.
 

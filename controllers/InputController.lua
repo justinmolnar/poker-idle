@@ -89,6 +89,21 @@ function InputController:wire()
             print(string.format("[debug] overlay = %s", tostring(game.debug.overlay)))
         end)
 
+    -- F3 cycles the payout-source breakdown appended to every EV tooltip:
+    -- off → grid → focused → totals → off. Three shapes of the same data
+    -- (models/payout_breakdown) so they can be compared in place; two get
+    -- deleted once one wins.
+    dispatcher:on("keypressed",
+        function(key) return key == "f3" end,
+        function()
+            local shapes = require("views.TablePanelStats").PAYOUT_SHAPES
+            local n = (game.debug.payout_shape or 0) + 1
+            if n > #shapes then n = 0 end
+            game.debug.payout_shape = n
+            print(string.format("[debug] payout breakdown = %s",
+                n == 0 and "off" or shapes[n]))
+        end)
+
     -- ── Debug bankroll grant (dev hotkeys) ──────────────────────────────
     --   `-` removes $1,000 from bankroll (clamped at 0)
     --   `=` adds    $1,000 to bankroll

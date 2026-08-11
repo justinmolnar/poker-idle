@@ -544,7 +544,12 @@ end
 --
 -- `registry` is the EffectsRegistry; `catalog` and `run_upgrades` are the
 -- data tables (passed in instead of required so this stays testable).
-function GameState:computeEffects(registry, catalog, run_upgrades, transient_params)
+-- `exclude` (optional) is a set of ids — catalog items, decks, run
+-- upgrades — to leave out of the rollup. It exists so the payout
+-- breakdown can price a single source by computing the world without it
+-- (models/payout_breakdown.lua). A probe like that must never be cached:
+-- effects_cache is only written for the real, complete rollup.
+function GameState:computeEffects(registry, catalog, run_upgrades, transient_params, exclude)
     local ctx = {}
     if transient_params then
         for k, v in pairs(transient_params) do
@@ -578,6 +583,7 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
     -- — handicaps / debuffs / anti-perks / lift to a service unchanged.)
     for _, item in ipairs(catalog) do
         if owned_set[item.id]
+           and not (exclude and exclude[item.id])
            and not (item.removed_by and owned_set[item.removed_by]) then
             if corrupted_set[item.id] and item.corrupt and item.corrupt.effects then
                 local temp_item = { effects = item.corrupt.effects }
@@ -598,7 +604,7 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
         -- (ctx.shove_base). Seeded before applyEffects so the applicator
         -- reads it. Transient — not persisted.
         ctx.total_deck_levels = Decks.totalLevels(self)
-        Decks.applyEffects(self, registry, ctx)
+        Decks.applyEffects(self, registry, ctx, exclude)
     end
 
     -- Run upgrades stack: each level applies the item's effect block once.
@@ -609,6 +615,7 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
     local upgrade_mult = ctx.run_upgrade_strength_mult or 1.0
     for _, item in ipairs(run_upgrades) do
         local lvl = self.run_upgrade_levels[item.id] or 0
+        if exclude and exclude[item.id] then lvl = 0 end
         if lvl > 0 then
             if upgrade_mult ~= 1.0 then
                 local scaled_effects = {}
@@ -635,7 +642,9 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
         end
     end
 
-    self.effects_cache = ctx
+    -- Only the complete rollup is the cache. A leave-one-out probe would
+    -- otherwise poison every later read with a world missing an item.
+    if not exclude then self.effects_cache = ctx end
     return ctx
 end
 

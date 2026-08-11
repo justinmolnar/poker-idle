@@ -19,6 +19,7 @@ local MttPayouts  = require("data.mtt_payouts")
 local Lookups     = require("utils.lookups")
 local TierGlyph   = require("views.TierGlyph")
 local OutcomeMath = require("models.outcome_math")
+local PayoutBreakdown = require("models.payout_breakdown")
 local IconText    = require("views.IconText")
 local Anchors     = require("services.AnchorRegistry")
 local RollingValue = require("services.RollingValue")
@@ -85,10 +86,172 @@ local function row(text, style, color)
     return { text = text, style = style or "sm", color_token = color }
 end
 
+local function iconRow(game, str, style, color)
+    local fstyle = style or "sm"
+    return {
+        measure = function(fonts)
+            local f = fonts[fstyle] or fonts.sm
+            return IconText.measure(str, f), f:getHeight()
+        end,
+        render  = function(x, y, fonts)
+            local f = fonts[fstyle] or fonts.sm
+            local c = color and ((Theme.data and Theme.data[color])
+                       or (Theme.status and Theme.status[color])
+                       or (Theme.fg and Theme.fg[color])) or Theme.fg.heading
+            IconText.draw(game, str, x, y, f, c, 1)
+        end,
+    }
+end
+
 -- Cash-table breakdown: how often you win, what the average win/loss
 -- looks like, the expected per-hand $ value, and the focus penalty
 -- when applicable. Rebuilt from the same pool stats the EV readout
 -- below the panel uses.
+local function buildCashOverviewRenderRow(header, bb, ev_dollars, ev_bb, win_chance, win_avg_dollars, win_dist, loss_avg_dollars, loss_dist)
+    local present_win = {}
+    for _, k in ipairs(TIER_ORDER) do
+        local p = (win_dist and win_dist[k]) or 0
+        if p >= 0.0005 then present_win[#present_win + 1] = { tier = k, pct = fmtPctClean(p) } end
+    end
+    local present_loss = {}
+    for _, k in ipairs(TIER_ORDER) do
+        local p = (loss_dist and loss_dist[k]) or 0
+        if p >= 0.0005 then present_loss[#present_loss + 1] = { tier = k, pct = fmtPctClean(p) } end
+    end
+
+    local loss_chance = 1.0 - (win_chance or 0)
+    local TIER_COUNT = { small = 1, medium = 2, large = 3, jackpot = 4, stack = 4 }
+
+    local function mixWidth(present, fonts)
+        local f_sm = fonts.sm
+        local r = TierGlyph.radius(f_sm:getHeight())
+        local SEG_GAP = 12
+        local w = 0
+        for _, seg in ipairs(present) do
+            w = w + r * 2 + 3 + f_sm:getWidth(seg.pct) + SEG_GAP
+        end
+        return w
+    end
+
+    local function drawMixRow(x, y, present, outcome, fonts)
+        local f_sm = fonts.sm
+        local fh = f_sm:getHeight()
+        local r = TierGlyph.radius(fh)
+        local SEG_GAP = 12
+        local step = math.max(1, math.floor(r * 0.55))
+        local text_y = y
+        local text_center_y = y + math.floor(fh * 0.5)
+        local cx = x + r
+        love.graphics.setFont(f_sm)
+        for _, seg in ipairs(present) do
+            local count = TIER_COUNT[seg.tier] or 1
+            local baseline = text_center_y + math.floor((count - 1) * step * 0.5)
+            TierGlyph.draw(cx, baseline, seg.tier, r, outcome)
+            Theme.setColor(TierGlyph.color(seg.tier, outcome))
+            love.graphics.print(seg.pct, cx + r + 3, text_y)
+            cx = cx + r * 2 + 3 + f_sm:getWidth(seg.pct) + SEG_GAP
+        end
+    end
+
+    local function calcWidth(fonts)
+        local f_md = fonts.md or fonts.sm
+        local f_sm = fonts.sm
+        local title_w = f_md:getWidth(header) + f_sm:getWidth(string.format("  (1 bb = %s)", fmtMoney(bb)))
+        local ev1 = string.format("Expected: %s/hand", fmtMoneySigned(ev_dollars))
+        local ev2 = string.format("(%+.1f bb/h)", ev_bb)
+        local ev_w = f_md:getWidth(ev1) + f_md:getWidth(ev2) + 8
+
+        local win_hdr = string.format("Win Rate: %s · Avg Win: %s", fmtPctClean(win_chance), fmtMoney(win_avg_dollars))
+        local win_w = math.max(f_sm:getWidth(win_hdr), mixWidth(present_win, fonts))
+
+        local loss_hdr = string.format("Loss Rate: %s · Avg Loss: %s", fmtPctClean(loss_chance), fmtMoney(loss_avg_dollars))
+        local loss_w = math.max(f_sm:getWidth(loss_hdr), mixWidth(present_loss, fonts))
+
+        return math.max(260, title_w, ev_w, win_w, loss_w)
+    end
+
+    local function measure(fonts)
+        local f_md = fonts.md or fonts.sm
+        local f_sm = fonts.sm
+        local fh_md = f_md:getHeight()
+        local fh_sm = f_sm:getHeight()
+
+        local win_h = fh_sm + (#present_win > 0 and (fh_sm + 2) or 0)
+        local loss_h = fh_sm + (#present_loss > 0 and (fh_sm + 2) or 0)
+
+        local total_h = fh_md + fh_md + 6 + win_h + 8 + loss_h
+        local w = calcWidth(fonts)
+        return w, total_h
+    end
+
+    local function render(x, y, fonts)
+        local f_md = fonts.md or fonts.sm
+        local f_sm = fonts.sm
+        local fh_md = f_md:getHeight()
+        local fh_sm = f_sm:getHeight()
+
+        local cy = y
+
+        -- 1. TITLE & BLIND RATE ON SAME LINE (PERFECT BASELINE ALIGNMENT)
+        love.graphics.setFont(f_md)
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.print(header, x, cy)
+        local hw = f_md:getWidth(header)
+
+        love.graphics.setFont(f_sm)
+        Theme.setColor(Theme.fg.muted)
+        local offset_y = math.max(0, math.floor((fh_md - fh_sm) * 0.35))
+        love.graphics.print(string.format("  (1 bb = %s)", fmtMoney(bb)), x + hw, cy + offset_y)
+        cy = cy + fh_md + 2
+
+        -- 2. EXPECTED EV (HEADLINE RIGHT BELOW TITLE)
+        local ev_color_token = (ev_bb > 0.05) and "good"
+                            or (ev_bb < -0.05) and "error"
+                            or "muted"
+        local ev_c = (ev_color_token == "good" and Theme.status.good)
+                  or (ev_color_token == "error" and Theme.status.error)
+                  or Theme.fg.muted
+
+        love.graphics.setFont(f_md)
+        Theme.setColor(ev_c)
+        local ev1 = string.format("Expected: %s/hand", fmtMoneySigned(ev_dollars))
+        local ev2 = string.format("(%+.1f bb/h)", ev_bb)
+        love.graphics.print(ev1, x, cy)
+        local ev1_w = f_md:getWidth(ev1)
+        Theme.setColor(ev_c, 0.8)
+        love.graphics.print(ev2, x + ev1_w + 6, cy)
+        cy = cy + fh_md + 6
+
+        -- 3. WIN SECTION (Header on line 1, Chip icons on line 2)
+        love.graphics.setFont(f_sm)
+        Theme.setColor(Theme.status.good)
+        local win_hdr_str = string.format("Win Rate: %s · Avg Win: %s", fmtPctClean(win_chance), fmtMoney(win_avg_dollars))
+        love.graphics.print(win_hdr_str, x, cy)
+        cy = cy + fh_sm + 2
+
+        if #present_win > 0 then
+            drawMixRow(x, cy, present_win, "win", fonts)
+            cy = cy + fh_sm + 2
+        end
+
+        cy = cy + 8 -- DISTINCT GAP BETWEEN WIN GROUP AND LOSS GROUP
+
+        -- 4. LOSS SECTION (Header on line 1, Chip icons on line 2)
+        love.graphics.setFont(f_sm)
+        Theme.setColor(Theme.status.error or Theme.fg.muted)
+        local loss_hdr_str = string.format("Loss Rate: %s · Avg Loss: %s", fmtPctClean(loss_chance), fmtMoney(loss_avg_dollars))
+        love.graphics.print(loss_hdr_str, x, cy)
+        cy = cy + fh_sm + 2
+
+        if #present_loss > 0 then
+            drawMixRow(x, cy, present_loss, "loss", fonts)
+            cy = cy + fh_sm + 2
+        end
+    end
+
+    return { measure = measure, render = render }
+end
+
 local function buildCashLines(tbl, controller, stats)
     local bb = (stats.stake and stats.stake.bb) or 1
     if bb <= 0 then bb = 1 end
@@ -98,81 +261,14 @@ local function buildCashLines(tbl, controller, stats)
     local loss_avg_dollars = stats.pool.loss_avg_bb * bb * lm
     local ev_bb = (stats.pool.ev_per_hand or 0) / bb
 
-    -- Tier mix as shared TierGlyph chip-stacks + percentages, skipping tiers
-    -- with ~zero probability so heavily-shifted distributions read tight.
-    -- Returns a custom render row the Tooltip widget draws via its
-    -- draw-callback support.
-    local SEG_GAP = 12
-    local function tierMixLine(dist, outcome)
-        local present = {}
-        for _, k in ipairs(TIER_ORDER) do
-            local p = dist[k] or 0
-            if p >= 0.0005 then
-                present[#present + 1] = { tier = k, pct = fmtPctClean(p) }
-            end
-        end
-        if #present == 0 then return nil end
-
-        local function metrics(fonts)
-            local f = fonts.sm
-            local r = TierGlyph.radius(f:getHeight())
-            return f, r, f:getHeight() + r * 3
-        end
-
-        local function measure(fonts)
-            local f, r, row_h = metrics(fonts)
-            local w = 4
-            for _, seg in ipairs(present) do
-                w = w + r * 2 + 3 + f:getWidth(seg.pct) + SEG_GAP
-            end
-            return w, row_h
-        end
-
-        local function render(x, y, fonts)
-            local f, r, row_h = metrics(fonts)
-            local baseline = y + row_h - r
-            local text_y   = y + row_h - f:getHeight()
-            local cx = x + 4 + r
-            love.graphics.setFont(f)
-            for _, seg in ipairs(present) do
-                TierGlyph.draw(cx, baseline, seg.tier, r, outcome)
-                Theme.setColor(TierGlyph.color(seg.tier, outcome))
-                love.graphics.print(seg.pct, cx + r + 3, text_y)
-                cx = cx + r * 2 + 3 + f:getWidth(seg.pct) + SEG_GAP
-            end
-        end
-
-        return { render = render, measure = measure }
-    end
-
     local header = string.format("%s · %s",
         stats.stake.display_name or stats.stake.id or "?",
         stats.gtype.short        or stats.gtype.id or "?")
+
     local lines = {
-        row(header, "md"),
-        -- Blind structure lives here and nowhere else (tooltip flavor).
-        -- bb only — the sb never renders.
-        row("1 bb = " .. fmtMoney(bb), "sm", "muted"),
-        row("Win rate: " .. fmtPctClean(stats.pool.win_chance)),
-        row(string.format("Avg win:  %s",  fmtMoney(win_avg_dollars))),
+        buildCashOverviewRenderRow(header, bb, stats.pool.ev_per_hand or 0, ev_bb, stats.pool.win_chance or 0, win_avg_dollars, stats.pool.win_dist, loss_avg_dollars, stats.pool.loss_dist)
     }
-    local win_mix = tierMixLine(stats.pool.win_dist, "win")
-    if win_mix then lines[#lines + 1] = win_mix end
-    lines[#lines + 1] = row(string.format("Avg loss: %s", fmtMoney(loss_avg_dollars)))
-    local loss_mix = tierMixLine(stats.pool.loss_dist, "loss")
-    if loss_mix then lines[#lines + 1] = loss_mix end
 
-    -- Headline EV. Bigger font + status color so it lands as the
-    -- takeaway line. Sign decides the color.
-    local ev_color = (ev_bb > 0.05) and "good"
-                  or (ev_bb < -0.05) and "error"
-                  or "muted"
-    lines[#lines + 1] = row(string.format("Expected: %s/hand  (%+.1f bb/h)",
-        fmtMoney(stats.pool.ev_per_hand or 0), ev_bb), "md", ev_color)
-
-    -- Focus only matters when the player's over capacity. Hide the
-    -- line when fmult == 1 (no penalty) — saves a noisy row at low
-    -- table counts.
     if controller and controller.currentFocusMult then
         local fmult = controller:currentFocusMult()
         if fmult < 0.999 then
@@ -180,9 +276,10 @@ local function buildCashLines(tbl, controller, stats)
             local n_open = controller.pool and controller.pool:count() or 0
             local eff_ev = (stats.pool.ev_per_hand or 0) * fmult
             local eff_bb = eff_ev / bb
+            lines[#lines + 1] = row("", "xs")
             lines[#lines + 1] = row(string.format(
                 "Focus %d/%d ×%.2f → %s/hand  (%+.1f bb/h)",
-                n_open, fcap, fmult, fmtMoney(eff_ev), eff_bb),
+                n_open, fcap, fmult, fmtMoneySigned(eff_ev), eff_bb),
                 "sm", "warn")
         end
     end
@@ -282,6 +379,9 @@ local function buildLegacyMttLines(tbl, controller, stats)
 
     local lines = {
         row(header, "md"),
+        row("1 bb = " .. fmtMoney((stats.stake and stats.stake.bb) or 0), "sm", "muted"),
+        row(string.format("Expected cash: %s$%.2f per run", ev_sign, math.abs(net_ev)), "md", ev_color),
+        row("", "xs"),
         row("Win hands in a row — one loss ends the run.", "sm", "muted"),
         row("Win rate: " .. fmtPctClean(p) .. " per hand"),
         row("Payout · chance to finish there:", "sm", "muted"),
@@ -295,14 +395,476 @@ local function buildLegacyMttLines(tbl, controller, stats)
     end
     lines[#lines + 1] = iconRow(string.format(
         "Winning all %d also pays {chip}.", cap), Theme.fg.muted)
+    return lines
+end
 
-    -- Headline cash EV per run (the takeaway), colored by sign.
-    local ev_sign  = (net_ev >= 0) and "+" or "-"
-    local ev_color = (net_ev > 0.005) and "good"
-                  or (net_ev < -0.005) and "error"
-                  or "muted"
-    lines[#lines + 1] = row(string.format("Expected cash: %s$%.2f per run", ev_sign, math.abs(net_ev)),
-        "md", ev_color)
+-- ─── "Where does my payout come from" ────────────────────────────────
+--
+-- Three shapes of the same data (models/payout_breakdown), cycled with
+-- the F3 hotkey so they can be compared in place and two of them deleted.
+-- game.debug.payout_shape indexes SHAPES; 0 is off.
+--
+--   grid    — every source × every tier at once. Complete, dense.
+--   focused — one tier, chosen by which is worth the most right now,
+--             with a marker on any source that behaves differently
+--             elsewhere.
+--   totals  — per-tier totals only, itemised for a single tier.
+--
+-- Ratios read as multipliers on EXPECTED DOLLARS FROM THAT TIER, which
+-- folds in both the multiplier and the odds of landing there — so a perk
+-- that shifts Small wins into Medium shows up, which is the whole point.
+local SHAPES = { "grid", "focused", "totals" }
+TablePanelStats.PAYOUT_SHAPES = SHAPES
+
+-- Two decimals under 10x, none above: "x212" is more legible than
+-- "x212.00" and the precision is meaningless at that size.
+local function fmtRatio(r)
+    if r == nil then return "new" end
+    if math.abs(r - 1) < 5e-4 then return "-" end
+    if r >= 10 or r <= 0.1 then return string.format("x%.0f", r) end
+    return string.format("x%.2f", r)
+end
+
+local function ratioColor(r)
+    if r == nil then return "good" end
+    if r > 1.0005 then return "good" end
+    if r < 0.9995 then return "error" end
+    return "muted"
+end
+
+-- Rows that change nothing are noise; a player scanning for "what is
+-- making this number big" does not want twenty "-" lines.
+local function activeRows(bd)
+    local out = {}
+    for _, r in ipairs(bd.rows) do
+        if r.matters then out[#out + 1] = r end
+    end
+    table.sort(out, function(a, b) return a.ev_delta > b.ev_delta end)
+    return out
+end
+
+-- Which tier is currently worth the most expected dollars — the one a
+-- single-tier shape should default to.
+local function richestTier(bd)
+    local best, best_v = bd.tiers[1], -math.huge
+    for _, t in ipairs(bd.tiers) do
+        local v = (bd.full.win[t] or 0) + (bd.full.loss[t] or 0)
+        if v > best_v then best, best_v = t, v end
+    end
+    return best
+end
+
+local function hasWinEffects(r, tiers)
+    for _, t in ipairs(tiers) do
+        local v = r.win[t]
+        if v == nil or math.abs(v - 1) > 5e-4 then return true end
+    end
+    return false
+end
+
+local function hasLossEffects(r, tiers)
+    for _, t in ipairs(tiers) do
+        local v = r.loss[t]
+        if v == nil or math.abs(v - 1) > 5e-4 then return true end
+    end
+    return false
+end
+
+local function buildGridRenderRow(game, bd)
+    local win_active = {}
+    local loss_active = {}
+    for _, r in ipairs(activeRows(bd)) do
+        if hasWinEffects(r, bd.tiers) then win_active[#win_active + 1] = r end
+        if hasLossEffects(r, bd.tiers) then loss_active[#loss_active + 1] = r end
+    end
+
+    local function measure(fonts)
+        local f = fonts.sm or fonts.md
+        local max_name_w = 90
+        for _, r in ipairs(bd.rows) do
+            if r.matters then
+                local w = f:getWidth(r.name or "")
+                if w > max_name_w then max_name_w = w end
+            end
+        end
+        local name_col_w = max_name_w + 14
+        local col_w = 46
+        local grid_w = name_col_w + #bd.tiers * col_w
+        local line_h = f:getHeight() + 4
+
+        local win_count = math.max(1, #win_active)
+        local loss_count = math.max(1, #loss_active)
+        local total_h = (1 + 1 + win_count + 1) * line_h + 8 + (1 + 1 + loss_count + 1) * line_h + 4
+        return grid_w, total_h
+    end
+
+    local function render(x, y, fonts)
+        local f = fonts.sm or fonts.md
+        local fh = f:getHeight()
+        local line_h = fh + 4
+
+        local max_name_w = 90
+        for _, r in ipairs(bd.rows) do
+            if r.matters then
+                local w = f:getWidth(r.name or "")
+                if w > max_name_w then max_name_w = w end
+            end
+        end
+        local name_col_w = max_name_w + 14
+        local col_w = 46
+        local grid_w = name_col_w + #bd.tiers * col_w
+        local r_glyph = TierGlyph.radius(fh)
+
+        local cy = y
+
+        local function drawSubgrid(title, outcome, rows_list, total_map, title_color)
+            love.graphics.setFont(fonts.xs or f)
+            Theme.setColor(title_color or Theme.fg.muted)
+            love.graphics.print(title, x, cy)
+            cy = cy + fh + 2
+
+            local hdr_y = cy
+            Theme.setColor(Theme.bg.card or Theme.bg.window, 0.6)
+            love.graphics.rectangle("fill", x, hdr_y, grid_w, line_h, 2)
+
+            love.graphics.setFont(f)
+            Theme.setColor(Theme.fg.muted)
+            love.graphics.print("Source", x + 6, hdr_y + 2)
+
+            for i, tier in ipairs(bd.tiers) do
+                local col_right = x + name_col_w + i * col_w - 6
+                local cx = col_right - r_glyph
+                local baseline_y = hdr_y + line_h - 3
+                TierGlyph.draw(cx, baseline_y, tier, r_glyph, outcome)
+            end
+            cy = cy + line_h
+
+            if #rows_list == 0 then
+                Theme.setColor(Theme.fg.muted)
+                love.graphics.setFont(f)
+                love.graphics.print("  (no active items)", x + 6, cy + 2)
+                cy = cy + line_h
+            else
+                for idx, r in ipairs(rows_list) do
+                    if idx % 2 == 1 then
+                        Theme.setColor({1, 1, 1}, 0.03)
+                        love.graphics.rectangle("fill", x, cy, grid_w, line_h)
+                    end
+
+                    love.graphics.setFont(f)
+                    local name_color = Theme.fg.heading
+                    if r.ev_delta > 0.001 then name_color = Theme.status.good
+                    elseif r.ev_delta < -0.001 then name_color = Theme.status.error end
+                    Theme.setColor(name_color)
+                    love.graphics.print(r.name, x + 6, cy + 2)
+
+                    local val_map = (outcome == "win") and r.win or r.loss
+                    for i, tier in ipairs(bd.tiers) do
+                        local val = val_map[tier]
+                        local str = fmtRatio(val)
+                        local col_right = x + name_col_w + i * col_w - 6
+                        local sw = f:getWidth(str)
+                        local c_token = ratioColor(val)
+                        local c = (c_token == "good" and Theme.status.good)
+                               or (c_token == "error" and Theme.status.error)
+                               or Theme.fg.muted
+                        Theme.setColor(c)
+                        love.graphics.print(str, col_right - sw, cy + 2)
+                    end
+                    cy = cy + line_h
+                end
+            end
+
+            Theme.setColor(Theme.border.strong or Theme.fg.muted, 0.5)
+            love.graphics.line(x, cy, x + grid_w, cy)
+
+            Theme.setColor(Theme.bg.card or Theme.bg.window, 0.4)
+            love.graphics.rectangle("fill", x, cy, grid_w, line_h, 2)
+
+            love.graphics.setFont(f)
+            Theme.setColor(Theme.fg.heading)
+            love.graphics.print("TOTAL", x + 6, cy + 2)
+
+            for i, tier in ipairs(bd.tiers) do
+                local val = total_map[tier]
+                local str = fmtRatio(val)
+                local col_right = x + name_col_w + i * col_w - 6
+                local sw = f:getWidth(str)
+                Theme.setColor(Theme.fg.heading)
+                love.graphics.print(str, col_right - sw, cy + 2)
+            end
+            cy = cy + line_h + 4
+        end
+
+        drawSubgrid("WINS MULTIPLIERS", "win", win_active, bd.total.win, Theme.status.good)
+        cy = cy + 4
+        drawSubgrid("LOSSES MULTIPLIERS", "loss", loss_active, bd.total.loss, Theme.status.error or Theme.fg.muted)
+    end
+
+    return { measure = measure, render = render }
+end
+
+local function buildFocusedRenderRow(game, bd)
+    local tier = richestTier(bd)
+
+    local active_list = {}
+    for _, r in ipairs(activeRows(bd)) do
+        local win_val = r.win[tier]
+        local loss_val = r.loss[tier]
+        local win_matters = (win_val == nil or math.abs(win_val - 1) > 5e-4)
+        local loss_matters = (loss_val == nil or math.abs(loss_val - 1) > 5e-4)
+        if win_matters or loss_matters then
+            local win_varies, loss_varies = false, false
+            for _, t in ipairs(bd.tiers) do
+                local v = r.win[t]
+                if (v == nil) ~= (win_val == nil) or (v and win_val and math.abs(v - win_val) > 1e-4) then win_varies = true end
+                local lv = r.loss[t]
+                if (lv == nil) ~= (loss_val == nil) or (lv and loss_val and math.abs(lv - loss_val) > 1e-4) then loss_varies = true end
+            end
+            active_list[#active_list + 1] = {
+                r = r, win_val = win_val, loss_val = loss_val,
+                varies = win_varies or loss_varies
+            }
+        end
+    end
+
+    local function measure(fonts)
+        local f = fonts.sm or fonts.md
+        local max_name_w = 90
+        for _, item in ipairs(active_list) do
+            local w = f:getWidth(item.r.name or "")
+            if w > max_name_w then max_name_w = w end
+        end
+        local name_col_w = max_name_w + 14
+        local col_w = 54
+        local grid_w = name_col_w + 2 * col_w
+        local line_h = f:getHeight() + 4
+
+        local total_h = line_h + line_h + math.max(1, #active_list) * line_h + line_h + line_h
+        return grid_w, total_h
+    end
+
+    local function render(x, y, fonts)
+        local f = fonts.sm or fonts.md
+        local fh = f:getHeight()
+        local line_h = fh + 4
+
+        local max_name_w = 90
+        for _, item in ipairs(active_list) do
+            local w = f:getWidth(item.r.name or "")
+            if w > max_name_w then max_name_w = w end
+        end
+        local name_col_w = max_name_w + 14
+        local col_w = 54
+        local grid_w = name_col_w + 2 * col_w
+        local r_glyph = TierGlyph.radius(fh)
+
+        local cy = y
+
+        love.graphics.setFont(fonts.xs or f)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.print("FOCUSED TIER:", x, cy)
+        local tw = f:getWidth("FOCUSED TIER: ")
+        TierGlyph.draw(x + tw + r_glyph, cy + fh - 2, tier, r_glyph, "win")
+        cy = cy + fh + 4
+
+        Theme.setColor(Theme.bg.card or Theme.bg.window, 0.6)
+        love.graphics.rectangle("fill", x, cy, grid_w, line_h, 2)
+        love.graphics.setFont(f)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.print("Source", x + 6, cy + 2)
+
+        local win_cx = x + name_col_w + 0.5 * col_w
+        TierGlyph.draw(win_cx, cy + line_h - 3, tier, r_glyph, "win")
+
+        local loss_cx = x + name_col_w + 1.5 * col_w
+        TierGlyph.draw(loss_cx, cy + line_h - 3, tier, r_glyph, "loss")
+        cy = cy + line_h
+
+        if #active_list == 0 then
+            Theme.setColor(Theme.fg.muted)
+            love.graphics.print("  (no active items)", x + 6, cy + 2)
+            cy = cy + line_h
+        else
+            for idx, item in ipairs(active_list) do
+                if idx % 2 == 1 then
+                    Theme.setColor({1, 1, 1}, 0.03)
+                    love.graphics.rectangle("fill", x, cy, grid_w, line_h)
+                end
+
+                local name_color = Theme.fg.heading
+                if item.r.ev_delta > 0.001 then name_color = Theme.status.good
+                elseif item.r.ev_delta < -0.001 then name_color = Theme.status.error end
+                Theme.setColor(name_color)
+                local name_text = item.r.name .. (item.varies and " *" or "")
+                love.graphics.print(name_text, x + 6, cy + 2)
+
+                local str_w = fmtRatio(item.win_val)
+                local col1_right = x + name_col_w + col_w - 6
+                Theme.setColor(ratioColor(item.win_val) == "good" and Theme.status.good or Theme.fg.muted)
+                love.graphics.print(str_w, col1_right - f:getWidth(str_w), cy + 2)
+
+                local str_l = fmtRatio(item.loss_val)
+                local col2_right = x + name_col_w + 2 * col_w - 6
+                Theme.setColor(ratioColor(item.loss_val) == "error" and Theme.status.error or Theme.fg.muted)
+                love.graphics.print(str_l, col2_right - f:getWidth(str_l), cy + 2)
+
+                cy = cy + line_h
+            end
+        end
+
+        Theme.setColor(Theme.border.strong or Theme.fg.muted, 0.5)
+        love.graphics.line(x, cy, x + grid_w, cy)
+
+        Theme.setColor(Theme.bg.card or Theme.bg.window, 0.4)
+        love.graphics.rectangle("fill", x, cy, grid_w, line_h, 2)
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.print("TOTAL", x + 6, cy + 2)
+
+        local tot_w = fmtRatio(bd.total.win[tier])
+        local tot_l = fmtRatio(bd.total.loss[tier])
+        love.graphics.print(tot_w, x + name_col_w + col_w - 6 - f:getWidth(tot_w), cy + 2)
+        love.graphics.print(tot_l, x + name_col_w + 2 * col_w - 6 - f:getWidth(tot_l), cy + 2)
+        cy = cy + line_h + 2
+
+        love.graphics.setFont(fonts.xs or f)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.print("* varies by tier", x + 6, cy)
+    end
+
+    return { measure = measure, render = render }
+end
+
+local function buildTotalsRenderRow(game, bd)
+    local tier = richestTier(bd)
+    local active_list = {}
+    for _, r in ipairs(activeRows(bd)) do
+        local win_val = r.win[tier]
+        local loss_val = r.loss[tier]
+        if (win_val and math.abs(win_val - 1) > 5e-4) or (loss_val and math.abs(loss_val - 1) > 5e-4) then
+            active_list[#active_list + 1] = { r = r, win_val = win_val, loss_val = loss_val }
+        end
+    end
+
+    local function measure(fonts)
+        local f = fonts.sm or fonts.md
+        local name_col_w = 110
+        local col_w = 46
+        local grid_w = name_col_w + #bd.tiers * col_w
+        local line_h = f:getHeight() + 4
+        local total_h = (1 + 1) * line_h + 8 + line_h + line_h + math.max(1, #active_list) * line_h
+        return grid_w, total_h
+    end
+
+    local function render(x, y, fonts)
+        local f = fonts.sm or fonts.md
+        local fh = f:getHeight()
+        local line_h = fh + 4
+        local name_col_w = 110
+        local col_w = 46
+        local grid_w = name_col_w + #bd.tiers * col_w
+        local r_glyph = TierGlyph.radius(fh)
+
+        local cy = y
+
+        Theme.setColor(Theme.bg.card or Theme.bg.window, 0.5)
+        love.graphics.rectangle("fill", x, cy, grid_w, line_h, 2)
+        Theme.setColor(Theme.status.good)
+        love.graphics.print("WIN TOTALS", x + 6, cy + 2)
+        for i, t in ipairs(bd.tiers) do
+            local str = fmtRatio(bd.total.win[t])
+            local rx = x + name_col_w + i * col_w - 6
+            love.graphics.print(str, rx - f:getWidth(str), cy + 2)
+        end
+        cy = cy + line_h + 2
+
+        Theme.setColor(Theme.bg.card or Theme.bg.window, 0.5)
+        love.graphics.rectangle("fill", x, cy, grid_w, line_h, 2)
+        Theme.setColor(Theme.status.error or Theme.fg.muted)
+        love.graphics.print("LOSS TOTALS", x + 6, cy + 2)
+        for i, t in ipairs(bd.tiers) do
+            local str = fmtRatio(bd.total.loss[t])
+            local rx = x + name_col_w + i * col_w - 6
+            love.graphics.print(str, rx - f:getWidth(str), cy + 2)
+        end
+        cy = cy + line_h + 6
+
+        love.graphics.setFont(fonts.xs or f)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.print("ITEMISED AT RICHEST TIER:", x, cy)
+        local tw = f:getWidth("ITEMISED AT RICHEST TIER: ")
+        TierGlyph.draw(x + tw + r_glyph, cy + fh - 2, tier, r_glyph, "win")
+        cy = cy + fh + 4
+
+        Theme.setColor(Theme.bg.card or Theme.bg.window, 0.6)
+        love.graphics.rectangle("fill", x, cy, grid_w, line_h, 2)
+        love.graphics.setFont(f)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.print("Source", x + 6, cy + 2)
+
+        local win_col_right = x + name_col_w + col_w - 6
+        local win_cx = win_col_right - r_glyph
+        TierGlyph.draw(win_cx, cy + line_h - 3, tier, r_glyph, "win")
+
+        local loss_col_right = x + name_col_w + 2 * col_w - 6
+        local loss_cx = loss_col_right - r_glyph
+        TierGlyph.draw(loss_cx, cy + line_h - 3, tier, r_glyph, "loss")
+        cy = cy + line_h
+
+        if #active_list == 0 then
+            Theme.setColor(Theme.fg.muted)
+            love.graphics.print("  (no active items)", x + 6, cy + 2)
+        else
+            for idx, item in ipairs(active_list) do
+                if idx % 2 == 1 then
+                    Theme.setColor({1, 1, 1}, 0.03)
+                    love.graphics.rectangle("fill", x, cy, grid_w, line_h)
+                end
+                Theme.setColor(Theme.fg.heading)
+                love.graphics.print(item.r.name, x + 6, cy + 2)
+
+                local str_w = fmtRatio(item.win_val)
+                local col1_right = x + name_col_w + col_w - 6
+                Theme.setColor(ratioColor(item.win_val) == "good" and Theme.status.good or Theme.fg.muted)
+                love.graphics.print(str_w, col1_right - f:getWidth(str_w), cy + 2)
+
+                local str_l = fmtRatio(item.loss_val)
+                local col2_right = x + name_col_w + 2 * col_w - 6
+                Theme.setColor(ratioColor(item.loss_val) == "error" and Theme.status.error or Theme.fg.muted)
+                love.graphics.print(str_l, col2_right - f:getWidth(str_l), cy + 2)
+
+                cy = cy + line_h
+            end
+        end
+    end
+
+    return { measure = measure, render = render }
+end
+
+-- Append the payout breakdown to an existing tooltip line list.
+function TablePanelStats.appendPayoutLines(lines, game, controller, stake, gtype)
+    local dbg = game and game.debug
+    local idx = dbg and dbg.payout_shape
+    if not idx or idx < 1 then return lines end
+    local shape = SHAPES[idx]
+    if not shape then return lines end
+
+    local bd = PayoutBreakdown.cached(game, gtype, stake, {
+        focus_mult = controller and controller.currentFocusMult
+                     and controller:currentFocusMult() or nil,
+        bankroll   = game.state and game.state.bankroll or nil,
+    })
+    if not bd then return lines end
+
+    lines[#lines + 1] = row("", "xs")
+    lines[#lines + 1] = row("MULTIPLIER BREAKDOWN", "sm", "heading")
+    if shape == "grid" then
+        lines[#lines + 1] = buildGridRenderRow(game, bd)
+    elseif shape == "focused" then
+        lines[#lines + 1] = buildFocusedRenderRow(game, bd)
+    elseif shape == "totals" then
+        lines[#lines + 1] = buildTotalsRenderRow(game, bd)
+    end
     return lines
 end
 
@@ -311,12 +873,22 @@ end
 local function breakdownFromStats(controller, stats)
     if not stats then return nil end
     local gt = stats.gtype
+    local lines
     if gt and gt.chip_stack_table then
-        return buildMttLines(nil, controller, stats)        -- 8-max KO
+        lines = buildMttLines(nil, controller, stats)        -- 8-max KO
     elseif gt and gt.hand_count then
-        return buildLegacyMttLines(nil, controller, stats)  -- legacy binary MTT
+        lines = buildLegacyMttLines(nil, controller, stats)  -- legacy binary MTT
+    else
+        lines = buildCashLines(nil, controller, stats)
     end
-    return buildCashLines(nil, controller, stats)
+    -- Every tooltip that explains a table's EV gets the payout breakdown
+    -- appended, so the "why" sits with the number it explains. No-ops
+    -- unless the F3 shape toggle is on.
+    local game = controller and controller.game
+    if game and lines then
+        TablePanelStats.appendPayoutLines(lines, game, controller, stats.stake, gt)
+    end
+    return lines
 end
 
 local function buildEvBreakdownLines(tbl, controller)
@@ -488,20 +1060,27 @@ local function renderDebugTooltip(tbl, mx, my, game, controller)
     if not lines then return end
 
     local fonts = game.fonts
-    -- Resolve each row to a concrete font + measure widest. Lines may
-    -- be either plain strings (legacy) or { text, style } tables, so
-    -- match the same shape Tooltip.draw uses.
+    local default_font = fonts.sm or fonts.md
     local rows = {}
     local max_w  = 0
     local total_h = 0
     for _, line in ipairs(lines) do
-        local text  = (type(line) == "table") and (line.text or "") or tostring(line)
-        local style = (type(line) == "table") and line.style or "sm"
-        local font  = fonts[style] or fonts.sm
-        local w     = font:getWidth(text)
-        if w > max_w then max_w = w end
-        total_h = total_h + font:getHeight() + 2
-        rows[#rows + 1] = { text = text, font = font }
+        if type(line) == "table" and line.render then
+            local w, h = 0, default_font:getHeight()
+            if line.measure and fonts then w, h = line.measure(fonts) end
+            if w > max_w then max_w = w end
+            total_h = total_h + h + 2
+            rows[#rows + 1] = { render = line.render, _h = h }
+        else
+            local text  = (type(line) == "table") and (line.text or "") or tostring(line)
+            local style = (type(line) == "table") and line.style or "sm"
+            local font  = fonts[style] or default_font
+            local w     = font:getWidth(text)
+            if w > max_w then max_w = w end
+            local h     = font:getHeight()
+            total_h = total_h + h + 2
+            rows[#rows + 1] = { text = text, font = font, color = (type(line) == "table") and line.color_token or nil, _h = h }
+        end
     end
 
     local screen_w, screen_h = love.graphics.getDimensions()
@@ -519,12 +1098,19 @@ local function renderDebugTooltip(tbl, mx, my, game, controller)
     Theme.setColor(Theme.border.strong)
     love.graphics.rectangle("line", tip_x, tip_y, tip_w, tip_h, Theme.space.radius)
 
-    Theme.setColor(Theme.fg.heading)
     local cy = tip_y + DEBUG_TIP_PAD
     for _, r in ipairs(rows) do
-        love.graphics.setFont(r.font)
-        love.graphics.print(r.text, tip_x + DEBUG_TIP_PAD, cy)
-        cy = cy + r.font:getHeight() + 2
+        if r.render then
+            r.render(tip_x + DEBUG_TIP_PAD, cy, fonts)
+        else
+            love.graphics.setFont(r.font)
+            local c = r.color and ((Theme.data and Theme.data[r.color])
+                       or (Theme.status and Theme.status[r.color])
+                       or (Theme.fg and Theme.fg[r.color])) or Theme.fg.heading
+            Theme.setColor(c)
+            love.graphics.print(r.text, tip_x + DEBUG_TIP_PAD, cy)
+        end
+        cy = cy + (r._h or 0) + 2
     end
 end
 

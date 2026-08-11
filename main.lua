@@ -152,7 +152,9 @@ local function buildGame()
 
     -- Transient debug toggles (not persisted). Backtick (`) toggles
     -- the per-table tooltip overlay; see InputController and TablePanel.
-    g.debug = { overlay = false }
+    -- payout_shape: 0 = off, else an index into
+    -- TablePanelStats.PAYOUT_SHAPES. Cycled with F3.
+    g.debug = { overlay = false, payout_shape = 0 }
     g.event_bus       = EventBus
     g.time            = Time:new()
     g.camera          = Camera:new(0, 0, 1)

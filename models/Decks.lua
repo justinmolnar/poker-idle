@@ -181,12 +181,15 @@ end
 -- the `capstone` block (same {effects={...}} shape) applies once on top —
 -- the same registry mechanism, so no per-kind branching. All unlocked
 -- decks stack; active vs. inactive matters only for XP.
-function Decks.applyEffects(state, registry, ctx)
+-- `exclude` (optional) is a set of deck ids to skip. Used by the payout
+-- breakdown to ask "what would this be worth without you" — see
+-- models/payout_breakdown.lua.
+function Decks.applyEffects(state, registry, ctx, exclude)
     if not state.unlocked_decks then return end
     for _, id in ipairs(state.unlocked_decks) do
         local spec  = Decks.specById(id)
         local level = (state.deck_levels and state.deck_levels[id]) or 0
-        if spec and level > 0 then
+        if spec and level > 0 and not (exclude and exclude[id]) then
             registry:applyN(spec, ctx, math.min(level, 4))
             if level >= (spec.max_level or 5) and spec.capstone then
                 registry:applyN(spec.capstone, ctx, 1)

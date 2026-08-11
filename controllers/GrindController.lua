@@ -24,6 +24,8 @@ local AnchorRegistry = require("services.AnchorRegistry")
 local StakeThemes    = require("data.stake_themes")
 local Lookups        = require("utils.lookups")
 local HandAnalytics  = require("services.HandAnalytics")
+local Format         = require("utils.format")
+
 
 -- Chip-bounty key: a (stake, game_type) combo locks one bounty per run.
 -- 4 game types × 6 stakes = 24 distinct bounty slots — total ~84 chips for
@@ -52,27 +54,31 @@ function GrindController:new(game)
     return self
 end
 
--- ── "(pot × mult)" suffix for the resolution floater ─────────────────
--- Late-game multipliers (decks, catalog) settle a $2.44 pot for four
--- figures. The pot on the felt stays honest all hand and the difference
--- is fabricated at the push — which is right, but it leaves the player
--- watching a mound of chips appear from nowhere. This is the receipt:
--- what was actually on the table, and what it got multiplied by.
---
--- Suppressed when the multiplier is barely there, because "+$2.60
--- ($2.44 × 1.1)" is noise, and when there's no pot snapshot to divide by
--- (a legacy build with no script has nothing honest to report).
-local MULT_SUFFIX_MIN = 1.5
+-- ── "Pot $X ×N" suffix for the resolution floater ─────────────────────
+-- Shows the pot that was on the felt and how much items multiplied it,
+-- so the player understands why they got more (or less) than the pot.
+-- Omitted when the multiplier rounds to exactly 1× (no item effect).
+local function _multSuffix(r)
+    if not r then return "" end
+    local pot = r.felt_pot or 0
+    if pot <= 0 then return "" end
 
-local function _multSuffix(tbl, delta)
-    local ps   = tbl and tbl.playback_state
-    local base = (ps and ps.pot_at_push) or 0
-    if base <= 0 then return "" end
-    local mult = math.abs(delta or 0) / base
-    if mult < MULT_SUFFIX_MIN then return "" end
-    local m = (mult >= 10) and string.format("%.0f", mult)
-                            or string.format("%.1f", mult)
-    return string.format("\n($%.2f × %s)", base, m)
+    local payout = math.abs(r.delta or 0)
+    -- The player wins the pot minus their own contribution (half the
+    -- pot in a heads-up). But outcome_delta is the NET gain/loss after
+    -- items scale it.  The multiplier the player cares about is
+    -- payout / pot — "the pot said $44, I got $88, that's x2".
+    local mult = payout / pot
+    if math.abs(mult - 1) < 0.005 then return "" end
+
+    local pot_str = Format.moneyExact(pot)
+    local mult_str
+    if mult >= 10 or mult <= 0.1 then
+        mult_str = string.format("x%.0f", mult)
+    else
+        mult_str = string.format("x%.2f", mult)
+    end
+    return string.format("\n%s %s", pot_str, mult_str)
 end
 
 -- Push a chip-flight intent onto the queue. GrindView drains this each
@@ -480,9 +486,9 @@ function GrindController:update(dt)
                 floater_opts_override = { color_token = "error" }
             end
         elseif r.delta >= 0 then
-            label = string.format("+$%.2f", r.delta) .. _multSuffix(tbl, r.delta)
+            label = string.format("+$%.2f", r.delta) .. _multSuffix(r)
         else
-            label = string.format("-$%.2f", -r.delta) .. _multSuffix(tbl, r.delta)
+            label = string.format("-$%.2f", -r.delta) .. _multSuffix(r)
             -- Loss: override the data-file's amber default with red so
             -- losses read correctly. Without this every tier picks up
             -- color_token="amber" and "-$X.XX" floaters render in gold
@@ -527,7 +533,18 @@ function GrindController:update(dt)
         -- Skip the winning hand's per-hand float — the TOURNAMENT WON banner
         -- from the payout-drain block stands in for it (avoids the pile-up).
         if not mtt_final then
-            self.game.floating_text.emit(label, fx, fy, floater_opts)
+            local opts_copy = {}
+            for k, v in pairs(floater_opts) do opts_copy[k] = v end
+            opts_copy.table = tbl
+            -- Scale the vertical drift so the text lands at a consistent
+            -- relative position regardless of panel size.  The data-layer
+            -- arc_y values were authored for a ~390 px-tall panel; scale
+            -- proportionally so a 200 px panel gets half the drift and a
+            -- 600 px panel gets more.  Clamped to keep it sane.
+            local panel_h = cxy and cxy[4] or 390
+            local drift_scale = math.max(0.4, math.min(1.6, panel_h / 390))
+            opts_copy.arc_y = (opts_copy.arc_y or -42) * drift_scale
+            self.game.floating_text.emit(label, fx, fy, opts_copy)
         end
 
         -- Chip-flight burst on resolution. Three flavors:

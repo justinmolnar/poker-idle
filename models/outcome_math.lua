@@ -366,6 +366,137 @@ function OutcomeMath.applyTierShift(tier, shifts, gtype)
     return tier
 end
 
+-- ─── Distribution mirrors of the sampling rules ────────────────────────
+--
+-- Everything below expresses, as a transform on a whole distribution,
+-- what the samplers above do to ONE roll. They exist so an estimate can
+-- account for tier shifts, floors, ceilings and bumps instead of quietly
+-- ignoring them: an item that turns a quarter of Small wins into Medium
+-- changes your earnings, and a readout that models only earnings_mult
+-- will never show it.
+--
+-- Each one is paired with the sampler it mirrors. If you change a
+-- sampling rule, change its mirror in the same edit or the numbers the
+-- player is shown stop matching the numbers they get.
+
+-- Mirrors the auto_win_chances block in sampleOutcome: a hand wins if
+-- the auto roll OR the win-chance roll succeeds.
+function OutcomeMath.effectiveWinChance(win_chance, ctx, gtype)
+    local auto = 0
+    if ctx and ctx.auto_win_chances then
+        for _, e in ipairs(ctx.auto_win_chances) do
+            if shiftApplies(e, gtype) then auto = auto + (e.amount or 0) end
+        end
+    end
+    if auto <= 0 then return win_chance end
+    if auto > 1 then auto = 1 end
+    return auto + (1 - auto) * win_chance
+end
+
+-- Mirrors clampTierFloor: every cell below the floor collapses onto it.
+function OutcomeMath.distClampFloor(d, floor_idx)
+    if not floor_idx then return d end
+    for i = 1, math.min(#TIER_KEYS, floor_idx) - 1 do
+        local k = TIER_KEYS[i]
+        d[TIER_KEYS[floor_idx]] = (d[TIER_KEYS[floor_idx]] or 0) + (d[k] or 0)
+        d[k] = 0
+    end
+    return d
+end
+
+-- Mirrors clampTierCeiling: every cell above the ceiling collapses onto it.
+function OutcomeMath.distClampCeiling(d, ceil_idx)
+    if not ceil_idx then return d end
+    for i = math.max(1, ceil_idx) + 1, #TIER_KEYS do
+        local k = TIER_KEYS[i]
+        d[TIER_KEYS[ceil_idx]] = (d[TIER_KEYS[ceil_idx]] or 0) + (d[k] or 0)
+        d[k] = 0
+    end
+    return d
+end
+
+-- Mirrors applyTierShift. Walked in the SAME order, so the chaining is
+-- reproduced exactly: mass moved into Medium by one descriptor is
+-- available to a later Medium→Large descriptor, just as it is for a
+-- single sampled hand.
+function OutcomeMath.distTierShift(d, shifts, gtype)
+    if not shifts then return d end
+    for _, sh in ipairs(shifts) do
+        if shiftApplies(sh, gtype) and sh.from and sh.to then
+            local moved = (d[sh.from] or 0) * (sh.chance or 0)
+            d[sh.from] = (d[sh.from] or 0) - moved
+            d[sh.to]   = (d[sh.to]   or 0) + moved
+        end
+    end
+    return d
+end
+
+-- Mirrors the tier_bump_chance block in Table:deal — one non-chaining
+-- step up the ladder, jackpot staying put.
+function OutcomeMath.distTierBump(d, chance)
+    if not chance or chance <= 0 then return d end
+    local out = distCopy(nil)
+    for i, k in ipairs(TIER_KEYS) do
+        local m  = d[k] or 0
+        local up = TIER_KEYS[math.min(#TIER_KEYS, i + 1)]
+        out[up] = out[up] + m * chance
+        out[k]  = out[k]  + m * (1 - chance)
+    end
+    for _, k in ipairs(TIER_KEYS) do d[k] = out[k] end
+    return d
+end
+
+-- The distributions a hand ACTUALLY resolves against: buildOutcome, then
+-- every post-sample rule applied in the order Table:deal applies them
+-- (clamp, then shift, then bump).
+function OutcomeMath.resolvedOutcome(ctx, gtype, stake)
+    local wc, wd, ld = OutcomeMath.buildOutcome(ctx, gtype, stake)
+    ctx = ctx or {}
+    wc = OutcomeMath.effectiveWinChance(wc, ctx, gtype)
+
+    OutcomeMath.distClampFloor(wd, ctx.win_tier_floor)
+    OutcomeMath.distClampCeiling(ld, ctx.loss_tier_ceiling)
+    OutcomeMath.distTierShift(wd, ctx.win_tier_shifts,  gtype)
+    OutcomeMath.distTierShift(ld, ctx.loss_tier_shifts, gtype)
+    OutcomeMath.distTierBump(wd, ctx.tier_bump_chance)
+    OutcomeMath.distTierBump(ld, ctx.tier_bump_chance)
+
+    return wc, wd, ld
+end
+
+-- ─── Payout multiplier ─────────────────────────────────────────────────
+-- Everything that scales a hand's magnitude once its tier is known, as a
+-- single number. THE definition — models/Table.lua applies these factors
+-- inline at deal time and GrindController applies the last two at
+-- resolve; this is what any readout must agree with.
+--
+-- opts.focus_mult / opts.bankroll are the live resolve-time factors. Omit
+-- them for the "per hand at this table, before attention and bankroll"
+-- reading.
+function OutcomeMath.payoutMult(ctx, stake, tier, won, opts)
+    ctx, opts = ctx or {}, opts or {}
+    -- payout_double_chance is a coin flip for 2×, so its contribution to
+    -- an expectation is 1 + p.
+    local mult = 1 + (ctx.payout_double_chance or 0)
+
+    if won then
+        mult = mult * (ctx.earnings_mult or 1)
+        if ctx.earnings_per_tier then
+            local idx = stake and Lookups.indexById(StakesData, stake.id) or 0
+            mult = mult * (1 + ctx.earnings_per_tier * idx)
+        end
+        if tier == "jackpot" then mult = mult * (ctx.jackpot_mult or 1) end
+    else
+        mult = mult * (ctx.loss_mult or 1)
+    end
+
+    if opts.focus_mult then mult = mult * opts.focus_mult end
+    if ctx.earnings_scale_by_bankroll and opts.bankroll then
+        mult = mult * (1.0 + math.log10((opts.bankroll or 0) + 1) * 0.1)
+    end
+    return mult
+end
+
 -- Roll a magnitude (in bb) within the cell's tier range.
 function OutcomeMath.rollTierMagnitude(tier)
     local r = PotTiers[tier]
@@ -385,26 +516,48 @@ end
 -- THE one place the EV math lives: Table:debugStats / :estimateStats and the
 -- stake-add buttons all call this so nothing reimplements it. Shape matches
 -- what TablePanelStats.buildCashLines / buildMttLines consume.
-function OutcomeMath.evStats(ctx, gtype, stake)
+-- `opts` is passed through to payoutMult (focus_mult, bankroll) so a
+-- caller can ask for the raw per-table number or the one the bankroll
+-- actually sees.
+--
+-- The distributions returned are the RESOLVED ones — post floor/ceiling,
+-- post tier shift, post bump — because those are the odds a hand really
+-- runs against. A readout built on the raw buildOutcome dists reports a
+-- Stack rate the player never experiences.
+function OutcomeMath.evStats(ctx, gtype, stake, opts)
     if not stake or not gtype then return nil end
     ctx = ctx or {}
-    local wc, wd, ld = OutcomeMath.buildOutcome(ctx, gtype, stake)
+    local wc, wd, ld = OutcomeMath.resolvedOutcome(ctx, gtype, stake)
     if not wc then return nil end
 
-    local em = ctx.earnings_mult or 1
-    local lm = ctx.loss_mult     or 1
     local bb = stake.bb or 1
 
-    local win_avg, loss_avg = 0, 0
+    -- Per-tier expected magnitude in $, multiplier included. The
+    -- multiplier is inside the sum because it varies BY tier: jackpot_mult
+    -- lands on one cell only.
+    local win_avg, loss_avg = 0, 0     -- bb, multiplier-free (display)
+    local win_cash, loss_cash = 0, 0   -- $, fully multiplied
+    local per_tier = {}
     for _, t in ipairs(TIER_KEYS) do
-        win_avg  = win_avg  + (wd[t] or 0) * OutcomeMath.tierAvgBB(t)
-        loss_avg = loss_avg + (ld[t] or 0) * OutcomeMath.tierAvgBB(t)
+        local avg = OutcomeMath.tierAvgBB(t)
+        local wm  = OutcomeMath.payoutMult(ctx, stake, t, true,  opts)
+        local lm  = OutcomeMath.payoutMult(ctx, stake, t, false, opts)
+        win_avg   = win_avg   + (wd[t] or 0) * avg
+        loss_avg  = loss_avg  + (ld[t] or 0) * avg
+        win_cash  = win_cash  + (wd[t] or 0) * avg * bb * wm
+        loss_cash = loss_cash + (ld[t] or 0) * avg * bb * lm
+        per_tier[t] = {
+            win_p = wd[t] or 0, loss_p = ld[t] or 0,
+            win_mult = wm,      loss_mult = lm,
+            win_cash = avg * bb * wm, loss_cash = avg * bb * lm,
+        }
     end
-    local ev = wc * win_avg * bb * em - (1 - wc) * loss_avg * bb * lm
+    local ev = wc * win_cash - (1 - wc) * loss_cash
 
     return {
         stake = stake,
         gtype = gtype,
+        per_tier = per_tier,
         pool  = {
             win_chance  = wc,
             win_dist    = wd,

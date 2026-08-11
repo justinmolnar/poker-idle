@@ -43,6 +43,7 @@ function FloatingTextSystem.emit(text, x, y, opts)
         font        = opts.font or "heading",
         arc_x       = opts.arc_x or 0,
         arc_y       = opts.arc_y or Constants.FLOATING_TEXT.DRIFT_Y,
+        table       = opts.table,
     })
 end
 
@@ -55,17 +56,51 @@ local ALPHA_HOLD = 0.6
 function FloatingTextSystem.update(dt)
     for i = #_texts, 1, -1 do
         local t = _texts[i]
-        t.timer = t.timer - dt
-        local progress = 1 - (t.timer / t.lifetime)         -- 0 → 1 over lifetime
-        t.x     = t.x0 + t.arc_x * progress
-        t.y     = t.y0 + t.arc_y * progress
-        if progress < ALPHA_HOLD then
-            t.alpha = 1
-        else
-            t.alpha = (1 - progress) / (1 - ALPHA_HOLD)
+        local tbl = t.table   -- nil for non-resolution floaters
+
+        -- Track whether the floater has ever seen its table reach idle.
+        -- The floater spawns during "settling"; _finalizeHand sets the
+        -- table to "idle" in the same frame or the next.  We only kill
+        -- the floater once it has witnessed idle AND the table then
+        -- leaves idle again (a new deal started).
+        if tbl and tbl.state == "idle" then
+            t.saw_idle = true
         end
-        if t.timer <= 0 then
+
+        if tbl and t.saw_idle and tbl.state ~= "idle" then
+            -- Table was idle (floater was resting), now a new hand
+            -- started → remove immediately.
             table.remove(_texts, i)
+        else
+            t.timer = t.timer - dt
+            local progress = 1 - (t.timer / t.lifetime)      -- 0 → 1
+
+            if tbl then
+                -- Table-attached: NO fade at all — stays fully opaque
+                -- while it rises, then freezes at its final position.
+                if tbl.state == "idle" and progress >= 1.0 then
+                    -- Freeze: clamp progress, hold timer alive.
+                    progress = 1.0
+                    t.timer = 0.001
+                    t.has_persisted = true
+                end
+                t.alpha = 1.0
+            else
+                -- Normal floater: hold-then-fade curve.
+                if progress < ALPHA_HOLD then
+                    t.alpha = 1
+                else
+                    t.alpha = (1 - progress) / (1 - ALPHA_HOLD)
+                end
+            end
+
+            t.x = t.x0 + t.arc_x * math.min(1.0, progress)
+            t.y = t.y0 + t.arc_y * math.min(1.0, progress)
+
+            -- Non-persisted texts expire normally when timer hits 0.
+            if t.timer <= 0 and not t.has_persisted then
+                table.remove(_texts, i)
+            end
         end
     end
 end

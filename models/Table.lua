@@ -780,6 +780,7 @@ function Table:update(dt, ctx)
                 x     = self.x,
                 y     = self.y,
                 chip_stack_table = gtype and gtype.chip_stack_table or false,
+                felt_pot = self.playback_state and self.playback_state.pot_at_push or 0,
             }
             self.lift_t = 0
         elseif self.state == "settling" and self.state_timer >= 0.4 then
@@ -815,6 +816,7 @@ function Table:update(dt, ctx)
                     tier  = self.outcome_tier,
                     x     = self.x,
                     y     = self.y,
+                    felt_pot = self.playback_state and self.playback_state.pot_at_push or 0,
                 }
                 -- Slam to rest at the same instant the resolution emits,
                 -- not at end-of-settling. _finalizeHand runs ~0.4 s
