@@ -153,6 +153,9 @@ local function buildGame()
     -- to build their own default-typeface font, which is why they were the
     -- one bit of text in the game that didn't match anything around it.
     require("views.Chips").configureFont(g.fonts)
+    -- Same reason: a card too small for its sprite falls back to a plate with
+    -- its rank as one glyph, and that glyph is the game font.
+    require("views.CardSprites").configure(g.fonts)
 
     -- Transient debug toggles (not persisted). Backtick (`) toggles
     -- the per-table tooltip overlay; see InputController and TablePanel.
@@ -442,6 +445,7 @@ function love.resize(w, h)
     require("views.CatalogModal").configureFromFonts(Game.fonts)
     require("views.SettingsModal").configureFromFonts(Game.fonts)
     require("views.Chips").configureFont(Game.fonts)
+    require("views.CardSprites").configure(Game.fonts)
 
     if Game.state_machine then
         Game.state_machine:resize(w, h)

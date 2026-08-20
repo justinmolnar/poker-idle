@@ -7,9 +7,12 @@
 --
 -- Sizing philosophy: the cards are sized to FILL the felt's height (grow when
 -- there's room, shrink only when genuinely tight, never below a readable
--- floor) so the table is never microscopic-with-wasted-space. Opponents are
--- NEVER dropped to make room -- the hole-card band yields first, and only on a
--- truly tiny felt does it fall back to the mini (DEAL + pot text) layout.
+-- floor) so the table is never microscopic-with-wasted-space. Every BAND
+-- survives at every felt size -- opponents included -- and what adapts instead
+-- is what goes INSIDE them: a name with no room is dropped, the pot keeps its
+-- number and loses its pile, the bottom row sheds its label and then its
+-- Stack%, and a card too small for its sprite falls back to a rank plate.
+-- Nothing shrinks below 8px, because there is no font below 8px to shrink to.
 --
 -- PURE (architecture rule 2): no rendering calls, no state mutation. It is
 -- geometry only -- text widths (the EV readout) are MEASURED by the
@@ -26,6 +29,18 @@ local CARD_ASPECT = 56 / 80   -- card sprite native aspect; heights derive from 
 -- very tall felt from blowing the cards up absurdly.
 local MIN_CARD_SCALE = 0.3
 local MAX_CARD_SCALE = 1.5
+
+-- Bottom-row shed order, most to least worth keeping. The money itself never
+-- leaves; the "Tied up" label is chrome and goes before the Stack% does, since
+-- the number's position under the pile already says what it is. Module-level
+-- because compute() runs once per panel per frame.
+local BOTTOM_LADDER = {
+    { tied = "full",  ev = "full"  },
+    { tied = "short", ev = "full"  },
+    { tied = "short", ev = "money" },
+    { tied = "full",  ev = nil     },
+    { tied = "short", ev = nil     },
+}
 
 local FeltLayout = {}
 
@@ -57,12 +72,21 @@ end
 -- Compute the full felt layout.
 --
 -- p = { felt_x, felt_y, felt_w, felt_h, hu, n_opps, sizes (cardSizes result),
---       s (per-panel scale), sm_h, md_h, xs_h (font heights; xs_h is the small
---       tier used by opp names + pot text, so those rows reserve less and the
---       cards grow into it), ev_w (measured EV-readout width),
+--       s (per-panel scale), sm_h, md_h, xs_h (font heights),
+--       ev_w / ev_money_w / tied_w / tied_short_w (bottom-row widths),
+--       name_ch_w (one character's advance in the seat-name font),
 --       bottom_extra = number? (taller bottom band; default thin) }
 --
--- Returns a layout table; `.tier` is "full" | "compact" | "mini".
+-- Returns a layout table. `.tier` ("full" | "compact" | "micro") is a DERIVED
+-- label for the debug overlay — nothing branches on it. The real decisions are
+-- per-element flags, each gated by the dimension that constrains it:
+--   • opponent names   → seat width   (L.opponents.show_names)
+--   • pot pile         → felt height  (L.pot.allow_chips)
+--   • bottom-row parts → felt width   (L.bottom.tied.parts / .ev.parts)
+--   • card art vs plate→ card width   (L.community.plate / .hole.plate /
+--                                      .opponents.plate — one decision per
+--                                      band, so the showdown pop can't flip a
+--                                      card's representation mid-animation)
 function FeltLayout.compute(p)
     local sp       = Data.space
     local pile_cfg = Data.pile
@@ -79,6 +103,30 @@ function FeltLayout.compute(p)
     local bottom_min = math.max(sm_h, p.bottom_extra or 0)  -- cash row OR MTT ladder
     local opp_name_h = xs_h                                 -- all seat names are xs (incl. HU)
 
+    -- ── Opponent names: a WIDTH decision, made before the height solve ────
+    -- There is no font below 8px to fall back on, so a name that doesn't fit
+    -- its seat can only be dropped. Reserving the row anyway would spend 10px
+    -- of felt on nothing. The caller measures the font's character advance
+    -- (same contract as ev_w) so this stays pure geometry.
+    local opp_cfg    = Data.opp or {}
+    -- HU's single duel seat is sized by hu_seat, not by fw/n_opps. Estimated
+    -- off the UNSCALED opponent card so this stays out of the card-scale solve
+    -- it would otherwise be circular with; the duel seat has a generous floor,
+    -- so the estimate never lands near the threshold.
+    local seat_w_b
+    if (p.n_opps or 0) == 1 then
+        local hs = Data.hu_seat
+        seat_w_b = math.min(fw, math.max(hs.min_w, p.sizes.opp_w * hs.card_mult + hs.extra_w))
+    elseif (p.n_opps or 0) > 1 then
+        seat_w_b = fw / p.n_opps
+    else
+        seat_w_b = fw
+    end
+    local name_chars = (p.name_ch_w and p.name_ch_w > 0)
+        and ifloor((seat_w_b - (opp_cfg.name_pad or 0)) / p.name_ch_w)
+        or 0
+    local show_names = name_chars >= (opp_cfg.name_min_chars or 0)
+
     -- ── Card scaling: size the cards so the stack FILLS the felt ──────────
     -- card-driven height scales with the cards; font-driven height is fixed.
     -- Solve for the scale that makes (card_parts*k + fixed_parts) == usable_h,
@@ -86,21 +134,42 @@ function FeltLayout.compute(p)
     -- space) and only shrinks them when genuinely tight.
     local base = p.sizes
     local opp_card_b = p.hu and (base.opp_h * Data.hu_seat.card_mult) or base.opp_h
-    -- The pot floats in its own (weighted) band in the open space below the
-    -- community, so reserve the base chip's FULL diameter (2 * pile_r). The pile
-    -- scales with the cards (chip_scale = card_scale), so it belongs in
-    -- card_parts; the gap + the xs pot-text line are fixed.
-    local card_parts = opp_card_b + base.comm_h + 2 * (p.pile_r or 0) + base.player_h
-    local fixed_parts = (opp_name_h + name_gap)   -- opponents name line
-                      + (name_gap + xs_h)         -- gap + pot text (xs), below the pile
-                      + name_gap                  -- hole below-cards gap
-                      + bottom_min                -- bottom row
-                      + 4 * gap                   -- gaps between the 5 bands
-    local card_scale = 1
-    if card_parts > 0 then
-        card_scale = (usable_h - fixed_parts) / card_parts
-        card_scale = math.max(MIN_CARD_SCALE, math.min(MAX_CARD_SCALE, card_scale))
+    local chip_frac  = pile_cfg.chip_frac  or 0
+    local min_chip_d = pile_cfg.min_chip_d or 0
+
+    -- The pot pile is sized off the COMMUNITY CARD, not off the chip's own base
+    -- radius, so growing the chip art can't shrink every card on the felt. The
+    -- band reserves the base chip's BOTTOM half only — the pile grows UPWARD
+    -- over the community row by design (see the pot block below), so the top
+    -- half was always reserving space the pile doesn't sit in.
+    --
+    -- Both terms are card-proportional, so the solve stays non-circular: the
+    -- pot's share of card_parts is a fraction of base.comm_w, which scales with
+    -- everything else.
+    local function solveScale(with_pile)
+        local card_parts = opp_card_b + base.comm_h + base.player_h
+        if with_pile then card_parts = card_parts + 0.5 * chip_frac * base.comm_w end
+        local fixed_parts = (name_gap + xs_h)         -- gap + pot text, below the pile
+                          + name_gap                  -- hole below-cards gap
+                          + bottom_min                -- bottom row
+                          + 4 * gap                   -- gaps between the 5 bands
+        if show_names then
+            fixed_parts = fixed_parts + opp_name_h + name_gap
+        end
+        if card_parts <= 0 then return 1 end
+        local k = (usable_h - fixed_parts) / card_parts
+        return math.max(MIN_CARD_SCALE, math.min(MAX_CARD_SCALE, k))
     end
+
+    -- Pot-pile presence is the one HEIGHT decision. Solve with the pile, and if
+    -- the chip it produces is too small to be anything but a dot, re-solve
+    -- without it and let the felt show "Pot: $X" alone. Two passes, terminating:
+    -- dropping the pile only ever raises card_scale, so the second solve can't
+    -- send the decision back the other way.
+    local card_scale = solveScale(true)
+    local has_pile   = ifloor(chip_frac * math.max(1, ifloor(base.comm_w * card_scale)))
+                       >= min_chip_d
+    if not has_pile then card_scale = solveScale(false) end
     local sz = scaleSizes(base, card_scale)
 
     -- Multi-way seat clamp: each opponent seat is fw/n_opps wide and
@@ -124,31 +193,44 @@ function FeltLayout.compute(p)
         end
     end
 
+    -- ── Chip sizes, from the card each pile sits beside ───────────────────
+    -- The pot measures against a community card, the player's pile against a
+    -- hole card, so a chip stays roughly two thirds of its neighbour's width at
+    -- every panel size. Published as a SCALE against the chip's base radius,
+    -- which is the unit views/ChipPile.place takes.
+    -- Capped at the chip's AUTHORED diameter: past that the procedural art is
+    -- just being stretched, and a chip wider than the card beside it is what
+    -- this whole change exists to stop.
+    local base_d     = 2 * (p.pile_r or 0)
+    local function chipD(card_w)
+        local d = math.max(min_chip_d, ifloor(chip_frac * card_w))
+        if base_d > 0 then d = math.min(d, base_d) end
+        return d
+    end
+    local pot_chip_d = has_pile and chipD(sz.comm_w) or 0
+    local you_chip_d = chipD(sz.player_w)
+
+    -- Card art vs. the small-card plate, decided ONCE per band. The cards in a
+    -- band are all one size, and deciding per draw call would let the showdown
+    -- pop (which redraws the winning cards ~1.26x larger) flip a card near the
+    -- threshold from plate to art mid-animation.
+    local plate_below = (Data.card and Data.card.plate_below_w) or 0
+    local function platedAt(card_w) return card_w < plate_below end
+    local function chipScale(d)
+        if base_d <= 0 then return card_scale end
+        return d / base_d
+    end
+
     -- Minimums with the scaled cards.
     local opp_card_h = p.hu and (sz.opp_h * Data.hu_seat.card_mult) or sz.opp_h
-    local opp_min    = opp_card_h + opp_name_h + name_gap
-    local pile_r_eff = ifloor((p.pile_r or 0) * card_scale)
+    local opp_min    = opp_card_h + (show_names and (opp_name_h + name_gap) or 0)
+    local pot_half   = ifloor(pot_chip_d / 2)
     local comm_min   = sz.comm_h                       -- community cards band only
-    -- Pot band: base chip (full diameter) + gap + xs pot-text line. It carries
+    -- Pot band: the base chip's BOTTOM half + gap + pot-text line. It carries
     -- the slack weight, so on a roomy felt it expands and the pot floats CENTERED
     -- in the open space between the cards rather than jamming under them.
-    local pot_min    = 2 * pile_r_eff + name_gap + xs_h
+    local pot_min    = pot_half + name_gap + xs_h
     local hole_min   = sz.player_h + name_gap
-
-    -- Mini: not even community + bottom row fit -- pot text + DEAL.
-    local function miniLayout()
-        return {
-            tier = "mini", sizes = sz, card_scale = card_scale,
-            pot  = {
-                center_x   = fx + ifloor(fw / 2),
-                text_x     = fx, text_w = fw,
-                text_y     = fy + ifloor(fh / 2) - ifloor(sm_h / 2),
-                chips_y    = fy + ifloor(fh / 2),
-                max_w      = fw - 4 * edge,
-                allow_chips = false,
-            },
-        }
-    end
 
     -- Opponents (TOP) -- never dropped. Community cards below them. The POT band
     -- carries the slack weight, so leftover space lands THERE and the pot floats
@@ -165,18 +247,25 @@ function FeltLayout.compute(p)
         { min_h = hole_min,   weight = 0 },   -- 4 hole cards
         { min_h = bottom_min, weight = 0 },   -- 5 chips / EV / YOU
     }
+    -- No band carries a drop_priority, so allocate never returns nil: every
+    -- band is required and the ladder above already decided what exists.
     local rects = BandStack.allocate(usable_h, bands, gap)
-    if not rects then return miniLayout() end
 
-    local has_opp  = rects[1] ~= nil
-    local has_hole = rects[4] ~= nil
+    -- `tier` is a DERIVED label, not a switch anything branches on — the real
+    -- decisions are the per-element flags below, each gated by the dimension
+    -- that actually constrains it. It exists so the backtick debug overlay can
+    -- say what the felt gave up.
     local L = {
-        tier  = has_opp and "full" or "compact",
+        tier  = (show_names and "full") or (has_pile and "compact") or "micro",
         sizes = sz, card_scale = card_scale,
+        show_names = show_names,
     }
 
-    -- Opponents band (seats pre-split; HU = one centered duel seat).
-    if has_opp then
+    -- Opponents band (seats pre-split; HU = one centered duel seat). Never
+    -- dropped at any felt size — below the plate threshold the seats' cards
+    -- render as plates instead (views/CardSprites), which is what keeps them
+    -- readable once they're a dozen pixels wide.
+    do
         local r  = rects[1]
         local oy = fy + r.y
         local seats = {}
@@ -190,11 +279,16 @@ function FeltLayout.compute(p)
                 seats[i] = { x = fx + (i - 1) * each, w = each }
             end
         end
+        local name_band = show_names and (opp_name_h + name_gap) or 0
         L.opponents = {
             x = fx, y = oy, w = fw, h = r.h,
-            name_h = opp_name_h, card_h = opp_card_h,
-            cards_y_offset = opp_name_h + name_gap,
-            anchor_y = oy + opp_name_h + name_gap + ifloor(opp_card_h / 2),
+            name_h = show_names and opp_name_h or 0, card_h = opp_card_h,
+            show_names = show_names, name_chars = name_chars,
+            -- HU's duel seat draws at card_mult, so it crosses the plate
+            -- threshold later than the per-seat boxes do.
+            plate = platedAt(p.hu and (sz.opp_w * Data.hu_seat.card_mult) or sz.opp_w),
+            cards_y_offset = name_band,
+            anchor_y = oy + name_band + ifloor(opp_card_h / 2),
             hu = p.hu, seats = seats,
         }
     end
@@ -205,16 +299,20 @@ function FeltLayout.compute(p)
     L.community = {
         x = fx, y = cb_y, w = fw,
         card_w = sz.comm_w, card_h = sz.comm_h, gap = scaled(sp.comm_gap, p.s),
+        plate = platedAt(sz.comm_w),
     }
     -- Pot (rects[3], the weighted band): center the pile + text BLOCK in this
     -- band's open space, so the chips sit DOWN in the gap between the community
     -- and hole cards with breathing room, not jammed under the community row.
+    -- Only the base chip's BOTTOM half is inside this band, so chips_y (the base
+    -- chip's CENTER) sits at the block's top edge and the pile grows up out of
+    -- the band, over the community row.
     local pbnd      = rects[3]
     local pbnd_y    = fy + pbnd.y
-    local block_h   = 2 * pile_r_eff + name_gap + xs_h
+    local block_h   = pot_half + name_gap + xs_h
     local block_top = pbnd_y + ifloor((pbnd.h - block_h) / 2)
-    local chips_y    = block_top + pile_r_eff           -- base chip center; pile grows UP
-    local pot_text_y = chips_y + pile_r_eff + name_gap  -- text below the base chip
+    local chips_y    = block_top                       -- base chip center; pile grows UP
+    local pot_text_y = chips_y + pot_half + name_gap   -- text below the base chip
     L.pot = {
         center_x   = fx + ifloor(fw / 2),
         chips_y     = chips_y,
@@ -222,17 +320,21 @@ function FeltLayout.compute(p)
         max_w       = fw - 4 * edge,
         max_cols    = pile_cfg.pot_cols,
         max_rows    = pile_cfg.pot_rows,
-        allow_chips = true,
-        chip_scale  = card_scale,                -- pot pile scales with the cards
+        -- Dropped once a chip would be too small to be anything but a dot; the
+        -- "Pot: $X" text carries the whole readout from there down.
+        allow_chips = has_pile,
+        chip_d      = pot_chip_d,
+        chip_scale  = chipScale(pot_chip_d),
     }
 
     -- Hole-card band (rects[4]).
-    if has_hole then
+    do
         local r = rects[4]
         local below_y = fy + r.y + sz.player_h + name_gap
         L.hole = {
             x = fx, y = fy + r.y, w = fw,
             card_w = sz.player_w, card_h = sz.player_h, gap = scaled(sp.hole_gap, p.s),
+            plate = platedAt(sz.player_w),
             hand_name_y = below_y,
             below_y = below_y,
         }
@@ -250,17 +352,55 @@ function FeltLayout.compute(p)
     -- that budget clipped a $1.96 stack down to a single 25c chip. Nothing
     -- else sits on this row, so the space is free.
     local chips_w     = ifloor(fw * 0.55)
+
+    -- Two left/right-anchored strings on ONE line, and no font below 8px to
+    -- shrink into, so the row can only SHED (see BOTTOM_LADDER). This used to
+    -- be `show = ev_w > 0`, which is always true, so the two ran into each
+    -- other on any felt narrower than about 220px.
+    local tied_full  = p.tied_w or 0
+    local tied_short = p.tied_short_w or tied_full
+    local ev_full    = p.ev_w or 0
+    local ev_money   = p.ev_money_w or ev_full
+    local pad        = scaled(sp.you_pad, p.s)
+    local inner_w    = fw - 2 * edge
+
+    local tied_parts, tied_w = "short", tied_short
+    local ev_parts, ev_w, ev_x = nil, 0, fx + fw - edge
+    for _, rung in ipairs(BOTTOM_LADDER) do
+        local tw = (rung.tied == "full") and tied_full or tied_short
+        local ew = (rung.ev == "full" and ev_full)
+                or (rung.ev == "money" and ev_money) or 0
+        if ew > 0 then
+            local t = BandStack.threeUp(inner_w, tw, ew, 0, pad)
+            if t.center_show then
+                tied_parts, tied_w = rung.tied, tw
+                ev_parts, ev_w, ev_x = rung.ev, ew, fx + edge + t.right_x
+                break
+            end
+        elseif tw <= inner_w then
+            tied_parts, tied_w = rung.tied, tw
+            break
+        end
+    end
+
     L.bottom = {
         baseline_y = text_top,
-        chip_scale = card_scale,                -- player pile scales with the cards
+        -- The player's pile is sized off a HOLE card, the same way the pot is
+        -- sized off a community card — not off card_scale, which tied it to the
+        -- chip art's own base radius.
+        chip_scale = chipScale(you_chip_d),
+        chip_d     = you_chip_d,
         band  = { x = fx, y = fy + bot.y, w = fw, h = bot.h },
         -- Chips raised just above the tied-up line so the pile sits on top of it.
         chips = { x = fx + edge, y = text_top - name_gap, align = "left",
                   max_w = chips_w,
                   max_cols = pile_cfg.player_cols, max_rows = pile_cfg.player_rows },
-        tied  = { x = fx + edge, y = text_top, align = "left" },
-        ev    = { x = fx + fw - edge - (p.ev_w or 0), y = text_top,
-                  w = p.ev_w or 0, show = (p.ev_w or 0) > 0 },
+        tied  = { x = fx + edge, y = text_top, align = "left",
+                  w = tied_w, parts = tied_parts },
+        ev    = { x = ev_x, y = text_top, w = ev_w,
+                  show = ev_parts ~= nil, parts = ev_parts },
+        inner_w = inner_w,          -- for callers laying out their own L/R pair
+        pad     = pad,
         right_x = fx + fw - edge,   -- right text edge (tournament labels)
     }
 

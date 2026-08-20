@@ -31,7 +31,14 @@ local function getSpriteBottom(sprite, name)
     end
     
     local w, h = sprite:getDimensions()
-    local path = "assets/sprites/" .. name .. ".png"
+    local resolved = name
+    if game and game.sprite_loader and game.sprite_loader.aliases and game.sprite_loader.aliases[name] then
+        resolved = game.sprite_loader.aliases[name]
+    end
+    local path = "assets/sprites/" .. resolved .. ".png"
+    if not love.filesystem.getInfo(path) then
+        path = "assets/sprites/" .. name .. ".png"
+    end
     if not love.filesystem.getInfo(path) then
         path = "assets/" .. name .. ".png"
     end
@@ -140,7 +147,7 @@ function RoomView:new(game)
     if game.sprite_loader and game.sprite_loader.sprites then
         local sprite_names = {}
         for name, _ in pairs(game.sprite_loader.sprites) do
-            if name:sub(1, 10) == "isometric/" then
+            if name:sub(1, 10) == "isometric/" or name:sub(1, 15) == "TinyHouse_0.17(" then
                 sprite_names[#sprite_names + 1] = name
             end
         end
@@ -149,13 +156,11 @@ function RoomView:new(game)
         for _, name in ipairs(sprite_names) do
             if not sprites_seen[name] then
                 sprites_seen[name] = true
-                -- "isometric/Bathroom/Bath_Ani/Bath_1" → group "Bathroom",
-                -- label "Bath_Ani/Bath_1". Root-level files group under
-                -- "Isometric". Sprite folders start collapsed — there are
-                -- hundreds of sprites; the browser would be unusable open.
-                local rest = name:sub(11)
-                local folder, label = rest:match("^([^/]+)/(.+)$")
-                if not folder then folder, label = "Isometric", rest end
+                -- "TinyHouse_0.17(@Pixel_Salvaje)/Bathroom/Duck" → group "Bathroom", label "Duck"
+                -- "isometric/Bathroom/Bath_Ani/Bath_1" → group "Bathroom", label "Bath_Ani/Bath_1"
+                local clean = name:match("^[^/]+/(.+)$") or name
+                local folder, label = clean:match("^([^/]+)/(.+)$")
+                if not folder then folder, label = "Furniture", clean end
                 placeable[#placeable + 1] = {
                     id = name,
                     name = label,
@@ -165,7 +170,7 @@ function RoomView:new(game)
             end
 
             -- Also extract available Floor and Wall theme names
-            local f_theme = name:match("^isometric/Floor_Wall_Tiles_64/Floor_64_(.+)$")
+            local f_theme = name:match("Floor_Wall_Tiles_64/Floor_64_(.+)$")
             if f_theme then
                 if not floors_seen[f_theme] then
                     floors_seen[f_theme] = true
@@ -173,7 +178,7 @@ function RoomView:new(game)
                 end
             end
 
-            local w_theme = name:match("^isometric/Floor_Wall_Tiles_64/Wall_L_64_(.+)$")
+            local w_theme = name:match("Floor_Wall_Tiles_64/Wall_L_64_(.+)$")
             if w_theme then
                 if not walls_seen[w_theme] then
                     walls_seen[w_theme] = true
@@ -534,7 +539,7 @@ function RoomView:draw(full_screen)
             color = { color[1], color[2], color[3], 0.40 }
         end
         
-        local sprite = game.sprite_loader:getSprite(obj.id)
+        local sprite = game.sprite_loader:getSprite(obj.sprite or obj.id)
         if sprite then
             local draw_gx, draw_gy
             if obj.align == "left_wall" then
@@ -561,7 +566,7 @@ function RoomView:draw(full_screen)
             else
                 diff_y = (obj.w + obj.h) * 8
             end
-            local oy = getSpriteBottom(sprite, obj.id) - diff_y
+            local oy = getSpriteBottom(sprite, obj.sprite or obj.id) - diff_y
             
             if obj.flip_x then
                 draw_scale_x = -draw_scale_x
@@ -606,7 +611,7 @@ function RoomView:draw(full_screen)
             love.graphics.polygon("line", tx1, ty1, tx2, ty2, tx3, ty3, tx4, ty4)
 
             -- Draw placement preview block (sprite or fallback box)
-            local sprite = game.sprite_loader:getSprite(active_spec.id)
+            local sprite = game.sprite_loader:getSprite(active_spec.sprite or active_spec.id)
             if sprite then
                 local draw_gx, draw_gy
                 if self.active_align == "left_wall" then
@@ -633,7 +638,7 @@ function RoomView:draw(full_screen)
                 else
                     diff_y = (self.active_w + self.active_h) * 8
                 end
-                local oy = getSpriteBottom(sprite, active_spec.id) - diff_y
+                local oy = getSpriteBottom(sprite, active_spec.sprite or active_spec.id) - diff_y
                 
                 if self.active_flip_x then
                     draw_scale_x = -draw_scale_x

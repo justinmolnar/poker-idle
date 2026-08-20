@@ -35,8 +35,9 @@
 -- MIN_DETAIL_R paints flat. At small sizes the new art is SIMPLER than
 -- what it replaced, not richer, because anything else is mud.
 
-local ChipData = require("data.chips")
-local Theme    = require("views.Theme")
+local ChipData    = require("data.chips")
+local Theme       = require("views.Theme")
+local FontService = require("services.FontService")
 
 local Chips = {}
 
@@ -174,9 +175,10 @@ local BAND_PAD_X    = 2      -- px of plate either side of the widest label
 local BAND_INK      = 1.00
 -- How far out the band may reach. Past this its corners break the rim.
 local BAND_MAX_R    = 0.96
--- Share of the font's line height that is actual ink. Thin Sans draws
--- 1.25em digits inside a 2.625em line box.
-local INK_OF_LINE   = 1.25 / 2.625
+-- Share of the font's line height that is actual ink. A property of the
+-- FACE, not of chips, so it lives in services/FontService — views/CardSprites
+-- measures its rank glyphs against the same number.
+local INK_OF_LINE   = FontService.INK_OF_LINE
 local LABEL_PAD     = 1      -- px of plate that must remain around the ink
 
 -- ── Scratch color tables ────────────────────────────────────────────

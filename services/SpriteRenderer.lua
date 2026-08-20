@@ -7,6 +7,8 @@
 -- magenta rect so missing assets are visible), and aspect-stretching.
 --
 -- Engine-agnostic: takes any atlas with :getSprite(name) -> love.Image | nil.
+-- An atlas MAY also offer :getSpriteFor(name, width) to return a mip level
+-- sized for the draw; this module uses it when present.
 
 local Theme = require("views.Theme")
 
@@ -22,7 +24,15 @@ local _warned_missing = {}
 -- existed and rendered, false if it was missing (and a magenta+border rect
 -- was drawn as a placeholder).
 function SpriteRenderer.draw(atlas, sprite_name, x, y, width, height, tint)
-    local sprite = atlas and atlas:getSprite(sprite_name)
+    -- getSpriteFor lets an atlas hand back a mip level sized for this draw
+    -- (services/SpriteLoader builds one for card backs, which are drawn from
+    -- 9px on the felt to ~110px in the shove gauntlet). Atlases without it,
+    -- and sprites without a chain, resolve exactly as before.
+    local sprite
+    if atlas then
+        sprite = atlas.getSpriteFor and atlas:getSpriteFor(sprite_name, width)
+                 or atlas:getSprite(sprite_name)
+    end
 
     if not sprite then
         if not _warned_missing[sprite_name] then

@@ -541,7 +541,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     love.graphics.rectangle("line", img_x, img_y, img_w, img_h)
 
     -- Draw sprite (if exists)
-    local sprite = self.game.sprite_loader:getSprite(item.id)
+    local sprite = self.game.sprite_loader:getSprite(item.sprite or item.id)
     if sprite then
         local scale_x = img_w / sprite:getWidth()
         local scale_y = img_h / sprite:getHeight()

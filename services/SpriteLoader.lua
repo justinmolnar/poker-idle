@@ -14,6 +14,8 @@
 --   sl = SpriteLoader:new()
 --   sl:loadAll()
 --   sl:getSprite(name)  → love.Image | nil
+--   sl:getSpriteFor(name, target_w) → love.Image | nil  (mip level for a
+--                         given draw width; see the card-art block below)
 --   sl:hasSprite(name)  → bool
 
 local Object = require('lib.class')
@@ -36,10 +38,101 @@ end
 -- GIF to PNG on disk before referencing it.
 local SUPPORTED_EXTS = { png = true, jpg = true, jpeg = true, bmp = true, tga = true }
 
+-- ── Card art post-processing ─────────────────────────────────
+-- The whole game is nearest-filtered pixel art (services/FontService sets it
+-- explicitly on every face) except the cards, which nothing ever touched, so
+-- they inherited LOVE's default linear/linear. Magnification goes nearest here
+-- so big cards are pixel-exact (hole cards at a single table land at exactly
+-- 2x native and used to come out soft); minification stays linear so small
+-- ones still average.
+--
+-- Card BACKS get more than that: a mip CHAIN, built once at load.
+--
+-- Backs ship at 144x192 but are never drawn above ~110px, and on the felt they
+-- land at 9-51px. One 2x2 bilinear tap out of a 16x16 footprint PICKS a texel
+-- rather than averaging, which is why opponent seats read as noise. Decks are
+-- bought content and have to stay recognisable at every size, so rather than
+-- hiding them the loader keeps four levels (112x160 down to 14x20) and
+-- getSpriteFor picks the smallest one still at least as wide as the draw. That
+-- caps minification at under 2:1 anywhere on the felt, and the 112 level keeps
+-- the shove gauntlet (which draws backs at ~110px) essentially 1:1.
+--
+-- Each level is a HALVING of the one above, so every step is a true box
+-- average instead of a point sample. Deliberately NOT GPU mipmaps: 144x192 is
+-- non-power-of-two and the love.js web build may refuse to generate them,
+-- which would leave the itch build broken with no way to see it from here.
+local CARD_PREFIX = "cards/"
+local BACK_PREFIX = "cards/backs/"
+local BACK_W, BACK_H = 112, 160
+local BACK_MIN_W     = 14      -- smallest chain level. The tightest the felt
+                               -- ever gets is a ~9px opponent card at 32
+                               -- tables, which this level serves at 1.6:1
+
+local function applyCardFilter(image)
+    -- (min, mag): linear down, nearest up.
+    pcall(image.setFilter, image, "linear", "nearest")
+end
+
+-- Resample `image` to (w, h) through a canvas and bake the result back into a
+-- plain Image, so nothing downstream has to care that this sprite was
+-- resampled and the render target is released. Returns nil if any part of the
+-- canvas path is unavailable (headless tooling, a driver without render
+-- targets) so callers keep what they had rather than losing the sprite.
+local function resample(image, w, h)
+    local sw, sh = image:getWidth(), image:getHeight()
+    if sw <= 0 or sh <= 0 or w <= 0 or h <= 0 then return nil end
+
+    local ok, canvas = pcall(love.graphics.newCanvas, w, h)
+    if not ok or not canvas then return nil end
+
+    local prev_canvas = love.graphics.getCanvas()
+    love.graphics.push("all")
+    love.graphics.origin()
+    love.graphics.setScissor()
+    love.graphics.setShader()
+    love.graphics.setBlendMode("alpha", "alphamultiply")
+    love.graphics.setCanvas(canvas)
+    love.graphics.clear(0, 0, 0, 0)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(image, 0, 0, 0, w / sw, h / sh)
+    love.graphics.setCanvas(prev_canvas)
+    love.graphics.pop()
+
+    local snap_ok, data = pcall(function() return canvas:newImageData() end)
+    if not snap_ok or not data then return nil end
+    local img_ok, img = pcall(love.graphics.newImage, data)
+    if not img_ok or not img then return nil end
+    applyCardFilter(img)
+    return img
+end
+
+-- Levels for one card back, largest first. Level 1 is the source normalised to
+-- BACK_W; each subsequent level halves it. Always returns at least one level.
+local function buildBackChain(image)
+    local levels = {}
+    local top = image
+    if top:getWidth() ~= BACK_W then
+        top = resample(image, BACK_W, BACK_H) or image
+    end
+    levels[1] = top
+
+    local w, h = top:getWidth(), top:getHeight()
+    while math.floor(w / 2) >= BACK_MIN_W do
+        w, h = math.floor(w / 2), math.floor(h / 2)
+        local level = resample(levels[#levels], w, h)
+        if not level then break end
+        levels[#levels + 1] = level
+    end
+    return levels
+end
+
 function SpriteLoader:init()
     self.sprites = {}
     self.loaded = false
     self.aliases = nil
+    -- sprite name -> { Image, ... } largest first. Only card backs build one;
+    -- getSpriteFor falls back to the plain sprite for everything else.
+    self.lods = {}
 end
 
 local function isSupported(filename)
@@ -70,6 +163,11 @@ function SpriteLoader:_scan(rel_dir)
                     local sprite_name = stripExt(rel_path)
                     local ok, image = pcall(love.graphics.newImage, item_path)
                     if ok and image then
+                        if sprite_name:sub(1, #CARD_PREFIX) == CARD_PREFIX then
+                            image = self:_conditionCard(sprite_name, image)
+                        else
+                            pcall(image.setFilter, image, "nearest", "nearest")
+                        end
                         self.sprites[sprite_name] = image
                         count = count + 1
                     end
@@ -96,6 +194,11 @@ function SpriteLoader:scanDirectory(dir_path, key_prefix)
                     local sprite_name = key_prefix .. name
                     local ok, image = pcall(love.graphics.newImage, item_path)
                     if ok and image then
+                        if sprite_name:sub(1, #CARD_PREFIX) == CARD_PREFIX then
+                            image = self:_conditionCard(sprite_name, image)
+                        else
+                            pcall(image.setFilter, image, "nearest", "nearest")
+                        end
                         self.sprites[sprite_name] = image
                         count = count + 1
                     end
@@ -144,6 +247,21 @@ function SpriteLoader:loadAliases()
     end
 end
 
+-- Nearest-first filtering for every card, plus a mip chain for the backs.
+-- Returns the image to store under `sprite_name` (the chain's top level when
+-- there is one, so existing getSprite callers keep working unchanged).
+function SpriteLoader:_conditionCard(sprite_name, image)
+    if sprite_name:sub(1, #BACK_PREFIX) == BACK_PREFIX then
+        local ok, levels = pcall(buildBackChain, image)
+        if ok and levels and #levels > 0 then
+            self.lods[sprite_name] = levels
+            image = levels[1]
+        end
+    end
+    applyCardFilter(image)
+    return image
+end
+
 local function _resolve(self, sprite_name)
     if self.aliases and self.aliases[sprite_name] then
         return self.aliases[sprite_name]
@@ -154,6 +272,21 @@ end
 function SpriteLoader:getSprite(sprite_name)
     if not self.loaded then self:loadAll() end
     return self.sprites[_resolve(self, sprite_name)]
+end
+
+-- Lookup that knows about mip chains: hands back the smallest level still at
+-- least as wide as `target_w`, so a card back drawn at 9px comes off a 28px
+-- level instead of a 16:1 minification of a 144px one. Falls through to
+-- getSprite for every sprite without a chain, which is all of them but the
+-- card backs. Called by services/SpriteRenderer, so no draw site changes.
+function SpriteLoader:getSpriteFor(sprite_name, target_w)
+    if not self.loaded then self:loadAll() end
+    local levels = self.lods[_resolve(self, sprite_name)]
+    if not levels then return self:getSprite(sprite_name) end
+    for i = #levels, 1, -1 do
+        if levels[i]:getWidth() >= (target_w or 0) then return levels[i] end
+    end
+    return levels[1]
 end
 
 function SpriteLoader:hasSprite(sprite_name)

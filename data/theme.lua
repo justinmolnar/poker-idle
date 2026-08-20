@@ -197,6 +197,19 @@ Theme.currency = {
     achip_ring= { 0.35, 0.15, 0.55 },   -- darker rim
 }
 
+-- ─── Playing cards (theme-invariant) ────────────────────────────────
+-- A card is a card in any palette. Used by views/CardSprites when the
+-- drawn card is too small for its sprite to show a rank and it falls
+-- back to a plate with a single rank letter. Suit colors are the real
+-- ones — a red suit has to read as red, not as the palette's error tone.
+Theme.card = {
+    face   = { 0.93, 0.92, 0.87 },   -- bone plate (a card's paper)
+    red    = { 0.80, 0.18, 0.18 },   -- hearts / diamonds
+    black  = { 0.12, 0.12, 0.15 },   -- clubs / spades
+    back   = { 0.22, 0.28, 0.42 },   -- face-down plate
+    edge   = { 0.06, 0.06, 0.08 },   -- plate outline
+}
+
 -- ─── Type scale (theme-invariant) ───────────────────────────────────
 -- Closed set. Chrome callers pick from these by name.
 Theme.size = {

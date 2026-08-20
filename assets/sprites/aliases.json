@@ -1,0 +1,60 @@
+{
+  "aliases": {
+    "poker_poster": "TinyHouse_0.17(@Pixel_Salvaje)/Poster/Poster_1",
+    "branded_hat": "TinyHouse_0.17(@Pixel_Salvaje)/Bathroom/Hanger",
+    "mirror": "TinyHouse_0.17(@Pixel_Salvaje)/Bathroom/Mirror",
+    "energy_drink": "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/Cola",
+    "whiteboard": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Board_Empty",
+    "self_help_book": "TinyHouse_0.17(@Pixel_Salvaje)/Books/Books_Pile",
+    "lucky_coin": "TinyHouse_0.17(@Pixel_Salvaje)/Present/Present_100",
+    "lava_lamp": "TinyHouse_0.17(@Pixel_Salvaje)/LavaLamp_Ani/LavaLamp_1",
+    "sticky_notes": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Sticky_Note_1",
+
+    "stress_ball": "TinyHouse_0.17(@Pixel_Salvaje)/Sofa/Pillow_11",
+    "worry_stone": "TinyHouse_0.17(@Pixel_Salvaje)/Bedroom/Bed_A_4",
+    "rubber_duck": "TinyHouse_0.17(@Pixel_Salvaje)/Bathroom/Duck",
+    "headphones": "TinyHouse_0.17(@Pixel_Salvaje)/Bathroom/Hanging_Towel",
+    "medical_kit": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Medical_Kit_Ani/Medical_Kit_Closed",
+    "bathtub": "TinyHouse_0.17(@Pixel_Salvaje)/Bathroom/Bath_Ani/Bath_1",
+
+    "fridge": "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/Fridge/Fridge_2_A_Tile",
+    "toaster": "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/Toaster_Ani/Toaster_1",
+    "the_sink": "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/Sink_Ani/Sink_1",
+    "microwave": "TinyHouse_0.17(@Pixel_Salvaje)/Microwave/Microwave_5_Tile",
+    "dishwasher": "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/DishWasher/Dishwasher_1",
+    "fire_extinguisher": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Fire_Extinguisher",
+
+    "water_cooler": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Water_Dispenser_Ani/Water_Dispenser_1",
+    "gaming_chair": "TinyHouse_0.17(@Pixel_Salvaje)/Chairs/Gaming Chair/GChair_9_A",
+    "second_monitor": "TinyHouse_0.17(@Pixel_Salvaje)/Computer/Vertical_Screen",
+    "headset": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Headset",
+    "wall_clock": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Clock_Ani/Clock_1",
+    "projector": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Projector_Screen_Ani/Projector_Screen_Ani_1",
+    "big_tv": "TinyHouse_0.17(@Pixel_Salvaje)/Televisions_TV/BigTv_Ani/BigTv_Ani_1",
+
+    "calculator": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Calculator",
+    "ring_binder": "TinyHouse_0.17(@Pixel_Salvaje)/Books/Ring_Binder_Green",
+    "pen": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Pencil_Holder",
+    "filing_cabinet": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Office_Metallic_Closet_Ani/Metallic_Closet_Base",
+    "copy_machine": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Copy_Machine_Dark_Ani/CopyMachine_0000_Frame-18",
+    "supply_closet": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Office_Wood_Closet_Ani/Office_Wood_Closet",
+
+    "cursor_pool": "TinyHouse_0.17(@Pixel_Salvaje)/Office/White_Box",
+    "first_cursor": "TinyHouse_0.17(@Pixel_Salvaje)/Computer/MacBook_Ani/Macbook_1_Open_Tile",
+    "mouse_pad": "TinyHouse_0.17(@Pixel_Salvaje)/Computer/NewKeyboard_Tile",
+    "tireless_assistants": "TinyHouse_0.17(@Pixel_Salvaje)/Computer/WacomTablet",
+
+    "dogs_playing_poker": "TinyHouse_0.17(@Pixel_Salvaje)/Japanese_Room/Japanese_Canvas",
+    "plastic_trophy": "TinyHouse_0.17(@Pixel_Salvaje)/Japanese_Room/Japanese_Vase",
+    "engraved_plaque": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Diploma",
+    "study_chart": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Blueprint",
+    "tip_jar": "TinyHouse_0.17(@Pixel_Salvaje)/Japanese_Room/Japanese_Cup",
+
+    "pocket_cash": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Carton_Box",
+    "free_sit": "TinyHouse_0.17(@Pixel_Salvaje)/Japanese_Room/Japanese_Door/Japanese_Door_Transp_1",
+    "discount_sits": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Rolled_Papers",
+    "punch_card": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Sticky_Note_2",
+    "glass_door": "TinyHouse_0.17(@Pixel_Salvaje)/Doors/Office_Glass_Door_Ani/Office_Glass_Door_1",
+    "unlock_ultra": "TinyHouse_0.17(@Pixel_Salvaje)/Japanese_Room/Japanese_Tori_Gate"
+  }
+}

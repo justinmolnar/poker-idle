@@ -7,7 +7,7 @@
 -- cards / chips while the stats-and-debug rendering has a coherent home.
 --
 -- Public surface used by TablePanel:
---   • TablePanelStats.measureEvReadout(tbl, controller, fonts) -> width
+--   • TablePanelStats.measureEvReadout(tbl, controller, fonts) -> full_w, money_w
 --   • TablePanelStats.drawEvReadout(tbl, ev_slot, controller, fonts, hit_boxes, anchor_key?)
 --   • TablePanelStats.stashDebugTooltipIfHover(tbl, panel_x, panel_y, panel_w, panel_h, game, controller)
 -- Public surface used by GrindView (deferred-render top-of-stack):
@@ -958,6 +958,9 @@ local function evMetrics(tbl, controller, font)
     local gap       = math.floor(text_h * 0.6)
     local glyph_pad = math.floor(text_h * 0.25)
     local bb_w      = font:getWidth(label)
+    -- Two widths, because the bottom row sheds the Stack% before it drops the
+    -- readout entirely (views/FeltLayout picks; this just measures both).
+    local money_w   = bb_w
     local total_w   = bb_w + gap + r * 2 + glyph_pad + font:getWidth(stack_label)
 
     if show_loss then
@@ -975,17 +978,19 @@ local function evMetrics(tbl, controller, font)
 
     return {
         label = label, stack_label = stack_label, color = color,
-        total_w = total_w, text_h = text_h, r = r, gap = gap,
+        total_w = total_w, money_w = money_w, text_h = text_h, r = r, gap = gap,
         glyph_pad = glyph_pad, bb_w = bb_w,
         show_loss = show_loss, loss_label = loss_label,
     }
 end
 
--- Pixel width the readout will occupy — so FeltLayout can decide whether it
--- fits the gap between the chip pile and the YOU label. 0 when there's none.
+-- Pixel widths the readout can occupy: the full form, and the money-only form
+-- it sheds to when the bottom row is too narrow to hold both it and the
+-- tied-up line. views/FeltLayout picks between them. 0, 0 when there's none.
 function TablePanelStats.measureEvReadout(tbl, controller, fonts)
     local m = evMetrics(tbl, controller, fonts.sm)
-    return m and m.total_w or 0
+    if not m then return 0, 0 end
+    return m.total_w, m.money_w
 end
 
 -- Draw the readout left-anchored at the layout slot `ev = { x, y, w, show }`
@@ -998,22 +1003,30 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
     local m = evMetrics(tbl, controller, font)
     if not m then return end
 
+    -- `ev.parts` is the layout's shed decision: "money" means the row was too
+    -- narrow to hold the Stack% glyph beside the tied-up line, so only the
+    -- $/hand survives.
+    local money_only = (ev.parts == "money")
+    local drawn_w    = money_only and m.money_w or m.total_w
+
     love.graphics.setFont(font)
     local tx, ty = ev.x, ev.y
     if anchor_key then
-        Anchors.set(anchor_key, tx, ty, m.total_w, m.text_h)
+        Anchors.set(anchor_key, tx, ty, drawn_w, m.text_h)
     end
     Theme.setColor(m.color)
     love.graphics.print(m.label, tx, ty)
 
     -- Stack-win chance: gold tier glyph + pct, sharing the EV color.
     local sx = tx + m.bb_w + m.gap
-    TierGlyph.draw(sx + m.r, ty + m.text_h - m.r, "jackpot", m.r, "win")
-    Theme.setColor(m.color)
-    love.graphics.print(m.stack_label, sx + m.r * 2 + m.glyph_pad, ty)
+    if not money_only then
+        TierGlyph.draw(sx + m.r, ty + m.text_h - m.r, "jackpot", m.r, "win")
+        Theme.setColor(m.color)
+        love.graphics.print(m.stack_label, sx + m.r * 2 + m.glyph_pad, ty)
+    end
 
     -- Stack-loss chance: purple tier glyph + pct
-    if m.show_loss then
+    if m.show_loss and not money_only then
         local lx = sx + m.r * 2 + m.glyph_pad + font:getWidth(m.stack_label) + m.gap
         local old_color = Theme.tier.loss.jackpot
         Theme.tier.loss.jackpot = { 0.55, 0.25, 0.85 }
@@ -1030,7 +1043,7 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
             local pad = TablePanelStats.EV_READOUT_HIT_PAD
             hit_boxes[#hit_boxes + 1] = {
                 x = tx - pad, y = ty - pad,
-                w = m.total_w + pad * 2, h = m.text_h + pad * 2,
+                w = drawn_w + pad * 2, h = m.text_h + pad * 2,
                 tooltip = lines,
             }
         end

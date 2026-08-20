@@ -69,4 +69,24 @@ function FontService.fontScale(W, H)   return fontScale(W, H)   end
 function FontService.layoutScale(W, H) return layoutScale(W, H) end
 function FontService.scale(W, H)       return layoutScale(W, H) end
 
+-- ─── Ink vs. line box ────────────────────────────────────────────────
+-- Share of a line's HEIGHT that is actual ink: Thin Sans draws 1.25em
+-- glyphs inside a 2.625em line box. font:getHeight() returns the LINE
+-- box, so a caller asking "does a glyph FIT inside this small shape?"
+-- (a chip's label plate, a card's rank) has to measure the ink, not the
+-- box, or it rejects labels that would have fit with room to spare.
+--
+-- Positioning still centres on the line box, which is what every view
+-- here does and what the ink lands centred on in this face. This is the
+-- FIT number only.
+--
+-- Lives at this layer because it is a property of the FONT, not of
+-- whatever is being drawn — views/Chips and views/CardSprites both read it.
+FontService.INK_OF_LINE = 1.25 / 2.625
+
+-- Height of one line's actual ink in `font`.
+function FontService.inkHeight(font)
+    return font:getHeight() * FontService.INK_OF_LINE
+end
+
 return FontService

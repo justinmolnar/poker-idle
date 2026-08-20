@@ -50,26 +50,31 @@ function MiniButton.draw(opts)
         hovered      = opts.hovered and not dead,
         press_alpha  = (not dead) and (opts.press_alpha or 0) or 0,
         disabled     = dead,
-        depth        = 2,
+        depth        = (size <= 14) and 1 or 2,
     }, function(fx, fy, fw, fh)
         local drew = false
         if opts.icon and opts.game then
-            local pad = math.floor(fw * 0.2)
+            local pad = math.max(1, math.floor(fw * 0.15))
             drew = Icons.draw(opts.game, opts.icon,
                               fx + pad, fy + pad, fw - pad * 2, fh - pad * 2)
         end
-        if not drew and opts.label and fonts and fonts.sm then
-            Theme.setColor(ink)
-            love.graphics.setFont(fonts.sm)
-            love.graphics.printf(opts.label, fx,
-                                 fy + (fh - fonts.sm:getHeight()) * 0.5, fw, "center")
+        if not drew and opts.label and fonts then
+            local font = (size <= 14 and (fonts.micro or fonts.xs)) or fonts.sm or fonts.xs
+            if font then
+                Theme.setColor(ink)
+                love.graphics.setFont(font)
+                -- Compensate for font top leading whitespace for cap-height glyphs (X, D, R)
+                local font_h = font:getHeight()
+                local text_y = fy + math.floor(fh * 0.5 - font_h * 0.53)
+                love.graphics.printf(opts.label, fx, text_y, fw, "center")
+            end
         end
         -- Struck through only for OFF. A disabled button has nothing to be
         -- switched off, so a strike would claim a state it does not have.
         if off and not dead then
             Theme.setColor(Theme.fg.disabled)
             love.graphics.setLineWidth(1)
-            love.graphics.line(fx + 3, fy + fh / 2, fx + fw - 3, fy + fh / 2)
+            love.graphics.line(fx + 2, fy + math.floor(fh * 0.5), fx + fw - 2, fy + math.floor(fh * 0.5))
         end
     end)
 end

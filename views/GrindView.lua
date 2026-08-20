@@ -508,7 +508,7 @@ function GrindView:_buildTablesTabComponents()
                 -- "x", the same glyph and neutral ink the per-table close
                 -- button uses. Closing a table IS how you cash it out, so the
                 -- group control must not invent a different symbol.
-                { id = "cash_out_type" .. suffix, label = "x",
+                { id = "cash_out_type" .. suffix, label = "X",
                   tint_token = Theme.fg.heading,
                   disabled = none,
                   tooltip = (not none) and string.format("Cash out all %d %s %s table%s",

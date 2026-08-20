@@ -168,17 +168,25 @@ end
 -- Where a button's trailing action strip lives, and how big each square is.
 -- One source for the layout so the draw and the hit test cannot disagree
 -- about which pixels belong to an action vs. to the button underneath.
-local ACTION_PAD = 4
-local function actionSize(h) return math.max(12, math.min(h - ACTION_PAD * 2, 26)) end
+local ACTION_PAD = 3
+
+local function actionSize(h, n)
+    n = math.max(1, n or 1)
+    local pad = (n >= 3) and 2 or ACTION_PAD
+    local avail_h = h - pad * (n + 1)
+    local max_s = math.floor(avail_h / n)
+    local size = math.max(10, math.min(max_s, 22))
+    return size, pad
+end
+
 local function actionRect(comp, panel_x, panel_w, p, y, h, i)
-    local size  = actionSize(h)
-    local right = panel_x + panel_w - p - ACTION_PAD
-    -- Laid out right-to-left, so adding one never shifts the others.
-    local n     = #(comp.actions or {})
-    local x     = right - (n - i + 1) * (size + ACTION_PAD) + ACTION_PAD
-    -- Top-aligned, not centred: these sit in the button's top-right corner
-    -- the way the per-table controls sit in a table's header.
-    return x, y + ACTION_PAD, size
+    local n = #(comp.actions or {})
+    local size, pad = actionSize(h, n)
+    local total_column_h = n * size + (n - 1) * pad
+    local start_y = y + math.floor((h - total_column_h) * 0.5)
+    local x = panel_x + panel_w - p - size - pad
+    local ay = start_y + (i - 1) * (size + pad)
+    return x, ay, size
 end
 
 -- Horizontal space the action strip eats, so the button's own text can be
@@ -186,7 +194,8 @@ end
 function CR.actionStripW(comp, h)
     local n = comp and comp.actions and #comp.actions or 0
     if n == 0 then return 0 end
-    return n * (actionSize(h) + ACTION_PAD) + ACTION_PAD
+    local size, pad = actionSize(h, n)
+    return size + pad * 2
 end
 
 local function _hitButton(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
@@ -195,8 +204,13 @@ local function _hitButton(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
     -- thing you want when the parent +ADD is greyed out because you're broke.
     -- Each returns its own descriptor, so the dispatcher routes on its id.
     if comp.actions and cy >= cursor_y and cy < cursor_y + h then
+        local depth = BTN_DEPTH
+        local face_h = math.max(2, h - depth - 1)
+        local face_y = cursor_y + 1
+        local fx = panel_x + p
+        local fw = panel_w - p * 2
         for i, act in ipairs(comp.actions) do
-            local ax, ay, size = actionRect(comp, panel_x, panel_w, p, cursor_y, h, i)
+            local ax, ay, size = actionRect(comp, fx, fw, 4, face_y, face_h, i)
             if cx >= ax and cx < ax + size and cy >= ay and cy < ay + size then
                 -- No tooltip on a dead action: it has nothing to tell you.
                 -- (Unlike the parent button, where "can't afford" is the
@@ -347,9 +361,13 @@ function CR._button(comp, px, pw, p, y, game)
         disabled     = disabled,
         depth        = BTN_DEPTH,
     }, function(fx, fy, fw, fh)
-        -- Render line stack inside the (post-press) face rect so labels
-        -- move with the button.
-        local cursor = fy + (BTN_PAD * 0.5)
+        -- Measure total lines height to center text stack vertically on the button face
+        local total_lines_h = 0
+        for _, line in ipairs(comp.lines or {}) do
+            total_lines_h = total_lines_h + lineRenderedHeight(line, game, fw)
+        end
+        local cursor = fy + math.max(2, math.floor((fh - total_lines_h) * 0.5))
+
         for _, line in ipairs(comp.lines or {}) do
             local style = line.style or "body"
             local font  = styleFont(style, game)
@@ -380,18 +398,6 @@ function CR._button(comp, px, pw, p, y, game)
             -- start instead of rendering underneath them.
             local printf_w = fw - indent - 4 - CR.actionStripW(comp, total_h)
 
-            -- Optional right-aligned segment on the same row. Lets a
-            -- single line carry "name (left) | value (right)" without
-            -- spending a second LINE_H worth of vertical space.
-            --
-            -- The right segment always renders in fonts.sm, regardless
-            -- of the line's style — it acts as a metadata badge
-            -- (e.g. "+1 chip", "Lv 3/18"), not part of the heading. This
-            -- avoids overflow at fullscreen breakpoints where heading-
-            -- sized left + heading-sized right would together exceed
-            -- the sidebar width. We measure first and shrink the
-            -- left's printf width by the right's actual size + gap so
-            -- the two never overlap.
             local right_font = (game.fonts and game.fonts.sm) or font
             local right_w    = 0
             if line.right then
@@ -416,11 +422,7 @@ function CR._button(comp, px, pw, p, y, game)
                 end
                 love.graphics.setFont(right_font)
                 Theme.setColor(right_color)
-                -- Vertically center the smaller right text against
-                -- the larger left line so it sits on the same baseline.
                 local right_y = cursor + math.floor((font:getHeight() - right_font:getHeight()) / 2)
-                -- Optional currency glyph drawn flush-right after the badge
-                -- ("+N ◆"); the badge text right-aligns into the space before it.
                 local icon_d = line.right_icon and right_font:getHeight() or 0
                 local text_w = (icon_d > 0) and math.max(1, printf_w - icon_d - 4) or printf_w
                 love.graphics.printf(line.right,
@@ -432,8 +434,6 @@ function CR._button(comp, px, pw, p, y, game)
                     Icons.drawChip(game, fx + indent + printf_w - icon_d, right_y, icon_d,
                         line.right_icon_alpha, line.right_icon_shade)
                 end
-                -- Optional hint-anchor on the icon-bearing right badge
-                -- ("+N ◆") — text through glyph, in screen space.
                 if comp.badge_anchor and icon_d > 0 then
                     local bx0 = fx + indent + text_w
                                 - right_font:getWidth(line.right)
@@ -448,29 +448,26 @@ function CR._button(comp, px, pw, p, y, game)
 
             cursor = cursor + lineRenderedHeight(line, game, fw)
         end
-    end)
 
-    -- Trailing action strip: small square toggles living in the button's right
-    -- end. Drawn AFTER the face so they sit on top of it, and they keep their
-    -- own colour when the parent button is disabled — they are separate
-    -- affordances that merely share the row.
-    if comp.actions then
-        for i, act in ipairs(comp.actions) do
-            local ax, ay, size = actionRect(comp, px, pw, p, y, total_h, i)
-            MiniButton.draw{
-                x = ax, y = ay, size = size,
-                label      = act.label,
-                icon       = act.icon,
-                game       = game,
-                fonts      = game and game.fonts,
-                muted      = act.muted,
-                disabled   = act.disabled,
-                tint_token = act.tint_token,
-                hovered    = act.id and HoverSvc.is("button", act.id),
-                press_alpha = (act.id and ClickFlash.alpha("button", act.id)) or 0,
-            }
+        -- Render action sub-buttons inside the post-press face rect
+        if comp.actions then
+            for i, act in ipairs(comp.actions) do
+                local ax, ay, size = actionRect(comp, fx, fw, 4, fy, fh, i)
+                MiniButton.draw{
+                    x = ax, y = ay, size = size,
+                    label      = act.label,
+                    icon       = act.icon,
+                    game       = game,
+                    fonts      = game and game.fonts,
+                    muted      = act.muted,
+                    disabled   = act.disabled,
+                    tint_token = act.tint_token,
+                    hovered    = act.id and HoverSvc.is("button", act.id),
+                    press_alpha = (act.id and ClickFlash.alpha("button", act.id)) or 0,
+                }
+            end
         end
-    end
+    end)
 
     -- Chip-award fanfare: a gold pulse over the button face the moment a
     -- bounty banks (GrindView fires it; shared with the game-type tab strip).

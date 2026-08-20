@@ -20,6 +20,7 @@ Theme.space = PaletteData.space
 Theme.font  = PaletteData.font
 Theme.debug = PaletteData.debug
 Theme.currency = PaletteData.currency
+Theme.card  = PaletteData.card
 
 -- ─── Active-palette dispatch ────────────────────────────────────────
 -- Per-palette tables (bg/fg/border/data/status/tint) are repointed by
