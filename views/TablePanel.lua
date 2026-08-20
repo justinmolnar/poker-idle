@@ -600,6 +600,10 @@ local function drawPotLabel(tbl, pot, fonts)
         ChipPile.place(pot_key, pot.center_x, pot.chips_y, {
             align = "center",
             max_w = pot.max_w,
+            -- The layout decides how wide the pot may spread: unbounded it
+            -- runs a single line of chips out under the community cards.
+            max_cols = pot.max_cols,
+            max_rows = pot.max_rows,
             scale = pot.chip_scale or 1,
             tint  = stake_theme_pot and stake_theme_pot.chip_tint,
         })
@@ -974,6 +978,7 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
 
     ChipPile.place(you_key, bottom.chips.x, pile_y, {
         align = "left", max_w = bottom.chips.max_w, scale = cs, tint = tint,
+        max_cols = bottom.chips.max_cols, max_rows = bottom.chips.max_rows,
     })
     -- "medium" target (~12 chips) keeps the pile compact regardless of stake.
     ChipPile.sync(you_key, display_stack, { palette = palette, tier = "medium" })

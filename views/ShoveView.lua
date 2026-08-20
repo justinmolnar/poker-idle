@@ -238,8 +238,12 @@ function ShoveView:beginBuildup(rates)
             -- services/Tumble randomises its axis and spin direction per
             -- wrap, so wrapping in the draw would reroll them every frame
             -- and the chip would jitter instead of tumble.
-            render_fn = Tumble.wrap(function(px, py)
-                Chips.drawChip(px, py, denom, 1.0, false, nil)
+            render_fn = Tumble.wrap(function(px, py, _t, squash)
+                if squash and squash < Chips.EDGE_SQUASH then
+                    Chips.drawChipEdge(px, py, denom, 1.0, nil)
+                else
+                    Chips.drawChip(px, py, denom, 1.0, false, nil)
+                end
             end, BUILDUP_TUMBLE),
         }
     end

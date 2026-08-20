@@ -38,6 +38,10 @@
 --   local fn = function(x, y) Chips.drawChip(x, y, idx, 1, true, tint) end
 --   FlightSystem.emit(a, b, Tumble.wrap(fn))
 --
+-- The wrapped callback is invoked as fn(x, y, t, squash). `squash` is the
+-- current foreshortening, 0..1, and a callback may use it to swap in an
+-- edge-on representation of itself — see views/ChipFlight.
+--
 -- Every option is optional; omitted ones are randomised per-wrap so a
 -- burst of them doesn't move as one rigid body.
 
@@ -134,7 +138,12 @@ function Tumble.wrap(render_fn, opts)
         love.graphics.rotate(axis)
         love.graphics.scale(1, squash)
         love.graphics.rotate(spin_dir * t * spins * TAU)
-        render_fn(0, 0)
+        -- `squash` is handed on so a callback can draw a DIFFERENT thing
+        -- when it is nearly edge-on, rather than just a flattened version
+        -- of the same thing. A chip on its side shows its rim, not its
+        -- face. Callbacks that don't care simply ignore the extra
+        -- arguments, which is why this is safe to add.
+        render_fn(0, 0, t, squash)
         love.graphics.pop()
     end
 end

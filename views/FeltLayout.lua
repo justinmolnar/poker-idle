@@ -65,6 +65,7 @@ end
 -- Returns a layout table; `.tier` is "full" | "compact" | "mini".
 function FeltLayout.compute(p)
     local sp       = Data.space
+    local pile_cfg = Data.pile
     local edge     = scaled(sp.edge_pad,   p.s)
     local botp     = scaled(sp.bottom_pad, p.s)
     local gap      = scaled(sp.band_gap,   p.s)
@@ -219,6 +220,8 @@ function FeltLayout.compute(p)
         chips_y     = chips_y,
         text_x      = fx, text_w = fw, text_y = pot_text_y,
         max_w       = fw - 4 * edge,
+        max_cols    = pile_cfg.pot_cols,
+        max_rows    = pile_cfg.pot_rows,
         allow_chips = true,
         chip_scale  = card_scale,                -- pot pile scales with the cards
     }
@@ -242,13 +245,19 @@ function FeltLayout.compute(p)
     local bot = rects[5]
     local base_bottom = fy + bot.y + bot.h
     local text_top    = base_bottom - sm_h
-    local chips_w     = ifloor(fw * 0.25)
+    -- Wide enough for the whole pile on ONE row in the common case. This
+    -- was a quarter of the felt back when a chip was 26px across; at 44px
+    -- that budget clipped a $1.96 stack down to a single 25c chip. Nothing
+    -- else sits on this row, so the space is free.
+    local chips_w     = ifloor(fw * 0.55)
     L.bottom = {
         baseline_y = text_top,
         chip_scale = card_scale,                -- player pile scales with the cards
         band  = { x = fx, y = fy + bot.y, w = fw, h = bot.h },
         -- Chips raised just above the tied-up line so the pile sits on top of it.
-        chips = { x = fx + edge, y = text_top - name_gap, align = "left", max_w = chips_w },
+        chips = { x = fx + edge, y = text_top - name_gap, align = "left",
+                  max_w = chips_w,
+                  max_cols = pile_cfg.player_cols, max_rows = pile_cfg.player_rows },
         tied  = { x = fx + edge, y = text_top, align = "left" },
         ev    = { x = fx + fw - edge - (p.ev_w or 0), y = text_top,
                   w = p.ev_w or 0, show = (p.ev_w or 0) > 0 },

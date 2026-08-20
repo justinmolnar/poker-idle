@@ -155,10 +155,18 @@ end
 
 -- Same chips in the same order? Breakdown is deterministic, so a straight
 -- sequence compare is enough to answer "is this pile already tidy".
+-- Same CONTENTS, not same order. The pile is drawn sorted by
+-- denomination, so two lists holding the same chips render identically no
+-- matter what order they arrived in — and comparing them positionally made
+-- the pile re-settle to rearrange something the player cannot see.
 local function sameChips(chips, target)
     if #chips ~= #target then return false end
-    for i = 1, #chips do
-        if chips[i].d ~= target[i].d then return false end
+    local counts = {}
+    for _, c in ipairs(chips) do counts[c.d] = (counts[c.d] or 0) + 1 end
+    for _, c in ipairs(target) do
+        local n = counts[c.d]
+        if not n or n == 0 then return false end
+        counts[c.d] = n - 1
     end
     return true
 end
@@ -184,8 +192,14 @@ local function layoutLocal(chip_indices, place)
     local s  = place.scale or 1
     local mw = place.max_w
     if mw and s ~= 1 then mw = mw / s end
-    return Chips.stackLayout(0, 0, chip_indices,
-                             { align = place.align or "center", max_w = mw })
+    return Chips.stackLayout(0, 0, chip_indices, {
+        align    = place.align or "center",
+        max_w    = mw,
+        -- Column caps are in COLUMNS, not pixels, so unlike max_w they do
+        -- not get divided by the scale.
+        max_cols = place.max_cols,
+        max_rows = place.max_rows,
+    })
 end
 
 local function toScreen(place, lx, ly)
@@ -212,18 +226,30 @@ local function slotsByPos(e, settled_only)
     return out
 end
 
-local function drawChipLocal(place, tint, lx, ly, d, alpha, label)
+-- `shade` and `depth` come from the placement: how far down its column the
+-- chip sits. `s` is handed to drawChip as well as applied as a transform,
+-- because the chip's REAL on-screen size is what decides how much anatomy
+-- resolves — a pile on a 146px panel draws at 0.3 and full detail there is
+-- mud.
+local function drawChipLocal(place, tint, lx, ly, d, alpha, label, shade, depth, rot)
     local s = place.scale or 1
     local sx, sy = toScreen(place, lx, ly)
     if s == 1 then
-        Chips.drawChip(sx, sy, d, alpha, label, tint)
+        Chips.drawChip(sx, sy, d, alpha, label, tint, shade, depth, 1, rot)
     else
         love.graphics.push()
         love.graphics.translate(sx, sy)
         love.graphics.scale(s, s)
-        Chips.drawChip(0, 0, d, alpha, label, tint)
+        Chips.drawChip(0, 0, d, alpha, label, tint, shade, depth, s, rot)
         love.graphics.pop()
     end
+end
+
+-- Cast shadow under a column base, in the pile's own placement space.
+local function drawShadowLocal(place, lx, ly, alpha)
+    local s = place.scale or 1
+    local sx, sy = toScreen(place, lx, ly)
+    Chips.drawShadow(sx, sy, alpha, s)
 end
 
 -- Snap a running settle to its end state. Any structural change (take,
@@ -244,6 +270,7 @@ function ChipPile.layoutAt(x, y, chip_indices, opts)
     local place = {
         x = x, y = y,
         align = opts.align, max_w = opts.max_w, scale = opts.scale or 1,
+        max_cols = opts.max_cols, max_rows = opts.max_rows,
     }
     local placed = layoutLocal(chip_indices, place)
     for _, p in ipairs(placed) do
@@ -267,6 +294,10 @@ function ChipPile.place(key, x, y, opts)
         align = opts.align or "center",
         max_w = opts.max_w,
         scale = opts.scale or 1,
+        -- How wide/deep this pile may grow, in columns. The caller knows
+        -- what its pile would run into; the pile does not.
+        max_cols = opts.max_cols,
+        max_rows = opts.max_rows,
     }
     e.tint        = opts.tint
     e.since_place = 0
@@ -280,6 +311,24 @@ end
 function ChipPile.count(key)
     local e = _piles[key]
     return e and #e.chips or 0
+end
+
+-- The in-progress settle's parts, or nil when the pile is at rest. A read
+-- seam for measuring how far a settle actually moves chips.
+function ChipPile.debugSettleParts(key)
+    local e = _piles[key]
+    return e and e.settle and e.settle.parts or nil
+end
+
+-- The denominations this pile currently holds, in order. A read-only view
+-- for anything that needs to reason about the pile's composition rather
+-- than just its total.
+function ChipPile.denominations(key)
+    local e = _piles[key]
+    if not e then return {} end
+    local out = {}
+    for i, c in ipairs(e.chips) do out[i] = c.d end
+    return out
 end
 
 function ChipPile.value(key)
@@ -322,6 +371,73 @@ function ChipPile.compose(value, palette, tier)
     return out
 end
 
+-- ── Minimal adjustment toward a value ───────────────────────────────
+-- The difference between "make this pile worth $2.01" and "make this pile
+-- worth $2.01 by adding a nickel to the one already worth $1.96".
+--
+-- Recomposing from the breakdown is correct but it is a whole new pile:
+-- a different primary denomination, different counts, different column
+-- widths, so every chip slides somewhere new to represent a five-cent
+-- change. Across a table of piles all doing that on their own schedule it
+-- reads as the whole felt fidgeting.
+--
+-- So this keeps the chips that are already there and moves only the
+-- difference: add the largest palette chips that fit the shortfall, or
+-- pull the chips that cover the excess. Returns nil when the pile can't
+-- reach the value that way — a value that needs a chip smaller than any it
+-- holds — and the caller falls back to a full recompose, which is what
+-- keeps this converging.
+local function adjustToward(e, want, palette)
+    local tol  = smallestIn(palette) - EPS
+    local out  = {}
+    local pv   = 0
+    for i, c in ipairs(e.chips) do
+        out[i] = { d = c.d }
+        pv = pv + denomValue(c.d)
+    end
+
+    -- Palette values, largest first.
+    local vals = {}
+    for _, idx in ipairs(palette) do
+        vals[#vals + 1] = { idx = idx, v = denomValue(idx) }
+    end
+    table.sort(vals, function(a, b) return a.v > b.v end)
+
+    local guard = 0
+    while want - pv > tol do
+        guard = guard + 1
+        if guard > 256 then return nil end
+        local added = false
+        for _, entry in ipairs(vals) do
+            if entry.v > 0 and entry.v <= (want - pv) + EPS then
+                out[#out + 1] = { d = entry.idx }
+                pv = pv + entry.v
+                added = true
+                break
+            end
+        end
+        if not added then return nil end
+    end
+
+    while pv - want > tol do
+        guard = guard + 1
+        if guard > 256 then return nil end
+        -- Drop the largest chip that doesn't overshoot, so the pile keeps
+        -- its shape instead of being whittled from the small end.
+        local best, best_v = nil, -1
+        for i, c in ipairs(out) do
+            local v = denomValue(c.d)
+            if v <= (pv - want) + EPS and v > best_v then best, best_v = i, v end
+        end
+        if not best then return nil end
+        table.remove(out, best)
+        pv = pv - best_v
+    end
+
+    if math.abs(pv - want) > tol then return nil end
+    return out
+end
+
 -- ── Tidy: the settle animation ──────────────────────────────────────
 -- Re-compose toward `value` and slide every chip from where it is to
 -- where it belongs, matching old to new by denomination and cross-fading
@@ -335,7 +451,20 @@ function ChipPile.tidy(key, value, opts)
 
     local palette = opts.palette or e.palette or ChipData.full_palette
     local tier    = opts.tier    or e.tier    or "medium"
-    local target  = (value and value > 0) and ChipPile.compose(value, palette, tier) or {}
+
+    -- Adjust in place where possible; recompose only when the pile has
+    -- genuinely lost its shape. `rebuild` is set by the caller for the
+    -- cases that have to start over: a pile carrying far too many chips,
+    -- or one grossly out of step with its scalar.
+    local target
+    if not value or value <= 0 then
+        target = {}
+    elseif opts.rebuild or #e.chips == 0 then
+        target = ChipPile.compose(value, palette, tier)
+    else
+        target = adjustToward(e, value, palette)
+              or ChipPile.compose(value, palette, tier)
+    end
 
     -- The pile is ALREADY the ideal composition. Something asked for a
     -- tidy that has nothing to tidy — a value whose last fraction of a
@@ -359,8 +488,15 @@ function ChipPile.tidy(key, value, opts)
     local from = layoutLocal(denomList(e, true), e.place)
     local to   = layoutLocal(target_denoms, e.place)
 
-    -- Pair by denomination: a $5 already on the felt slides to wherever a
-    -- $5 is wanted. Only the surplus fades.
+    -- Pair by denomination, NEAREST FIRST: a $5 already on the felt slides
+    -- to the closest place a $5 is wanted. Only the surplus fades.
+    --
+    -- This used to pop the last source off the list for the first target,
+    -- which paired the two lists in opposite orders — the chip on the far
+    -- right was sent to the far left and vice versa. Every settle therefore
+    -- dealt the pile out again, and three identical stacks visibly traded
+    -- places while being, chip for chip, exactly what they were before.
+    -- Nothing about the pile had changed; the animation moved them anyway.
     local pool = {}
     for _, p in ipairs(from) do
         local b = pool[p.idx]
@@ -368,10 +504,22 @@ function ChipPile.tidy(key, value, opts)
         b[#b + 1] = p
     end
 
+    -- Closest unclaimed source of this denomination, or nil if none is left.
+    local function takeNearest(idx, tx, ty)
+        local b = pool[idx]
+        if not b or #b == 0 then return nil end
+        local best, best_d2 = nil, math.huge
+        for i, p in ipairs(b) do
+            local dx, dy = p.x - tx, p.y - ty
+            local d2 = dx * dx + dy * dy
+            if d2 < best_d2 then best, best_d2 = i, d2 end
+        end
+        return table.remove(b, best)
+    end
+
     local parts = {}
     for _, p in ipairs(to) do
-        local b   = pool[p.idx]
-        local src = b and table.remove(b)
+        local src = takeNearest(p.idx, p.x, p.y)
         parts[#parts + 1] = {
             d     = p.idx,
             label = p.with_label,
@@ -379,6 +527,14 @@ function ChipPile.tidy(key, value, opts)
             y0    = src and src.y or p.y,
             x1    = p.x, y1 = p.y,
             mode  = src and "move" or "in",
+            -- A settling chip can change depth on the way. Interpolating
+            -- the shade is what stops the whole pile flattening for the
+            -- settle and popping back at the end.
+            sh0   = (src and src.shade) or p.shade,
+            sh1   = p.shade,
+            depth = p.depth,
+            base  = p.col_base,
+            rot   = p.rot,
         }
     end
     for _, b in pairs(pool) do
@@ -389,6 +545,10 @@ function ChipPile.tidy(key, value, opts)
                 x0    = p.x, y0 = p.y,
                 x1    = p.x, y1 = p.y,
                 mode  = "out",
+                sh0   = p.shade, sh1 = p.shade,
+                depth = p.depth,
+                base  = p.col_base,
+                rot   = p.rot,
             }
         end
     end
@@ -584,18 +744,35 @@ function ChipPile.draw(key)
     e.idle = 0
     local place, tint = e.place, e.tint
 
+    -- Shadows are their own pass, always. One is wider than the chip it
+    -- belongs to and columns sit two pixels apart, so interleaved they
+    -- would land on the neighbouring column's chips.
     if e.settle then
         local k = math.min(1, e.settle.t / e.settle.dur)
         local ease = k * k * (3 - 2 * k)
+        local function partAlpha(p)
+            if p.mode == "in"  then return ease end
+            if p.mode == "out" then return 1 - ease end
+            return 1
+        end
         for _, p in ipairs(e.settle.parts) do
-            local a = 1
-            if     p.mode == "in"  then a = ease
-            elseif p.mode == "out" then a = 1 - ease end
+            local a = partAlpha(p)
+            -- A shadow at full strength under a chip fading out is a
+            -- smudge with nothing on top of it.
+            if p.base and a > 0.01 then
+                drawShadowLocal(place,
+                                p.x0 + (p.x1 - p.x0) * ease,
+                                p.y0 + (p.y1 - p.y0) * ease, a)
+            end
+        end
+        for _, p in ipairs(e.settle.parts) do
+            local a = partAlpha(p)
             if a > 0.01 then
+                local sh = (p.sh0 or 1) + ((p.sh1 or 1) - (p.sh0 or 1)) * ease
                 drawChipLocal(place, tint,
                               p.x0 + (p.x1 - p.x0) * ease,
                               p.y0 + (p.y1 - p.y0) * ease,
-                              p.d, a, p.label)
+                              p.d, a, p.label, sh, p.depth, p.rot)
             end
         end
         return
@@ -606,8 +783,13 @@ function ChipPile.draw(key)
     -- always a solid stack — never a stack with slots punched out of it
     -- waiting to be filled. It shifts a little when an arrival tips a
     -- column over its limit, which reads as the stack making room.
-    for _, p in ipairs(layoutLocal(denomList(e, true), place)) do
-        drawChipLocal(place, tint, p.x, p.y, p.idx, 1, p.with_label)
+    local placed = layoutLocal(denomList(e, true), place)
+    for _, p in ipairs(placed) do
+        if p.col_base then drawShadowLocal(place, p.x, p.y, 1) end
+    end
+    for _, p in ipairs(placed) do
+        drawChipLocal(place, tint, p.x, p.y, p.idx, 1, p.with_label,
+                      p.shade, p.depth, p.rot)
     end
 end
 
@@ -684,13 +866,17 @@ function ChipPile.update(dt)
                 -- debounce, no animation — it is already wrong on screen
                 -- and the honest thing is to stop showing it.
                 if pv > e.want * 1.5 + tol or #e.chips > target * 3 then
-                    ChipPile.tidy(key, e.want, { instant = true })
+                    ChipPile.tidy(key, e.want, { instant = true, rebuild = true })
                     e.wrong_t = 0
                 elseif math.abs(pv - e.want) > tol
                        or #e.chips > target * TIDY_FACTOR then
                     e.wrong_t = e.wrong_t + dt
                     if e.wrong_t >= RECONCILE_DELAY then
-                        ChipPile.tidy(key, e.want)
+                        -- Too many chips is a shape problem and needs a
+                        -- real recompose; being off by a chip's worth of
+                        -- value only needs that chip.
+                        ChipPile.tidy(key, e.want,
+                                      { rebuild = (#e.chips > target * TIDY_FACTOR) })
                         e.wrong_t = 0
                     end
                 else

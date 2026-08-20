@@ -29,6 +29,25 @@ return {
         you_pad    = 8,   -- inner padding flanking the centered EV readout
     },
 
+    -- Chip-pile bounds, in COLUMNS (a column is up to 6 chips tall).
+    -- A pile that runs out of room wraps onto staggered rows behind
+    -- itself rather than throwing chips away, so these control how WIDE
+    -- a pile gets, not how much of it you see.
+    --
+    -- Three across is what fits beside the community row without the pot
+    -- pile creeping under the cards; the player's pile matches so the two
+    -- read as the same object.
+    pile = {
+        -- The pot spreads as ONE long row for as much width as the felt
+        -- gives it. No column cap here on purpose — an absent cap means
+        -- unbounded, and the pixel budget (max_w) is what stops it.
+        pot_rows     = 1,
+        -- The player's pile is boxed in beside the hole cards, so it is
+        -- capped narrow and wraps onto a second row behind itself.
+        player_cols  = 3,
+        player_rows  = 2,
+    },
+
     -- Heads-up duel seat: the single opponent gets a bigger seat than the
     -- per-seat boxes used for 6-max / 9-max.
     hu_seat = {

@@ -68,18 +68,12 @@ function Icons.drawAntiChip(game, x, y, size, alpha, shade)
         SpriteRenderer.draw(atlas, spec.sprite, x, y, size, size, resolveTint(spec.tint))
         return
     end
+    -- The same glyph in another color, not a second drawing of a chip.
+    -- This used to be its own pair of circles, so every improvement to the
+    -- chip skipped the anti-chip and the two drifted apart.
     local r = math.floor(size / 2)
-    alpha = alpha or 1
-    shade = shade or 1
-    local achip, ring = Theme.currency.achip, Theme.currency.achip_ring
-    if shade ~= 1 then
-        achip = { achip[1] * shade, achip[2] * shade, achip[3] * shade }
-        ring = { ring[1] * shade, ring[2] * shade, ring[3] * shade }
-    end
-    Theme.setColor(ring, alpha)
-    love.graphics.circle("fill", x + r, y + r, r)
-    Theme.setColor(achip, alpha)
-    love.graphics.circle("fill", x + r, y + r, math.max(1, r - math.max(1, r * 0.28)))
+    Chips.drawGlyph(x + r, y + r, r, alpha, shade,
+                    { Theme.currency.achip, Theme.currency.achip_ring })
 end
 
 return Icons

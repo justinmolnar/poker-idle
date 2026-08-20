@@ -101,6 +101,11 @@ local TOPBAR_PAD_X         = 16
 -- Reserved band at the bottom of the center column for the bankroll
 -- chip pile. Center grid shrinks vertically by this much. Sidebars are
 -- unaffected — they keep running their full height.
+-- How wide the bankroll pile may spread before it wraps onto rows behind
+-- itself. It owns the full bottom band, so it can afford a long line.
+local BANKROLL_PILE_COLS = 10
+local BANKROLL_PILE_ROWS = 2
+
 local BOTTOM_BAND_H        = 90
 local PANEL_REMOVE_BTN_SIZE = 22
 local PILL_H               = 18
@@ -2099,8 +2104,12 @@ function GrindView:_drawBankrollChips(W, H)
     -- doesn't march past the center-column edges; the layout drops
     -- smallest-denom columns from the tail until it fits.
     local bankroll = self.game.state.bankroll or 0
+    -- The bankroll gets the whole band, so it spreads wide before it
+    -- stacks back — the opposite of the table piles, which are boxed in by
+    -- cards on every side.
     ChipPile.place("bankroll", center_x, stack_y,
-        { align = "center", max_w = band_w - 32 })
+        { align = "center", max_w = band_w - 32,
+          max_cols = BANKROLL_PILE_COLS, max_rows = BANKROLL_PILE_ROWS })
     ChipPile.sync("bankroll", bankroll, {
         palette = ChipData.full_palette,
         tier    = Denoms.tierFromAmount(bankroll),

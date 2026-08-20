@@ -50,7 +50,7 @@ return {
         border_color = { 0.85, 0.70, 0.35, 0.95 },        -- bright brass
         border_width = 2,
         header_bg    = { 0.14, 0.22, 0.18, 0.95 },
-        chip_tint    = { 1.05, 1.05, 1.00 },               -- slight warm boost
+        chip_tint    = { 1.00, 1.00, 0.95 },               -- slight warm boost
     },
     -- T5 — $50/$100. Purple-felt high-roller room.
     s005 = {
@@ -58,7 +58,7 @@ return {
         border_color = { 0.85, 0.55, 1.00, 0.95 },        -- neon violet
         border_width = 3,
         header_bg    = { 0.18, 0.10, 0.24, 0.96 },
-        chip_tint    = { 1.10, 1.05, 1.20 },
+        chip_tint    = { 0.92, 0.88, 1.00 },               -- cool violet cast
     },
     -- T6 — $500/$1000. Black-and-gold. The big show.
     s006 = {
@@ -66,6 +66,6 @@ return {
         border_color = { 1.00, 0.85, 0.30, 1.00 },        -- gold
         border_width = 4,
         header_bg    = { 0.10, 0.08, 0.04, 0.98 },
-        chip_tint    = { 1.20, 1.10, 0.90 },               -- warm gold cast
+        chip_tint    = { 1.00, 0.92, 0.75 },               -- warm gold cast
     },
 }

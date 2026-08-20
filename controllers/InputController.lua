@@ -31,6 +31,15 @@ function InputController:wire()
             sm:switch(next_name)
         end)
 
+    -- F4: perf HUD. Chip piles are the highest-count repeated element on
+    -- screen and nothing else in the game measures draw volume, so this is
+    -- the only way to see what a rendering change actually cost.
+    dispatcher:on("keypressed",
+        function(key) return key == "f4" end,
+        function()
+            game.debug.perf = not game.debug.perf
+        end)
+
     -- ── Save debug hotkeys ────────────────────────────────────────────
     -- Auto-save runs unconditionally now (see main.lua), so no manual
     -- F5 commit is needed. F6 / F7 stick around as dev affordances:

@@ -69,14 +69,33 @@ end
 -- One chip's render callback, at the caller's chip_scale.
 local function _chipFn(idx, with_label, tint, s)
     s = s or 1
+    -- `squash` arrives from services/Tumble when this chip is tumbling.
+    -- Near edge-on the caller has already flattened us to a sliver, and a
+    -- painted face inside that sliver reads as a smear — so at that point
+    -- the chip shows its rim instead, which is what a real chip on its
+    -- side actually looks like.
+    local EDGE = Chips.EDGE_SQUASH
     if s == 1 then
-        return function(px, py) Chips.drawChip(px, py, idx, 1, with_label, tint) end
+        return function(px, py, _t, squash)
+            if squash and squash < EDGE then
+                Chips.drawChipEdge(px, py, idx, 1, tint)
+            else
+                Chips.drawChip(px, py, idx, 1, with_label, tint, nil, nil, 1)
+            end
+        end
     end
-    return function(px, py)
+    -- `s` goes to drawChip as well as into the transform: a chip flying
+    -- across a small panel is drawn a few pixels wide, and that is what
+    -- decides how much of its anatomy can resolve.
+    return function(px, py, _t, squash)
         love.graphics.push()
         love.graphics.translate(px, py)
         love.graphics.scale(s, s)
-        Chips.drawChip(0, 0, idx, 1, with_label, tint)
+        if squash and squash < EDGE then
+            Chips.drawChipEdge(0, 0, idx, 1, tint)
+        else
+            Chips.drawChip(0, 0, idx, 1, with_label, tint, nil, nil, s)
+        end
         love.graphics.pop()
     end
 end

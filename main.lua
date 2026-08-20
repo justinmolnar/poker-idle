@@ -149,12 +149,16 @@ local function buildGame()
     require("views.ComponentRenderer").configureFromFonts(g.fonts)
     require("views.CatalogModal").configureFromFonts(g.fonts)
     require("views.SettingsModal").configureFromFonts(g.fonts)
+    -- Chip faces print in the game font like every other string. They used
+    -- to build their own default-typeface font, which is why they were the
+    -- one bit of text in the game that didn't match anything around it.
+    require("views.Chips").configureFont(g.fonts)
 
     -- Transient debug toggles (not persisted). Backtick (`) toggles
     -- the per-table tooltip overlay; see InputController and TablePanel.
     -- payout_shape: 0 = off, else an index into
     -- TablePanelStats.PAYOUT_SHAPES. Cycled with F3.
-    g.debug = { overlay = false, payout_shape = 0 }
+    g.debug = { overlay = false, payout_shape = 0, perf = false }
     g.event_bus       = EventBus
     g.time            = Time:new()
     g.camera          = Camera:new(0, 0, 1)
@@ -341,6 +345,42 @@ function love.update(dt)
     end
 end
 
+-- Dev perf HUD (F4). Read the stats BEFORE drawing anything here, so the
+-- numbers describe the game's frame and not this overlay.
+--
+-- drawcallsbatched is the one worth watching: it is how many of those calls
+-- LOVE managed to merge, and a chip-rendering change that quietly breaks
+-- batching shows up here and nowhere else.
+local function drawPerfHud()
+    local st = love.graphics.getStats()
+    local Chips = require("views.Chips")
+    local n_chips, s_min, s_max = Chips.frameStats()
+
+    local font = Game.fonts and Game.fonts.sm
+    local prev = love.graphics.getFont()
+    if font then love.graphics.setFont(font) end
+
+    local lines = {
+        string.format("fps           %d", love.timer.getFPS()),
+        string.format("draw calls    %d", st.drawcalls or 0),
+        string.format("batched       %d", st.drawcallsbatched or 0),
+        string.format("chips         %d", n_chips),
+        string.format("chip scale    %.2f - %.2f", s_min, s_max),
+        string.format("texture mem   %.1f MB", (st.texturememory or 0) / 1048576),
+    }
+
+    local lh = font and font:getHeight() or 10
+    local w, h = 190, lh * #lines + 12
+    local x, y = 8, 8
+    love.graphics.setColor(0, 0, 0, 0.78)
+    love.graphics.rectangle("fill", x, y, w, h, 3)
+    love.graphics.setColor(0.55, 0.85, 1.00, 1)
+    for i, line in ipairs(lines) do
+        love.graphics.print(line, x + 6, y + 6 + (i - 1) * lh)
+    end
+    if prev then love.graphics.setFont(prev) end
+end
+
 function love.draw()
     if not _frameCanvas then
         _frameCanvas = love.graphics.newCanvas(BASE_W, BASE_H)
@@ -355,6 +395,7 @@ function love.draw()
     love.graphics.setCanvas(_frameCanvas)
     love.graphics.clear(love.graphics.getBackgroundColor())
     Game.state_machine:draw()
+    if Game.debug and Game.debug.perf then drawPerfHud() end
     love.graphics.setCanvas()
 
     -- Scale the finished frame to the window via the sharp-bilinear shader.
@@ -400,6 +441,7 @@ function love.resize(w, h)
     require("views.ComponentRenderer").configureFromFonts(Game.fonts)
     require("views.CatalogModal").configureFromFonts(Game.fonts)
     require("views.SettingsModal").configureFromFonts(Game.fonts)
+    require("views.Chips").configureFont(Game.fonts)
 
     if Game.state_machine then
         Game.state_machine:resize(w, h)
