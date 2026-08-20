@@ -268,10 +268,27 @@ Effects.kinds = {
         description = "Multiplies the cursor pool's travel speed.",
         value_shape = "number, e.g. 1.25 for +25% per level",
         affects     = "ctx.cursor_speed_mult",
-        -- Multiplicative-around-1: the Investor upgrade-strength scaler
-        -- scales the (value - 1) bonus, not the raw value. See
-        -- GameState:computeEffects.
         scale       = "value_mult1",
+    },
+    cursor_sync_unlocked = {
+        description = "Flag perk — cursors coordinate so no two race to the same table.",
+        value_shape = "no field (presence sets ctx.cursor_sync_unlocked = true)",
+        affects     = "ctx.cursor_sync_unlocked",
+    },
+    cursor_memory_unlocked = {
+        description = "Flag perk — cursors never forget their target on long journeys.",
+        value_shape = "no field (presence sets ctx.cursor_memory_unlocked = true)",
+        affects     = "ctx.cursor_memory_unlocked",
+    },
+    cursor_collision_phasing = {
+        description = "Flag perk — cursors phase through each other without bumping or recoil.",
+        value_shape = "no field (presence sets ctx.cursor_collision_phasing = true)",
+        affects     = "ctx.cursor_collision_phasing",
+    },
+    cursor_optical_sensor = {
+        description = "Flag perk — eliminates trackball cleaning pauses.",
+        value_shape = "no field (presence sets ctx.cursor_optical_sensor = true)",
+        affects     = "ctx.cursor_optical_sensor",
     },
 
     -- ── Focus / efficiency mechanic ─────────────────────────────────────

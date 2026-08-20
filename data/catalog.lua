@@ -608,7 +608,7 @@ local items = {
     {
         id            = "first_cursor",
         name          = "Laptop Terminal",
-        effect_text   = "+1 cursor.",
+        effect_text   = "+1 cursor. Sealed optical bearings (no trackball cleaning).",
         description   = "Open laptop terminal running extra clicker scripts.",
         sprite        = "first_cursor",
         phase         = "late",
@@ -617,14 +617,15 @@ local items = {
         requires_hide = true,
         position      = { x = 200, y = 500 },
         effects       = {
-            { kind = "shove_rate_add",   value = 0.010 },
-            { kind = "cursor_count_add", value = 1 },
+            { kind = "shove_rate_add",        value = 0.010 },
+            { kind = "cursor_count_add",      value = 1 },
+            { kind = "cursor_optical_sensor" },
         },
     },
     {
         id            = "mouse_pad",
         name          = "Gaming Keyboard",
-        effect_text   = "Cursors travel 30% faster.",
+        effect_text   = "Cursors travel 30% faster & coordinate targeting (no racing).",
         description   = "Mechanical keyboard for faster cursor response.",
         sprite        = "mouse_pad",
         phase         = "late",
@@ -632,8 +633,9 @@ local items = {
         requires      = "cursor_pool",
         requires_hide = true,
         effects       = {
-            { kind = "shove_rate_add",    value = 0.010 },
-            { kind = "cursor_speed_mult", value = 1.30 },
+            { kind = "shove_rate_add",       value = 0.010 },
+            { kind = "cursor_speed_mult",    value = 1.30 },
+            { kind = "cursor_sync_unlocked" },
         },
     },
     {
@@ -654,7 +656,7 @@ local items = {
     {
         id            = "tireless_assistants",
         name          = "Wacom Tablet",
-        effect_text   = "Cursors also click REBUY. [R] in the panel header opts a table out.",
+        effect_text   = "Cursors click REBUY & phase through each other without bumping.",
         description   = "Graphics drawing tablet for macro commands.",
         sprite        = "tireless_assistants",
         phase         = "late",
@@ -663,8 +665,9 @@ local items = {
         requires_hide = true,
         position      = { x = 300, y = 500 },
         effects       = {
-            { kind = "shove_rate_add",       value = 0.012 },
+            { kind = "shove_rate_add",          value = 0.012 },
             { kind = "cursor_rebuy_unlocked" },
+            { kind = "cursor_collision_phasing" },
         },
     },
     {

@@ -236,6 +236,18 @@ function PokerEffects.registerAll(reg)
     reg:register("cursor_speed_mult", function(e, ctx)
         ctx.cursor_speed_mult = (ctx.cursor_speed_mult or 1) * (e.value or 1)
     end)
+    reg:register("cursor_sync_unlocked", function(_e, ctx)
+        ctx.cursor_sync_unlocked = true
+    end)
+    reg:register("cursor_memory_unlocked", function(_e, ctx)
+        ctx.cursor_memory_unlocked = true
+    end)
+    reg:register("cursor_collision_phasing", function(_e, ctx)
+        ctx.cursor_collision_phasing = true
+    end)
+    reg:register("cursor_optical_sensor", function(_e, ctx)
+        ctx.cursor_optical_sensor = true
+    end)
 
     -- ── Focus mechanic ──────────────────────────────────────────────────
     reg:register("focus_capacity_add", function(e, ctx)

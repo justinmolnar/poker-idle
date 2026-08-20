@@ -13,10 +13,6 @@
 --      clicks use.
 --   3. The active view's draw calls CursorPool.draw() last so cursors
 --      render above panels and sidebars.
---
--- Engine-agnostic: this service sees a hit_box list with an `action`
--- string. It targets only `action == "deal"` for v1, but the constant
--- could be parameterized later. No knowledge of poker.
 
 local Cursor       = require("models.Cursor")
 local Theme        = require("views.Theme")
@@ -28,28 +24,23 @@ local CursorPool = {}
 local _cursors = {}               -- list of Cursor instances
 local _last_W, _last_H = 1280, 720  -- last seen screen dimensions, for spawn-on-grow
 local _ripples = {}               -- {x, y, t} click ripples
+local _sparks  = {}               -- {x, y, t, angle} collision starbursts
 
--- ── Tuning constants ───────────────────────────────────────────────────
--- Speed expressed as a fraction of the screen diagonal per second so the
--- visual feel is consistent across resolutions.
-local BASE_CURSOR_SPEED = 0.10    -- ~10s diagonal cross at L0 (deliberately
-                                  -- slow at first cursor — Cursor Speed
-                                  -- run-upgrade is what makes the swarm fly)
+-- Speed expressed as a fraction of screen diagonal per second
+local BASE_CURSOR_SPEED = 0.10
 
--- ── Public API ─────────────────────────────────────────────────────────
-
--- Wipe pool. Called on F6/F7 fullReset and prestige to avoid dangling state.
+-- Wipe pool. Called on fullReset and prestige.
 function CursorPool.reset()
     _cursors = {}
+    _ripples = {}
+    _sparks  = {}
 end
 
--- Per-frame update. dispatcher(hb) fires when a cursor reaches the center
--- of its claimed hit-box.
+-- Per-frame update. dispatcher(hb) fires when a cursor reaches the center of claimed hit-box.
 function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
     local W, H = love.graphics.getDimensions()
     _last_W, _last_H = W, H
 
-    -- Gate: catalog unlock + nonzero count.
     local unlocked = ctx and ctx.cursor_unlocked
     local desired  = (ctx and math.max(0, math.floor(ctx.cursor_count or 0))) or 0
     if not unlocked then desired = 0 end
@@ -67,10 +58,6 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
     if desired == 0 then return end
 
     -- Build the map of claimable hit-boxes (by idx) — skip muted tables.
-    -- DEAL is always cursor-clickable; REBUY only when the catalog perk
-    -- is owned (ctx.cursor_rebuy_unlocked) and the per-table rebuy-mute
-    -- flag isn't set. A given table only ever has one of DEAL / REBUY
-    -- visible at a time, so keying by idx is unambiguous.
     local rebuy_unlocked = ctx and ctx.cursor_rebuy_unlocked
     local deal_hbs = {}
     if hit_boxes then
@@ -84,9 +71,7 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
         end
     end
 
-    -- Pre-validate each seeking cursor's claim against this frame's hit-boxes,
-    -- and seed the claims map. Stale targets (table now busy / removed /
-    -- muted) get released so the cursor can re-scan.
+    -- Pre-validate each seeking cursor's claim against this frame's hit-boxes
     local claims = {}
     for _, c in ipairs(_cursors) do
         if c.state == "seeking" and c.target_idx then
@@ -103,43 +88,98 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
     local speed_frac = BASE_CURSOR_SPEED * ((ctx and ctx.cursor_speed_mult) or 1)
     local speed_px   = speed_frac * diag
 
+    -- Dynamic launch speed proportional to current cursor travel speed (min 600 px/sec floor)
+    local launch_speed = math.max(600, speed_px * 3.8)
+
+    -- Pairwise mouse collision checks (unless ghost phasing is unlocked).
+    -- Allows flying stunned mice to ping-pong off other mice for chain reactions!
+    local phasing = ctx and ctx.cursor_collision_phasing
+    if not phasing and #_cursors > 1 then
+        for i = 1, #_cursors - 1 do
+            local c1 = _cursors[i]
+            if c1.state ~= "cleaning" then
+                for j = i + 1, #_cursors do
+                    local c2 = _cursors[j]
+                    if c2.state ~= "cleaning" then
+                        local dx, dy = c2.x - c1.x, c2.y - c1.y
+                        local dist2 = dx * dx + dy * dy
+                        if dist2 < 20 * 20 then
+                            local dist = math.sqrt(dist2)
+                            if dist < 0.001 then dist = 0.001; dx, dy = 1, 0 end
+                            local nx, ny = dx / dist, dy / dist
+
+                            -- Relative velocity along collision normal (prevents re-triggering while flying apart)
+                            local rvx = (c2.recoil_vx or 0) - (c1.recoil_vx or 0)
+                            local rvy = (c2.recoil_vy or 0) - (c1.recoil_vy or 0)
+                            local vel_along_normal = rvx * nx + rvy * ny
+
+                            if vel_along_normal < 0 or c1.state ~= "stunned" or c2.state ~= "stunned" then
+                                local v1 = math.sqrt((c1.recoil_vx or 0)^2 + (c1.recoil_vy or 0)^2)
+                                local v2 = math.sqrt((c2.recoil_vx or 0)^2 + (c2.recoil_vy or 0)^2)
+                                local impulse = math.max(launch_speed, math.max(v1, v2) * 1.1)
+
+                                c1:triggerStun(-nx * impulse, -ny * impulse, 0.55)
+                                c2:triggerStun(nx * impulse, ny * impulse, 0.55)
+                                SoundService.playNamed("cursor_tap")
+
+                                -- Record collision starburst fanfare at mid-point
+                                local mid_x = (c1.x + c2.x) * 0.5
+                                local mid_y = (c1.y + c2.y) * 0.5
+                                _sparks[#_sparks + 1] = {
+                                    x = mid_x,
+                                    y = mid_y,
+                                    t = love.timer.getTime(),
+                                    angle = math.random() * math.pi,
+                                }
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     for _, c in ipairs(_cursors) do
         c:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher, ctx)
-        -- Play the cursor-tap sound for cursors that just dispatched. The
-        -- flag is set inside Cursor:update at the click site; consume here
-        -- so it only fires once per click.
         if c._just_dispatched then
             c._just_dispatched = nil
-            -- Record a click ripple at the tap point (drawn in :draw).
             _ripples[#_ripples + 1] = { x = c.x, y = c.y, t = love.timer.getTime() }
             SoundService.playNamed("cursor_tap")
         end
     end
 end
 
--- Arrow-cursor polygon (clockwise from tip). Top-left point is the
--- click hotspot — translated to the cursor's (x, y). Real OS cursors
--- don't rotate with motion, so neither do these. Sized ~1.3× a classic
--- 12×18 OS arrow so the swarm reads visibly bigger than the player's
--- own mouse pointer (additional differentiator: warm Theme.fg.heading
--- fill instead of system white).
+-- Polygon star generator (used for collision starbursts & dizzy stars)
+local function drawStar(cx, cy, r_in, r_out, points, angle, mode)
+    local coords = {}
+    local step = math.pi / points
+    for i = 0, points * 2 - 1 do
+        local r = (i % 2 == 0) and r_out or r_in
+        local a = angle + i * step
+        coords[#coords + 1] = cx + math.cos(a) * r
+        coords[#coords + 1] = cy + math.sin(a) * r
+    end
+    love.graphics.polygon(mode or "fill", coords)
+end
+
+-- Arrow-cursor polygon
 local CURSOR_POLY = {
-    0,  0,    -- tip
-    15, 15,   -- arrow-head bottom-right corner
-    8,  15,   -- inner notch where tail begins
-    12, 23,   -- tail outer-right corner
-    9,  24,   -- tail outer-left corner
-    5,  16,   -- tail inner meets body
-    0,  21,   -- body bottom-left
+    0,  0,
+    15, 15,
+    8,  15,
+    12, 23,
+    9,  24,
+    5,  16,
+    0,  21,
 }
--- Pre-triangulated for fill (the polygon is concave — love2d's
--- polygon("fill", ...) requires convex). Lines render the closed poly
--- directly so the outline traces the silhouette, not the seams.
 local CURSOR_TRIS = love.math.triangulate(CURSOR_POLY)
 
 local function drawShape(c, mode)
     love.graphics.push()
     love.graphics.translate(c.x, c.y)
+    if c.angle and c.angle ~= 0 then
+        love.graphics.rotate(c.angle)
+    end
     if mode == "fill" then
         for _, tri in ipairs(CURSOR_TRIS) do
             love.graphics.polygon("fill", tri)
@@ -151,25 +191,39 @@ local function drawShape(c, mode)
 end
 
 function CursorPool.draw()
-    if #_cursors == 0 and #_ripples == 0 then return end
+    if #_cursors == 0 and #_ripples == 0 and #_sparks == 0 then return end
     local tnow = (love.timer and love.timer.getTime()) or 0
 
     if #_cursors > 0 then
-        -- Fill pass — warm cream so cursors read above the felt green and
-        -- distinct from the player's white OS mouse pointer.
         Theme.setColor(Theme.fg.heading, 0.95)
         for _, c in ipairs(_cursors) do
             drawShape(c, "fill")
         end
-        -- Outline pass for contrast.
         Theme.setColor(Theme.border.strong, 1.0)
         love.graphics.setLineWidth(1)
         for _, c in ipairs(_cursors) do
             drawShape(c, "line")
         end
+
+        -- Dizzy cartoon stars orbiting stunned flying mice
+        for _, c in ipairs(_cursors) do
+            if c.state == "stunned" then
+                local spin_a = tnow * 10.0
+                for s = 1, 3 do
+                    local sa = spin_a + (s * math.pi * 2 / 3)
+                    local sx = c.x + math.cos(sa) * 14
+                    local sy = c.y - 8 + math.sin(sa) * 6
+                    Theme.setColor(Theme.status.warn, 0.95)
+                    drawStar(sx, sy, 2.5, 6, 4, sa * 2, "fill")
+                    Theme.setColor(Theme.border.strong, 0.8)
+                    love.graphics.setLineWidth(1)
+                    drawStar(sx, sy, 2.5, 6, 4, sa * 2, "line")
+                end
+            end
+        end
     end
 
-    -- Click ripples: a ring expands + fades out from each tap point.
+    -- Click ripples
     for i = #_ripples, 1, -1 do
         local rp = _ripples[i]
         local k  = (tnow - rp.t) / 0.35
@@ -178,7 +232,29 @@ function CursorPool.draw()
         else
             Theme.setColor(Theme.fg.heading, (1 - k) * 0.8)
             love.graphics.setLineWidth(2)
-            love.graphics.circle("line", rp.x, rp.y, 3 + 20 * k)
+            love.graphics.circle("line", rp.x, rp.y, 8 + k * 18)
+        end
+    end
+
+    -- Collision starburst fanfare
+    for i = #_sparks, 1, -1 do
+        local sp = _sparks[i]
+        local k  = (tnow - sp.t) / 0.30
+        if k >= 1 then
+            table.remove(_sparks, i)
+        else
+            local alpha = 1.0 - k
+            local scale = 0.5 + k * 1.8
+            -- Outer shockwave ring
+            Theme.setColor(Theme.status.warn, alpha * 0.9)
+            love.graphics.setLineWidth(3 - k * 2)
+            love.graphics.circle("line", sp.x, sp.y, scale * 16)
+
+            -- 6-point comic starburst
+            Theme.setColor(Theme.fg.heading, alpha)
+            drawStar(sp.x, sp.y, scale * 5, scale * 20, 6, sp.angle + k * 2, "fill")
+            Theme.setColor(Theme.status.warn, alpha * 0.8)
+            drawStar(sp.x, sp.y, scale * 5, scale * 20, 6, sp.angle + k * 2, "line")
         end
     end
 end
