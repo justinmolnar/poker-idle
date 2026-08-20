@@ -804,10 +804,15 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
             line     = st_line,
             counter  = st_counter,
             progress = st_frac,
-            -- Catalog paper palette, passed in from the call site: the widget
-            -- itself holds no literal colors.
-            stock_token = { 0.99, 0.97, 0.92 },
-            fill_token  = { 0.93, 0.80, 0.45 },
+            -- Promo-sticker palette, passed in from the call site: the
+            -- widget itself holds no literal colors. Cream base; the EARNED
+            -- fraction is the saturated ink. Progress fills light → loud.
+            -- Filler flips amber→green the moment it can be peeled, so the
+            -- state change is visible from across the room.
+            stock_token = { 1.00, 1.00, 1.00 },
+            panel_token = { 1.00, 0.97, 0.88 },
+            fill_token  = met and { 0.20, 0.58, 0.28 } or { 0.88, 0.62, 0.10 },
+            vinyl_token = { 1.00, 0.97, 0.88 },
             ink_token   = { 0.15, 0.15, 0.12 },
             edge_token  = { 0.15, 0.15, 0.12, 0.45 },
         }

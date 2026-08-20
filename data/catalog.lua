@@ -1001,4 +1001,30 @@ if Constants.FEATURES.TUTORIAL then
     end
 end
 
+local Balance = require("data.balance")
+
+-- Phase 1 Derivations: scale costs and apply k shove rate from data/balance.lua
+for _, item in ipairs(items) do
+    if not item.run0 and item.phase ~= "system" and item.id ~= "unlock_ultra" then
+        item.authored_cost_chip = item.authored_cost_chip or item.cost_chip
+        item.cost_chip = Balance.getItemCost(item.authored_cost_chip)
+        
+        local found_shove = false
+        if item.effects then
+            for _, eff in ipairs(item.effects) do
+                if eff.kind == "shove_rate_add" then
+                    eff.value = Balance.getItemShoveRate(item.id)
+                    found_shove = true
+                end
+            end
+        else
+            item.effects = {}
+        end
+        if not found_shove then
+            table.insert(item.effects, 1, { kind = "shove_rate_add", value = Balance.getItemShoveRate(item.id) })
+        end
+    end
+end
+
 return items
+

@@ -76,16 +76,16 @@ function FloatingTextSystem.update(dt)
             local progress = 1 - (t.timer / t.lifetime)      -- 0 → 1
 
             if tbl then
-                -- Table-attached: NO fade at all — stays fully opaque
-                -- while it rises, then freezes at its final position.
-                if tbl.state == "idle" and progress >= 1.0 then
-                    -- Freeze: clamp progress, hold timer alive.
-                    progress = 1.0
-                    t.timer = 0.001
-                    t.has_persisted = true
-                end
-                t.alpha = 1.0
-            else
+            --     -- Table-attached: NO fade at all — stays fully opaque
+            --     -- while it rises, then freezes at its final position.
+            --     if tbl.state == "idle" and progress >= 1.0 then
+            --         -- Freeze: clamp progress, hold timer alive.
+            --         progress = 1.0
+            --         t.timer = 0.001
+            --         t.has_persisted = true
+            --     end
+            --     t.alpha = 1.0
+            -- else
                 -- Normal floater: hold-then-fade curve.
                 if progress < ALPHA_HOLD then
                     t.alpha = 1
