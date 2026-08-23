@@ -134,12 +134,10 @@ PayoutBreakdown.profile = profile
 
 local function ratio(full, without)
     if math.abs(without) < EPS then
-        -- Nothing to divide by. If the source created the tier outright,
-        -- that's real but unbounded; report it as "new" rather than ∞.
-        if math.abs(full) < EPS then return 1, false end
-        return nil, true
+        if math.abs(full) < EPS then return 1, false, 0 end
+        return nil, true, full
     end
-    return full / without, false
+    return full / without, false, full - without
 end
 
 -- ─── The breakdown ──────────────────────────────────────────────────────
@@ -150,12 +148,11 @@ end
 --   { tiers = TIER_KEYS,
 --     full  = <profile>,
 --     base  = <profile with every source removed>,
---     total = { win = {[tier]=ratio}, loss = {...}, ev = number },
+--     total = { win = {[tier]=ratio}, loss = {...}, win_val = {...}, loss_val = {...}, ev = number },
 --     rows  = { { name, kind, level,
 --                 win = {[tier]=ratio|nil}, loss = {...},
+--                 win_delta = {[tier]=number}, loss_delta = {...},
 --                 ev_delta = number, matters = bool }, ... } }
---
--- A nil ratio means "this source created the tier from nothing".
 function PayoutBreakdown.compute(game, gtype, stake, opts)
     if not game or not gtype or not stake then return nil end
     local state    = game.state
@@ -180,14 +177,15 @@ function PayoutBreakdown.compute(game, gtype, stake, opts)
         local without = profile(ctxWithout({ [s.id] = true }), gtype, stake, opts)
         local row = {
             name = s.name, kind = s.kind, level = s.level, id = s.id,
-            win = {}, loss = {},
+            win = {}, loss = {}, win_delta = {}, loss_delta = {},
             ev_delta = full.ev - without.ev,
         }
         local matters = math.abs(row.ev_delta) > EPS
         for _, t in ipairs(TIER_KEYS) do
-            local wr, wnew = ratio(full.win[t],  without.win[t])
-            local lr, lnew = ratio(full.loss[t], without.loss[t])
+            local wr, wnew, wdelta = ratio(full.win[t],  without.win[t])
+            local lr, lnew, ldelta = ratio(full.loss[t], without.loss[t])
             row.win[t], row.loss[t] = wr, lr
+            row.win_delta[t], row.loss_delta[t] = wdelta, ldelta
             if wnew or lnew then matters = true end
             if wr and math.abs(wr - 1) > 1e-6 then matters = true end
             if lr and math.abs(lr - 1) > 1e-6 then matters = true end
@@ -196,10 +194,12 @@ function PayoutBreakdown.compute(game, gtype, stake, opts)
         rows[#rows + 1] = row
     end
 
-    local total = { win = {}, loss = {}, ev = full.ev - base.ev }
+    local total = { win = {}, loss = {}, win_val = {}, loss_val = {}, full_win = full.win, full_loss = full.loss, ev = full.ev - base.ev }
     for _, t in ipairs(TIER_KEYS) do
-        total.win[t]  = (ratio(full.win[t],  base.win[t]))
-        total.loss[t] = (ratio(full.loss[t], base.loss[t]))
+        local wr, wnew, wdelta = ratio(full.win[t],  base.win[t])
+        local lr, lnew, ldelta = ratio(full.loss[t], base.loss[t])
+        total.win[t], total.loss[t] = wr, lr
+        total.win_val[t], total.loss_val[t] = wdelta, ldelta
     end
 
     return {

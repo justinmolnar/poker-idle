@@ -138,6 +138,9 @@ function Table:new(stake_id, game_type_id, ctx, poker_events)
         script_timer       = 0,
         playback_state     = nil,
         view_event_cursor     = 0,
+        -- Dealer button in VISUAL seat space; see :deal. Persists across hands
+        -- so the button MOVES one seat instead of being re-rolled.
+        button_visual_seat = nil,
 
         stack = (stake and stake.buy_in) or 0,
 
@@ -537,9 +540,44 @@ function Table:deal(ctx)
             player_seat = love.math.random(1, n_seats)
             button_seat = love.math.random(1, n_seats)
         end
+
+        -- ── Dealer button, in VISUAL seat space ──────────────────────
+        -- Seats 1..n_opps are the opponents as the panel draws them, left to
+        -- right; seat n_seats is you, at the bottom. Deliberately separate from
+        -- `button_seat` above, which is SCRIPT space and belongs to HandScript.
+        --
+        -- The two can't be the same number. Cash re-rolls player_seat every
+        -- hand, and the view maps a script seat to a drawn seat THROUGH
+        -- player_seat, so a script-space button lands somewhere different every
+        -- hand however carefully the script advances it. On screen that reads
+        -- as the button teleporting, which is worse than no button at all: a
+        -- dealer button that doesn't move one seat isn't a dealer button.
+        local button_visual
+        if gtype.chip_stack_table then
+            -- KO seating is fixed (player_seat_fixed), so the script button
+            -- maps straight across -- and it already advances past busted
+            -- seats, which is exactly what should show.
+            button_visual = (button_seat == player_seat) and n_seats
+                            or ((button_seat < player_seat) and button_seat
+                                                            or button_seat - 1)
+        else
+            -- Cash: advance one seat clockwise, wrapping through you. Only the
+            -- very first hand of a table rolls a starting position.
+            local prev = self.button_visual_seat
+            button_visual = prev and ((prev % n_seats) + 1)
+                            or love.math.random(1, n_seats)
+        end
+        self.button_visual_seat = button_visual
+
         self.playback_state = {
             n_seats             = n_seats,
             player_seat         = player_seat,
+            -- Script space, for anything reasoning about blind order.
+            button_seat         = button_seat,
+            -- VISUAL space, which is what views/TablePanel draws the button
+            -- from. Transient per-hand state (playback_state is nil-ed on
+            -- reset), so nothing is serialized and there is no save migration.
+            button_visual_seat  = button_visual,
             in_seats            = {},
             n_in                = 0,
             pot                 = 0,

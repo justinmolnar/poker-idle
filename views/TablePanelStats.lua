@@ -287,51 +287,84 @@ local function buildCashLines(tbl, controller, stats)
     return lines
 end
 
--- Chip-stack tournament breakdown: per-hand win rate, buy-in, and the
--- finish-position pay table keyed by `n_seats - finish_position + 1`
--- (so 1st = 8, 2nd = 7, 3rd = 6). No expected-$ estimate — the
--- per-hand model doesn't translate cleanly to tournament finish-
--- position probability without modeling stack dynamics, which is
--- out of scope for the readout.
+-- Chip-stack tournament breakdown (8-max KO): per-hand win rate, buy-in,
+-- expected cash return per run, ROI %, per-hand EV, and finish-position odds.
 local function buildMttLines(tbl, controller, stats)
     local p       = stats.pool.win_chance or 0
     local gtype   = stats.gtype
+    local stake   = stats.stake
     local n_seats = (gtype.seats or 0) + 1   -- 7 opps + player = 8
 
     local ctx   = controller and controller.ctx
+    local game  = controller and controller.game
     local boost = (ctx and ctx.mtt_payout_boost) or 0
     local payouts = MttPayouts[boost] or MttPayouts[0]
-    local buy_in  = (stats.stake and stats.stake.buy_in) or 0
+    local buy_in  = (stake and stake.buy_in) or 0
+    local bb      = (stake and stake.bb) or 1
+    if bb <= 0 then bb = 1 end
+
+    local net_ev    = stats.pool.net_ev_run or 0
+    local roi       = stats.pool.roi_pct or 0
+    local ev_hand   = stats.pool.ev_per_hand or 0
+    local exp_hands = stats.pool.exp_hands or 10
+    local pos_probs = stats.pool.pos_probs or {}
+
+    local ev_bb    = ev_hand / bb
+    local ev_sign  = (net_ev >= 0 and "+" or "-")
+    local ev_color = (net_ev > 0.05 and "good") or (net_ev < -0.05 and "error") or "muted"
+
+    local function iconRow(str, color)
+        return {
+            measure = function(fonts) local f = fonts.sm; return IconText.measure(str, f), f:getHeight() end,
+            render  = function(x, y, fonts)
+                IconText.draw(game, str, x, y, fonts.sm, color or Theme.fg.heading, 1)
+            end,
+        }
+    end
 
     local header = string.format("%s · %s",
-        stats.stake.display_name or stats.stake.id or "?",
-        gtype.short              or gtype.id       or "?")
+        stake.display_name or stake.id or "?",
+        gtype.short        or gtype.id or "?")
+
+    local stack_pct = ((stats.pool.win_chance or 0) * ((stats.pool.win_dist and stats.pool.win_dist.jackpot) or 0)) * 100
 
     local lines = {
         row(header, "md"),
-        row("1 bb = " .. fmtMoney((stats.stake and stats.stake.bb) or 0), "sm", "muted"),
-        row("Per-hand win rate: " .. fmtPctClean(p)),
-        row(string.format("Buy-in: %s (%d bb stack)",
-            fmtMoney(buy_in), gtype.starting_stack_bb or 100)),
-        row("Pay by finish position:", "sm", "muted"),
+        row(string.format("Buy-in: %s (%d bb starting stack)", fmtMoney(buy_in), gtype.starting_stack_bb or 10), "sm", "muted"),
+        row(string.format("Expected: %s$%.2f / run (%+.1f%% ROI)", ev_sign, math.abs(net_ev), roi), "md", ev_color),
+        row(string.format("EV/hand: %s/h (%+.1f bb/h) · Avg Run: %.1f hands", fmtMoneySigned(ev_hand), ev_bb, exp_hands), "sm", "muted"),
+        row("", "xs"),
+        row(string.format("Per-hand win rate: %s · Stack-win: %.1f%%", fmtPctClean(p), stack_pct)),
+        row("Finish position odds & payouts:", "sm", "muted"),
     }
-    -- Thresholds descending so 1st place reads first. Each key maps to
-    -- finish_position = n_seats - key + 1.
+
     local function positionName(pos)
         if pos == 1 then return "1st"
         elseif pos == 2 then return "2nd"
         elseif pos == 3 then return "3rd"
         else return string.format("%dth", pos) end
     end
-    local thresholds = {}
-    for k in pairs(payouts) do thresholds[#thresholds + 1] = k end
-    table.sort(thresholds, function(a, b) return a > b end)
-    for _, k in ipairs(thresholds) do
-        local mult = payouts[k] or 0
-        local pos  = n_seats - k + 1
-        lines[#lines + 1] = row(string.format(
-            "  %s  →  %d×  (%s)", positionName(pos), mult, fmtMoney(mult * buy_in)))
+
+    local bust_prob = 0
+    for pos = 1, n_seats do
+        local key  = n_seats - pos + 1
+        local mult = payouts[key]
+        local prob = pos_probs[pos] or 0
+        if mult and mult > 0 then
+            lines[#lines + 1] = row(string.format("  %s place:  %s  →  %d×  (%s)",
+                positionName(pos), fmtPctClean(prob), mult, fmtMoney(mult * buy_in)),
+                "sm", pos == 1 and "amber" or nil)
+        else
+            bust_prob = bust_prob + prob
+        end
     end
+    if bust_prob > 0 then
+        lines[#lines + 1] = row(string.format("  4th–%dth:   %s  →  0×  (Bust)", n_seats, fmtPctClean(bust_prob)), "sm", "muted")
+    end
+
+    lines[#lines + 1] = row("", "xs")
+    lines[#lines + 1] = iconRow("Winning 1st place also awards the {chip} bounty.", Theme.fg.muted)
+
     return lines
 end
 
@@ -361,6 +394,9 @@ local function buildLegacyMttLines(tbl, controller, stats)
     local exp_mult = 0
     for _, k in ipairs(thresholds) do exp_mult = exp_mult + finishOdds(k) * (payouts[k] or 0) end
     local net_ev = buy_in * (exp_mult - 1)
+
+    local ev_sign  = (net_ev >= 0 and "+" or "-")
+    local ev_color = (net_ev > 0.05 and "good") or (net_ev < -0.05 and "error") or "muted"
 
     -- IconText render row so {chip} renders as the glyph (icon rule: never the
     -- word). `color` is a concrete RGB (not a token) since it draws directly.
@@ -418,8 +454,21 @@ TablePanelStats.PAYOUT_SHAPES = SHAPES
 
 -- Two decimals under 10x, none above: "x212" is more legible than
 -- "x212.00" and the precision is meaningless at that size.
-local function fmtRatio(r)
-    if r == nil then return "new" end
+-- When ratio is nil (unlocked from 0 baseline), formats the net dollar addition (e.g. +$0.25).
+local function fmtRatio(r, dollar_val)
+    if r == nil then
+        if dollar_val and math.abs(dollar_val) >= 1e-6 then
+            local abs_v = math.abs(dollar_val)
+            if abs_v >= 10 then
+                return string.format("+$%.0f", dollar_val)
+            elseif abs_v >= 1 then
+                return string.format("+$%.1f", dollar_val)
+            else
+                return string.format("+$%.2f", dollar_val)
+            end
+        end
+        return "-"
+    end
     if math.abs(r - 1) < 5e-4 then return "-" end
     if r >= 10 or r <= 0.1 then return string.format("x%.0f", r) end
     return string.format("x%.2f", r)
@@ -558,16 +607,18 @@ local function buildGridRenderRow(game, bd)
                     Theme.setColor(name_color)
                     love.graphics.print(r.name, x + 6, cy + 2)
 
-                    local val_map = (outcome == "win") and r.win or r.loss
+                    local val_map   = (outcome == "win") and r.win or r.loss
+                    local delta_map = (outcome == "win") and r.win_delta or r.loss_delta
                     for i, tier in ipairs(bd.tiers) do
-                        local val = val_map[tier]
-                        local str = fmtRatio(val)
+                        local val  = val_map[tier]
+                        local dval = delta_map and delta_map[tier]
+                        local str  = fmtRatio(val, dval)
                         local col_right = x + name_col_w + i * col_w - 6
-                        local sw = f:getWidth(str)
+                        local sw   = f:getWidth(str)
                         local c_token = ratioColor(val)
-                        local c = (c_token == "good" and Theme.status.good)
-                               or (c_token == "error" and Theme.status.error)
-                               or Theme.fg.muted
+                        local c    = (c_token == "good" and Theme.status.good)
+                                  or (c_token == "error" and Theme.status.error)
+                                  or Theme.fg.muted
                         Theme.setColor(c)
                         love.graphics.print(str, col_right - sw, cy + 2)
                     end
@@ -585,11 +636,13 @@ local function buildGridRenderRow(game, bd)
             Theme.setColor(Theme.fg.heading)
             love.graphics.print("TOTAL", x + 6, cy + 2)
 
+            local total_val = (outcome == "win") and bd.total.win_val or bd.total.loss_val
             for i, tier in ipairs(bd.tiers) do
-                local val = total_map[tier]
-                local str = fmtRatio(val)
+                local val  = total_map[tier]
+                local dval = total_val and total_val[tier]
+                local str  = fmtRatio(val, dval)
                 local col_right = x + name_col_w + i * col_w - 6
-                local sw = f:getWidth(str)
+                local sw   = f:getWidth(str)
                 Theme.setColor(Theme.fg.heading)
                 love.graphics.print(str, col_right - sw, cy + 2)
             end
@@ -699,12 +752,12 @@ local function buildFocusedRenderRow(game, bd)
                 local name_text = item.r.name .. (item.varies and " *" or "")
                 love.graphics.print(name_text, x + 6, cy + 2)
 
-                local str_w = fmtRatio(item.win_val)
+                local str_w = fmtRatio(item.win_val, item.r.win_delta and item.r.win_delta[tier])
                 local col1_right = x + name_col_w + col_w - 6
                 Theme.setColor(ratioColor(item.win_val) == "good" and Theme.status.good or Theme.fg.muted)
                 love.graphics.print(str_w, col1_right - f:getWidth(str_w), cy + 2)
 
-                local str_l = fmtRatio(item.loss_val)
+                local str_l = fmtRatio(item.loss_val, item.r.loss_delta and item.r.loss_delta[tier])
                 local col2_right = x + name_col_w + 2 * col_w - 6
                 Theme.setColor(ratioColor(item.loss_val) == "error" and Theme.status.error or Theme.fg.muted)
                 love.graphics.print(str_l, col2_right - f:getWidth(str_l), cy + 2)
@@ -721,8 +774,8 @@ local function buildFocusedRenderRow(game, bd)
         Theme.setColor(Theme.fg.heading)
         love.graphics.print("TOTAL", x + 6, cy + 2)
 
-        local tot_w = fmtRatio(bd.total.win[tier])
-        local tot_l = fmtRatio(bd.total.loss[tier])
+        local tot_w = fmtRatio(bd.total.win[tier], bd.total.win_val and bd.total.win_val[tier])
+        local tot_l = fmtRatio(bd.total.loss[tier], bd.total.loss_val and bd.total.loss_val[tier])
         love.graphics.print(tot_w, x + name_col_w + col_w - 6 - f:getWidth(tot_w), cy + 2)
         love.graphics.print(tot_l, x + name_col_w + 2 * col_w - 6 - f:getWidth(tot_l), cy + 2)
         cy = cy + line_h + 2
@@ -772,7 +825,7 @@ local function buildTotalsRenderRow(game, bd)
         Theme.setColor(Theme.status.good)
         love.graphics.print("WIN TOTALS", x + 6, cy + 2)
         for i, t in ipairs(bd.tiers) do
-            local str = fmtRatio(bd.total.win[t])
+            local str = fmtRatio(bd.total.win[t], bd.total.win_val and bd.total.win_val[t])
             local rx = x + name_col_w + i * col_w - 6
             love.graphics.print(str, rx - f:getWidth(str), cy + 2)
         end
@@ -783,7 +836,7 @@ local function buildTotalsRenderRow(game, bd)
         Theme.setColor(Theme.status.error or Theme.fg.muted)
         love.graphics.print("LOSS TOTALS", x + 6, cy + 2)
         for i, t in ipairs(bd.tiers) do
-            local str = fmtRatio(bd.total.loss[t])
+            local str = fmtRatio(bd.total.loss[t], bd.total.loss_val and bd.total.loss_val[t])
             local rx = x + name_col_w + i * col_w - 6
             love.graphics.print(str, rx - f:getWidth(str), cy + 2)
         end
@@ -823,12 +876,12 @@ local function buildTotalsRenderRow(game, bd)
                 Theme.setColor(Theme.fg.heading)
                 love.graphics.print(item.r.name, x + 6, cy + 2)
 
-                local str_w = fmtRatio(item.win_val)
+                local str_w = fmtRatio(item.win_val, item.r.win_delta and item.r.win_delta[tier])
                 local col1_right = x + name_col_w + col_w - 6
                 Theme.setColor(ratioColor(item.win_val) == "good" and Theme.status.good or Theme.fg.muted)
                 love.graphics.print(str_w, col1_right - f:getWidth(str_w), cy + 2)
 
-                local str_l = fmtRatio(item.loss_val)
+                local str_l = fmtRatio(item.loss_val, item.r.loss_delta and item.r.loss_delta[tier])
                 local col2_right = x + name_col_w + 2 * col_w - 6
                 Theme.setColor(ratioColor(item.loss_val) == "error" and Theme.status.error or Theme.fg.muted)
                 love.graphics.print(str_l, col2_right - f:getWidth(str_l), cy + 2)

@@ -74,4 +74,34 @@ function ShaderRegistry.has(name)
     return _shaders[name] ~= nil
 end
 
+-- Bind a registered shader by name, automatically sending u_time and any custom uniforms.
+-- Calling ShaderRegistry.apply(nil) resets to the default shader.
+function ShaderRegistry.apply(name, params)
+    if not name then
+        if love and love.graphics and love.graphics.setShader then
+            love.graphics.setShader()
+        end
+        return nil
+    end
+    local sh = _shaders[name]
+    if not sh then
+        if love and love.graphics and love.graphics.setShader then
+            love.graphics.setShader()
+        end
+        return nil
+    end
+    love.graphics.setShader(sh)
+    if love.timer and type(sh.hasUniform) == "function" and sh:hasUniform("u_time") then
+        pcall(sh.send, sh, "u_time", love.timer.getTime())
+    end
+    if params then
+        for k, v in pairs(params) do
+            if type(sh.hasUniform) == "function" and sh:hasUniform(k) then
+                pcall(sh.send, sh, k, v)
+            end
+        end
+    end
+    return sh
+end
+
 return ShaderRegistry

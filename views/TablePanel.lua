@@ -44,6 +44,7 @@ local Lookups       = require("utils.lookups")
 local Format        = require("utils.format")
 local CardSprites   = require("views.CardSprites")
 local Effects       = require("views.TablePanelEffects")
+local FeltDecor     = require("views.FeltDecor")
 local FeltLayout    = require("views.FeltLayout")
 local BandStack     = require("services.BandStack")
 local Pop           = require("services.Pop")
@@ -127,15 +128,19 @@ local CARD_BACK = Constants.GAUNTLET and Constants.GAUNTLET.CARD_BACK_SPRITE
 
 -- Backs take no `plate` argument: the deck's art is drawn at every size (see
 -- views/CardSprites), so there is no decision to force.
-local function drawCardBack(sl, back, x, y, w, h, alpha)
+local function drawCardBack(sl, back, x, y, w, h, alpha, shadow)
+    CardSprites.shadow(x, y, w, h, alpha, shadow)
     CardSprites.back(sl, back or CARD_BACK, x, y, w, h, alpha)
 end
 
 -- Fronts take the layout's FORCED small-card decision, not a per-call size
 -- test: the showdown emphasis pass redraws the winning cards up to 1.26x, and
 -- letting each call re-derive it from its own width would flip a card near the
--- threshold between art and plate mid-pop.
-local function drawCardFront(sl, card, x, y, w, h, alpha, plate)
+-- threshold between art and plate mid-pop. `shadow` (the drop-shadow offset in
+-- px, 0 = none) comes from the layout for the same reason.
+local function drawCardFront(sl, card, x, y, w, h, alpha, plate, shadow)
+    if not card then return end
+    CardSprites.shadow(x, y, w, h, alpha, shadow)
     CardSprites.front(sl, card, x, y, w, h, alpha, plate)
 end
 
@@ -404,7 +409,8 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
 end
 
 local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
-                                cards_y_offset, back_sprite, show_names, plate)
+                                cards_y_offset, back_sprite, show_names, plate,
+                                shadow, plate_rect, felt_color, button)
     if not opp then return end
 
     local gtype = Lookups.findById(GameTypes,tbl.game_type_id)
@@ -519,11 +525,23 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     -- hand (in_seats[script_seat] is nil), drop the seat to ~30% opacity
     -- so the player can see at a glance who's still in. Theater-only —
     -- when playback_state is nil we don't dim.
+    local seat_folded = false
     if tbl.playback_state and tbl.playback_state.player_seat and script_seat then
         if not tbl.playback_state.in_seats[script_seat] then
-            seat_alpha = seat_alpha * 0.30
+            seat_alpha  = seat_alpha * 0.30
+            seat_folded = true
         end
     end
+    -- Out of the hand, either way. The dim above says HOW MUCH; this says the
+    -- seat draws flat slabs instead of deck art, which is what actually reads
+    -- at a glance (see CardSprites.folded).
+    local seat_out = seat_folded or seat_busted_flag
+
+    -- Seat plate: the backing this seat's name and cards sit on, so the seat
+    -- reads as a position at the table. Published by the layout only when the
+    -- seat is showing a name (the plate IS the nameplate), and dimmed with the
+    -- seat so a folded or busted one recedes as a whole.
+    FeltDecor.drawSeatPlate(plate_rect, felt_color, seat_alpha)
 
     -- Name / label. Drawn on a single line — never wrap. If even the
     -- truncated "…" form doesn't fit, the label was nil-ed out above
@@ -551,14 +569,47 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
         end
     end
     if face_up and tbl.opponent_hole then
-        drawCardFront(sl, tbl.opponent_hole[1], cards_x, cards_y, card_w, card_h, seat_alpha, plate)
-        drawCardFront(sl, tbl.opponent_hole[2], cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha, plate)
+        drawCardFront(sl, tbl.opponent_hole[1], cards_x, cards_y, card_w, card_h, seat_alpha,
+                      plate, shadow)
+        drawCardFront(sl, tbl.opponent_hole[2], cards_x + card_w + card_gap, cards_y, card_w, card_h,
+                      seat_alpha, plate, shadow)
         -- Showdown win emphasis (dim losers / grow winners) is applied later as
         -- a single on-top overlay pass in TablePanel.draw -- see
         -- drawShowdownEmphasis. The hand-name label renders under this seat.
     elseif holeVisible(tbl) then
-        drawCardBack(sl, back_sprite, cards_x, cards_y, card_w, card_h, seat_alpha)
-        drawCardBack(sl, back_sprite, cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
+        -- A seat that's out of the hand shows flat slabs, not deck art. The
+        -- alpha dim alone left a folded seat carrying every bit of detail a
+        -- live one has, so "who's still in" took a second look; two shapes
+        -- side by side read instantly, and keep reading at nine pixels wide.
+        local drawOne = seat_out and CardSprites.folded or nil
+        if drawOne then
+            drawOne(cards_x, cards_y, card_w, card_h, seat_alpha)
+            drawOne(cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
+        else
+            drawCardBack(sl, back_sprite, cards_x, cards_y, card_w, card_h, seat_alpha, shadow)
+            drawCardBack(sl, back_sprite, cards_x + card_w + card_gap, cards_y, card_w, card_h,
+                         seat_alpha, shadow)
+        end
+    end
+
+    -- Dealer button. `button` is the layout's SIZE decision (nil below the
+    -- diameter where a disc stops being a disc); the model says which seat
+    -- holds it, and it advances ONE seat per hand — a button that jumps around
+    -- is worse than no button, since moving is the whole thing it communicates.
+    --
+    -- Read from button_visual_seat, NOT button_seat: the latter is script space
+    -- and cash re-rolls player_seat every hand, so it maps to a different drawn
+    -- seat each time. Visual space is the fixed ring the panel actually draws --
+    -- opponents 1..n left to right, you last.
+    --
+    -- Straddles the lower-LEFT corner of the seat's cards, clamped inside the
+    -- seat box so it can never drift over a neighbouring seat, and on the
+    -- opposite side from the bb stack label that hangs under them.
+    local btn_seat = tbl.playback_state and tbl.playback_state.button_visual_seat
+    if button and btn_seat and opp_idx == btn_seat then
+        local br = button.d * 0.5
+        FeltDecor.drawButton(math.max(x + br, cards_x),
+                             cards_y + card_h, button.d, seat_alpha)
     end
 
     -- Chip-stack tournament: render the seat's current bb stack below
@@ -598,7 +649,8 @@ local function drawCommunity(tbl, comm, sl, plate)
     for i = 1, 5 do
         local cx = row_x + (i - 1) * (comm.card_w + comm.gap)
         if i <= count and tbl.community and tbl.community[i] then
-            drawCardFront(sl, tbl.community[i], cx, comm.y, comm.card_w, comm.card_h, 1, plate)
+            drawCardFront(sl, tbl.community[i], cx, comm.y, comm.card_w, comm.card_h, 1,
+                          plate, comm.shadow)
         else
             drawCardSlot(cx, comm.y, comm.card_w, comm.card_h)
         end
@@ -930,7 +982,7 @@ end
 -- right edge later in :draw). Tournament tables draw their ladder as a
 -- single row in the bottom band (bottom.band). `tied_anchor_key` (e.g.
 -- "tied:1") registers the "Tied up $X" label as a hint-anchor.
-local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key)
+local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key, button)
     local card_w  = hole.card_w
     local card_h  = hole.card_h
     local cards_w = card_w * 2 + hole.gap
@@ -938,13 +990,27 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
     local cards_y = hole.y
 
     if holeVisible(tbl) and tbl.player_hole then
-        drawCardFront(sl, tbl.player_hole[1], cards_x, cards_y, card_w, card_h, 1, hole.plate)
-        drawCardFront(sl, tbl.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1, hole.plate)
+        drawCardFront(sl, tbl.player_hole[1], cards_x, cards_y, card_w, card_h, 1,
+                      hole.plate, hole.shadow)
+        drawCardFront(sl, tbl.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1,
+                      hole.plate, hole.shadow)
         -- Showdown win emphasis (dim losers / grow winners) is applied later as
         -- a single on-top overlay pass in TablePanel.draw (drawShowdownEmphasis).
     else
         drawCardSlot(cards_x, cards_y, card_w, card_h)
         drawCardSlot(cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1)
+    end
+
+    -- Dealer button when it's on YOUR seat. In visual space you are the LAST
+    -- seat (opponents are 1..n, drawn left to right, you are below them), which
+    -- is where the button lands after it walks off the right-hand seat. Same
+    -- lower-left placement the opponent seats use, so the disc means one thing
+    -- wherever it sits.
+    local pbs = tbl.playback_state
+    if button and pbs and pbs.button_visual_seat
+       and pbs.button_visual_seat == (#tbl.opponents + 1) then
+        FeltDecor.drawButton(math.max(hole.x + button.d * 0.5, cards_x),
+                             cards_y + card_h, button.d, 1)
     end
 
     -- Legacy MTT (FEATURES.MTT_KO off): hand counter + payout ladder in the
@@ -1282,7 +1348,7 @@ local function collectShownCards(tbl, L)
                 out[#out + 1] = { card = tbl.community[i],
                     x = row_x + (i - 1) * (comm.card_w + comm.gap),
                     y = comm.y, w = comm.card_w, h = comm.card_h,
-                    plate = comm.plate }
+                    plate = comm.plate, shadow = comm.shadow }
             end
         end
     end
@@ -1292,10 +1358,10 @@ local function collectShownCards(tbl, L)
         local cards_x = hole.x + math.floor((hole.w - cards_w) / 2)
         out[#out + 1] = { card = tbl.player_hole[1], x = cards_x,
                           y = hole.y, w = hole.card_w, h = hole.card_h,
-                          plate = hole.plate }
+                          plate = hole.plate, shadow = hole.shadow }
         out[#out + 1] = { card = tbl.player_hole[2], x = cards_x + hole.card_w + hole.gap,
                           y = hole.y, w = hole.card_w, h = hole.card_h,
-                          plate = hole.plate }
+                          plate = hole.plate, shadow = hole.shadow }
     end
     -- Only the revealed, in-seat showcase opponent shows hole cards.
     local oi = tbl.opponent_idx
@@ -1317,9 +1383,9 @@ local function collectShownCards(tbl, L)
             local cards_x = seat.x + math.floor((seat.w - cards_w) / 2)
             local cards_y = ob.y + ob.cards_y_offset
             out[#out + 1] = { card = tbl.opponent_hole[1], x = cards_x, y = cards_y,
-                              w = cw, h = ch, plate = ob.plate }
+                              w = cw, h = ch, plate = ob.plate, shadow = ob.shadow }
             out[#out + 1] = { card = tbl.opponent_hole[2], x = cards_x + cw + cgap, y = cards_y,
-                              w = cw, h = ch, plate = ob.plate }
+                              w = cw, h = ch, plate = ob.plate, shadow = ob.shadow }
         end
     end
     return out
@@ -1356,6 +1422,10 @@ local function drawShowdownEmphasis(tbl, L, sl, win5)
             local gw, gh = c.w * scale, c.h * scale
             local gx = c.x - (gw - c.w) / 2
             local gy = c.y - (gh - c.h) / 2
+            -- Shadow travels with the pop. The un-popped card's shadow is
+            -- still on the felt underneath at the old offset, so redrawing it
+            -- under the enlarged card is what covers it.
+            CardSprites.shadow(gx, gy, gw, gh, 1, c.shadow)
             CardSprites.front(sl, c.card, gx, gy, gw, gh, 1, c.plate)
         end
     end
@@ -1532,11 +1602,6 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     local felt_color  = (stake_theme and stake_theme.felt_tint)
                         or { Theme.status.good[1], Theme.status.good[2],
                              Theme.status.good[3], 0.18 }
-    Theme.setColor(felt_color)
-    love.graphics.rectangle("fill", felt_x, felt_y, felt_w, felt_h, Theme.space.radius)
-    Theme.setColor(Theme.border.soft)
-    love.graphics.rectangle("line", felt_x, felt_y, felt_w, felt_h, Theme.space.radius)
-
     -- ── Felt layout ─────────────────────────────────────────────────────
     -- ONE pass (views/FeltLayout) maps the felt rect → an explicit rect/anchor
     -- for every element; the draw functions below just render into what they
@@ -1573,6 +1638,33 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         pile_r = Chips.radius(),
     })
 
+    -- ── Felt surface ────────────────────────────────────────────────────
+    -- Drawn AFTER the layout solve, not before, because the layout is what
+    -- decides whether this felt gets a rail — and if it does, the playing
+    -- surface is the rect INSIDE the ring, which is also the rect every band
+    -- above was solved against. Below the rail's gate L.rail is nil and the
+    -- surface is the whole felt, exactly as before.
+    --
+    -- Decor makes no decisions of its own: views/FeltDecor draws what the
+    -- layout published and skips what it published as nil.
+    local surf = L.rail
+    if surf then
+        FeltDecor.drawRail(surf, stake_theme)
+        local rw = surf.width
+        FeltDecor.drawSurface(surf.x + rw, surf.y + rw,
+                              surf.w - 2 * rw, surf.h - 2 * rw,
+                              felt_color, math.max(0, (surf.radius or 0) - 1))
+    else
+        FeltDecor.drawSurface(felt_x, felt_y, felt_w, felt_h,
+                              felt_color, Theme.space.radius)
+        Theme.setColor(Theme.border.soft)
+        love.graphics.rectangle("line", felt_x, felt_y, felt_w, felt_h,
+                                Theme.space.radius)
+    end
+    -- The community plate sits on the surface and under every card, so it
+    -- draws here rather than with its band.
+    FeltDecor.drawCommPlate(L.community and L.community.plate_rect, felt_color)
+
     -- Showdown winner state, computed once. At a reveal, win5 is the winner's
     -- best-5 (player_combo on a player win, opponent_combo on an opp win; both
     -- set by models/Table at deal time). The emphasis pass dims everything else
@@ -1593,7 +1685,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             if opp then
                 drawOpponentSeat(opp, i, tbl, seat.x, ob.y, seat.w, ob.h,
                     sl, fonts, L.sizes, ob.cards_y_offset, back_sprite,
-                    ob.show_names, ob.plate)
+                    ob.show_names, ob.plate, ob.shadow,
+                    seat.plate_rect, felt_color, L.button)
                 Anchors.set(Table.anchorKey(tbl, "opp_" .. i),
                     seat.x + seat.w * 0.5, ob.anchor_y)
             end
@@ -1620,7 +1713,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- adapts what goes inside them instead of dropping them), so there is no
     -- cards-dropped fallback to branch to.
     local ctx = controller and controller.ctx
-    drawPlayerSeat(tbl, L.hole, L.bottom, sl, fonts, ctx, "tied:" .. idx)
+    drawPlayerSeat(tbl, L.hole, L.bottom, sl, fonts, ctx, "tied:" .. idx, L.button)
 
     -- DEAL / REBUY overlay (only when idle). Stack > 0 → DEAL. Stack at
     -- 0 means the player busted out and must rebuy the buy-in to keep
@@ -1699,11 +1792,11 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             L.pot.text_x, hy, L.pot.text_w, "center")
     end
 
-    -- Payout-bar hover (legacy MTT): surface the SAME breakdown tooltip the EV
+    -- Payout-bar hover (tournaments): surface the SAME breakdown tooltip the EV
     -- section / add-table button show, so the ladder explains itself. A
     -- tooltip-only hit_box over the bottom band.
     if hit_boxes and L.bottom and L.bottom.band
-       and gtype and gtype.hand_count and not gtype.chip_stack_table then
+       and gtype and (gtype.chip_stack_table or gtype.hand_count) then
         local stake = Lookups.findById(Stakes, tbl.stake_id)
         local b     = L.bottom.band
         hit_boxes[#hit_boxes + 1] = {

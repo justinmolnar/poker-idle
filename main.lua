@@ -156,6 +156,7 @@ local function buildGame()
     -- Same reason: a card too small for its sprite falls back to a plate with
     -- its rank as one glyph, and that glyph is the game font.
     require("views.CardSprites").configure(g.fonts)
+    require("views.FeltDecor").configure(g.fonts)
 
     -- Transient debug toggles (not persisted). Backtick (`) toggles
     -- the per-table tooltip overlay; see InputController and TablePanel.
@@ -293,6 +294,10 @@ function love.load()
     ShaderRegistry.loadFromFile("radial_glow", "shaders/radial_glow.frag")
     ShaderRegistry.loadFromFile("dirty", "shaders/dirty.frag")
     ShaderRegistry.loadFromFile("foil", "shaders/foil.frag")
+    ShaderRegistry.loadFromFile("pulse_glow", "shaders/pulse_glow.frag")
+    ShaderRegistry.loadFromFile("hologram", "shaders/hologram.frag")
+    ShaderRegistry.loadFromFile("rainbow_shift", "shaders/rainbow_shift.frag")
+    ShaderRegistry.loadFromFile("pixel_glitch", "shaders/pixel_glitch.frag")
 
     if Constants.DEBUG.START_IN_SHOVE then
         Game.state_machine:switch("shove")
@@ -446,6 +451,7 @@ function love.resize(w, h)
     require("views.SettingsModal").configureFromFonts(Game.fonts)
     require("views.Chips").configureFont(Game.fonts)
     require("views.CardSprites").configure(Game.fonts)
+    require("views.FeltDecor").configure(Game.fonts)
 
     if Game.state_machine then
         Game.state_machine:resize(w, h)

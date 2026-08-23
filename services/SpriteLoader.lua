@@ -19,6 +19,7 @@
 --   sl:hasSprite(name)  → bool
 
 local Object = require('lib.class')
+local Constants = require('data.constants')
 local SpriteLoader = Object:extend('SpriteLoader')
 
 local SPRITE_DIR  = "assets/sprites"
@@ -128,6 +129,7 @@ end
 
 function SpriteLoader:init()
     self.sprites = {}
+    self.animations = {}
     self.loaded = false
     self.aliases = nil
     -- sprite name -> { Image, ... } largest first. Only card backs build one;
@@ -209,6 +211,50 @@ function SpriteLoader:scanDirectory(dir_path, key_prefix)
     return count
 end
 
+function SpriteLoader:_buildAnimations()
+    self.animations = {}
+    local groups = {}
+
+    for key, img in pairs(self.sprites) do
+        if not key:find("cards/") then
+            local base_prefix, frame_num = key:match("^(.-)[%-_]Frame[%-_]?(%d+)$")
+            if not frame_num then
+                base_prefix, frame_num = key:match("^(.-)[%-_](%d+)$")
+            end
+            if not frame_num then
+                base_prefix, frame_num = key:match("^(.-)[%-_/](%d+)$")
+            end
+            if not frame_num then
+                base_prefix, frame_num = key:match("^(.-)[%-_](%a)$")
+            end
+
+            if base_prefix and frame_num then
+                local num = tonumber(frame_num) or frame_num:byte()
+                groups[base_prefix] = groups[base_prefix] or {}
+                table.insert(groups[base_prefix], { num = num, key = key, img = img })
+            end
+        end
+    end
+
+    local anim_count = 0
+    for base_prefix, frames in pairs(groups) do
+        if #frames >= 2 then
+            table.sort(frames, function(a, b) return a.num < b.num end)
+            local seq = {}
+            for _, f in ipairs(frames) do
+                table.insert(seq, f.img)
+            end
+
+            self.animations[base_prefix] = seq
+            for _, f in ipairs(frames) do
+                self.animations[f.key] = seq
+            end
+            anim_count = anim_count + 1
+        end
+    end
+    print("[SpriteLoader] Built " .. anim_count .. " animation sequences")
+end
+
 function SpriteLoader:loadAll()
     if self.loaded then return end
 
@@ -230,6 +276,7 @@ function SpriteLoader:loadAll()
     end
 
     self:loadAliases()
+    self:_buildAnimations()
 
     print("[SpriteLoader] Loaded " .. sprite_count .. " total sprites"
         .. (self.aliases and ", with aliases" or ""))
@@ -269,9 +316,34 @@ local function _resolve(self, sprite_name)
     return sprite_name
 end
 
-function SpriteLoader:getSprite(sprite_name)
+function SpriteLoader:getSprite(sprite_name, time, fps, frame)
     if not self.loaded then self:loadAll() end
-    return self.sprites[_resolve(self, sprite_name)]
+    local resolved = _resolve(self, sprite_name)
+    local anim = self.animations[resolved] or self.animations[sprite_name]
+
+    if time == false then
+        if anim and #anim > 0 then
+            local static_idx = math.max(1, math.min(#anim, math.floor(frame or 1)))
+            return anim[static_idx]
+        end
+        return self.sprites[resolved]
+    end
+
+    if anim and #anim > 0 then
+        if time == nil or time == true then
+            time = love.timer and love.timer.getTime() or 0
+        end
+        if type(time) == "number" then
+            local anim_config = Constants and Constants.ANIMATIONS
+            local default_fps = (anim_config and anim_config.DEFAULT_FPS) or 4
+            local item_fps    = anim_config and anim_config.ITEM_FPS
+            fps = fps or (item_fps and (item_fps[sprite_name] or item_fps[resolved])) or default_fps
+
+            local frame_idx = (math.floor(time * fps) % #anim) + 1
+            return anim[frame_idx]
+        end
+    end
+    return self.sprites[resolved]
 end
 
 -- Lookup that knows about mip chains: hands back the smallest level still at
@@ -279,10 +351,11 @@ end
 -- level instead of a 16:1 minification of a 144px one. Falls through to
 -- getSprite for every sprite without a chain, which is all of them but the
 -- card backs. Called by services/SpriteRenderer, so no draw site changes.
-function SpriteLoader:getSpriteFor(sprite_name, target_w)
+function SpriteLoader:getSpriteFor(sprite_name, target_w, time, fps, frame)
     if not self.loaded then self:loadAll() end
-    local levels = self.lods[_resolve(self, sprite_name)]
-    if not levels then return self:getSprite(sprite_name) end
+    local resolved = _resolve(self, sprite_name)
+    local levels = self.lods[resolved]
+    if not levels then return self:getSprite(sprite_name, time, fps, frame) end
     for i = #levels, 1, -1 do
         if levels[i]:getWidth() >= (target_w or 0) then return levels[i] end
     end
@@ -291,7 +364,8 @@ end
 
 function SpriteLoader:hasSprite(sprite_name)
     if not self.loaded then self:loadAll() end
-    return self.sprites[_resolve(self, sprite_name)] ~= nil
+    local resolved = _resolve(self, sprite_name)
+    return self.sprites[resolved] ~= nil or self.animations[resolved] ~= nil
 end
 
 return SpriteLoader

@@ -35,6 +35,7 @@ local IconText     = require("views.IconText")
 local Format       = require("utils.format")
 local Decal        = require("services.Decal")
 local TooltipSvc     = require("services.Tooltip")
+local ShaderRegistry = require("services.ShaderRegistry")
 
 -- Stable "No. NNN" code per item = its position in the master catalog, so the
 -- serial on a card doesn't shuffle as pages filter items in and out.
@@ -540,8 +541,24 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     Theme.setColor({ 0.15, 0.15, 0.12, 0.35 })
     love.graphics.rectangle("line", img_x, img_y, img_w, img_h)
 
+    -- Resolve item animation & shader settings (paper magazine catalog defaults to static unless overridden in item data)
+    local anim_spec = item.anim or {}
+    local catalog_animated = false
+    if anim_spec.catalog_enabled ~= nil then
+        catalog_animated = anim_spec.catalog_enabled
+    elseif item.anim_catalog ~= nil then
+        catalog_animated = item.anim_catalog
+    end
+
+    local time_arg  = catalog_animated and love.timer.getTime() or false
+    local fps_arg   = anim_spec.fps or item.fps
+    local frame_arg = anim_spec.frame or item.frame or item.static_frame
+
+    local shader_name   = anim_spec.shader or item.shader
+    local shader_params = anim_spec.shader_params or item.shader_params
+
     -- Draw sprite (if exists)
-    local sprite = self.game.sprite_loader:getSprite(item.sprite or item.id)
+    local sprite = self.game.sprite_loader:getSprite(item.sprite or item.id, time_arg, fps_arg, frame_arg)
     if sprite then
         local scale_x = img_w / sprite:getWidth()
         local scale_y = img_h / sprite:getHeight()
@@ -555,7 +572,16 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         else
             love.graphics.setColor(1, 1, 1, (is_owned and not is_corruptible and not is_corrupted) and 0.40 or 1.0)
         end
+
+        if shader_name and ShaderRegistry and ShaderRegistry.apply then
+            ShaderRegistry.apply(shader_name, shader_params)
+        end
+
         love.graphics.draw(sprite, px, py, 0, scale_factor, scale_factor)
+
+        if shader_name and ShaderRegistry and ShaderRegistry.apply then
+            ShaderRegistry.apply(nil)
+        end
     else
         -- Draw classic blueprint cross placeholder
         love.graphics.setColor(0.15, 0.15, 0.12, 0.15)

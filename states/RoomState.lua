@@ -73,10 +73,26 @@ function RoomState:draw()
     love.graphics.print(bank_str, fl(16 * s), bank_y)
 
     -- Draw back/PLAY button to return to grind
-    local btn_w = fl(120 * s)
+    local btn_w = fl(100 * s)
     local btn_h = fl(36 * s)
     local btn_x = W - btn_w - fl(16 * s)
     local btn_y = fl((top_h - btn_h) * 0.5)
+
+    -- Draw DESIGNER button
+    local des_w = fl(140 * s)
+    local des_x = btn_x - des_w - fl(12 * s)
+    local is_editing = self.room_view and self.room_view.editor_mode
+
+    local mx, my = love.mouse.getPosition()
+    local des_hov = mx >= des_x and mx < des_x + des_w and my >= btn_y and my < btn_y + btn_h
+
+    LabelButton.draw{
+        x = des_x, y = btn_y, w = des_w, h = btn_h,
+        text        = is_editing and "DESIGNER: ON [F3]" or "DESIGNER [F3]",
+        fonts       = fonts,
+        hovered     = des_hov,
+        fill_override = is_editing and { 0.20, 0.50, 0.30 } or nil,
+    }
 
     -- Render developer unlock cheat status. owned_items is an ARRAY of
     -- ids (see GameState) — build a set to test membership.
@@ -93,13 +109,12 @@ function RoomState:draw()
     love.graphics.setFont(fonts.sm)
     if is_unlocked then
         Theme.setColor(Theme.status.warn)
-        love.graphics.print("ALL ITEMS UNLOCKED [U]", btn_x - fl(170 * s), btn_y + fl(10 * s))
+        love.graphics.print("ALL UNLOCKED [U]", des_x - fl(140 * s), btn_y + fl(10 * s))
     else
         Theme.setColor(Theme.fg.muted)
-        love.graphics.print("PRESS [U] TO UNLOCK ALL", btn_x - fl(170 * s), btn_y + fl(10 * s))
+        love.graphics.print("UNLOCK ALL [U]", des_x - fl(140 * s), btn_y + fl(10 * s))
     end
 
-    local mx, my = love.mouse.getPosition()
     local btn_hov = mx >= btn_x and mx < btn_x + btn_w
                 and my >= btn_y and my < btn_y + btn_h
 
@@ -173,7 +188,7 @@ function RoomState:mousepressed(x, y, button)
 
     -- Check top-bar PLAY button click
     local top_h = fl(56 * s)
-    local btn_w = fl(120 * s)
+    local btn_w = fl(100 * s)
     local btn_h = fl(36 * s)
     local btn_x = W - btn_w - fl(16 * s)
     local btn_y = fl((top_h - btn_h) * 0.5)
@@ -181,6 +196,16 @@ function RoomState:mousepressed(x, y, button)
     if x >= btn_x and x < btn_x + btn_w and y >= btn_y and y < btn_y + btn_h then
         ClickFlash.flash("room_back_btn", "room_back_btn")
         self.game.state_machine:switch("grind")
+        return
+    end
+
+    -- Check top-bar DESIGNER button click
+    local des_w = fl(140 * s)
+    local des_x = btn_x - des_w - fl(12 * s)
+    if x >= des_x and x < des_x + des_w and y >= btn_y and y < btn_y + btn_h then
+        if self.room_view then
+            self.room_view.editor_mode = not self.room_view.editor_mode
+        end
         return
     end
 

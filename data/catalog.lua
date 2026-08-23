@@ -233,7 +233,7 @@ local items = {
         description = "A wrapped gift box for starting fresh.",
         sprite      = "lucky_coin",
         phase       = "demo",
-        cost_chip     = 5,
+        cost_chip   = 5,
         position    = { x = 360, y = 220 },
         effects     = {
             { kind = "shove_rate_add",     value = 0.010 },
@@ -247,7 +247,7 @@ local items = {
         description = "Soothing to watch. Hypnotic, almost.",
         sprite      = "lava_lamp",
         phase       = "demo",
-        cost_chip     = 5,
+        cost_chip   = 5,
         position    = { x = 400, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.012 },
@@ -343,7 +343,7 @@ local items = {
         description = "Artistic wall canvas that winks.",
         sprite      = "dogs_playing_poker",
         phase       = "mid",
-        cost_chip     = 8,
+        cost_chip   = 8,
         position    = { x = 390, y = 400 },
         effects     = {
             { kind = "shove_rate_add",     value = 0.006 },
@@ -612,7 +612,7 @@ local items = {
         description   = "Open laptop terminal running extra clicker scripts.",
         sprite        = "first_cursor",
         phase         = "late",
-        cost_chip       = 18,
+        cost_chip     = 18,
         requires      = "cursor_pool",
         requires_hide = true,
         position      = { x = 200, y = 500 },

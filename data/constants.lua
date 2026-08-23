@@ -163,4 +163,13 @@ C.FLOATING_TEXT = {
     MAX_ITEMS  = 50,
 }
 
+C.ANIMATIONS = {
+    -- Frame rate (FPS) for isometric object ambient animations (room items & catalog previews).
+    -- 4 FPS gives a relaxed, ambient, retro pixel-art cadence.
+    DEFAULT_FPS = 4,
+    ITEM_FPS    = {
+        -- Optional per-item overrides (e.g. ["lava_lamp"] = 3)
+    },
+}
+
 return C

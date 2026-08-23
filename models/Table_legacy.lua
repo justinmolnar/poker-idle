@@ -392,6 +392,9 @@ function Table:new(stake_id, game_type_id, ctx, poker_events)
         script_idx         = 0,
         script_timer       = 0,
         playback_state     = nil,
+        -- Dealer button in VISUAL seat space; see :deal. Persists across hands
+        -- so the button MOVES one seat instead of being re-rolled.
+        button_visual_seat = nil,
         view_event_cursor     = 0,
 
         stack = (stake and stake.buy_in) or 0,
@@ -616,9 +619,29 @@ function Table:deal(ctx)
         local n_seats = ((gtype and gtype.seats) or 5) + 1
         local player_seat = love.math.random(1, n_seats)
         local button_seat = love.math.random(1, n_seats)
+
+        -- ── Dealer button, in VISUAL seat space ──────────────────────
+        -- Mirrors models/Table. Seats 1..n_opps are the opponents as the panel
+        -- draws them, left to right; seat n_seats is you. Separate from
+        -- button_seat above, which is SCRIPT space and belongs to HandScript:
+        -- player_seat re-rolls every hand here, so a script-space button lands
+        -- on a different DRAWN seat each hand and reads as teleporting. This
+        -- model has no chip-stack path, so cash is the only case.
+        --
+        -- Which model is live is build-dependent (PROTOTYPE_MODE), so a change
+        -- in one file only is a no-op in the other build.
+        local prev_btn      = self.button_visual_seat
+        local button_visual = prev_btn and ((prev_btn % n_seats) + 1)
+                              or love.math.random(1, n_seats)
+        self.button_visual_seat = button_visual
+
         self.playback_state = {
             n_seats             = n_seats,
             player_seat         = player_seat,
+            -- Script space, for anything reasoning about blind order.
+            button_seat         = button_seat,
+            -- VISUAL space, which is what views/TablePanel draws from.
+            button_visual_seat  = button_visual,
             in_seats            = {},
             n_in                = n_seats,
             pot                 = 0,

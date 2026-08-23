@@ -29,9 +29,12 @@
 --   5. Catalog ctx.win_chance_shifts (additive on top of lerp).
 --   6. Clamp WC to [0, 0.95]. Clamp dist cells ≥0 and renormalize.
 
-local Lookups    = require("utils.lookups")
-local StakesData = require("data.stakes")
-local PotTiers   = require("data.pot_tiers")
+local Lookups       = require("utils.lookups")
+local StakesData    = require("data.stakes")
+local PotTiers      = require("data.pot_tiers")
+local MttFinishDist = require("data.mtt_finish_dist")
+local MttPayouts    = require("data.mtt_payouts")
+local MttHandCount  = require("data.mtt_hand_count")
 
 local OutcomeMath = {}
 
@@ -552,6 +555,110 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
             win_cash = avg * bb * wm, loss_cash = avg * bb * lm,
         }
     end
+
+    if gtype.chip_stack_table then
+        local buy_in = stake.buy_in or 0
+        local n_seats = (gtype.seats or 0) + 1  -- 7 opps + player = 8
+
+        local wc_units = OutcomeMath.sumFills(ctx.win_chance_fills, gtype)
+        local fill_ratio = OutcomeMath.fillRatio(wc_units, stake.fill_window, ctx)
+        local auto_win_total = 0
+        if ctx.auto_win_chances then
+            for _, e in ipairs(ctx.auto_win_chances) do
+                if OutcomeMath.shiftApplies(e, gtype) then
+                    auto_win_total = auto_win_total + (e.amount or 0)
+                end
+            end
+        end
+        local eff_fill = fill_ratio + auto_win_total
+        if eff_fill > 1 then eff_fill = 1 end
+
+        local raw_weights = {}
+        local total_weight = 0
+        for pos = 1, n_seats do
+            local naked  = MttFinishDist.naked[pos]  or 0
+            local capped = MttFinishDist.capped[pos] or naked
+            local w = naked + (capped - naked) * eff_fill
+            raw_weights[pos] = w
+            total_weight = total_weight + w
+        end
+
+        local boost = ctx.mtt_payout_boost or 0
+        local payouts = MttPayouts[boost] or MttPayouts[0]
+
+        local exp_payout = 0
+        local exp_hands  = 0
+        local pos_probs  = {}
+        for pos = 1, n_seats do
+            local prob = (total_weight > 0) and (raw_weights[pos] / total_weight) or 0
+            pos_probs[pos] = prob
+            local key = n_seats - pos + 1
+            local mult = payouts[key] or 0
+            exp_payout = exp_payout + prob * mult * buy_in
+            local hc = MttHandCount[pos]
+            local avg_h = hc and ((hc.lo + hc.hi) * 0.5) or 8
+            exp_hands = exp_hands + prob * avg_h
+        end
+
+        local net_ev_run = exp_payout - buy_in
+        local ev_per_hand = (exp_hands > 0) and (net_ev_run / exp_hands) or 0
+        local roi_pct = (buy_in > 0) and ((net_ev_run / buy_in) * 100) or 0
+
+        return {
+            stake = stake,
+            gtype = gtype,
+            per_tier = per_tier,
+            pool = {
+                win_chance  = wc,
+                win_dist    = wd,
+                loss_dist   = ld,
+                ev_per_hand = ev_per_hand,
+                net_ev_run  = net_ev_run,
+                roi_pct     = roi_pct,
+                exp_payout  = exp_payout,
+                exp_hands   = exp_hands,
+                pos_probs   = pos_probs,
+                buy_in      = buy_in,
+                win_avg_bb  = win_avg,
+                loss_avg_bb = loss_avg,
+            },
+        }
+    elseif gtype.hand_count and not gtype.chip_stack_table then
+        local buy_in = stake.buy_in or 0
+        local cap = gtype.hand_count or 8
+        local boost = ctx.mtt_payout_boost or 0
+        local payouts = MttPayouts[boost] or MttPayouts[0]
+
+        local function finishOdds(k)
+            return (k >= cap) and (wc ^ k) or (wc ^ k) * (1 - wc)
+        end
+        local exp_mult = 0
+        for k, mult in pairs(payouts) do
+            exp_mult = exp_mult + finishOdds(k) * mult
+        end
+        local net_ev_run = buy_in * (exp_mult - 1)
+        local ev_per_hand = (cap > 0) and (net_ev_run / cap) or 0
+        local roi_pct = (buy_in > 0) and ((net_ev_run / buy_in) * 100) or 0
+
+        return {
+            stake = stake,
+            gtype = gtype,
+            per_tier = per_tier,
+            pool = {
+                win_chance  = wc,
+                win_dist    = wd,
+                loss_dist   = ld,
+                ev_per_hand = ev_per_hand,
+                net_ev_run  = net_ev_run,
+                roi_pct     = roi_pct,
+                exp_hands   = cap,
+                buy_in      = buy_in,
+                win_avg_bb  = win_avg,
+                loss_avg_bb = loss_avg,
+            },
+        }
+    end
+
     local ev = wc * win_cash - (1 - wc) * loss_cash
 
     return {

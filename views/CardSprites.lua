@@ -35,6 +35,7 @@ local Theme          = require("views.Theme")
 local SpriteRenderer = require("services.SpriteRenderer")
 local FontService    = require("services.FontService")
 local FeltData       = require("data.felt_layout")
+local FeltStyle      = require("data.felt_style")
 
 local CardSprites = {}
 
@@ -45,6 +46,11 @@ local RANK_GLYPH = {
 }
 
 local RED_SUIT = { hearts = true, diamonds = true }
+
+-- Card drop shadow. Near-black rather than a theme token: it is a shadow cast
+-- onto the felt, so it should not carry the palette's hue.
+local SHADOW_COLOR = { 0, 0, 0 }
+local SHADOW_ALPHA = (FeltStyle.shadow and FeltStyle.shadow.alpha) or 0.3
 
 -- Set by CardSprites.configure at boot / resize. Nil until then, in which
 -- case a plate draws its suit bar and skips the rank glyph.
@@ -116,6 +122,34 @@ local function frontPlate(card, x, y, w, h, alpha)
     Theme.setColor(suit_color, alpha)
     love.graphics.rectangle("fill", x + 1, y + h - bar_h - 1,
                             math.max(1, w - 2), bar_h)
+end
+
+-- Drop shadow under a card: the same rect, offset down-right, near-black at
+-- low alpha. The cheapest thing that makes a card sit ON the table instead of
+-- floating over it.
+--
+-- `off` comes from the LAYOUT (views/FeltLayout publishes it per band), not
+-- from a size test here — the showdown pop redraws the winning cards up to
+-- 1.26x larger, and a per-call test would hand a shadow to a card that didn't
+-- have one a moment earlier. off == 0 means this band is too small for a
+-- shadow to be anything but a darker card edge, so nothing draws.
+function CardSprites.shadow(x, y, w, h, alpha, off)
+    off = off or 0
+    if off <= 0 then return end
+    Theme.setColor(SHADOW_COLOR, (alpha or 1) * SHADOW_ALPHA)
+    love.graphics.rectangle("fill", x + off, y + off, w, h, plateRadius(w, h))
+end
+
+-- A seat that is out of the hand: folded, or busted in a chip-stack
+-- tournament. A flat muted slab, no deck art and no rank.
+--
+-- This REPLACES the representation rather than only dimming it. A card back at
+-- 30% opacity still carries every bit of detail a live one does, so telling
+-- who is still in takes a second look; a live seat's deck art beside a flat
+-- grey slab reads instantly, and keeps reading at nine pixels wide, which is
+-- exactly where the alpha-only treatment failed hardest.
+function CardSprites.folded(x, y, w, h, alpha)
+    plateBody(x, y, w, h, Theme.bg.sunken, Theme.border.soft, alpha or 1)
 end
 
 -- Card back. ALWAYS the deck's art, however small the card gets -- the deck is

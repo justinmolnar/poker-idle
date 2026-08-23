@@ -23,15 +23,15 @@ local _warned_missing = {}
 -- {r, g, b} or {r, g, b, a} table (Theme token). Returns true if the sprite
 -- existed and rendered, false if it was missing (and a magenta+border rect
 -- was drawn as a placeholder).
-function SpriteRenderer.draw(atlas, sprite_name, x, y, width, height, tint)
+function SpriteRenderer.draw(atlas, sprite_name, x, y, width, height, tint, time, fps, frame)
     -- getSpriteFor lets an atlas hand back a mip level sized for this draw
     -- (services/SpriteLoader builds one for card backs, which are drawn from
     -- 9px on the felt to ~110px in the shove gauntlet). Atlases without it,
     -- and sprites without a chain, resolve exactly as before.
     local sprite
     if atlas then
-        sprite = atlas.getSpriteFor and atlas:getSpriteFor(sprite_name, width)
-                 or atlas:getSprite(sprite_name)
+        sprite = atlas.getSpriteFor and atlas:getSpriteFor(sprite_name, width, time, fps, frame)
+                 or atlas:getSprite(sprite_name, time, fps, frame)
     end
 
     if not sprite then

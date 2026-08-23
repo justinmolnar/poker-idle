@@ -10,6 +10,8 @@
 
 local Theme          = require("views.Theme")
 local ShaderRegistry = require("services.ShaderRegistry")
+local FeltDecor      = require("views.FeltDecor")
+local FeltStyle      = require("data.felt_style")
 
 local Effects = {}
 
@@ -126,14 +128,26 @@ function Effects.drawGlow(tbl, x, y, w, h)
     love.graphics.setShader()
 end
 
+-- Win/loss flash over the felt. Fires only on `large` and `jackpot`
+-- resolutions (controllers/GrindController sets vignette_alpha from
+-- data/feedback_intensity) and decays in Table:update.
+--
+-- Two layers. The flat wash is what makes a big result unmissable when you're
+-- watching six other panels; the mask on top of it concentrates the colour at
+-- the edges, so it reads as light coming in over the rails instead of the felt
+-- swapping colour. The mask is the same one views/FeltDecor paints the resting
+-- vignette with, so this costs one extra batched draw and no new texture.
 function Effects.drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
     local a = tbl.vignette_alpha or 0
     if a <= 0.001 or not tbl.vignette_kind then return end
     local color = (tbl.vignette_kind == "good") and Theme.status.good
                                                   or Theme.status.error
-    Theme.setColor(color, a * VIGNETTE_MAX_ALPHA)
+    local cfg = FeltStyle.vignette
+    Theme.setColor(color, a * VIGNETTE_MAX_ALPHA * (cfg.flash_flat or 1))
     love.graphics.rectangle("fill", felt_x, felt_y, felt_w, felt_h,
                             Theme.space.radius)
+    FeltDecor.drawMask(felt_x, felt_y, felt_w, felt_h, color,
+                       a * VIGNETTE_MAX_ALPHA * (cfg.flash_mask or 0))
 end
 
 return Effects

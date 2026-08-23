@@ -2169,7 +2169,7 @@ function GrindView:draw(overlay_fn)
 
     -- Cursor swarm — drawn last so cursors are always on top, including
     -- on top of the press-fade ghost they just dispatched.
-    CursorPool.draw()
+    CursorPool.draw(self.game.fonts)
 
     if overlay_fn then overlay_fn() end
 

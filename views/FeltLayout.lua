@@ -21,6 +21,7 @@
 
 local BandStack = require("services.BandStack")
 local Data      = require("data.felt_layout")
+local Style     = require("data.felt_style")
 
 local CARD_ASPECT = 56 / 80   -- card sprite native aspect; heights derive from width
 
@@ -87,6 +88,16 @@ end
 --                                      .opponents.plate — one decision per
 --                                      band, so the showdown pop can't flip a
 --                                      card's representation mid-animation)
+--
+-- DECOR (data/felt_style) follows the same rule and is published the same way,
+-- so views/FeltDecor never re-derives a threshold — it draws what it is handed
+-- and skips what is nil:
+--   • rail             → felt height  (L.rail)
+--   • community plate  → card width   (L.community.plate_rect)
+--   • card shadows     → card width   (L.community/.hole/.opponents .shadow,
+--                                      per band, same reason as .plate)
+--   • seat plates      → the NAME flag (L.opponents.seats[i].plate_rect)
+--   • dealer button    → its diameter (L.button)
 function FeltLayout.compute(p)
     local sp       = Data.space
     local pile_cfg = Data.pile
@@ -98,6 +109,34 @@ function FeltLayout.compute(p)
     local sm_h = p.sm_h
     local xs_h = p.xs_h or sm_h                             -- opp names + pot text (smaller tier)
     local fx, fy, fw, fh = p.felt_x, p.felt_y, p.felt_w, p.felt_h
+
+    -- ── Rail: the table's outer ring ─────────────────────────────────────
+    -- Decided FIRST, before anything measures the felt, because the band solve
+    -- runs on the surface INSIDE the ring. Insetting fx/fy/fw/fh here is what
+    -- makes every rect below respect the rail automatically -- no draw site
+    -- has to know the ring exists and no card can land on the trim.
+    --
+    -- Gated on felt HEIGHT: the ring costs 2*width off BOTH axes, and height is
+    -- the scarce one (the whole point of the pot-band work was reclaiming it).
+    -- The 4*rw guard means a felt too small to hold a ring and still have a
+    -- surface left simply doesn't get one.
+    local rail_cfg = Style.rail
+    local rail = nil
+    if fh >= (rail_cfg.min_felt_h or math.huge) then
+        local short = math.min(fw, fh)
+        local rw = ifloor(short * (rail_cfg.frac or 0) + 0.5)
+        rw = math.max(rail_cfg.min_w or 1, math.min(rail_cfg.max_w or rw, rw))
+        if fw > 4 * rw and fh > 4 * rw then
+            rail = {
+                x = fx, y = fy, w = fw, h = fh, width = rw,
+                radius = math.min(rail_cfg.radius_max or 0,
+                                  ifloor(short / (rail_cfg.radius_div or 12))),
+            }
+            fx, fy = fx + rw, fy + rw
+            fw, fh = fw - 2 * rw, fh - 2 * rw
+        end
+    end
+
     local usable_h = fh - botp                              -- leave the border clear
 
     local bottom_min = math.max(sm_h, p.bottom_extra or 0)  -- cash row OR MTT ladder
@@ -221,6 +260,20 @@ function FeltLayout.compute(p)
         return d / base_d
     end
 
+    -- Card drop shadows, decided per band for exactly the same reason `plate`
+    -- is: the showdown pop redraws the winning cards up to 1.26x larger, and a
+    -- per-draw size test would hand a shadow to a card that didn't have one
+    -- half a second earlier. 0 = no shadow.
+    local sh_cfg     = Style.shadow
+    local shadow_off = math.max(1, ifloor((sh_cfg.offset or 0) * (p.s or 1)))
+    local function shadowAt(card_w)
+        return (card_w >= (sh_cfg.min_card_w or math.huge)) and shadow_off or 0
+    end
+    -- The opponent card the seat ornaments measure against. HU's duel seat
+    -- draws at card_mult, so it crosses every threshold later than the
+    -- per-seat boxes do.
+    local opp_draw_w = p.hu and (sz.opp_w * Data.hu_seat.card_mult) or sz.opp_w
+
     -- Minimums with the scaled cards.
     local opp_card_h = p.hu and (sz.opp_h * Data.hu_seat.card_mult) or sz.opp_h
     local opp_min    = opp_card_h + (show_names and (opp_name_h + name_gap) or 0)
@@ -259,7 +312,24 @@ function FeltLayout.compute(p)
         tier  = (show_names and "full") or (has_pile and "compact") or "micro",
         sizes = sz, card_scale = card_scale,
         show_names = show_names,
+        -- Nil below its gate. views/FeltDecor draws it or skips it; nothing
+        -- else on the felt has to know whether there's a ring around it,
+        -- because the band rects below are already inside it.
+        rail  = rail,
     }
+
+    -- Dealer button size. The layout only says how big the disc is and how far
+    -- off the cards it sits; views/TablePanel decides WHICH seat holds it, from
+    -- playback_state.button_seat. Sized off the opponent card because that seat
+    -- is the tighter of the two places it can land.
+    do
+        local bc = Style.button
+        local d  = ifloor(opp_draw_w * (bc.card_frac or 0) + 0.5)
+        if bc.max_d then d = math.min(d, bc.max_d) end
+        if d >= (bc.min_d or math.huge) then
+            L.button = { d = d, gap = scaled(bc.gap or 1, p.s) }
+        end
+    end
 
     -- Opponents band (seats pre-split; HU = one centered duel seat). Never
     -- dropped at any felt size — below the plate threshold the seats' cards
@@ -280,13 +350,37 @@ function FeltLayout.compute(p)
             end
         end
         local name_band = show_names and (opp_name_h + name_gap) or 0
+
+        -- Seat plate: the backing behind a seat's name + cards, so the seat
+        -- reads as a position rather than two cards floating in space. Gated on
+        -- the NAME flag rather than a size of its own -- the plate IS the
+        -- nameplate, so one flag governs one idea and there is no felt size
+        -- where a plate frames nothing.
+        -- CLAMPED to the surface: the plate's padding would otherwise push it
+        -- off the top of the opponents band, which is flush with the top of the
+        -- felt, and paint it onto the rail.
+        if show_names then
+            local spc  = Style.seat_plate
+            local px, py = scaled(spc.pad_x, p.s), scaled(spc.pad_y, p.s)
+            local top  = math.max(fy, oy - py)
+            local bot  = math.min(fy + fh, oy + name_band + opp_card_h + py)
+            for _, seat in ipairs(seats) do
+                local sx = math.max(fx, seat.x + px)
+                local sr = math.min(fx + fw, seat.x + seat.w - px)
+                if sr > sx and bot > top then
+                    seat.plate_rect = { x = sx, y = top, w = sr - sx, h = bot - top }
+                end
+            end
+        end
+
         L.opponents = {
             x = fx, y = oy, w = fw, h = r.h,
             name_h = show_names and opp_name_h or 0, card_h = opp_card_h,
             show_names = show_names, name_chars = name_chars,
             -- HU's duel seat draws at card_mult, so it crosses the plate
             -- threshold later than the per-seat boxes do.
-            plate = platedAt(p.hu and (sz.opp_w * Data.hu_seat.card_mult) or sz.opp_w),
+            plate  = platedAt(opp_draw_w),
+            shadow = shadowAt(opp_draw_w),
             cards_y_offset = name_band,
             anchor_y = oy + name_band + ifloor(opp_card_h / 2),
             hu = p.hu, seats = seats,
@@ -294,12 +388,30 @@ function FeltLayout.compute(p)
     end
 
     -- Community cards (rects[2]).
-    local cb   = rects[2]
-    local cb_y = fy + cb.y
+    local cb     = rects[2]
+    local cb_y   = fy + cb.y
+    local cgap   = scaled(sp.comm_gap, p.s)
+    -- Recessed strip behind the five slots, so an empty slot reads as a place
+    -- at the table rather than a hole in the felt. `plate_rect` is decor;
+    -- `plate` right below it is step 3's card-ART boolean. Different things.
+    local comm_plate_rect = nil
+    do
+        local cp = Style.comm_plate
+        if sz.comm_w >= (cp.min_card_w or math.huge) then
+            local px, py = scaled(cp.pad_x, p.s), scaled(cp.pad_y, p.s)
+            local pw = math.min(fw, sz.comm_w * 5 + 4 * cgap + 2 * px)
+            comm_plate_rect = {
+                x = fx + ifloor((fw - pw) / 2), y = cb_y - py,
+                w = pw, h = sz.comm_h + 2 * py,
+            }
+        end
+    end
     L.community = {
         x = fx, y = cb_y, w = fw,
-        card_w = sz.comm_w, card_h = sz.comm_h, gap = scaled(sp.comm_gap, p.s),
-        plate = platedAt(sz.comm_w),
+        card_w = sz.comm_w, card_h = sz.comm_h, gap = cgap,
+        plate  = platedAt(sz.comm_w),
+        shadow = shadowAt(sz.comm_w),
+        plate_rect = comm_plate_rect,
     }
     -- Pot (rects[3], the weighted band): center the pile + text BLOCK in this
     -- band's open space, so the chips sit DOWN in the gap between the community
@@ -334,7 +446,8 @@ function FeltLayout.compute(p)
         L.hole = {
             x = fx, y = fy + r.y, w = fw,
             card_w = sz.player_w, card_h = sz.player_h, gap = scaled(sp.hole_gap, p.s),
-            plate = platedAt(sz.player_w),
+            plate  = platedAt(sz.player_w),
+            shadow = shadowAt(sz.player_w),
             hand_name_y = below_y,
             below_y = below_y,
         }

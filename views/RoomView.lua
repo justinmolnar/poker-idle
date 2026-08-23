@@ -12,6 +12,7 @@ local Catalog        = require("data.catalog")
 local Layout         = require("data.room_layout")
 local Anchors        = require("services.AnchorRegistry")
 local ClickFlash     = require("services.ClickFlash")
+local ShaderRegistry = require("services.ShaderRegistry")
 
 local RoomView = {}
 RoomView.__index = RoomView
@@ -86,22 +87,32 @@ local function tileMetrics(s)
 end
 
 function RoomView:new(game)
+    local catalog_by_id = {}
+    for _, it in ipairs(Catalog) do
+        catalog_by_id[it.id] = it
+    end
+    self.catalog_by_id = catalog_by_id
+
     -- Load all layout positions from room_layout
     local placed = {}
     for id, info in pairs(Layout) do
         if id ~= "__meta" then
             placed[#placed + 1] = {
-                id       = id,
-                gx       = info.gx or 0,
-                gy       = info.gy or 0,
-                w        = info.w or 1,
-                h        = info.h or 1,
-                z_offset = info.z_offset or 0,
-                sh       = info.sh or 16,
-                color    = info.color or { 0.5, 0.5, 0.5 },
-                scale    = info.scale or 1.0,
-                flip_x   = info.flip_x or false,
-                align    = info.align or "center",
+                id        = id,
+                gx        = info.gx or 0,
+                gy        = info.gy or 0,
+                w         = info.w or 1,
+                h         = info.h or 1,
+                z_offset  = info.z_offset or 0,
+                sh        = info.sh or 16,
+                color     = info.color or { 0.5, 0.5, 0.5 },
+                scale     = info.scale or 1.0,
+                flip_x    = info.flip_x or false,
+                align     = info.align or "center",
+                anim_room = info.anim_room,
+                fps       = info.fps,
+                frame     = info.frame,
+                shader    = info.shader,
             }
         end
     end
@@ -113,13 +124,13 @@ function RoomView:new(game)
     -- a "Catalog" group up front for the actual game items.
     local placeable = {}
     local sprites_seen = {}
-    local groups   = {}       -- ordered: { name, indices = {..}, collapsed }
+    local groups   = {}       -- ordered: { name, indices = {..}, collapsed, is_catalog }
     local group_of = {}       -- placeable idx -> group ref
     local by_name  = {}       -- group name -> group ref
     local function groupFor(name, default_collapsed)
         local g = by_name[name]
         if not g then
-            g = { name = name, indices = {}, collapsed = default_collapsed }
+            g = { name = name, indices = {}, collapsed = default_collapsed, is_catalog = (name == "Catalog") }
             by_name[name] = g
             groups[#groups + 1] = g
         end
@@ -205,33 +216,41 @@ function RoomView:new(game)
     end
 
     return setmetatable({
-        game          = game,
-        placed        = placed,     -- active placed furniture objects list
-        placeable     = placeable,  -- flat list; selected_idx indexes this
-        groups        = groups,     -- collapsible browser groups (presentation)
-        group_of      = group_of,   -- placeable idx -> group (auto-expand)
-        editor_mode   = false,      -- true = grid lines, placement selector, mouse controls
-        selected_idx  = 1,          -- active item index in the placeable list
-        active_w      = 1,          -- current placement footprint width
-        active_h      = 1,          -- current placement footprint height
-        active_sh     = 16,         -- current placement visual thickness/height
-        active_z      = 0,          -- current placement vertical height offset
-        active_scale  = 1.0,        -- current sprite scale factor
-        active_flip_x = false,      -- current sprite horizontal flip
-        active_align  = "center",   -- current sprite alignment mode ("center", "left_wall", "right_wall")
-        snap_options  = { 1.0, 0.5, 0.25, 0.125 },
-        snap_idx      = 4,          -- current grid snap option (defaults to 0.125)
-        picked_item   = nil,
-        list_scroll   = 0,          -- item-browser scroll offset (px)
-        _list_rows    = {},         -- built each draw; consumed by mousepressed
-        _list_rect    = nil,        -- browser viewport rect (hit-test + wheel)
-        _scroll_to_sel = false,     -- draw() brings the selected row into view
+        game             = game,
+        placed           = placed,     -- active placed furniture objects list
+        placeable        = placeable,  -- flat list; selected_idx indexes this
+        groups           = groups,     -- collapsible browser groups (presentation)
+        group_of         = group_of,   -- placeable idx -> group (auto-expand)
+        browser_tab      = 1,          -- 1: Catalog Items, 2: Flavor Assets
+        editor_mode      = false,      -- true = grid lines, placement selector, mouse controls
+        selected_idx     = 1,          -- active item index in the placeable list
+        active_w         = 1,          -- current placement footprint width
+        active_h         = 1,          -- current placement footprint height
+        active_sh        = 16,         -- current placement visual thickness/height
+        active_z         = 0,          -- current placement vertical height offset
+        active_scale     = 1.0,        -- current sprite scale factor
+        active_flip_x    = false,      -- current sprite horizontal flip
+        active_align     = "center",   -- current sprite alignment mode ("center", "left_wall", "right_wall")
+        active_anim_room = nil,        -- nil (default), true (force anim), false (force static)
+        active_fps       = nil,        -- nil (default), numeric FPS
+        active_frame     = nil,        -- nil (default), numeric frame index
+        active_shader    = nil,        -- nil (default), string shader name
+        active_color     = { 1.0, 1.0, 1.0 }, -- current item tint color
+        hide_editor_hud  = false,      -- true = hide grid and HUD for clean scene preview
+        show_help_overlay= false,      -- true = show spacious controls help modal
+        snap_options     = { 1.0, 0.5, 0.25, 0.125 },
+        snap_idx         = 4,          -- current grid snap option (defaults to 0.125)
+        picked_item      = nil,
+        list_scroll      = 0,          -- item-browser scroll offset (px)
+        _list_rows       = {},         -- built each draw; consumed by mousepressed
+        _list_rect       = nil,        -- browser viewport rect (hit-test + wheel)
+        _scroll_to_sel   = false,     -- draw() brings the selected row into view
 
-        room_size     = room_size,
-        floor_list    = floor_list,
-        wall_list     = wall_list,
-        floor_idx     = floor_idx,
-        wall_idx      = wall_idx,
+        room_size        = room_size,
+        floor_list       = floor_list,
+        wall_list        = wall_list,
+        floor_idx        = floor_idx,
+        wall_idx         = wall_idx,
     }, RoomView)
 end
 
@@ -241,6 +260,32 @@ function RoomView:_onSelectionChanged()
     local g = self.group_of and self.group_of[self.selected_idx]
     if g then g.collapsed = false end
     self._scroll_to_sel = true
+end
+
+-- Cycle selection strictly within the active browser_tab items
+function RoomView:_cycleSelection(delta)
+    local visible_indices = {}
+    for _, g in ipairs(self.groups) do
+        if (self.browser_tab == 1 and g.is_catalog) or (self.browser_tab == 2 and not g.is_catalog) then
+            for _, idx in ipairs(g.indices) do
+                visible_indices[#visible_indices + 1] = idx
+            end
+        end
+    end
+    if #visible_indices == 0 then return end
+
+    local current_pos = 1
+    for pos, idx in ipairs(visible_indices) do
+        if idx == self.selected_idx then current_pos = pos; break end
+    end
+
+    local new_pos = current_pos + delta
+    if new_pos < 1 then new_pos = #visible_indices end
+    if new_pos > #visible_indices then new_pos = 1 end
+
+    self.selected_idx = visible_indices[new_pos]
+    self:syncActiveParams()
+    self:_onSelectionChanged()
 end
 
 -- ─── Projection Math ────────────────────────────────────────────────────────
@@ -499,8 +544,8 @@ function RoomView:draw(full_screen)
                 love.graphics.polygon("fill", tx1, ty1, tx2, ty2, tx3, ty3, tx4, ty4)
             end
 
-            -- Wireframe grid lines (only in editor mode)
-            if self.editor_mode then
+            -- Wireframe grid lines (only in editor mode when HUD is visible)
+            if self.editor_mode and not self.hide_editor_hud then
                 Theme.setColor(Theme.border.soft, 0.18)
                 local tx2, ty2 = gridToScreen(x + 1, y, cx, cy, tw, th)
                 local tx3, ty3 = gridToScreen(x + 1, y + 1, cx, cy, tw, th)
@@ -539,7 +584,35 @@ function RoomView:draw(full_screen)
             color = { color[1], color[2], color[3], 0.40 }
         end
         
-        local sprite = game.sprite_loader:getSprite(obj.sprite or obj.id)
+        local cat_item = self.catalog_by_id and self.catalog_by_id[obj.id] or {}
+        local cat_anim = cat_item.anim or {}
+        local obj_anim = obj.anim or {}
+
+        -- Room default: Animated by default!
+        -- Disabled if obj or cat_item explicitly sets anim_room = false or anim.room_enabled = false or anim.enabled = false
+        local is_room_anim = true
+        if obj.anim_room ~= nil then
+            is_room_anim = obj.anim_room
+        elseif obj_anim.room_enabled ~= nil then
+            is_room_anim = obj_anim.room_enabled
+        elseif obj_anim.enabled ~= nil then
+            is_room_anim = obj_anim.enabled
+        elseif cat_item.anim_room ~= nil then
+            is_room_anim = cat_item.anim_room
+        elseif cat_anim.room_enabled ~= nil then
+            is_room_anim = cat_anim.room_enabled
+        elseif cat_anim.enabled ~= nil then
+            is_room_anim = cat_anim.enabled
+        end
+
+        local time_arg  = is_room_anim and love.timer.getTime() or false
+        local fps_arg   = obj.fps or obj_anim.fps or cat_item.fps or cat_anim.fps
+        local frame_arg = obj.frame or obj.static_frame or obj_anim.frame or cat_item.frame or cat_item.static_frame or cat_anim.frame
+
+        local shader_name   = obj.shader or obj_anim.shader or cat_item.shader or cat_anim.shader
+        local shader_params = obj.shader_params or obj_anim.shader_params or cat_item.shader_params or cat_anim.shader_params
+
+        local sprite = game.sprite_loader:getSprite(obj.sprite or obj.id, time_arg, fps_arg, frame_arg)
         if sprite then
             local draw_gx, draw_gy
             if obj.align == "left_wall" then
@@ -580,8 +653,16 @@ function RoomView:draw(full_screen)
             else
                 love.graphics.setColor(1, 1, 1, 1)
             end
+
+            if shader_name and ShaderRegistry and ShaderRegistry.apply then
+                ShaderRegistry.apply(shader_name, shader_params)
+            end
             
             love.graphics.draw(sprite, px, py, 0, draw_scale_x, draw_scale_y, ox, oy)
+
+            if shader_name and ShaderRegistry and ShaderRegistry.apply then
+                ShaderRegistry.apply(nil)
+            end
         else
             drawIsoBox(obj.gx, obj.gy, obj.w, obj.h, obj.z_offset, obj.sh, color, tw, th, cx, cy, s, obj.scale, obj.flip_x)
         end
@@ -655,332 +736,417 @@ function RoomView:draw(full_screen)
             end
         end
 
-        -- Draw UI Sidebar Panel for Editor Controls (Left Side overlay)
-        local sidebar_w = fl(270 * s)
-        local sidebar_h = H - TOP_BAR_H
-        local sidebar_x = 0
-        local sidebar_y = TOP_BAR_H
+        if not self.hide_editor_hud then
+            -- ── Top Toolbar (Action buttons & Meta selectors in top bar)
+            local bar_y = 0
+            local bar_h = TOP_BAR_H
+            local toolbar_x = math.max(fl(180 * s), fl(285 * s))
+            local tb_y = fl(12 * s)
+            local tb_h = fl(32 * s)
+            local btn_w = fl(72 * s)
 
-        Theme.setColor(Theme.bg.chrome, 0.95)
-        love.graphics.rectangle("fill", sidebar_x, sidebar_y, sidebar_w, sidebar_h)
-        Theme.setColor(Theme.border.soft)
-        love.graphics.line(sidebar_x + sidebar_w - 1, sidebar_y, sidebar_x + sidebar_w - 1, sidebar_y + sidebar_h)
+            -- EXPORT
+            local exp_x = toolbar_x
+            local exp_hov = mx >= exp_x and mx < exp_x + btn_w and my >= tb_y and my < tb_y + tb_h
+            LabelButton.draw{
+                x = exp_x, y = tb_y, w = btn_w, h = tb_h,
+                text = "EXPORT", fonts = game.fonts, font = game.fonts.sm, hovered = exp_hov,
+            }
+            self._exp_btn_rect = { x = exp_x, y = tb_y, w = btn_w, h = tb_h }
 
-        -- Title
-        Theme.setColor(Theme.fg.heading)
-        love.graphics.setFont(game.fonts.md)
-        local text_margin = fl(12 * s)
-        love.graphics.print("ROOM DESIGNER", sidebar_x + text_margin, sidebar_y + text_margin)
+            -- RESET
+            local rst_x = exp_x + btn_w + fl(6 * s)
+            local rst_hov = mx >= rst_x and mx < rst_x + btn_w and my >= tb_y and my < tb_y + tb_h
+            LabelButton.draw{
+                x = rst_x, y = tb_y, w = btn_w, h = tb_h,
+                text = "RESET", fonts = game.fonts, font = game.fonts.sm, hovered = rst_hov,
+            }
+            self._rst_btn_rect = { x = rst_x, y = tb_y, w = btn_w, h = tb_h }
 
-        -- Current Placed Items count
-        love.graphics.setFont(game.fonts.sm)
-        Theme.setColor(Theme.fg.muted)
-        love.graphics.print(string.format("Items Placed: %d", #self.placed), sidebar_x + text_margin, sidebar_y + text_margin + fl(22 * s))
+            -- CLEAR
+            local clr_x = rst_x + btn_w + fl(6 * s)
+            local clr_hov = mx >= clr_x and mx < clr_x + btn_w and my >= tb_y and my < tb_y + tb_h
+            LabelButton.draw{
+                x = clr_x, y = tb_y, w = btn_w, h = tb_h,
+                text = "CLEAR", fonts = game.fonts, font = game.fonts.sm, hovered = clr_hov,
+            }
+            self._clr_btn_rect = { x = clr_x, y = tb_y, w = btn_w, h = tb_h }
 
-        local ins_y = sidebar_y + fl(45 * s)
-        local ins_lh = fl(12 * s)
-        local instructions = {
-            "L-Click Empty: Place Item",
-            "L-Click Item: Pick Up / Edit",
-            "R-Click Grid: Delete Item",
-            "R-Click Picked: Cancel Edit",
-            "Q / E: Cycle Selected Item",
-            "1 / 2: Width: " .. self.active_w,
-            "3 / 4: Length: " .. self.active_h,
-            "5 / 6: Thickness: " .. self.active_sh,
-            "7 / 8: Elevation (Z): " .. self.active_z,
-            "9 / 0: Scale: " .. string.format("%.1f", self.active_scale),
-            "F-Key: Flip Horiz: " .. (self.active_flip_x and "ON" or "OFF"),
-            "R-Key: Rotate Footprint",
-            "G-Key: Snap Grid: " .. tostring(self.snap_options[self.snap_idx]),
-            "A-Key: Alignment: " .. self.active_align,
-            "Enter-Key: Export positions",
-            "F3-Key: Exit Room Editor",
-        }
-        for _, ins in ipairs(instructions) do
-            love.graphics.print(ins, sidebar_x + text_margin, ins_y)
-            ins_y = ins_y + ins_lh
-        end
+            -- HELP [H]
+            local help_x = clr_x + btn_w + fl(6 * s)
+            local help_w = fl(76 * s)
+            local help_hov = mx >= help_x and mx < help_x + help_w and my >= tb_y and my < tb_y + tb_h
+            LabelButton.draw{
+                x = help_x, y = tb_y, w = help_w, h = tb_h,
+                text = "HELP [H]", fonts = game.fonts, font = game.fonts.sm, hovered = help_hov,
+            }
+            self._help_btn_rect = { x = help_x, y = tb_y, w = help_w, h = tb_h }
 
-        -- Draw EXPORT and RESET buttons in the sidebar
-        local btn_w = sidebar_w - text_margin * 2
-        local btn_h = fl(26 * s)
-        local btn_gap = fl(6 * s)
-        local btn_x = sidebar_x + text_margin
-        
-        -- EXPORT button
-        local exp_y = sidebar_y + fl(250 * s)
-        local exp_hov = mx >= btn_x and mx < btn_x + btn_w and my >= exp_y and my < exp_y + btn_h
-        LabelButton.draw{
-            x = btn_x, y = exp_y, w = btn_w, h = btn_h,
-            text        = "EXPORT LAYOUT",
-            fonts       = game.fonts,
-            hovered     = exp_hov,
-        }
+            -- Meta Config selectors (Size, Floor, Wall) in top bar
+            local meta_x = help_x + help_w + fl(14 * s)
+            local arrow_w = fl(16 * s)
+            local arrow_h = fl(16 * s)
 
-        -- RESET button
-        local rst_y = exp_y + btn_h + btn_gap
-        local rst_hov = mx >= btn_x and mx < btn_x + btn_w and my >= rst_y and my < rst_y + btn_h
-        LabelButton.draw{
-            x = btn_x, y = rst_y, w = btn_w, h = btn_h,
-            text        = "RESET CHANGES",
-            fonts       = game.fonts,
-            hovered     = rst_hov,
-        }
-
-        -- CLEAR button
-        local clr_y = rst_y + btn_h + btn_gap
-        local clr_hov = mx >= btn_x and mx < btn_x + btn_w and my >= clr_y and my < clr_y + btn_h
-        LabelButton.draw{
-            x = btn_x, y = clr_y, w = btn_w, h = btn_h,
-            text        = "CLEAR ROOM",
-            fonts       = game.fonts,
-            hovered     = clr_hov,
-        }
-
-        -- ── Room Meta Config selectors (Size, Floor, Wall)
-        local meta_y = clr_y + btn_h + fl(10 * s)
-        local arrow_w = fl(18 * s)
-        local arrow_h = fl(18 * s)
-        local prev_x = sidebar_x + sidebar_w - text_margin - arrow_w * 2 - fl(4 * s)
-        local next_x = sidebar_x + sidebar_w - text_margin - arrow_w
-
-        local function checkHov(row_y)
-            local p_hov = mx >= prev_x and mx < prev_x + arrow_w and my >= row_y and my < row_y + arrow_h
-            local n_hov = mx >= next_x and mx < next_x + arrow_w and my >= row_y and my < row_y + arrow_h
-            return p_hov, n_hov
-        end
-
-        local function drawSelectorRow(label, value, row_y, p_hov, n_hov)
+            -- 1. Room Size
+            local size_val = tostring(self.room_size) .. "x" .. tostring(self.room_size)
             love.graphics.setFont(game.fonts.sm)
             Theme.setColor(Theme.fg.muted)
-            love.graphics.print(label .. ":", sidebar_x + text_margin, row_y + fl(3 * s))
-            
-            local val_x = sidebar_x + text_margin + fl(80 * s)
+            love.graphics.print("Size:", meta_x, tb_y + fl(6 * s))
+            local val_x = meta_x + fl(32 * s)
             Theme.setColor(Theme.fg.heading)
-            love.graphics.print(value, val_x, row_y + fl(3 * s))
-            
+            love.graphics.print(size_val, val_x, tb_y + fl(6 * s))
+
+            local sp_hov = mx >= val_x + fl(28 * s) and mx < val_x + fl(28 * s) + arrow_w and my >= tb_y + fl(4 * s) and my < tb_y + fl(4 * s) + arrow_h
+            local sn_hov = mx >= val_x + fl(46 * s) and mx < val_x + fl(46 * s) + arrow_w and my >= tb_y + fl(4 * s) and my < tb_y + fl(4 * s) + arrow_h
+
+            LabelButton.draw{ x = val_x + fl(28 * s), y = tb_y + fl(4 * s), w = arrow_w, h = arrow_h, text = "<", fonts = game.fonts, font = game.fonts.sm, hovered = sp_hov }
+            LabelButton.draw{ x = val_x + fl(46 * s), y = tb_y + fl(4 * s), w = arrow_w, h = arrow_h, text = ">", fonts = game.fonts, font = game.fonts.sm, hovered = sn_hov }
+            self._size_prev_rect = { x = val_x + fl(28 * s), y = tb_y + fl(4 * s), w = arrow_w, h = arrow_h }
+            self._size_next_rect = { x = val_x + fl(46 * s), y = tb_y + fl(4 * s), w = arrow_w, h = arrow_h }
+
+            -- 2. Floor Theme
+            local floor_x = meta_x + fl(115 * s)
+            local floor_val = self.floor_idx == 0 and "Default" or self.floor_list[self.floor_idx]
+            Theme.setColor(Theme.fg.muted)
+            love.graphics.print("Floor:", floor_x, tb_y + fl(6 * s))
+            local fval_x = floor_x + fl(38 * s)
+            Theme.setColor(Theme.fg.heading)
+            love.graphics.print(floor_val, fval_x, tb_y + fl(6 * s))
+
+            local fp_hov = mx >= fval_x + fl(55 * s) and mx < fval_x + fl(55 * s) + arrow_w and my >= tb_y + fl(4 * s) and my < tb_y + fl(4 * s) + arrow_h
+            local fn_hov = mx >= fval_x + fl(73 * s) and mx < fval_x + fl(73 * s) + arrow_w and my >= tb_y + fl(4 * s) and my < tb_y + fl(4 * s) + arrow_h
+
+            LabelButton.draw{ x = fval_x + fl(55 * s), y = tb_y + fl(4 * s), w = arrow_w, h = arrow_h, text = "<", fonts = game.fonts, font = game.fonts.sm, hovered = fp_hov }
+            LabelButton.draw{ x = fval_x + fl(73 * s), y = tb_y + fl(4 * s), w = arrow_w, h = arrow_h, text = ">", fonts = game.fonts, font = game.fonts.sm, hovered = fn_hov }
+            self._floor_prev_rect = { x = fval_x + fl(55 * s), y = tb_y + fl(4 * s), w = arrow_w, h = arrow_h }
+            self._floor_next_rect = { x = fval_x + fl(73 * s), y = tb_y + fl(4 * s), w = arrow_w, h = arrow_h }
+
+            -- ── Left Sidebar Panel for Asset Browser (100% Dedicated Full Height)
+            local sidebar_w = fl(280 * s)
+            local sidebar_h = H - TOP_BAR_H
+            local sidebar_x = 0
+            local sidebar_y = TOP_BAR_H
+            local text_margin = fl(12 * s)
+
+            Theme.setColor(Theme.bg.chrome, 0.96)
+            love.graphics.rectangle("fill", sidebar_x, sidebar_y, sidebar_w, sidebar_h)
+            Theme.setColor(Theme.border.soft)
+            love.graphics.line(sidebar_x + sidebar_w - 1, sidebar_y, sidebar_x + sidebar_w - 1, sidebar_y + sidebar_h)
+
+            -- Count catalog & flavor items
+            local cat_count = 0
+            local flv_count = 0
+            for _, g in ipairs(self.groups) do
+                if g.is_catalog then cat_count = cat_count + #g.indices
+                else flv_count = flv_count + #g.indices end
+            end
+
+            -- ── Category Tabs (PROMINENT, UNMISTAKABLE AT TOP OF SIDEBAR)
+            local tab_y = sidebar_y + fl(8 * s)
+            local tab_h = fl(28 * s)
+            local tab_w = fl((sidebar_w - text_margin * 2 - fl(6 * s)) * 0.5)
+            local tab1_x = sidebar_x + text_margin
+            local tab2_x = tab1_x + tab_w + fl(6 * s)
+
+            local tab1_hov = mx >= tab1_x and mx < tab1_x + tab_w and my >= tab_y and my < tab_y + tab_h
+            local tab2_hov = mx >= tab2_x and mx < tab2_x + tab_w and my >= tab_y and my < tab_y + tab_h
+
             LabelButton.draw{
-                x = prev_x, y = row_y, w = arrow_w, h = arrow_h,
-                text = "<", fonts = game.fonts, font = game.fonts.sm, hovered = p_hov
+                x = tab1_x, y = tab_y, w = tab_w, h = tab_h,
+                text          = "1. CATALOG (" .. cat_count .. ")",
+                fonts         = game.fonts, font = game.fonts.sm,
+                hovered       = tab1_hov,
+                fill_override = self.browser_tab == 1 and { 0.18, 0.42, 0.62 } or { 0.12, 0.14, 0.18 },
             }
             LabelButton.draw{
-                x = next_x, y = row_y, w = arrow_w, h = arrow_h,
-                text = ">", fonts = game.fonts, font = game.fonts.sm, hovered = n_hov
+                x = tab2_x, y = tab_y, w = tab_w, h = tab_h,
+                text          = "2. FLAVOR (" .. flv_count .. ")",
+                fonts         = game.fonts, font = game.fonts.sm,
+                hovered       = tab2_hov,
+                fill_override = self.browser_tab == 2 and { 0.18, 0.42, 0.62 } or { 0.12, 0.14, 0.18 },
             }
-            
-            return {
-                prev = { x = prev_x, y = row_y, w = arrow_w, h = arrow_h },
-                next = { x = next_x, y = row_y, w = arrow_w, h = arrow_h }
-            }
-        end
 
-        -- 1. Room Size Row
-        local size_val = tostring(self.room_size) .. "x" .. tostring(self.room_size)
-        local sp_hov, sn_hov = checkHov(meta_y)
-        local size_rects = drawSelectorRow("Room Size", size_val, meta_y, sp_hov, sn_hov)
-        self._size_prev_rect = size_rects.prev
-        self._size_next_rect = size_rects.next
+            -- Section Header
+            local head_y = tab_y + tab_h + fl(8 * s)
+            love.graphics.setFont(game.fonts.sm)
+            Theme.setColor(Theme.fg.heading)
+            local tab_title = self.browser_tab == 1 and "CATALOG ITEMS" or "FLAVOR ASSETS"
+            local title_str = string.format("%s (%d):", tab_title, self.browser_tab == 1 and cat_count or flv_count)
+            love.graphics.print(title_str, sidebar_x + text_margin, head_y)
 
-        -- 2. Floor Theme Row
-        local floor_val = self.floor_idx == 0 and "Default" or self.floor_list[self.floor_idx]
-        local fp_hov, fn_hov = checkHov(meta_y + fl(24 * s))
-        local floor_rects = drawSelectorRow("Floor Tile", floor_val, meta_y + fl(24 * s), fp_hov, fn_hov)
-        self._floor_prev_rect = floor_rects.prev
-        self._floor_next_rect = floor_rects.next
+            -- Scrolling Viewport starts cleanly 22px BELOW head_y with zero overlap!
+            local sm     = game.fonts.sm
+            local row_h  = sm:getHeight() + fl(4 * s)
+            local view_y = head_y + sm:getHeight() + fl(8 * s)
+            local view_h = (sidebar_y + sidebar_h) - view_y - fl(26 * s)
+            self._list_rect = { x = sidebar_x, y = view_y, w = sidebar_w, h = view_h }
 
-        -- 3. Wall Theme Row
-        local wall_val = self.wall_idx == 0 and "Default" or self.wall_list[self.wall_idx]
-        local wp_hov, wn_hov = checkHov(meta_y + fl(48 * s))
-        local wall_rects = drawSelectorRow("Wall Tile", wall_val, meta_y + fl(48 * s), wp_hov, wn_hov)
-        self._wall_prev_rect = wall_rects.prev
-        self._wall_next_rect = wall_rects.next
-
-        -- ── Item browser: collapsible folder groups in a scrolling
-        -- viewport with a scrollbar. Click a folder to fold/unfold,
-        -- click an item to select it; draw() auto-scrolls to keep the
-        -- selection visible after keyboard/wheel cycling.
-        local cat_y = meta_y + fl(76 * s)
-        love.graphics.setFont(game.fonts.md)
-        Theme.setColor(Theme.fg.heading)
-        love.graphics.print(string.format("ITEMS (%d):", #self.placeable),
-            sidebar_x + text_margin, cat_y)
-        cat_y = cat_y + fl(22 * s)
-
-        local sm    = game.fonts.sm
-        local row_h = sm:getHeight() + fl(4 * s)
-        local view_y = cat_y
-        local view_h = (sidebar_y + sidebar_h) - view_y - fl(8 * s)
-        self._list_rect = { x = sidebar_x, y = view_y, w = sidebar_w, h = view_h }
-
-        -- Virtual layout pass: every visible row's y offset from list top.
-        local rows, vy, sel_vy = {}, 0, nil
-        for _, g in ipairs(self.groups) do
-            rows[#rows + 1] = { kind = "group", group = g, vy = vy }
-            vy = vy + row_h
-            if not g.collapsed then
-                for _, idx in ipairs(g.indices) do
-                    rows[#rows + 1] = { kind = "item", idx = idx, vy = vy }
-                    if idx == self.selected_idx then sel_vy = vy end
-                    vy = vy + row_h
+            -- Filter groups based on active browser tab
+            local visible_groups = {}
+            for _, g in ipairs(self.groups) do
+                if (self.browser_tab == 1 and g.is_catalog) or (self.browser_tab == 2 and not g.is_catalog) then
+                    visible_groups[#visible_groups + 1] = g
                 end
             end
-        end
-        local total_h    = vy
-        local max_scroll = math.max(0, total_h - view_h)
 
-        -- Bring the selection into view when it just moved.
-        if self._scroll_to_sel then
-            self._scroll_to_sel = false
-            if sel_vy then
-                if sel_vy < self.list_scroll then
-                    self.list_scroll = sel_vy
-                elseif sel_vy + row_h > self.list_scroll + view_h then
-                    self.list_scroll = sel_vy + row_h - view_h
-                end
-            end
-        end
-        if self.list_scroll > max_scroll then self.list_scroll = max_scroll end
-        if self.list_scroll < 0 then self.list_scroll = 0 end
+            local placed_map = {}
+            for _, p in ipairs(self.placed) do placed_map[p.id] = true end
 
-        -- Stamp absolute y on the rows for click hit-testing.
-        self._list_rows = rows
-        for _, row in ipairs(rows) do
-            row.y = view_y + row.vy - self.list_scroll
-            row.h = row_h
-        end
-
-        -- Truncate a label to the row width (cached per item + width).
-        local label_w = sidebar_w - text_margin * 2 - fl(14 * s)
-        local function trimmed(item)
-            if item._trim and item._trim_w == label_w then return item._trim end
-            local txt = item.name or item.id
-            if sm:getWidth(txt) > label_w then
-                repeat txt = txt:sub(1, -2)
-                until sm:getWidth(txt .. "…") <= label_w or #txt <= 1
-                txt = txt .. "…"
-            end
-            item._trim, item._trim_w = txt, label_w
-            return txt
-        end
-
-        love.graphics.setScissor(sidebar_x, view_y, sidebar_w, view_h)
-        love.graphics.setFont(sm)
-        local text_pad = fl(2 * s)
-        for _, row in ipairs(rows) do
-            if row.y + row_h >= view_y and row.y <= view_y + view_h then
-                if row.kind == "group" then
-                    local g   = row.group
-                    local hov = mx >= sidebar_x and mx < sidebar_x + sidebar_w
-                            and my >= row.y and my < row.y + row_h
-                    if hov then
-                        Theme.setColor(Theme.bg.widget_hover)
-                        love.graphics.rectangle("fill", sidebar_x, row.y, sidebar_w, row_h)
+            -- Virtual layout pass
+            local rows, vy, sel_vy = {}, 0, nil
+            for _, g in ipairs(visible_groups) do
+                rows[#rows + 1] = { kind = "group", group = g, vy = vy }
+                vy = vy + row_h
+                if not g.collapsed then
+                    for _, idx in ipairs(g.indices) do
+                        rows[#rows + 1] = { kind = "item", idx = idx, vy = vy }
+                        if idx == self.selected_idx then sel_vy = vy end
+                        vy = vy + row_h
                     end
-                    Theme.setColor(Theme.fg.heading)
-                    love.graphics.print(
-                        (g.collapsed and "+ " or "- ") .. g.name
-                        .. " (" .. #g.indices .. ")",
-                        sidebar_x + text_margin, row.y + text_pad)
-                else
-                    local item   = self.placeable[row.idx]
-                    local active = (row.idx == self.selected_idx)
-                    local hov = mx >= sidebar_x and mx < sidebar_x + sidebar_w
-                            and my >= row.y and my < row.y + row_h
-                    if active then
-                        Theme.setColor(Theme.bg.widget_hover)
-                        love.graphics.rectangle("fill", sidebar_x, row.y, sidebar_w, row_h)
-                        Theme.setColor(Theme.status.warn)
-                        love.graphics.print("> " .. trimmed(item),
-                            sidebar_x + text_margin, row.y + text_pad)
-                    else
+                end
+            end
+            local total_h    = vy
+            local max_scroll = math.max(0, total_h - view_h)
+
+            -- Auto-scroll selection into view when selection changes
+            if self._scroll_to_sel then
+                self._scroll_to_sel = false
+                if sel_vy then
+                    if sel_vy < self.list_scroll then
+                        self.list_scroll = sel_vy
+                    elseif sel_vy + row_h > self.list_scroll + view_h then
+                        self.list_scroll = sel_vy + row_h - view_h
+                    end
+                end
+            end
+            if self.list_scroll > max_scroll then self.list_scroll = max_scroll end
+            if self.list_scroll < 0 then self.list_scroll = 0 end
+
+            self._list_rows = rows
+            for _, row in ipairs(rows) do
+                row.y = view_y + row.vy - self.list_scroll
+                row.h = row_h
+            end
+
+            local label_w = sidebar_w - text_margin * 2 - fl(14 * s)
+            local function trimmed(item)
+                if item._trim and item._trim_w == label_w then return item._trim end
+                local txt = item.name or item.id
+                if sm:getWidth(txt) > label_w then
+                    repeat txt = txt:sub(1, -2)
+                    until sm:getWidth(txt .. "…") <= label_w or #txt <= 1
+                    txt = txt .. "…"
+                end
+                item._trim, item._trim_w = txt, label_w
+                return txt
+            end
+
+            love.graphics.setScissor(sidebar_x, view_y, sidebar_w, view_h)
+            love.graphics.setFont(sm)
+            local text_pad = fl(2 * s)
+            for _, row in ipairs(rows) do
+                if row.y + row_h >= view_y and row.y <= view_y + view_h then
+                    if row.kind == "group" then
+                        local g   = row.group
+                        local hov = mx >= sidebar_x and mx < sidebar_x + sidebar_w
+                                and my >= row.y and my < row.y + row_h
                         if hov then
-                            Theme.setColor(Theme.bg.widget_hover, 0.5)
+                            Theme.setColor(Theme.bg.widget_hover)
                             love.graphics.rectangle("fill", sidebar_x, row.y, sidebar_w, row_h)
                         end
-                        Theme.setColor(owned_set[item.id] and Theme.fg.primary
-                                       or Theme.fg.disabled)
-                        love.graphics.print("  " .. trimmed(item),
+                        Theme.setColor(Theme.fg.heading)
+                        love.graphics.print(
+                            (g.collapsed and "+ " or "- ") .. g.name
+                            .. " (" .. #g.indices .. ")",
                             sidebar_x + text_margin, row.y + text_pad)
+                    else
+                        local item      = self.placeable[row.idx]
+                        local active    = (row.idx == self.selected_idx)
+                        local is_placed = placed_map[item.id]
+                        local hov       = mx >= sidebar_x and mx < sidebar_x + sidebar_w
+                                and my >= row.y and my < row.y + row_h
+                        if active then
+                            Theme.setColor(Theme.bg.widget_hover)
+                            love.graphics.rectangle("fill", sidebar_x, row.y, sidebar_w, row_h)
+                            if is_placed then
+                                Theme.setColor(Theme.status.good)
+                            else
+                                Theme.setColor(Theme.status.warn)
+                            end
+                            local prefix = is_placed and "> [✓] " or "> "
+                            love.graphics.print(prefix .. trimmed(item),
+                                sidebar_x + text_margin, row.y + text_pad)
+                        else
+                            if hov then
+                                Theme.setColor(Theme.bg.widget_hover, 0.5)
+                                love.graphics.rectangle("fill", sidebar_x, row.y, sidebar_w, row_h)
+                            end
+                            if is_placed then
+                                Theme.setColor(Theme.status.good)
+                                love.graphics.print("  [✓] " .. trimmed(item),
+                                    sidebar_x + text_margin, row.y + text_pad)
+                            else
+                                Theme.setColor(Theme.fg.primary)
+                                love.graphics.print("      " .. trimmed(item),
+                                    sidebar_x + text_margin, row.y + text_pad)
+                            end
+                        end
                     end
                 end
             end
-        end
-        love.graphics.setScissor()
+            love.graphics.setScissor()
 
-        -- Scrollbar.
-        if max_scroll > 0 then
-            local thumb_h = math.max(fl(20 * s), view_h * (view_h / total_h))
-            local thumb_y = view_y + (view_h - thumb_h)
-                            * (self.list_scroll / max_scroll)
-            Theme.setColor(Theme.bg.sunken, 0.6)
-            love.graphics.rectangle("fill", sidebar_x + sidebar_w - 6, view_y, 4, view_h, 2)
+            -- Scrollbar
+            if max_scroll > 0 then
+                local thumb_h = math.max(fl(20 * s), view_h * (view_h / total_h))
+                local thumb_y = view_y + (view_h - thumb_h) * (self.list_scroll / max_scroll)
+                Theme.setColor(Theme.bg.sunken, 0.6)
+                love.graphics.rectangle("fill", sidebar_x + sidebar_w - 6, view_y, 4, view_h, 2)
+                Theme.setColor(Theme.fg.muted)
+                love.graphics.rectangle("fill", sidebar_x + sidebar_w - 6, thumb_y, 4, thumb_h, 2)
+            end
+
+            -- Bottom Status Bar
+            local sb_h = fl(24 * s)
+            local sb_y = H - sb_h
+            Theme.setColor({ 0.08, 0.10, 0.14, 0.90 })
+            love.graphics.rectangle("fill", 0, sb_y, W, sb_h)
             Theme.setColor(Theme.fg.muted)
-            love.graphics.rectangle("fill", sidebar_x + sidebar_w - 6, thumb_y, 4, thumb_h, 2)
+            love.graphics.setFont(game.fonts.sm)
+            local active_tab_str = self.browser_tab == 1 and "1. CATALOG" or "2. FLAVOR"
+            local sb_msg = string.format("ACTIVE: [%s] | Q/E: Cycle Item | Shift+Click: Surface Stack | Press [H] for Controls | Enter: Export", active_tab_str)
+            love.graphics.print(sb_msg, fl(12 * s), sb_y + fl(4 * s))
+        else
+            -- Clean preview mode: draw small bottom prompt
+            local bw, bh = fl(340 * s), fl(24 * s)
+            local bx = (W - bw) * 0.5
+            local by = H - bh - fl(8 * s)
+            Theme.setColor({ 0.1, 0.1, 0.12, 0.75 })
+            love.graphics.rectangle("fill", bx, by, bw, bh, 4)
+            Theme.setColor(Theme.fg.muted)
+            love.graphics.setFont(game.fonts.sm)
+            local msg = "CLEAN PREVIEW MODE | PRESS [H] FOR HUD"
+            local tw = game.fonts.sm:getWidth(msg)
+            love.graphics.print(msg, bx + (bw - tw) * 0.5, by + fl(4 * s))
         end
     end
-end
 
--- ─── Mouse Input routing ───
+    -- Render Top-Right Non-Modal Instructions Panel (Hidable with H)
+    if self.editor_mode and self.show_help_overlay then
+        local pw = fl(260 * s)
+        local ph = fl(245 * s)
+        local px = W - pw - fl(16 * s)
+        local py = TOP_BAR_H + fl(12 * s)
+
+        Theme.setColor(Theme.bg.chrome, 0.94)
+        love.graphics.rectangle("fill", px, py, pw, ph, 6)
+        Theme.setColor(Theme.border.soft)
+        love.graphics.rectangle("line", px, py, pw, ph, 6)
+
+        -- Panel Header
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.setFont(game.fonts.md)
+        love.graphics.print("EDITOR KEYS [H]", px + fl(10 * s), py + fl(8 * s))
+
+        love.graphics.setFont(game.fonts.sm)
+        local iy = py + fl(30 * s)
+        local ilh = fl(13 * s)
+
+        Theme.setColor(Theme.status.warn)
+        love.graphics.print("NAVIGATION & PLACEMENT", px + fl(10 * s), iy); iy = iy + ilh
+
+        Theme.setColor(Theme.fg.primary)
+        love.graphics.print("• 1 / 2 : Catalog / Flavor Tab", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• TAB : Switch Category Tab", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• Q / E / Wheel : Cycle Item", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• L-Click : Place / Move Item", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• R-Click : Delete / Cancel", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• Shift+L-Click : Surface Stack", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
+
+        Theme.setColor(Theme.status.warn)
+        love.graphics.print("TRANSFORMS & STYLING", px + fl(10 * s), iy); iy = iy + ilh
+
+        Theme.setColor(Theme.fg.primary)
+        love.graphics.print("• Ctrl+Arrows : Nudge Pos", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• D : Clone / Duplicate Item", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• T : Cycle Material Color Tint", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• V : Animation Toggle (ON/OFF)", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• S : Cycle GLSL Shader", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• F / R / A : Flip / Rotate / Align", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• Enter : Export Layout to File", px + fl(10 * s), iy)
+    end
+
+    -- Render Toast Notification Banner when layout exported
+    if self.export_toast_time and self.export_toast_time > 0 then
+        local dt = love.timer and love.timer.getDelta() or 0.016
+        self.export_toast_time = self.export_toast_time - dt
+        local banner_w = fl(440 * s)
+        local banner_h = fl(36 * s)
+        local banner_x = (W - banner_w) * 0.5
+        local banner_y = fl(12 * s) + (top_bar_present and fl(56 * s) or 0)
+        local alpha = math.min(1.0, self.export_toast_time * 2.0)
+
+        Theme.setColor({ 0.15, 0.45, 0.25, 0.95 * alpha })
+        love.graphics.rectangle("fill", banner_x, banner_y, banner_w, banner_h, 6)
+        Theme.setColor({ 0.40, 0.85, 0.50, 1.0 * alpha })
+        love.graphics.rectangle("line", banner_x, banner_y, banner_w, banner_h, 6)
+        Theme.setColor({ 1.0, 1.0, 1.0, 1.0 * alpha })
+        love.graphics.setFont(game.fonts.md)
+        local msg = "LAYOUT EXPORTED TO CONSOLE & FILE"
+        local tw = game.fonts.md:getWidth(msg)
+        love.graphics.print(msg, banner_x + (banner_w - tw) * 0.5, banner_y + fl(8 * s))
+    end
+end
 
 function RoomView:mousepressed(x, y, button)
     if not self.editor_mode then return false end
     local W, H = love.graphics.getDimensions()
     local s    = self.game.ui_scale or 1
 
-    -- Check sidebar button clicks if in editor mode
-    if x < math.floor(270 * s) then
-        local sidebar_w = math.floor(270 * s)
-        local sidebar_x = 0
-        local sidebar_y = math.floor(56 * s)
-        local text_margin = math.floor(12 * s)
-        
-        local btn_w = sidebar_w - text_margin * 2
-        local btn_h = math.floor(26 * s)
-        local btn_gap = math.floor(6 * s)
-        local btn_x = sidebar_x + text_margin
-        
-        local exp_y = sidebar_y + math.floor(250 * s)
-        local rst_y = exp_y + btn_h + btn_gap
-        local clr_y = rst_y + btn_h + btn_gap
-
+    -- Check Top Toolbar clicks (Export, Reset, Clear, Help, Meta Selectors)
+    if y < math.floor(56 * s) then
         if button == 1 then
-            if x >= btn_x and x < btn_x + btn_w then
-                if y >= exp_y and y < exp_y + btn_h then
-                    ClickFlash.flash("room_btn", "room_btn")
-                    self:serializeLayout()
-                    return true
-                elseif y >= rst_y and y < rst_y + btn_h then
-                    ClickFlash.flash("room_btn", "room_btn")
-                    -- Re-load initial layout to discard changes
-                    self.placed = {}
-                    for id, info in pairs(Layout) do
-                        if id ~= "__meta" then
-                            self.placed[#self.placed + 1] = {
-                                id       = id,
-                                gx       = info.gx or 0,
-                                gy       = info.gy or 0,
-                                w        = info.w or 1,
-                                h        = info.h or 1,
-                                z_offset = info.z_offset or 0,
-                                sh       = info.sh or 16,
-                                color    = info.color or { 0.5, 0.5, 0.5 },
-                                scale    = info.scale or 1.0,
-                                flip_x   = info.flip_x or false,
-                                align    = info.align or "center",
-                            }
-                        end
+            if self._exp_btn_rect and x >= self._exp_btn_rect.x and x < self._exp_btn_rect.x + self._exp_btn_rect.w
+               and y >= self._exp_btn_rect.y and y < self._exp_btn_rect.y + self._exp_btn_rect.h then
+                ClickFlash.flash("room_btn", "room_btn")
+                self:serializeLayout()
+                return true
+            elseif self._rst_btn_rect and x >= self._rst_btn_rect.x and x < self._rst_btn_rect.x + self._rst_btn_rect.w
+               and y >= self._rst_btn_rect.y and y < self._rst_btn_rect.y + self._rst_btn_rect.h then
+                ClickFlash.flash("room_btn", "room_btn")
+                self.placed = {}
+                for id, info in pairs(Layout) do
+                    if id ~= "__meta" then
+                        self.placed[#self.placed + 1] = {
+                            id       = id,
+                            gx       = info.gx or 0,
+                            gy       = info.gy or 0,
+                            w        = info.w or 1,
+                            h        = info.h or 1,
+                            z_offset = info.z_offset or 0,
+                            sh       = info.sh or 16,
+                            color    = info.color or { 0.5, 0.5, 0.5 },
+                            scale    = info.scale or 1.0,
+                            flip_x   = info.flip_x or false,
+                            align    = info.align or "center",
+                        }
                     end
-                    self.picked_item = nil
-                    print("[room-editor] Reset all layout changes to saved defaults")
-                    return true
-                elseif y >= clr_y and y < clr_y + btn_h then
-                    ClickFlash.flash("room_btn", "room_btn")
-                    self.placed = {}
-                    self.picked_item = nil
-                    print("[room-editor] Cleared all furniture items in room")
-                    return true
                 end
+                self.picked_item = nil
+                print("[room-editor] Reset all layout changes to saved defaults")
+                return true
+            elseif self._clr_btn_rect and x >= self._clr_btn_rect.x and x < self._clr_btn_rect.x + self._clr_btn_rect.w
+               and y >= self._clr_btn_rect.y and y < self._clr_btn_rect.y + self._clr_btn_rect.h then
+                ClickFlash.flash("room_btn", "room_btn")
+                self.placed = {}
+                self.picked_item = nil
+                print("[room-editor] Cleared all furniture items in room")
+                return true
+            elseif self._help_btn_rect and x >= self._help_btn_rect.x and x < self._help_btn_rect.x + self._help_btn_rect.w
+               and y >= self._help_btn_rect.y and y < self._help_btn_rect.y + self._help_btn_rect.h then
+                ClickFlash.flash("room_btn", "room_btn")
+                self.hide_editor_hud = not self.hide_editor_hud
+                return true
             end
 
             -- Hit test Room Size arrows
@@ -1010,41 +1176,56 @@ function RoomView:mousepressed(x, y, button)
                 ClickFlash.flash("room_btn", "room_btn")
                 return true
             end
+        end
+        return true
+    end
 
-            -- Hit test Wall Theme arrows
-            if self._wall_prev_rect and x >= self._wall_prev_rect.x and x < self._wall_prev_rect.x + self._wall_prev_rect.w
-               and y >= self._wall_prev_rect.y and y < self._wall_prev_rect.y + self._wall_prev_rect.h then
-                self.wall_idx = self.wall_idx - 1
-                if self.wall_idx < 0 then self.wall_idx = #self.wall_list end
-                ClickFlash.flash("room_btn", "room_btn")
-                return true
-            elseif self._wall_next_rect and x >= self._wall_next_rect.x and x < self._wall_next_rect.x + self._wall_next_rect.w
-               and y >= self._wall_next_rect.y and y < self._wall_next_rect.y + self._wall_next_rect.h then
-                self.wall_idx = self.wall_idx + 1
-                if self.wall_idx > #self.wall_list then self.wall_idx = 0 end
-                ClickFlash.flash("room_btn", "room_btn")
-                return true
+    -- Check Left Sidebar Asset Browser clicks
+    if x < math.floor(280 * s) then
+        local sidebar_w = math.floor(280 * s)
+        local sidebar_x = 0
+        local sidebar_y = math.floor(56 * s)
+        local text_margin = math.floor(12 * s)
+
+        -- Hit test Category Tab Buttons
+        local tab_y = sidebar_y + math.floor(8 * s)
+        local tab_h = math.floor(28 * s)
+        local tab_w = math.floor((sidebar_w - text_margin * 2 - math.floor(6 * s)) * 0.5)
+        local tab1_x = sidebar_x + text_margin
+        local tab2_x = tab1_x + tab_w + math.floor(6 * s)
+
+        if button == 1 and y >= tab_y and y < tab_y + tab_h then
+            local new_tab = nil
+            if x >= tab1_x and x < tab1_x + tab_w then
+                new_tab = 1
+            elseif x >= tab2_x and x < tab2_x + tab_w then
+                new_tab = 2
             end
 
-            -- Item-browser rows: click a folder header to fold/unfold,
-            -- click an item to select it (locked while holding a picked
-            -- item, same as Q/E).
-            local lr = self._list_rect
-            if lr and y >= lr.y and y < lr.y + lr.h then
-                for _, row in ipairs(self._list_rows) do
-                    if y >= row.y and y < row.y + row.h then
-                        if row.kind == "group" then
-                            row.group.collapsed = not row.group.collapsed
-                        elseif not self.picked_item then
-                            self.selected_idx = row.idx
-                            self:syncActiveParams()
-                        end
-                        return true
+            if new_tab then
+                self.browser_tab = new_tab
+                ClickFlash.flash("room_btn", "room_btn")
+                self:_cycleSelection(0)
+                return true
+            end
+        end
+
+        -- Item-browser rows
+        local lr = self._list_rect
+        if lr and y >= lr.y and y < lr.y + lr.h then
+            for _, row in ipairs(self._list_rows) do
+                if y >= row.y and y < row.y + row.h then
+                    if row.kind == "group" then
+                        row.group.collapsed = not row.group.collapsed
+                    elseif not self.picked_item then
+                        self.selected_idx = row.idx
+                        self:syncActiveParams()
                     end
+                    return true
                 end
             end
         end
-        return true -- consume all other clicks in sidebar
+        return true -- consume all clicks within left sidebar
     end
 
     local cx, cy = getCenter(W, H, s, self.full_screen)
@@ -1077,29 +1258,40 @@ function RoomView:mousepressed(x, y, button)
                 end
             end
 
-            if clicked_obj then
+            local is_shift = love.keyboard and (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift"))
+
+            if clicked_obj and not is_shift then
                 -- Pick up the item! Save it in self.picked_item
                 self.picked_item = {
-                    id       = clicked_obj.id,
-                    gx       = clicked_obj.gx,
-                    gy       = clicked_obj.gy,
-                    w        = clicked_obj.w,
-                    h        = clicked_obj.h,
-                    z_offset = clicked_obj.z_offset,
-                    sh       = clicked_obj.sh,
-                    color    = clicked_obj.color,
-                    scale    = clicked_obj.scale or 1.0,
-                    flip_x   = clicked_obj.flip_x or false,
-                    align    = clicked_obj.align or "center",
+                    id        = clicked_obj.id,
+                    gx        = clicked_obj.gx,
+                    gy        = clicked_obj.gy,
+                    w         = clicked_obj.w,
+                    h         = clicked_obj.h,
+                    z_offset  = clicked_obj.z_offset,
+                    sh        = clicked_obj.sh,
+                    color     = clicked_obj.color,
+                    scale     = clicked_obj.scale or 1.0,
+                    flip_x    = clicked_obj.flip_x or false,
+                    align     = clicked_obj.align or "center",
+                    anim_room = clicked_obj.anim_room,
+                    fps       = clicked_obj.fps,
+                    frame     = clicked_obj.frame,
+                    shader    = clicked_obj.shader,
                 }
                 -- Load its specs to the active cursor parameters
-                self.active_w  = clicked_obj.w
-                self.active_h  = clicked_obj.h
-                self.active_sh = clicked_obj.sh
-                self.active_z  = clicked_obj.z_offset
-                self.active_scale = clicked_obj.scale or 1.0
-                self.active_flip_x = clicked_obj.flip_x or false
-                self.active_align = clicked_obj.align or "center"
+                self.active_w         = clicked_obj.w
+                self.active_h         = clicked_obj.h
+                self.active_sh        = clicked_obj.sh
+                self.active_z         = clicked_obj.z_offset
+                self.active_scale     = clicked_obj.scale or 1.0
+                self.active_flip_x    = clicked_obj.flip_x or false
+                self.active_align     = clicked_obj.align or "center"
+                self.active_anim_room = clicked_obj.anim_room
+                self.active_fps       = clicked_obj.fps
+                self.active_frame     = clicked_obj.frame
+                self.active_shader    = clicked_obj.shader
+                self.active_color     = clicked_obj.color or { 1.0, 1.0, 1.0 }
                 
                 -- Sync selected_idx to match this item (browser follows)
                 for idx, item in ipairs(self.placeable) do
@@ -1114,31 +1306,42 @@ function RoomView:mousepressed(x, y, button)
                 table.remove(self.placed, clicked_idx)
                 print("[room-editor] Picked up " .. clicked_obj.id .. " for editing")
             else
-                -- 2. Empty space: PLACE the active item
+                -- Place active item (Shift+Click stacks on top of furniture!)
                 local active_spec = self.placeable[self.selected_idx]
                 if active_spec then
-                    -- Delete any existing block with this ID to overwrite (since catalog items are unique)
-                    for i = #self.placed, 1, -1 do
-                        if self.placed[i].id == active_spec.id then
-                            table.remove(self.placed, i)
+                    local auto_z = self.active_z
+                    if is_shift and clicked_obj then
+                        auto_z = clicked_obj.z_offset + (clicked_obj.sh or 16)
+                    end
+
+                    local place_id = is_shift and (active_spec.id .. "_" .. tostring(math.random(100, 999))) or active_spec.id
+                    if not is_shift then
+                        for i = #self.placed, 1, -1 do
+                            if self.placed[i].id == active_spec.id then
+                                table.remove(self.placed, i)
+                            end
                         end
                     end
 
                     -- Add to placed list
                     table.insert(self.placed, {
-                        id       = active_spec.id,
-                        gx       = gx,
-                        gy       = gy,
-                        w        = self.active_w,
-                        h        = self.active_h,
-                        z_offset = self.active_z,
-                        sh       = self.active_sh,
-                        color    = active_spec.id == "poker_poster" and { 0.82, 0.42, 0.38 } or { 0.40, 0.55, 0.75 },
-                        scale    = self.active_scale,
-                        flip_x   = self.active_flip_x,
-                        align    = self.active_align,
+                        id        = place_id,
+                        gx        = gx,
+                        gy        = gy,
+                        w         = self.active_w,
+                        h         = self.active_h,
+                        z_offset  = auto_z,
+                        sh        = self.active_sh,
+                        color     = { self.active_color[1], self.active_color[2], self.active_color[3] },
+                        scale     = self.active_scale,
+                        flip_x    = self.active_flip_x,
+                        align     = self.active_align,
+                        anim_room = self.active_anim_room,
+                        fps       = self.active_fps,
+                        frame     = self.active_frame,
+                        shader    = self.active_shader,
                     })
-                    print(string.format("[room-editor] Placed %s at (%.3f, %.3f)", active_spec.id, gx, gy))
+                    print(string.format("[room-editor] Placed %s at (%.3f, %.3f, Z=%d)", place_id, gx, gy, auto_z))
                     self.picked_item = nil -- successfully placed, clear picked state
                 end
             end
@@ -1187,10 +1390,15 @@ function RoomView:keypressed(key)
     end
 
     if key == "f3" or key == "escape" then
+        if self.show_help_overlay then
+            self.show_help_overlay = false
+            return true
+        end
         if self.picked_item then
             -- Restore the picked item before exiting
             table.insert(self.placed, self.picked_item)
             self.picked_item = nil
+            return true
         end
         self.editor_mode = false
         print("[room-editor] Exited Room Editor Mode.")
@@ -1272,21 +1480,178 @@ function RoomView:keypressed(key)
         return true
     end
 
-    -- Selection cycling (Q/E, or Up/Down). The browser follows: the
-    -- selection's folder unfolds and the list scrolls it into view.
+    -- Toggle Anim Room mode (V)
+    if key == "v" then
+        if self.active_anim_room == nil then
+            self.active_anim_room = false
+        elseif self.active_anim_room == false then
+            self.active_anim_room = true
+        else
+            self.active_anim_room = nil
+        end
+        print("[room-editor] Anim mode set to: " .. tostring(self.active_anim_room))
+        self:_updateActivePlacedItemAnim()
+        return true
+    end
+
+    -- Frame adjustment ([ / ])
+    if key == "[" then
+        if not self.active_frame or self.active_frame <= 1 then
+            self.active_frame = nil
+        else
+            self.active_frame = self.active_frame - 1
+        end
+        print("[room-editor] Frame set to: " .. tostring(self.active_frame or "AUTO"))
+        self:_updateActivePlacedItemAnim()
+        return true
+    elseif key == "]" then
+        self.active_frame = (self.active_frame or 0) + 1
+        print("[room-editor] Frame set to: " .. self.active_frame)
+        self:_updateActivePlacedItemAnim()
+        return true
+    end
+
+    -- Speed / FPS adjustment (- / =)
+    if key == "-" then
+        local fps_steps = { nil, 1, 2, 3, 4, 6, 8, 12, 15, 20, 30 }
+        local cur_idx = 1
+        for i, f in ipairs(fps_steps) do
+            if f == self.active_fps then cur_idx = i; break end
+        end
+        cur_idx = math.max(1, cur_idx - 1)
+        self.active_fps = fps_steps[cur_idx]
+        print("[room-editor] FPS set to: " .. tostring(self.active_fps or "DEFAULT"))
+        self:_updateActivePlacedItemAnim()
+        return true
+    elseif key == "=" then
+        local fps_steps = { nil, 1, 2, 3, 4, 6, 8, 12, 15, 20, 30 }
+        local cur_idx = 1
+        for i, f in ipairs(fps_steps) do
+            if f == self.active_fps then cur_idx = i; break end
+        end
+        cur_idx = math.min(#fps_steps, cur_idx + 1)
+        self.active_fps = fps_steps[cur_idx]
+        print("[room-editor] FPS set to: " .. tostring(self.active_fps or "DEFAULT"))
+        self:_updateActivePlacedItemAnim()
+        return true
+    end
+
+    -- Shader cycle (S)
+    if key == "s" then
+        local shaders = { nil, "pulse_glow", "hologram", "rainbow_shift", "pixel_glitch", "foil", "dirty" }
+        local cur_idx = 1
+        for i, sh in ipairs(shaders) do
+            if sh == self.active_shader then cur_idx = i; break end
+        end
+        cur_idx = (cur_idx % #shaders) + 1
+        self.active_shader = shaders[cur_idx]
+        print("[room-editor] Shader set to: " .. tostring(self.active_shader or "NONE"))
+        self:_updateActivePlacedItemAnim()
+        return true
+    end
+
+    -- Color Tint cycle (T)
+    if key == "t" then
+        local tints = {
+            { 1.0, 1.0, 1.0 },     -- Default White
+            { 0.85, 0.65, 0.45 },  -- Warm Wood
+            { 0.35, 0.35, 0.40 },  -- Dark Slate
+            { 0.95, 0.82, 0.35 },  -- Gold / Brass
+            { 0.85, 0.35, 0.35 },  -- Crimson / Red
+            { 0.35, 0.75, 0.85 },  -- Cyan / Neon
+            { 0.45, 0.85, 0.45 },  -- Emerald Green
+            { 0.75, 0.45, 0.85 },  -- Violet / Purple
+        }
+        local cur_idx = 1
+        for i, c in ipairs(tints) do
+            if self.active_color and math.abs(c[1] - self.active_color[1]) < 0.05 and math.abs(c[2] - self.active_color[2]) < 0.05 then
+                cur_idx = i; break
+            end
+        end
+        cur_idx = (cur_idx % #tints) + 1
+        self.active_color = tints[cur_idx]
+        print("[room-editor] Tint color set")
+        self:_updateActivePlacedItemAnim()
+        return true
+    end
+
+    -- Controls Help Overlay Toggle (H)
+    if key == "h" then
+        self.show_help_overlay = not self.show_help_overlay
+        return true
+    end
+
+    -- Duplicate / Clone Item (D)
+    if key == "d" then
+        local active_spec = self.placeable[self.selected_idx]
+        if active_spec then
+            local clone_id = active_spec.id .. "_" .. tostring(math.random(100, 999))
+            local clone_gx = 2.0
+            local clone_gy = 2.0
+            for _, o in ipairs(self.placed) do
+                if o.id == active_spec.id then
+                    clone_gx = math.min(self.room_size - o.w, o.gx + 0.25)
+                    clone_gy = math.min(self.room_size - o.h, o.gy + 0.25)
+                    break
+                end
+            end
+            table.insert(self.placed, {
+                id        = clone_id,
+                gx        = clone_gx,
+                gy        = clone_gy,
+                w         = self.active_w,
+                h         = self.active_h,
+                z_offset  = self.active_z,
+                sh        = self.active_sh,
+                color     = { self.active_color[1], self.active_color[2], self.active_color[3] },
+                scale     = self.active_scale,
+                flip_x    = self.active_flip_x,
+                align     = self.active_align,
+                anim_room = self.active_anim_room,
+                fps       = self.active_fps,
+                frame     = self.active_frame,
+                shader    = self.active_shader,
+            })
+            print("[room-editor] Cloned item as " .. clone_id)
+        end
+        return true
+    end
+
+    -- Arrow key fine nudge (Left/Right/Up/Down when modifier key held or for precise alignment)
+    local is_nudge = love.keyboard and (love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") or love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt"))
+    if is_nudge and (key == "left" or key == "right" or key == "up" or key == "down") then
+        local step = self.snap_options[self.snap_idx] or 0.125
+        local active_spec = self.placeable[self.selected_idx]
+        if active_spec then
+            for _, o in ipairs(self.placed) do
+                if o.id == active_spec.id then
+                    if key == "left" then o.gx = math.max(0, o.gx - step) end
+                    if key == "right" then o.gx = math.min(self.room_size - o.w, o.gx + step) end
+                    if key == "up" then o.gy = math.max(0, o.gy - step) end
+                    if key == "down" then o.gy = math.min(self.room_size - o.h, o.gy + step) end
+                    print(string.format("[room-editor] Nudged %s to (%.3f, %.3f)", o.id, o.gx, o.gy))
+                    return true
+                end
+            end
+        end
+    end
+
+    -- Browser Tab toggle (TAB)
+    if key == "tab" then
+        self.browser_tab = self.browser_tab == 1 and 2 or 1
+        print("[room-editor] Browser tab set to: " .. (self.browser_tab == 1 and "CATALOG" or "FLAVOR ASSETS"))
+        self:_cycleSelection(0)
+        return true
+    end
+
+    -- Selection cycling (Q/E, or Up/Down).
     if key == "q" or key == "up" then
         if self.picked_item then return true end
-        self.selected_idx = self.selected_idx - 1
-        if self.selected_idx < 1 then self.selected_idx = #self.placeable end
-        self:syncActiveParams()
-        self:_onSelectionChanged()
+        self:_cycleSelection(-1)
         return true
     elseif key == "e" or key == "down" then
         if self.picked_item then return true end
-        self.selected_idx = self.selected_idx + 1
-        if self.selected_idx > #self.placeable then self.selected_idx = 1 end
-        self:syncActiveParams()
-        self:_onSelectionChanged()
+        self:_cycleSelection(1)
         return true
     end
 
@@ -1307,26 +1672,59 @@ function RoomView:syncActiveParams()
     local found = false
     for _, o in ipairs(self.placed) do
         if o.id == active_spec.id then
-            self.active_w  = o.w
-            self.active_h  = o.h
-            self.active_z  = o.z_offset
-            self.active_sh = o.sh
-            self.active_scale = o.scale or 1.0
-            self.active_flip_x = o.flip_x or false
-            self.active_align = o.align or "center"
+            self.active_w         = o.w
+            self.active_h         = o.h
+            self.active_z         = o.z_offset
+            self.active_sh        = o.sh
+            self.active_scale     = o.scale or 1.0
+            self.active_flip_x    = o.flip_x or false
+            self.active_align     = o.align or "center"
+            self.active_anim_room = o.anim_room
+            self.active_fps       = o.fps
+            self.active_frame     = o.frame
+            self.active_shader    = o.shader
+            self.active_color     = o.color or { 1.0, 1.0, 1.0 }
             found = true
             break
         end
     end
     
     if not found then
-        self.active_w  = 1
-        self.active_h  = 1
-        self.active_sh = 16
-        self.active_z  = 0
-        self.active_scale = 1.0
-        self.active_flip_x = false
-        self.active_align = "center"
+        self.active_w         = 1
+        self.active_h         = 1
+        self.active_sh        = 16
+        self.active_z         = 0
+        self.active_scale     = 1.0
+        self.active_flip_x    = false
+        self.active_align     = "center"
+        self.active_anim_room = nil
+        self.active_fps       = nil
+        self.active_frame     = nil
+        self.active_shader    = nil
+        self.active_color     = { 1.0, 1.0, 1.0 }
+    end
+end
+
+function RoomView:_updateActivePlacedItemAnim()
+    if self.picked_item then
+        self.picked_item.anim_room = self.active_anim_room
+        self.picked_item.fps       = self.active_fps
+        self.picked_item.frame     = self.active_frame
+        self.picked_item.shader    = self.active_shader
+        self.picked_item.color     = self.active_color
+    end
+    local active_spec = self.placeable[self.selected_idx]
+    if active_spec then
+        for _, o in ipairs(self.placed) do
+            if o.id == active_spec.id then
+                o.anim_room = self.active_anim_room
+                o.fps       = self.active_fps
+                o.frame     = self.active_frame
+                o.shader    = self.active_shader
+                o.color     = self.active_color
+                break
+            end
+        end
     end
 end
 
@@ -1341,30 +1739,22 @@ function RoomView:wheelmoved(dy)
         return true   -- clamped in draw against the live layout
     end
     if self.picked_item then return true end
-    if dy > 0 then
-        self.selected_idx = self.selected_idx - 1
-        if self.selected_idx < 1 then self.selected_idx = #self.placeable end
-    else
-        self.selected_idx = self.selected_idx + 1
-        if self.selected_idx > #self.placeable then self.selected_idx = 1 end
-    end
-    self:syncActiveParams()
-    self:_onSelectionChanged()
+    self:_cycleSelection(dy > 0 and -1 or 1)
     return true
 end
 
 -- Export function: Print the Lua return layout array directly to standard output
 function RoomView:serializeLayout()
-    print("---------------- COPY FROM LINE BELOW ----------------")
-    print("return {")
-    
+    local lines = {}
+    lines[#lines + 1] = "return {"
+
     local floor_theme = self.floor_idx == 0 and "Default" or self.floor_list[self.floor_idx]
     local wall_theme = self.wall_idx == 0 and "Default" or self.wall_list[self.wall_idx]
-    print("    __meta = {")
-    print(string.format("        room_size = %d,", self.room_size))
-    print(string.format("        floor_theme = %q,", floor_theme))
-    print(string.format("        wall_theme = %q,", wall_theme))
-    print("    },")
+    lines[#lines + 1] = "    __meta = {"
+    lines[#lines + 1] = string.format("        room_size = %d,", self.room_size)
+    lines[#lines + 1] = string.format("        floor_theme = %q,", floor_theme)
+    lines[#lines + 1] = string.format("        wall_theme = %q,", wall_theme)
+    lines[#lines + 1] = "    },"
 
     -- Sort placed items alphabetically by id for neatness
     local sorted = {}
@@ -1372,14 +1762,34 @@ function RoomView:serializeLayout()
     table.sort(sorted, function(a, b) return a.id < b.id end)
 
     for _, o in ipairs(sorted) do
-        local scale_str = o.scale and string.format(", scale = %.2f", o.scale) or ""
-        local flip_str = o.flip_x and ", flip_x = true" or ""
-        local align_str = o.align and o.align ~= "center" and string.format(", align = %q", o.align) or ""
-        print(string.format("    %-20s = { gx = %.3f, gy = %.3f, w = %d, h = %d, z_offset = %d, sh = %d, color = { %.2f, %.2f, %.2f }%s%s%s },",
-            o.id, o.gx, o.gy, o.w, o.h, o.z_offset, o.sh, o.color[1], o.color[2], o.color[3], scale_str, flip_str, align_str))
+        local scale_str  = o.scale and string.format(", scale = %.2f", o.scale) or ""
+        local flip_str   = o.flip_x and ", flip_x = true" or ""
+        local align_str  = o.align and o.align ~= "center" and string.format(", align = %q", o.align) or ""
+        local anim_str   = o.anim_room == false and ", anim_room = false" or (o.anim_room == true and ", anim_room = true" or "")
+        local fps_str    = o.fps and string.format(", fps = %d", o.fps) or ""
+        local frame_str  = o.frame and string.format(", frame = %d", o.frame) or ""
+        local shader_str = o.shader and string.format(", shader = %q", o.shader) or ""
+
+        lines[#lines + 1] = string.format("    %-20s = { gx = %.3f, gy = %.3f, w = %d, h = %d, z_offset = %d, sh = %d, color = { %.2f, %.2f, %.2f }%s%s%s%s%s%s%s },",
+            o.id, o.gx, o.gy, o.w, o.h, o.z_offset, o.sh, o.color[1], o.color[2], o.color[3], scale_str, flip_str, align_str, anim_str, fps_str, frame_str, shader_str)
     end
-    print("}")
+    lines[#lines + 1] = "}"
+
+    local output_str = table.concat(lines, "\n")
+
+    print("---------------- COPY FROM LINE BELOW ----------------")
+    print(output_str)
     print("------------------------------------------------------")
+
+    self.export_toast_time = 3.5
+
+    if love and love.filesystem and love.filesystem.write then
+        local ok, err = pcall(love.filesystem.write, "room_layout_export.lua", output_str .. "\n")
+        if ok then
+            local save_dir = love.filesystem.getSaveDirectory and love.filesystem.getSaveDirectory() or ""
+            print("[room-editor] Exported layout file: " .. save_dir .. "/room_layout_export.lua")
+        end
+    end
 end
 
 return RoomView
