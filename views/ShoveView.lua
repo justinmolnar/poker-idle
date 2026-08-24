@@ -116,7 +116,8 @@ local function recomputeLayout(H, fonts, s)
     -- dropped the banner's trailing gap and used a hardcoded 36 for the result
     -- chips against a real 52, so it understated the stack by 26px and the whole
     -- gauntlet sat 13px above centre.
-    local stack_h = lg_h + gap          -- banner
+    local sm_h = (fonts and fonts.sm and fonts.sm:getHeight()) or 12
+    local stack_h = lg_h + sm_h + gap   -- headline + prompt line
                   + POT_BAND_H + gap
                   + POSTER_H + SLOT_H + row_gap
                   + 3 * CARD_H + 2 * row_gap
@@ -124,7 +125,7 @@ local function recomputeLayout(H, fonts, s)
     local top = math.max(8, math.floor((H - stack_h) / 2))
 
     Y_BANNER      = top
-    Y_POT         = Y_BANNER + lg_h + gap
+    Y_POT         = Y_BANNER + lg_h + sm_h + gap
     Y_POSTER      = Y_POT + POT_BAND_H + gap
     Y_SLOT        = Y_POSTER + POSTER_H
     Y_DEALER_HOLE = Y_SLOT + SLOT_H + row_gap
@@ -503,6 +504,9 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
         add(t + 0.60, showChip(1), chipSound(1))
         potTo(t + 1.00, "player", "chip_land_you")
         add(t + 1.30, function() self:_confetti() end)
+        -- No line on a win. The won-hold is the House being SILENT because
+        -- it is losing; that silence is what the panic then breaks. The
+        -- confetti and the pot flying to the player are the headline.
     else
         light(t, "dealer")
         add(t + 0.60, showChip(1), chipSound(1))
@@ -606,8 +610,11 @@ function ShoveView:advance()
     local ev = self.timeline[self.next_event_idx]
     if ev and ev.hold then self.next_event_idx = self.next_event_idx + 1 end
     self.phase      = "running"
+    -- A mid-sequence hold clears the line: the next beat speaks. The
+    -- RESULT hold keeps it, because the catalog rises beneath the headline
+    -- and the top band must not go empty at the moment the player acts.
+    if self.hold_id ~= "result" then self.house_line = nil end
     self.hold_id    = nil
-    self.house_line = nil
     return true
 end
 
@@ -1326,7 +1333,7 @@ function ShoveView:draw()
     -- No headline. BUSTED / ROBBED / CLEARED shouted the verdict in the
     -- biggest font on the screen before the cards had said it; the felt is
     -- the headline now. bannerFor stays for the buildup ("ALL-IN").
-    if not (result and self:_revealedRunoutIdx() > 0) then
+    if not (result and self:_revealedRunoutIdx() > 0) and not self.house_line then
         local b = bannerFor(g, self)
         if b == "ALL-IN" then
             love.graphics.setFont(self.fonts.lg)
@@ -1440,13 +1447,32 @@ function ShoveView:draw()
         AnchorRegistry.set("shove:summary", tcx - 200, sy, 400, line_y - sy)
     end
 
-    -- The House, if it has something to say. The bubble is the tutorial's
-    -- own bubble, tail to the poster; a live hint outranks it.
-    if self.house_line and self.game.hint_view
-       and not (self.game.hints and self.game.hints:activeHint()) then
-        local hv = self.game.hint_view
-        local layout = hv:_layoutHint({ text = self.house_line, anchor = "house" }, false)
-        if layout then hv:_drawHint(layout, false) end
+    -- The House speaks as the HEADLINE: large text in the band above the
+    -- table that BUSTED used to occupy. It was a small bubble hung off a
+    -- poster anchor that no longer exists, so it floated somewhere beside
+    -- a card and read as noise. This is the line that says what happened.
+    if self.house_line then
+        local f = self.fonts.lg
+        love.graphics.setFont(f)
+        Theme.setColor(Theme.fg.heading)
+        printCentered(self.house_line, f,
+                      math.floor(tableCenterX(W) - W / 3), Y_BANNER, math.floor(2 * W / 3))
+    end
+
+    -- What to do next. Only during a hold, under the headline, small and
+    -- quiet: the player is being waited on and should know it.
+    if self:isHolding() then
+        local f = self.fonts.sm
+        local prompt = (self.hold_id == "result")
+            and "click to open the catalog"
+            or  "click to continue"
+        love.graphics.setFont(f)
+        local pulse = 0.55 + 0.25 * math.sin(love.timer.getTime() * 3)
+        Theme.setColor(Theme.fg.muted, pulse)
+        printCentered(prompt, f,
+                      math.floor(tableCenterX(W) - W / 3),
+                      Y_BANNER + self.fonts.lg:getHeight() + math.floor(4 * (self.game.ui_scale or 1)),
+                      math.floor(2 * W / 3))
     end
 end
 

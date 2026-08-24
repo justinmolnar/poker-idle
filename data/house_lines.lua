@@ -15,8 +15,10 @@
 -- must not name a runout, a cheat, or a card count. The panic lines are
 -- safe because they only ever follow a runout WIN.
 return {
+    -- The House's lines are the HEADLINE now: large text in the empty band
+    -- above the table, not a bubble. Each one says what just happened.
     arrive          = { text = "All of it? Good." },
-    loss            = { text = "That is how it goes." },
+    loss            = { text = "The house wins. It usually does." },
     -- (banked_stays was cut: "those stay yours" pointed at a {chip} count the
     -- catalog was covering. A line that refers to something off-screen is
     -- worse than no line.)
@@ -29,6 +31,8 @@ return {
     panic_again     = { text = "Twice. Nobody does this twice." },
     panic_no_more   = { text = "You get nothing. Ever." },
 
+    -- (No line on a runout win. The House's silence there is the beat the
+    -- panic breaks; a quip would spend it.)
     clear           = { text = "There is nothing left to take from you.", once = true },
 
     -- Act ledes, spoken after the robbery on the shove that opened the act.
