@@ -165,6 +165,22 @@ return {
         enabled = true,
     },
 
+    -- The House. A poster above the dealer's hole cards, with a SLOT beneath
+    -- it that every card is dealt out of, like the gap under the divider at
+    -- a counter. The dealer is the House: cards come from under its poster.
+    -- The poster registers the "house" anchor, so the tutorial's bubble
+    -- speaks from it with its existing tail logic.
+    house = {
+        enabled     = true,
+        h           = 64,       -- poster height
+        slot_h      = 14,       -- the gap the cards come out of
+        frame_inset = 4,
+        glyph_pad   = 12,
+        -- Cards leave the slot and travel to their seat over the deal anim's
+        -- own progress, eased out so they arrive rather than stop.
+        deal_ease   = 3,
+    },
+
     -- The drain bar under the readout. Fill is the live ALL-IN chance,
     -- eased, so when a cheat card buries a term the player WATCHES the
     -- number fall instead of reading that it did. Over 100% (the Act 3

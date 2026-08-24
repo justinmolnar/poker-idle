@@ -195,6 +195,60 @@ function ShoveDecor.drawSpotlight(band)
     end
 end
 
+-- The House poster and the slot under it. Same sunken card, double frame
+-- and gold-roof glyph the grind's poster uses, so it is recognisably the
+-- same character; drawn here rather than borrowed because a decor module
+-- must not require a grind view. `rect` is the poster; the slot is drawn
+-- directly beneath it at `slot_h`.
+function ShoveDecor.drawHousePoster(rect, slot_h)
+    local cfg = Style.house
+    if not rect or not cfg.enabled then return end
+    local fl = math.floor
+    local s  = rect.s or 1
+    local inset = fl(cfg.frame_inset * s)
+
+    -- Poster: sunken card + double frame.
+    Theme.setColor(Theme.bg.sunken)
+    love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h, fl(3 * s))
+    Theme.setColor(Theme.border.strong)
+    love.graphics.rectangle("line", rect.x, rect.y, rect.w, rect.h, fl(3 * s))
+    Theme.setColor(Theme.border.default)
+    love.graphics.rectangle("line", rect.x + inset, rect.y + inset,
+        rect.w - inset * 2, rect.h - inset * 2, fl(2 * s))
+
+    -- House glyph, centered: gold roof, warm body, dark door.
+    local pad = fl(cfg.glyph_pad * s)
+    local gh  = rect.h - pad * 2
+    local gw  = gh
+    local gx  = rect.x + fl((rect.w - gw) * 0.5)
+    local gy  = rect.y + pad
+    local roof_y = gy + fl(gh * 0.42)
+    Theme.setColor(Theme.currency.chip)
+    love.graphics.polygon("fill",
+        gx - fl(gw * 0.08), roof_y,
+        gx + fl(gw * 0.5),  gy,
+        gx + gw + fl(gw * 0.08), roof_y)
+    Theme.setColor(Theme.border.strong)
+    love.graphics.rectangle("fill",
+        gx + fl(gw * 0.10), roof_y,
+        gw - fl(gw * 0.20), gy + gh - roof_y)
+    Theme.setColor(Theme.bg.sunken)
+    love.graphics.rectangle("fill",
+        gx + fl(gw * 0.40), gy + gh - fl(gh * 0.34),
+        fl(gw * 0.20), fl(gh * 0.34))
+
+    -- The slot: a dark gap in a lip, the width of the poster, right under
+    -- it. Cards are dealt out of here.
+    if slot_h and slot_h > 0 then
+        local sy = rect.y + rect.h
+        Theme.setColor(Theme.border.strong)
+        love.graphics.rectangle("fill", rect.x, sy, rect.w, slot_h, fl(2 * s))
+        Theme.setColor(Theme.bg.sunken)
+        love.graphics.rectangle("fill", rect.x + inset, sy + fl(3 * s),
+            rect.w - inset * 2, slot_h - fl(6 * s), fl(2 * s))
+    end
+end
+
 -- The drain bar. `frac` is the fill 0..1; `over` paints it violet for an
 -- overshoot. Same track-and-fill shape as the grind's UNDERFLOW cell so the
 -- two meters read as one language.

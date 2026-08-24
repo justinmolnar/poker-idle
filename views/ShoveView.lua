@@ -67,8 +67,14 @@ local CARD_GAP = 15
 -- Pot band. Scaled with everything else now; the old flat 110 was the only
 -- unscaled constant in the chain. views/Chips at this scale draws a 44px chip
 -- and stacks 6 to a column, so a full column is 69px -- 80 holds it.
-local POT_BAND_BASE_H = 64
-local POT_BAND_H      = 80
+local POT_BAND_BASE_H = 52
+local POT_BAND_H      = 65
+-- The House poster and the slot the cards deal from, between the pot band
+-- and the dealer's cards. Both derive from data/shove_style.house.
+local Y_POSTER        = 0
+local Y_SLOT          = 0
+local POSTER_H        = 0
+local SLOT_H          = 0
 
 -- Reading order top to bottom: banner ("ALL-IN") -> POT chip pile -> dealer
 -- hole -> the board row -> player hole -> result chips.
@@ -102,6 +108,9 @@ local function recomputeLayout(H, fonts, s)
     local chip_h   = math.max(28, math.floor(42 * s))
 
     POT_BAND_H = math.floor(POT_BAND_BASE_H * s)
+    local house = Style.house
+    POSTER_H = house.enabled and math.floor(house.h * s) or 0
+    SLOT_H   = house.enabled and math.floor(house.slot_h * s) or 0
 
     -- Every term here is a real span in the chain below. The previous version
     -- dropped the banner's trailing gap and used a hardcoded 36 for the result
@@ -109,13 +118,16 @@ local function recomputeLayout(H, fonts, s)
     -- gauntlet sat 13px above centre.
     local stack_h = lg_h + gap          -- banner
                   + POT_BAND_H + gap
+                  + POSTER_H + SLOT_H + row_gap
                   + 3 * CARD_H + 2 * row_gap
                   + chip_gap + chip_h
     local top = math.max(8, math.floor((H - stack_h) / 2))
 
     Y_BANNER      = top
     Y_POT         = Y_BANNER + lg_h + gap
-    Y_DEALER_HOLE = Y_POT + POT_BAND_H + gap
+    Y_POSTER      = Y_POT + POT_BAND_H + gap
+    Y_SLOT        = Y_POSTER + POSTER_H
+    Y_DEALER_HOLE = Y_SLOT + SLOT_H + row_gap
     Y_BOARD       = Y_DEALER_HOLE + CARD_H + row_gap
     Y_PLAYER_HOLE = Y_BOARD + CARD_H + row_gap
     Y_CHIPS       = Y_PLAYER_HOLE + CARD_H + chip_gap
@@ -682,6 +694,21 @@ end
 --
 -- No size gate. views/FeltDecor gates shadows on card width because the felt
 -- runs down to 9px cards; these are a fixed 112px, far above that threshold.
+-- Where a dealing card is right now: it leaves the slot under the House
+-- poster and eases to its seat over the deal anim's progress. With the
+-- House disabled (the golden harness) the card just sits at its target.
+local function dealPos(anim, target_x, target_y, slot_cx)
+    local house = Style.house
+    if not house.enabled or not anim or not anim.getProgress then
+        return target_x, target_y
+    end
+    local p = anim:getProgress() or 1
+    local e = 1 - (1 - p) ^ (house.deal_ease or 3)
+    local from_x = slot_cx - CARD_W / 2
+    local from_y = Y_SLOT - CARD_H + SLOT_H
+    return from_x + (target_x - from_x) * e, from_y + (target_y - from_y) * e
+end
+
 local function drawCardSprite(sl, sprite_name, x, y, w, h, scale_x, alpha)
     local ew = w * (scale_x or 1)
     CardSprites.shadow(x + (w - ew) / 2, y, ew, h, alpha, ShoveDecor.shadowOffset())
@@ -978,8 +1005,9 @@ function ShoveView:_drawCheatCards(result, eval)
         if anim and card then
             local x     = slotX(origin, i)
             local alpha = anim.getAlpha and anim:getAlpha() or 1
+            local dx, dy = dealPos(anim, x, Y_BOARD, tableCenterX(love.graphics.getWidth()))
             drawCardSprite(self.game.sprite_loader, card:spriteName(),
-                           x, Y_BOARD, CARD_W, CARD_H, 1, alpha)
+                           dx, dy, CARD_W, CARD_H, 1, alpha)
             if eval then
                 if isInCombo(card, eval.player_combo) then
                     Theme.setColor(Theme.status.good, 0.95)
@@ -1034,6 +1062,8 @@ function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key, side)
 
     local deal_alpha = (deal_anim.getAlpha and deal_anim:getAlpha() or 1)
                        * self:_sideAlpha(side)
+    slot_x, slot_y = dealPos(deal_anim, slot_x, slot_y,
+                             tableCenterX(love.graphics.getWidth()))
 
     if not flip_anim then
         drawCardSprite(sl, back, slot_x, slot_y, CARD_W, CARD_H, 1, deal_alpha)
@@ -1062,6 +1092,7 @@ function ShoveView:_drawBoardCard(i, x, y)
     if not anim then return end
 
     local alpha = anim.getAlpha and anim:getAlpha() or 1
+    x, y = dealPos(anim, x, y, tableCenterX(love.graphics.getWidth()))
     drawCardSprite(sl, card:spriteName(), x, y, CARD_W, CARD_H, 1, alpha)
 end
 
@@ -1145,6 +1176,17 @@ function ShoveView:draw()
         x = 0, y = felt_top, w = W, h = felt_height,
         screen_w = W, screen_h = H,
     })
+
+    -- The House, above the dealer's seat, with the slot the cards come out
+    -- of. Drawn in every phase including the buildup so the House can
+    -- speak as the chips arrive.
+    if Style.house.enabled then
+        local pw  = 2 * CARD_W + CARD_GAP
+        local prx = math.floor(tableCenterX(W) - pw / 2)
+        local pr  = { x = prx, y = Y_POSTER, w = pw, h = POSTER_H, s = s }
+        ShoveDecor.drawHousePoster(pr, SLOT_H)
+        AnchorRegistry.set("house", pr.x, pr.y, pr.w, pr.h)
+    end
 
     love.graphics.setFont(self.fonts.sm)
     Theme.setColor(Theme.status.error)
