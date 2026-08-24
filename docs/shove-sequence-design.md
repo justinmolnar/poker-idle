@@ -107,19 +107,46 @@ before a single board card came out, so nothing after it could carry tension, an
 no amount of lighting or motion at the end could produce any. This was the actual
 defect; everything else was choreography on top of it.
 
+### 1a. The verdict is in the cards, not in chrome
+
+Everything drawn on top of the felt was prototype HUD grammar: one white pixel
+font at three sizes, on solid `status.error` red rectangles. A red box with a
+border and inverted text is the loudest thing a UI can draw, and it was being
+used to say "LOSS" three times over. All of it is gone:
+
+- **"SHOVE" in the corner.** A dev watermark.
+- **BUSTED / ROBBED / CLEARED headline.** Shouted the verdict in the biggest font
+  on the screen before the cards had said it.
+- **The two hand pills.** Form-field chrome flanking the felt.
+- **The WIN / LOSS strip.** Three result chips is a scoreboard for a structure the
+  game is hiding anyway.
+- **The best-5 strokes.** Green and red borders on both hands at once is a diagram
+  of two hands, not a result.
+- **Alert-red rails.** The shove palette's border tokens were `status.error` red,
+  so the table itself read as an error state. Oxblood now, the material the grind
+  rail already uses.
+
+What replaces it: **the winning five cards lift off the felt and warm** (a 10px
+rise with an amber halo, 0.55s ease-out); the losing five sink and go cold. The
+hand name is one line of muted text under the winning cards, a caption with no
+box. The banked {chip} count is the only element with weight, because it is the
+only thing the player keeps. Red is reserved for nothing yet; when the dealer's
+side gets art, its win glow is the one place it returns.
+
 ### 1b. One thing at a time
 
 At the result, five things used to arrive at once: two label pills, a LOSS chip,
 a House bubble, and a catalog sliding in. Nobody could tell where to look. Now:
 
 ```
-dealer flips          the reveal
-  +0.0  winner lights, loser dims
-  +0.6  WIN / LOSS chip
-  +1.0  the pot leaves toward the winner
-  +1.9  the House, one line
-  +2.6  BANKED THIS RUN
-  +3.0  hold
+river lands
+  +0.85 hesitation, dealer still face-down     (the tension)
+        dealer turns over, 0.95s                (the reveal, slower than a deal)
+  +1.15 the winning five lift and warm, the losing five sink
+  +1.6  the pot leaves toward the winner
+  +2.5  the House, one line
+  +3.2  the banked {chip}, large, alone
+  +3.6  hold
 click                 the catalog rises
 ```
 

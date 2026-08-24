@@ -251,6 +251,7 @@ function ShoveView:new(game, ss)
         -- Result staging, set by timeline beats: who the felt lights for,
         -- whether the pot pile has left, whether the summary is showing.
         winner          = nil,     -- nil | "player" | "dealer"
+        winner_t        = 0,       -- seconds since the winner was lit (drives the lift)
         pot_gone        = false,
         summary_shown   = false,
         robbed          = false,
@@ -419,7 +420,7 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     -- best-5 stroke, the loser's fade. Both sides used to get equal-weight
     -- strokes, which is a diagram, not a result.
     local function light(at, who)
-        add(at, function() self.winner = who end)
+        add(at, function() self.winner = who; self.winner_t = 0 end)
     end
 
     -- The pot pile leaves the felt toward whoever won it. The money is
@@ -492,9 +493,11 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     --   6. hold
     -- Nothing else is on screen at any of those moments. The summary and
     -- the catalog come after the hold, not with it.
-    t = t + 0.35
-    add(t, startAnim("dealer_flip", "hole_card_flip"), "hole_card_flip")
-    t = t + 0.70                                   -- flip lands, beat
+    -- A held beat with the dealer's cards still down: the hesitation IS
+    -- the tension. Then a slow turn.
+    t = t + 0.85
+    add(t, startAnim("dealer_flip", "showdown_flip"), "hole_card_flip")
+    t = t + 1.15                                   -- flip lands, beat
     if r.outcomes[1] then
         light(t, "player")
         add(t + 0.60, showChip(1), chipSound(1))
@@ -647,6 +650,7 @@ function ShoveView:resetTimeline()
     self.hold_id        = nil
     self.house_line     = nil
     self.winner         = nil
+    self.winner_t       = 0
     self.pot_gone       = false
     self.summary_shown  = false
     self.robbed         = false
@@ -722,6 +726,7 @@ function ShoveView:update(dt)
     if self.phase ~= "hold" then
         self.elapsed = self.elapsed + dt
     end
+    if self.winner then self.winner_t = self.winner_t + dt end
 
     while self.phase ~= "hold" and self.next_event_idx <= #self.timeline do
         local ev = self.timeline[self.next_event_idx]
@@ -779,10 +784,31 @@ local function dealPos(anim, target_x, target_y, slot_cx)
     return from_x + (target_x - from_x) * e, from_y + (target_y - from_y) * e
 end
 
-local function drawCardSprite(sl, sprite_name, x, y, w, h, scale_x, alpha)
-    local ew = w * (scale_x or 1)
-    CardSprites.shadow(x + (w - ew) / 2, y, ew, h, alpha, ShoveDecor.shadowOffset())
-    CardSprites.sprite(sl, sprite_name, x, y, w, h, scale_x, alpha)
+-- `verdict` is nil (no result yet), "win" or "lose" for this card. A
+-- winning card rises and gets a warm halo; a losing card sinks a little and
+-- is drawn at the loser alpha the caller already applied. This is the whole
+-- of how the felt says who won. There is no label that does it.
+local function drawCardSprite(sl, sprite_name, x, y, w, h, scale_x, alpha, verdict, lift_p)
+    local ew  = w * (scale_x or 1)
+    local cfg = Style.cards
+    local dy  = 0
+    if verdict == "win" then
+        dy = -math.floor((cfg.lift_px or 0) * (lift_p or 0))
+        -- Halo: expanding rounded rects behind the card, ramping with the lift.
+        local a = (cfg.glow_alpha or 0) * (lift_p or 0)
+        if a > 0.005 then
+            for i = (cfg.glow_steps or 1), 1, -1 do
+                local g = (cfg.glow_grow or 0) * i / (cfg.glow_steps or 1)
+                Theme.setColor(Theme.data.amber, a * (1 - (i - 1) / (cfg.glow_steps or 1)))
+                love.graphics.rectangle("fill", x - g, y + dy - g, w + 2 * g, h + 2 * g,
+                                        Theme.space.radius + g)
+            end
+        end
+    elseif verdict == "lose" then
+        dy = math.floor((cfg.lift_px or 0) * 0.4 * (lift_p or 0))
+    end
+    CardSprites.shadow(x + (w - ew) / 2, y + dy, ew, h, alpha, ShoveDecor.shadowOffset())
+    CardSprites.sprite(sl, sprite_name, x, y + dy, w, h, scale_x, alpha)
 end
 
 local function visibleBoardCount(g)
@@ -807,11 +833,6 @@ local function bannerFor(g, view)
     -- Robbed, not busted: the player won and the House took it back.
     if view and view.robbed then return "ROBBED" end
     return "BUSTED"
-end
-
--- Wrapper for the best-5 stroke; lives in views/CardSprites.
-local function strokeSlot(x, y, w, h, inset, lw)
-    CardSprites.strokeSlot(x, y, w, h, inset, lw)
 end
 
 local function isInCombo(card, combo)
@@ -1076,21 +1097,13 @@ function ShoveView:_drawCheatCards(result, eval)
             local x     = slotX(origin, i)
             local alpha = anim.getAlpha and anim:getAlpha() or 1
             local dx, dy = dealPos(anim, x, Y_BOARD, tableCenterX(love.graphics.getWidth()))
+            local v = self:_verdictFor(card, eval)
+            if v == "lose" then alpha = alpha * (Style.cards.loser_alpha or 1) end
             drawCardSprite(self.game.sprite_loader, card:spriteName(),
-                           dx, dy, CARD_W, CARD_H, 1, alpha)
+                           dx, dy, CARD_W, CARD_H, 1, alpha, v, self:_liftP())
             -- Registered only once the card exists, which is what keeps a
             -- hint about it from firing before the player has seen it.
             AnchorRegistry.set("shove:cheat_" .. i, dx, dy, CARD_W, CARD_H)
-            if eval then
-                if isInCombo(card, eval.player_combo) then
-                    Theme.setColor(Theme.status.good, 0.95)
-                    strokeSlot(x, Y_BOARD, CARD_W, CARD_H, 2, 3)
-                end
-                if isInCombo(card, eval.dealer_combo) then
-                    Theme.setColor(Theme.status.error, 0.95)
-                    strokeSlot(x, Y_BOARD, CARD_W, CARD_H, -3, 3)
-                end
-            end
         end
     end
 end
@@ -1114,6 +1127,24 @@ end
 
 -- Alpha for a card on the resolved felt: the loser's side fades. `side` is
 -- "player" or "dealer"; nil winner (mid-deal) means full alpha.
+-- Lift progress 0..1 since the winner was lit.
+function ShoveView:_liftP()
+    if not self.winner then return 0 end
+    local p = math.min(1, self.winner_t / (Style.cards.lift_secs or 0.5))
+    return 1 - (1 - p) ^ 3
+end
+
+-- Whether `card` is in the WINNER's best five ("win"), in the loser's
+-- ("lose"), or neither (nil) once a side is lit.
+function ShoveView:_verdictFor(card, eval)
+    if not self.winner or not eval then return nil end
+    local wc = (self.winner == "player") and eval.player_combo or eval.dealer_combo
+    local lc = (self.winner == "player") and eval.dealer_combo or eval.player_combo
+    if isInCombo(card, wc) then return "win" end
+    if isInCombo(card, lc) then return "lose" end
+    return nil
+end
+
 function ShoveView:_sideAlpha(side)
     if not self.winner or self.winner == side then return 1 end
     return Style.cards.loser_alpha or 1
@@ -1151,7 +1182,10 @@ function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key, side)
         drawCardSprite(sl, back, slot_x, slot_y, CARD_W, CARD_H, sx, deal_alpha)
     else
         local sx = 2 * p - 1
-        drawCardSprite(sl, front, slot_x, slot_y, CARD_W, CARD_H, sx, deal_alpha)
+        local result = self.ss.gauntlet and self.ss.gauntlet.result
+        local eval = result and result.evals[self:_revealedRunoutIdx()]
+        drawCardSprite(sl, front, slot_x, slot_y, CARD_W, CARD_H, sx, deal_alpha,
+                       self:_verdictFor(card, eval), self:_liftP())
     end
 end
 
@@ -1168,7 +1202,10 @@ function ShoveView:_drawBoardCard(i, x, y)
 
     local alpha = anim.getAlpha and anim:getAlpha() or 1
     x, y = dealPos(anim, x, y, tableCenterX(love.graphics.getWidth()))
-    drawCardSprite(sl, card:spriteName(), x, y, CARD_W, CARD_H, 1, alpha)
+    local eval = result.evals[self:_revealedRunoutIdx()]
+    local v = self:_verdictFor(card, eval)
+    if v == "lose" then alpha = alpha * (Style.cards.loser_alpha or 1) end
+    drawCardSprite(sl, card:spriteName(), x, y, CARD_W, CARD_H, 1, alpha, v, self:_liftP())
 end
 
 -- Persistent shove HUD drawn during the gauntlet cinematic. Keeps
@@ -1263,9 +1300,6 @@ function ShoveView:draw()
         AnchorRegistry.set("house", pr.x, pr.y, pr.w, pr.h)
     end
 
-    love.graphics.setFont(self.fonts.sm)
-    Theme.setColor(Theme.status.error)
-    love.graphics.print("SHOVE", 16, 12)
 
     -- Buildup phase: spectacle moment before the gauntlet's card
     -- timeline starts. Draws over the same felt/spotlight backdrop
@@ -1289,10 +1323,18 @@ function ShoveView:draw()
 
     love.graphics.setFont(self.fonts.lg)
     Theme.setColor(Theme.fg.heading)
-    -- Centred on the TABLE, not the screen: the banner belongs to the felt,
-    -- and the stats panel owns the right of the row.
-    printCentered(bannerFor(g, self), self.fonts.lg,
-                  math.floor(tableCenterX(W) - W / 4), Y_BANNER, math.floor(W / 2))
+    -- No headline. BUSTED / ROBBED / CLEARED shouted the verdict in the
+    -- biggest font on the screen before the cards had said it; the felt is
+    -- the headline now. bannerFor stays for the buildup ("ALL-IN").
+    if not (result and self:_revealedRunoutIdx() > 0) then
+        local b = bannerFor(g, self)
+        if b == "ALL-IN" then
+            love.graphics.setFont(self.fonts.lg)
+            Theme.setColor(Theme.fg.faint)
+            printCentered(b, self.fonts.lg,
+                          math.floor(tableCenterX(W) - W / 4), Y_BANNER, math.floor(W / 2))
+        end
+    end
 
     -- Persistent shove status (pot chip pile + the SHOVE % breakdown) so the
     -- player always sees what's at stake and what their odds are during the
@@ -1333,105 +1375,35 @@ function ShoveView:draw()
         self:_drawHoleCard(result.dealer_hole[2], hole_x + CARD_W + CARD_GAP, Y_DEALER_HOLE, "dh_2", "dealer")
     end
 
-    -- Best-5 highlights (post-reveal).
+    -- Who won is in the cards themselves (drawCardSprite lifts and warms
+    -- the winning five, sinks the losing five). There used to be a stroke
+    -- pass here painting green and red borders on both hands at once; the
+    -- lift replaces it, because a diagram of two hands is not a result.
     local revealed_idx = self:_revealedRunoutIdx()
-    if result and revealed_idx > 0 then
-        local eval = result.evals[revealed_idx]
-        if eval then
-            -- Player's best 5 → green inset border.
-            -- Dealer's best 5 → red outset border.
-            local function outline(x, y, color, inset, lw)
-                Theme.setColor(color, 0.95)
-                strokeSlot(x, y, CARD_W, CARD_H, inset, lw)
-            end
-
-            -- Only the WINNER's best five gets a stroke once a side has been
-            -- lit. Stroking both was a diagram of two hands; lighting one is
-            -- a result.
-            local show_p = self.winner ~= "dealer"
-            local show_d = self.winner ~= "player"
-
-            -- Player hole cards.
-            if show_p and isInCombo(result.player_hole[1], eval.player_combo) then
-                outline(hole_x, Y_PLAYER_HOLE, Theme.status.good, 2, 3)
-            end
-            if show_p and isInCombo(result.player_hole[2], eval.player_combo) then
-                outline(hole_x + CARD_W + CARD_GAP, Y_PLAYER_HOLE, Theme.status.good, 2, 3)
-            end
-
-            -- Dealer hole cards (their own combo).
-            if show_d and isInCombo(result.dealer_hole[1], eval.dealer_combo) then
-                outline(hole_x, Y_DEALER_HOLE, Theme.status.error, 2, 3)
-            end
-            if show_d and isInCombo(result.dealer_hole[2], eval.dealer_combo) then
-                outline(hole_x + CARD_W + CARD_GAP, Y_DEALER_HOLE, Theme.status.error, 2, 3)
-            end
-
-            -- Board cards (could be in player_combo, dealer_combo, or both).
-            -- All seven positions: a cheat card is usually the card that
-            -- decided the runout, so leaving 6 and 7 unmarked would drop the
-            -- most important one.
-            for i = 1, n_board do
-                local card = result.board[i]
-                local x = slotX(board_x, i)
-                if show_p and isInCombo(card, eval.player_combo) then
-                    outline(x, Y_BOARD, Theme.status.good, 2, 3)
-                end
-                if show_d and isInCombo(card, eval.dealer_combo) then
-                    outline(x, Y_BOARD, Theme.status.error, -3, 3)
-                end
-            end
-        end
-    end
 
     -- The dealer's cheats, completing the seven-card line. Drawn after the
     -- highlight pass so each carries its own best-5 marking.
     self:_drawCheatCards(result, (revealed_idx > 0) and result
                                  and result.evals[revealed_idx] or nil)
 
-    -- Hand labels. Solid status-colour pills with dark text so they stay
-    -- legible over whatever is behind them.
-    --
-    -- They sit BESIDE the hole cards they describe, right-aligned into the clear
-    -- felt left of the row and centred vertically on it. They used to sit between
-    -- the card rows in a 22px band while measuring 54px tall (fonts.md line box +
-    -- 2*pad_y), so each one painted over the top 26px of the row below it -- the
-    -- middle board cards and both player hole cards, best-5 strokes included.
-    if result and revealed_idx > 0 then
+    -- The hand name: one line of plain muted text under the WINNING hole
+    -- cards. A caption, not a label. The red and green pills that used to
+    -- flank the felt were form-field chrome from the prototype; a box with
+    -- a border and inverted text is the loudest thing a UI can draw, and
+    -- it was being used to restate what the cards already show.
+    if result and revealed_idx > 0 and self.winner then
         local eval = result.evals[revealed_idx]
         if eval then
-            local gutter = math.floor(24 * s)
-            local function drawLabelPill(text, y, color)
-                love.graphics.setFont(self.fonts.md)
-                local fh     = self.fonts.md:getHeight()
-                local pad_x  = 14
-                local pad_y  = 6
-                local pill_w = self.fonts.md:getWidth(text) + pad_x * 2
-                local pill_h = fh + pad_y * 2
-                -- Right edge lands a gutter clear of the cards; the pill grows
-                -- leftward into the open felt, so a long hand name never reaches
-                -- the row.
-                local pill_x = math.max(gutter, hole_x - gutter - pill_w)
-                Theme.setColor(color)
-                love.graphics.rectangle("fill", pill_x, y, pill_w, pill_h, Theme.space.radius)
-                Theme.setColor(Theme.border.strong)
-                love.graphics.setLineWidth(2)
-                love.graphics.rectangle("line", pill_x, y, pill_w, pill_h, Theme.space.radius)
-                love.graphics.setLineWidth(1)
-                Theme.setColor(Theme.bg.window)
-                love.graphics.print(text, pill_x + pad_x, y + pad_y)
-            end
-            -- One label, for the hand that WON, placed beside that hand.
-            -- Two pills at once (one per side, flanking the felt) made the
-            -- player read both and compare; the point of the showdown is
-            -- that the felt already did the comparing.
-            if self.winner == "dealer" then
-                drawLabelPill(HandEval.describe(eval.dealer_rank),
-                    Y_DEALER_LABEL, Theme.status.error)
-            elseif self.winner == "player" then
-                drawLabelPill(HandEval.describe(eval.player_rank),
-                    Y_PLAYER_LABEL, Theme.status.good)
-            end
+            local rank = (self.winner == "player") and eval.player_rank or eval.dealer_rank
+            local text = HandEval.describe(rank)
+            local row_y = (self.winner == "player") and Y_PLAYER_HOLE or Y_DEALER_HOLE
+            local lift  = math.floor((Style.cards.lift_px or 0) * self:_liftP())
+            local cap_y = (self.winner == "player")
+                and (row_y + CARD_H - lift + Style.hand_caption.gap)
+                or  (row_y - lift - Style.hand_caption.gap - self.fonts.md:getHeight())
+            love.graphics.setFont(self.fonts.md)
+            Theme.setColor(Theme.fg.muted, self:_liftP())
+            printCentered(text, self.fonts.md, hole_x - 200, cap_y, hole_w + 400)
         end
     end
 
@@ -1440,67 +1412,29 @@ function ShoveView:draw()
     -- ticks invisibly and pops into existence back on the grind.
     FlightSystem.draw()
 
-    -- Runout result chips — only render the ones that have actually
-    -- been revealed. Pre-revealed grey chips spoiled the structure (the
-    -- player could count "ah, three runouts coming" before any cards
-    -- landed). Now each chip pops in as it's earned. Chips stay anchored
-    -- to their original positions so they fill in left-to-right without
-    -- the layout shifting around.
-    -- Result chips: solid status-color fill + dark text so the WIN/LOSS
-    -- reads at a glance regardless of the underlying shove backdrop.
-    -- Sizes scale with ui_scale so the chips grow on bigger windows.
-    -- DEMO_CUT only ever resolves R1 visually — R2 / R3 are gated to
-    -- losses and never deal a 6th/7th card. So we render a single
-    -- chip slot instead of the three-slot strip; the empty R2/R3
-    -- slots would tip the player off that more is coming.
-    local n_slots  = Constants.FEATURES.DEMO_CUT and 1 or 3
-    local s        = (self.game.ui_scale) or 1
-    local chip_w   = math.max(72, math.floor(110 * s))
-    local chip_h   = math.max(28, math.floor(42  * s))
-    local total_chip_w = n_slots * chip_w + math.max(0, n_slots - 1) * CARD_GAP
-    local chip_x0 = math.floor(tableCenterX(W) - total_chip_w / 2)
-    love.graphics.setFont(self.fonts.md)
-    for i = 1, n_slots do
-        if self.chip_visible[i] then
-            local x = chip_x0 + (i - 1) * (chip_w + CARD_GAP)
-            local outcome = result and result.outcomes[i]
-            local fill_color
-            local label
-            if outcome == true then
-                label, fill_color = "WIN",  Theme.status.good
-            else
-                label, fill_color = "LOSS", Theme.status.error
-            end
-            Theme.setColor(fill_color)
-            love.graphics.rectangle("fill", x, Y_CHIPS, chip_w, chip_h, Theme.space.radius)
-            Theme.setColor(Theme.border.strong)
-            love.graphics.setLineWidth(2)
-            love.graphics.rectangle("line", x, Y_CHIPS, chip_w, chip_h, Theme.space.radius)
-            love.graphics.setLineWidth(1)
-            -- Dark text on the bright fill — high contrast either way.
-            Theme.setColor(Theme.bg.window)
-            local text_y = Y_CHIPS + math.floor((chip_h - self.fonts.md:getHeight()) / 2)
-            printCentered(label, self.fonts.md, x, text_y, chip_w)
-        end
-    end
-    AnchorRegistry.set("shove:chips", chip_x0, Y_CHIPS, total_chip_w, chip_h)
+    -- There is no WIN / LOSS strip. It said the same thing as the cards a
+    -- third time, in a red box, and it was the ugliest thing on the screen.
+    -- The chip_visible flags still gate the reveal logic; they just no
+    -- longer draw anything.
+    local s2 = self.game.ui_scale or 1
+    AnchorRegistry.set("shove:chips", math.floor(tableCenterX(W)) - 100, Y_CHIPS, 200, 8)
 
-    -- The run summary, on the felt, under the result. This is what the
-    -- prestige modal used to say from on top of the cards.
+    -- The run summary: the {chip} count, large, alone. The one thing on the
+    -- felt with weight, because it is the one thing the player keeps.
     if self.summary_shown and Style.summary.enabled then
-        local fonts  = self.fonts
-        local sy     = Y_CHIPS + chip_h + Style.summary.gap
-        local tcx    = math.floor(tableCenterX(W))
-        local label  = (self.chips_banked or 0) > 0 and "BANKED THIS RUN" or "NOTHING BANKED THIS RUN"
-        love.graphics.setFont(fonts.md)
-        Theme.setColor(Theme.fg.muted)
-        printCentered(label, fonts.md, tcx - 200, sy, 400)
-        local line_y = sy + fonts.md:getHeight()
-        if (self.chips_banked or 0) > 0 then
-            local txt = string.format("{chip} %d", self.chips_banked)
+        local fonts = self.fonts
+        local tcx   = math.floor(tableCenterX(W))
+        local sy    = Y_CHIPS + Style.summary.gap
+        local n     = self.chips_banked or 0
+        love.graphics.setFont(fonts.sm)
+        Theme.setColor(Theme.fg.faint)
+        printCentered(n > 0 and "BANKED" or "NOTHING BANKED", fonts.sm, tcx - 200, sy, 400)
+        local line_y = sy + fonts.sm:getHeight()
+        if n > 0 then
+            local txt = string.format("{chip} %d", n)
             local tw  = IconText.measure(txt, fonts.lg)
             IconText.draw(self.game, txt, tcx - math.floor(tw / 2), line_y,
-                          fonts.lg, Theme.status.good, 1)
+                          fonts.lg, Theme.fg.heading, 1)
             line_y = line_y + fonts.lg:getHeight()
         end
         AnchorRegistry.set("shove:summary", tcx - 200, sy, 400, line_y - sy)

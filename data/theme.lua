@@ -131,9 +131,12 @@ Theme.palettes = {
             felt         = { 0.045, 0.075, 0.060 },
         },
         border = {
-            soft    = { 0.30, 0.10, 0.10 },
-            default = { 0.55, 0.18, 0.18 },
-            strong  = { 0.85, 0.25, 0.25 },
+            -- Oxblood leather, not alert red. These were {0.85,0.25,0.25}
+            -- and the whole table read as an error state; the dealer's win
+            -- glow is the only thing on this screen that gets to be red now.
+            soft    = { 0.22, 0.09, 0.09 },
+            default = { 0.34, 0.13, 0.13 },
+            strong  = { 0.48, 0.18, 0.18 },
         },
         fg = {
             primary  = { 0.92, 0.88, 0.85 },         -- bone white

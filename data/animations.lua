@@ -83,4 +83,14 @@ return {
         initial   = 0,
     },
 
+    -- The dealer's showdown flip. Slower than a deal-speed flip on purpose:
+    -- this is the reveal the whole hand has been waiting on, and 0.5s reads
+    -- as a card being turned, not a hand being shown.
+    showdown_flip = {
+        type      = "progress",
+        duration  = 0.95,
+        direction = 1,
+        initial   = 0,
+    },
+
 }

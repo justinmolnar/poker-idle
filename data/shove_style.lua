@@ -200,17 +200,34 @@ return {
         rate        = 4.0,
     },
 
-    -- What the loser's cards fade to once a runout resolves. The winner's
-    -- stay at full alpha with the best-5 stroke; the loser gets neither.
+    -- The verdict lives in the CARDS. No label, no box, no stroke says who
+    -- won; the winning five lift off the felt and warm, the losing five
+    -- sink and go cold. Everything here is that motion.
     cards = {
-        loser_alpha = 0.45,
+        loser_alpha = 0.38,
+        -- Winner's cards rise this many px over `lift_secs`, ease-out.
+        lift_px     = 10,
+        lift_secs   = 0.55,
+        -- A soft warm halo behind each winning card, drawn as a stack of
+        -- expanding rounded rects (same trick the old spotlight used). Alpha
+        -- is the peak; it ramps in with the lift.
+        glow_alpha  = 0.22,
+        glow_grow   = 14,
+        glow_steps  = 4,
     },
 
-    -- The run summary on the felt: BANKED THIS RUN and the {chip} count,
-    -- drawn under the result chips once the summary beat fires.
+    -- The hand name, one line of plain text under the winning cards. A
+    -- caption, not a label: no box, no border, muted ink, small.
+    hand_caption = {
+        gap = 10,
+    },
+
+    -- The run summary: the {chip} count, large, alone, on its own beat. It
+    -- is the one thing on the felt that gets weight, because it is the one
+    -- thing the player keeps. The caption above it is small and muted.
     summary = {
         enabled = true,
-        gap     = 10,
+        gap     = 14,
     },
 
     -- Superseded by `glow`. Kept so the draw-trace harness can put the old
