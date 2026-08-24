@@ -89,15 +89,25 @@ function ShoveDecor.drawBackdrop(band)
     Theme.setColor(Theme.bg.window)
     love.graphics.rectangle("fill", 0, 0, W, H)
 
-    -- Soft top fade, slab, soft bottom fade. Three flat rects give the
-    -- gradient without needing a mesh or a shader.
-    local fh = cfg.fade_h
-    Theme.setColor(Theme.bg.felt, cfg.fade_alpha)
-    love.graphics.rectangle("fill", 0, band.y - fh, W, fh)
-    Theme.setColor(Theme.bg.felt, 1.00)
-    love.graphics.rectangle("fill", 0, band.y, W, band.h)
-    Theme.setColor(Theme.bg.felt, cfg.fade_alpha)
-    love.graphics.rectangle("fill", 0, band.y + band.h, W, fh)
+    if band.felt_everywhere then
+        -- Felt over the whole screen; the band (and its rail) is a frame
+        -- drawn ON the felt, not the edge of it. Outside the frame the felt
+        -- sits a shade darker so the framed rows still read as the table.
+        Theme.setColor(Theme.bg.felt, 0.55)
+        love.graphics.rectangle("fill", 0, 0, W, H)
+        Theme.setColor(Theme.bg.felt, 1.00)
+        love.graphics.rectangle("fill", 0, band.y, W, band.h)
+    else
+        -- Soft top fade, slab, soft bottom fade. Three flat rects give the
+        -- gradient without needing a mesh or a shader.
+        local fh = cfg.fade_h
+        Theme.setColor(Theme.bg.felt, cfg.fade_alpha)
+        love.graphics.rectangle("fill", 0, band.y - fh, W, fh)
+        Theme.setColor(Theme.bg.felt, 1.00)
+        love.graphics.rectangle("fill", 0, band.y, W, band.h)
+        Theme.setColor(Theme.bg.felt, cfg.fade_alpha)
+        love.graphics.rectangle("fill", 0, band.y + band.h, W, fh)
+    end
 
     ShoveDecor.drawRail(band)
     ShoveDecor.drawGlow(band)
@@ -138,10 +148,14 @@ end
 function ShoveDecor.drawGlow(band)
     local cfg = Style.glow
     if not band or not cfg.enabled or not _glow then return end
+    -- Lights the card rows (band.glow_y / glow_h) when the caller gives
+    -- them; falls back to the band itself.
+    local ly = band.glow_y or band.y
+    local lh = band.glow_h or band.h
     local gw = band.screen_w * cfg.w_frac
-    local gh = band.h * cfg.h_frac
+    local gh = lh * cfg.h_frac
     local gx = (band.screen_w - gw) * 0.5
-    local gy = band.y + band.h * 0.5 - gh * 0.5
+    local gy = ly + lh * 0.5 - gh * 0.5
     local mw, mh = _glow:getWidth(), _glow:getHeight()
     Theme.setColor(Theme.fg.heading, cfg.alpha)
     love.graphics.draw(_glow, gx, gy, 0, gw / mw, gh / mh)

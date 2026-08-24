@@ -40,10 +40,22 @@ end
 
 -- One decorrelated value in [0, 1) per `salt`, so dx / dy / angle drawn from
 -- the same key don't march in lockstep.
+--
+-- This must be NONLINEAR. The first version was one Lehmer multiply, which
+-- is a linear map mod M: two keys whose hashes differ by 1 ("catalog:1" and
+-- "catalog:2") came out A/M apart, about 0.00002 of the range, so every
+-- consecutive key landed in the same spot to within a hundredth of a pixel.
+-- Squaring mod a prime has no such property: (h+1)^2 - h^2 = 2h+1, so
+-- adjacent inputs scatter. P is under 2^26 so v*v stays under 2^52, exact
+-- in a double, with no bitwise ops (LuaJIT has none).
+local P = 67108859   -- largest prime below 2^26
 local function unit(h, salt)
-    local v = (h + salt * 2654435761) % M
-    v = (v * A) % M
-    return v / M
+    local v = (h + salt * 7919) % P
+    for _ = 1, 3 do
+        v = (v * v + salt + 1) % P
+        v = (v * A) % P
+    end
+    return v / P
 end
 
 -- Symmetric spread: [0,1) → [-range, +range].

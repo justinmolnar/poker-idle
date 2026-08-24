@@ -42,6 +42,9 @@ local Confetti               = require("services.Confetti")
 local RollingValue           = require("services.RollingValue")
 local IconText               = require("views.IconText")
 local AnchorRegistry         = require("services.AnchorRegistry")
+local Button                 = require("views.Button")
+local PaletteData            = require("data.theme")
+local ClickFlash             = require("services.ClickFlash")
 
 local ShoveView = {}
 ShoveView.__index = ShoveView
@@ -67,8 +70,10 @@ local CARD_GAP = 15
 -- Pot band. Scaled with everything else now; the old flat 110 was the only
 -- unscaled constant in the chain. views/Chips at this scale draws a 44px chip
 -- and stacks 6 to a column, so a full column is 69px -- 80 holds it.
-local POT_BAND_BASE_H = 52
-local POT_BAND_H      = 65
+-- The pot no longer lives in a band above the dealer (it sits beside the
+-- board), so the band collapses to a plain gap.
+local POT_BAND_BASE_H = 8
+local POT_BAND_H      = 10
 -- The House poster and the slot the cards deal from, between the pot band
 -- and the dealer's cards. Both derive from data/shove_style.house.
 local Y_POSTER        = 0
@@ -118,15 +123,18 @@ local function recomputeLayout(H, fonts, s)
     -- gauntlet sat 13px above centre.
     local sm_h = (fonts and fonts.sm and fonts.sm:getHeight()) or 12
     local stack_h = lg_h + sm_h + gap   -- headline + prompt line
-                  + POT_BAND_H + gap
+                  + POT_BAND_H + math.floor(28 * s)
                   + POSTER_H + SLOT_H + row_gap
                   + 3 * CARD_H + 2 * row_gap
                   + chip_gap + chip_h
     local top = math.max(8, math.floor((H - stack_h) / 2))
 
     Y_BANNER      = top
+    -- The headline and its prompt, then clear air before the dealer's
+    -- cards. This gap was the pot band; when the pot moved beside the
+    -- board the band collapsed to 10px and the headline crowded the cards.
     Y_POT         = Y_BANNER + lg_h + sm_h + gap
-    Y_POSTER      = Y_POT + POT_BAND_H + gap
+    Y_POSTER      = Y_POT + POT_BAND_H + math.floor(28 * s)
     Y_SLOT        = Y_POSTER + POSTER_H
     Y_DEALER_HOLE = Y_SLOT + SLOT_H + row_gap
     Y_BOARD       = Y_DEALER_HOLE + CARD_H + row_gap
@@ -439,6 +447,16 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
         end)
     end
 
+    -- The dealer throws the catalog onto the felt. A BEAT, on the timeline,
+    -- before the hold: it used to be created on the click that advanced the
+    -- hold, so it arrived as a reaction to the player rather than as
+    -- something the dealer did.
+    local function throwCatalog(at)
+        add(at, function()
+            if self.ss and self.ss.throwCatalog then self.ss:throwCatalog() end
+        end)
+    end
+
     -- Pick the right resolution sound for runout i: gauntlet-final win/loss
     -- supersedes the per-runout chime so the moment lands.
     local function chipSound(i)
@@ -510,8 +528,11 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     else
         light(t, "dealer")
         add(t + 0.60, showChip(1), chipSound(1))
+        -- The pot is pushed up to the dealer over Style.pot.take_secs; the
+        -- House does not speak until the money has left.
         potTo(t + 1.00, "house", "chip_land_pot")
-        say(t + 1.90, "loss")
+        say(t + 1.00 + (Style.pot.take_secs or 1) + 0.5, "loss")
+        t = t + (Style.pot.take_secs or 1)
     end
 
     -- Demo cut stops here — R2 / R3 (the dealer's cheats) stay
@@ -584,8 +605,9 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     -- The summary gets its own beat after everything else has settled, then
     -- the hold. Nothing arrives at the same instant as anything else.
     summary(t + 2.6)
-    hold(t + 3.0, "result")
-    self.total_duration = t + 3.0
+    throwCatalog(t + 3.4)
+    hold(t + 3.6, "result")
+    self.total_duration = t + 3.6
 end
 
 -- True while the host must wait: the buildup, the deal, and every hold.
@@ -781,13 +803,14 @@ end
 -- House disabled (the golden harness) the card just sits at its target.
 local function dealPos(anim, target_x, target_y, slot_cx)
     local house = Style.house
-    if not house.enabled or not anim or not anim.getProgress then
-        return target_x, target_y
-    end
+    if not anim or not anim.getProgress then return target_x, target_y end
     local p = anim:getProgress() or 1
     local e = 1 - (1 - p) ^ (house.deal_ease or 3)
     local from_x = slot_cx - CARD_W / 2
-    local from_y = Y_SLOT - CARD_H + SLOT_H
+    -- From the slot under the poster when there is one; otherwise from
+    -- above the felt, where the dealer's hands would be.
+    local from_y = house.enabled and (Y_SLOT - CARD_H + SLOT_H)
+                   or (house.deal_from_y or -CARD_H)
     return from_x + (target_x - from_x) * e, from_y + (target_y - from_y) * e
 end
 
@@ -826,21 +849,9 @@ local function visibleBoardCount(g)
     return 7
 end
 
--- Banner is reveal-aware: while the runouts are still being walked, we
--- show a neutral "ALL-IN" so g.result (which is pre-baked the moment the
--- player presses SPACE) doesn't leak the outcome through banner text.
--- Result text only appears once the terminal runout chip has flipped.
-local function bannerFor(g, view)
-    if not g or not g.result then return "PRESS SPACE TO SHOVE" end
-    local r = g.result
-    local revealed = view and view:_revealedRunoutIdx() or 0
-    local terminal_idx = r.won and 3 or (r.busted_at or 0)
-    if revealed < terminal_idx then return "ALL-IN" end
-    if r.won then return "GAUNTLET CLEARED" end
-    -- Robbed, not busted: the player won and the House took it back.
-    if view and view.robbed then return "ROBBED" end
-    return "BUSTED"
-end
+-- (bannerFor is gone. It produced a headline that changed style and words
+-- at the reveal: a dim ALL-IN, then BUSTED in the largest font. The band
+-- above the table now holds one line the beats set, drawn one way.)
 
 local function isInCombo(card, combo)
     if not combo then return false end
@@ -875,8 +886,7 @@ function ShoveView:_drawBuildup(W, H)
     -- start dealing.
     local stack_cx = math.floor(tableCenterX(W))
     local stack_cy = math.floor(H * 0.85)
-    local pot_cx   = math.floor(tableCenterX(W))
-    local pot_cy   = Y_POT + math.floor(POT_BAND_H * 0.55)
+    local pot_cx, pot_cy = self:_potPos()
     local arc_lift = math.max(40, math.floor(120 * s))
 
     -- Build the per-chip "in flight / arrived / waiting" partition.
@@ -930,9 +940,6 @@ function ShoveView:_drawBuildup(W, H)
     love.graphics.setFont(fonts.sm)
     Theme.setColor(Theme.fg.muted)
     if #waiting_indices > 0 or total_chips > #arrived_indices then
-        printCentered("YOUR STACK", fonts.sm,
-            stack_cx - math.floor(W / 4), stack_cy - math.floor(36 * s),
-            math.floor(W / 2))
         Chips.drawStack(stack_cx, stack_cy, waiting_indices,
             { align = "center" })
     end
@@ -940,8 +947,7 @@ function ShoveView:_drawBuildup(W, H)
     -- Pot pile centered in the pot band. Just the chip visual — the
     -- pile itself reads as "this is the pot".
     if #arrived_indices > 0 or in_lock then
-        Chips.drawStack(pot_cx, pot_cy, arrived_indices,
-            { align = "center" })
+        self:_drawPot(arrived_indices)
     end
 
     -- In-flight chips: parabolic arc from stack to pot, tumbling and
@@ -962,7 +968,12 @@ function ShoveView:_drawBuildup(W, H)
         end
     end
 
-    -- Lock-in flash + "ALL IN" headline.
+    -- The lock-in flash: a white blink when the last chip lands. That is
+    -- all that survives of the old finale. The red mid-screen "ALL IN" pop,
+    -- "PUSHING ALL IN…" at the top and "YOUR STACK" at the bottom were
+    -- three more strings appearing and vanishing on a screen that already
+    -- had four. The band above the table carries ONE line now, and holds
+    -- it: it changes words, it never blinks out.
     if in_lock then
         local lock_progress = math.min(1, lock_t / BUILDUP_LOCK_DURATION)
         local flash_alpha = math.max(0, 0.45 * (1 - lock_progress * 2))
@@ -970,25 +981,10 @@ function ShoveView:_drawBuildup(W, H)
             Theme.setColor(Theme.fg.heading, flash_alpha)
             love.graphics.rectangle("fill", 0, 0, W, H)
         end
-        love.graphics.setFont(fonts.lg)
-        Theme.setColor(Theme.status.error)
-        local headline = "ALL IN"
-        local hw = fonts.lg:getWidth(headline)
-        local hy = math.floor(H * 0.36)
-        local pop = math.min(1, lock_t / 0.25)
-        local pop_scale = 0.85 + 0.15 * easeOut(pop)
-        love.graphics.push()
-        love.graphics.translate(W / 2, hy)
-        love.graphics.scale(pop_scale, pop_scale)
-        love.graphics.print(headline, -hw / 2, 0)
-        love.graphics.pop()
     end
-
     if fade_t > 0.4 then
-        local label_alpha = math.min(1, (fade_t - 0.4) / 0.6)
-        love.graphics.setFont(fonts.md)
-        Theme.setColor(Theme.fg.heading, label_alpha * 0.6)
-        printCentered("PUSHING ALL IN…", fonts.md, 0, math.floor(H * 0.10), W)
+        self.house_line = in_lock and "All in." or "Pushing all in."
+        self:_drawHeadline(W)
     end
 end
 
@@ -1044,7 +1040,7 @@ function ShoveView:_drawStats(base_pct, mult_val, total_pct, covered)
     printCentered(string.format("= %d%%", total_pct), fonts.lg, px, ty2, pw)
     love.graphics.setFont(fonts.md)
     Theme.setColor(Theme.fg.faint)
-    printCentered("ALL-IN", fonts.md, px, ty2 + lg_h, pw)
+    printCentered("all in", fonts.md, px, ty2 + lg_h, pw)
 
     -- The drain bar. Eased toward the live total so a buried term is a
     -- visible fall, not a number that is suddenly different.
@@ -1132,6 +1128,38 @@ function ShoveView:_revealedRunoutIdx()
     return idx
 end
 
+-- Where the pot sits: left of the board, centred on the board row. One
+-- function, because three places used to compute it independently and the
+-- buildup landed chips somewhere the cinematic then drew them elsewhere.
+-- Returns the pile's BASE point (drawStack centres a pile on x and grows
+-- upward from y).
+function ShoveView:_potPos()
+    local W      = love.graphics.getWidth()
+    local cfg    = Style.pot
+    local origin = rowOriginFor(W)
+    -- Centre the pile in the open felt between the screen's left edge and
+    -- the board, rather than a fixed gap off the board: a 30-chip pile at
+    -- 1.6x is ~310px wide, and a gap sized for a small pile ran it into
+    -- slot 1.
+    local cx     = math.floor((origin - cfg.gap) / 2)
+    local cy     = Y_BOARD + math.floor(CARD_H * 0.78)
+    return cx, cy
+end
+
+-- Draw the pot pile, scaled up, at _potPos. views/Chips draws under a
+-- transform the way the felt already does; the label plate cancels the
+-- caller's scale so the pixel font stays on its grid.
+function ShoveView:_drawPot(chip_indices)
+    if not chip_indices or #chip_indices == 0 then return end
+    local cx, cy = self:_potPos()
+    local k = Style.pot.scale or 1
+    love.graphics.push()
+    love.graphics.translate(cx, cy)
+    love.graphics.scale(k, k)
+    Chips.drawStack(0, 0, chip_indices, { align = "center", max_cols = Style.pot.max_cols })
+    love.graphics.pop()
+end
+
 -- Alpha for a card on the resolved felt: the loser's side fades. `side` is
 -- "player" or "dealer"; nil winner (mid-deal) means full alpha.
 -- Lift progress 0..1 since the winner was lit.
@@ -1215,6 +1243,38 @@ function ShoveView:_drawBoardCard(i, x, y)
     drawCardSprite(sl, card:spriteName(), x, y, CARD_W, CARD_H, 1, alpha, v, self:_liftP())
 end
 
+-- The ONE line in the band above the table. Set by the beats (the
+-- buildup, the deal, the House at the reveal) and drawn the same way every
+-- time. Nothing else prints in this band.
+-- The same rect the grind's SHOVE button occupies (views/GrindView
+-- _shoveButtonRect): bottom-right, RIGHT_W = max(320, 22% of W) wide less
+-- margins, 64*s tall. Kept numerically identical rather than shared so this
+-- view does not require the grind view.
+function ShoveView:_continueRect()
+    local W, H = love.graphics.getDimensions()
+    local s = self.game.ui_scale or 1
+    local right_w = math.max(320, math.floor(W * 0.22))
+    local margin  = math.floor(12 * s)
+    local h       = math.floor(64 * s)
+    return { x = W - right_w + margin, y = H - h - margin, w = right_w - 2 * margin, h = h }
+end
+
+-- True if (x, y) is on the CONTINUE / LEAVE button while a hold is up.
+function ShoveView:hitContinue(x, y)
+    if not self:isHolding() then return false end
+    local r = self:_continueRect()
+    return x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h
+end
+
+function ShoveView:_drawHeadline(W)
+    if not self.house_line then return end
+    local f = self.fonts.lg
+    love.graphics.setFont(f)
+    Theme.setColor(Theme.fg.heading)
+    printCentered(self.house_line, f,
+                  math.floor(tableCenterX(W) - W / 3), Y_BANNER, math.floor(2 * W / 3))
+end
+
 -- Persistent shove HUD drawn during the gauntlet cinematic. Keeps
 -- the pot pile + rate breakdown visible the whole time so the
 -- player never loses sight of what's at stake or what their odds
@@ -1234,18 +1294,17 @@ function ShoveView:_drawShoveStatus(W, H)
     self:_drawStats(math.floor(base_v * 100 + 0.5), mult_v,
                     math.floor(shove_v * 100 + 0.5), covered)
 
-    -- Pot pile in the center of the pot band. Same chip list the
-    -- buildup arrived with, so the pile stays exactly where it
-    -- landed when the cards take over.
-    local pot_cx = math.floor(tableCenterX(W))
-    local pot_cy = Y_POT + math.floor(POT_BAND_H * 0.55)
-    AnchorRegistry.set("shove:pot", pot_cx - 120, pot_cy - 40, 240, 80)
+    -- The pot, beside the board. Same chip list the buildup arrived with,
+    -- at the same spot, so the pile does not move when the cards take over.
+    local pot_cx, pot_cy = self:_potPos()
+    local pr = math.floor(CARD_W * Style.pot.scale * 0.5)
+    AnchorRegistry.set("shove:pot", pot_cx - pr, pot_cy - pr, pr * 2, pr * 2)
     if not self.pot_gone and self.buildup_chips and #self.buildup_chips > 0 then
         local chip_indices = {}
         for i, c in ipairs(self.buildup_chips) do
             chip_indices[i] = c.denom_idx
         end
-        Chips.drawStack(pot_cx, pot_cy, chip_indices, { align = "center" })
+        self:_drawPot(chip_indices)
     end
 end
 
@@ -1257,14 +1316,21 @@ function ShoveView:_potTo(who)
     local W = love.graphics.getWidth()
     local denoms = {}
     for i, c in ipairs(self.buildup_chips) do denoms[i] = c.denom_idx end
-    local src = { math.floor(tableCenterX(W)), Y_POT + math.floor(POT_BAND_H * 0.55) }
-    local hole_cy = Y_PLAYER_HOLE + math.floor(CARD_H / 2)
+    local px, py = self:_potPos()
+    local src = { px, py - math.floor(CARD_H * 0.3) }
+    -- On a loss the pile is pushed UP and off the top of the felt, toward
+    -- the dealer: it is taken, slowly. On a win it comes down to the
+    -- player's cards.
     local dest = (who == "player")
-        and { math.floor(tableCenterX(W)), hole_cy }
-        or  { math.floor(tableCenterX(W)), Y_DEALER_HOLE - math.floor(20 * (self.game.ui_scale or 1)) }
+        and { math.floor(tableCenterX(W)), Y_PLAYER_HOLE + math.floor(CARD_H / 2) }
+        or  { math.floor(tableCenterX(W)), -CARD_H }
+    local cfg = Style.pot
     ChipFlight.flyChipsList(src, dest, denoms, {
         max_per_event = #denoms,
-        arrival_sound = (who == "player") and "chip_land_you" or "chip_land_pot",
+        duration      = cfg.take_secs,
+        stagger       = cfg.take_stagger,
+        arc_height    = cfg.take_arc,
+        arrival_sound = (who == "player") and "chip_land_you" or nil,
     })
     self.pot_gone = true
 end
@@ -1289,11 +1355,20 @@ function ShoveView:draw()
     -- The table. views/ShoveDecor paints the room, the felt band, its rim and
     -- the lighting; this view only says where the band goes. The band is sized
     -- off the card rows so the cards always land on it.
+    -- The RAIL frames the card rows, where it was: that split the screen
+    -- well. What was wrong was the felt stopping at the rail with a hard cut
+    -- to black outside it. The felt now covers the whole screen; the rail
+    -- is a frame on it, not the edge of it.
     local felt_top    = Y_DEALER_HOLE - 40
     local felt_height = (Y_PLAYER_HOLE + CARD_H + 40) - felt_top
     ShoveDecor.drawBackdrop({
         x = 0, y = felt_top, w = W, h = felt_height,
         screen_w = W, screen_h = H,
+        felt_everywhere = true,
+        -- The light stays on the CARDS, not the felt: a glow sized off a
+        -- full-screen felt would be a flat wash with nothing to light.
+        glow_y = Y_DEALER_HOLE - 20,
+        glow_h = (Y_PLAYER_HOLE + CARD_H + 20) - (Y_DEALER_HOLE - 20),
     })
 
     -- The House, above the dealer's seat, with the slot the cards come out
@@ -1330,18 +1405,10 @@ function ShoveView:draw()
 
     love.graphics.setFont(self.fonts.lg)
     Theme.setColor(Theme.fg.heading)
-    -- No headline. BUSTED / ROBBED / CLEARED shouted the verdict in the
-    -- biggest font on the screen before the cards had said it; the felt is
-    -- the headline now. bannerFor stays for the buildup ("ALL-IN").
-    if not (result and self:_revealedRunoutIdx() > 0) and not self.house_line then
-        local b = bannerFor(g, self)
-        if b == "ALL-IN" then
-            love.graphics.setFont(self.fonts.lg)
-            Theme.setColor(Theme.fg.faint)
-            printCentered(b, self.fonts.lg,
-                          math.floor(tableCenterX(W) - W / 4), Y_BANNER, math.floor(W / 2))
-        end
-    end
+    -- The band holds the buildup's "All in." through the deal; the House's
+    -- line replaces it at the reveal. Same slot, same font, same colour, so
+    -- a change of line reads as the line changing, never as text vanishing.
+    if not self.house_line then self.house_line = "All in." end
 
     -- Persistent shove status (pot chip pile + the SHOVE % breakdown) so the
     -- player always sees what's at stake and what their odds are during the
@@ -1398,19 +1465,33 @@ function ShoveView:draw()
     -- flank the felt were form-field chrome from the prototype; a box with
     -- a border and inverted text is the loudest thing a UI can draw, and
     -- it was being used to restate what the cards already show.
+    -- BOTH hands are named, beside their rows in the clear felt left of the
+    -- cards. The winner's name is bright and lifts with its cards; the
+    -- loser's is muted and sinks. Reading which hand beat which needs both
+    -- names on the felt; a single caption told the player the answer
+    -- without the question.
     if result and revealed_idx > 0 and self.winner then
         local eval = result.evals[revealed_idx]
         if eval then
-            local rank = (self.winner == "player") and eval.player_rank or eval.dealer_rank
-            local text = HandEval.describe(rank)
-            local row_y = (self.winner == "player") and Y_PLAYER_HOLE or Y_DEALER_HOLE
-            local lift  = math.floor((Style.cards.lift_px or 0) * self:_liftP())
-            local cap_y = (self.winner == "player")
-                and (row_y + CARD_H - lift + Style.hand_caption.gap)
-                or  (row_y - lift - Style.hand_caption.gap - self.fonts.md:getHeight())
-            love.graphics.setFont(self.fonts.md)
-            Theme.setColor(Theme.fg.muted, self:_liftP())
-            printCentered(text, self.fonts.md, hole_x - 200, cap_y, hole_w + 400)
+            local lift_p = self:_liftP()
+            local lift   = math.floor((Style.cards.lift_px or 0) * lift_p)
+            local gutter = math.floor(28 * (self.game.ui_scale or 1))
+            local f      = self.fonts.md
+            love.graphics.setFont(f)
+            local function name(side, rank, row_y)
+                local text = HandEval.describe(rank)
+                local won  = (self.winner == side)
+                local dy   = won and -lift or math.floor(lift * 0.4)
+                local y    = row_y + dy + math.floor((CARD_H - f:getHeight()) / 2)
+                if won then
+                    Theme.setColor(Theme.fg.heading, lift_p)
+                else
+                    Theme.setColor(Theme.fg.muted, 0.35 + 0.35 * (1 - lift_p))
+                end
+                love.graphics.print(text, hole_x - gutter - f:getWidth(text), y)
+            end
+            name("dealer", eval.dealer_rank, Y_DEALER_HOLE)
+            name("player", eval.player_rank, Y_PLAYER_HOLE)
         end
     end
 
@@ -1431,7 +1512,10 @@ function ShoveView:draw()
     if self.summary_shown and Style.summary.enabled then
         local fonts = self.fonts
         local tcx   = math.floor(tableCenterX(W))
-        local sy    = Y_CHIPS + Style.summary.gap
+        -- BELOW the bottom rail, in the open felt under the frame. The rail
+        -- is at Y_PLAYER_HOLE + CARD_H + 40 and 17px tall; the summary is
+        -- 84px tall, so "inside the rail" was on it.
+        local sy    = Y_PLAYER_HOLE + CARD_H + 40 + 17 + Style.summary.gap
         local n     = self.chips_banked or 0
         love.graphics.setFont(fonts.sm)
         Theme.setColor(Theme.fg.faint)
@@ -1447,32 +1531,39 @@ function ShoveView:draw()
         AnchorRegistry.set("shove:summary", tcx - 200, sy, 400, line_y - sy)
     end
 
-    -- The House speaks as the HEADLINE: large text in the band above the
-    -- table that BUSTED used to occupy. It was a small bubble hung off a
-    -- poster anchor that no longer exists, so it floated somewhere beside
-    -- a card and read as noise. This is the line that says what happened.
-    if self.house_line then
-        local f = self.fonts.lg
-        love.graphics.setFont(f)
-        Theme.setColor(Theme.fg.heading)
-        printCentered(self.house_line, f,
-                      math.floor(tableCenterX(W) - W / 3), Y_BANNER, math.floor(2 * W / 3))
-    end
+    self:_drawHeadline(W)
 
-    -- What to do next. Only during a hold, under the headline, small and
-    -- quiet: the player is being waited on and should know it.
+    -- Leaving is a deliberate act on a button, never a stray click on the
+    -- felt. The button is the grind's SHOVE button: same rect, same face,
+    -- same red, in the same corner, so the hand that pressed SHOVE to get
+    -- here presses the same spot to leave. On the mid-sequence hold it
+    -- reads CONTINUE; on the result hold it reads LEAVE, because the
+    -- catalog is on the felt and "continue" would not say which.
     if self:isHolding() then
-        local f = self.fonts.sm
-        local prompt = (self.hold_id == "result")
-            and "click to open the catalog"
-            or  "click to continue"
-        love.graphics.setFont(f)
-        local pulse = 0.55 + 0.25 * math.sin(love.timer.getTime() * 3)
-        Theme.setColor(Theme.fg.muted, pulse)
-        printCentered(prompt, f,
-                      math.floor(tableCenterX(W) - W / 3),
-                      Y_BANNER + self.fonts.lg:getHeight() + math.floor(4 * (self.game.ui_scale or 1)),
-                      math.floor(2 * W / 3))
+        local r = self:_continueRect()
+        AnchorRegistry.set("btn:continue", r.x, r.y, r.w, r.h)
+        local mx, my = love.mouse.getPosition()
+        local hov = mx >= r.x and mx < r.x + r.w and my >= r.y and my < r.y + r.h
+        -- The grind's SHOVE button uses Theme.status.error, and so did
+        -- this one, but the same token is a different colour under each
+        -- palette: the grind's is the room palette's soft pink, this
+        -- screen's is the shove palette's alarm red. Read the ROOM
+        -- palette's tokens directly so the two buttons are the same colour.
+        local room = PaletteData.palettes.room
+        local label = "CONTINUE"
+        Button.draw(r.x, r.y, r.w, r.h, {
+            fill_color   = room.status.error,
+            border_color = room.fg.heading,
+            line_width   = Theme.space.line_strong,
+            hovered      = hov,
+            press_alpha  = ClickFlash.alpha("continue_btn", "continue_btn"),
+            depth        = 5,
+        }, function(fx, fy, fw, fh)
+            local f = self.fonts.lg
+            love.graphics.setFont(f)
+            Theme.setColor(room.fg.heading)
+            printCentered(label, f, fx, fy + math.floor((fh - f:getHeight()) / 2), fw)
+        end)
     end
 end
 

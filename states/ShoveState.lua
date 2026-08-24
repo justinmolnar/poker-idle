@@ -28,6 +28,7 @@ local Decks              = require("models.Decks")
 local Catalog            = require("data.catalog")
 local RunUpgrades        = require("data.run_upgrades")
 local FlightSystem       = require("services.FlightSystem")
+local ClickFlash         = require("services.ClickFlash")
 local Constants          = require("data.constants")
 local ShoveRate          = require("models.shove_rate")
 local HandAnalytics      = require("services.HandAnalytics")
@@ -234,9 +235,11 @@ function ShoveState:_onGauntletEnded()
         self.view:resetTimeline()
         self.game.state_machine:switch("credits")
     else
-        -- The result and the summary are already on the felt, and the
-        -- player has just clicked through the hold. Straight to the shop.
-        self:_advanceToCatalog()
+        -- The catalog was thrown onto the felt before the hold; the click
+        -- that advanced the hold means "leave". If the throw never fired
+        -- (skipped past), build it now so the shop is never missed.
+        if not self.catalog_modal then self:throwCatalog() end
+        self:_dismissCatalogAndReturn()
     end
 end
 
@@ -284,13 +287,34 @@ end
 -- chips_this_run banked to state.chips at this point and can spend it.
 -- The catalog has now introduced itself: catalog_seen (meta, persisted
 -- on the next save) lets the grind top-bar CATALOG button render.
-function ShoveState:_advanceToCatalog()
+-- The dealer throws the catalog onto the felt. Called by the view as a
+-- timeline beat, before the result hold, so the book is on the table while
+-- the player is still reading the hand.
+function ShoveState:throwCatalog()
+    if self.catalog_modal then return end
     self.game.state.catalog_seen = true
-    -- Slides in closed, no scrim: the result it sits beside stays visible.
-    self.catalog_modal  = CatalogModal:new(self.game,
+    self.catalog_modal = CatalogModal:new(self.game,
         { intro_callout = self:_catalogIntroPending(),
-          slide_in = true, scrim = false })
+          on_felt = true, scrim = false,
+          -- Keyed on a per-throw counter, not shove_count: resetRun bumps
+          -- shove_count AFTER the shove, so every throw during one hashed
+          -- the same number and the book landed in the same spot every time.
+          throw_key = "catalog:" .. tostring(self:_nextThrowId()) })
 end
+
+-- A different key every throw, persisted so it keeps varying across
+-- sessions. Lives in the free-form hints_seen map like the House's
+-- once-lines do, so it needs no new serialized field.
+function ShoveState:_nextThrowId()
+    local seen = self.game.state.hints_seen
+    if not seen then return os.time() end
+    local n = (tonumber(seen["catalog:throws"]) or 0) + 1
+    seen["catalog:throws"] = n
+    return n
+end
+
+-- (_advanceToCatalog is gone: the catalog is thrown as a timeline beat, see
+-- throwCatalog, and the hold's click leaves.)
 
 -- Step 2 of the post-bust flow: catalog modal closes, run resets, then —
 -- once the deck system has unlocked (first gauntlet clear) — the
@@ -359,7 +383,6 @@ function ShoveState:update(dt)
        and self.gauntlet.state == "finished"
        and not self.view:isAnimating()
        and not self._ended_handled
-       and not self.catalog_modal
        and not self.deck_select_modal
        and not self.prototype_end_modal then
         self:_onGauntletEnded()
@@ -398,9 +421,13 @@ function ShoveState:keypressed(key)
         if r then self:_resolvePrototypeEnd(r) end
         return
     end
-    if self.catalog_modal and self.catalog_modal:consumeKey(key) then
-        self:_dismissCatalogAndReturn()
-        return
+    if self.catalog_modal then
+        if self.catalog_modal:consumeKey(key) then return end
+        if key == "space" or key == "return" or key == "kpenter" then
+            if self.view:isHolding() then self.view:advance()
+            else self:_dismissCatalogAndReturn() end
+            return
+        end
     end
     if self.deck_select_modal and self.deck_select_modal:consumeKey(key) then
         if self.deck_select_modal:resolved() then
@@ -484,10 +511,19 @@ function ShoveState:mousepressed(mx, my, button)
     -- cards, not on the underlying shove view. The Continue button at
     -- the bottom resolves the modal so the host can advance.
     if self.catalog_modal then
-        self.catalog_modal:consumeMouse(mx, my, button)
+        -- CONTINUE works whether the book is open or closed, so it is
+        -- tested before the book gets the click.
+        if self.view:hitContinue(mx, my) then
+            ClickFlash.flash("continue_btn", "continue_btn")
+            self.view:advance()
+            return
+        end
+        if self.catalog_modal:consumeMouse(mx, my, button) then return end
         if self.catalog_modal:resolved() then
             self:_dismissCatalogAndReturn()
+            return
         end
+        -- A stray click on the felt does nothing.
         return
     end
     -- Deck-select modal: post-catalog. Tile clicks dispatch through
@@ -499,10 +535,13 @@ function ShoveState:mousepressed(mx, my, button)
         end
         return
     end
-    -- No modal. A click on the felt during a hold is "continue"; during
-    -- the deal it fast-forwards, same as SPACE.
+    -- No modal. On a hold only the CONTINUE button advances; a stray click
+    -- on the felt does nothing. During the deal a click fast-forwards.
     if self.view:isHolding() then
-        self.view:advance()
+        if self.view:hitContinue(mx, my) then
+            ClickFlash.flash("continue_btn", "continue_btn")
+            self.view:advance()
+        end
     elseif self.view:isAnimating() then
         self.view:skip()
     end

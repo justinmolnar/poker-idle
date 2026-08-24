@@ -175,6 +175,11 @@ return {
     -- mark while there is no poster to speak from.
     house = {
         enabled     = false,
+        -- Where dealt cards COME FROM, independent of whether the poster
+        -- draws: off the top of the felt, above the dealer's seat. Motion
+        -- used to be gated on the poster, so cutting the poster cut the
+        -- deal to a fade.
+        deal_from_y = -180,
         h           = 64,       -- poster height
         slot_h      = 14,       -- the gap the cards come out of
         frame_inset = 4,
@@ -189,6 +194,23 @@ return {
     -- number fall instead of reading that it did. Over 100% (the Act 3
     -- underflow) the bar pins full and turns violet, same signal the top
     -- bar's UNDERFLOW cell uses.
+    -- The pot. Sits on the felt LEFT of the board, on the board row, big:
+    -- neutral ground beside the hand while it plays. It used to sit above
+    -- the dealer's cards in a small band, which read as the player handing
+    -- everything over before a card was dealt.
+    --
+    -- At the end it is TAKEN: pushed slowly up to the dealer on a loss, or
+    -- down to the player on a win. Slow on purpose; a burst reads as an
+    -- effect, a slow push reads as someone reaching for the money.
+    pot = {
+        scale        = 1.6,     -- chip scale on the felt (drawStack under a transform)
+        gap          = 44,      -- from the board's left edge
+        max_cols     = 4,
+        take_secs    = 1.6,     -- flight duration when it leaves
+        take_stagger = 0.06,
+        take_arc     = 40,
+    },
+
     meter = {
         enabled     = true,
         h           = 6,

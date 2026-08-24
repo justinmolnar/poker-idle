@@ -43,7 +43,26 @@ local ShaderRegistry = require("services.ShaderRegistry")
 local CATALOG_ORD = {}
 for i, it in ipairs(Catalog) do CATALOG_ORD[it.id] = i end
 
+local drawFrontCover   -- defined below; _drawClosedOnFelt above it uses it
 local SLIDE_IN_SECS = 0.45
+local THROW_SECS    = 0.70
+
+-- The closed book as an object on the felt.
+local CLOSED = {
+    scale        = 0.34,     -- of a page
+    -- A thrown book lands where it lands: on cards, on text, anywhere on
+    -- the felt. It is not placed in a clear spot. The spread covers most
+    -- of the table; the throw arc reads from wherever it comes down.
+    rest_x       = 0.50,     -- of W, top edge of the landing zone's centre
+    rest_y       = 0.40,     -- of H
+    jitter_x     = 560,
+    jitter_y     = 260,
+    jitter_angle = 0.55,
+    base_angle   = -0.06,
+    throw_dx     = 260,      -- comes in from the left
+    throw_arc    = 90,
+    throw_spin   = 0.9,      -- radians of tumble that settle out
+}
 
 local CatalogModal = {}
 CatalogModal.__index = CatalogModal
@@ -95,6 +114,17 @@ function CatalogModal:new(game, opts)
         -- of. Mid-grind (the top-bar button) it simply appears, as before.
         slide_in  = opts.slide_in == true,
         _enter_t  = (opts.slide_in == true) and 0 or 1,
+        -- Post-shove the catalog is an OBJECT on the felt, not a modal. It
+        -- is THROWN onto the table (arcs in over `_throw_t`, lands at a
+        -- Decal-hashed spot with a little rotation, the way the ORDERED
+        -- stamp slams down) and sits there closed. Clicking it opens it;
+        -- clicking anywhere off it closes it back to the felt, where it
+        -- stays. Leaving the shove is the felt's job (SPACE), never the
+        -- book's, so closing and leaving can never be confused.
+        on_felt   = opts.on_felt == true,
+        _open     = not (opts.on_felt == true),
+        _throw_t  = (opts.on_felt == true) and 0 or 1,
+        _throw_key = opts.throw_key or "catalog",
         -- Full-screen dim behind the book. Off for the post-shove arrival so
         -- the felt result stays readable next to it; on by default so the
         -- mid-grind catalog is unchanged.
@@ -333,6 +363,13 @@ end
 -- ─── Input ────────────────────────────────────────────────────────────
 
 function CatalogModal:consumeKey(key)
+    if self.on_felt then
+        -- ESC puts the book down. SPACE is not the book's key on the felt:
+        -- the state reads it as "leave the shove" whether the book is open
+        -- or not, so leaving and closing can never be confused.
+        if key == "escape" and self._open then self:closeToFelt(); return true end
+        return false
+    end
     if key == "space" or key == "return" or key == "kpenter" then
         -- Poster-forcing only exists in the scripted-intro build; under
         -- TUTORIAL the poster isn't in the catalog at all, so this gate
@@ -396,7 +433,124 @@ function CatalogModal:_updatePeel()
 end
 
 -- Returns true if the click landed on a button or a buyable card.
+-- Where the thrown book lands. Deterministic per shove (Decal hashes the
+-- key), so it does not vibrate and does not re-roll between frames, but a
+-- different shove puts it somewhere else. Lands in the open felt to the
+-- right of the board, below the readout.
+-- Point-in-rotated-rect: rotate the point back about the book's centre by
+-- its angle, then test the unrotated rect.
+function CatalogModal:_hitsFeltBook(r, mx, my)
+    local cx, cy = r.x + r.w * 0.5, r.y + r.h * 0.5
+    local c, sn  = math.cos(-(r.angle or 0)), math.sin(-(r.angle or 0))
+    local dx, dy = mx - cx, my - cy
+    local lx, ly = dx * c - dy * sn, dx * sn + dy * c
+    return math.abs(lx) <= r.w * 0.5 and math.abs(ly) <= r.h * 0.5
+end
+
+function CatalogModal:_feltSpot(W, H, cw, ch)
+    local fl  = math.floor
+    local cfg = CLOSED
+    local dx, dy, angle = Decal.place(self._throw_key, {
+        dx = cfg.jitter_x, dy = cfg.jitter_y,
+        angle = cfg.jitter_angle, base_angle = cfg.base_angle,
+    })
+    local x = fl(W * cfg.rest_x) + dx
+    local y = fl(H * cfg.rest_y) + dy
+    return x, y, angle
+end
+
+-- The closed book as an object on the table. Arcs in from off-screen over
+-- _throw_t and lands with the stamp's impact squash, then rests. Registers
+-- its own hit rect so a click on it opens the book.
+function CatalogModal:_drawClosedOnFelt(W, H, page_w, page_h, fonts, s)
+    local fl    = math.floor
+    local cfg   = CLOSED
+    local cw    = fl(page_w * cfg.scale)
+    local ch    = fl(page_h * cfg.scale)
+    local rx, ry, angle = self:_feltSpot(W, H, cw, ch)
+
+    -- The throw: from above and to the left, arcing down. Ease-out on the
+    -- travel, a quick squash on impact.
+    local t  = self._throw_t
+    local e  = 1 - (1 - t) ^ 3
+    local fx = rx - fl(cfg.throw_dx * s)
+    local fy = -ch
+    local x  = fx + (rx - fx) * e
+    local y  = fy + (ry - fy) * e - math.sin(math.pi * t) * fl(cfg.throw_arc * s)
+    local spin = angle + (1 - e) * cfg.throw_spin
+    local impact = (t >= 1) and 0 or math.max(0, 1 - math.abs(t - 0.92) / 0.08)
+    local sq = 1 + 0.08 * impact
+
+    -- Shadow, then the cover, drawn through the same front-cover routine at
+    -- the small scale so it is unmistakably the same book.
+    --
+    -- The shadow's offset is the book's HEIGHT off the felt: large mid-arc,
+    -- shrinking to almost nothing as it lands. A fixed offset on a resting
+    -- object reads as the object floating.
+    -- A shadow only while it is in the AIR. A book lying on a table has no
+    -- offset shadow; drawing one, however small, said it was floating.
+    local height = math.sin(math.pi * t)                       -- 0 at rest
+    love.graphics.push()
+    love.graphics.translate(x + cw * 0.5, y + ch * 0.5)
+    love.graphics.rotate(spin)
+    love.graphics.scale(sq, 1 / sq)
+    if height > 0.02 then
+        local sh_off = fl(16 * s * height)
+        Theme.setColor(Theme.bg.sunken, 0.45 * height)
+        love.graphics.rectangle("fill", -cw * 0.5 + sh_off, -ch * 0.5 + sh_off, cw, ch, fl(4 * s))
+    end
+    love.graphics.push()
+    love.graphics.translate(-cw * 0.5, -ch * 0.5)
+    love.graphics.scale(cfg.scale, cfg.scale)
+    -- At 0, not page_w * 0.5. That offset is where the cover sits in the
+    -- OPEN book's frame (the right-hand page); here it drew the cover half
+    -- a book to the right of the hit rect, so a click on the visible book's
+    -- centre landed on the rect's edge and most clicks missed.
+    drawFrontCover(self, 0, 0, page_w, page_h, fonts, s)
+    love.graphics.pop()
+    love.graphics.pop()
+
+    -- Hit shape: the book's rect WITH its angle. The axis-aligned box
+    -- missed at the corners once the tilt was real. Only once landed.
+    if t >= 1 then
+        self._felt_rect = { x = x, y = y, w = cw, h = ch, angle = angle }
+        Anchors.set("catalog:book", x, y, cw, ch)
+    else
+        self._felt_rect = nil
+    end
+end
+
+-- Open the book from the felt. The book opens centred, over the felt,
+-- with the result still visible around it.
+function CatalogModal:openFromFelt()
+    if not self.on_felt or self._open then return end
+    self._open = true
+    self._enter_t = 0          -- rise into place
+    -- Open to the first spread, not the cover: clicking a closed book and
+    -- getting the same cover, larger, is not "opening" it. A book the
+    -- player already paged into keeps its page.
+    if (self.spread_index or 0) == 0 then self.spread_index = 1 end
+end
+
+-- Close it back to the felt. The book keeps its page; it just sits down.
+function CatalogModal:closeToFelt()
+    if not self.on_felt or not self._open then return end
+    self._open = false
+end
+
+function CatalogModal:isOpen() return self._open end
+
 function CatalogModal:consumeMouse(mx, my, button)
+    -- Closed on the felt: a click on the book opens it. Anything else
+    -- falls through to the felt (the state decides what a felt click is).
+    if self.on_felt and not self._open then
+        local r = self._felt_rect
+        if r and button == 1 and self:_hitsFeltBook(r, mx, my) then
+            self:openFromFelt()
+            return true
+        end
+        return false
+    end
     -- Nothing is where it looks like it is until the book has landed.
     if self._enter_t < 1 then return false end
     if button ~= 1 then return false end
@@ -419,7 +573,7 @@ function CatalogModal:consumeMouse(mx, my, button)
            and (not owned["poker_poster"]) then
             return true -- Block resolution
         end
-        self._resolved = true
+        if self.on_felt then self:closeToFelt() else self._resolved = true end
         return true
     end
 
@@ -468,6 +622,11 @@ function CatalogModal:consumeMouse(mx, my, button)
             end
             return true   -- consumed even if not buyable (don't fall through)
         end
+    end
+    -- Dead space. On the felt that means "put the book down".
+    if self.on_felt then
+        self:closeToFelt()
+        return true
     end
     return false
 end
@@ -642,6 +801,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         cost_text = "FREE"
     end
     local tw_c = fonts.sm:getWidth(cost_text)
+    love.graphics.setFont(fonts.sm)   -- measured in sm; print in sm, not whatever was left set
     love.graphics.print(cost_text, cx_stamp - tw_c * 0.5, cy_stamp - fonts.sm:getHeight() * 0.5)
 
     local dim = (is_owned and not is_corruptible and not is_corrupted)
@@ -1000,12 +1160,19 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
         love.graphics.print(page.title:upper(), x + pad, y + fl(10 * s))
     end
     -- Chip ledger, right page only.
+    --
+    -- The number MEASURED with fonts.md but PRINTED in whatever font the last
+    -- draw left active: a leaf with a department title had just set fonts.md,
+    -- a continuation leaf had not, so the same "19" came out two sizes on
+    -- facing pages and occasionally in fonts.lg after a card cell. setFont
+    -- goes immediately before the print, every time.
     if is_right then
         local bal   = string.format("%d", state.chips or 0)
         local bal_w = fonts.md:getWidth(bal)
         local gsize = fonts.md:getHeight()
         local gap   = fl(5 * s)
         local bx    = x + w - pad - (bal_w + gap + gsize)
+        love.graphics.setFont(fonts.md)
         Theme.setColor({ 0.75, 0.20, 0.20 })
         love.graphics.print(bal, bx, y + fl(10 * s))
         Icons.drawChip(self.game, bx + bal_w + gap, y + fl(10 * s), gsize)
@@ -1013,6 +1180,16 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
     local head_h = fonts.md:getHeight() + fl(16 * s)
     Theme.setColor({ 0.15, 0.15, 0.12, 0.20 })
     love.graphics.line(x + pad, y + head_h, x + w - pad, y + head_h)
+
+    -- First-visit lede, on the felt: the cover is a thumbnail there, so the
+    -- line lives under the first page's header instead, where it is read at
+    -- the moment the book is first opened.
+    if self.intro_callout and self.on_felt and page_num == 1 then
+        Theme.setColor({ 0.15, 0.15, 0.12, 0.70 })
+        love.graphics.setFont(fonts.sm)
+        love.graphics.printf("Make your cell a home. Everything here is permanent.",
+                             x + pad, y + head_h + fl(4 * s), w - pad * 2, "center")
+    end
 
     -- Lay the cards out top-down, dividing the leaf's full card area between
     -- them in proportion to each item's slot cost. The leaf always fills:
@@ -1049,7 +1226,7 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
 end
 
 -- Front cover face (single narrow page).
-local function drawFrontCover(self, x, y, w, h, fonts, s)
+drawFrontCover = function(self, x, y, w, h, fonts, s)
     local fl = math.floor
     Theme.setColor({ 0.90, 0.85, 0.76 })
     love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
@@ -1082,13 +1259,16 @@ local function drawFrontCover(self, x, y, w, h, fonts, s)
 
     love.graphics.setFont(fonts.sm)
     Theme.setColor({ 0.75, 0.20, 0.20 })
-    love.graphics.printf("GRAB CORNER TO OPEN", x, y + h * 0.88, w, "center")
+    love.graphics.printf(self.on_felt and "CLICK TO OPEN" or "GRAB CORNER TO OPEN",
+                         x, y + h * 0.88, w, "center")
 
     -- First-visit lede. The flag has been plumbed from ShoveState since the
     -- callout was specced and nothing ever read it, so the band never drew.
     -- It lives on the cover rather than over a page: this is the one moment
     -- the player has not opened the book yet, and it is what the book is for.
-    if self.intro_callout then
+    -- On the felt the cover is a thumbnail and this copy would be
+    -- unreadable; the lede moves to the first open spread (see drawLeaf).
+    if self.intro_callout and not self.on_felt then
         local band_h = fl(30 * s)
         -- Below CATALOG & ORDER BOOK (drawn at 0.74), above GRAB CORNER (0.88).
         local by     = y + h * 0.81
@@ -1174,6 +1354,9 @@ function CatalogModal:draw()
     if self._enter_t < 1 then
         self._enter_t = math.min(1, self._enter_t + dt / SLIDE_IN_SECS)
     end
+    if self._throw_t < 1 then
+        self._throw_t = math.min(1, self._throw_t + dt / THROW_SECS)
+    end
     if self.flip_t then
         self.flip_t = self.flip_t - dt
         if self.flip_t <= 0 then
@@ -1207,6 +1390,13 @@ function CatalogModal:draw()
     if self._enter_t < 1 then
         local e = 1 - (1 - self._enter_t) ^ 3
         top = top + fl((H - top) * (1 - e))
+    end
+
+    -- Closed on the felt: draw the cover small, rotated, at its thrown
+    -- spot, and stop. Nothing else of the book exists until it is opened.
+    if self.on_felt and not self._open then
+        self:_drawClosedOnFelt(W, H, page_w, page_h, fonts, s)
+        return
     end
 
     -- Dim backdrop only — no hard frame to morph.
@@ -1365,7 +1555,9 @@ function CatalogModal:draw()
     -- cover (which owns the prominent CLOSE). Sits clear of the right page's
     -- {chip} ledger, which lives inside that same corner. Suppressed while the
     -- intro forces a poster purchase, and during a flip.
-    if idx ~= max_spread and not flipping and not forcing then
+    -- On the felt the ✕ shows on EVERY page, back cover included: closing
+    -- from anywhere is the point. The back cover's big CLOSE stays too.
+    if (self.on_felt or idx ~= max_spread) and not flipping and not forcing then
         local cz   = fl(20 * s)
         local cxr  = book_r - cz
         local cyr  = math.max(fl(6 * s), top - cz - fl(6 * s))

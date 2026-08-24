@@ -61,7 +61,9 @@ return {
     -- dealer's cheat. The duration delta IS the visual emphasis.
     card_deal_slide = {
         type     = "fade",
-        duration = 0.25,
+        -- Progress drives the card's TRAVEL from the dealer to its seat
+        -- (views/ShoveView dealPos), not just its alpha; 0.25 was a blink.
+        duration = 0.42,
         from     = 0,
         to       = 1,
     },
