@@ -43,6 +43,8 @@ local ShaderRegistry = require("services.ShaderRegistry")
 local CATALOG_ORD = {}
 for i, it in ipairs(Catalog) do CATALOG_ORD[it.id] = i end
 
+local SLIDE_IN_SECS = 0.45
+
 local CatalogModal = {}
 CatalogModal.__index = CatalogModal
 
@@ -88,6 +90,15 @@ function CatalogModal:new(game, opts)
         -- One-time tutorial lede (first post-shove visit only; the host
         -- decides via hints_seen["catalog_intro"] and marks it seen).
         intro_callout = opts.intro_callout == true,
+        -- Post-shove arrival: the closed book rises from the bottom of the
+        -- felt to its resting spot, beside the result it is the consequence
+        -- of. Mid-grind (the top-bar button) it simply appears, as before.
+        slide_in  = opts.slide_in == true,
+        _enter_t  = (opts.slide_in == true) and 0 or 1,
+        -- Full-screen dim behind the book. Off for the post-shove arrival so
+        -- the felt result stays readable next to it; on by default so the
+        -- mid-grind catalog is unchanged.
+        scrim     = opts.scrim ~= false,
         -- Cached cell rects (built each :draw, consumed by :consumeMouse)
         _cells   = {},
         -- Peelable sticker rects (same lifecycle as _cells), and the drag in
@@ -386,6 +397,8 @@ end
 
 -- Returns true if the click landed on a button or a buyable card.
 function CatalogModal:consumeMouse(mx, my, button)
+    -- Nothing is where it looks like it is until the book has landed.
+    if self._enter_t < 1 then return false end
     if button ~= 1 then return false end
 
     -- A peelable sticker takes the click before the card underneath it does —
@@ -1157,6 +1170,9 @@ function CatalogModal:draw()
 
     -- Page-flip timer.
     local dt = love.timer.getDelta()
+    if self._enter_t < 1 then
+        self._enter_t = math.min(1, self._enter_t + dt / SLIDE_IN_SECS)
+    end
     if self.flip_t then
         self.flip_t = self.flip_t - dt
         if self.flip_t <= 0 then
@@ -1184,10 +1200,19 @@ function CatalogModal:draw()
                       + (LEAF_SLOTS - 1) * fl(10 * s) + fonts.sm:getHeight() + fl(22 * s))
     local cx     = W * 0.5
     local top    = fl((H - page_h) * 0.5)
+    -- The slide: ease-out cubic from below the screen to the resting `top`.
+    -- Every hit rect below derives from `top` in this same pass, so they
+    -- track the book as it moves with no extra bookkeeping.
+    if self._enter_t < 1 then
+        local e = 1 - (1 - self._enter_t) ^ 3
+        top = top + fl((H - top) * (1 - e))
+    end
 
     -- Dim backdrop only — no hard frame to morph.
-    love.graphics.setColor(0, 0, 0, 0.55)
-    love.graphics.rectangle("fill", 0, 0, W, H)
+    if self.scrim then
+        Theme.setColor(Theme.debug.hud_bg)
+        love.graphics.rectangle("fill", 0, 0, W, H)
+    end
 
     -- Advance any in-progress peel BEFORE the cards draw, using last frame's
     -- sticker rects, so the label renders at the pull the mouse is actually at.

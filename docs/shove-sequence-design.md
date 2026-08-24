@@ -1,8 +1,12 @@
 # The shove, as a sequence
 
-Status: design, not built. This is the thing the teaching pass should have been
-built on top of, and was not. It collects every point raised about the gauntlet in
-the 2026-08-24 session, in one place, so that none of them falls out again.
+Status: **built, 2026-08-24**, across seven commits on `chip-visuals`. Verified
+headlessly (beat replay, catalog slide, no-spoilers, golden op trace, layout);
+nothing has been seen rendered. The panic timings are data in
+`views/ShoveView.lua`'s timeline and `data/shove_style.lua`, and are first guesses.
+
+This collects every point raised about the gauntlet in the 2026-08-24 session, in
+one place, so that none of them falls out again.
 
 ## Why this exists
 
@@ -206,15 +210,17 @@ This is its own slice and it is a prerequisite for most of the sequence above.
 
 ---
 
-## What to build first
+## What was built, in order
 
-1. The off-grind hint surface. Everything else needs the House to be able to talk.
-2. Kill `PrestigeModal`; result + summary on the felt; hold on click.
-3. The loss beat (winner lit / loser grey, pot leaves, readout rolls, "why" line).
-4. The cheat beat, with the win landing fully first.
-5. The poster and the slot.
-6. Catalog slide-in.
-7. The shove meter on the grind.
-8. Win fanfare.
+1. The off-grind hint surface: one host in `main.lua`, above every modal.
+2. `PrestigeModal` deleted; result + summary on the felt; holds on click.
+3. The loss beat: winner lit, loser grey, pot leaves, readout drains.
+4. The cheat beat, with the win landing fully first, then the panic.
+5. The poster and the slot the cards deal from.
+6. Catalog slide-in, closed, no scrim.
+7. The drain bar under the gauntlet's readout (not on the grind).
+8. Win fanfare: confetti, which existed and was called nowhere.
 
-Nothing here is built. This is the reference.
+Not built: the "why" line under the label pills ("Two pair beats a pair").
+The pills already name both hands; whether a comparison line adds anything is
+a call to make after seeing it.

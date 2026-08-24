@@ -452,4 +452,160 @@ return {
                     { kind = "bankroll", max = -1 } },
     },
 
+    -- ── Phase 7: the other screens ─────────────────────────────────────
+    -- Hints could only fire on the grind until the layer moved into
+    -- main.lua. These are the surfaces that had nothing: the shove felt,
+    -- the catalog, deck select, the room. Anchors live in those views.
+    --
+    -- Reveal rule applies hardest here. Nothing on the shove felt may name
+    -- a runout or a cheat before the player has seen one; the cheat hint
+    -- gates on the card being ON the felt (cheat_dealt), not on any flag.
+
+    -- The shove felt.
+    {
+        id     = "shove_pot_pile",
+        title  = "The pot",
+        anchor = "shove:pot",
+        text   = "Everything you had, in one pile. It is all on this hand.",
+        trigger = { kind = "all",
+                    { kind = "screen", name = "shove" },
+                    { kind = "shove_phase", phase = "buildup" } },
+    },
+
+    {
+        id     = "shove_readout",
+        title  = "Your odds",
+        anchor = "shove:readout",
+        text   = {
+            "BASE comes from the catalog. MULT comes from your bankroll.",
+            "The bar under them is the number. Watch it.",
+        },
+        trigger = { kind = "all",
+                    { kind = "screen", name = "shove" },
+                    { kind = "shove_phase", phase = "running" } },
+    },
+
+    {
+        id     = "shove_first_hold",
+        title  = "Continue",
+        anchor = "shove:summary",
+        sticky = true,
+        text   = "Take your time. Click anywhere when you are done reading.",
+        trigger = { kind = "shove_beat", id = "result" },
+        done    = { kind = "not", { kind = "shove_beat", id = "result" } },
+    },
+
+    {
+        id     = "shove_banked",
+        title  = "What you keep",
+        anchor = "shove:summary",
+        text   = "BANKED THIS RUN is yours. The all-in was everything else.",
+        trigger = { kind = "shove_beat", id = "result" },
+    },
+
+    -- Fires only once card 6 exists on the felt. By then the player has
+    -- watched the House cheat; this names what they saw.
+    {
+        id     = "shove_cheat_happened",
+        title  = "The extra card",
+        anchor = "shove:cheat_6",
+        text   = {
+            "That card landed on your BASE and took it out of the count.",
+            "The bar shows what is left. The House does not play fair. Plan for it.",
+        },
+        trigger = { kind = "cheat_dealt", min = 1 },
+    },
+
+    -- The catalog.
+    {
+        id     = "catalog_what",
+        title  = "The catalog",
+        anchor = "catalog:book",
+        text   = "Spend {chip} here. Everything in it is permanent, and most of it raises BASE for your next shove.",
+        trigger = { kind = "catalog_open" },
+    },
+
+    {
+        id     = "catalog_sticker",
+        title  = "Stickers",
+        anchor = "catalog:sticker:first",
+        text   = "A sticker means locked. The count on it is how close you are. Peel it when it fills.",
+        trigger = { kind = "all",
+                    { kind = "catalog_open" },
+                    { kind = "hint_seen", hint = "catalog_what" } },
+    },
+
+    {
+        id     = "catalog_price",
+        title  = "The stamp",
+        anchor = "catalog:price:first",
+        text   = "The stamp is the price, in {chip}.",
+        trigger = { kind = "all",
+                    { kind = "catalog_open" },
+                    { kind = "hint_seen", hint = "catalog_what" } },
+    },
+
+    {
+        id     = "catalog_close",
+        title  = "Closing the book",
+        anchor = "catalog:continue",
+        text   = "Done shopping? Close the book. The next run starts from $2.",
+        trigger = { kind = "all",
+                    { kind = "catalog_open" },
+                    { kind = "screen", name = "shove" },
+                    { kind = "hint_seen", hint = "catalog_what" } },
+    },
+
+    {
+        id     = "catalog_corruption",
+        title  = "Corruption",
+        anchor = "catalog:corrupt:first",
+        text   = "Things you own can be corrupted for {achip}. Corrupted items do far worse things.",
+        trigger = { kind = "all",
+                    { kind = "catalog_open" },
+                    { kind = "act3_unlocked" } },
+    },
+
+    -- Deck select.
+    {
+        id     = "deck_tiles",
+        title  = "The deck rack",
+        anchor = "deck:tile:1",
+        text   = "Your decks. Pick one to play the next run with. Locked ones say what opens them.",
+        trigger = { kind = "deck_select_open" },
+    },
+
+    {
+        id     = "deck_xp",
+        title  = "Deck XP",
+        anchor = "deck:xp",
+        text   = "The bar fills as the active deck plays. Full bar, next level, better bonus.",
+        trigger = { kind = "all",
+                    { kind = "deck_select_open" },
+                    { kind = "hint_seen", hint = "deck_tiles" } },
+    },
+
+    {
+        id     = "deck_continue",
+        title  = "Continue",
+        anchor = "deck:continue",
+        sticky = true,
+        text   = "Continue when you have picked.",
+        trigger = { kind = "all",
+                    { kind = "deck_select_open" },
+                    { kind = "hint_seen", hint = "deck_tiles" } },
+        done    = { kind = "not", { kind = "deck_select_open" } },
+    },
+
+    -- The room.
+    {
+        id     = "room_what",
+        title  = "Your room",
+        anchor = "room:play",
+        text   = "Everything you buy from the catalog ends up in here. PLAY goes back to the tables.",
+        trigger = { kind = "all",
+                    { kind = "screen", name = "room" },
+                    { kind = "screen_visits", name = "room", max = 1 } },
+    },
+
 }

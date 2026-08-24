@@ -1053,6 +1053,9 @@ function ShoveView:_drawCheatCards(result, eval)
             local dx, dy = dealPos(anim, x, Y_BOARD, tableCenterX(love.graphics.getWidth()))
             drawCardSprite(self.game.sprite_loader, card:spriteName(),
                            dx, dy, CARD_W, CARD_H, 1, alpha)
+            -- Registered only once the card exists, which is what keeps a
+            -- hint about it from firing before the player has seen it.
+            AnchorRegistry.set("shove:cheat_" .. i, dx, dy, CARD_W, CARD_H)
             if eval then
                 if isInCombo(card, eval.player_combo) then
                     Theme.setColor(Theme.status.good, 0.95)
