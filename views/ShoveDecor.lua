@@ -195,4 +195,20 @@ function ShoveDecor.drawSpotlight(band)
     end
 end
 
+-- The drain bar. `frac` is the fill 0..1; `over` paints it violet for an
+-- overshoot. Same track-and-fill shape as the grind's UNDERFLOW cell so the
+-- two meters read as one language.
+function ShoveDecor.drawMeter(x, y, w, h, frac, over)
+    local cfg = Style.meter
+    if not cfg.enabled or not w or w <= 0 then return end
+    local r = cfg.radius or 0
+    Theme.setColor(Theme.bg.sunken, cfg.track_alpha or 1)
+    love.graphics.rectangle("fill", x, y, w, h, r)
+    frac = math.max(0, math.min(1, frac or 0))
+    if frac > 0 then
+        Theme.setColor(over and Theme.data.violet or Theme.status.good)
+        love.graphics.rectangle("fill", x, y, math.max(h, w * frac), h, r)
+    end
+end
+
 return ShoveDecor

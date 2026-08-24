@@ -36,6 +36,12 @@ local ShoveDecor             = require("views.ShoveDecor")
 local Style                  = require("data.shove_style")
 local ShoveRate              = require("models.shove_rate")
 local HouseLines             = require("data.house_lines")
+local FlightSystem           = require("services.FlightSystem")
+local ChipFlight             = require("views.ChipFlight")
+local Confetti               = require("services.Confetti")
+local RollingValue           = require("services.RollingValue")
+local IconText               = require("views.IconText")
+local AnchorRegistry         = require("services.AnchorRegistry")
 
 local ShoveView = {}
 ShoveView.__index = ShoveView
@@ -224,6 +230,12 @@ function ShoveView:new(game, ss)
         -- `house_line` is what the House is currently saying, if anything.
         hold_id         = nil,
         house_line      = nil,
+        -- Result staging, set by timeline beats: who the felt lights for,
+        -- whether the pot pile has left, whether the summary is showing.
+        winner          = nil,     -- nil | "player" | "dealer"
+        pot_gone        = false,
+        summary_shown   = false,
+        robbed          = false,
         buildup_rates   = nil,
         buildup_chip_count_shown = 0,  -- last-frame count for sound triggers
     }, ShoveView)
@@ -385,6 +397,26 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
         add(at, function() self:_say(line_id) end)
     end
 
+    -- Light one side of the felt: the winner's cards stay bright with the
+    -- best-5 stroke, the loser's fade. Both sides used to get equal-weight
+    -- strokes, which is a diagram, not a result.
+    local function light(at, who)
+        add(at, function() self.winner = who end)
+    end
+
+    -- The pot pile leaves the felt toward whoever won it. The money is
+    -- SEEN going; before this the pile just sat there through a loss.
+    local function potTo(at, who, sound)
+        add(at, function() self:_potTo(who) end, sound)
+    end
+
+    local function summary(at, robbed)
+        add(at, function()
+            self.summary_shown = true
+            self.robbed = robbed == true
+        end)
+    end
+
     -- Pick the right resolution sound for runout i: gauntlet-final win/loss
     -- supersedes the per-runout chime so the moment lands.
     local function chipSound(i)
@@ -428,6 +460,17 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
 
     -- R1 resolution.
     add(t, showChip(1), chipSound(1))
+    if r.outcomes[1] then
+        light(t + 0.05, "player")
+        potTo(t + 0.10, "player", "chip_land_you")
+        add(t + 0.40, function() self:_confetti() end)
+    else
+        light(t + 0.05, "dealer")
+        potTo(t + 0.10, "house", "chip_land_pot")
+        say(t + 0.90, "loss")
+        summary(t + 1.20)
+        say(t + 1.60, "banked_stays")
+    end
 
     -- Demo cut stops here — R2 / R3 (the dealer's cheats) stay
     -- unrevealed, so first-time players never see the 6th community
@@ -521,6 +564,11 @@ function ShoveView:resetTimeline()
     self.phase_t        = 0
     self.hold_id        = nil
     self.house_line     = nil
+    self.winner         = nil
+    self.pot_gone       = false
+    self.summary_shown  = false
+    self.robbed         = false
+    RollingValue.reset("shove:allin")
     self.buildup_rates  = nil
     self.buildup_chip_count_shown = 0
 end
@@ -659,6 +707,8 @@ local function bannerFor(g, view)
     local terminal_idx = r.won and 3 or (r.busted_at or 0)
     if revealed < terminal_idx then return "ALL-IN" end
     if r.won then return "GAUNTLET CLEARED" end
+    -- Robbed, not busted: the player won and the House took it back.
+    if view and view.robbed then return "ROBBED" end
     return "BUSTED"
 end
 
@@ -870,6 +920,18 @@ function ShoveView:_drawStats(base_pct, mult_val, total_pct, covered)
     love.graphics.setFont(fonts.md)
     Theme.setColor(Theme.fg.faint)
     printCentered("ALL-IN", fonts.md, px, ty2 + lg_h, pw)
+
+    -- The drain bar. Eased toward the live total so a buried term is a
+    -- visible fall, not a number that is suddenly different.
+    local mcfg  = Style.meter
+    local md_h  = fonts.md:getHeight()
+    local bar_y = ty2 + lg_h + md_h + mcfg.gap
+    local shown = RollingValue.get("shove:allin", total_pct, mcfg.rate)
+    ShoveDecor.drawMeter(px, bar_y, pw, mcfg.h, shown / 100, shown > 100)
+
+    -- Hint targets: the whole readout, and the bar on its own.
+    AnchorRegistry.set("shove:readout", px, ty, pw, (bar_y + mcfg.h) - ty)
+    AnchorRegistry.set("shove:meter",   px, bar_y, pw, mcfg.h)
 end
 
 -- The live terms behind the readout, after whatever the dealer has taken.
@@ -949,7 +1011,14 @@ function ShoveView:_revealedRunoutIdx()
     return idx
 end
 
-function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key)
+-- Alpha for a card on the resolved felt: the loser's side fades. `side` is
+-- "player" or "dealer"; nil winner (mid-deal) means full alpha.
+function ShoveView:_sideAlpha(side)
+    if not self.winner or self.winner == side then return 1 end
+    return Style.cards.loser_alpha or 1
+end
+
+function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key, side)
     local sl = self.game.sprite_loader
     -- Active-deck override for the gauntlet hole-card back. Falls back
     -- to the constant default when the deck system hasn't unlocked or
@@ -963,7 +1032,8 @@ function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key)
 
     if not deal_anim then return end
 
-    local deal_alpha = deal_anim.getAlpha and deal_anim:getAlpha() or 1
+    local deal_alpha = (deal_anim.getAlpha and deal_anim:getAlpha() or 1)
+                       * self:_sideAlpha(side)
 
     if not flip_anim then
         drawCardSprite(sl, back, slot_x, slot_y, CARD_W, CARD_H, 1, deal_alpha)
@@ -1017,15 +1087,42 @@ function ShoveView:_drawShoveStatus(W, H)
     -- Pot pile in the center of the pot band. Same chip list the
     -- buildup arrived with, so the pile stays exactly where it
     -- landed when the cards take over.
-    if self.buildup_chips and #self.buildup_chips > 0 then
+    local pot_cx = math.floor(tableCenterX(W))
+    local pot_cy = Y_POT + math.floor(POT_BAND_H * 0.55)
+    AnchorRegistry.set("shove:pot", pot_cx - 120, pot_cy - 40, 240, 80)
+    if not self.pot_gone and self.buildup_chips and #self.buildup_chips > 0 then
         local chip_indices = {}
         for i, c in ipairs(self.buildup_chips) do
             chip_indices[i] = c.denom_idx
         end
-        local pot_cx = math.floor(tableCenterX(W))
-        local pot_cy = Y_POT + math.floor(POT_BAND_H * 0.55)
         Chips.drawStack(pot_cx, pot_cy, chip_indices, { align = "center" })
     end
+end
+
+-- The pot pile flies to whoever won it and the static pile stops drawing.
+-- Chips are the ones the buildup poured in, so the pile that leaves is the
+-- pile that arrived.
+function ShoveView:_potTo(who)
+    if self.pot_gone or not self.buildup_chips then return end
+    local W = love.graphics.getWidth()
+    local denoms = {}
+    for i, c in ipairs(self.buildup_chips) do denoms[i] = c.denom_idx end
+    local src = { math.floor(tableCenterX(W)), Y_POT + math.floor(POT_BAND_H * 0.55) }
+    local hole_cy = Y_PLAYER_HOLE + math.floor(CARD_H / 2)
+    local dest = (who == "player")
+        and { math.floor(tableCenterX(W)), hole_cy }
+        or  { math.floor(tableCenterX(W)), Y_DEALER_HOLE - math.floor(20 * (self.game.ui_scale or 1)) }
+    ChipFlight.flyChipsList(src, dest, denoms, {
+        max_per_event = #denoms,
+        arrival_sound = (who == "player") and "chip_land_you" or "chip_land_pot",
+    })
+    self.pot_gone = true
+end
+
+function ShoveView:_confetti()
+    local W = love.graphics.getWidth()
+    Confetti.burst({ math.floor(tableCenterX(W)), Y_PLAYER_HOLE + math.floor(CARD_H / 2) },
+                   40, { duration = 1.6 })
 end
 
 function ShoveView:draw()
@@ -1113,10 +1210,10 @@ function ShoveView:draw()
 
     -- Hole cards (face-down → flipped at showdown moment).
     if result then
-        self:_drawHoleCard(result.player_hole[1], hole_x,                     Y_PLAYER_HOLE, "ph_1")
-        self:_drawHoleCard(result.player_hole[2], hole_x + CARD_W + CARD_GAP, Y_PLAYER_HOLE, "ph_2")
-        self:_drawHoleCard(result.dealer_hole[1], hole_x,                     Y_DEALER_HOLE, "dh_1")
-        self:_drawHoleCard(result.dealer_hole[2], hole_x + CARD_W + CARD_GAP, Y_DEALER_HOLE, "dh_2")
+        self:_drawHoleCard(result.player_hole[1], hole_x,                     Y_PLAYER_HOLE, "ph_1", "player")
+        self:_drawHoleCard(result.player_hole[2], hole_x + CARD_W + CARD_GAP, Y_PLAYER_HOLE, "ph_2", "player")
+        self:_drawHoleCard(result.dealer_hole[1], hole_x,                     Y_DEALER_HOLE, "dh_1", "dealer")
+        self:_drawHoleCard(result.dealer_hole[2], hole_x + CARD_W + CARD_GAP, Y_DEALER_HOLE, "dh_2", "dealer")
     end
 
     -- Best-5 highlights (post-reveal).
@@ -1131,19 +1228,25 @@ function ShoveView:draw()
                 strokeSlot(x, y, CARD_W, CARD_H, inset, lw)
             end
 
+            -- Only the WINNER's best five gets a stroke once a side has been
+            -- lit. Stroking both was a diagram of two hands; lighting one is
+            -- a result.
+            local show_p = self.winner ~= "dealer"
+            local show_d = self.winner ~= "player"
+
             -- Player hole cards.
-            if isInCombo(result.player_hole[1], eval.player_combo) then
+            if show_p and isInCombo(result.player_hole[1], eval.player_combo) then
                 outline(hole_x, Y_PLAYER_HOLE, Theme.status.good, 2, 3)
             end
-            if isInCombo(result.player_hole[2], eval.player_combo) then
+            if show_p and isInCombo(result.player_hole[2], eval.player_combo) then
                 outline(hole_x + CARD_W + CARD_GAP, Y_PLAYER_HOLE, Theme.status.good, 2, 3)
             end
 
             -- Dealer hole cards (their own combo).
-            if isInCombo(result.dealer_hole[1], eval.dealer_combo) then
+            if show_d and isInCombo(result.dealer_hole[1], eval.dealer_combo) then
                 outline(hole_x, Y_DEALER_HOLE, Theme.status.error, 2, 3)
             end
-            if isInCombo(result.dealer_hole[2], eval.dealer_combo) then
+            if show_d and isInCombo(result.dealer_hole[2], eval.dealer_combo) then
                 outline(hole_x + CARD_W + CARD_GAP, Y_DEALER_HOLE, Theme.status.error, 2, 3)
             end
 
@@ -1154,10 +1257,10 @@ function ShoveView:draw()
             for i = 1, n_board do
                 local card = result.board[i]
                 local x = slotX(board_x, i)
-                if isInCombo(card, eval.player_combo) then
+                if show_p and isInCombo(card, eval.player_combo) then
                     outline(x, Y_BOARD, Theme.status.good, 2, 3)
                 end
-                if isInCombo(card, eval.dealer_combo) then
+                if show_d and isInCombo(card, eval.dealer_combo) then
                     outline(x, Y_BOARD, Theme.status.error, -3, 3)
                 end
             end
@@ -1208,6 +1311,11 @@ function ShoveView:draw()
         end
     end
 
+    -- In-flight chips and confetti. FlightSystem is drawn in exactly one
+    -- other place, the grind view; without this line a flight emitted here
+    -- ticks invisibly and pops into existence back on the grind.
+    FlightSystem.draw()
+
     -- Runout result chips — only render the ones that have actually
     -- been revealed. Pre-revealed grey chips spoiled the structure (the
     -- player could count "ah, three runouts coming" before any cards
@@ -1250,6 +1358,37 @@ function ShoveView:draw()
             local text_y = Y_CHIPS + math.floor((chip_h - self.fonts.md:getHeight()) / 2)
             printCentered(label, self.fonts.md, x, text_y, chip_w)
         end
+    end
+    AnchorRegistry.set("shove:chips", chip_x0, Y_CHIPS, total_chip_w, chip_h)
+
+    -- The run summary, on the felt, under the result. This is what the
+    -- prestige modal used to say from on top of the cards.
+    if self.summary_shown and Style.summary.enabled then
+        local fonts  = self.fonts
+        local sy     = Y_CHIPS + chip_h + Style.summary.gap
+        local tcx    = math.floor(tableCenterX(W))
+        local label  = (self.chips_banked or 0) > 0 and "BANKED THIS RUN" or "NOTHING BANKED THIS RUN"
+        love.graphics.setFont(fonts.md)
+        Theme.setColor(Theme.fg.muted)
+        printCentered(label, fonts.md, tcx - 200, sy, 400)
+        local line_y = sy + fonts.md:getHeight()
+        if (self.chips_banked or 0) > 0 then
+            local txt = string.format("{chip} %d", self.chips_banked)
+            local tw  = IconText.measure(txt, fonts.lg)
+            IconText.draw(self.game, txt, tcx - math.floor(tw / 2), line_y,
+                          fonts.lg, Theme.status.good, 1)
+            line_y = line_y + fonts.lg:getHeight()
+        end
+        AnchorRegistry.set("shove:summary", tcx - 200, sy, 400, line_y - sy)
+    end
+
+    -- The House, if it has something to say. The bubble is the tutorial's
+    -- own bubble, tail to the poster; a live hint outranks it.
+    if self.house_line and self.game.hint_view
+       and not (self.game.hints and self.game.hints:activeHint()) then
+        local hv = self.game.hint_view
+        local layout = hv:_layoutHint({ text = self.house_line, anchor = "house" }, false)
+        if layout then hv:_drawHint(layout, false) end
     end
 end
 

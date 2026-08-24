@@ -165,6 +165,35 @@ return {
         enabled = true,
     },
 
+    -- The drain bar under the readout. Fill is the live ALL-IN chance,
+    -- eased, so when a cheat card buries a term the player WATCHES the
+    -- number fall instead of reading that it did. Over 100% (the Act 3
+    -- underflow) the bar pins full and turns violet, same signal the top
+    -- bar's UNDERFLOW cell uses.
+    meter = {
+        enabled     = true,
+        h           = 6,
+        gap         = 6,        -- below the ALL-IN label
+        track_alpha = 0.90,
+        radius      = 3,
+        -- RollingValue rate: how fast the fill chases its target. Lower
+        -- is a slower, more visible drain.
+        rate        = 4.0,
+    },
+
+    -- What the loser's cards fade to once a runout resolves. The winner's
+    -- stay at full alpha with the best-5 stroke; the loser gets neither.
+    cards = {
+        loser_alpha = 0.45,
+    },
+
+    -- The run summary on the felt: BANKED THIS RUN and the {chip} count,
+    -- drawn under the result chips once the summary beat fires.
+    summary = {
+        enabled = true,
+        gap     = 10,
+    },
+
     -- Superseded by `glow`. Kept so the draw-trace harness can put the old
     -- lighting back and diff against the pre-extraction capture.
     spotlight = {
