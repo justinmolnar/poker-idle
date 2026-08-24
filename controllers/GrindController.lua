@@ -21,6 +21,7 @@ local ChipData       = require("data.chips")
 local FeedbackIntensity = require("data.feedback_intensity")
 local Denoms         = require("services.DenominationBreakdown")
 local AnchorRegistry = require("services.AnchorRegistry")
+local AwardGlow      = require("views.AwardGlow")
 local StakeThemes    = require("data.stake_themes")
 local Lookups        = require("utils.lookups")
 local HandAnalytics  = require("services.HandAnalytics")
@@ -798,6 +799,11 @@ function GrindController:update(dt)
             local newly = Decks.checkPendingUnlocks(state, self.game.unlock_rules)
             if #newly > 0 then
                 self:invalidateEffects()
+                for _, id in ipairs(newly) do
+                    local spec = Decks.specById(id)
+                    self:_announceOnDeckCell(
+                        "NEW DECK: " .. ((spec and spec.name) or id))
+                end
             end
         end
     end
@@ -809,6 +815,33 @@ function GrindController:update(dt)
     self.pool:_syncStateList()
 end
 
+-- Announce something landing on the DECK cell: a gold pulse on the cell plus
+-- a floater rising off it. The same pair a {chip} bounty uses, for the same
+-- reason -- this is acknowledgement, not teaching, so it wants the vocabulary
+-- the player already reads rather than a new one.
+--
+-- Both of the events this serves were already detected and thrown away:
+-- Decks.checkPendingUnlocks RETURNS the newly-unlocked ids and Decks.gainXp
+-- returns a level-up flag, and each was used only to invalidate the effects
+-- cache. Deck progression has been completely silent since it shipped.
+--
+-- Anchored, so it no-ops when the cell is not on screen (the boot-time and
+-- deck-select unlock sweeps have no grind view to draw into).
+function GrindController:_announceOnDeckCell(text)
+    local a = AnchorRegistry.get("cell:deck")
+    if not a then return end
+    AwardGlow.flash("cell:deck")
+    if self.game.floating_text then
+        self.game.floating_text.emit(text,
+            a[1] + (a[3] or 0) * 0.5, a[2] + (a[4] or 0),
+            -- "amber" resolves through Theme.data in GrindView's floater
+            -- draw. Without a token this text would default to status.error,
+            -- because the auto-color rule only reads a leading "+" as good
+            -- news and an unlock does not start with one.
+            { color_token = "amber" })
+    end
+end
+
 -- Grant XP to the active deck for one resolved hand. Returns true on a
 -- level-up so the controller can invalidate the effects cache; the model
 -- side handles the math + state writes.
@@ -818,6 +851,10 @@ function GrindController:_grantDeckXp(event)
     local _, leveled = Decks.gainXp(self.game.state, self.game.xp_rules, event, xp_mult)
     if leveled then
         self:invalidateEffects()
+        local state = self.game.state
+        local lvl   = state.deck_levels and state.active_deck_id
+                      and state.deck_levels[state.active_deck_id]
+        self:_announceOnDeckCell(lvl and ("DECK L" .. lvl) or "DECK LEVEL UP")
     end
 end
 

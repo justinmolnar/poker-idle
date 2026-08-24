@@ -11,6 +11,47 @@ copy, modals).
 
 ---
 
+## Status: implemented 2026-08-24
+
+The whole gap list below is built. Five findings from implementation corrected or
+sharpened this audit; they are recorded here rather than silently edited into the
+text, because three of them say this document was wrong.
+
+**1. The self-destructing tutorial was worse than section 0 describes.** The
+`shoves` condition reads `state.shove_count`, and `quickReset` calls `resetRun()`,
+which increments it (`GameState.lua:235`). `GameState.lua:66-70` already documents
+that `has_shoved` exists *because* `shove_count` is not a "did they shove" signal.
+So pressing the free rescue button once — which the `quick_reset` hint actively
+tells the player to do — silently retired **six of fifteen hints**, including
+`shove_ready`, the one explaining what SHOVE is. Fixed by splitting `done` into
+`done` (sticky completion) and `retire` (veteran suppression), and by pointing
+every "have they shoved" question at `has_shoved`. Guarded by a headless test that
+fails on the old code.
+
+**2. P0 #6 was wrong.** The catalog shove line already existed
+(`views/CatalogModal.lua:687-692`). The real defect was precision: whole-percent
+rounding printed 0.005, 0.008, 0.010, 0.012 and 0.014 all as `+1% shove`, so five
+price tiers looked identical. Now one decimal.
+
+**3. A defect this audit missed.** `intro_callout` was assigned at
+`CatalogModal.lua:89` and never read — the first-visit catalog lede that
+`docs/hints-reference.md:167` and `docs/tutorial-teaching-list.md:29` both describe
+as shipped had never rendered. It renders now, on the front cover.
+
+**4. P1 #9 overstated the deck gap.** `DeckSelectModal.lua:554-569` already states
+all three deck rules in its footer. No primer modal was needed; the act-break modal
+plus a `cell:deck` hint covers what was actually missing.
+
+**5. Why decks feel absent in Act 2** — the thing the audit could not explain. At
+the first R1 win the deck screen opens with **one** usable tile (`standard`,
+already active) and eleven locked, and every `lifetime_*` counter is gated on
+`Decks.systemUnlocked` (`GrindController:749`), so all thresholds start from zero at
+that instant. The nearest is `specialist` at 1,500 hands. **This is a balance
+question, not a teaching one** — teaching can point at the path but cannot make it
+interactive. Left open deliberately.
+
+---
+
 ## 0. The headline
 
 **Every teaching surface in the game is scoped to Act 1, before the first SHOVE.**
@@ -162,7 +203,7 @@ explained.
 ## 3. Defects inside the teaching that *does* exist
 
 - **MTT blurb is wrong.** `views/GrindView.lua:334` says "sit down with 100bb chips"; `data/game_types.lua` sets `starting_stack_bb = 10`.
-- **`PrestigeModal` discards `busted_at`** (`views/PrestigeModal.lua:15`) — the one field that would let it tell a total loss from an act break.
+- **`PrestigeModal` discards `busted_at`** (`views/PrestigeModal.lua:15`) — the one field that would let it tell a total loss from an act break. *(Resolved differently: the modal now branches on an explicit `milestone` passed from `ShoveState`. `busted_at` stays unused on purpose — printing "you busted on runout 1" would tell a first-time player that a runout 2 exists, which is the reveal the whole shove screen is built to protect.)*
 - **`first_chip` says "banked"**, but `chips_this_run` stays *pending* until a shove or quick reset commits it (`GrindController.lua:1091`, `:1778`), and the top-bar count stays 0 pre-shove. Copy and mechanic disagree.
 - **The glossary is unreachable in TUTORIAL builds** — the how-to-play modal that held it survives only in prototype builds. Flagged as open in `docs/tutorial-teaching-list.md`; still open.
 - **No `AnchorRegistry` entry exists for the DECK chip**, so no hint can point at it until one is added. Every other later-phase target already has one.

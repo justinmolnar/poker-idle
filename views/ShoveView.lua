@@ -34,6 +34,7 @@ local ChipData               = require("data.chips")
 local CardSprites            = require("views.CardSprites")
 local ShoveDecor             = require("views.ShoveDecor")
 local Style                  = require("data.shove_style")
+local ShoveRate              = require("models.shove_rate")
 
 local ShoveView = {}
 ShoveView.__index = ShoveView
@@ -782,8 +783,7 @@ end
 -- multiplier once the bankroll has underflowed: that is a number the dealer
 -- cannot bury, and it is how the last runout is finally won.
 function ShoveView:_underflowed(rates)
-    local threshold = Constants.GAMEPLAY.UNDERFLOW_THRESHOLD
-    return threshold ~= nil and (rates.bankroll or 0) < threshold
+    return ShoveRate.underflowed(rates.bankroll)
 end
 
 function ShoveView:_statsValues(rates, covered)

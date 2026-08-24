@@ -220,8 +220,8 @@ Rules this design has to keep:
 
 ## 6. Build plan
 
-**Status 2026-08-24: Steps 1-4 built (rebuilt after an external revert). Step 5
-not started.** Everything below is
+**Status 2026-08-24: complete.** Steps 1-4 built; the proposed step 5 was cut
+(see "Not in this plan"). Everything below is
 verified headlessly only (see §7) -- nothing has been seen rendered. The two
 things needing eyes are in §8.
 
@@ -308,12 +308,6 @@ The feature. Depends on Steps 2-3.
 content 823 of 900, margins 38/39. Board 620px centred leaves 490px free each side; the
 label pills are ~208px wide.
 
-### Step 5 — Act identity (optional)
-
-- [ ] The rail carries the act the way `stake_themes.rail_color` carries the stake. Keyed
-      on `shove_r1_won` / `shove_r2_won`. Gold stays reserved for {chip}, same call the
-      felt rail palette made.
-
 ### Not in this plan
 
 - **No gates, shed ladders, or drop priorities.** One size (§1); every branch would be dead.
@@ -323,6 +317,12 @@ label pills are ~208px wide.
 - **No new shaders.** `FeltDecor` chose a texture over a shader so the love.js build cannot
   fail to compile it; same reasoning here.
 - **No popups, hints, or explanatory copy.** Second pass.
+- **No act identity on the rail.** Proposed and cut. The gauntlet is one room,
+  one seat, one dealer; a table that changes material between acts implies the
+  player went somewhere, when the fiction is that nothing changes except what
+  the dealer takes. It would also compete with the beat it was meant to support:
+  an ambient palette shift reads as atmosphere, not as something the dealer's
+  hands did. What separates the acts is card 6, then card 7. That is enough.
 
 ### What Step 3 actually did to the lighting
 

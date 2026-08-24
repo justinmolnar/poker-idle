@@ -173,6 +173,36 @@ function ShoveRate.compute(ctx, bankroll)
     return rates
 end
 
+-- How far the bankroll has bled toward the underflow, 0..1.
+--
+-- LOG scale, and that is a design call rather than a convenience. The
+-- threshold is -100,000,000,000; on a linear scale a player who has lost ten
+-- million dollars sits at 0.01% and the bar looks broken for hours. Orders of
+-- magnitude move at a readable pace the whole way down.
+--
+-- Because a log bar overstates early progress, the readout that draws it must
+-- also print the real figures -- the bar is the pacing, the numbers are the
+-- truth.
+--
+-- Lives here because this module already owns the threshold read (see the Act
+-- 3 branch in compute), so there is one place that knows what underflow means.
+function ShoveRate.underflowProgress(bankroll)
+    local threshold = Constants.GAMEPLAY.UNDERFLOW_THRESHOLD or -100000000000
+    bankroll = bankroll or 0
+    if bankroll >= 0 or threshold >= 0 then return 0 end
+    -- log10 of a debt under $1 is negative; the clamp is what catches it.
+    local p = math.log(-bankroll, 10) / math.log(-threshold, 10)
+    if p ~= p then return 0 end                      -- NaN guard
+    return math.max(0, math.min(1, p))
+end
+
+-- True once the bankroll has fallen past the threshold. Single source of
+-- truth: views/ShoveView reads this rather than re-deriving the comparison.
+function ShoveRate.underflowed(bankroll)
+    local threshold = Constants.GAMEPLAY.UNDERFLOW_THRESHOLD
+    return threshold ~= nil and (bankroll or 0) < threshold
+end
+
 -- Synthesize a rate struct from a raw catalog base, bypassing ctx. Used by
 -- the shove-mode debug hotkeys ([ / ]) which mutate the rate independently
 -- of the actual catalog rollup.
@@ -204,12 +234,12 @@ function ShoveRate.formatBreakdown(rates)
     local lines = {
         { text = string.format("Catalog base: %.1f%%", (rates.catalog or 0) * 100), style = "sm" },
     }
-    -- Deck base only surfaces once the master deck exists — it's the term
-    -- that survives the R2 cheat, but the pre-reveal breakdown still hides
-    -- R2/R3 and the cheats; it just explains the headline % honestly.
-    if (rates.deck or 0) > 0 then
-        lines[#lines + 1] = { text = string.format("Deck base: %.1f%%", rates.deck * 100), style = "sm" }
-    end
+    -- ALWAYS shown, including at zero. This is the term the dealer's first
+    -- cheat leaves standing, so a deck base of 0% is the difference between
+    -- a winnable second runout and an impossible one. Hiding it hid exactly
+    -- the number the player needed; showing 0.0% is the honest reading and
+    -- still gives away nothing about the runouts themselves.
+    lines[#lines + 1] = { text = string.format("Deck base: %.1f%%", (rates.deck or 0) * 100), style = "sm" }
     lines[#lines + 1] = { text = string.format("Bankroll Mult: %.1f×", rates.mult),         style = "sm" }
     lines[#lines + 1] = { text = string.format("ALL-IN: %.0f%% to win", rates.raw_r1 * 100), style = "md" }
     return lines

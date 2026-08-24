@@ -688,7 +688,10 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     local sctx = {}
     self.game.effects:applyAll(item, sctx)
     local shove = sctx.shove_rate or 0
-    local shove_txt = shove > 0 and string.format("+%d%% shove", math.floor(shove * 100 + 0.5)) or nil
+    -- One decimal, not zero. Band A runs 0.005..0.018, which whole-percent
+    -- rounding flattened into "+1%" for five different price tiers -- the
+    -- stat was on screen and still could not be compared.
+    local shove_txt = shove > 0 and string.format("+%.1f%% shove", shove * 100) or nil
     local shove_ink = dim and { 0.20, 0.35, 0.55, 0.45 } or { 0.20, 0.35, 0.55 }
 
     if hero then
@@ -1047,6 +1050,24 @@ local function drawFrontCover(self, x, y, w, h, fonts, s)
     love.graphics.setFont(fonts.sm)
     Theme.setColor({ 0.75, 0.20, 0.20 })
     love.graphics.printf("GRAB CORNER TO OPEN", x, y + h * 0.88, w, "center")
+
+    -- First-visit lede. The flag has been plumbed from ShoveState since the
+    -- callout was specced and nothing ever read it, so the band never drew.
+    -- It lives on the cover rather than over a page: this is the one moment
+    -- the player has not opened the book yet, and it is what the book is for.
+    if self.intro_callout then
+        local band_h = fl(30 * s)
+        local by     = y + h * 0.80 - band_h
+        Theme.setColor({ 0.15, 0.15, 0.12, 0.10 })
+        love.graphics.rectangle("fill", x + fl(18 * s), by,
+                                w - fl(36 * s), band_h, Theme.space.radius)
+        Theme.setColor({ 0.15, 0.15, 0.12 })
+        love.graphics.setFont(fonts.sm)
+        love.graphics.printf("Make your cell a home. Everything here is permanent.",
+                             x + fl(18 * s),
+                             by + fl((band_h - fonts.sm:getHeight()) * 0.5),
+                             w - fl(36 * s), "center")
+    end
 end
 
 -- Back cover face. When interactive, mounts the prominent CLOSE button and

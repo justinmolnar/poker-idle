@@ -131,8 +131,14 @@ function HintController:update(dt)
     for _, spec in ipairs(Hints) do
         if not seen[spec.id] and spec ~= self.active
            and not self:_isQueued(spec.id) then
-            if spec.done and reg:check(spec.done, ctx) then
-                self:_markSeen(spec.id)   -- already learned — retire silently
+            -- `retire` is the silent-suppression predicate; `done` is a
+            -- sticky hint's completion. They used to be one field, which
+            -- meant a completion condition could delete a hint the player
+            -- had never seen. Falling back to `done` keeps every spec that
+            -- has not been migrated evaluating exactly as before.
+            local retire = spec.retire or spec.done
+            if retire and reg:check(retire, ctx) then
+                self:_markSeen(spec.id)   -- already past this lesson
             elseif spec.sticky then
                 if not self.active and reg:check(spec.trigger, ctx) then
                     self.active = spec

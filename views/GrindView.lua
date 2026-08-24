@@ -79,6 +79,7 @@ local BANKROLL_CELL_W      = 160
 local CELL_W = {
     tied = 72, total = 72,                   -- money cluster
     chip = 48, achip = 48, shove = 56, deck = 50, -- run cluster (chip + deck are icon/sprite)
+    underflow = 84,                          -- Act 3 bleed meter
     tables = 72, focus = 56,                 -- workload cluster
 }
 local TOPBAR_LABEL_Y       = 8
@@ -209,6 +210,9 @@ local function recomputeLayout(W, H, fonts, state)
     -- bar space when FEATURES.DECKS is on; the cluster collapses
     -- otherwise (the cells_total sum below excludes it).
     CELL_W.deck   = math.max(cellW("DECK", "L9"), math.floor(36 * s) + math.floor(8 * s))
+    -- Act 3 bleed meter: label plus a bar, so it sizes off the label and a
+    -- minimum bar width rather than a value string.
+    CELL_W.underflow = math.max(cellW("UNDERFLOW", "100%"), math.floor(84 * s))
     CELL_W.tables = cellW("TABLES",  "99 / 99")
     CELL_W.focus  = cellW("FOCUS",   "100%")
 
@@ -218,7 +222,11 @@ local function recomputeLayout(W, H, fonts, state)
                          + CELL_W.chip  + CELL_W.shove
                          + CELL_W.tables + CELL_W.focus
     if state and state.shove_r2_won then
-        cells_total = cells_total + CELL_W.achip
+        -- Both Act 3 cells are reserved on the ACT, though the meter only
+        -- DRAWS once the bankroll actually goes negative. recomputeLayout
+        -- reruns on resize only, so reserving on the live bleed condition
+        -- would reflow the whole bar under the player mid-run.
+        cells_total = cells_total + CELL_W.achip + CELL_W.underflow
     end
     -- Reserve on the static flag, not Decks.systemUnlocked: the system
     -- unlocks mid-session (first gauntlet clear) and this only reruns on
@@ -330,7 +338,7 @@ function GrindView:_makeGameTypeStrip()
         hu       = "Heads-Up — duel with one opponent. Fast pace, you win less often, but pots run deep both ways.",
         zoom     = "Zoom — fast hands, random opponents. Easier to win, but pots smaller overall.",
         mtt      = Constants.FEATURES.MTT_KO
-                   and "8-max KO — sit down with 100bb chips. Hands play normally; seats bust at zero. Win it all or finish top-3 to cash."
+                   and "8-max KO — every seat sits down with a 10bb stack. Hands play normally; seats bust at zero. Win it all or finish top-3 to cash."
                    or  {
                        "Tournament — 8 hands play out automatically. Win more hands to climb the payout ladder; lose one and the run ends.",
                        {  -- {chip} icon row: chips only come from winning all 8
@@ -381,6 +389,10 @@ function GrindView:_makeGameTypeStrip()
                 -- Chip-award pulse routed here when a bounty banks for a
                 -- game type the player isn't currently viewing.
                 AwardGlow.draw(id, bx, y, rect_w, rect_h)
+                -- Same rect, as a hint target: the tab strip is the only way
+                -- to reach HU / Zoom / tournaments and nothing could point at
+                -- it. Registered every draw so staleness hides it normally.
+                AnchorRegistry.set(id, bx, y, rect_w, rect_h)
             end
         end,
         hit_fn = function(px, y, pw, _, cx, cy)
@@ -740,6 +752,19 @@ function GrindView:_buildRangeTooltip(up)
         for _, line in ipairs(blurb) do rows[#rows + 1] = _blurbRow(self, line) end
     end
 
+    -- Why a `fill_scaled` upgrade can read "MAX 11/29". The buyable cap tracks
+    -- the highest stake currently available (GrindController:getRunUpgradeMaxLevel
+    -- takes the largest fill_window.complete among them), so the level ceiling
+    -- climbs as the ladder opens. Without this line the readout looks like a bug.
+    if up.fill_scaled then
+        local lvl = self.controller:getRunUpgradeLevel(up.id)
+        local cap = self.controller:getRunUpgradeMaxLevel(up)
+        if lvl >= cap and cap < (up.max_level or cap) then
+            rows[#rows + 1] = _blurbRow(self,
+                "Maxed for your stakes. Higher stakes raise the cap.")
+        end
+    end
+
     local spec = up.tooltip_metric and RANGE_TOOLTIP[up.tooltip_metric]
     if spec then
         if self.controller:getRunUpgradeLevel(up.id) >= self.controller:getRunUpgradeMaxLevel(up) then
@@ -1005,6 +1030,27 @@ function GrindView:update(dt)
     local tr = self._tied_cell_rect
     if tr and mx >= tr.x and mx < tr.x + tr.w and my >= tr.y and my < tr.y + tr.h then
         TooltipSvc.set("Currently held in tables.", mx, my)
+    end
+
+    -- Act 3 bleed meter tooltip. The bar is log-scaled so it can read as
+    -- most of the way there while the debt is orders of magnitude short;
+    -- these two lines are the honest version and the reason the bar is
+    -- allowed to lie about pace.
+    local ur = self._underflow_cell_rect
+    if ur and mx >= ur.x and mx < ur.x + ur.w and my >= ur.y and my < ur.y + ur.h then
+        local bank      = state.bankroll or 0
+        local threshold = Constants.GAMEPLAY.UNDERFLOW_THRESHOLD or 0
+        -- Format.money puts the sign INSIDE the currency symbol ("$-1.2M").
+        -- Debt is the whole subject here, so it is formatted on the absolute
+        -- value with the minus in front. Left local rather than changing a
+        -- formatter every readout in the game shares.
+        local function debt(v) return "-" .. Format.money(math.abs(v)) end
+        TooltipSvc.set({
+            { text = "Bankroll overflow", style = "md" },
+            { text = string.format("%s of %s", debt(bank), debt(threshold)),
+              style = "sm" },
+            "Take it far enough negative and the count breaks.",
+        }, mx, my)
     end
 
     -- Top-bar SHOVE cell hover tooltip — full breakdown of the live
@@ -1390,6 +1436,36 @@ function GrindView:_drawTopBar(W)
     end
     x = x + CELL_W.shove
 
+    -- Act 3 bleed meter. Appears only once the bankroll is actually
+    -- negative, so the cell showing up IS the signal that something new is
+    -- happening -- there is nothing to watch before the bleed starts.
+    --
+    -- The bar is log-scaled (models/shove_rate.underflowProgress), because a
+    -- linear one sits at a fraction of a percent for hours. That overstates
+    -- early progress, so the hover tooltip carries the real figures.
+    local d_bank = self.displayed_bankroll or (state.bankroll or 0)
+    if state.shove_r2_won and d_bank < 0 then
+        local uw = CELL_W.underflow
+        drawStatCell(x, uw, "UNDERFLOW", "", Theme.fg.heading, fonts)
+        local bar_w = uw - math.floor(12 * (self.game.ui_scale or 1))
+        local bar_h = math.max(3, math.floor(5 * (self.game.ui_scale or 1)))
+        local bar_x = x + math.floor((uw - bar_w) / 2)
+        local bar_y = TOPBAR_VALUE_Y + math.floor(fonts.md:getHeight() * 0.35)
+        Theme.setColor(Theme.bg.sunken)
+        love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, bar_h * 0.5)
+        local frac = ShoveRate.underflowProgress(d_bank)
+        if frac > 0 then
+            Theme.setColor(Theme.data.violet)
+            love.graphics.rectangle("fill", bar_x, bar_y,
+                                    math.max(bar_h, bar_w * frac), bar_h, bar_h * 0.5)
+        end
+        AnchorRegistry.set("cell:underflow", x, 2, uw, TOP_BAR_H - 4)
+        self._underflow_cell_rect = { x = x, y = 2, w = uw, h = TOP_BAR_H - 4 }
+        x = x + uw
+    else
+        self._underflow_cell_rect = nil
+    end
+
     -- DECK chip (sprite) sits in the run cluster once the deck system
     -- has unlocked (first gauntlet clear). The chip renders the active
     -- deck's card-back at icon size with a level overlay; the hover
@@ -1397,6 +1473,10 @@ function GrindView:_drawTopBar(W)
     -- breakdown. Rect nil while locked, so clicks/tooltips no-op.
     if Decks.systemUnlocked(self.game.state) then
         self._deck_cell_rect = self:_drawDeckCell(x, CELL_W.deck, fonts)
+        -- The one top-bar cell that never had an anchor, so nothing could
+        -- point at it and an unlock had nowhere to announce itself. Every
+        -- sibling cell registers one; this is the same line.
+        AnchorRegistry.set("cell:deck", x, 2, CELL_W.deck, TOP_BAR_H - 4)
         x = x + CELL_W.deck
     else
         self._deck_cell_rect = nil

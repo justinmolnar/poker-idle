@@ -159,16 +159,28 @@ function ShoveState:_onGauntletEnded()
     local chips_banked = state.chips_this_run or 0
     HandAnalytics.recordShoveResult(result, chips_banked)
 
+    -- Which act this shove opened, if any. Captured in the same block that
+    -- flips the flags, so it is inherently once-per-game and rides the save
+    -- below. The prestige modal reads it and reframes itself: winning a
+    -- runout is an act break, not a bust, and titling it BUSTED was the
+    -- worst-timed word in the game.
+    --
+    -- R2 can only be won on a shove that also won R1, so on a
+    -- double-milestone shove act3 correctly overwrites act2: the bigger
+    -- reveal is the one worth showing.
+    local milestone = nil
     local save_needed = false
     if result.outcomes then
         if result.outcomes[1] == true and not state.shove_r1_won then
             state.shove_r1_won = true
             save_needed = true
+            milestone = "act2"
             print("[shove] Won Runout 1 of the gauntlet: unlocked Act 2!")
         end
         if result.outcomes[2] == true and not state.shove_r2_won then
             state.shove_r2_won = true
             save_needed = true
+            milestone = "act3"
             print("[shove] Won Runout 2 of the gauntlet: unlocked Act 3!")
         end
     end
@@ -202,7 +214,7 @@ function ShoveState:_onGauntletEnded()
         self.game.state_machine:switch("credits")
     else
         self.prestige_modal = PrestigeModal:new(
-            self.game, chips_banked, result.busted_at)
+            self.game, chips_banked, result.busted_at, milestone)
     end
 end
 

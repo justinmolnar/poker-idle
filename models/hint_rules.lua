@@ -15,6 +15,7 @@
 -- (either optional). `all` / `any` / `not` compose sub-conditions from
 -- their array part.
 
+local Decks         = require("models.Decks")
 local Stakes        = require("data.stakes")
 local RunUpgrades   = require("data.run_upgrades")
 local BankrollTiers = require("data.bankroll_tiers")
@@ -32,6 +33,24 @@ end
 local function stateField(reg, kind, field)
     reg:register(kind, function(cond, ctx)
         return inRange((ctx.state and ctx.state[field]) or 0, cond)
+    end)
+end
+
+-- Registers a boolean kind reading one named GameState flag. Sibling of
+-- stateField, and there for the same reason: data/hints.lua names a CONCEPT
+-- ("act3_unlocked") while the engine field it reads ("shove_r2_won") stays in
+-- here, so renaming the field never touches data.
+local function stateFlag(reg, kind, field)
+    reg:register(kind, function(_cond, ctx)
+        return (ctx.state and ctx.state[field]) == true
+    end)
+end
+
+-- Length of a named GameState list field, as a {min,max} kind.
+local function stateCount(reg, kind, field)
+    reg:register(kind, function(cond, ctx)
+        local list = ctx.state and ctx.state[field]
+        return inRange(list and #list or 0, cond)
     end)
 end
 
@@ -64,6 +83,26 @@ function HintRules.registerAll(reg)
     stateField(reg, "total_denied_stacks",   "total_denied_stacks")
     stateField(reg, "hands_since_last_bank", "hands_since_last_bank")
     stateField(reg, "bankroll",              "bankroll")
+    stateField(reg, "total_chips_banked",    "total_chips_banked")
+    stateField(reg, "highest_stake_idx",     "highest_stake_idx")
+    stateField(reg, "anti_chips",            "anti_chips")
+    stateField(reg, "anti_chips_this_run",   "anti_chips_this_run")
+    stateField(reg, "total_rebuys",          "total_rebuys")
+    stateField(reg, "total_busts",           "total_busts")
+    stateField(reg, "total_stack_losses",    "total_stack_losses")
+
+    -- ── Milestone flags ──────────────────────────────────────────────
+    -- has_shoved is NOT shove_count. resetRun bumps shove_count, and
+    -- quickReset routes through resetRun, so the rescue button raises the
+    -- count without the player ever shoving (see GameState's note on the
+    -- two fields). Any hint asking "do they know what SHOVE is" must read
+    -- this flag; `shoves` above stays for questions about prestige COUNT.
+    stateFlag(reg, "has_shoved",       "has_shoved")
+    stateFlag(reg, "act2_unlocked",    "shove_r1_won")
+    stateFlag(reg, "act3_unlocked",    "shove_r2_won")
+    stateFlag(reg, "gauntlet_cleared", "cleared")
+
+    stateCount(reg, "corrupted_count", "corrupted_items")
 
     -- ── Tables ───────────────────────────────────────────────────────
     reg:register("tables_open", function(cond, ctx)
@@ -91,6 +130,32 @@ function HintRules.registerAll(reg)
             if tbl and tbl.state == "idle" and (tbl.stack or 0) <= 0 then
                 return true
             end
+        end
+        return false
+    end)
+
+    -- Any open table of the given game type (cond.gtype). Structural twin of
+    -- stake_table_open below; the game type is a parameter, not a branch.
+    reg:register("gtype_table_open", function(cond, ctx)
+        local pool = ctx.pool
+        if not pool then return false end
+        for i = 1, pool:count() do
+            local tbl = pool:get(i)
+            if tbl and tbl.game_type_id == cond.gtype then return true end
+        end
+        return false
+    end)
+
+    -- Any open table whose stake sits in the given band (cond.band: low /
+    -- mid / high / ultra). Reads stake.band out of data, so adding a band
+    -- needs no change here.
+    reg:register("stake_band_table_open", function(cond, ctx)
+        local pool = ctx.pool
+        if not pool then return false end
+        for i = 1, pool:count() do
+            local tbl = pool:get(i)
+            local stake = tbl and Lookups.findById(Stakes, tbl.stake_id)
+            if stake and stake.band == cond.band then return true end
         end
         return false
     end)
@@ -169,6 +234,33 @@ function HintRules.registerAll(reg)
             if total >= (row.threshold or 0) then idx = i else break end
         end
         return inRange(idx, cond)
+    end)
+
+    -- ── Catalog ──────────────────────────────────────────────────────
+    -- Owns the catalog item cond.id. Generic: the id is a parameter, so
+    -- this is one kind rather than one kind per item.
+    reg:register("owns_item", function(cond, ctx)
+        local owned = ctx.state and ctx.state.owned_items
+        if not owned then return false end
+        for _, id in ipairs(owned) do
+            if id == cond.id then return true end
+        end
+        return false
+    end)
+
+    -- ── Decks ────────────────────────────────────────────────────────
+    -- The system as a whole (first gauntlet win), not an individual deck.
+    reg:register("deck_system_unlocked", function(_cond, ctx)
+        return Decks.systemUnlocked(ctx.state) == true
+    end)
+
+    stateCount(reg, "decks_unlocked_count", "unlocked_decks")
+
+    -- Decks at max level. This is the master-deck gate (5) and therefore
+    -- the R2 wall: the master deck is the only shove base that survives
+    -- the dealer's first cheat.
+    reg:register("decks_maxed_count", function(cond, ctx)
+        return inRange(Decks.maxedCount(ctx.state) or 0, cond)
     end)
 
     reg:register("hint_seen", function(cond, ctx)
