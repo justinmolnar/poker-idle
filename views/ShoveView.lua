@@ -489,18 +489,63 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     -- card or the second chip slot. Win → prototype-end modal; loss
     -- → standard prestige. R2 / R3 visuals run when DEMO_CUT is off.
     if r.outcomes[1] and not Constants.FEATURES.DEMO_CUT then
-        t = t + RUNOUT_PAUSE + CHEAT_PAUSE
-        add(t, startAnim("board_6", "cheat_card_dealt"), "cheat_card_dealt")
-        t = t + 0.75
+        -- ── The panic ─────────────────────────────────────────────────
+        -- The player just WON a runout, and the felt says so: their cards
+        -- lit, the pot flying to them, confetti. Hold there. The House's
+        -- silence is the beat: it has nothing to say because it is
+        -- losing. Then the player clicks, and it finds something.
+        --
+        -- This used to be RUNOUT_PAUSE + CHEAT_PAUSE of nothing, then a
+        -- card. Three seconds of a still screen, which read as a hang.
+        -- The timing slot is the same; it is no longer empty.
+        t = t + 1.2
+        hold(t, "won")
+        t = t + 0.0
+        say(t + 0.10, "panic_wait")
+        say(t + 0.95, "panic_won")
+        -- The pile stops. The flight the win started is cleared mid-air
+        -- and the pot is simply gone: the House has it.
+        add(t + 1.60, function() FlightSystem.clear(); self.pot_gone = true end)
+        say(t + 1.90, "panic_no")
+        -- Card 6 comes out of the slot and lands on BASE. The readout's
+        -- catalog term is buried and the bar drains.
+        add(t + 2.50, startAnim("board_6", "cheat_card_dealt"), "cheat_card_dealt")
+        say(t + 3.10, "panic_new_card")
+        t = t + 3.70
 
         add(t, showChip(2), chipSound(2))
-
         if r.outcomes[2] then
-            t = t + RUNOUT_PAUSE + CHEAT_PAUSE
-            add(t, startAnim("board_7", "cheat_card_dealt"), "cheat_card_dealt")
-            t = t + 0.75
+            light(t + 0.05, "player")
+            add(t + 0.40, function() self:_confetti() end)
+            -- Twice. The House is past surprise and into spite.
+            t = t + 1.2
+            hold(t, "won")
+            say(t + 0.10, "panic_again")
+            add(t + 1.20, function() FlightSystem.clear(); self.pot_gone = true end)
+            say(t + 1.50, "panic_no_more")
+            add(t + 2.20, startAnim("board_7", "cheat_card_dealt"), "cheat_card_dealt")
+            t = t + 3.20
 
             add(t, showChip(3), chipSound(3))
+            if r.outcomes[3] then
+                -- Full clear. Nothing left to bury.
+                light(t + 0.05, "player")
+                potTo(t + 0.10, "player", "chip_land_you")
+                add(t + 0.40, function() self:_confetti() end)
+                add(t + 0.90, function() self:_confetti() end)
+                say(t + 1.20, "clear")
+            else
+                light(t + 0.05, "dealer")
+                summary(t + 0.80, true)
+                say(t + 1.30, "act3")
+            end
+        else
+            -- Robbed at runout 2. This is the common Act 2 shove and the
+            -- one an act lede lands on.
+            light(t + 0.05, "dealer")
+            summary(t + 0.80, true)
+            say(t + 1.30, "act2")
+            say(t + 1.35, "banked_stays")
         end
     end
 
