@@ -50,6 +50,8 @@ local PokerEffects     = require("models.poker_effects")
 local DeckXpRules      = require("models.deck_xp_rules")
 local DeckUnlockRules  = require("models.deck_unlock_rules")
 local CatalogUnlockRules = require("models.catalog_unlock_rules")
+local HintController  = require("controllers.HintController")
+local HintView        = require("views.HintView")
 local HintRules        = require("models.hint_rules")
 local PokerActionApply = require("models.poker_action_apply")
 local GrindState   = require("states.GrindState")
@@ -233,6 +235,14 @@ local function buildGame()
     g.hint_rules = UnlockRegistry:new()
     HintRules.registerAll(g.hint_rules)
 
+    -- The tutorial layer, owned here so it exists on every screen and draws
+    -- above every modal. It used to belong to GrindState and render inside
+    -- GrindView's draw, which put it under the catalog and deck select and
+    -- off the shove felt entirely: the three surfaces that most needed
+    -- explaining were the three it could not reach.
+    g.hints     = HintController:new(g)
+    g.hint_view = HintView:new(g)
+
     -- Same-shape registry for poker-event applicators (post_blind,
     -- fold, call, raise, etc.). Used by both the script writer
     -- (models/HandScript.lua) at write-time and the cinematic walker
@@ -242,6 +252,24 @@ local function buildGame()
     PokerActionApply.registerAll(g.poker_events)
 
     g.state_machine = StateMachine:new(g)
+
+    -- Screen-level facts for hint conditions that no controller owns: which
+    -- screen is up, where the shove's beat machine is, whether a modal that
+    -- doubles as a teaching surface is open. Read fresh each tick.
+    g.hints.ctx_extra = function()
+        local sm  = g.state_machine
+        local cur = sm and sm.current_state
+        local sv  = cur and cur.view
+        local is_shove = sm and sm:current() == "shove"
+        return {
+            screen           = sm and sm:current() or nil,
+            shove_phase      = is_shove and sv and sv.phase or nil,
+            shove_hold       = is_shove and sv and sv.hold_id or nil,
+            shove_cheats     = is_shove and sv and sv.cheatsDealt and sv:cheatsDealt() or 0,
+            catalog_open     = cur and (cur.catalog_modal ~= nil) or false,
+            deck_select_open = cur and ((cur.deck_select_modal or cur.deck_roster_modal) ~= nil) or false,
+        }
+    end
     g.state_machine:register("grind",   GrindState:new(g))
     g.state_machine:register("shove",   ShoveState:new(g))
     g.state_machine:register("credits", CreditsState:new(g))
@@ -265,6 +293,24 @@ local function buildGame()
 
     g.input_dispatcher = InputDispatcher:new()
     g.input_controller = InputController:new(g)
+
+    -- Hint-layer clicks are claimed here, ahead of both dispatcher branches
+    -- below, so no state has to know the layer exists. The dispatcher fires
+    -- the first handler whose predicate passes and stops: an [i] icon click
+    -- dismisses that hint, the sticky bubble dismisses itself, and anything
+    -- else falls through to the state exactly as before.
+    g.input_dispatcher:on("mousepressed",
+        function(x, y)
+            local cur = g.state_machine.current_state
+            if cur and cur.hintsBlocked and cur:hintsBlocked() then return false end
+            return g.hint_view:mousepressed(x, y) ~= nil
+        end,
+        function(x, y)
+            local hit = g.hint_view:mousepressed(x, y)
+            if hit == "bubble" then g.hints:dismissActive()
+            elseif hit then g.hints:dismissQueued(hit.id) end
+        end)
+
     if not Constants.FEATURES.DEV_HOTKEYS then
         -- All DEV hotkeys (F2/F6/F7/backtick/-/=) are skipped — none
         -- of those dispatcher predicates run. But keypressed still
@@ -319,6 +365,14 @@ function love.update(dt)
 
     Game.time:update(dt)
     Game.state_machine:update(dt)
+    -- Hints tick after the state so they read this frame's facts. A state
+    -- may ask for quiet (a menu is up) through the duck-typed hintsBlocked.
+    do
+        local cur = Game.state_machine.current_state
+        if not (cur and cur.hintsBlocked and cur:hintsBlocked()) then
+            Game.hints:update(dt)
+        end
+    end
     Game.floating_text.update(dt)
     FlightSystem.update(dt)
     ChipPile.update(dt)
@@ -338,7 +392,6 @@ function love.update(dt)
         local cur = sm:current()
         local s   = sm.current_state
         local idle_modal = s and (s.catalog_modal
-                                  or s.prestige_modal
                                   or s.prototype_end_modal
                                   or s.deck_select_modal
                                   or s.onboarding_modal)
@@ -404,6 +457,14 @@ function love.draw()
     love.graphics.setCanvas(_frameCanvas)
     love.graphics.clear(love.graphics.getBackgroundColor())
     Game.state_machine:draw()
+    -- The hint layer, above whatever the state drew including its modals.
+    -- Still inside the base canvas so it scales with the frame.
+    do
+        local cur = Game.state_machine.current_state
+        if not (cur and cur.hintsBlocked and cur:hintsBlocked()) then
+            Game.hint_view:draw(Game.hints:activeHint(), Game.hints:queuedHints())
+        end
+    end
     if Game.debug and Game.debug.perf then drawPerfHud() end
     love.graphics.setCanvas()
 

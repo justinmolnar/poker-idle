@@ -3,6 +3,7 @@
 -- Dedicated state for viewing and designing the room.
 -- Keeps the poker client grid, sidebars, and shove overlays completely hidden.
 
+local AnchorRegistry = require("services.AnchorRegistry")
 local Theme         = require("views.Theme")
 local RoomView      = require("views.RoomView")
 local Constants     = require("data.constants")
@@ -26,6 +27,10 @@ function RoomState:new(game)
 end
 
 function RoomState:enter()
+    do  -- first-visit bookkeeping for the `screen_visits` hint kind
+        local v = self.game.state and self.game.state.screen_visits
+        if v then v["room"] = (v["room"] or 0) + 1 end
+    end
     Theme.setActive("room")
     if not self.room_view then
         self.room_view = RoomView:new(self.game)
@@ -77,6 +82,8 @@ function RoomState:draw()
     local btn_h = fl(36 * s)
     local btn_x = W - btn_w - fl(16 * s)
     local btn_y = fl((top_h - btn_h) * 0.5)
+    -- Hint target: the way back to the tables.
+    AnchorRegistry.set("room:play", btn_x, btn_y, btn_w, btn_h)
 
     -- Draw DESIGNER button
     local des_w = fl(140 * s)

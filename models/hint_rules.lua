@@ -263,6 +263,46 @@ function HintRules.registerAll(reg)
         return inRange(Decks.maxedCount(ctx.state) or 0, cond)
     end)
 
+    -- ── Screens ──────────────────────────────────────────────────────
+    -- These read facts the host injects through HintController.ctx_extra:
+    -- which state is up, where the shove's beat machine is, whether a modal
+    -- that doubles as a teaching surface is open. None of it belongs to a
+    -- controller, so none of it is on ctx.grind.
+    reg:register("screen", function(cond, ctx)
+        return ctx.screen == cond.name
+    end)
+
+    reg:register("shove_phase", function(cond, ctx)
+        return ctx.shove_phase == cond.phase
+    end)
+
+    -- The shove is paused on a named hold (cond.id), waiting for the player.
+    reg:register("shove_beat", function(cond, ctx)
+        return ctx.shove_hold ~= nil and ctx.shove_hold == cond.id
+    end)
+
+    -- How many cheat cards the dealer has dealt THIS shove. A hint gated on
+    -- min = 1 cannot fire until the card is on the felt, which is what keeps
+    -- it from spoiling the structure.
+    reg:register("cheat_dealt", function(cond, ctx)
+        return inRange(ctx.shove_cheats or 0, cond)
+    end)
+
+    reg:register("catalog_open", function(_cond, ctx)
+        return ctx.catalog_open == true
+    end)
+
+    reg:register("deck_select_open", function(_cond, ctx)
+        return ctx.deck_select_open == true
+    end)
+
+    -- Times the player has entered a screen (cond.name), persisted. "First
+    -- visit" is max = 1: the counter is bumped on enter, before the scan.
+    reg:register("screen_visits", function(cond, ctx)
+        local v = ctx.state and ctx.state.screen_visits
+        return inRange((v and v[cond.name]) or 0, cond)
+    end)
+
     reg:register("hint_seen", function(cond, ctx)
         local seen = ctx.state and ctx.state.hints_seen
         return (seen and seen[cond.hint]) == true

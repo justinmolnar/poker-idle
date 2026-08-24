@@ -1,7 +1,7 @@
 -- views/CatalogModal.lua
 --
 -- Post-bust catalog. Replaces the old always-visible left-panel tab —
--- catalog purchases now happen here, after the PrestigeModal has been
+-- catalog purchases now happen here, after the shove result has been read and
 -- dismissed but before the run is reset and we return to grind.
 --
 -- Presented as a physical order-book on a dim backdrop. There is NO hard
@@ -22,6 +22,7 @@
 -- guarded model mutation (the model still owns its own state — the
 -- controller is the layer the view talks to).
 
+local Anchors        = require("services.AnchorRegistry")
 local Theme        = require("views.Theme")
 local Constants    = require("data.constants")
 local Catalog      = require("data.catalog")
@@ -820,6 +821,13 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
             end
         end
 
+        -- First sticker on the page is what a "stickers show progress" hint
+        -- points at. Registered before the draw, off the rect the draw uses,
+        -- and only when not mid-flip (same rule as the hit rects).
+        if not self.flip_t and not self._anchored_sticker then
+            self._anchored_sticker = true
+            Anchors.set("catalog:sticker:first", st_x, st_y, st_w, st_h)
+        end
         Sticker.draw{
             game     = self.game,
             fonts    = fonts,
@@ -854,6 +862,18 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         self._cells[#self._cells + 1] = {
             x = x, y = y, w = w, h = h, item = item, buyable = buyable, corruptible = corruptible,
         }
+        -- Hint targets: the first card's price stamp, and the first
+        -- corruptible card. "first" is per draw pass; the flags reset at
+        -- the top of :draw.
+        if not self._anchored_price then
+            self._anchored_price = true
+            Anchors.set("catalog:price:first",
+                        cx_stamp - r_stamp, cy_stamp - r_stamp, r_stamp * 2, r_stamp * 2)
+        end
+        if corruptible and not self._anchored_corrupt then
+            self._anchored_corrupt = true
+            Anchors.set("catalog:corrupt:first", x, y, w, h)
+        end
     end
 
     -- Rubber stamps. One stamp per card at most, so this is a chain of
@@ -1105,6 +1125,7 @@ local function drawBackCover(self, x, y, w, h, fonts, state, forcing, s, interac
     local hov = interactive and mx >= btn_x and mx < btn_x + btn_w and my >= btn_y and my < btn_y + btn_h
     if interactive then
         self._continue_rect = { x = btn_x, y = btn_y, w = btn_w, h = btn_h }
+        Anchors.set("catalog:continue", btn_x, btn_y, btn_w, btn_h)
     end
     Theme.setColor({ 0.15, 0.15, 0.12, 0.50 })
     love.graphics.rectangle("line", btn_x, btn_y, btn_w, btn_h)
@@ -1128,6 +1149,8 @@ local function drawBackCover(self, x, y, w, h, fonts, state, forcing, s, interac
 end
 
 function CatalogModal:draw()
+    -- "first sticker / price / corruptible" hint anchors are per draw pass.
+    self._anchored_sticker, self._anchored_price, self._anchored_corrupt = nil, nil, nil
     local fonts = self.game.fonts
     local state = self.game.state
     local fl = math.floor
@@ -1273,6 +1296,10 @@ function CatalogModal:draw()
     local book_l = fl(cx - page_w)
     local book_r = fl(cx + page_w)
     local book_b = top + page_h
+    -- The book as one rect, for a "this is the catalog" hint.
+    if not self.flip_t then
+        Anchors.set("catalog:book", book_l, top, book_r - book_l, page_h)
+    end
     local mx, my = love.mouse.getPosition()
 
     -- Previous-page dog-ear (bottom-left).
@@ -1324,6 +1351,7 @@ function CatalogModal:draw()
         love.graphics.line(cxr + cz - xp, cyr + xp, cxr + xp, cyr + cz - xp)
         love.graphics.setLineWidth(1)
         self._continue_rect = { x = cxr, y = cyr, w = cz, h = cz }
+        Anchors.set("catalog:continue", cxr, cyr, cz, cz)
         if hovx then TooltipSvc.set("Close catalog", mx, my) end
     end
 

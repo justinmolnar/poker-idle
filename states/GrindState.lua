@@ -13,8 +13,6 @@
 local Theme           = require("views.Theme")
 local GrindView       = require("views.GrindView")
 local GrindController = require("controllers.GrindController")
-local HintController  = require("controllers.HintController")
-local HintView        = require("views.HintView")
 local CursorPool      = require("services.CursorPool")
 local FlightSystem    = require("services.FlightSystem")
 local ChipPile        = require("views.ChipPile")
@@ -60,8 +58,9 @@ function GrindState:new(game)
     self.controller = GrindController:new(game)
     self.view       = GrindView:new(game, self.controller)
     -- Tutorial hint queue + bubble renderer (inert unless FEATURES.TUTORIAL).
-    self.hints      = HintController:new(game, self.controller)
-    self.hint_view  = HintView:new(game)
+    -- Hints are hosted by main.lua now (game.hints / game.hint_view), so
+    -- they render on every screen and above every modal. This state only
+    -- says when they should stay quiet: see hintsBlocked.
     -- Expose the controller on the DI container so other states (the
     -- shove-state's CatalogModal) can dispatch purchase intents through
     -- the proper layer instead of mutating GameState directly.
@@ -125,7 +124,7 @@ function GrindState:openHelp()
         if self.help_panel then
             self.help_panel:beginClose()
         else
-            self.help_panel = HintLogPanel:new(self.game, self.hint_view)
+            self.help_panel = HintLogPanel:new(self.game, self.game.hint_view)
         end
         return
     end
@@ -227,6 +226,16 @@ function GrindState:_modalUp()
             or self.help_panel or self.analytics_modal) ~= nil
 end
 
+-- Whether the global hint layer should stay quiet right now. Narrower than
+-- _modalUp on purpose: the catalog and deck roster are surfaces the
+-- tutorial needs to teach, so hints render OVER them. Settings is a menu,
+-- onboarding and consent are already explaining, and the help desk IS the
+-- hint replay UI.
+function GrindState:hintsBlocked()
+    return (self.settings_modal or self.onboarding_modal
+            or self.help_panel or self.analytics_modal) ~= nil
+end
+
 function GrindState:update(dt)
     self.controller:update(dt)
     self.view:update(dt)
@@ -249,7 +258,6 @@ function GrindState:update(dt)
             HoverService.clear()
         end
     end
-    if not self:_modalUp() then self.hints:update(dt) end
     -- Cursor swarm steps after the controller/view tick. Hit-boxes were
     -- populated by last frame's draw — 1-frame stale, invisible at 60fps.
     -- The dispatcher closure routes a synthetic click through the same
@@ -260,18 +268,10 @@ function GrindState:update(dt)
 end
 
 function GrindState:draw()
-    -- Tutorial hint layer (active sticky hint + the [i] info queue) —
-    -- passed into the view as its overlay (above gameplay, below the
-    -- hover tooltip), and dropped entirely while a modal is up.
-    local hint_overlay
-    if not self:_modalUp() then
-        local state_self = self
-        hint_overlay = function()
-            state_self.hint_view:draw(state_self.hints:activeHint(),
-                                      state_self.hints:queuedHints())
-        end
-    end
-    self.view:draw(hint_overlay)
+    -- The hint layer used to be handed in here as the view's overlay,
+    -- which put it UNDER every modal drawn below. main.lua draws it after
+    -- the whole state now, so the catalog and deck roster can be taught.
+    self.view:draw(nil)
     -- Mid-grind catalog modal — drawn over the live grind view so the
     -- player can shop without leaving the table layout behind. Same
     -- visual modal as the post-bust flow.
@@ -316,7 +316,7 @@ function GrindState:fullReset()
     self.help_panel        = nil
     -- Drop any active hint; the seen-set was wiped on GameState, so the
     -- fresh game re-teaches from the top.
-    self.hints:reset()
+    if self.game.hints then self.game.hints:reset() end
 end
 
 -- Phase 2 debug: H deals one hand on table 1. J deals every idle table.
@@ -429,18 +429,8 @@ function GrindState:mousepressed(x, y, b)
         end
         return
     end
-    -- Hint layer clicks: an [i] icon dismisses that queued info hint; the
-    -- active sticky hint's bubble dismisses it. Everything else falls
-    -- through — clicks on a highlighted widget are the advance-on-action
-    -- path, and info hints can never be lost to a stray click.
-    local hint_hit = self.hint_view:mousepressed(x, y)
-    if hint_hit == "bubble" then
-        self.hints:dismissActive()
-        return
-    elseif hint_hit then
-        self.hints:dismissQueued(hint_hit.id)
-        return
-    end
+    -- Hint-layer clicks are consumed by main.lua's dispatcher handler
+    -- before this state ever sees them.
 
     self.view:mousepressed(x, y, b)
 end

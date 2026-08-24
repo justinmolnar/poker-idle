@@ -22,6 +22,7 @@
 -- dispatch through state:setActiveDeck (a model-side guarded write); the
 -- modal never mutates state.active_deck_id directly.
 
+local Anchors        = require("services.AnchorRegistry")
 local Theme       = require("views.Theme")
 local Modal       = require("views.widgets.Modal")
 local LabelButton = require("views.widgets.LabelButton")
@@ -258,6 +259,7 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked)
         self._tiles[#self._tiles + 1] = {
             id = spec.id, x = x, y = y, w = w, h = h, unlocked = false,
         }
+        if #self._tiles == 1 then Anchors.set("deck:tile:1", x, y, w, h) end
         return
     end
 
@@ -296,6 +298,10 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked)
     self._tiles[#self._tiles + 1] = {
         id = spec.id, x = x, y = y, w = w, h = h, unlocked = true,
     }
+    if #self._tiles == 1 then
+        Anchors.set("deck:tile:1", x, y, w, h)
+        Anchors.set("deck:xp", content_x, bar_y, content_w, bar_h)
+    end
 end
 
 local function drawDetailsPanel(self, spec, rx, ry, rw, rh, fonts, s, unlocked)
@@ -575,6 +581,7 @@ function DeckSelectModal:draw()
     local btn_x = body.x + math.floor((body.w - btn_w) / 2)
     local btn_y = body.y + body.h - btn_h - math.floor(4 * s)
     self._continue_rect = { x = btn_x, y = btn_y, w = btn_w, h = btn_h }
+    Anchors.set("deck:continue", btn_x, btn_y, btn_w, btn_h)
 
     local hov = mx >= btn_x and mx < btn_x + btn_w
                 and my >= btn_y and my < btn_y + btn_h

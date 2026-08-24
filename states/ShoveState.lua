@@ -6,9 +6,9 @@
 -- effects on enter, and the prestige flow that fires when a gauntlet
 -- finishes:
 --
---   • Gauntlet busts (any runout LOSS) → award chips banked during the run,
---     show the PrestigeModal. SPACE dismisses it and opens the
---     CatalogModal. SPACE again dismisses the catalog → resetRun → grind.
+--   • Gauntlet busts (any runout LOSS) → the result and the run's banked
+--     {chip} stay on the felt until the player clicks through, then the
+--     CatalogModal slides in. Closing the catalog → resetRun → grind.
 --   • Gauntlet clears (3 of 3 runouts WON) → award chips, set state.cleared,
 --     switch to CreditsState. The win-condition path.
 --
@@ -19,7 +19,6 @@
 local Theme              = require("views.Theme")
 local ShoveView          = require("views.ShoveView")
 local Overlay            = require("views.ShoveDebugOverlay")
-local PrestigeModal      = require("views.PrestigeModal")
 local PrototypeEndModal  = require("views.PrototypeEndModal")
 local CatalogModal       = require("views.CatalogModal")
 local DeckSelectModal    = require("views.DeckSelectModal")
@@ -28,6 +27,7 @@ local Gauntlet           = require("models.Gauntlet")
 local Decks              = require("models.Decks")
 local Catalog            = require("data.catalog")
 local RunUpgrades        = require("data.run_upgrades")
+local FlightSystem       = require("services.FlightSystem")
 local Constants          = require("data.constants")
 local ShoveRate          = require("models.shove_rate")
 local HandAnalytics      = require("services.HandAnalytics")
@@ -50,7 +50,6 @@ function ShoveState:new(game)
         game            = game,
         shove_rates     = nil,    -- locked at :enter; struct from ShoveRate.compute
         gauntlet        = nil,
-        prestige_modal       = nil,    -- bust step 1: run-end summary
         catalog_modal        = nil,    -- bust step 2: post-run chip shop
         deck_select_modal    = nil,    -- bust step 3: choose active deck for next run (post-first-clear)
         settings_modal       = nil,    -- ESC overlay (volume, resolution, quit)
@@ -77,7 +76,6 @@ end
 -- reload doesn't pop back when the player next enters shove.
 function ShoveState:fullReset()
     self.gauntlet            = nil
-    self.prestige_modal      = nil
     self.catalog_modal       = nil
     self.deck_select_modal   = nil
     self.prototype_end_modal = nil
@@ -131,12 +129,24 @@ end
 
 function ShoveState:exit() end
 
+-- The catalog and deck select are teachable and stay open to hints;
+-- settings is a menu and the prototype-end modal is a hard stop.
+function ShoveState:hintsBlocked()
+    return (self.settings_modal or self.prototype_end_modal) ~= nil
+end
+
 function ShoveState:_beginGauntlet()
     HandAnalytics.recordShoveStart(self.shove_rates)
     self.gauntlet = Gauntlet:new(self.game, self.shove_rates)
     local result = self.gauntlet:begin()
     self.overlay:recordAttempt(result)
-    self.view:onGauntletBegin()
+    -- The act this shove opens, if any, is knowable NOW: the result is
+    -- pre-baked. It used to be computed at the end, in the same statement
+    -- that flipped the persistent flag, which meant the House could not
+    -- react to it on the felt because by then the flag was already true.
+    self._pending_milestone = self:_milestoneFor(result)
+    self.view:onGauntletBegin(self._pending_milestone,
+                              self.game.state.chips_this_run or 0)
     self._ended_handled = false
 
     if Constants.DEBUG.SHOW_DEBUG_OVERLAY then
@@ -146,6 +156,18 @@ function ShoveState:_beginGauntlet()
             100 * self.overlay.wins / math.max(1, self.overlay.attempts),
             100 * (self.shove_rates and self.shove_rates.clear or 0)))
     end
+end
+
+-- Which act a result opens: "act2" for a first R1 win, "act3" for a first
+-- R2 win, nil otherwise. R2 implies R1, so act3 wins on a double.
+function ShoveState:_milestoneFor(result)
+    local state = self.game.state
+    local m = nil
+    if result and result.outcomes then
+        if result.outcomes[1] == true and not state.shove_r1_won then m = "act2" end
+        if result.outcomes[2] == true and not state.shove_r2_won then m = "act3" end
+    end
+    return m
 end
 
 function ShoveState:_onGauntletEnded()
@@ -168,19 +190,16 @@ function ShoveState:_onGauntletEnded()
     -- R2 can only be won on a shove that also won R1, so on a
     -- double-milestone shove act3 correctly overwrites act2: the bigger
     -- reveal is the one worth showing.
-    local milestone = nil
     local save_needed = false
     if result.outcomes then
         if result.outcomes[1] == true and not state.shove_r1_won then
             state.shove_r1_won = true
             save_needed = true
-            milestone = "act2"
             print("[shove] Won Runout 1 of the gauntlet: unlocked Act 2!")
         end
         if result.outcomes[2] == true and not state.shove_r2_won then
             state.shove_r2_won = true
             save_needed = true
-            milestone = "act3"
             print("[shove] Won Runout 2 of the gauntlet: unlocked Act 3!")
         end
     end
@@ -208,13 +227,13 @@ function ShoveState:_onGauntletEnded()
         -- (and with it the deck-system unlock).
         self.game.save_service:saveAll(
             state:serializeMeta(), state:serializeRun())
-        self.prestige_modal = nil
         self.gauntlet = nil
         self.view:resetTimeline()
         self.game.state_machine:switch("credits")
     else
-        self.prestige_modal = PrestigeModal:new(
-            self.game, chips_banked, result.busted_at, milestone)
+        -- The result and the summary are already on the felt, and the
+        -- player has just clicked through the hold. Straight to the shop.
+        self:_advanceToCatalog()
     end
 end
 
@@ -263,10 +282,11 @@ end
 -- The catalog has now introduced itself: catalog_seen (meta, persisted
 -- on the next save) lets the grind top-bar CATALOG button render.
 function ShoveState:_advanceToCatalog()
-    self.prestige_modal = nil
     self.game.state.catalog_seen = true
+    -- Slides in closed, no scrim: the result it sits beside stays visible.
     self.catalog_modal  = CatalogModal:new(self.game,
-        { intro_callout = self:_catalogIntroPending() })
+        { intro_callout = self:_catalogIntroPending(),
+          slide_in = true, scrim = false })
 end
 
 -- Step 2 of the post-bust flow: catalog modal closes, run resets, then —
@@ -309,8 +329,8 @@ end
 -- dismiss (when DECKS is off) or the deck-select dismiss. Resets the
 -- per-shove transient state and switches back to grind.
 function ShoveState:_finalizePostBustReturn()
+    FlightSystem.clear()
     self.gauntlet       = nil
-    self.prestige_modal = nil
     self.catalog_modal  = nil
     self.deck_select_modal = nil
     self._ended_handled = false
@@ -336,7 +356,6 @@ function ShoveState:update(dt)
        and self.gauntlet.state == "finished"
        and not self.view:isAnimating()
        and not self._ended_handled
-       and not self.prestige_modal
        and not self.catalog_modal
        and not self.deck_select_modal
        and not self.prototype_end_modal then
@@ -349,8 +368,6 @@ function ShoveState:draw()
     self.overlay:draw()
     if self.prototype_end_modal then
         self.prototype_end_modal:draw()
-    elseif self.prestige_modal then
-        self.prestige_modal:draw()
     elseif self.catalog_modal then
         self.catalog_modal:draw()
     elseif self.deck_select_modal then
@@ -378,10 +395,6 @@ function ShoveState:keypressed(key)
         if r then self:_resolvePrototypeEnd(r) end
         return
     end
-    if self.prestige_modal and self.prestige_modal:consumeKey(key) then
-        self:_advanceToCatalog()
-        return
-    end
     if self.catalog_modal and self.catalog_modal:consumeKey(key) then
         self:_dismissCatalogAndReturn()
         return
@@ -404,6 +417,9 @@ function ShoveState:keypressed(key)
     -- gauntlet, R reset, [/] catalog nudge, D overlay toggle) are
     -- debug hotkeys gated on FEATURES.DEV_HOTKEYS.
     if key == "space" then
+        -- On a hold, SPACE is "continue". Otherwise it fast-forwards to the
+        -- next hold. Either way it never falls through to the dev re-deal.
+        if self.view:isHolding() then self.view:advance(); return end
         if self.view:isAnimating() then
             self.view:skip()
             return
@@ -423,7 +439,6 @@ function ShoveState:keypressed(key)
             print("[shove] stats cleared")
         else
             self.gauntlet       = nil
-            self.prestige_modal = nil
             self._ended_handled = false
             self.view:resetTimeline()
             print("[shove] gauntlet reset (press SPACE to deal a new one)")
@@ -462,13 +477,6 @@ function ShoveState:mousepressed(mx, my, button)
         return
     end
     -- Prestige modal: click Continue to advance to catalog.
-    if self.prestige_modal then
-        self.prestige_modal:consumeMouse(mx, my, button)
-        if self.prestige_modal:resolved() then
-            self:_advanceToCatalog()
-        end
-        return
-    end
     -- Catalog modal owns mouse input while open — clicks land on item
     -- cards, not on the underlying shove view. The Continue button at
     -- the bottom resolves the modal so the host can advance.
@@ -486,6 +494,14 @@ function ShoveState:mousepressed(mx, my, button)
         if self.deck_select_modal:resolved() then
             self:_dismissDeckSelectAndReturn()
         end
+        return
+    end
+    -- No modal. A click on the felt during a hold is "continue"; during
+    -- the deal it fast-forwards, same as SPACE.
+    if self.view:isHolding() then
+        self.view:advance()
+    elseif self.view:isAnimating() then
+        self.view:skip()
     end
 end
 

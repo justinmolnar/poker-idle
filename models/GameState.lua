@@ -59,6 +59,10 @@ function GameState:new(saved)
     -- Triggered-but-unread info hints (id list, queue order) — the [i]
     -- strip. Persisted so an unread hint survives a reload.
     instance.hints_queued = {}
+    -- Entries per screen the player has entered (room, credits, ...). Meta,
+    -- so a first-visit hint stays first-visit across runs. Bumped by the
+    -- state's :enter, read by the `screen_visits` hint kind.
+    instance.screen_visits = {}
     -- Analytics identity. save_id is stable for the lifetime of a save slot;
     -- shove_count increments each prestige so analytics can track power level.
     instance.save_id    = genSaveId()
@@ -253,6 +257,7 @@ function GameState:wipeAll()
     self.catalog_seen = false
     self.hints_seen   = {}
     self.hints_queued = {}
+    self.screen_visits = {}
     -- Deck state resets to starter-only with all unlock progress lost.
     -- Mirrors the fresh-:new defaults exactly.
     local starter = DeckSpecs[1]
@@ -398,6 +403,7 @@ function GameState:applySaved(saved)
     -- whose done-condition the save already satisfies.
     self.hints_seen   = self.hints_seen   or {}
     self.hints_queued = self.hints_queued or {}
+    self.screen_visits = self.screen_visits or {}
     self.anti_stakes_won_this_run = self.anti_stakes_won_this_run or {}
     self.anti_chips_this_run      = self.anti_chips_this_run or 0
     self.first_loss_voided_this_run       = self.first_loss_voided_this_run or false
@@ -473,6 +479,7 @@ function GameState:serializeMeta()
         catalog_seen                    = self.catalog_seen,
         hints_seen                      = self.hints_seen,
         hints_queued                    = self.hints_queued,
+        screen_visits                   = self.screen_visits,
         unlocked_decks                  = self.unlocked_decks,
         deck_levels                     = self.deck_levels,
         deck_xp                         = self.deck_xp,

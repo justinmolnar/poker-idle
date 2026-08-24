@@ -405,6 +405,7 @@ end
 -- ─── Main Interface ───
 
 function RoomView:draw(full_screen)
+    self._anchored_item = nil   -- "first placed item" hint anchor is per draw
     self.full_screen = full_screen
     local W, H = love.graphics.getDimensions()
     local game = self.game
@@ -659,6 +660,16 @@ function RoomView:draw(full_screen)
             end
             
             love.graphics.draw(sprite, px, py, 0, draw_scale_x, draw_scale_y, ox, oy)
+            -- The first placed item, for a "your things end up here" hint.
+            -- The rect is the drawn sprite's footprint on screen.
+            if not self._anchored_item then
+                self._anchored_item = true
+                local sw = sprite:getWidth()  * math.abs(draw_scale_x or 1)
+                local sh = sprite:getHeight() * (draw_scale_y or 1)
+                Anchors.set("room:item:first",
+                            px - (ox or 0) * math.abs(draw_scale_x or 1),
+                            py - (oy or 0) * (draw_scale_y or 1), sw, sh)
+            end
 
             if shader_name and ShaderRegistry and ShaderRegistry.apply then
                 ShaderRegistry.apply(nil)

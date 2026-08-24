@@ -35,16 +35,25 @@ HintController.__index = HintController
 -- frame is waste. 0.15 s is imperceptible for "a hint appeared".
 local CHECK_INTERVAL = 0.15
 
--- `grind` is the GrindController — hint conditions read table counts via
--- its pool and derived stats (tiedUp, focus, quick-reset) through it
--- directly (see models/hint_rules.lua).
-function HintController:new(game, grind)
+-- One instance for the whole game, owned by main.lua and ticked from
+-- love.update, so a hint can fire on any screen. It used to belong to
+-- GrindState and take the GrindController as an argument, which meant the
+-- House could only ever speak on the felt: nothing on the shove screen, in
+-- the catalog, in deck select or in the room could be taught.
+--
+-- The grind-shaped reads (table counts, tiedUp, focus) go through
+-- game.grind, which GrindState sets at boot; on other screens the pool is
+-- empty and every pool rule reads 0, which is the correct answer there.
+-- `ctx_extra` is a host-supplied function returning screen-level facts
+-- (which state is current, the shove's beat, whether the catalog is open)
+-- that no controller owns.
+function HintController:new(game)
     local by_id = {}
     for _, spec in ipairs(Hints) do by_id[spec.id] = spec end
     return setmetatable({
-        game    = game,
-        grind   = grind,
-        by_id   = by_id,
+        game      = game,
+        ctx_extra = nil,
+        by_id     = by_id,
         enabled = Constants.FEATURES.TUTORIAL,
         active  = nil,   -- the currently-showing STICKY spec, or nil
         _timer  = 0,
@@ -117,8 +126,12 @@ function HintController:update(dt)
     local state = self.game.state
     local seen, queued = state.hints_seen, state.hints_queued
     if not (seen and queued) then return end
-    local reg = self.game.hint_rules
-    local ctx = { state = state, pool = self.grind.pool, grind = self.grind }
+    local reg   = self.game.hint_rules
+    local grind = self.game.grind
+    local ctx   = { state = state, pool = grind and grind.pool, grind = grind }
+    if self.ctx_extra then
+        for k, v in pairs(self.ctx_extra() or {}) do ctx[k] = v end
+    end
 
     -- Active sticky hint completes on its done-condition.
     if self.active and self.active.done and reg:check(self.active.done, ctx) then

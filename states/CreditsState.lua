@@ -21,6 +21,10 @@ function CreditsState:new(game)
 end
 
 function CreditsState:enter()
+    do  -- first-visit bookkeeping for the `screen_visits` hint kind
+        local v = self.game.state and self.game.state.screen_visits
+        if v then v["credits"] = (v["credits"] or 0) + 1 end
+    end
     -- The shove palette is the right backdrop here — sparse, dramatic,
     -- already what the player just won out of.
     Theme.setActive("shove")

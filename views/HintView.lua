@@ -427,12 +427,19 @@ function HintView:draw(active, queued)
     end
 
     local n_available = #order
-    local ib = Anchors.get("btn:info")
-    if not ib then return end
     local game   = self.game
     local s      = game.ui_scale or 1
     local fl     = math.floor
+    -- The [i] button lives on the House poster in the grind, which
+    -- registers "btn:info". Every other screen gets a corner rect instead.
+    -- This used to be `if not ib then return end`, which aborted the WHOLE
+    -- draw, sticky bubble included, anywhere the grind was not drawing --
+    -- the single line that confined the tutorial to one screen.
+    local ib = Anchors.get("btn:info") or self:_defaultInfoRect()
     local ix, iy, iw, ih = fl(ib[1]), fl(ib[2]), fl(ib[3]), fl(ib[4])
+    -- Off the grind there is no poster to sit on, so the button only
+    -- exists while it has something to show.
+    local info_visible = Anchors.get("btn:info") ~= nil or n_available > 0
 
     -- 3. Resolve active sticky hint or hovered queued hint preview
     local active_layout = nil
@@ -473,9 +480,16 @@ function HintView:draw(active, queued)
         }
     end
 
-    -- 5. Draw the [i] button itself
+    -- 5. Draw the [i] button itself. Skipped entirely on a poster-less
+    -- screen with nothing queued: a grey disabled button floating over the
+    -- shove felt would be exactly the kind of unexplained UI this exists
+    -- to prevent.
     local now = love.timer.getTime()
     local is_disabled = (n_available == 0)
+    if not info_visible then
+        if active_layout then self:_drawHint(active_layout, true) end
+        return
+    end
 
     local fill_color
     if is_disabled then
@@ -555,6 +569,17 @@ end
 --   "bubble"    — the active sticky hint's bubble was clicked
 --   nil         — not ours; the click falls through to normal input
 --     (including clicks on the highlighted widget — advance-on-action).
+-- Where the [i] button sits on a screen with no House poster: top-right
+-- corner, clear of the top bar's right-hand buttons. Same size the poster
+-- button is.
+function HintView:_defaultInfoRect()
+    local s = self.game.ui_scale or 1
+    local W = love.graphics.getWidth()
+    local d = math.floor(36 * s)
+    local m = math.floor(10 * s)
+    return { W - d - m, m, d, d }
+end
+
 function HintView:mousepressed(x, y)
     for _, ir in ipairs(self.icon_rects) do
         if x >= ir.x and x < ir.x + ir.w

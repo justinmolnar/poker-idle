@@ -35,6 +35,7 @@ local CardSprites            = require("views.CardSprites")
 local ShoveDecor             = require("views.ShoveDecor")
 local Style                  = require("data.shove_style")
 local ShoveRate              = require("models.shove_rate")
+local HouseLines             = require("data.house_lines")
 
 local ShoveView = {}
 ShoveView.__index = ShoveView
@@ -217,6 +218,12 @@ function ShoveView:new(game, ss)
         -- transitions phase="running" and fires _beginGauntlet.
         phase           = "idle",
         phase_t         = 0,
+        -- Beat machine. A timeline event may be a HOLD: the clock stops
+        -- there until the player advances it. `hold_id` names the current
+        -- hold (nil when running) so hint conditions can key on the beat.
+        -- `house_line` is what the House is currently saying, if anything.
+        hold_id         = nil,
+        house_line      = nil,
         buildup_rates   = nil,
         buildup_chip_count_shown = 0,  -- last-frame count for sound triggers
     }, ShoveView)
@@ -324,9 +331,14 @@ end
 
 -- ─── Timeline construction ─────────────────────────────────────────────
 
-function ShoveView:onGauntletBegin()
+-- `milestone` is "act2" / "act3" / nil for the act this shove opens, and
+-- `chips_banked` the {chip} pending from the run. Both are pushed here
+-- rather than read later because the House speaks them mid-timeline.
+function ShoveView:onGauntletBegin(milestone, chips_banked)
     local g = self.ss.gauntlet
     if not g or not g.result then return end
+    self.milestone    = milestone
+    self.chips_banked = chips_banked or 0
 
     self.elapsed        = 0
     self.next_event_idx = 1
@@ -356,6 +368,21 @@ function ShoveView:onGauntletBegin()
     -- optional sound (skipped on fast-forward to avoid an audio flood).
     local function add(at, fn, sound)
         self.timeline[#self.timeline + 1] = { at = at, fire = fn, sound = sound }
+    end
+
+    -- A HOLD: the clock stops here until :advance(). The result stays on
+    -- the felt for as long as the player wants to read it, which is the
+    -- whole reason the modal that used to cover it is gone. Everything
+    -- post-reveal derives from chip_visible + card_anims, not elapsed, so
+    -- the held frame renders for free.
+    local function hold(at, id)
+        self.timeline[#self.timeline + 1] = { at = at, hold = id }
+    end
+
+    -- The House speaks. `line_id` keys data/house_lines.lua; a once-line
+    -- routes through hints_seen so it plays a single time per save.
+    local function say(at, line_id)
+        add(at, function() self:_say(line_id) end)
     end
 
     -- Pick the right resolution sound for runout i: gauntlet-final win/loss
@@ -422,18 +449,64 @@ function ShoveView:onGauntletBegin()
         end
     end
 
-    -- Hold the final state on screen for a beat so the player reads
-    -- the result chips before the prestige / prototype-end modal pops
-    -- over the cinematic. 0.5s was effectively "modal slams over the
-    -- last reveal"; ~2.0s lets the WIN/LOSS land.
-    self.total_duration = t + 2.0
+    -- The result holds on the felt until the player advances. It used to
+    -- be a 2.0s timer and then a modal over the cards: the answer to
+    -- "why did I lose" was covered before it could be read.
+    hold(t + 1.0, "result")
+    self.total_duration = t + 1.0
 end
 
+-- True while the host must wait: the buildup, the deal, and every hold.
+-- ShoveState's end gate reads this, so a hold defers the post-shove chain
+-- until the player advances it, with no change to the gate itself.
 function ShoveView:isAnimating()
-    if self.phase == "buildup" or self.phase == "ready_to_deal" then
+    if self.phase == "buildup" or self.phase == "ready_to_deal"
+       or self.phase == "hold" then
         return true
     end
     return self.timeline ~= nil and self.elapsed < self.total_duration
+end
+
+function ShoveView:isHolding()
+    return self.phase == "hold"
+end
+
+-- The player moved on from a hold. Pops it, clears the House's line, and
+-- lets the clock run into whatever follows.
+function ShoveView:advance()
+    if self.phase ~= "hold" then return false end
+    local ev = self.timeline[self.next_event_idx]
+    if ev and ev.hold then self.next_event_idx = self.next_event_idx + 1 end
+    self.phase      = "running"
+    self.hold_id    = nil
+    self.house_line = nil
+    return true
+end
+
+-- Set the House's current line from data/house_lines.lua. Once-lines are
+-- gated on hints_seen["house:<id>"] and marked there when they play; the
+-- id is a free-form key in the same map the tutorial uses, so it persists
+-- with everything else and needs no new serialized field.
+function ShoveView:_say(line_id)
+    local spec = HouseLines[line_id]
+    if not spec then return end
+    if spec.once then
+        local seen = self.game.state and self.game.state.hints_seen
+        local key  = "house:" .. line_id
+        if seen and seen[key] then return end
+        if seen then seen[key] = true end
+    end
+    self.house_line = spec.text
+end
+
+-- How many cheat cards are on the felt this shove. Read by the host for the
+-- `cheat_dealt` hint kind, which is what stops a cheat hint from firing
+-- before the card exists.
+function ShoveView:cheatsDealt()
+    local n = 0
+    if self.card_anims.board_6 then n = n + 1 end
+    if self.card_anims.board_7 then n = n + 1 end
+    return n
 end
 
 function ShoveView:resetTimeline()
@@ -446,6 +519,8 @@ function ShoveView:resetTimeline()
     -- Drop buildup state so the next ShoveState:enter starts clean.
     self.phase          = "idle"
     self.phase_t        = 0
+    self.hold_id        = nil
+    self.house_line     = nil
     self.buildup_rates  = nil
     self.buildup_chip_count_shown = 0
 end
@@ -455,20 +530,32 @@ function ShoveView:skip()
     -- on its next update tick. Player wanted out of the buildup spectacle.
     if self.phase == "buildup" then
         self.phase   = "ready_to_deal"
-        self.phase_t = BUILDUP_TOTAL
+        -- Was `BUILDUP_TOTAL`, a global that was never defined; it set
+        -- phase_t to nil and only failed to crash because ShoveState flips
+        -- to "running" before the next draw reads it.
+        self.phase_t = self.buildup_total or 0
         return
     end
+    if self.phase == "hold" then self:advance(); return end
     if not self.timeline then return end
-    -- Fire all remaining events but suppress sounds — otherwise mashing
-    -- SPACE during a multi-runout reveal triggers a stack of chimes.
+    -- Fire remaining events, sounds suppressed, up to and INCLUDING the
+    -- next hold, then stop there. A skip lands the player on the next
+    -- thing worth reading, never past it.
     while self.next_event_idx <= #self.timeline do
-        self.timeline[self.next_event_idx].fire()
+        local ev = self.timeline[self.next_event_idx]
+        if ev.hold then
+            self.phase   = "hold"
+            self.hold_id = ev.hold
+            self.elapsed = ev.at
+            break
+        end
+        ev.fire()
         self.next_event_idx = self.next_event_idx + 1
     end
     for _, anim in pairs(self.card_anims) do
         if anim.update then anim:update(10) end
     end
-    self.elapsed = self.total_duration
+    if self.phase ~= "hold" then self.elapsed = self.total_duration end
 end
 
 function ShoveView:update(dt)
@@ -500,10 +587,22 @@ function ShoveView:update(dt)
     end
 
     if not self.timeline then return end
-    self.elapsed = self.elapsed + dt
+    -- Card anims keep ticking during a hold (a mid-flip card should land),
+    -- but the clock does not, so nothing after the hold fires.
+    if self.phase ~= "hold" then
+        self.elapsed = self.elapsed + dt
+    end
 
-    while self.next_event_idx <= #self.timeline do
+    while self.phase ~= "hold" and self.next_event_idx <= #self.timeline do
         local ev = self.timeline[self.next_event_idx]
+        if ev.hold then
+            if self.elapsed >= ev.at then
+                self.phase   = "hold"
+                self.hold_id = ev.hold
+                self.elapsed = ev.at
+            end
+            break
+        end
         if self.elapsed >= ev.at then
             ev.fire()
             if ev.sound then
