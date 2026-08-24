@@ -157,6 +157,7 @@ local function buildGame()
     -- its rank as one glyph, and that glyph is the game font.
     require("views.CardSprites").configure(g.fonts)
     require("views.FeltDecor").configure(g.fonts)
+    require("views.ShoveDecor").configure(g.fonts)
 
     -- Transient debug toggles (not persisted). Backtick (`) toggles
     -- the per-table tooltip overlay; see InputController and TablePanel.
@@ -452,6 +453,7 @@ function love.resize(w, h)
     require("views.Chips").configureFont(Game.fonts)
     require("views.CardSprites").configure(Game.fonts)
     require("views.FeltDecor").configure(Game.fonts)
+    require("views.ShoveDecor").configure(Game.fonts)
 
     if Game.state_machine then
         Game.state_machine:resize(w, h)

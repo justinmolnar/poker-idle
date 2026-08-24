@@ -33,7 +33,7 @@
 -- ─── Token namespaces ───────────────────────────────────────────────
 --
 -- Per-palette (re-pointed by Theme.setActive):
---   bg     = window / chrome / widget / widget_hover / sunken
+--   bg     = window / chrome / widget / widget_hover / sunken / felt
 --   fg     = primary / heading / muted / faint / disabled
 --   border = soft / default / strong
 --   data   = blue / amber / violet / red (chart series + payouts)
@@ -66,6 +66,10 @@ Theme.palettes = {
             widget       = { 0.165, 0.143, 0.125 },
             widget_hover = { 0.200, 0.173, 0.150 },
             sunken       = { 0.085, 0.075, 0.065 },
+            -- Playing surface. Unused in the room palette (the grind felt is
+            -- tinted per stake via data/stake_themes), but both palettes carry
+            -- the same key set so a view can read Theme.bg.felt either side.
+            felt         = { 0.10, 0.16, 0.12 },
         },
         border = {
             soft    = { 0.25, 0.22, 0.18 },
@@ -121,6 +125,10 @@ Theme.palettes = {
             widget       = { 0.050, 0.035, 0.040 },
             widget_hover = { 0.080, 0.055, 0.060 },
             sunken       = { 0.000, 0.000, 0.000 },
+            -- The gauntlet's playing surface. Deliberately NOT the grind
+            -- table's green: the shove reads as a different, more serious
+            -- room, so the felt is deep and desaturated.
+            felt         = { 0.045, 0.075, 0.060 },
         },
         border = {
             soft    = { 0.30, 0.10, 0.10 },

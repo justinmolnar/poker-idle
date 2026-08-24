@@ -162,45 +162,52 @@ r3 = deck x 0             card 7 covered the mult
 
 No state overrides, no halvings. A covered term is zero for the runouts after it.
 
-### 5.2 It is text, not a slot
+### 5.2 One row of seven: the table, then the stats panel
 
-The readout stays what it is today: a line of stats. **Nothing marks where a card will
-land.** No recessed rect, no outline, no card-shaped backing — any of those would
-announce that more cards are coming, which is the one thing this must not do.
+All seven board positions sit in a single line, read as two groups.
+
+**Left is the table.** The five community cards, with the hole cards centred
+under them. Everything belonging to the table centres on the board rather than
+on the screen: banner, pot pile, both hole rows, the result chips. A
+screen-centred table would sit half under the panel.
+
+**Right is the stats panel**, occupying positions 6 and 7 -- exactly where the
+cheat cards land. Until they do, it is the shove equation:
 
 ```
-BASE 25%     x     MULT 4.0     =     ALL-IN 100%
+  [1] [2] [3] [4] [5]        BASE 25%  x  MULT 4.00
+        [dealer hole]                = 100%
+        [player hole]                 ALL-IN
 ```
 
-The cheat card is laid ON the text and covers it. It overhangs, because a card dropped
-over a number should crowd what is around it — it is not a slot being filled.
+Measured at 112x160 cards, 15px card gap, 48px section gap, 36px op gap:
 
-Measured at the Step 1 card size (112x160) and `fonts.md` (42px line):
+```
+row 928px, x 336..1264, screen-centred
+  board  1 336   2 463   3 590   4 717   5 844        (ends 956)
+  panel  6 1004  7 1152                               (ends 1264)
+  table centre 646        panel centre 1134
+  hole cards x 526..765   total block y 585..690
+```
 
-| | Covers | Run width | Card | Overhang above/below |
-|---|---|---|---|---|
-| Card 6 | `BASE 25%` | 64px | 160x112 landscape | 35px |
-| Card 7 | `MULT 4.0` | 64px | 160x112 landscape | 35px |
+Rules this design has to keep:
 
-The card is wider than the run either way, so it buries it with margin. **Landscape** is
-the pick: portrait overhangs 59px and clips the banner by 33, landscape overhangs 35 and
-clips by 9. Sideways is also the natural covering gesture and suits a horizontal run.
-
-Two things fall out of this:
-
-- **BASE and MULT need their anchors at least 180px apart**, or card 6 (160 wide) clips
-  the MULT run as well. They are currently one `string.format` call; they have to be
-  positioned separately anyway to carry `RollingValue`.
-- This replaces the line that is arithmetically false in Act 2+ (§3), so that defect
-  retires here rather than being fixed twice.
-
-### 5.3 Where the seven board cards go
-
-**Only five are ever in the board row.** Cards 6 and 7 leave it and land on the text.
-
-- Board row fixes at `5*112 + 4*15 = 620px`, x 490..1110, and **never slides again.**
-- That deletes `packOriginFor`, `visiblePackSize`, `board_x` and `board_x_target` — the
-  whole lerped re-centering rig that currently shifts the board left twice per gauntlet.
+- **No slot, no plate, no outline under positions 6 and 7.** Positions 1-5 get a
+  recessed slot; 6 and 7 get nothing. A card-shaped hole on the right would give
+  the structure away before the first cheat is dealt.
+- **The equation frame stays, the values get buried.** The multiplication sign
+  sits in the gap between the two columns and never moves. The cheat cards cover
+  BASE and MULT; the total underneath rolls to zero. That is the beat.
+- **The total sits below the card positions**, so no cheat card can bury it, in
+  the band the hole cards no longer reach now the table is centred left.
+- **Text only**, worst cases checked: the Act 3 underflow puts `MULT 999` in a
+  112px column (decimals shrink with magnitude) and `= 29970%` in the 260px
+  panel.
+- **Cards deal upright**, like every other community card. An earlier draft laid
+  them sideways across a separate stats line above the table; one row makes that
+  unnecessary and removes the banner and pot-band overlaps it needed.
+- **There is no separate SHOVE % headline.** The panel carries the total, and a
+  second copy above the table would be the same number twice.
 
 ### 5.4 Two constraints
 
@@ -213,6 +220,12 @@ Two things fall out of this:
 
 ## 6. Build plan
 
+**Status 2026-08-24: Steps 1-4 built (rebuilt after an external revert). Step 5
+not started.** Everything below is
+verified headlessly only (see §7) -- nothing has been seen rendered. The two
+things needing eyes are in §8.
+
+
 A visual overhaul, same class as the chip and felt passes. Ordered so each step is
 independently reviewable and nothing later depends on an unapproved earlier call.
 
@@ -220,52 +233,54 @@ independently reviewable and nothing later depends on an unapproved earlier call
 
 No new ornament. Everything here is a fix to existing render code.
 
-- [ ] **Label pills.** `pill_h` is 54px (`fonts.md:getHeight() + 2*pad_y`) in a 22px band,
+- [x] **Label pills.** `pill_h` is 54px (`fonts.md:getHeight() + 2*pad_y`) in a 22px band,
       so both pills paint over 26px of card. **Move them beside the board** rather than
       growing the band: the board is 620px centred, leaving 490px free each side and the
       pills are ~208px wide. Kills the overlap by deletion and frees 108px of vertical,
       which is what makes the Step 4 budget fit.
-- [ ] **Centring.** `stack_h` undercounts by 26px (banner term drops its trailing `gap`;
+- [x] **Centring.** `stack_h` undercounts by 26px (banner term drops its trailing `gap`;
       `chips_h` hardcodes `18+36` against a real `18+52`). Top margin 44, bottom 19.
-- [ ] **Card size.** `CARD_BASE_W 88 -> 112`, height from the sprite's `80/56` not
+- [x] **Card size.** `CARD_BASE_W 88 -> 112`, height from the sprite's `80/56` not
       `3.5/2.5`. Gives exact 2x nearest on the 56x80 fronts and exact 1:1 on the back
       chain's 112x160 top level, and ends the 2% vertical squash vs. the felt.
-- [ ] **Theme tokens.** Three literal `love.graphics.setColor` calls at
+- [x] **Theme tokens.** Three literal `love.graphics.setColor` calls at
       `ShoveView.lua:844/846/848`.
-- [ ] **Stats line.** `BASE x MULT = SHOVE` omits the `deck` term that is in the product
+- [x] **Stats line.** `BASE x MULT = SHOVE` omits the `deck` term that is in the product
       (§3). Fix now; it is replaced wholesale in Step 4 but should not ship wrong meanwhile.
-- [ ] **`raw_r1`.** The grind top bar shows uncapped (can read 220%); the shove screen
+- [x] **`raw_r1`.** The grind top bar shows uncapped (can read 220%); the shove screen
       shows `r1` clamped to 100%. Match them.
-- [ ] **Stale comments.** `ShoveView.lua:903` and the `_drawShoveStatus` header both
+- [x] **Stale comments.** `ShoveView.lua:903` and the `_drawShoveStatus` header both
       promise a pot `$` figure that is not drawn anywhere.
 
 **Files:** `views/ShoveView.lua` only.
 
 ### Step 2 — The split
 
-- [ ] New `views/ShoveDecor.lua` — draws what it is handed, returns early on nil, contains
+- [x] New `views/ShoveDecor.lua` — draws what it is handed, returns early on nil, contains
       zero decisions. Mirrors `views/FeltDecor.lua`.
-- [ ] New `data/shove_style.lua` — tables only, no functions, no requires. Mirrors
+- [x] New `data/shove_style.lua` — tables only, no functions, no requires. Mirrors
       `data/felt_style.lua`. **Dimensions and colours, no thresholds:** the gauntlet has
       one size (§1), so gates would be dead branches.
-- [ ] `ShoveView` computes and publishes rects; fold the duplicated stats block
+- [x] `ShoveView` computes and publishes rects; fold the duplicated stats block
       (`_drawBuildup:608-630` / `_drawShoveStatus:773-793`) into one publisher.
-- [ ] `ShoveDecor.configure(fonts)` wired in `main.lua` at boot and on resize, same as
+- [x] `ShoveDecor.configure(fonts)` wired in `main.lua` at boot and on resize, same as
       `FeltDecor`.
 
-**No visual change.** The golden harness (§7) is what proves that.
+**No visual change** -- proven: with every ornament added afterwards disabled,
+the backdrop op stream is byte-identical to the capture taken before the
+extraction.
 
 ### Step 3 — Material
 
-- [ ] **Vignette.** Replace the 6 concentric rounded rects with `FeltDecor.drawMask` over
+- [x] **Vignette.** Replace the 6 concentric rounded rects with `FeltDecor.drawMask` over
       the felt band. Already built at boot, already public, one batched draw.
-- [ ] **Rail + recessed surface.** The felt band is currently 3 flat rects and two 1px
+- [x] **Rail + recessed surface.** The felt band is currently 3 flat rects and two 1px
       rules. Give it a ring with the surface inset inside it, the way `FeltLayout` insets
       the band solve.
-- [ ] **Card slots, not holes.** Empty board slots draw `Theme.bg.sunken`, which is
+- [x] **Card slots, not holes.** Empty board slots draw `Theme.bg.sunken`, which is
       `{0,0,0}` in the shove palette — literal black holes. Recessed plates instead, the
       same fix `comm_plate` was added for.
-- [ ] **Card shadows.** `CardSprites.shadow(x,y,w,h,alpha,off)` exists and is never called
+- [x] **Card shadows.** `CardSprites.shadow(x,y,w,h,alpha,off)` exists and is never called
       here. 11 card positions, all far above the felt's `min_card_w`.
 
 **Files:** `views/ShoveDecor.lua`, `data/shove_style.lua`, `views/ShoveView.lua`.
@@ -274,18 +289,18 @@ No new ornament. Everything here is a fix to existing render code.
 
 The feature. Depends on Steps 2-3.
 
-- [ ] Split the stats line into separately-positioned runs (`BASE`, `MULT`, `ALL-IN`) with
+- [x] Split the readout into separately-positioned runs (`BASE`, `MULT`, `ALL-IN`) with
       BASE and MULT anchors >= 180px apart. `RollingValue` on all three. **No backing
       graphic of any kind** (§5.2).
-- [ ] Fix the board row at 5 slots; delete `packOriginFor`, `visiblePackSize`, `board_x`,
+- [x] Fix the board row at 7 slots, split 5 + 2; delete `packOriginFor`, `visiblePackSize`, `board_x`,
       `board_x_target` and the re-centering lerp in `:update`.
-- [ ] Retarget card 6 to the BASE run and card 7 to the MULT run, landscape, centred on
+- [x] Retarget card 6 to the BASE run and card 7 to the MULT run, landscape, centred on
       the text. The timeline already opens a `RUNOUT_PAUSE + CHEAT_PAUSE` window (3.0s) at
       `ShoveView.lua:356` and `:365` for each.
-- [ ] Buried state: the covered run reads 0 with the card resting on it; ALL-IN rolls to
+- [x] Buried state: the covered run reads 0 with the card resting on it; ALL-IN rolls to
       match.
-- [ ] Underflow: MULT carries a number the card cannot cover.
-- [ ] Reveal protection and `DEMO_CUT` inertness per §5.4.
+- [x] Underflow: MULT carries a number the card cannot cover.
+- [x] Reveal protection and `DEMO_CUT` inertness per §5.4.
 
 **Files:** `views/ShoveView.lua`, `views/ShoveDecor.lua`, `data/shove_style.lua`.
 
@@ -309,9 +324,28 @@ label pills are ~208px wide.
   fail to compile it; same reasoning here.
 - **No popups, hints, or explanatory copy.** Second pass.
 
+### What Step 3 actually did to the lighting
+
+The 6 concentric rounded rects are superseded, not deleted: `spotlight.enabled`
+is false and the block stays so the harness can put the old lighting back and
+diff. The replacement is two masks -- FeltDecor's existing ramp stretched over
+the whole viewport for the room vignette, and a second ramp built in
+`ShoveDecor.configure` that runs the opposite way (opaque centre, transparent
+edge) for the light over the card rows. FeltDecor's mask is authored to darken
+edges and cannot stand in for a light, which is why there are two.
+
 ## 7. Verification plan
 
-Harnesses in the scratchpad, not the repo. Lua 5.4 confirmed on PATH; the layout harness in §2 already runs and loads the real `recomputeLayout` source verbatim rather than a transcription. Planned set:
+Harnesses in the scratchpad, not the repo. Lua 5.4 on PATH. **Built and passing:**
+
+| Harness | Guards |
+|---|---|
+| `shove_layout_harness.lua` | Loads the real constant block + `recomputeLayout` verbatim. Card metrics (exact 56x80 multiple, aspect == sprite, back within a mip level), label pills clear every card rect at the worst-case string, margins equal, stack unclipped. |
+| `love_stub.lua` | Records every graphics op instead of drawing; tracks transform depth, line width, blend, shader, canvas, font. Enough image support that mask-building paths actually execute. |
+| `backdrop_golden.lua` | Captured the inline backdrop's op stream **before** the extraction by loading the block verbatim. With every new ornament disabled, `ShoveDecor` reproduces it byte-identically. |
+| `stats_model.lua` | The readout agrees with the cheat model at every stage across Act 1 / Act 2 / underflowed: `r1 = cat x mult`, `r2 = 0 x mult` (and 0 outright with no master deck), `r3 = deck x 0`, and mult surviving card 7 once underflowed. Also asserts BASE and MULT anchors stay >= 180px apart so one cheat card cannot clip the other run, and that the cheat draw restores graphics state. |
+
+`luac -p` passes on every touched file. Original plan, for reference:
 
 1. **Golden regression** — snapshot every draw call (op, args, colour, transform) from a stubbed `love` through a full timeline replay: buildup → R1 → cheat → R2 → cheat → R3, both `DEMO_CUT` states. With every new ornament disabled the trace must be **byte-identical** to the pre-change snapshot. Captured before touching anything.
 2. **Layout invariants** — no ornament rect escapes the felt band; the label pill never intersects a card rect (guards §2.1 permanently); top and bottom margins equal.

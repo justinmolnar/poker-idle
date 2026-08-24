@@ -32,83 +32,143 @@ local Tumble                 = require("services.Tumble")
 local DenominationBreakdown  = require("services.DenominationBreakdown")
 local ChipData               = require("data.chips")
 local CardSprites            = require("views.CardSprites")
+local ShoveDecor             = require("views.ShoveDecor")
+local Style                  = require("data.shove_style")
 
 local ShoveView = {}
 ShoveView.__index = ShoveView
 
--- Card sizes / gaps. Recomputed in ShoveView:draw against the live
--- ui_scale so the gauntlet visuals grow with the window.
-local CARD_W = 88
-local CARD_H = math.floor(CARD_W * 3.5 / 2.5)
-local CARD_GAP = 12
-local CARD_BASE_W   = 88
-local CARD_BASE_GAP = 12
+-- Card sizes / gaps.
+--
+-- CARD_W is a FIXED 112, not a fraction of ui_scale. The draw size has to be an
+-- exact ratio of the source art or the pixel grid comes apart. Fronts ship
+-- 56x80, so 112x160 is an exact 2x nearest-neighbour double; services/
+-- SpriteLoader's card-back mip chain tops out at exactly 112x160, so backs draw
+-- 1:1. The old 88 * 1.25 = 110 magnified fronts 1.964x horizontally and 1.925x
+-- vertically -- a non-integer nearest upscale with the two axes disagreeing,
+-- which gives uneven pixel runs across the card.
+--
+-- The height comes from the SPRITE aspect (80/56 = 1.4286), not a nominal
+-- playing-card 3.5/2.5 (1.4). Those differ, so the old chain squashed every
+-- gauntlet card 2% vertically against the same art on the felt, where
+-- views/FeltLayout uses CARD_ASPECT = 56/80 correctly.
+local CARD_W   = 112
+local CARD_H   = math.floor(CARD_W * 80 / 56)     -- 160
+local CARD_GAP = 15
 
--- Reading order top → bottom: banner ("ALL-IN") → stats line
--- (BASE × MULT = SHOVE%) → POT chip pile → dealer hole → dealer
--- label → community board → player label → player hole → runout
--- result chips. Stats and pot live above the cards so the pile the
--- player just shoved stays the visual focus, with cards landing
--- under it.
-local POT_BAND_H = 110
+-- Pot band. Scaled with everything else now; the old flat 110 was the only
+-- unscaled constant in the chain. views/Chips at this scale draws a 44px chip
+-- and stacks 6 to a column, so a full column is 69px -- 80 holds it.
+local POT_BAND_BASE_H = 64
+local POT_BAND_H      = 80
 
--- Y positions for the gauntlet stack. Initial values are placeholders;
--- recomputeLayout() reassigns them at draw start so the layout
--- responds to ui_scale + the current font heights.
-local Y_BANNER      = 40
-local Y_STATS       = 80
-local Y_POT         = 120
-local Y_DEALER_HOLE = 240
-local Y_DEALER_LABEL = Y_DEALER_HOLE + CARD_H + 8
-local Y_BOARD        = Y_DEALER_LABEL + 22
-local Y_PLAYER_LABEL = Y_BOARD + CARD_H + 8
-local Y_PLAYER_HOLE  = Y_PLAYER_LABEL + 22
-local Y_CHIPS        = Y_PLAYER_HOLE + CARD_H + 18
+-- Reading order top to bottom: banner ("ALL-IN") -> POT chip pile -> dealer
+-- hole -> the board row -> player hole -> result chips.
+--
+-- There is no separate SHOVE % headline any more: the stats panel on the right
+-- of the board row carries the total, and a second copy above the table would
+-- be the same number twice.
+--
+-- The hand labels do not own bands here. They draw BESIDE the hole cards they
+-- describe: a pill is fonts.md:getHeight() + 2*pad_y = 54px tall and the chain
+-- used to allot it 22, so both pills painted over 26px of card, including any
+-- best-5 stroke underneath. There is clear felt either side of the 239px hole
+-- row, so the pills move out rather than the band growing.
+local Y_BANNER       = 0
+local Y_POT          = 0
+local Y_DEALER_HOLE  = 0
+local Y_BOARD        = 0
+local Y_PLAYER_HOLE  = 0
+local Y_CHIPS        = 0
+local Y_DEALER_LABEL = 0
+local Y_PLAYER_LABEL = 0
 
 local function recomputeLayout(H, fonts, s)
     local md_h = (fonts and fonts.md and fonts.md:getHeight()) or 18
     local lg_h = (fonts and fonts.lg and fonts.lg:getHeight()) or 32
     s = s or 1
-    -- Vertically center the full stack (banner → result chips) in the
-    -- viewport. At small windows this keeps the bottom from clipping;
-    -- at large windows the equal top/bottom margin reads as deliberate
-    -- framing.
-    local gap      = math.floor(8 * s)
-    local banner_h = lg_h
-    local stats_h  = md_h + gap
-    local pot_h    = POT_BAND_H + gap
-    local cards_h  = 3 * CARD_H + 8 + 22 + 8 + 22
-    local chips_h  = 18 + 36
-    local stack_h  = banner_h + stats_h + pot_h + cards_h + chips_h
-    local top      = math.max(8, math.floor((H - stack_h) / 2))
 
-    Y_BANNER       = top
-    Y_STATS        = Y_BANNER + banner_h + gap
-    Y_POT          = Y_STATS + md_h + gap
-    Y_DEALER_HOLE  = Y_POT + POT_BAND_H + gap
-    Y_DEALER_LABEL = Y_DEALER_HOLE + CARD_H + 8
-    Y_BOARD        = Y_DEALER_LABEL + 22
-    Y_PLAYER_LABEL = Y_BOARD + CARD_H + 8
-    Y_PLAYER_HOLE  = Y_PLAYER_LABEL + 22
-    Y_CHIPS        = Y_PLAYER_HOLE + CARD_H + 18
+    local gap      = math.floor(8  * s)
+    local row_gap  = math.floor(6  * s)
+    local chip_gap = math.floor(14 * s)
+    local chip_h   = math.max(28, math.floor(42 * s))
+
+    POT_BAND_H = math.floor(POT_BAND_BASE_H * s)
+
+    -- Every term here is a real span in the chain below. The previous version
+    -- dropped the banner's trailing gap and used a hardcoded 36 for the result
+    -- chips against a real 52, so it understated the stack by 26px and the whole
+    -- gauntlet sat 13px above centre.
+    local stack_h = lg_h + gap          -- banner
+                  + POT_BAND_H + gap
+                  + 3 * CARD_H + 2 * row_gap
+                  + chip_gap + chip_h
+    local top = math.max(8, math.floor((H - stack_h) / 2))
+
+    Y_BANNER      = top
+    Y_POT         = Y_BANNER + lg_h + gap
+    Y_DEALER_HOLE = Y_POT + POT_BAND_H + gap
+    Y_BOARD       = Y_DEALER_HOLE + CARD_H + row_gap
+    Y_PLAYER_HOLE = Y_BOARD + CARD_H + row_gap
+    Y_CHIPS       = Y_PLAYER_HOLE + CARD_H + chip_gap
+
+    -- Labels centre vertically on the card row they describe.
+    local pill_h   = md_h + 12
+    Y_DEALER_LABEL = Y_DEALER_HOLE + math.floor((CARD_H - pill_h) / 2)
+    Y_PLAYER_LABEL = Y_PLAYER_HOLE + math.floor((CARD_H - pill_h) / 2)
 end
 
--- Target slot 1's left edge so the currently-visible pack of cards is
--- centered horizontally on screen. n is 5, 6, or 7 depending on how
--- many cheats have been earned.
-local function packOriginFor(n_slots, screen_w)
-    local pack_w = n_slots * CARD_W + (n_slots - 1) * CARD_GAP
-    return math.floor((screen_w - pack_w) / 2)
+-- ─── The board row ────────────────────────────────────────────────────
+--
+-- SEVEN positions in one line. 1-5 are the community cards; 6 and 7 are where
+-- the dealer's cheat cards land, and until they do those positions carry the
+-- BASE and MULT readouts.
+--
+-- A wider gap sits between 5 and 6 so the right-hand pair reads as a breakdown
+-- panel beside the board rather than as part of it. That is what keeps the
+-- runout structure a surprise: nothing on screen says two more cards are
+-- coming, and the reveal is that it was one row all along.
+--
+-- The row never moves. The old code lerped an animated pack origin so a
+-- 5-centred board could re-centre itself for 6 and again for 7; with a fixed
+-- seven-wide row there is nothing to slide.
+local function rowWidth()
+    return 7 * CARD_W + 4 * CARD_GAP
+         + Style.row.section_gap + Style.stats.op_gap
 end
 
--- How many slots the visible pack should currently center on, given
--- which runout chips have flipped (and whether those runouts won — a
--- losing R1 doesn't trigger a 6th-card shift).
-local function visiblePackSize(view, result)
-    local n = 5
-    if view.chip_visible[1] and result and result.outcomes[1] == true then n = 6 end
-    if view.chip_visible[2] and result and result.outcomes[2] == true then n = 7 end
-    return n
+local function rowOriginFor(screen_w)
+    return math.floor((screen_w - rowWidth()) / 2)
+end
+
+-- Left edge of row position i (1..7).
+--
+-- Two gaps are wider than the card gap and REPLACE it rather than adding to it,
+-- so rowWidth counts each exactly once: `section_gap` between the board and the
+-- panel, and `op_gap` between the panel's two columns (it holds the
+-- multiplication sign).
+local function slotX(origin, i)
+    local x = origin + (i - 1) * (CARD_W + CARD_GAP)
+    if i > 5 then x = x + (Style.row.section_gap - CARD_GAP) end
+    if i > 6 then x = x + (Style.stats.op_gap    - CARD_GAP) end
+    return x
+end
+
+-- Centre of the five-card board, and the anchor for everything that belongs to
+-- THE TABLE: the banner, the pot pile, both hole rows, the result chips.
+--
+-- Not the centre of the screen. The stats panel occupies the right of the row,
+-- so a screen-centred table would sit half under it; the table is its own
+-- column and the panel is another.
+local function tableCenterX(screen_w)
+    local origin = rowOriginFor(screen_w)
+    return origin + (5 * CARD_W + 4 * CARD_GAP) / 2
+end
+
+-- Centre of the stats panel (positions 6 and 7 together).
+local function panelCenterX(screen_w)
+    local origin = rowOriginFor(screen_w)
+    return (slotX(origin, 6) + slotX(origin, 7) + CARD_W) / 2
 end
 
 -- Buildup-phase pacing (pre-cinematic spectacle, before any cards
@@ -149,13 +209,6 @@ function ShoveView:new(game, ss)
         total_duration  = 0,
         card_anims      = {},
         chip_visible    = { false, false, false },
-        -- Animated board-pack origin (slot 1's left edge). The pack of
-        -- visible cards stays centered on screen at every step: 5 cards
-        -- centered → slide left to re-center for 6 → slide left again
-        -- for 7. nil means "uninitialised; snap to target on first
-        -- update". Lerped toward `board_x_target` each frame.
-        board_x         = nil,
-        board_x_target  = nil,
         -- Pre-cinematic buildup (spectacle moment): "idle" | "buildup"
         -- | "ready_to_deal" | "running". ShoveState:enter calls
         -- :beginBuildup which sets phase="buildup"; when phase_t crosses
@@ -389,10 +442,6 @@ function ShoveView:resetTimeline()
     self.total_duration = 0
     self.card_anims     = {}
     self.chip_visible   = { false, false, false }
-    -- Snap the board origin back to the 5-centered baseline on the
-    -- next update so a fresh shove always starts visually centered.
-    self.board_x        = nil
-    self.board_x_target = nil
     -- Drop buildup state so the next ShoveState:enter starts clean.
     self.phase          = "idle"
     self.phase_t        = 0
@@ -419,12 +468,6 @@ function ShoveView:skip()
         if anim.update then anim:update(10) end
     end
     self.elapsed = self.total_duration
-    -- Snap the board origin to the final pack size so a fast-forwarded
-    -- reveal doesn't get caught mid-slide.
-    local result = self.ss.gauntlet and self.ss.gauntlet.result
-    local n      = visiblePackSize(self, result)
-    self.board_x_target = packOriginFor(n, love.graphics.getWidth())
-    self.board_x        = self.board_x_target
 end
 
 function ShoveView:update(dt)
@@ -475,26 +518,6 @@ function ShoveView:update(dt)
         if anim.update then anim:update(dt) end
     end
 
-    -- Animate the board-pack origin so the pack stays centered as new
-    -- slots appear. Target is computed each frame from chip state. On
-    -- first call we snap (board_x == nil) so the initial render is
-    -- already centered; subsequent retargets lerp over ~0.5 s. The
-    -- shift fires when the runout chip flips — i.e. during the
-    -- RUNOUT_PAUSE + CHEAT_PAUSE window before the cheat card slides
-    -- in — so the slide finishes before the new card lands.
-    local W      = love.graphics.getWidth()
-    local result = self.ss.gauntlet and self.ss.gauntlet.result
-    local n      = visiblePackSize(self, result)
-    self.board_x_target = packOriginFor(n, W)
-    if self.board_x == nil then
-        self.board_x = self.board_x_target
-    else
-        local k = math.min(1, dt * 6)
-        self.board_x = self.board_x + (self.board_x_target - self.board_x) * k
-        if math.abs(self.board_x_target - self.board_x) < 0.5 then
-            self.board_x = self.board_x_target
-        end
-    end
 end
 
 -- ─── Drawing helpers ───────────────────────────────────────────────────
@@ -504,7 +527,16 @@ local function printCentered(text, font, x, y, w)
     love.graphics.print(text, math.floor(x + (w - tw) / 2), y)
 end
 
+-- Every card in the gauntlet goes through here, so the drop shadow does too.
+-- The shadow tracks the card's VISIBLE width: a hole card mid-flip is scaled
+-- horizontally toward zero, and a full-width shadow under a card on edge would
+-- read as a slab the card is standing on.
+--
+-- No size gate. views/FeltDecor gates shadows on card width because the felt
+-- runs down to 9px cards; these are a fixed 112px, far above that threshold.
 local function drawCardSprite(sl, sprite_name, x, y, w, h, scale_x, alpha)
+    local ew = w * (scale_x or 1)
+    CardSprites.shadow(x + (w - ew) / 2, y, ew, h, alpha, ShoveDecor.shadowOffset())
     CardSprites.sprite(sl, sprite_name, x, y, w, h, scale_x, alpha)
 end
 
@@ -528,6 +560,11 @@ local function bannerFor(g, view)
     if revealed < terminal_idx then return "ALL-IN" end
     if r.won then return "GAUNTLET CLEARED" end
     return "BUSTED"
+end
+
+-- Wrapper for the best-5 stroke; lives in views/CardSprites.
+local function strokeSlot(x, y, w, h, inset, lw)
+    CardSprites.strokeSlot(x, y, w, h, inset, lw)
 end
 
 local function isInCombo(card, combo)
@@ -561,9 +598,9 @@ function ShoveView:_drawBuildup(W, H)
     -- and the player hole cards — same spot it'll occupy during the
     -- cinematic, so the pile doesn't relocate or vanish when cards
     -- start dealing.
-    local stack_cx = math.floor(W / 2)
+    local stack_cx = math.floor(tableCenterX(W))
     local stack_cy = math.floor(H * 0.85)
-    local pot_cx   = math.floor(W / 2)
+    local pot_cx   = math.floor(tableCenterX(W))
     local pot_cy   = Y_POT + math.floor(POT_BAND_H * 0.55)
     local arc_lift = math.max(40, math.floor(120 * s))
 
@@ -596,7 +633,10 @@ function ShoveView:_drawBuildup(W, H)
         and math.min(1, #arrived_indices / total_chips) or 0
     local p_eased = easeOut(arrival_frac)
     local target_mult = rates.mult or 1.0
-    local target_win  = (rates.r1 or 0) * 100
+    -- raw_r1, not the clamped r1: the grind top bar already shows the uncapped
+    -- figure, so clamping here made a 220% player watch their number collapse
+    -- to 100% at the moment they pressed the button.
+    local target_win  = (rates.raw_r1 or rates.r1 or 0) * 100
     local mult_now = 1.0 + (target_mult - 1.0) * p_eased
     local win_pct  = target_win * p_eased
     if in_lock then
@@ -604,28 +644,11 @@ function ShoveView:_drawBuildup(W, H)
         win_pct  = target_win
     end
 
-    -- Stats readout above the pot pile. Reading order: BASE × MULT
-    -- = SHOVE. The total is the takeaway, so it renders in fonts.md
-    -- (heading-color when locked); the inputs (base, mult) sit
-    -- smaller in fonts.sm so they read as supporting data.
-    local catalog_pct = math.floor((rates.catalog or 0) * 100 + 0.5)
-    local stats_y = Y_STATS
-    local text_left  = string.format("BASE %d%%   ×   MULT %.2f   =   ",
-        catalog_pct, mult_now)
-    local text_right = string.format("SHOVE %d%%", math.floor(win_pct + 0.5))
-    local left_w  = fonts.sm:getWidth(text_left)
-    local right_w = fonts.md:getWidth(text_right)
-    local total_w = left_w + right_w
-    local sx      = math.floor((W - total_w) / 2)
-    -- Vertically center sm against md so the baselines align.
-    local md_h = fonts.md:getHeight()
-    local sm_h = fonts.sm:getHeight()
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.print(text_left, sx, stats_y + math.floor((md_h - sm_h) / 2))
-    love.graphics.setFont(fonts.md)
-    Theme.setColor(Theme.fg.heading)
-    love.graphics.print(text_right, sx + left_w, stats_y)
+    -- The readout, ticking up as the chips land. Nothing is covered during the
+    -- buildup: the dealer has not dealt anything yet.
+    local base_v = (rates.catalog or 0) + (rates.deck or 0)
+    self:_drawStats(math.floor(base_v * 100 + 0.5), mult_now,
+                    math.floor(win_pct + 0.5), nil)
 
     -- Stack at the bottom — chips not yet flown. Drawn through Chips
     -- so they match in-game chip art exactly.
@@ -633,7 +656,8 @@ function ShoveView:_drawBuildup(W, H)
     Theme.setColor(Theme.fg.muted)
     if #waiting_indices > 0 or total_chips > #arrived_indices then
         printCentered("YOUR STACK", fonts.sm,
-            0, stack_cy - math.floor(36 * s), W)
+            stack_cx - math.floor(W / 4), stack_cy - math.floor(36 * s),
+            math.floor(W / 2))
         Chips.drawStack(stack_cx, stack_cy, waiting_indices,
             { align = "center" })
     end
@@ -690,6 +714,122 @@ function ShoveView:_drawBuildup(W, H)
         love.graphics.setFont(fonts.md)
         Theme.setColor(Theme.fg.heading, label_alpha * 0.6)
         printCentered("PUSHING ALL IN…", fonts.md, 0, math.floor(H * 0.10), W)
+    end
+end
+
+-- === The shove readout ================================================
+--
+-- The headline SHOVE % sits above the table. Its two inputs, BASE and MULT, sit
+-- at row positions 6 and 7 -- the two places the dealer's cheat cards land.
+--
+-- One publisher, called by both the buildup and the persistent cinematic HUD.
+-- Those used to carry near-identical copies of this block, which is two places
+-- deciding one thing.
+--
+-- Nothing is drawn behind BASE and MULT: no plate, no panel, no slot. They are
+-- text sitting in a gap beside the board, which is what lets the right-hand
+-- pair read as a breakdown panel rather than as two empty card positions. The
+-- runout structure has to stay a surprise.
+function ShoveView:_drawStats(base_pct, mult_val, total_pct, covered)
+    local fonts  = self.fonts
+    local W      = love.graphics.getWidth()
+    local origin = rowOriginFor(W)
+    local md_h   = fonts.md:getHeight()
+
+    -- BASE and MULT, centred in their columns and on the cards beside them.
+    local ty = Y_BOARD + math.floor(CARD_H * Style.stats.row_align - md_h / 2)
+    love.graphics.setFont(fonts.md)
+    local function put(i, kind, text)
+        Theme.setColor((covered and covered[kind]) and Theme.fg.faint or Theme.fg.muted)
+        printCentered(text, fonts.md, slotX(origin, i), ty, CARD_W)
+    end
+    put(6, "base", string.format("BASE %d%%", base_pct))
+    -- Decimals shrink as the number grows: the column is one card wide and the
+    -- Act 3 underflow puts 999 in it. "MULT 999.00" would not fit; "MULT 999"
+    -- does, and the decimals mean nothing at that magnitude anyway.
+    local mfmt = (mult_val >= 100 and "MULT %.0f")
+              or (mult_val >= 10  and "MULT %.1f")
+              or "MULT %.2f"
+    put(7, "mult", string.format(mfmt, mult_val))
+
+    -- The multiplication sign, in the gap between the two columns. Part of the
+    -- frame, not a value: it stays put when a cheat card buries a term.
+    Theme.setColor(Theme.fg.faint)
+    printCentered("\u{00D7}", fonts.md,
+                  slotX(origin, 6) + CARD_W, ty, Style.stats.op_gap)
+
+    -- The total, under both columns. This is the number that collapses as the
+    -- dealer buries its inputs, so it carries the emphasis.
+    local lg_h = fonts.lg:getHeight()
+    local ty2  = Y_BOARD + CARD_H + Style.stats.total_gap
+    local px   = slotX(origin, 6)
+    local pw   = (slotX(origin, 7) + CARD_W) - px
+    love.graphics.setFont(fonts.lg)
+    Theme.setColor(Theme.fg.heading)
+    printCentered(string.format("= %d%%", total_pct), fonts.lg, px, ty2, pw)
+    love.graphics.setFont(fonts.md)
+    Theme.setColor(Theme.fg.faint)
+    printCentered("ALL-IN", fonts.md, px, ty2 + lg_h, pw)
+end
+
+-- The live terms behind the readout, after whatever the dealer has taken.
+--
+--   r1 = cat  x mult          both live
+--   r2 = 0    x mult          card 6 covered the catalog base
+--   r3 = deck x 0             card 7 covered the mult
+--
+-- A covered term is zero for the runouts after it. The one exception is the
+-- multiplier once the bankroll has underflowed: that is a number the dealer
+-- cannot bury, and it is how the last runout is finally won.
+function ShoveView:_underflowed(rates)
+    local threshold = Constants.GAMEPLAY.UNDERFLOW_THRESHOLD
+    return threshold ~= nil and (rates.bankroll or 0) < threshold
+end
+
+function ShoveView:_statsValues(rates, covered)
+    local base = (rates.catalog or 0) + (rates.deck or 0)
+    local mult = rates.mult or 1.0
+    if covered and covered.base then base = rates.deck or 0 end
+    if covered and covered.mult and not self:_underflowed(rates) then mult = 0 end
+    return base, mult, base * mult
+end
+
+-- Which readouts the dealer has buried. Keyed off the cheat cards having
+-- actually been dealt, so the numbers and the cards can never disagree.
+function ShoveView:_coveredRuns()
+    return { base = self.card_anims.board_6 ~= nil,
+             mult = self.card_anims.board_7 ~= nil }
+end
+
+-- The dealer's cheat cards: board cards 6 and 7, dealt UPRIGHT into row
+-- positions 6 and 7 like any other community card. They land on the BASE and
+-- MULT readouts and bury them, and the seven-card line is complete.
+--
+-- Under FEATURES.DEMO_CUT the timeline never creates board_6 / board_7, so this
+-- draws nothing and needs no flag of its own.
+function ShoveView:_drawCheatCards(result, eval)
+    if not (Style.cheat.enabled and result) then return end
+    local origin = rowOriginFor(love.graphics.getWidth())
+
+    for _, i in ipairs{ 6, 7 } do
+        local anim = self.card_anims["board_" .. i]
+        local card = result.board[i]
+        if anim and card then
+            local x     = slotX(origin, i)
+            local alpha = anim.getAlpha and anim:getAlpha() or 1
+            drawCardSprite(self.game.sprite_loader, card:spriteName(),
+                           x, Y_BOARD, CARD_W, CARD_H, 1, alpha)
+            if eval then
+                if isInCombo(card, eval.player_combo) then
+                    Theme.setColor(Theme.status.good, 0.95)
+                    strokeSlot(x, Y_BOARD, CARD_W, CARD_H, 2, 3)
+                end
+                if isInCombo(card, eval.dealer_combo) then
+                    Theme.setColor(Theme.status.error, 0.95)
+                    strokeSlot(x, Y_BOARD, CARD_W, CARD_H, -3, 3)
+                end
+            end
+        end
     end
 end
 
@@ -757,9 +897,9 @@ function ShoveView:_drawBoardCard(i, x, y)
 end
 
 -- Persistent shove HUD drawn during the gauntlet cinematic. Keeps
--- the pot stack + rate breakdown visible the whole time so the
+-- the pot pile + rate breakdown visible the whole time so the
 -- player never loses sight of what's at stake or what their odds
--- are. Without this the screen goes from "buildup with full
+-- are. The pile is the only pot readout; there is no $ figure. Without this the screen goes from "buildup with full
 -- context" to "cards floating in a black void" the instant the
 -- cinematic starts, which the player reads as everything vanishing.
 function ShoveView:_drawShoveStatus(W, H)
@@ -768,28 +908,12 @@ function ShoveView:_drawShoveStatus(W, H)
     local fonts = self.fonts
     local s     = (self.game and self.game.ui_scale) or 1
 
-    -- Stats readout in Y_STATS slot — same position the buildup uses.
-    -- Total renders bigger (md, status-good color) than the inputs
-    -- (sm, muted) so the takeaway lands and the math reads as
-    -- supporting context.
-    local catalog_pct = math.floor((rates.catalog or 0) * 100 + 0.5)
-    local shove_pct   = math.floor((rates.r1 or 0) * 100 + 0.5)
-    local stats_y = Y_STATS
-    local text_left  = string.format("BASE %d%%   ×   MULT %.2f   =   ",
-        catalog_pct, rates.mult or 1.0)
-    local text_right = string.format("SHOVE %d%%", shove_pct)
-    local left_w  = fonts.sm:getWidth(text_left)
-    local right_w = fonts.md:getWidth(text_right)
-    local total_w = left_w + right_w
-    local sx      = math.floor((W - total_w) / 2)
-    local md_h    = fonts.md:getHeight()
-    local sm_h    = fonts.sm:getHeight()
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.print(text_left, sx, stats_y + math.floor((md_h - sm_h) / 2))
-    love.graphics.setFont(fonts.md)
-    Theme.setColor(Theme.fg.heading)
-    love.graphics.print(text_right, sx + left_w, stats_y)
+    -- The readout, with whatever the dealer has already buried. Values come
+    -- from _statsValues so the printed breakdown is always the live one.
+    local covered = self:_coveredRuns()
+    local base_v, mult_v, shove_v = self:_statsValues(rates, covered)
+    self:_drawStats(math.floor(base_v * 100 + 0.5), mult_v,
+                    math.floor(shove_v * 100 + 0.5), covered)
 
     -- Pot pile in the center of the pot band. Same chip list the
     -- buildup arrived with, so the pile stays exactly where it
@@ -799,15 +923,10 @@ function ShoveView:_drawShoveStatus(W, H)
         for i, c in ipairs(self.buildup_chips) do
             chip_indices[i] = c.denom_idx
         end
-        local pot_cx = math.floor(W / 2)
+        local pot_cx = math.floor(tableCenterX(W))
         local pot_cy = Y_POT + math.floor(POT_BAND_H * 0.55)
         Chips.drawStack(pot_cx, pot_cy, chip_indices, { align = "center" })
     end
-end
-
--- Wrapper for the best-5 stroke; lives in views/CardSprites.
-local function strokeSlot(x, y, w, h, inset, lw)
-    CardSprites.strokeSlot(x, y, w, h, inset, lw)
 end
 
 function ShoveView:draw()
@@ -817,60 +936,19 @@ function ShoveView:draw()
     -- Scale card / gap sizes by ui_scale so the gauntlet doesn't sit
     -- as a tiny island in the middle of a 4K screen.
     local s = (self.game and self.game.ui_scale) or 1
-    CARD_W   = math.floor(CARD_BASE_W * s)
-    CARD_H   = math.floor(CARD_W * 3.5 / 2.5)
-    CARD_GAP = math.floor(CARD_BASE_GAP * s)
-    -- Vertically center the gauntlet stack in the current window.
+    -- Card sizes are fixed (see the constant block): they have to stay an exact
+    -- ratio of the source art. Only the chain around them scales.
     recomputeLayout(H, self.fonts, s)
 
-    -- Atmospheric backdrop: pitch-black base, a deep felt band centered
-    -- on the board so the cards land "on a table" rather than floating
-    -- in a black void, plus a soft spotlight halo above it. No textures
-    -- or shaders — just stacked rectangles with alpha falloff. Cheap,
-    -- but turns the empty void into a casino room.
-    Theme.setColor(Theme.bg.window)
-    love.graphics.rectangle("fill", 0, 0, W, H)
-
-    -- Felt band — runs horizontally across the full width behind the
-    -- board area. Color is a deep desaturated green; deliberately not
-    -- the bright grind-table green so the gauntlet still reads as
-    -- "different / serious" tonally.
-    local FELT_R, FELT_G, FELT_B = 0.045, 0.075, 0.060
+    -- The table. views/ShoveDecor paints the room, the felt band, its rim and
+    -- the lighting; this view only says where the band goes. The band is sized
+    -- off the card rows so the cards always land on it.
     local felt_top    = Y_DEALER_HOLE - 40
     local felt_height = (Y_PLAYER_HOLE + CARD_H + 40) - felt_top
-
-    -- Soft top fade → felt → soft bottom fade. Three rectangles, each
-    -- with alpha scaled, give a gradient without needing meshes/shaders.
-    love.graphics.setColor(FELT_R, FELT_G, FELT_B, 0.25)
-    love.graphics.rectangle("fill", 0, felt_top - 60, W, 60)
-    love.graphics.setColor(FELT_R, FELT_G, FELT_B, 1.00)
-    love.graphics.rectangle("fill", 0, felt_top, W, felt_height)
-    love.graphics.setColor(FELT_R, FELT_G, FELT_B, 0.25)
-    love.graphics.rectangle("fill", 0, felt_top + felt_height, W, 60)
-
-    -- Thin rule above and below the felt band — suggests the rim of a
-    -- table without committing to a full elliptical felt sprite. Colored
-    -- via the active palette's strong border token; under the shove
-    -- palette this reads as a red rim consistent with the black/red mode.
-    Theme.setColor(Theme.border.strong, 0.70)
-    love.graphics.rectangle("fill", 0, felt_top - 1, W, 1)
-    love.graphics.rectangle("fill", 0, felt_top + felt_height, W, 1)
-
-    -- Centered spotlight glow over the board area — adds the "this is
-    -- the moment" focus. Painted as concentric rounded rects with
-    -- decreasing alpha. Wider than the felt band so it bleeds slightly
-    -- past the edges.
-    local spot_cy = (felt_top + felt_height * 0.5)
-    for i = 1, 6 do
-        local frac  = i / 6
-        local alpha = 0.06 * (1 - frac)
-        local rw    = W * 0.55 * frac + 200
-        local rh    = felt_height * 0.50 * frac + 60
-        Theme.setColor(Theme.fg.heading, alpha)
-        love.graphics.rectangle("fill",
-            (W - rw) * 0.5, spot_cy - rh * 0.5,
-            rw, rh, Theme.space.radius * 4)
-    end
+    ShoveDecor.drawBackdrop({
+        x = 0, y = felt_top, w = W, h = felt_height,
+        screen_w = W, screen_h = H,
+    })
 
     love.graphics.setFont(self.fonts.sm)
     Theme.setColor(Theme.status.error)
@@ -898,43 +976,40 @@ function ShoveView:draw()
 
     love.graphics.setFont(self.fonts.lg)
     Theme.setColor(Theme.fg.heading)
-    printCentered(bannerFor(g, self), self.fonts.lg, 0, Y_BANNER, W)
+    -- Centred on the TABLE, not the screen: the banner belongs to the felt,
+    -- and the stats panel owns the right of the row.
+    printCentered(bannerFor(g, self), self.fonts.lg,
+                  math.floor(tableCenterX(W) - W / 4), Y_BANNER, math.floor(W / 2))
 
-    -- Persistent shove status (pot $ + chip stack + base × mult =
-    -- shove %) so the player always sees what's at stake and what
-    -- their odds are during the cards.
+    -- Persistent shove status (pot chip pile + the SHOVE % breakdown) so the
+    -- player always sees what's at stake and what their odds are during the
+    -- cards. No dollar figure: the pile IS the pot readout.
     self:_drawShoveStatus(W, H)
 
-    local n_board         = visibleBoardCount(g)
-    local n_slots_visible = visiblePackSize(self, result)
-    -- Pack origin is animated by :update so the visible pack of cards
-    -- stays centered at every step. Default to the snapped 5-centered
-    -- position if update hasn't run yet (first frame edge case).
-    local board_x = self.board_x or packOriginFor(n_slots_visible, W)
+    local n_board  = visibleBoardCount(g)
+    local board_x  = rowOriginFor(W)
 
-    -- Board placeholder slots — only as many as are currently in play.
-    -- Centered on the same 7-slot anchor so cards 1..5 sit where the
-    -- player expects a normal NLHE board.
-    Theme.setColor(Theme.bg.sunken)
-    for i = 1, n_slots_visible do
-        local x = board_x + (i - 1) * (CARD_W + CARD_GAP)
-        love.graphics.rectangle("fill", x, Y_BOARD, CARD_W, CARD_H, Theme.space.radius)
+    -- Recessed slots under positions 1-5 ONLY. Positions 6 and 7 carry the
+    -- BASE / MULT readout until a cheat card lands on them, and a card-shaped
+    -- hole sitting there would announce the cheats before they happen.
+    for i = 1, 5 do
+        ShoveDecor.drawSlot(slotX(board_x, i), Y_BOARD, CARD_W, CARD_H)
     end
 
-    -- Board cards.
-    for i = 1, n_board do
-        local x = board_x + (i - 1) * (CARD_W + CARD_GAP)
-        self:_drawBoardCard(i, x, Y_BOARD)
+    -- Board cards. 6 and 7 are dealt by _drawCheatCards, after the readout they
+    -- bury has been drawn.
+    for i = 1, math.min(5, n_board) do
+        self:_drawBoardCard(i, slotX(board_x, i), Y_BOARD)
     end
 
     -- Hole card slots (player + dealer placeholder rectangles).
     local hole_w = 2 * CARD_W + CARD_GAP
-    local hole_x = math.floor((W - hole_w) / 2)
-    Theme.setColor(Theme.bg.sunken)
+    -- Under the five-card board, not the middle of the screen.
+    local hole_x = math.floor(tableCenterX(W) - hole_w / 2)
     for i = 0, 1 do
         local x = hole_x + i * (CARD_W + CARD_GAP)
-        love.graphics.rectangle("fill", x, Y_DEALER_HOLE, CARD_W, CARD_H, Theme.space.radius)
-        love.graphics.rectangle("fill", x, Y_PLAYER_HOLE, CARD_W, CARD_H, Theme.space.radius)
+        ShoveDecor.drawSlot(x, Y_DEALER_HOLE, CARD_W, CARD_H)
+        ShoveDecor.drawSlot(x, Y_PLAYER_HOLE, CARD_W, CARD_H)
     end
 
     -- Hole cards (face-down → flipped at showdown moment).
@@ -974,9 +1049,12 @@ function ShoveView:draw()
             end
 
             -- Board cards (could be in player_combo, dealer_combo, or both).
+            -- All seven positions: a cheat card is usually the card that
+            -- decided the runout, so leaving 6 and 7 unmarked would drop the
+            -- most important one.
             for i = 1, n_board do
                 local card = result.board[i]
-                local x = board_x + (i - 1) * (CARD_W + CARD_GAP)
+                local x = slotX(board_x, i)
                 if isInCombo(card, eval.player_combo) then
                     outline(x, Y_BOARD, Theme.status.good, 2, 3)
                 end
@@ -987,32 +1065,42 @@ function ShoveView:draw()
         end
     end
 
-    -- Hand labels (dealer above board, player below board). Drawn as
-    -- solid status-color pills with dark text so they stay legible
-    -- regardless of what cards happen to sit underneath. The previous
-    -- thin red / green text on the shove backdrop blended into the
-    -- card art.
+    -- The dealer's cheats, completing the seven-card line. Drawn after the
+    -- highlight pass so each carries its own best-5 marking.
+    self:_drawCheatCards(result, (revealed_idx > 0) and result
+                                 and result.evals[revealed_idx] or nil)
+
+    -- Hand labels. Solid status-colour pills with dark text so they stay
+    -- legible over whatever is behind them.
+    --
+    -- They sit BESIDE the hole cards they describe, right-aligned into the clear
+    -- felt left of the row and centred vertically on it. They used to sit between
+    -- the card rows in a 22px band while measuring 54px tall (fonts.md line box +
+    -- 2*pad_y), so each one painted over the top 26px of the row below it -- the
+    -- middle board cards and both player hole cards, best-5 strokes included.
     if result and revealed_idx > 0 then
         local eval = result.evals[revealed_idx]
         if eval then
+            local gutter = math.floor(24 * s)
             local function drawLabelPill(text, y, color)
                 love.graphics.setFont(self.fonts.md)
-                local fh    = self.fonts.md:getHeight()
-                local pad_x = 14
-                local pad_y = 6
-                local tw    = self.fonts.md:getWidth(text)
-                local pill_w = tw + pad_x * 2
+                local fh     = self.fonts.md:getHeight()
+                local pad_x  = 14
+                local pad_y  = 6
+                local pill_w = self.fonts.md:getWidth(text) + pad_x * 2
                 local pill_h = fh + pad_y * 2
-                local pill_x = math.floor((W - pill_w) / 2)
-                local pill_y = y - pad_y
+                -- Right edge lands a gutter clear of the cards; the pill grows
+                -- leftward into the open felt, so a long hand name never reaches
+                -- the row.
+                local pill_x = math.max(gutter, hole_x - gutter - pill_w)
                 Theme.setColor(color)
-                love.graphics.rectangle("fill", pill_x, pill_y, pill_w, pill_h, Theme.space.radius)
+                love.graphics.rectangle("fill", pill_x, y, pill_w, pill_h, Theme.space.radius)
                 Theme.setColor(Theme.border.strong)
                 love.graphics.setLineWidth(2)
-                love.graphics.rectangle("line", pill_x, pill_y, pill_w, pill_h, Theme.space.radius)
+                love.graphics.rectangle("line", pill_x, y, pill_w, pill_h, Theme.space.radius)
                 love.graphics.setLineWidth(1)
                 Theme.setColor(Theme.bg.window)
-                love.graphics.print(text, pill_x + pad_x, pill_y + pad_y)
+                love.graphics.print(text, pill_x + pad_x, y + pad_y)
             end
             drawLabelPill("dealer: " .. HandEval.describe(eval.dealer_rank),
                 Y_DEALER_LABEL, Theme.status.error)
@@ -1039,7 +1127,7 @@ function ShoveView:draw()
     local chip_w   = math.max(72, math.floor(110 * s))
     local chip_h   = math.max(28, math.floor(42  * s))
     local total_chip_w = n_slots * chip_w + math.max(0, n_slots - 1) * CARD_GAP
-    local chip_x0 = math.floor((W - total_chip_w) / 2)
+    local chip_x0 = math.floor(tableCenterX(W) - total_chip_w / 2)
     love.graphics.setFont(self.fonts.md)
     for i = 1, n_slots do
         if self.chip_visible[i] then
