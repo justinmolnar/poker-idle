@@ -296,17 +296,10 @@ function HintRules.registerAll(reg)
         return ctx.deck_select_open == true
     end)
 
-    -- Times the player has entered a screen (cond.name), persisted. "First
-    -- visit" is max = 1: the counter is bumped on enter, before the scan.
-    reg:register("screen_visits", function(cond, ctx)
-        local v = ctx.state and ctx.state.screen_visits
-        return inRange((v and v[cond.name]) or 0, cond)
-    end)
-
-    reg:register("hint_seen", function(cond, ctx)
-        local seen = ctx.state and ctx.state.hints_seen
-        return (seen and seen[cond.hint]) == true
-    end)
+    -- (screen_visits and hint_seen were kinds here. Both let a popup know
+    -- where the story is, which is what story beats are for; removing them
+    -- is how the harness enforces that no popup depends on story progress.
+    -- The screen_visits FIELD stays on GameState for save-shape stability.)
 end
 
 return HintRules

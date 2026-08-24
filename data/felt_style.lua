@@ -60,8 +60,8 @@ return {
     },
 
     -- The rail: the table's outer ring, with the playing surface recessed
-    -- inside it. This is what finally makes stake_themes' border_color mean
-    -- something on the felt -- T1 gets a dim scuffed ring, T6 a gold one.
+    -- inside it. Its colour is the GAME TYPE's (data/game_type_themes.lua);
+    -- the felt inside it is the stake's.
     --
     -- Gated on felt HEIGHT because that is what it spends: the ring costs
     -- 2*width off both axes, and views/FeltLayout insets the whole band solve
@@ -71,9 +71,9 @@ return {
         frac       = 0.035, -- width as a fraction of the felt's SHORT side
         min_w      = 2,
         max_w      = 10,
-        -- FALLBACK ONLY. The ring's colour is stake_themes' `rail_color`, an
-        -- authored material per stake; this multiplier only applies to a stake
-        -- with no rail_color, where border_color has to stand in and needs
+        -- FALLBACK ONLY. The ring's colour is game_type_themes' `rail_color`,
+        -- an authored material per game type; this multiplier only applies when
+        -- the type has none, where the stake's border_color stands in and needs
         -- pulling down so it reads as a ring instead of a bright trim line.
         darken     = 0.45,
         -- Inner edge line at the surface boundary, so the felt reads as sunk

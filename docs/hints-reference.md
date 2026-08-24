@@ -1,5 +1,8 @@
 # Hint reference (rev 4, 2026-07-15)
 
+> **Superseded (2026-08-24).** The hint list was split into story beats (`data/story.lua`) and stateless popups (`data/hints.lua`); every line now lives in `docs/house-script.md`. Kept for the review notes.
+
+
 Every tutorial hint currently in the game, in priority order (= list order in
 `data/hints.lua`). Copy is quoted verbatim; `{chip}` / `{w:stack}` render as
 the live glyphs. Each entry ends with a Notes/revisions slot for review

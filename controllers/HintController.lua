@@ -44,17 +44,21 @@ local CHECK_INTERVAL = 0.15
 -- The grind-shaped reads (table counts, tiedUp, focus) go through
 -- game.grind, which GrindState sets at boot; on other screens the pool is
 -- empty and every pool rule reads 0, which is the correct answer there.
--- `ctx_extra` is a host-supplied function returning screen-level facts
--- (which state is current, the shove's beat, whether the catalog is open)
--- that no controller owns.
+-- The ctx (controllers/hint_ctx.lua) is built by the host once per tick
+-- and shared with the story director, so a beat and a popup read the
+-- same frame.
+--
+-- `paused` is set by the host while a story beat is running: nothing new
+-- starts or queues, the queue stays, and the active sticky is hidden by
+-- the view rather than cancelled here. He does not talk over himself.
 function HintController:new(game)
     local by_id = {}
     for _, spec in ipairs(Hints) do by_id[spec.id] = spec end
     return setmetatable({
         game      = game,
-        ctx_extra = nil,
         by_id     = by_id,
         enabled = Constants.FEATURES.TUTORIAL,
+        paused  = false,
         active  = nil,   -- the currently-showing STICKY spec, or nil
         _timer  = 0,
     }, HintController)
@@ -117,7 +121,7 @@ function HintController:_isQueued(id)
     return false
 end
 
-function HintController:update(dt)
+function HintController:update(dt, ctx)
     if not self.enabled then return end
     self._timer = self._timer + (dt or 0)
     if self._timer < CHECK_INTERVAL then return end
@@ -127,17 +131,19 @@ function HintController:update(dt)
     local seen, queued = state.hints_seen, state.hints_queued
     if not (seen and queued) then return end
     local reg   = self.game.hint_rules
-    local grind = self.game.grind
-    local ctx   = { state = state, pool = grind and grind.pool, grind = grind }
-    if self.ctx_extra then
-        for k, v in pairs(self.ctx_extra() or {}) do ctx[k] = v end
+    if not ctx then
+        local grind = self.game.grind
+        ctx = { state = state, pool = grind and grind.pool, grind = grind }
     end
 
-    -- Active sticky hint completes on its done-condition.
+    -- Active sticky hint completes on its done-condition, beat or no beat.
     if self.active and self.active.done and reg:check(self.active.done, ctx) then
         self:_markSeen(self.active.id)
         self.active = nil
     end
+
+    -- While the House is telling a story, no popup starts.
+    if self.paused then return end
 
     -- Scan for new firings. Sticky specs respect the one-at-a-time slot;
     -- info specs queue independently (several [i]s may pend at once).

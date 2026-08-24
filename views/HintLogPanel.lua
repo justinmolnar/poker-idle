@@ -24,6 +24,7 @@ local IconText = require("views.IconText")
 local Anchors  = require("services.AnchorRegistry")
 local Hints    = require("data.hints")
 local HintView = require("views.HintView")
+local HintMarks = require("views.HintMarks")
 
 local HintLogPanel = {}
 HintLogPanel.__index = HintLogPanel
@@ -33,7 +34,10 @@ local MAX_W_BASE  = 280
 local SLIDE_TIME  = 0.12   -- seconds for the drop-down reveal
 local EMPTY_NOTE  = "Nothing on file yet"
 
-function HintLogPanel:new(game, hint_view)
+-- `story` (controllers/StoryDirector) supplies the beats the House has
+-- told, listed under the hints as THE HOUSE so a missed line can be
+-- reread. Optional: without it the section is absent.
+function HintLogPanel:new(game, hint_view, story)
     -- Snapshot at open: seen + queued specs in data (teaching) order.
     local state  = game.state
     local seen   = state.hints_seen or {}
@@ -45,11 +49,13 @@ function HintLogPanel:new(game, hint_view)
             entries[#entries + 1] = spec
         end
     end
+    local story_lines = story and story.seenLines and story:seenLines() or {}
 
     return setmetatable({
         game      = game,
         hint_view = hint_view,   -- shared renderer: dim, rings, bubble
         entries   = entries,
+        story_lines = story_lines,
         slide     = 0,      -- 0 = retracted, 1 = fully dropped
         closing   = false,
         done      = false,  -- fully retracted — host drops the panel
@@ -93,12 +99,16 @@ function HintLogPanel:draw()
         title_w = math.max(title_w,
             IconText.measure(spec.title or spec.id, sm))
     end
+    for _, line in ipairs(self.story_lines) do
+        title_w = math.max(title_w, IconText.measure(line.text, sm))
+    end
     title_w = math.max(title_w, sm:getWidth("HELP DESK"))
     local pw = math.max(fl(MIN_W_BASE * s),
                math.min(fl(MAX_W_BASE * s), title_w + pad * 2))
 
     local header_h = lh + pad
-    local n_rows   = math.max(1, #self.entries)   -- 1 = empty-note row
+    local n_story  = (#self.story_lines > 0) and (#self.story_lines + 1) or 0
+    local n_rows   = math.max(1, #self.entries) + n_story   -- 1 = empty-note row
     local list_h   = n_rows * row_h
     local house    = Anchors.get("house")
     local px, py, view_h
@@ -142,6 +152,23 @@ function HintLogPanel:draw()
     if hovered_spec then
         hovered_layout = self.hint_view:_layoutHint(hovered_spec, false)
     end
+    -- THE HOUSE: what he has said so far, after the hints. Hovering a line
+    -- whose target is on screen marks it (no bubble: it was never one).
+    self._story_rows = {}
+    local hovered_line
+    local base = math.max(1, #self.entries)
+    for i, line in ipairs(self.story_lines) do
+        local ry   = list_y + (base + i) * row_h - self.scroll
+        local live = line.anchor ~= nil and #HintMarks.fresh(line.anchor) > 0
+        self._story_rows[#self._story_rows + 1] = { line = line, y = ry, live = live }
+        if self.slide >= 1 and live and not hovered_spec
+           and mx >= px and mx < px + pw
+           and my >= ry and my < ry + row_h
+           and ry >= list_y and ry + row_h <= list_y + view_h then
+            hovered_line = line
+        end
+    end
+    local story_header_y = list_y + base * row_h - self.scroll
 
     -- ── Replay dim first (dropdown + bubble ride in as holes), chrome
     -- next, the hint itself (rings + bubble) on top of everything.
@@ -165,7 +192,7 @@ function HintLogPanel:draw()
     Theme.setColor(Theme.fg.faint)
     love.graphics.print("HELP DESK", px + pad, py + fl(pad * 0.5))
 
-    if #self.entries == 0 then
+    if #self.entries == 0 and #self.story_lines == 0 then
         Theme.setColor(Theme.fg.muted)
         love.graphics.print(EMPTY_NOTE, px + pad, list_y + fl(5 * s))
     else
@@ -185,6 +212,31 @@ function HintLogPanel:draw()
                     px + pad, row.y + fl(5 * s), sm, color)
             end
         end
+        if #self.story_lines > 0 then
+            if story_header_y + row_h >= list_y and story_header_y <= list_y + view_h then
+                Theme.setColor(Theme.fg.faint)
+                love.graphics.setFont(sm)
+                love.graphics.print("THE HOUSE", px + pad, story_header_y + fl(5 * s))
+            end
+            local max_tw = pw - pad * 2
+            for _, row in ipairs(self._story_rows) do
+                if row.y + row_h >= list_y and row.y <= list_y + view_h then
+                    local hov = row.line == hovered_line
+                    if hov then
+                        Theme.setColor(Theme.bg.widget_hover)
+                        love.graphics.rectangle("fill", px, row.y, pw, row_h)
+                    end
+                    local text = row.line.text
+                    while IconText.measure(text, sm) > max_tw and #text > 4 do
+                        text = text:sub(1, #text - 2) .. "\u{2026}"
+                        text = text:gsub("\u{2026}\u{2026}$", "\u{2026}")
+                    end
+                    local color = (not row.live) and Theme.fg.faint
+                                or (hov and Theme.fg.heading or Theme.fg.primary)
+                    IconText.draw(game, text, px + pad, row.y + fl(5 * s), sm, color)
+                end
+            end
+        end
         love.graphics.setScissor(px, reveal_y, pw, ph)
 
         if max_scroll > 0 then
@@ -200,6 +252,8 @@ function HintLogPanel:draw()
 
     if hovered_layout then
         self.hint_view:_drawHint(hovered_layout, false)
+    elseif hovered_line then
+        HintMarks.draw(game, HintMarks.fresh(hovered_line.anchor))
     end
 end
 

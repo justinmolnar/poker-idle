@@ -124,7 +124,7 @@ function GrindState:openHelp()
         if self.help_panel then
             self.help_panel:beginClose()
         else
-            self.help_panel = HintLogPanel:new(self.game, self.game.hint_view)
+            self.help_panel = HintLogPanel:new(self.game, self.game.hint_view, self.game.story)
         end
         return
     end
@@ -317,6 +317,7 @@ function GrindState:fullReset()
     -- Drop any active hint; the seen-set was wiped on GameState, so the
     -- fresh game re-teaches from the top.
     if self.game.hints then self.game.hints:reset() end
+    if self.game.story then self.game.story:reset() end
 end
 
 -- Phase 2 debug: H deals one hand on table 1. J deals every idle table.

@@ -1,0 +1,36 @@
+-- controllers/hint_ctx.lua
+--
+-- The ctx that condition kinds (models/hint_rules.lua) evaluate against:
+-- the game state, the grind's pool, and the screen-level facts no
+-- controller owns (which screen is up, where the shove's beat machine is,
+-- whether a modal that doubles as a teaching surface is open). Built once
+-- per tick by main.lua and handed to BOTH the story director and the hint
+-- controller, so a beat and a popup always read the same frame.
+--
+-- deps = { game, anchor_fresh = fn(name) -> bool }
+
+local HintCtx = {}
+
+function HintCtx.build(deps)
+    local g   = deps.game
+    local sm  = g.state_machine
+    local cur = sm and sm.current_state
+    local sv  = cur and cur.view
+    local screen = sm and sm:current() or nil
+    local is_shove = screen == "shove"
+    local grind = g.grind
+    return {
+        state            = g.state,
+        pool             = grind and grind.pool,
+        grind            = grind,
+        screen           = screen,
+        shove_phase      = is_shove and sv and sv.phase or nil,
+        shove_hold       = is_shove and sv and sv.hold_id or nil,
+        shove_cheats     = is_shove and sv and sv.cheatsDealt and sv:cheatsDealt() or 0,
+        catalog_open     = cur and (cur.catalog_modal ~= nil) or false,
+        deck_select_open = cur and ((cur.deck_select_modal or cur.deck_roster_modal) ~= nil) or false,
+        anchor_fresh     = deps.anchor_fresh,
+    }
+end
+
+return HintCtx

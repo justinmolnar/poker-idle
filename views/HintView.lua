@@ -34,6 +34,7 @@
 local Theme       = require("views.Theme")
 local IconText    = require("views.IconText")
 local Anchors     = require("services.AnchorRegistry")
+local HintMarks   = require("views.HintMarks")
 local LabelButton = require("views.widgets.LabelButton")
 local AwardGlow   = require("views.AwardGlow")
 
@@ -63,30 +64,12 @@ local FEATHER_PX    = 4   -- band width, pre-scale
 local CLEAR = { 0, 0, 0 }
 local WHITE = { 1, 1, 1 }
 
--- A hint is renderable only while its target widget drew this frame or
--- the one before (anchors re-register every draw; age 2+ = gone).
-local function freshAnchor(name)
-    return name and Anchors.age(name) <= 1 and Anchors.get(name) or nil
-end
+-- Anchor freshness and the mark list live in views/HintMarks, shared with
+-- the story band so a popup and a beat point at a widget the same way.
+local freshAnchor = HintMarks.freshAnchor
 
--- hint.anchor is a name or a list of names → list of fresh anchor marks
--- ({x, y, w, h, is_rect}); empty when none of the targets are on screen.
--- Exposed as HintView.freshMarksFor — the hint-log panel resolves specs
--- through the same rules.
 local function freshMarks(hint)
-    local names = hint.anchor
-    if type(names) ~= "table" then names = { names } end
-    local marks = {}
-    for _, name in ipairs(names) do
-        local a = freshAnchor(name)
-        if a then
-            local m = { x = a[1], y = a[2], w = a[3], h = a[4],
-                        is_rect = a[3] ~= nil and a[4] ~= nil }
-            if not m.is_rect then m.w, m.h = 0, 0 end
-            marks[#marks + 1] = m
-        end
-    end
-    return marks
+    return HintMarks.fresh(hint.anchor)
 end
 
 function HintView:new(game)
@@ -310,26 +293,9 @@ end
 
 -- ── Rendering ────────────────────────────────────────────────────────
 
--- Pulsing highlight rings around a mark list.
+-- Pulsing highlight rings around a mark list (views/HintMarks).
 function HintView:_drawMarks(marks)
-    local s  = self.game.ui_scale or 1
-    local fl = math.floor
-    local t   = love.timer.getTime()
-    local pad = fl(4 * s) + fl(2 * math.sin(t * 4) + 2)
-    local pulse = 0.55 + 0.35 * math.sin(t * 4)
-    Theme.setColor(Theme.status.warn, pulse)
-    for _, m in ipairs(marks) do
-        if m.is_rect then
-            local r = fl(4 * s)
-            love.graphics.rectangle("line", m.x - pad, m.y - pad,
-                m.w + pad * 2, m.h + pad * 2, r)
-            love.graphics.rectangle("line", m.x - pad - 1, m.y - pad - 1,
-                m.w + pad * 2 + 2, m.h + pad * 2 + 2, r)
-        else
-            love.graphics.circle("line", m.x, m.y, fl(18 * s) + pad)
-            love.graphics.circle("line", m.x, m.y, fl(18 * s) + pad + 1)
-        end
-    end
+    HintMarks.draw(self.game, marks)
 end
 
 -- NOTE: views/HintLogPanel calls _drawDim and _drawMarks directly (dim
@@ -398,9 +364,13 @@ end
 -- Draw the whole hint layer. `active` (sticky) may be nil; `queued` is
 -- the spec list in queue order (may be empty/nil). While a sticky hint
 -- renders, the queue strip is hidden entirely — one voice at a time.
-function HintView:draw(active, queued)
+-- `paused` (a story beat is running): the sticky is hidden, not
+-- dismissed, and no hover preview opens; the [i] strip still draws so an
+-- unread hint stays reachable.
+function HintView:draw(active, queued, paused)
     self.bubble_rect = nil
     self.icon_rects  = {}
+    if paused then active = nil end
 
     -- 1. Which queued hints are visible right now (a target drew this frame).
     local visible = {}
@@ -454,7 +424,7 @@ function HintView:draw(active, queued)
     local is_hovered = false
     local hovered_spec = nil
 
-    if active_layout == nil and n_available > 0 then
+    if active_layout == nil and n_available > 0 and not paused then
         is_hovered = mx >= ix and mx < ix + iw and my >= iy and my < iy + ih
         if is_hovered then
             hovered_spec = visible[order[1]]
@@ -601,5 +571,7 @@ end
 -- Static export: fresh anchor marks for an arbitrary spec (see
 -- freshMarks). Used by views/HintLogPanel.
 HintView.freshMarksFor = freshMarks
+-- Static export: word-wrap with {icon} measurement. Used by views/StoryView.
+HintView.wrapLines = wrapLines
 
 return HintView

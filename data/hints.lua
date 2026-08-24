@@ -1,104 +1,58 @@
 -- data/hints.lua
 --
--- Contextual tutorial hints (the captor teaching you to play). Pure data —
--- condition kinds are registered in models/hint_rules.lua; the queue lives
--- in controllers/HintController.lua; rendering in views/HintView.lua.
--- Full teaching plan: docs/tutorial-teaching-list.md; per-hint reference
--- with review notes: docs/hints-reference.md.
+-- The "[i]" popups: the House explaining one small thing on its own
+-- trigger. Pure data. Condition kinds are registered in
+-- models/hint_rules.lua; the queue lives in controllers/HintController.lua;
+-- rendering in views/HintView.lua. Copy is reviewed in docs/house-script.md
+-- and transcribed here.
+--
+-- A popup is STATELESS. It never assumes where the story is: no trigger on
+-- story progress (hint_seen, has_shoved, act unlocks, screen visits) and
+-- nothing in the text about runs, resets or acts. Anything that needs the
+-- player to have been told something first is a story beat
+-- (data/story.lua), which has an order. The audit harness enforces this.
 --
 -- List order = priority: the first unseen hint whose `trigger` passes
 -- becomes active; only one sticky hint shows at a time (queue hints
--- accumulate independently).
+-- accumulate independently). While a story beat is running, nothing here
+-- fires.
 --
 -- Fields:
 --   id      unique slug; keys the persisted state.hints_seen set
 --   title   short label for the help-desk list (views/HintLogPanel);
 --           {icon} markers render there too
---   anchor  AnchorRegistry name to highlight — or a LIST of names to
---           highlight several widgets at once (the bubble hangs off the
---           first one that's on screen). Views register these rects
---           during draw; a hint with no fresh anchor hides until a
---           target widget draws again.
---   text    bubble copy, captor voice; {icon} markers render live glyphs.
---           A LIST of strings renders as separate paragraphs — use it to
---           keep glyph legend rows off the prose lines
---   trigger condition table — hint fires when this passes
+--   anchor  AnchorRegistry name to highlight, or a LIST of names (the
+--           bubble hangs off the first one on screen). A hint with no
+--           fresh anchor hides until a target widget draws again.
+--   text    bubble copy; {icon} markers render live glyphs. A LIST of
+--           strings renders as separate paragraphs.
+--   trigger condition table.
 --   done    STICKY ONLY. Completes the hint (the advance-on-action).
---           Never consulted for an info hint, which has no completion.
 --   retire  condition table. If it ALREADY passes when the hint would first
---           fire, the hint is marked seen WITHOUT showing: how a save that
---           predates the hint system skips teaching it does not need.
+--           fire, the hint is marked seen WITHOUT showing. Must be evidence
+--           the player is past THIS LESSON (the counter that tracks the
+--           concept), never a shove count: quickReset bumps shove_count.
+--   sticky  instructions: highlight + bubble stay up until `done` or a
+--           bubble click. One at a time. Non-sticky hints join the
+--           hoverable [i] queue and never steal focus.
 --
---           These were one field, and the overload was a bug. A retire
---           predicate must be evidence the player is past THIS LESSON.
---           `shoves >= 1` was used for six hints and is evidence of
---           nothing: it reads shove_count, which resetRun bumps, and
---           quickReset routes through resetRun. So pressing the free
---           rescue button retired six of fifteen hints, including the one
---           that explains what SHOVE is. Reach for the counter that tracks
---           the concept (total_denied_stacks for the denial rule,
---           total_chips_banked for the first bounty), or for nothing at
---           all: hints_seen already stops a hint firing twice, so a hint
---           whose trigger is a live mistake wants no retire predicate.
---
---           Queued info hints are exempt: once in the queue, only clicking
---           the [i] clears them.
---   sticky  instructions ("open a table"): highlight + bubble stay up until
---           the done-condition or a bubble click. One at a time.
---           Non-sticky hints are FYIs: they join the hoverable [i] queue
---           instead and never steal focus.
---
--- Conditions: { kind = "...", ... } — kinds live in models/hint_rules.lua.
--- Numeric kinds compare with inclusive `min` / `max`. `all` / `any` /
--- `not` compose sub-conditions from their array part.
-
-local Constants = require("data.constants")
+-- Copy rules: no em-dashes, {chip} never the word, cut filler.
 
 return {
 
-    -- ── Phase 1: first minutes (empty room → first money) ─────────────
+    -- ── First minutes ─────────────────────────────────────────────────
 
-    {
-        id     = "first_table",
-        title  = "Open a table",
-        anchor = "add_table:s001:six_max",
-        sticky = true,
-        text   = "Thanks for your participation, open a table.",
-        trigger = { kind = "all",
-                    { kind = "tables_open",  max = 0 },
-                    { kind = "shoves",       max = 0 },
-                    { kind = "hands_played", max = 0 } },
-        done    = { kind = "tables_open", min = 1 },
-    },
-
-    -- Hovering is the game's whole self-documentation layer — teach the
-    -- gesture itself, early, by lighting hoverable surfaces in all four
-    -- screen regions at once (table readout, top bar, both sidebars).
-    {
-        id     = "hover_things",
-        title  = "Hover for details",
-        anchor = { "ev:1", "cell:tied", "add_table:s001:six_max",
-                   "buy_runup_sharper_reads" },
-        text   = "Hover anything for details. Stats, buttons, upgrades: everything explains itself.",
-        trigger = { kind = "hands_played", min = 2 },
-        retire  = { kind = "hands_played", min = 15 },
-    },
-
-    -- ONE hint for the whole per-table readout: outcome sizes, the $/h
-    -- average, and the gold {w:stack} % — split across three hints these
-    -- stacked up around hand 8 all pointing at the same row. Per-table
-    -- anchors list several indices; only the readouts of tables actually
-    -- open (and roomy enough to show one) light up.
+    -- ONE hint for the whole per-table readout. Per-table anchors list
+    -- several indices; only the readouts of tables actually open light up.
     {
         id     = "table_stats",
         title  = "Table stats",
         anchor = { "ev:1", "ev:2", "ev:3", "ev:4" },
         text   = {
-            "Hands land in four sizes:",
+            "Hands come in four sizes.",
             "wins  {w:small} {w:medium} {w:large} {w:stack}",
             "losses  {l:small} {l:medium} {l:large} {l:stack}",
-            "$/h is the table's average per hand. The gold {w:stack} % is your chance at a {w:stack} per hand.",
-            "Hover for the math.",
+            "$/h is what a table makes you per hand. The gold {w:stack} % is your shot at a whole stack. Hover for the math.",
         },
         trigger = { kind = "hands_played", min = 5 },
         retire  = { kind = "hands_played", min = 20 },
@@ -108,243 +62,79 @@ return {
         id     = "help_exists",
         title  = "The help desk",
         anchor = "btn:help",
-        text   = "Visit the help desk to view all previous hints.",
+        text   = "Missed something I said? It's all at the help desk, any time.",
         trigger = { kind = "hands_played", min = 18 },
         retire  = { kind = "hands_played", min = 35 },
     },
 
-    -- ── Phase 2: the earning loop ──────────────────────────────────────
-
-    {
-        id     = "run_upgrades",
-        title  = "Run upgrades",
-        anchor = "buy_runup_sharper_reads",
-        sticky = true,
-        text   = "You can afford an upgrade. They reset every run, and pay for themselves.",
-        trigger = { kind = "all",
-                    { kind = "run_upgrades_owned",     max = 0 },
-                    { kind = "can_afford_run_upgrade", id = "sharper_reads" } },
-        done    = { kind = "run_upgrades_owned", min = 1 },
-    },
-
-    {
-        id     = "multi_table",
-        title  = "Multi-tabling",
-        anchor = "add_table:s001:six_max",
-        text   = "Open another table to double the speed you can play hands.",
-        -- If they can afford it, tell them — no hand-count floor.
-        trigger = { kind = "all",
-                    { kind = "tables_open",      min = 1, max = 1 },
-                    { kind = "can_afford_stake", stake = "s001" } },
-        retire  = { kind = "tables_open", min = 2 },
-    },
+    -- ── The earning loop ──────────────────────────────────────────────
 
     {
         id     = "tied_up",
         title  = "Tied up money",
         anchor = { "cell:tied", "btn:cash_out",
                    "tied:1", "tied:2", "tied:3", "tied:4" },
-        text   = {
-            "Short on cash? Most of it is TIED UP in your tables, still in play.",
-            "CASH OUT or close a table to take it back.",
-        },
+        text   = "Short on cash? Most of it's sitting on your tables, still in play. CASH OUT or close one to get it back.",
         trigger = { kind = "all",
                     { kind = "tables_open", min = 1 },
                     { kind = "tied_up",     min = 0.01 },
                     { kind = "not", { kind = "can_afford_stake", stake = "s001" } } },
-        -- No retire predicate. The trigger IS a live failure state (short on
-        -- cash with money still on the tables), so a player meeting it for the
-        -- first time in hour six needs the lesson exactly as much as one
-        -- meeting it in minute six. hints_seen already stops a second showing.
+        -- No retire: the trigger IS a live failure state, and hints_seen
+        -- already stops a second showing.
     },
 
     {
         id     = "stake_ladder",
         title  = "Higher stakes",
         anchor = "add_table:s002:six_max",
-        text   = {
-            "NL10 is open. 10x the potential winnings but be warned, the opponents only get harder to beat.",
-            "Upgrade to increase your edge.",
-        },
+        text   = "NL10's open. Ten times the money, but the players are better. Worth an upgrade or two first.",
         trigger = { kind = "can_afford_stake", stake = "s002" },
         retire  = { kind = "any",
                     { kind = "stake_table_open", stake = "s002" },
-                    -- Having sat at NL10 or above is the evidence; a shove
-                    -- count is not.
                     { kind = "highest_stake_idx", min = 2 } },
     },
 
-    -- ── Phase 3: overload and failure ──────────────────────────────────
+    -- ── Overload and failure ──────────────────────────────────────────
 
     {
         id     = "focus_overload",
         title  = "Focus",
         anchor = { "cell:focus", "buy_runup_focus" },
-        text   = {
-            "You can't focus on this many tables.",
-            "Close one, buy the Focus upgrade, or suffer a penalty to ALL tables.",
-        },
+        text   = "That's a lot of tables. You're playing all of them a bit worse. Close one, or grab Focus.",
         trigger = { kind = "focus_overloaded" },
-        -- No retire predicate, same reasoning as tied_up: overloading is a
-        -- correctable mistake and teaching it belongs at the first one,
-        -- whenever that happens.
     },
 
+    -- The only sticky left: an instruction with a button to press.
     {
         id     = "quick_reset",
         title  = "Quick reset",
         anchor = "btn:quick_reset",
         sticky = true,
-        text   = "Bricked? The house is merciful. Free reset to $2; your {chip} ride along.",
+        text   = "Stuck? Happens. Free reset to two dollars, and your {chip} come with you.",
         trigger = { kind = "can_quick_reset" },
         done    = { kind = "not", { kind = "can_quick_reset" } },
     },
 
-    -- ── Phase 4: gold chips and the shove ──────────────────────────────
-
-    -- The chip hints point at the "+N {chip}" badges: the banked
-    -- add-table button's badge (gold trim marks it) and the running
-    -- pile on the (still locked) SHOVE button. The top-bar chip count
-    -- is banked-meta currency and stays hidden until the first shove.
-    {
-        id     = "first_chip",
-        title  = "Banking {chip}",
-        anchor = { "chip_badge:banked", "chip_badge:shove" },
-        text   = {
-            "A {w:stack} win banked your first {chip}.",
-            "Once per table type each run (DIVERSIFY); gold trim marks the ones that paid.",
-        },
-        trigger = { kind = "chips_this_run", min = 1 },
-        -- The copy says "your first {chip}", so it must not greet a player
-        -- who already has a bounty history. Lifetime and monotonic: a real
-        -- first-timer cannot reach 3 before the trigger fires at 1.
-        retire  = { kind = "total_chips_banked", min = 3 },
-    },
+    -- ── {chip} ────────────────────────────────────────────────────────
 
     {
         id     = "chip_denied",
         title  = "{chip} denied",
-        anchor = { "chip_badge:banked", "chip_badge:shove" },
-        text   = "That table already paid its {chip} this run. Other stakes and types can still payout, this one cannot.",
+        anchor = "chip_badge:banked",
+        text   = "That table's already paid its {chip}. Try a different stake or a different game.",
         trigger = { kind = "total_denied_stacks", min = 1 },
         -- Legacy filter only: the trigger fires at the first denial, so
         -- reaching five unseen means a save that predates this hint.
         retire  = { kind = "total_denied_stacks", min = 5 },
     },
 
-    -- Fires the moment the SHOVE button first enables — the same
-    -- threshold gates the button (GrindController:shoveUnlocked reads
-    -- GAMEPLAY.SHOVE_UNLOCK_CHIPS), so trigger and reveal stay in sync.
-    -- Deliberately a queue hint with no-pressure copy: unlocking the
-    -- shove must not read as an instruction to use it.
-    {
-        id     = "shove_ready",
-        title  = "The SHOVE",
-        anchor = "btn:shove",
-        text   = {
-            "SHOVE has unlocked.",
-            "It bets everything on one hand and ends the run. Win or lose, your {chip} stay yours to spend.",
-            "No rush.",
-        },
-        trigger = { kind = "chips_this_run",
-                    min = Constants.GAMEPLAY.SHOVE_UNLOCK_CHIPS },
-        -- has_shoved, NOT shoves: quickReset bumps shove_count without the
-        -- player ever shoving, and this is the hint that explains what
-        -- SHOVE is. Retiring it for someone who pressed the rescue button
-        -- is how the button ate the tutorial.
-        retire  = { kind = "has_shoved" },
-    },
-
-    {
-        id     = "shove_pct",
-        title  = "SHOVE %",
-        anchor = "cell:shove",
-        text   = {
-            "Your SHOVE % has two parts: catalog upgrades set the base, your total money multiplies it.",
-            "Hover for the math.",
-        },
-        trigger = { kind = "all",
-                    { kind = "has_shoved" },
-                    { kind = "bankroll_tier", min = 3 } },
-        retire  = { kind = "has_shoved" },
-    },
-
-    -- ── Phase 5: post-shove meta ───────────────────────────────────────
-    -- (The catalog first-visit callout lives inside CatalogModal;
-    -- seen-flag hints_seen["catalog_intro"], set by ShoveState.)
-
-    {
-        id     = "two_currencies",
-        title  = "Two currencies",
-        anchor = { "buy_runup_sharper_reads", "btn:catalog" },
-        text   = "Sidebar upgrades reset each run, items from the catalog don't (view them with the catalog button).",
-        trigger = { kind = "all",
-                    { kind = "has_shoved" },
-                    { kind = "run_upgrades_owned", max = 0 } },
-        retire  = { kind = "run_upgrades_owned", min = 1 },
-    },
-
-    -- ── Phase 6: Act 2 ─────────────────────────────────────────────────
-    -- Everything from here down fires after the first gauntlet win. These
-    -- are APPENDED, never inserted: list order is priority, and putting an
-    -- Act 2 hint above an Act 1 hint would let it take the sticky slot from
-    -- a player who still needs the basics.
-    --
-    -- Act 2 and Act 3 hints chain on hint_seen of their predecessor. Only
-    -- one queued hint is previewable at a time (views/HintView), so an
-    -- unstaggered burst buries the later ones behind a count badge.
-
-    {
-        id     = "deck_rack",
-        title  = "The deck rack",
-        anchor = "cell:deck",
-        text   = {
-            "Your deck sits in the rack. It levels as you play and its bonus applies every hand.",
-            "Only the active deck earns XP. Every deck you have unlocked keeps paying.",
-        },
-        trigger = { kind = "deck_system_unlocked" },
-    },
-
-    {
-        id     = "mid_stakes",
-        title  = "Mid stakes",
-        anchor = { "add_table:s004:six_max", "add_table:s005:six_max",
-                   "add_table:s006:six_max" },
-        text   = "NL1K and above are open. The buy-ins are brutal and so are the opponents.",
-        trigger = { kind = "all",
-                    { kind = "act2_unlocked" },
-                    { kind = "hint_seen", hint = "deck_rack" } },
-        retire  = { kind = "highest_stake_idx", min = 4 },
-    },
-
-    -- The R2 wall, named. The dealer's first cheat buries the catalog base,
-    -- so the deck base is the only term left holding up runout 2 -- and it
-    -- is zero until the master deck exists. Without this the player shoves
-    -- into a mathematically impossible runout forever with no stated way out.
-    {
-        id     = "master_deck",
-        title  = "Beating runout 2",
-        anchor = { "cell:deck", "cell:shove" },
-        text   = {
-            "The second runout does not count your catalog. Only your decks.",
-            "Max five decks and The Master joins the rack. That is the run that beats it.",
-        },
-        trigger = { kind = "all",
-                    { kind = "act2_unlocked" },
-                    { kind = "hint_seen", hint = "deck_rack" },
-                    { kind = "decks_maxed_count", max = 4 } },
-        retire  = { kind = "decks_maxed_count", min = 5 },
-    },
-
-    -- ── Phase 6: first contact with a system ───────────────────────────
-    -- Specced in docs/tutorial-teaching-list.md and never built. Each fires
-    -- the first time the player actually meets the thing, not on a timer.
+    -- ── First contact with a system ───────────────────────────────────
 
     {
         id     = "rebuy",
         title  = "Rebuying a table",
         anchor = "rebuy:any",
-        text   = "That table is empty, not gone. REBUY puts a fresh stack on it.",
+        text   = "Empty, not gone. REBUY puts a fresh stack on it.",
         trigger = { kind = "any_table_busted" },
         retire  = { kind = "total_rebuys", min = 1 },
     },
@@ -353,7 +143,7 @@ return {
         id     = "gtype_hu",
         title  = "Heads-Up",
         anchor = "gtype:hu",
-        text   = "Heads-Up is one opponent. You win fewer hands, and the pots run deep both ways.",
+        text   = "Heads-up: one opponent. You'll win fewer hands, and the pots run deep both ways.",
         trigger = { kind = "gtype_table_open", gtype = "hu" },
     },
 
@@ -361,7 +151,7 @@ return {
         id     = "gtype_zoom",
         title  = "Zoom",
         anchor = "gtype:zoom",
-        text   = "Zoom deals fast against a new table every hand. You win more often, for less.",
+        text   = "Zoom deals you a new table every hand. More wins, smaller ones.",
         trigger = { kind = "gtype_table_open", gtype = "zoom" },
     },
 
@@ -369,104 +159,28 @@ return {
         id     = "gtype_mtt",
         title  = "Tournaments",
         anchor = "gtype:mtt",
-        text   = {
-            "A tournament is one buy-in and no rebuy. Eight seats, ten big blinds each, hands deal themselves.",
-            "Seats bust at zero. Finish top three to cash, win it outright for the {chip}.",
-        },
+        text   = "A tournament: one buy-in, no rebuy, eight seats, ten blinds each, and it deals itself. Top three cash. Win it outright for the {chip}.",
         trigger = { kind = "gtype_table_open", gtype = "mtt" },
     },
 
-    -- The cursor swarm arrives as a whole interface: cursors on the felt,
-    -- two new sidebar upgrades, and per-table D / R toggles. None of it was
-    -- ever announced.
     {
         id     = "cursor_swarm",
         title  = "The cursors",
         anchor = { "buy_runup_box_of_mice", "buy_runup_cursor_speed" },
-        text   = {
-            "The cursors deal for you. Buy more of them, and make them faster, in the sidebar.",
-            "The D toggle on a table stops them dealing there.",
-        },
+        text   = "The cursors deal for you. More of them, and faster, in the sidebar. The D on a table stops them dealing there.",
         trigger = { kind = "owns_item", id = "cursor_pool" },
     },
 
-    -- ── Phase 6: Act 3 ─────────────────────────────────────────────────
-    -- The act break itself (the multiplier is gone) is the prestige modal's
-    -- job -- it is a rules change the player cannot discover. These four are
-    -- the consequences, taught on first contact and chained on hint_seen so
-    -- they arrive one at a time.
+    -- ── The shove felt ────────────────────────────────────────────────
+    -- Reveal rule applies hardest here. Nothing may name a runout or a
+    -- cheat before the player has seen one; the cheat hint gates on the
+    -- card being ON the felt (cheat_dealt), not on any flag.
 
-    -- The Act 1 rule inverted. {chip} come from winning a stack; {achip}
-    -- come from LOSING one. Nothing else in the game pays you for a loss.
-    {
-        id     = "anti_chips",
-        title  = "Losing pays",
-        anchor = "cell:achips",
-        text   = {
-            "Losing a stack at the top tiers pays {achip}.",
-            "Once per table type each run, same as the gold ones. The house calls it compensation.",
-        },
-        trigger = { kind = "anti_chips_this_run", min = 1 },
-    },
-
-    -- Without this the high band reads as broken difficulty rather than as
-    -- the faucet it is: naked win chance at T7+ is a rounding error BY
-    -- DESIGN, because the whole point is to lose there on purpose.
-    {
-        id     = "high_stakes_farm",
-        title  = "The top tiers",
-        anchor = { "add_table:s007:six_max", "add_table:s008:six_max",
-                   "add_table:s009:six_max" },
-        text   = {
-            "You are not meant to beat these tables.",
-            "Sit down, lose stacks, collect {achip}. That is the whole play now.",
-        },
-        trigger = { kind = "all",
-                    { kind = "act3_unlocked" },
-                    { kind = "stake_band_table_open", band = "high" } },
-    },
-
-    {
-        id     = "corruption",
-        title  = "Corrupting the catalog",
-        anchor = "btn:catalog",
-        text   = "Spend {achip} in the catalog to corrupt what you already own. Corrupted items do far worse things.",
-        trigger = { kind = "all",
-                    { kind = "anti_chips", min = 2 },
-                    { kind = "hint_seen", hint = "anti_chips" } },
-        retire  = { kind = "corrupted_count", min = 1 },
-    },
-
-    -- The way out. Bankroll cannot go negative before Act 3, so this can
-    -- only fire once the Ultra stake is bleeding it.
-    {
-        id     = "underflow",
-        title  = "Breaking the count",
-        anchor = "cell:underflow",
-        text   = {
-            "Your multiplier is zero and money cannot raise it.",
-            "But the house counts your bankroll in a box with a bottom. Lose enough and it falls out the other side.",
-        },
-        trigger = { kind = "all",
-                    { kind = "act3_unlocked" },
-                    { kind = "bankroll", max = -1 } },
-    },
-
-    -- ── Phase 7: the other screens ─────────────────────────────────────
-    -- Hints could only fire on the grind until the layer moved into
-    -- main.lua. These are the surfaces that had nothing: the shove felt,
-    -- the catalog, deck select, the room. Anchors live in those views.
-    --
-    -- Reveal rule applies hardest here. Nothing on the shove felt may name
-    -- a runout or a cheat before the player has seen one; the cheat hint
-    -- gates on the card being ON the felt (cheat_dealt), not on any flag.
-
-    -- The shove felt.
     {
         id     = "shove_pot_pile",
         title  = "The pot",
         anchor = "shove:pot",
-        text   = "Everything you had, in one pile. It is all on this hand.",
+        text   = "Everything you've got, in one pile. Here we go.",
         trigger = { kind = "all",
                     { kind = "screen", name = "shove" },
                     { kind = "shove_phase", phase = "buildup" } },
@@ -476,136 +190,58 @@ return {
         id     = "shove_readout",
         title  = "Your odds",
         anchor = "shove:readout",
-        text   = {
-            "BASE comes from the catalog. MULT comes from your bankroll.",
-            "The bar under them is the number. Watch it.",
-        },
+        text   = "BASE is your catalog. MULT is your money. The bar under them is your number. Keep an eye on it.",
         trigger = { kind = "all",
                     { kind = "screen", name = "shove" },
                     { kind = "shove_phase", phase = "running" } },
     },
 
     {
-        id     = "shove_first_hold",
-        title  = "Continue",
-        anchor = "shove:summary",
-        sticky = true,
-        text   = "Take your time. Click anywhere when you are done reading.",
-        trigger = { kind = "shove_beat", id = "result" },
-        done    = { kind = "not", { kind = "shove_beat", id = "result" } },
-    },
-
-    {
         id     = "shove_banked",
         title  = "What you keep",
         anchor = "shove:summary",
-        text   = "BANKED THIS RUN is yours. The all-in was everything else.",
+        text   = "BANKED is yours to keep. The all-in was everything else.",
         trigger = { kind = "shove_beat", id = "result" },
     },
 
-    -- Fires only once card 6 exists on the felt. By then the player has
-    -- watched the House cheat; this names what they saw.
     {
         id     = "shove_cheat_happened",
         title  = "The extra card",
         anchor = "shove:cheat_6",
-        text   = {
-            "That card landed on your BASE and took it out of the count.",
-            "The bar shows what is left. The House does not play fair. Plan for it.",
-        },
+        text   = "That card landed on your BASE and took it out of the count. The bar shows what's left. House rules. Plan around it.",
         trigger = { kind = "cheat_dealt", min = 1 },
     },
 
-    -- The catalog.
-    {
-        id     = "catalog_what",
-        title  = "The catalog",
-        anchor = "catalog:book",
-        text   = "Spend {chip} here. Everything in it is permanent, and most of it raises BASE for your next shove.",
-        trigger = { kind = "catalog_open" },
-    },
-
-    {
-        id     = "catalog_sticker",
-        title  = "Stickers",
-        anchor = "catalog:sticker:first",
-        text   = "A sticker means locked. The count on it is how close you are. Peel it when it fills.",
-        trigger = { kind = "all",
-                    { kind = "catalog_open" },
-                    { kind = "hint_seen", hint = "catalog_what" } },
-    },
-
-    {
-        id     = "catalog_price",
-        title  = "The stamp",
-        anchor = "catalog:price:first",
-        text   = "The stamp is the price, in {chip}.",
-        trigger = { kind = "all",
-                    { kind = "catalog_open" },
-                    { kind = "hint_seen", hint = "catalog_what" } },
-    },
-
-    {
-        id     = "catalog_close",
-        title  = "Closing the book",
-        anchor = "catalog:continue",
-        text   = "Done shopping? Close the book. The next run starts from $2.",
-        trigger = { kind = "all",
-                    { kind = "catalog_open" },
-                    { kind = "screen", name = "shove" },
-                    { kind = "hint_seen", hint = "catalog_what" } },
-    },
+    -- ── The catalog ───────────────────────────────────────────────────
 
     {
         id     = "catalog_corruption",
         title  = "Corruption",
         anchor = "catalog:corrupt:first",
-        text   = "Things you own can be corrupted for {achip}. Corrupted items do far worse things.",
+        text   = "Things you own can be corrupted for {achip}. Corrupted ones do far worse things.",
         trigger = { kind = "all",
                     { kind = "catalog_open" },
-                    { kind = "act3_unlocked" } },
+                    { kind = "anti_chips", min = 1 } },
     },
 
-    -- Deck select.
-    {
-        id     = "deck_tiles",
-        title  = "The deck rack",
-        anchor = "deck:tile:1",
-        text   = "Your decks. Pick one to play the next run with. Locked ones say what opens them.",
-        trigger = { kind = "deck_select_open" },
-    },
+    -- ── Deck select ───────────────────────────────────────────────────
 
     {
         id     = "deck_xp",
         title  = "Deck XP",
         anchor = "deck:xp",
-        text   = "The bar fills as the active deck plays. Full bar, next level, better bonus.",
-        trigger = { kind = "all",
-                    { kind = "deck_select_open" },
-                    { kind = "hint_seen", hint = "deck_tiles" } },
+        text   = "The bar fills as the deck plays. Full bar, next level, better bonus.",
+        trigger = { kind = "deck_select_open" },
     },
 
-    {
-        id     = "deck_continue",
-        title  = "Continue",
-        anchor = "deck:continue",
-        sticky = true,
-        text   = "Continue when you have picked.",
-        trigger = { kind = "all",
-                    { kind = "deck_select_open" },
-                    { kind = "hint_seen", hint = "deck_tiles" } },
-        done    = { kind = "not", { kind = "deck_select_open" } },
-    },
+    -- ── The room ──────────────────────────────────────────────────────
 
-    -- The room.
     {
         id     = "room_what",
         title  = "Your room",
         anchor = "room:play",
-        text   = "Everything you buy from the catalog ends up in here. PLAY goes back to the tables.",
-        trigger = { kind = "all",
-                    { kind = "screen", name = "room" },
-                    { kind = "screen_visits", name = "room", max = 1 } },
+        text   = "Everything you buy ends up in here. PLAY takes you back to the tables.",
+        trigger = { kind = "screen", name = "room" },
     },
 
 }

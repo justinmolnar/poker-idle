@@ -63,6 +63,10 @@ function GameState:new(saved)
     -- so a first-visit hint stays first-visit across runs. Bumped by the
     -- state's :enter, read by the `screen_visits` hint kind.
     instance.screen_visits = {}
+    -- Story beats the House has finished telling (beat id → true), plus
+    -- "shove:<id>" for his once-lines on the felt. Meta-side: a beat is
+    -- heard once per save, never once per run. See controllers/StoryDirector.
+    instance.story_seen = {}
     -- Analytics identity. save_id is stable for the lifetime of a save slot;
     -- shove_count increments each prestige so analytics can track power level.
     instance.save_id    = genSaveId()
@@ -258,6 +262,7 @@ function GameState:wipeAll()
     self.hints_seen   = {}
     self.hints_queued = {}
     self.screen_visits = {}
+    self.story_seen   = {}
     -- Deck state resets to starter-only with all unlock progress lost.
     -- Mirrors the fresh-:new defaults exactly.
     local starter = DeckSpecs[1]
@@ -404,6 +409,9 @@ function GameState:applySaved(saved)
     self.hints_seen   = self.hints_seen   or {}
     self.hints_queued = self.hints_queued or {}
     self.screen_visits = self.screen_visits or {}
+    -- Saves predating the story hear each beat when its trigger next
+    -- passes; that is the rule for every save, so no migration.
+    self.story_seen    = self.story_seen or {}
     self.anti_stakes_won_this_run = self.anti_stakes_won_this_run or {}
     self.anti_chips_this_run      = self.anti_chips_this_run or 0
     self.first_loss_voided_this_run       = self.first_loss_voided_this_run or false
@@ -480,6 +488,7 @@ function GameState:serializeMeta()
         hints_seen                      = self.hints_seen,
         hints_queued                    = self.hints_queued,
         screen_visits                   = self.screen_visits,
+        story_seen                      = self.story_seen,
         unlocked_decks                  = self.unlocked_decks,
         deck_levels                     = self.deck_levels,
         deck_xp                         = self.deck_xp,

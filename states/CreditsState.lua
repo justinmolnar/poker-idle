@@ -11,6 +11,7 @@
 -- prove is that the win path EXISTS, persists in `state.cleared`, and the
 -- player has a way to start over.
 
+local AnchorRegistry = require("services.AnchorRegistry")
 local Theme = require("views.Theme")
 
 local CreditsState = {}
@@ -44,6 +45,10 @@ function CreditsState:draw()
     love.graphics.setFont(fonts.lg)
     Theme.setColor(Theme.fg.heading)
     love.graphics.printf("you walked out.", 0, math.floor(H * 0.30), W, "center")
+    -- The House's last word lands under it (story beat "credits").
+    AnchorRegistry.set("story:band", 0,
+        math.floor(H * 0.30) + fonts.lg:getHeight() + math.floor(12 * (self.game.ui_scale or 1)),
+        W, fonts.md:getHeight())
 
     love.graphics.setFont(fonts.lg)
     Theme.setColor(Theme.fg.muted)

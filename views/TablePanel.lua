@@ -39,6 +39,7 @@ local Table         = require("models.Table")
 local Stats         = require("views.TablePanelStats")
 local SpriteRenderer = require("services.SpriteRenderer")
 local StakeThemes   = require("data.stake_themes")
+local GameTypeThemes = require("data.game_type_themes")
 local HistoryBars   = require("data.history_bars")
 local Lookups       = require("utils.lookups")
 local Format        = require("utils.format")
@@ -1649,7 +1650,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- layout published and skips what it published as nil.
     local surf = L.rail
     if surf then
-        FeltDecor.drawRail(surf, stake_theme)
+        -- The rail is the game type's; the felt underneath is the stake's.
+        FeltDecor.drawRail(surf, GameTypeThemes[tbl.game_type_id], stake_theme)
         local rw = surf.width
         FeltDecor.drawSurface(surf.x + rw, surf.y + rw,
                               surf.w - 2 * rw, surf.h - 2 * rw,

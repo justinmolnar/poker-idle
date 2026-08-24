@@ -493,6 +493,8 @@ function DeckSelectModal:draw()
                    + math.floor(12 * s) + btn_h + math.floor(20 * s)
 
     local body = self._modal:draw(fonts, body_h)
+    -- The House's story band under the modal (story beat "act2_decks").
+    Anchors.set("story:band", 0, H - math.floor(56 * s), W, math.floor(44 * s))
 
     self._tiles = {}
     local state = self.game.state

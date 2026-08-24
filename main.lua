@@ -53,6 +53,10 @@ local CatalogUnlockRules = require("models.catalog_unlock_rules")
 local HintController  = require("controllers.HintController")
 local HintView        = require("views.HintView")
 local HintRules        = require("models.hint_rules")
+local HintCtx          = require("controllers.hint_ctx")
+local StoryDirector    = require("controllers.StoryDirector")
+local StoryView        = require("views.StoryView")
+local Story            = require("data.story")
 local PokerActionApply = require("models.poker_action_apply")
 local GrindState   = require("states.GrindState")
 local ShoveState   = require("states.ShoveState")
@@ -243,6 +247,19 @@ local function buildGame()
     g.hints     = HintController:new(g)
     g.hint_view = HintView:new(g)
 
+    -- The House's story beats (data/story.lua): ordered, one at a time,
+    -- spoken in each screen's story band. Same condition registry as the
+    -- hints. A finished beat saves, so a heard line stays heard.
+    g.story = StoryDirector:new{
+        game  = g,
+        rules = g.hint_rules,
+        story = Story,
+        save  = function()
+            g.save_service:saveAll(g.state:serializeMeta(), g.state:serializeRun())
+        end,
+    }
+    g.story_view = StoryView:new(g)
+
     -- Same-shape registry for poker-event applicators (post_blind,
     -- fold, call, raise, etc.). Used by both the script writer
     -- (models/HandScript.lua) at write-time and the cinematic walker
@@ -253,21 +270,13 @@ local function buildGame()
 
     g.state_machine = StateMachine:new(g)
 
-    -- Screen-level facts for hint conditions that no controller owns: which
-    -- screen is up, where the shove's beat machine is, whether a modal that
-    -- doubles as a teaching surface is open. Read fresh each tick.
-    g.hints.ctx_extra = function()
-        local sm  = g.state_machine
-        local cur = sm and sm.current_state
-        local sv  = cur and cur.view
-        local is_shove = sm and sm:current() == "shove"
-        return {
-            screen           = sm and sm:current() or nil,
-            shove_phase      = is_shove and sv and sv.phase or nil,
-            shove_hold       = is_shove and sv and sv.hold_id or nil,
-            shove_cheats     = is_shove and sv and sv.cheatsDealt and sv:cheatsDealt() or 0,
-            catalog_open     = cur and (cur.catalog_modal ~= nil) or false,
-            deck_select_open = cur and ((cur.deck_select_modal or cur.deck_roster_modal) ~= nil) or false,
+    -- The ctx every condition kind evaluates against (controllers/hint_ctx):
+    -- state, pool, and the screen-level facts no controller owns. Built
+    -- once per tick and shared by the story director and the hints.
+    g.hint_ctx = function()
+        return HintCtx.build{
+            game         = g,
+            anchor_fresh = function(name) return AnchorRegistry.age(name) <= 1 end,
         }
     end
     g.state_machine:register("grind",   GrindState:new(g))
@@ -288,11 +297,33 @@ local function buildGame()
                 st:fullReset()
             end
         end
+        g.story:reset()
         g.state_machine:switch("grind")
     end
 
     g.input_dispatcher = InputDispatcher:new()
     g.input_controller = InputController:new(g)
+
+    -- A story line waiting on the player: a click on its band, or SPACE,
+    -- advances it and is consumed. Every other click passes through, so
+    -- the game keeps running while he talks. Registered ahead of the hint
+    -- layer and both state branches.
+    local function storyUnblocked()
+        local cur = g.state_machine.current_state
+        return not (cur and cur.hintsBlocked and cur:hintsBlocked())
+    end
+    g.input_dispatcher:on("mousepressed",
+        function(x, y)
+            return storyUnblocked() and g.story:isHoldingClick()
+                   and not g.story:isPaused() and g.story_view:hitBand(x, y)
+        end,
+        function() g.story:advance() end)
+    g.input_dispatcher:on("keypressed",
+        function(key)
+            return key == "space" and storyUnblocked()
+                   and g.story:isHoldingClick() and not g.story:isPaused()
+        end,
+        function() g.story:advance() end)
 
     -- Hint-layer clicks are claimed here, ahead of both dispatcher branches
     -- below, so no state has to know the layer exists. The dispatcher fires
@@ -365,12 +396,16 @@ function love.update(dt)
 
     Game.time:update(dt)
     Game.state_machine:update(dt)
-    -- Hints tick after the state so they read this frame's facts. A state
-    -- may ask for quiet (a menu is up) through the duck-typed hintsBlocked.
+    -- The House ticks after the state so it reads this frame's facts. A
+    -- state may ask for quiet (a menu is up) through the duck-typed
+    -- hintsBlocked. Story first: while a beat runs, the hints are paused.
     do
         local cur = Game.state_machine.current_state
         if not (cur and cur.hintsBlocked and cur:hintsBlocked()) then
-            Game.hints:update(dt)
+            local ctx = Game.hint_ctx()
+            Game.story:update(dt, ctx)
+            Game.hints.paused = Game.story:isActive()
+            Game.hints:update(dt, ctx)
         end
     end
     Game.floating_text.update(dt)
@@ -465,7 +500,13 @@ function love.draw()
             -- A state may keep the [i] queue off its screen (sticky hints
             -- still show). The shove felt does.
             Game.hint_view.suppress_queue = cur and cur.suppressHintQueue == true
-            Game.hint_view:draw(Game.hints:activeHint(), Game.hints:queuedHints())
+            Game.hint_view:draw(Game.hints:activeHint(), Game.hints:queuedHints(),
+                                Game.hints.paused)
+            -- The story band, last, so it is never under a hint's dim.
+            Game.story_view:draw(Game.story:currentLine(), {
+                holding = Game.story:isHoldingClick() and not Game.story:isPaused(),
+                force   = Game.story:anchorGraceElapsed(),
+            })
         end
     end
     if Game.debug and Game.debug.perf then drawPerfHud() end

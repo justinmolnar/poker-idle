@@ -2174,6 +2174,10 @@ function GrindView:_drawBankrollChips(W, H)
 
     -- Stash for emission code (1-frame stale, fine).
     AnchorRegistry.set("bankroll", center_x, stack_y)
+    -- The House's story band: the top strip of the bottom band, above the
+    -- pile (whose stack top sits at band_y + 68), between the sidebars.
+    AnchorRegistry.set("story:band", band_x, band_y, band_w,
+                       math.floor(40 * (self.game.ui_scale or 1)))
 
     -- A collection, not a breakdown of the scalar (views/ChipPile). Chips
     -- flown here — a table cashing out, a stack-cap overflow — are

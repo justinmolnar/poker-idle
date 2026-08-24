@@ -1581,6 +1581,12 @@ function CatalogModal:draw()
             book_l, book_b + fl(6 * s), book_r - book_l, "center")
     end
 
+    -- The House's story band while the book is open: a strip along the
+    -- bottom of the screen, under the pages. Last writer wins, so this
+    -- moves the band off the host screen's slot for as long as the book
+    -- is up and gives it back when the book closes.
+    Anchors.set("story:band", 0, H - fl(56 * s), W, fl(44 * s))
+
     TooltipSvc.draw(fonts)
 end
 

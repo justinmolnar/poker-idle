@@ -35,13 +35,15 @@ local CardSprites            = require("views.CardSprites")
 local ShoveDecor             = require("views.ShoveDecor")
 local Style                  = require("data.shove_style")
 local ShoveRate              = require("models.shove_rate")
-local HouseLines             = require("data.house_lines")
+local Story                  = require("data.story")
+local StoryView              = require("views.StoryView")
 local FlightSystem           = require("services.FlightSystem")
 local ChipFlight             = require("views.ChipFlight")
 local Confetti               = require("services.Confetti")
 local RollingValue           = require("services.RollingValue")
 local IconText               = require("views.IconText")
 local AnchorRegistry         = require("services.AnchorRegistry")
+local Timeline               = require("services.Timeline")
 local Button                 = require("views.Button")
 local PaletteData            = require("data.theme")
 local ClickFlash             = require("services.ClickFlash")
@@ -240,7 +242,6 @@ function ShoveView:new(game, ss)
         ss              = ss,
         elapsed         = 0,
         timeline        = nil,
-        next_event_idx  = 1,
         total_duration  = 0,
         card_anims      = {},
         chip_visible    = { false, false, false },
@@ -277,7 +278,6 @@ function ShoveView:beginBuildup(rates)
     self.buildup_rates = rates
     self.timeline = nil
     self.elapsed  = 0
-    self.next_event_idx = 1
     self.card_anims = {}
     self.chip_visible = { false, false, false }
 
@@ -381,10 +381,16 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     self.chips_banked = chips_banked or 0
 
     self.elapsed        = 0
-    self.next_event_idx = 1
     self.card_anims     = {}
     self.chip_visible   = { false, false, false }
-    self.timeline       = {}
+    -- The beat machine is services/Timeline: the same engine the House's
+    -- story beats run on everywhere else. This view mirrors its clock and
+    -- hold into self.elapsed / self.hold_id / self.phase after each tick so
+    -- every reader of those fields (the host's end gate, the hint ctx) is
+    -- unchanged.
+    self.timeline       = Timeline:new{
+        on_sound = function(name) self.game.sounds.playNamed(name) end,
+    }
 
     local r     = g.result
     local anims = self.game.animations
@@ -407,7 +413,7 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     -- Each timeline event has fire (state mutation, always run) and an
     -- optional sound (skipped on fast-forward to avoid an audio flood).
     local function add(at, fn, sound)
-        self.timeline[#self.timeline + 1] = { at = at, fire = fn, sound = sound }
+        self.timeline:add(at, fn, sound)
     end
 
     -- A HOLD: the clock stops here until :advance(). The result stays on
@@ -416,10 +422,10 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     -- post-reveal derives from chip_visible + card_anims, not elapsed, so
     -- the held frame renders for free.
     local function hold(at, id)
-        self.timeline[#self.timeline + 1] = { at = at, hold = id }
+        self.timeline:hold(at, id)
     end
 
-    -- The House speaks. `line_id` keys data/house_lines.lua; a once-line
+    -- The House speaks. `line_id` keys data/story.lua's shove block; a once-line
     -- routes through hints_seen so it plays a single time per save.
     local function say(at, line_id)
         add(at, function() self:_say(line_id) end)
@@ -588,14 +594,14 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
             else
                 light(t + 0.05, "dealer")
                 summary(t + 0.80, true)
-                say(t + 1.30, "act3")
+                -- (The act 3 lede plays on the grind: story beat "act3".)
             end
         else
             -- Robbed at runout 2. This is the common Act 2 shove and the
             -- one an act lede lands on.
             light(t + 0.05, "dealer")
             summary(t + 0.80, true)
-            say(t + 1.30, "act2")
+            -- (The act 2 lede plays on the grind: story beat "act2".)
         end
     end
 
@@ -629,8 +635,7 @@ end
 -- lets the clock run into whatever follows.
 function ShoveView:advance()
     if self.phase ~= "hold" then return false end
-    local ev = self.timeline[self.next_event_idx]
-    if ev and ev.hold then self.next_event_idx = self.next_event_idx + 1 end
+    if self.timeline then self.timeline:advance() end
     self.phase      = "running"
     -- A mid-sequence hold clears the line: the next beat speaks. The
     -- RESULT hold keeps it, because the catalog rises beneath the headline
@@ -640,16 +645,15 @@ function ShoveView:advance()
     return true
 end
 
--- Set the House's current line from data/house_lines.lua. Once-lines are
--- gated on hints_seen["house:<id>"] and marked there when they play; the
--- id is a free-form key in the same map the tutorial uses, so it persists
--- with everything else and needs no new serialized field.
+-- Set the House's current line from data/story.lua's shove block.
+-- Once-lines are gated on story_seen["shove:<id>"] and marked there when
+-- they play, alongside the story beats.
 function ShoveView:_say(line_id)
-    local spec = HouseLines[line_id]
+    local spec = Story.shove[line_id]
     if not spec then return end
     if spec.once then
-        local seen = self.game.state and self.game.state.hints_seen
-        local key  = "house:" .. line_id
+        local seen = self.game.state and self.game.state.story_seen
+        local key  = "shove:" .. line_id
         if seen and seen[key] then return end
         if seen then seen[key] = true end
     end
@@ -668,7 +672,6 @@ end
 
 function ShoveView:resetTimeline()
     self.timeline       = nil
-    self.next_event_idx = 1
     self.elapsed        = 0
     self.total_duration = 0
     self.card_anims     = {}
@@ -704,21 +707,29 @@ function ShoveView:skip()
     -- Fire remaining events, sounds suppressed, up to and INCLUDING the
     -- next hold, then stop there. A skip lands the player on the next
     -- thing worth reading, never past it.
-    while self.next_event_idx <= #self.timeline do
-        local ev = self.timeline[self.next_event_idx]
-        if ev.hold then
-            self.phase   = "hold"
-            self.hold_id = ev.hold
-            self.elapsed = ev.at
-            break
-        end
-        ev.fire()
-        self.next_event_idx = self.next_event_idx + 1
-    end
+    self.timeline:skip()
+    self:_mirrorTimeline()
     for _, anim in pairs(self.card_anims) do
         if anim.update then anim:update(10) end
     end
-    if self.phase ~= "hold" then self.elapsed = self.total_duration end
+    if self.phase ~= "hold" then
+        self.elapsed = self.total_duration
+        self.timeline:seek(self.total_duration)
+    end
+end
+
+-- Copy the engine's clock and hold into the fields this view and its host
+-- read. Called after every tick of the timeline.
+function ShoveView:_mirrorTimeline()
+    local tl = self.timeline
+    self.elapsed = tl.elapsed
+    if tl:isHolding() then
+        self.phase   = "hold"
+        self.hold_id = tl:holdId()
+    elseif self.phase == "hold" then
+        self.phase   = "running"
+        self.hold_id = nil
+    end
 end
 
 function ShoveView:update(dt)
@@ -752,31 +763,9 @@ function ShoveView:update(dt)
     if not self.timeline then return end
     -- Card anims keep ticking during a hold (a mid-flip card should land),
     -- but the clock does not, so nothing after the hold fires.
-    if self.phase ~= "hold" then
-        self.elapsed = self.elapsed + dt
-    end
     if self.winner then self.winner_t = self.winner_t + dt end
-
-    while self.phase ~= "hold" and self.next_event_idx <= #self.timeline do
-        local ev = self.timeline[self.next_event_idx]
-        if ev.hold then
-            if self.elapsed >= ev.at then
-                self.phase   = "hold"
-                self.hold_id = ev.hold
-                self.elapsed = ev.at
-            end
-            break
-        end
-        if self.elapsed >= ev.at then
-            ev.fire()
-            if ev.sound then
-                self.game.sounds.playNamed(ev.sound)
-            end
-            self.next_event_idx = self.next_event_idx + 1
-        else
-            break
-        end
-    end
+    self.timeline:update(dt)
+    self:_mirrorTimeline()
 
     for _, anim in pairs(self.card_anims) do
         if anim.update then anim:update(dt) end
@@ -983,7 +972,7 @@ function ShoveView:_drawBuildup(W, H)
         end
     end
     if fade_t > 0.4 then
-        self.house_line = in_lock and "All in." or "Pushing all in."
+        self.house_line = Story.shove[in_lock and "arrive" or "pushing"].text
         self:_drawHeadline(W)
     end
 end
@@ -1266,13 +1255,22 @@ function ShoveView:hitContinue(x, y)
     return x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h
 end
 
+-- The band above the table. Registered as the story band so a beat that
+-- plays on this screen (the catalog, deck select) speaks from the same
+-- slot; while one is running, its line owns the band and this view's
+-- line waits underneath.
+function ShoveView:_bandRect(W)
+    return { x = math.floor(tableCenterX(W) - W / 3), y = Y_BANNER,
+             w = math.floor(2 * W / 3), h = self.fonts.lg:getHeight() }
+end
+
 function ShoveView:_drawHeadline(W)
+    local r = self:_bandRect(W)
+    AnchorRegistry.set("story:band", r.x, r.y, r.w, r.h)
     if not self.house_line then return end
-    local f = self.fonts.lg
-    love.graphics.setFont(f)
-    Theme.setColor(Theme.fg.heading)
-    printCentered(self.house_line, f,
-                  math.floor(tableCenterX(W) - W / 3), Y_BANNER, math.floor(2 * W / 3))
+    local story = self.game.story
+    if story and story.isActive and story:isActive() then return end
+    StoryView.drawLine(self.game, self.house_line, r)
 end
 
 -- Persistent shove HUD drawn during the gauntlet cinematic. Keeps
@@ -1408,7 +1406,7 @@ function ShoveView:draw()
     -- The band holds the buildup's "All in." through the deal; the House's
     -- line replaces it at the reveal. Same slot, same font, same colour, so
     -- a change of line reads as the line changing, never as text vanishing.
-    if not self.house_line then self.house_line = "All in." end
+    if not self.house_line then self.house_line = Story.shove.arrive.text end
 
     -- Persistent shove status (pot chip pile + the SHOVE % breakdown) so the
     -- player always sees what's at stake and what their odds are during the

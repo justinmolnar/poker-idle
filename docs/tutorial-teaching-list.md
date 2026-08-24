@@ -1,5 +1,8 @@
 # Tutorial teaching list (v2, 2026-07-15)
 
+> **Superseded (2026-08-24).** Delivery is now two tiers, story beats and stateless popups, scripted in `docs/house-script.md`. Kept for the original teaching inventory.
+
+
 Replaces the lost ~33-item list from the 2026-07-14 session. Targets the full-game
 flag set (`TUTORIAL` on, `ONBOARDING_MODAL` off): no run-0, no forced how-to-play,
 catalog button hidden until first post-shove catalog, decks locked until first clear.

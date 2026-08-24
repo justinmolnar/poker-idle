@@ -84,6 +84,8 @@ function RoomState:draw()
     local btn_y = fl((top_h - btn_h) * 0.5)
     -- Hint target: the way back to the tables.
     AnchorRegistry.set("room:play", btn_x, btn_y, btn_w, btn_h)
+    -- The House's story band: a strip along the bottom of the room.
+    AnchorRegistry.set("story:band", fl(16 * s), H - fl(60 * s), W - fl(32 * s), fl(44 * s))
 
     -- Draw DESIGNER button
     local des_w = fl(140 * s)

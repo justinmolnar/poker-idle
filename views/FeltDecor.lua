@@ -95,22 +95,20 @@ function FeltDecor.hasMask() return _mask ~= nil end
 -- is recessed into, and stroking it would just give a thicker version of the
 -- border line the felt already had.
 --
--- Colour comes from stake_themes' `rail_color`, which is its OWN key rather
--- than a derivation of border_color. Deriving it was the first version and it
--- was wrong twice over: border_color runs T1..T4 as one hue getting brighter,
--- so the rail just looked "more gold" as stakes climbed instead of looking like
--- a different table; and T6's border is the same gold as Theme.currency.chip,
--- which is the banked-bounty trim around the panel, so the two competed.
+-- Colour is the GAME TYPE's `rail_color` (data/game_type_themes.lua): the
+-- ring says what game is being played, the felt says what stake. They used
+-- to be one axis (both climbed with the stake), so a panel could only ever
+-- say one thing.
 --
--- A rail is wood or leather. It progresses by MATERIAL -- vinyl, oak, walnut,
--- oxblood, violet leather, lacquer -- and gold stays reserved for chips.
-function FeltDecor.drawRail(rail, stake_theme)
+-- A rail is wood or leather, a material per game; gold stays reserved for
+-- chips. `fallback_theme` is the stake theme, used only when the game type
+-- has no rail_color: its border_color is darkened so it at least reads as a
+-- ring rather than a bright trim line.
+function FeltDecor.drawRail(rail, gtype_theme, fallback_theme)
     if not rail then return end
     local cfg  = Style.rail
-    -- Fallback path (a stake with no rail_color): darken border_color so it at
-    -- least reads as a ring rather than a bright trim line.
-    local ring = (stake_theme and stake_theme.rail_color)
-                 or darken((stake_theme and stake_theme.border_color)
+    local ring = (gtype_theme and gtype_theme.rail_color)
+                 or darken((fallback_theme and fallback_theme.border_color)
                            or Theme.border.default, cfg.darken or 0.5)
 
     Theme.setColor(ring, 1)
