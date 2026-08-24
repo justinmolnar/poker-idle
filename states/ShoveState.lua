@@ -131,6 +131,9 @@ function ShoveState:exit() end
 
 -- The catalog and deck select are teachable and stay open to hints;
 -- settings is a menu and the prototype-end modal is a hard stop.
+-- No [i] queue on the felt: one thing to read at a time here.
+ShoveState.suppressHintQueue = true
+
 function ShoveState:hintsBlocked()
     return (self.settings_modal or self.prototype_end_modal) ~= nil
 end

@@ -170,8 +170,11 @@ return {
     -- a counter. The dealer is the House: cards come from under its poster.
     -- The poster registers the "house" anchor, so the tutorial's bubble
     -- speaks from it with its existing tail logic.
+    -- OFF. A poster made of primitives earned nothing; the House gets real
+    -- art in a later pass. The bubble falls back to floating beside its
+    -- mark while there is no poster to speak from.
     house = {
-        enabled     = true,
+        enabled     = false,
         h           = 64,       -- poster height
         slot_h      = 14,       -- the gap the cards come out of
         frame_inset = 4,

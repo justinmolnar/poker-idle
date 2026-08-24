@@ -1090,7 +1090,8 @@ local function drawFrontCover(self, x, y, w, h, fonts, s)
     -- the player has not opened the book yet, and it is what the book is for.
     if self.intro_callout then
         local band_h = fl(30 * s)
-        local by     = y + h * 0.80 - band_h
+        -- Below CATALOG & ORDER BOOK (drawn at 0.74), above GRAB CORNER (0.88).
+        local by     = y + h * 0.81
         Theme.setColor({ 0.15, 0.15, 0.12, 0.10 })
         love.graphics.rectangle("fill", x + fl(18 * s), by,
                                 w - fl(36 * s), band_h, Theme.space.radius)

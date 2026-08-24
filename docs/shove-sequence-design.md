@@ -67,8 +67,12 @@ answer two seconds after it lands is not teaching.
 
 ## The House on this screen
 
-A poster, same glyph as the grind's (`GrindView:_drawHouse`), placed **above the
-dealer's hole cards**. Below it, a slot, the width of the card row, drawn as a
+**Deferred.** The poster is built and off (`shove_style.house.enabled = false`).
+A primitive-shape house earned nothing on screen; it gets real art in a later
+pass. Until then the House's bubble floats beside its mark.
+
+The design, for when it has art: a poster, same glyph as the grind's
+(`GrindView:_drawHouse`), placed **above the dealer's hole cards**. Below it, a slot, the width of the card row, drawn as a
 gap in a counter: the dealer's hole cards and every board card are dealt *out of
 this slot*, downward onto the felt. Cards 6 and 7 come from the same place.
 
@@ -92,10 +96,35 @@ Timings are proposals against the existing constants
 Chips fly from YOUR STACK into the pot, the readout ticks up, ALL IN pops. Keep.
 One change: the House says something as the stack arrives. *"All of it? Good."*
 
-### 1. The deal
+### 1. The deal, in real showdown order
 
-Hole cards come out of the slot under the poster. Flip. Flop, turn, river.
-Unchanged in mechanism; the only change is *where they come from*.
+The player's two cards flip on the deal: you know your own hand. **The dealer's
+stay face-down through the whole board.** Flop, turn, river deal against a hidden
+hand. Then the dealer turns over, and that flip *is* the showdown.
+
+Both hands used to flip together at 0.65s, before the flop. The hand was decided
+before a single board card came out, so nothing after it could carry tension, and
+no amount of lighting or motion at the end could produce any. This was the actual
+defect; everything else was choreography on top of it.
+
+### 1b. One thing at a time
+
+At the result, five things used to arrive at once: two label pills, a LOSS chip,
+a House bubble, and a catalog sliding in. Nobody could tell where to look. Now:
+
+```
+dealer flips          the reveal
+  +0.0  winner lights, loser dims
+  +0.6  WIN / LOSS chip
+  +1.0  the pot leaves toward the winner
+  +1.9  the House, one line
+  +2.6  BANKED THIS RUN
+  +3.0  hold
+click                 the catalog rises
+```
+
+Nothing lands at the same instant as anything else. One hand label, for the
+winner only, beside the winning hand. The [i] hint queue is off on this screen.
 
 ### 2. Runout 1 resolves
 

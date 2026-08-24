@@ -462,6 +462,9 @@ function love.draw()
     do
         local cur = Game.state_machine.current_state
         if not (cur and cur.hintsBlocked and cur:hintsBlocked()) then
+            -- A state may keep the [i] queue off its screen (sticky hints
+            -- still show). The shove felt does.
+            Game.hint_view.suppress_queue = cur and cur.suppressHintQueue == true
             Game.hint_view:draw(Game.hints:activeHint(), Game.hints:queuedHints())
         end
     end

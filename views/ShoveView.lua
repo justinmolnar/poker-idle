@@ -157,8 +157,14 @@ local function rowWidth()
          + Style.row.section_gap + Style.stats.op_gap
 end
 
+-- The FIVE BOARD CARDS are centred on the screen; the stats panel hangs off
+-- their right. The whole seven-wide row used to be centred instead, which put
+-- the board's midpoint 154px left of the screen's while the hole cards,
+-- banner, poster and result chips all sat on tableCenterX. Two different
+-- centre lines, and the felt read as a staircase.
 local function rowOriginFor(screen_w)
-    return math.floor((screen_w - rowWidth()) / 2)
+    local board_w = 5 * CARD_W + 4 * CARD_GAP
+    return math.floor((screen_w - board_w) / 2)
 end
 
 -- Left edge of row position i (1..7).
@@ -422,10 +428,12 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
         add(at, function() self:_potTo(who) end, sound)
     end
 
+    -- `robbed` is sticky once set: the generic summary that precedes every
+    -- result hold must not un-rob a shove the panic already marked.
     local function summary(at, robbed)
         add(at, function()
             self.summary_shown = true
-            self.robbed = robbed == true
+            if robbed then self.robbed = true end
         end)
     end
 
@@ -450,8 +458,12 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     add(t + 0.28, startAnim("dh_2", "card_deal_slide"), "card_dealt")
     t = t + 0.65
 
-    -- Showdown — all four hole cards flip together.
-    add(t, startAnim("hole_flip", "hole_card_flip"), "hole_card_flip")
+    -- The PLAYER's cards flip now: you know your own hand. The dealer's
+    -- stay face-down through the whole board. They used to flip together
+    -- here, before the flop, which meant the hand was already decided
+    -- before a single board card came out and nothing after it could carry
+    -- any tension. The dealer's flip is the showdown, at the end.
+    add(t, startAnim("player_flip", "hole_card_flip"), "hole_card_flip")
     t = t + 0.55
 
     -- Flop: 3 cards in quick succession.
@@ -470,18 +482,29 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     add(t, startAnim("board_5", "card_deal_slide"), "card_dealt")
     t = t + 0.45
 
-    -- R1 resolution.
-    add(t, showChip(1), chipSound(1))
+    -- ── Showdown ──────────────────────────────────────────────────────
+    -- One thing at a time, in the order the eye needs them:
+    --   1. the dealer's cards turn over          (the reveal)
+    --   2. the winning hand lights, the loser dims (who won)
+    --   3. the result chip                          (WIN / LOSS, named)
+    --   4. the pot leaves toward the winner         (what it cost / paid)
+    --   5. the House, one line                      (only after the above)
+    --   6. hold
+    -- Nothing else is on screen at any of those moments. The summary and
+    -- the catalog come after the hold, not with it.
+    t = t + 0.35
+    add(t, startAnim("dealer_flip", "hole_card_flip"), "hole_card_flip")
+    t = t + 0.70                                   -- flip lands, beat
     if r.outcomes[1] then
-        light(t + 0.05, "player")
-        potTo(t + 0.10, "player", "chip_land_you")
-        add(t + 0.40, function() self:_confetti() end)
+        light(t, "player")
+        add(t + 0.60, showChip(1), chipSound(1))
+        potTo(t + 1.00, "player", "chip_land_you")
+        add(t + 1.30, function() self:_confetti() end)
     else
-        light(t + 0.05, "dealer")
-        potTo(t + 0.10, "house", "chip_land_pot")
-        say(t + 0.90, "loss")
-        summary(t + 1.20)
-        say(t + 1.60, "banked_stays")
+        light(t, "dealer")
+        add(t + 0.60, showChip(1), chipSound(1))
+        potTo(t + 1.00, "house", "chip_land_pot")
+        say(t + 1.90, "loss")
     end
 
     -- Demo cut stops here — R2 / R3 (the dealer's cheats) stay
@@ -545,15 +568,17 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
             light(t + 0.05, "dealer")
             summary(t + 0.80, true)
             say(t + 1.30, "act2")
-            say(t + 1.35, "banked_stays")
         end
     end
 
     -- The result holds on the felt until the player advances. It used to
     -- be a 2.0s timer and then a modal over the cards: the answer to
     -- "why did I lose" was covered before it could be read.
-    hold(t + 1.0, "result")
-    self.total_duration = t + 1.0
+    -- The summary gets its own beat after everything else has settled, then
+    -- the hold. Nothing arrives at the same instant as anything else.
+    summary(t + 2.6)
+    hold(t + 3.0, "result")
+    self.total_duration = t + 3.0
 end
 
 -- True while the host must wait: the buildup, the deal, and every hold.
@@ -1082,7 +1107,7 @@ function ShoveView:_revealedRunoutIdx()
     else return 0 end
     -- Also gate on hole flip having completed. Without the flip we can't
     -- show face-up cards, so highlights/labels aren't meaningful yet.
-    local flip = self.card_anims.hole_flip
+    local flip = self.card_anims.dealer_flip
     if not flip or (flip.getProgress and flip:getProgress() < 1) then return 0 end
     return idx
 end
@@ -1104,7 +1129,9 @@ function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key, side)
                  or Constants.GAUNTLET.CARD_BACK_SPRITE
     local front = card:spriteName()
     local deal_anim = self.card_anims[deal_key]
-    local flip_anim = self.card_anims.hole_flip
+    -- Each side has its own flip. The player's fires on the deal, the
+    -- dealer's at the showdown.
+    local flip_anim = self.card_anims[(side == "dealer") and "dealer_flip" or "player_flip"]
 
     if not deal_anim then return end
 
@@ -1394,10 +1421,17 @@ function ShoveView:draw()
                 Theme.setColor(Theme.bg.window)
                 love.graphics.print(text, pill_x + pad_x, y + pad_y)
             end
-            drawLabelPill("dealer: " .. HandEval.describe(eval.dealer_rank),
-                Y_DEALER_LABEL, Theme.status.error)
-            drawLabelPill("player: " .. HandEval.describe(eval.player_rank),
-                Y_PLAYER_LABEL, Theme.status.good)
+            -- One label, for the hand that WON, placed beside that hand.
+            -- Two pills at once (one per side, flanking the felt) made the
+            -- player read both and compare; the point of the showdown is
+            -- that the felt already did the comparing.
+            if self.winner == "dealer" then
+                drawLabelPill(HandEval.describe(eval.dealer_rank),
+                    Y_DEALER_LABEL, Theme.status.error)
+            elseif self.winner == "player" then
+                drawLabelPill(HandEval.describe(eval.player_rank),
+                    Y_PLAYER_LABEL, Theme.status.good)
+            end
         end
     end
 

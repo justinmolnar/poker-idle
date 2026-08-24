@@ -17,7 +17,9 @@
 return {
     arrive          = { text = "All of it? Good." },
     loss            = { text = "That is how it goes." },
-    banked_stays    = { text = "The all-in is gone. Those stay yours.", once = true },
+    -- (banked_stays was cut: "those stay yours" pointed at a {chip} count the
+    -- catalog was covering. A line that refers to something off-screen is
+    -- worse than no line.)
 
     -- The panic. Only reachable after a runout win.
     panic_wait      = { text = "Wait." },

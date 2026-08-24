@@ -439,7 +439,10 @@ function HintView:draw(active, queued)
     local ix, iy, iw, ih = fl(ib[1]), fl(ib[2]), fl(ib[3]), fl(ib[4])
     -- Off the grind there is no poster to sit on, so the button only
     -- exists while it has something to show.
-    local info_visible = Anchors.get("btn:info") ~= nil or n_available > 0
+    -- Screens can opt out of the queue button entirely (the shove felt has
+    -- one thing to read and a badge counting four hints is noise there).
+    local info_visible = not self.suppress_queue
+                         and (Anchors.get("btn:info") ~= nil or n_available > 0)
 
     -- 3. Resolve active sticky hint or hovered queued hint preview
     local active_layout = nil
