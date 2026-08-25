@@ -172,4 +172,7 @@ C.ANIMATIONS = {
     },
 }
 
+-- The shader a corrupted catalog item wears in the room (shaders/corrupted.frag).
+C.CORRUPT_ROOM_SHADER = "corrupted"
+
 return C

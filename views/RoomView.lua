@@ -11,6 +11,7 @@ local LabelButton    = require("views.widgets.LabelButton")
 local Catalog        = require("data.catalog")
 local Layout         = require("data.room_layout")
 local Tiles          = require("data.room_tiles")
+local Constants      = require("data.constants")
 
 -- The editor autosaves a draft next to the game's saves (DRAFT_FILE) so a
 -- crash or a closed window loses seconds, not the session. The draft
@@ -481,6 +482,8 @@ function RoomView:draw(full_screen, opts)
 
     local state = game.state
     local owned_set = {}
+    local corrupted_set = {}
+    for _, id in ipairs(state.corrupted_items or {}) do corrupted_set[id] = true end
     if state.owned_items then
         for _, id in ipairs(state.owned_items) do
             owned_set[id] = true
@@ -704,6 +707,10 @@ function RoomView:draw(full_screen, opts)
 
         local shader_name   = obj.shader or obj_anim.shader or cat_item.shader or cat_anim.shader
         local shader_params = obj.shader_params or obj_anim.shader_params or cat_item.shader_params or cat_anim.shader_params
+        -- A corrupted item is drawn corrupted, whatever else it wears.
+        if corrupted_set[obj.id] then
+            shader_name, shader_params = Constants.CORRUPT_ROOM_SHADER, nil
+        end
 
         local sprite = game.sprite_loader:getSprite(obj.sprite or obj.id, time_arg, fps_arg, frame_arg)
         if sprite then
@@ -1823,7 +1830,7 @@ function RoomView:keypressed(key)
 
     -- Shader cycle (S)
     if key == "s" then
-        local shaders = { nil, "pulse_glow", "hologram", "rainbow_shift", "pixel_glitch", "foil", "dirty" }
+        local shaders = { nil, "pulse_glow", "hologram", "rainbow_shift", "pixel_glitch", "foil", "dirty", "corrupted" }
         local cur_idx = 1
         for i, sh in ipairs(shaders) do
             if sh == self.active_shader then cur_idx = i; break end

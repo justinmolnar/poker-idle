@@ -376,6 +376,7 @@ function love.load()
     ShaderRegistry.loadFromFile("hologram", "shaders/hologram.frag")
     ShaderRegistry.loadFromFile("rainbow_shift", "shaders/rainbow_shift.frag")
     ShaderRegistry.loadFromFile("pixel_glitch", "shaders/pixel_glitch.frag")
+    ShaderRegistry.loadFromFile("corrupted", "shaders/corrupted.frag")
 
     if Constants.DEBUG.START_IN_SHOVE then
         Game.state_machine:switch("shove")
