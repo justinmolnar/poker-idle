@@ -116,7 +116,7 @@ Scheduled by the shove timeline, not the director. The act ledes play on the gri
 | `shove:deck_all` | All of it, then. |
 | `shove:deck_out` | There's nothing left to deal. |
 | `shove:room_count` | Let's see what you've got. |
-| `shove:room_done` | That's your base. |
+| `shove:room_done` | That's your room. |
 | `shove:room_empty` | Nothing yet. That's fine. |
 
 ### S7 `first_catalog`

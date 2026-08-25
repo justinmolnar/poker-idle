@@ -190,7 +190,7 @@ return {
         id     = "shove_readout",
         title  = "Your odds",
         anchor = "shove:readout",
-        text   = "BASE is how many things you own. MULT is your money. The bar under them is your number. Keep an eye on it.",
+        text   = "ITEMS is how many things you own. BANK is your money. The bar under them is your number. Keep an eye on it.",
         trigger = { kind = "all",
                     { kind = "screen", name = "shove" },
                     { kind = "shove_phase", phase = "running" } },
@@ -208,7 +208,7 @@ return {
         id     = "shove_cheat_happened",
         title  = "The extra card",
         anchor = "shove:cheat_6",
-        text   = "That card landed on your BASE and took it out of the count. The bar shows what's left. House rules. Plan around it.",
+        text   = "That card landed on your ITEMS and took them out of the count. The bar shows what's left. House rules. Plan around it.",
         trigger = { kind = "cheat_dealt", min = 1 },
     },
 

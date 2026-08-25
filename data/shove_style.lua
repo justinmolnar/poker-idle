@@ -298,7 +298,19 @@ return {
         flash_secs = 0.22,    -- the lit item's white flash: a pop
         lock_secs  = 1.2,     -- the final number sits before the cut
         empty_secs = 1.6,     -- nothing owned: the line, then the cut
-        counter_y  = 0.12,    -- of H; big number, label under it
+        counter_y  = 0.19,    -- of H; the number, its label beside it on the same line
+        room_dy    = 0.06,    -- of H; the room sits this much lower so the counter clears its top corner
+        -- After the cut the number flies from where it sat to the BASE
+        -- readout on the felt, shrinking to that font on the way.
+        fly_delay  = 0.45,    -- after the buildup starts (its fade-in first)
+        fly_secs   = 0.9,
+        fly_lift   = 2.2,     -- the number grows to this at the top of its arc (lifted toward you)
+        fly_arc    = 2.0,     -- arc height in lg-font heights
+        land_bump  = 0.5,     -- the landed number's pop (Pop.scale bump)
+        land_secs  = 0.45,
+        settle_secs = 0.4,    -- then the readout eases from the count to full BASE (deck included)
+        bank_delay  = 0.15,   -- after the last chip lands, BANK lifts off the pile toward its slot
+        bank_label_dy = -64,  -- the "$bankroll" figure sits this far above the pile centre, px; BANK lifts off it
         zoom       = 1.9,     -- the room drawn big for the intro
         -- Not yet counted: a dark silhouette. Counted: the sprite pops in
         -- and glows in its own shape (additive copies at these pixel

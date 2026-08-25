@@ -327,7 +327,7 @@ local Decks = {
             text    = "Doubles the base it restores, and it may exceed the things you own",
             effects = { { kind = "shove_base_double" } },
         },
-        bonus_text  = "+1 to your BASE per total deck level, never more than the things you own",
+        bonus_text  = "+1 to your ITEMS per total deck level, never more than the things you own",
         flavor_text = "Every deck you've mastered, in one hand.",
         unlock = {
             kind      = "decks_maxed",

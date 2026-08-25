@@ -157,6 +157,12 @@ function ShoveState:_countedItems()
             if rate > 0 then ids[#ids + 1] = id end
         end
     end
+    -- A different order every shove: the room is counted, not read.
+    local rnd = (love.math and love.math.random) or math.random
+    for i = #ids, 2, -1 do
+        local j = rnd(i)
+        ids[i], ids[j] = ids[j], ids[i]
+    end
     return ids
 end
 

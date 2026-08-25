@@ -10,6 +10,7 @@ local Theme          = require("views.Theme")
 local LabelButton    = require("views.widgets.LabelButton")
 local Catalog        = require("data.catalog")
 local Layout         = require("data.room_layout")
+local Tiles          = require("data.room_tiles")
 
 -- The editor autosaves a draft next to the game's saves (DRAFT_FILE) so a
 -- crash or a closed window loses seconds, not the session. The draft
@@ -221,7 +222,7 @@ function RoomView:new(game)
             end
 
             -- Also extract available Floor and Wall theme names
-            local f_theme = name:match("Floor_Wall_Tiles_64/Floor_64_(.+)$")
+            local f_theme = name:match("Floor_Wall_Tiles_%d+/Floor_%d+_(.+)$")
             if f_theme then
                 if not floors_seen[f_theme] then
                     floors_seen[f_theme] = true
@@ -229,7 +230,7 @@ function RoomView:new(game)
                 end
             end
 
-            local w_theme = name:match("Floor_Wall_Tiles_64/Wall_L_64_(.+)$")
+            local w_theme = name:match("Floor_Wall_Tiles_%d+/Wall_L_%d+_(.+)$")
             if w_theme then
                 if not walls_seen[w_theme] then
                     walls_seen[w_theme] = true
@@ -245,6 +246,10 @@ function RoomView:new(game)
     local room_size = meta.room_size or GRID_SIZE
     local floor_theme = meta.floor_theme or "Default"
     local wall_theme = meta.wall_theme or "Default"
+    local tile_set = meta.tile_set or Tiles.default_set
+    local floor_flip = meta.floor_flip or false
+    local wall_flip = meta.wall_flip or false
+    local wall_courses = meta.wall_courses or Tiles.default_courses
 
     local floor_idx = 0
     for i, t in ipairs(floor_list) do
@@ -297,6 +302,10 @@ function RoomView:new(game)
         wall_list        = wall_list,
         floor_idx        = floor_idx,
         wall_idx         = wall_idx,
+        tile_set         = tile_set,      -- 32 | 64 | 128: the kit's pixel density
+        floor_flip       = floor_flip,    -- mirror the floor tile
+        wall_flip        = wall_flip,     -- mirror the walls (each side wears the other's face)
+        wall_courses     = wall_courses,  -- courses stacked for wall height
     }, RoomView)
 end
 
@@ -484,21 +493,30 @@ function RoomView:draw(full_screen, opts)
     -- The room (walls, floor, items, preview) draws zoomed about its centre;
     -- the HUD does not. Mouse positions are unzoomed with _unzoom.
     local zoom = opts.zoom or (self.editor_mode and (self.zoom or 1) or 1)
-    self._view = { cx = cx, cy = cy, zoom = zoom }
+    local oy = opts.dy or 0
+    self._view = { cx = cx, cy = cy, zoom = zoom, dy = oy }
     love.graphics.push()
-    love.graphics.translate(cx, cy)
+    love.graphics.translate(cx, cy + oy)
     love.graphics.scale(zoom, zoom)
     love.graphics.translate(-cx, -cy)
 
     -- 1. Draw background walls (corner walls of the room - fallback vector or sprite segments)
     local l_wall_sprite = nil
     local r_wall_sprite = nil
+    -- The kit: which pixel density, and its anchors. A theme missing from
+    -- the chosen set falls back to the 64 set so the room never goes bare.
+    local set = self.tile_set or Tiles.default_set
+    local function kitSprite(pattern, theme)
+        local sp = game.sprite_loader:getSprite(string.format(Tiles.folder .. pattern, set, set, theme))
+        if sp then return sp, set end
+        local d = Tiles.default_set
+        return game.sprite_loader:getSprite(string.format(Tiles.folder .. pattern, d, d, theme)), d
+    end
+    local wall_set, floor_set = set, set
     if self.wall_idx > 0 then
         local theme = self.wall_list[self.wall_idx]
-        local l_name = "isometric/Floor_Wall_Tiles_64/Wall_L_64_" .. theme
-        local r_name = "isometric/Floor_Wall_Tiles_64/Wall_R_64_" .. theme
-        l_wall_sprite = game.sprite_loader:getSprite(l_name)
-        r_wall_sprite = game.sprite_loader:getSprite(r_name)
+        l_wall_sprite, wall_set = kitSprite(Tiles.wall_l_name, theme)
+        r_wall_sprite = kitSprite(Tiles.wall_r_name, theme)
         -- Hard pixel edges: linear filtering (LÖVE's default — nothing
         -- sets a default filter) bleeds each tile's transparent border
         -- into its edge at any non-integer scale, which reads as seams.
@@ -514,30 +532,33 @@ function RoomView:draw(full_screen, opts)
         -- runs clean to its bottom edge, so an upper course drawn AFTER
         -- covers the course-below's top-cap trim; the cap shows only on
         -- the topmost course.
-        local COURSE_PX    = 40
-        local WALL_COURSES = 2   -- courses to stack; 3 for a taller room
-        local course_dy    = COURSE_PX * tile_k
+        local A            = Tiles.anchors[wall_set]
+        local wk           = tile_k * 64 / wall_set   -- the set's px -> screen
+        local WALL_COURSES = self.wall_courses or Tiles.default_courses
+        local course_dy    = A.course_px * wk
 
-        -- Draw Left-back wall segments (right side of the room, sloping down-right) using Wall_R
-        local r_ox = 16
-        local r_oy = 47
+        -- Flipped walls: each side wears the other's face, mirrored, so
+        -- the art's lighting swaps sides. The anchor mirrors with it.
+        local flip = self.wall_flip
+        local back_sprite = flip and l_wall_sprite or r_wall_sprite   -- the wall along y=0 (down-right)
+        local side_sprite = flip and r_wall_sprite or l_wall_sprite   -- the wall along x=0 (down-left)
+        local back_a = flip and A.wall_l or A.wall_r
+        local side_a = flip and A.wall_r or A.wall_l
+        local wsx = flip and -wk or wk
+
         love.graphics.setColor(1, 1, 1, 1)
         for x = 0, self.room_size - 1 do
             local wx, wy = gridToScreen(x, 0, cx, cy, tw, th)
             for level = 0, WALL_COURSES - 1 do
-                love.graphics.draw(r_wall_sprite, wx, wy - level * course_dy,
-                    0, tile_k, tile_k, r_ox, r_oy)
+                love.graphics.draw(back_sprite, wx, wy - level * course_dy,
+                    0, wsx, wk, back_a.ox, back_a.oy)
             end
         end
-
-        -- Draw Right-back wall segments (left side of the room, sloping down-left) using Wall_L
-        local l_ox = 47
-        local l_oy = 47
         for y = 0, self.room_size - 1 do
             local wx, wy = gridToScreen(0, y, cx, cy, tw, th)
             for level = 0, WALL_COURSES - 1 do
-                love.graphics.draw(l_wall_sprite, wx, wy - level * course_dy,
-                    0, tile_k, tile_k, l_ox, l_oy)
+                love.graphics.draw(side_sprite, wx, wy - level * course_dy,
+                    0, wsx, wk, side_a.ox, side_a.oy)
             end
         end
     else
@@ -582,19 +603,19 @@ function RoomView:draw(full_screen, opts)
     local floor_sprite = nil
     if self.floor_idx > 0 then
         local theme = self.floor_list[self.floor_idx]
-        local sprite_name = "isometric/Floor_Wall_Tiles_64/Floor_64_" .. theme
-        floor_sprite = game.sprite_loader:getSprite(sprite_name)
+        floor_sprite, floor_set = kitSprite(Tiles.floor_name, theme)
         if floor_sprite then floor_sprite:setFilter("nearest", "nearest") end
     end
+    local FA  = Tiles.anchors[floor_set]
+    local fk  = tile_k * 64 / floor_set
+    local fsx = self.floor_flip and -fk or fk
 
     for x = 0, self.room_size - 1 do
         for y = 0, self.room_size - 1 do
             local tx1, ty1 = gridToScreen(x, y, cx, cy, tw, th)
             if floor_sprite then
-                local ox = 32
-                local oy = 16
                 love.graphics.setColor(1, 1, 1, 1)
-                love.graphics.draw(floor_sprite, tx1, ty1, 0, tile_k, tile_k, ox, oy)
+                love.graphics.draw(floor_sprite, tx1, ty1, 0, fsx, fk, FA.floor.ox, FA.floor.oy)
             else
                 -- Checkerboard floor pattern fallback
                 if (x + y) % 2 == 0 then
@@ -937,6 +958,54 @@ function RoomView:draw(full_screen, opts)
             self._floor_prev_rect = { x = fval_x + fl(55 * s), y = tb_y + fl(4 * s), w = arrow_w, h = arrow_h }
             self._floor_next_rect = { x = fval_x + fl(73 * s), y = tb_y + fl(4 * s), w = arrow_w, h = arrow_h }
 
+            -- ── Room row: wall, kit size, courses, flips (second row, under the bar)
+            -- Every control is { rect, fn }; mousepressed walks the list.
+            self._room_ctls = {}
+            local ry  = TOP_BAR_H + fl(6 * s)
+            local rx  = fl(292 * s)
+            local function selector(label, value, prev_fn, next_fn)
+                Theme.setColor(Theme.fg.muted)
+                love.graphics.print(label, rx, ry + fl(6 * s))
+                rx = rx + game.fonts.sm:getWidth(label) + fl(6 * s)
+                Theme.setColor(Theme.fg.heading)
+                love.graphics.print(value, rx, ry + fl(6 * s))
+                rx = rx + math.max(fl(48 * s), game.fonts.sm:getWidth(value) + fl(6 * s))
+                for _, b in ipairs{ { "<", prev_fn }, { ">", next_fn } } do
+                    local r = { x = rx, y = ry + fl(4 * s), w = arrow_w, h = arrow_h }
+                    local hov = mx >= r.x and mx < r.x + r.w and my >= r.y and my < r.y + r.h
+                    LabelButton.draw{ x = r.x, y = r.y, w = r.w, h = r.h, text = b[1], fonts = game.fonts, font = game.fonts.sm, hovered = hov }
+                    self._room_ctls[#self._room_ctls + 1] = { rect = r, fn = b[2] }
+                    rx = rx + arrow_w + fl(2 * s)
+                end
+                rx = rx + fl(14 * s)
+            end
+            local function toggle(label, on, fn)
+                local r = { x = rx, y = ry + fl(4 * s), w = game.fonts.sm:getWidth(label) + fl(16 * s), h = arrow_h }
+                local hov = mx >= r.x and mx < r.x + r.w and my >= r.y and my < r.y + r.h
+                LabelButton.draw{ x = r.x, y = r.y, w = r.w, h = r.h, text = label, fonts = game.fonts, font = game.fonts.sm,
+                    hovered = hov, fill_override = on and { 0.18, 0.42, 0.62 } or nil }
+                self._room_ctls[#self._room_ctls + 1] = { rect = r, fn = fn }
+                rx = rx + r.w + fl(8 * s)
+            end
+            Theme.setColor(Theme.bg.chrome, 0.92)
+            love.graphics.rectangle("fill", fl(284 * s), TOP_BAR_H, W - fl(284 * s), fl(34 * s))
+            local wall_val = self.wall_idx == 0 and "Default" or self.wall_list[self.wall_idx]
+            selector("Wall:", wall_val,
+                function() self.wall_idx = self.wall_idx - 1; if self.wall_idx < 0 then self.wall_idx = #self.wall_list end end,
+                function() self.wall_idx = self.wall_idx + 1; if self.wall_idx > #self.wall_list then self.wall_idx = 0 end end)
+            local function stepSet(d)
+                local i = 1
+                for k, v in ipairs(Tiles.sets) do if v == self.tile_set then i = k end end
+                i = ((i - 1 + d) % #Tiles.sets) + 1
+                self.tile_set = Tiles.sets[i]
+            end
+            selector("Tiles:", tostring(self.tile_set) .. "px", function() stepSet(-1) end, function() stepSet(1) end)
+            selector("Courses:", tostring(self.wall_courses),
+                function() self.wall_courses = math.max(1, self.wall_courses - 1) end,
+                function() self.wall_courses = math.min(Tiles.max_courses, self.wall_courses + 1) end)
+            toggle("FLIP FLOOR", self.floor_flip, function() self.floor_flip = not self.floor_flip end)
+            toggle("FLIP WALLS", self.wall_flip, function() self.wall_flip = not self.wall_flip end)
+
             -- ── Left Sidebar Panel for Asset Browser (100% Dedicated Full Height)
             local sidebar_w = fl(280 * s)
             local sidebar_h = H - TOP_BAR_H
@@ -1237,6 +1306,18 @@ function RoomView:mousepressed(x, y, button)
     if not self.editor_mode then return false end
     local W, H = love.graphics.getDimensions()
     local s    = self.game.ui_scale or 1
+
+    -- The room row under the top bar (wall / tiles / courses / flips)
+    if button == 1 then
+        for _, c in ipairs(self._room_ctls or {}) do
+            local r = c.rect
+            if x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h then
+                c.fn()
+                ClickFlash.flash("room_btn", "room_btn")
+                return true
+            end
+        end
+    end
 
     -- Check Top Toolbar clicks (Export, Reset, Clear, Help, Meta Selectors)
     if y < math.floor(56 * s) then
@@ -2017,6 +2098,10 @@ function RoomView:layoutString()
     lines[#lines + 1] = string.format("        room_size = %d,", self.room_size)
     lines[#lines + 1] = string.format("        floor_theme = %q,", floor_theme)
     lines[#lines + 1] = string.format("        wall_theme = %q,", wall_theme)
+    lines[#lines + 1] = string.format("        tile_set = %d,", self.tile_set or Tiles.default_set)
+    lines[#lines + 1] = string.format("        wall_courses = %d,", self.wall_courses or Tiles.default_courses)
+    if self.floor_flip then lines[#lines + 1] = "        floor_flip = true," end
+    if self.wall_flip then lines[#lines + 1] = "        wall_flip = true," end
     lines[#lines + 1] = "    },"
 
     -- Sort placed items alphabetically by id for neatness. What is in

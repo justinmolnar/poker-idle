@@ -237,7 +237,7 @@ return {
 
         -- The room, before the felt: counting what you own.
         room_count     = { text = "Let's see what you've got." },
-        room_done      = { text = "That's your base." },
+        room_done      = { text = "That's your room." },
         room_empty     = { text = "Nothing yet. That's fine." },
     },
 }

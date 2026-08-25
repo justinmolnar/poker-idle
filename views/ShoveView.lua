@@ -322,6 +322,8 @@ end
 function ShoveView:beginBuildup(rates)
     self.phase   = "buildup"
     self.phase_t = 0
+    self.base_flight = nil
+    self.mult_flight = nil
     self.buildup_rates = rates
     self.timeline = nil
     self.elapsed  = 0
@@ -396,8 +398,12 @@ function ShoveView:beginBuildup(rates)
         }
     end
     self.buildup_arrived_count = 0
+    -- The lock holds until BANK has flown off the pile and landed (plus
+    -- its pop), never shorter than the plain lock.
+    local R = Style.room
+    local lock = math.max(BUILDUP_LOCK_DURATION, R.bank_delay + R.fly_secs + R.land_secs)
     self.buildup_total = (self.buildup_chips[n] and self.buildup_chips[n].arrive_t or 0)
-                         + BUILDUP_LOCK_DURATION
+                         + lock
 end
 
 function ShoveView:isReadyToDeal()
@@ -406,6 +412,13 @@ end
 
 function ShoveView:markRunning()
     self.phase = "running"
+    -- Whatever is still in the air lands: the felt's readout must be
+    -- whole before the dealer moves.
+    for _, f in ipairs{ self.base_flight, self.mult_flight } do
+        if f and not f.arrived then
+            f.arrived, f.arrived_at = true, love.timer.getTime()
+        end
+    end
 end
 
 -- Use the shared game.fonts table so this view picks up the
@@ -980,7 +993,13 @@ function ShoveView:update(dt)
             end
         end
         if self.phase_t >= (self.room_total or 0) then
+            local from = self._room_counter_pos
             self:beginBuildup(self.buildup_rates)
+            if from and #self.room_ids > 0 then
+                self.base_flight = { from = from, count = #self.room_ids, text = tostring(#self.room_ids),
+                                     park = true,   -- sits where the room left it until it lifts
+                                     land_id = "base_land", t0 = love.timer.getTime() + Style.room.fly_delay }
+            end
         end
         return
     end
@@ -1108,6 +1127,56 @@ end
 -- nation so the visual reads as the actual bankroll being shoved.
 -- Mult / win-% counters tick up as chips land, then "ALL IN" pops
 -- once every chip is in the pot.
+-- The count flies from the room's counter to the BASE readout: eased
+-- arc, shrinking from the big font to the readout's. Lands with a pop.
+-- A number in flight to its readout slot: eased arc, lands with a pop
+-- and a snap. `f` = { from = {x,y}, text, t0, arrived, arrived_at, land_id }.
+function ShoveView:_drawNumberFlight(f, dst)
+    if not f or f.arrived or not dst then return end
+    local fonts = self.fonts
+    local now = love.timer.getTime()
+    local p = math.max(0, math.min(1, (now - f.t0) / Style.room.fly_secs))
+    if self.phase == "ready_to_deal" then p = 1 end   -- a skip lands it
+    if p <= 0 and not f.park then return end          -- BANK appears when it lifts off
+    local R = Style.room
+    local e = 1 - (1 - p) * (1 - p) * (1 - p)
+    local lg_h = fonts.lg:getHeight()
+    local tx = dst.x + dst.w * 0.5
+    local ty = dst.y + lg_h * 0.5
+    local lift = math.sin(p * math.pi)             -- 0 at both ends, 1 at the top
+    local x = f.from.x + (tx - f.from.x) * e
+    local y = f.from.y + (ty - f.from.y) * e - lift * lg_h * R.fly_arc
+    local sc = 1 + (R.fly_lift - 1) * lift          -- lifted toward the camera
+    local tw = fonts.lg:getWidth(f.text)
+    love.graphics.setFont(fonts.lg)
+    -- Its shadow stays on the felt, so the height reads.
+    Theme.setColor(Theme.bg.sunken, 0.45 * lift)
+    love.graphics.push()
+    love.graphics.translate(x, y + lift * lg_h * R.fly_arc + lg_h * 0.3)
+    love.graphics.scale(1 + 0.3 * lift, 0.35)
+    love.graphics.print(f.text, -tw * 0.5, -lg_h * 0.5)
+    love.graphics.pop()
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.scale(sc, sc)
+    Theme.setColor(Theme.status.good)
+    love.graphics.print(f.text, -tw * 0.5, -lg_h * 0.5)
+    love.graphics.pop()
+    if p >= 1 then
+        f.arrived = true
+        f.arrived_at = now
+        Pop.trigger(f.land_id)
+        if self.game.sounds and self.game.sounds.playNamed then
+            self.game.sounds.playNamed("card_snap")
+        end
+    end
+end
+
+function ShoveView:_drawBaseFlight()
+    self:_drawNumberFlight(self.base_flight, self._base_pos)
+    self:_drawNumberFlight(self.mult_flight, self._mult_pos)
+end
+
 -- The room with what you own, each counted item flashing white as its
 -- turn comes and keeping a thin outline after; the counter above.
 function ShoveView:_drawRoomCount(W, H)
@@ -1121,6 +1190,7 @@ function ShoveView:_drawRoomCount(W, H)
     local sil  = R.silhouette
     self.room_view:draw(true, {
         zoom = R.zoom,
+        dy   = math.floor(H * R.room_dy),
         -- Uncounted things are dark shapes; counted ones are themselves.
         item_tint = function(obj) if not lit[obj.id] then return sil end end,
     })
@@ -1134,7 +1204,7 @@ function ShoveView:_drawRoomCount(W, H)
     end
     local view = self.room_view._view or { cx = W * 0.5, cy = H * 0.5, zoom = 1 }
     love.graphics.push()
-    love.graphics.translate(view.cx, view.cy)
+    love.graphics.translate(view.cx, view.cy + (view.dy or 0))
     love.graphics.scale(view.zoom, view.zoom)
     love.graphics.translate(-view.cx, -view.cy)
     local loader = self.game.sprite_loader
@@ -1194,18 +1264,20 @@ function ShoveView:_drawRoomCount(W, H)
     local nw   = fonts.lg:getWidth(num)
     local ny   = math.floor(H * R.counter_y)
     local nsc  = Pop.changeScale("room_count", n, 1, 0.35, 0.3)
+    local ncx = math.floor(W * 0.5)
+    self._room_counter_pos = { x = ncx, y = ny + fonts.lg:getHeight() * 0.5 }
     love.graphics.push()
-    love.graphics.translate(W * 0.5, ny + fonts.lg:getHeight() * 0.5)
+    love.graphics.translate(ncx, ny + fonts.lg:getHeight() * 0.5)
     love.graphics.scale(nsc, nsc)
     Theme.setColor(locked and Theme.status.good or Theme.fg.heading)
     love.graphics.print(num, -nw * 0.5, -fonts.lg:getHeight() * 0.5)
     love.graphics.pop()
     love.graphics.setFont(fonts.sm)
-    local label = locked and "BASE" or "THINGS YOU OWN"
+    local label = locked and "ITEMS" or "THINGS YOU OWN"
     local lw = fonts.sm:getWidth(label)
     Theme.setColor(locked and Theme.status.good or Theme.fg.muted)
-    love.graphics.print(label, math.floor(W * 0.5 - lw * 0.5),
-        ny + fonts.lg:getHeight() + math.floor(4 * s))
+    love.graphics.print(label, ncx + math.floor(nw * 0.5) + math.floor(10 * s),
+        ny + fonts.lg:getHeight() - fonts.sm:getHeight() - math.floor(3 * s))
 
     -- The House
     if total == 0 then
@@ -1286,6 +1358,16 @@ function ShoveView:_drawBuildup(W, H)
         mult_now = target_mult
         win_pct  = target_win
     end
+    -- BANK comes from the bankroll the way ITEMS came from the room:
+    -- once the last chip is in the pile the multiplier lifts off it.
+    if not self.mult_flight and total_chips > 0 then
+        local mfmt = (target_mult >= 100 and "%.0f") or (target_mult >= 10 and "%.1f") or "%.2f"
+        self.mult_flight = { from = { x = pot_cx, y = pot_cy + math.floor(Style.room.bank_label_dy * s) },
+                             text = string.format(mfmt, target_mult), land_id = "mult_land",
+                             t0 = 0 }
+        -- Flights run on the wall clock, the buildup on phase_t: convert.
+        self.mult_flight.t0 = love.timer.getTime() + (last_arrive_t - self.phase_t) + Style.room.bank_delay
+    end
 
     -- The readout, ticking up as the chips land. Nothing is covered during the
     -- buildup: the dealer has not dealt anything yet.
@@ -1306,6 +1388,17 @@ function ShoveView:_drawBuildup(W, H)
     -- pile itself reads as "this is the pot".
     if #arrived_indices > 0 or in_lock then
         self:_drawPot(arrived_indices)
+        -- What the pile is: the bankroll, ticking up as it lands.
+        local bank_now = (rates.bankroll or 0) * p_eased
+        if in_lock then bank_now = rates.bankroll or 0 end
+        local label = "$" .. ShoveRate._formatMoney(bank_now)
+        love.graphics.setFont(fonts.sm)
+        Theme.setColor(Theme.fg.muted)
+        -- Above the pile, where BANK lifts off from.
+        love.graphics.setFont(fonts.md)
+        Theme.setColor(Theme.fg.heading)
+        local ly = pot_cy + math.floor(Style.room.bank_label_dy * s)
+        love.graphics.print(label, pot_cx - math.floor(fonts.md:getWidth(label) * 0.5), ly - math.floor(fonts.md:getHeight() * 0.5))
     end
 
     -- In-flight chips: parabolic arc from stack to pot, tumbling and
@@ -1366,38 +1459,83 @@ function ShoveView:_drawStats(base_pct, mult_val, total_pct, covered)
     local md_h   = fonts.md:getHeight()
 
     -- BASE and MULT, centred in their columns and on the cards beside them.
-    local ty = Y_BOARD + math.floor(CARD_H * Style.stats.row_align - md_h / 2)
-    love.graphics.setFont(fonts.md)
-    local function put(i, kind, text)
-        Theme.setColor((covered and covered[kind]) and Theme.fg.faint or Theme.fg.muted)
-        printCentered(text, fonts.md, slotX(origin, i), ty, CARD_W)
+    local sm_h = fonts.sm:getHeight()
+    local lg_h = fonts.lg:getHeight()
+    -- The word small on top, the number big under it, the pair centred
+    -- on the row the cards align to.
+    local ty = Y_BOARD + math.floor(CARD_H * Style.stats.row_align - (sm_h + lg_h) / 2)
+    local R = Style.room
+    -- Numbers pop when they change (the same Pop the focus readout uses)
+    -- and pop harder the moment a flight lands on them.
+    local function bigNumber(id, land_id, value, x, y, w, color)
+        local sc = Pop.changeScale(id, value, 1, 0.3, 0.3)
+        local land = land_id and Pop.progress(land_id, R.land_secs) or 0
+        sc = math.max(sc, Pop.scale(land, 1, R.land_bump))
+        local tw = fonts.lg:getWidth(value)
+        love.graphics.setFont(fonts.lg)
+        love.graphics.push()
+        love.graphics.translate(x + w * 0.5, y + lg_h * 0.5)
+        love.graphics.scale(sc, sc)
+        Theme.setColor(color)
+        love.graphics.print(value, -tw * 0.5, -lg_h * 0.5)
+        if land > 0 then
+            Theme.setColor(Theme.fg.heading, land * 0.8)
+            love.graphics.print(value, -tw * 0.5, -lg_h * 0.5)
+        end
+        love.graphics.pop()
+    end
+    local function put(i, kind, label, value)
+        local dim = covered and covered[kind]
+        Theme.setColor(dim and Theme.fg.faint or Theme.fg.muted)
+        love.graphics.setFont(fonts.sm)
+        printCentered(label, fonts.sm, slotX(origin, i), ty, CARD_W)
+        if value then
+            bigNumber("shove:" .. kind, kind .. "_land", value, slotX(origin, i), ty + sm_h, CARD_W,
+                      dim and Theme.fg.faint or Theme.fg.heading)
+        end
     end
     -- BASE is a count of things (each catalog item is one; the readout's
     -- units are 1/100 of the rate, which is exactly one item), not a %.
-    put(6, "base", string.format("BASE %d", base_pct))
+    self._base_pos = { x = slotX(origin, 6), y = ty + sm_h, w = CARD_W }
+    local bf = self.base_flight
+    if bf and not bf.arrived then
+        put(6, "base", "ITEMS", nil)
+    elseif bf and bf.arrived then
+        local k = math.min(1, (love.timer.getTime() - bf.arrived_at) / Style.room.settle_secs)
+        k = 1 - (1 - k) * (1 - k)
+        local shown = math.floor(bf.count + (base_pct - bf.count) * k + 0.5)
+        put(6, "base", "ITEMS", tostring(shown))
+        if k >= 1 then self.base_flight = nil end
+    else
+        put(6, "base", "ITEMS", tostring(base_pct))
+    end
     -- Decimals shrink as the number grows: the column is one card wide and the
     -- Act 3 underflow puts 999 in it. "MULT 999.00" would not fit; "MULT 999"
     -- does, and the decimals mean nothing at that magnitude anyway.
-    local mfmt = (mult_val >= 100 and "MULT %.0f")
-              or (mult_val >= 10  and "MULT %.1f")
-              or "MULT %.2f"
-    put(7, "mult", string.format(mfmt, mult_val))
+    local mfmt = (mult_val >= 100 and "%.0f")
+              or (mult_val >= 10  and "%.1f")
+              or "%.2f"
+    self._mult_pos = { x = slotX(origin, 7), y = ty + sm_h, w = CARD_W }
+    local mf = self.mult_flight
+    if mf and not mf.arrived then
+        put(7, "mult", "BANK", nil)
+    else
+        put(7, "mult", "BANK", string.format(mfmt, mult_val))
+    end
 
     -- The multiplication sign, in the gap between the two columns. Part of the
     -- frame, not a value: it stays put when a cheat card buries a term.
     Theme.setColor(Theme.fg.faint)
-    printCentered("\u{00D7}", fonts.md,
-                  slotX(origin, 6) + CARD_W, ty, Style.stats.op_gap)
+    love.graphics.setFont(fonts.lg)
+    printCentered("\u{00D7}", fonts.lg,
+                  slotX(origin, 6) + CARD_W, ty + sm_h, Style.stats.op_gap)
 
     -- The total, under both columns. This is the number that collapses as the
     -- dealer buries its inputs, so it carries the emphasis.
-    local lg_h = fonts.lg:getHeight()
     local ty2  = Y_BOARD + CARD_H + Style.stats.total_gap
     local px   = slotX(origin, 6)
     local pw   = (slotX(origin, 7) + CARD_W) - px
-    love.graphics.setFont(fonts.lg)
-    Theme.setColor(Theme.fg.heading)
-    printCentered(string.format("= %d%%", total_pct), fonts.lg, px, ty2, pw)
+    bigNumber("shove:total", nil, string.format("= %d%%", total_pct), px, ty2, pw, Theme.fg.heading)
     love.graphics.setFont(fonts.md)
     Theme.setColor(Theme.fg.faint)
     printCentered("all in", fonts.md, px, ty2 + lg_h, pw)
@@ -1771,6 +1909,9 @@ function ShoveView:draw()
             Theme.setColor(Theme.bg.sunken, fade_alpha)
             love.graphics.rectangle("fill", 0, 0, W, H)
         end
+        -- The numbers in flight ride above the fade: ITEMS sits where the
+        -- room left it while the felt comes up, then lifts off.
+        self:_drawBaseFlight()
         return
     end
 
