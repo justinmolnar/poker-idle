@@ -453,7 +453,12 @@ end
 
 -- ─── Main Interface ───
 
-function RoomView:draw(full_screen)
+-- opts (optional): zoom = scale the room about its centre (the shove intro
+-- draws it big); item_tint = fn(obj) -> {r,g,b,a} or nil, the colour a
+-- placed item is drawn with (nil = normal). The centre and zoom used are
+-- left in self._view = { cx, cy, zoom } so an overlay can match them.
+function RoomView:draw(full_screen, opts)
+    opts = opts or {}
     self._anchored_item = nil   -- "first placed item" hint anchor is per draw
     self.full_screen = full_screen
     local W, H = love.graphics.getDimensions()
@@ -478,7 +483,8 @@ function RoomView:draw(full_screen)
 
     -- The room (walls, floor, items, preview) draws zoomed about its centre;
     -- the HUD does not. Mouse positions are unzoomed with _unzoom.
-    local zoom = self.editor_mode and (self.zoom or 1) or 1   -- editor-only; play is 1:1
+    local zoom = opts.zoom or (self.editor_mode and (self.zoom or 1) or 1)
+    self._view = { cx = cx, cy = cy, zoom = zoom }
     love.graphics.push()
     love.graphics.translate(cx, cy)
     love.graphics.scale(zoom, zoom)
@@ -719,7 +725,10 @@ function RoomView:draw(full_screen)
                            w = sprite:getWidth() * asx, h = sprite:getHeight() * draw_scale_y }
             self._hit_rects[#self._hit_rects + 1] = rect
 
-            if not is_owned then
+            local tint = opts.item_tint and opts.item_tint(obj)
+            if tint then
+                love.graphics.setColor(tint[1], tint[2], tint[3], tint[4] or 1)
+            elseif not is_owned then
                 love.graphics.setColor(1, 1, 1, 0.40)
             else
                 love.graphics.setColor(1, 1, 1, 1)

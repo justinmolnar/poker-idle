@@ -124,8 +124,40 @@ function ShoveState:enter()
     -- doesn't begin until the view's buildup phase finishes (handled
     -- in :update — sees view:isReadyToDeal and fires _beginGauntlet).
     if not self.gauntlet then
-        self.view:beginBuildup(self.shove_rates)
+        self.view:beginRoomCount(self:_roomView(), self:_countedItems(), self.shove_rates)
     end
+end
+
+-- The player's room, for the intro. RoomState owns the view; a harness
+-- without a room state gets nil and the view skips straight to the felt.
+function ShoveState:_roomView()
+    local sm = self.game.state_machine
+    local room = sm and sm.states and sm.states.room
+    if room and room.getRoomView then return room:getRoomView() end
+    return nil
+end
+
+-- The things you own, in the order you bought them: every owned catalog
+-- item that counts toward BASE (a nonzero shove_rate_add) and is not
+-- removed by something else you own. #list is the BASE integer.
+function ShoveState:_countedItems()
+    local state = self.game.state
+    local by_id = {}
+    for _, item in ipairs(Catalog) do by_id[item.id] = item end
+    local owned_set = {}
+    for _, id in ipairs(state.owned_items or {}) do owned_set[id] = true end
+    local ids = {}
+    for _, id in ipairs(state.owned_items or {}) do
+        local item = by_id[id]
+        if item and not (item.removed_by and owned_set[item.removed_by]) then
+            local rate = 0
+            for _, eff in ipairs(item.effects or {}) do
+                if eff.kind == "shove_rate_add" then rate = eff.value or 0 end
+            end
+            if rate > 0 then ids[#ids + 1] = id end
+        end
+    end
+    return ids
 end
 
 function ShoveState:exit() end

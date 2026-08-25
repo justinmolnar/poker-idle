@@ -234,5 +234,10 @@ return {
         deck_deal      = { text = "Deal." },
         deck_all       = { text = "All of it, then." },
         deck_out       = { text = "There's nothing left to deal." },
+
+        -- The room, before the felt: counting what you own.
+        room_count     = { text = "Let's see what you've got." },
+        room_done      = { text = "That's your base." },
+        room_empty     = { text = "Nothing yet. That's fine." },
     },
 }

@@ -38,6 +38,7 @@ local ShoveRate              = require("models.shove_rate")
 local Story                  = require("data.story")
 local StoryView              = require("views.StoryView")
 local FlightSystem           = require("services.FlightSystem")
+local Pop                    = require("services.Pop")
 local ChipFlight             = require("views.ChipFlight")
 local Confetti               = require("services.Confetti")
 local RollingValue           = require("services.RollingValue")
@@ -246,9 +247,9 @@ function ShoveView:new(game, ss)
         total_duration  = 0,
         card_anims      = {},
         chip_visible    = { false, false, false },
-        -- Pre-cinematic buildup (spectacle moment): "idle" | "buildup"
-        -- | "ready_to_deal" | "running". ShoveState:enter calls
-        -- :beginBuildup which sets phase="buildup"; when phase_t crosses
+        -- Pre-cinematic: "idle" | "room" | "buildup" | "ready_to_deal"
+        -- | "running". ShoveState:enter calls :beginRoomCount (the room
+        -- counts what you own), which hands off to :beginBuildup; when phase_t crosses
         -- BUILDUP_TOTAL the view reports isReadyToDeal so the host
         -- transitions phase="running" and fires _beginGauntlet.
         phase           = "idle",
@@ -271,6 +272,51 @@ function ShoveView:new(game, ss)
     }, ShoveView)
     self.fonts = nil
     return self
+end
+
+-- Seconds until the next counted item, by item index (data/shove_style room).
+local function roomInterval(i)
+    for _, band in ipairs(Style.room.intervals) do
+        if i <= band.upto then return band.secs end
+    end
+    return Style.room.intervals[#Style.room.intervals].secs
+end
+
+-- The room counts you in. `room_view` draws the player's room (nil skips
+-- the phase); `ids` are the owned items in the order they get counted;
+-- `rates` go on to the buildup unchanged. One tick per item, slow then a
+-- blur; the count locks on #ids, sits, then the buildup's own fade-in is
+-- the cut to the felt.
+function ShoveView:beginRoomCount(room_view, ids, rates)
+    self.room_view    = room_view
+    self.room_ids     = ids or {}
+    self.room_lit     = {}
+    self.room_lit_at  = {}
+    self.room_count   = 0
+    self.room_locked  = false
+    self.buildup_rates = rates
+    if not room_view then
+        self:beginBuildup(rates)
+        return
+    end
+    self.phase   = "room"
+    self.phase_t = 0
+    self.timeline = nil
+    self.elapsed  = 0
+    local R = Style.room
+    local ticks, t = {}, R.first_tick
+    for i = 1, #self.room_ids do
+        ticks[i] = t
+        t = t + roomInterval(i)
+    end
+    self.room_ticks  = ticks
+    if #self.room_ids > 0 then
+        self.room_lock_t = ticks[#ticks]
+        self.room_total  = self.room_lock_t + R.lock_secs
+    else
+        self.room_lock_t = 0
+        self.room_total  = R.empty_secs
+    end
 end
 
 function ShoveView:beginBuildup(rates)
@@ -778,7 +824,7 @@ end
 -- ShoveState's end gate reads this, so a hold defers the post-shove chain
 -- until the player advances it, with no change to the gate itself.
 function ShoveView:isAnimating()
-    if self.phase == "buildup" or self.phase == "ready_to_deal"
+    if self.phase == "room" or self.phase == "buildup" or self.phase == "ready_to_deal"
        or self.phase == "hold" then
         return true
     end
@@ -854,6 +900,18 @@ function ShoveView:resetTimeline()
 end
 
 function ShoveView:skip()
+    -- Room-skip: every item counted, the number locks, the lock plays out
+    -- and the cut follows. No pops, no sounds.
+    if self.phase == "room" then
+        for i = self.room_count + 1, #self.room_ids do
+            self.room_lit[self.room_ids[i]] = true
+            self.room_lit_at[self.room_ids[i]] = love.timer.getTime() - Style.room.halo.glow_secs
+        end
+        self.room_count  = #self.room_ids
+        self.room_locked = true
+        self.phase_t     = math.max(self.phase_t, self.room_lock_t)
+        return
+    end
     -- Buildup-skip: jump to ready-to-deal so the host fires the gauntlet
     -- on its next update tick. Player wanted out of the buildup spectacle.
     if self.phase == "buildup" then
@@ -899,6 +957,34 @@ function ShoveView:_mirrorTimeline()
 end
 
 function ShoveView:update(dt)
+    -- Room phase: tick the count as items' times pass, lock, then hand
+    -- off to the buildup (whose fade-in is the cut).
+    if self.phase == "room" then
+        self.phase_t = self.phase_t + dt
+        local sounds = self.game.sounds
+        while self.room_count < #self.room_ids
+              and self.phase_t >= self.room_ticks[self.room_count + 1] do
+            self.room_count = self.room_count + 1
+            local id = self.room_ids[self.room_count]
+            self.room_lit[id] = true
+            self.room_lit_at[id] = love.timer.getTime()
+            Pop.trigger("room_count")
+            Pop.trigger("room_item:" .. id)
+            if sounds and sounds.playNamed then sounds.playNamed("chip_land_pot") end
+        end
+        if not self.room_locked and self.phase_t >= self.room_lock_t
+           and self.room_count >= #self.room_ids then
+            self.room_locked = true
+            if #self.room_ids > 0 and sounds and sounds.playNamed then
+                sounds.playNamed("upgrade_purchased")
+            end
+        end
+        if self.phase_t >= (self.room_total or 0) then
+            self:beginBuildup(self.buildup_rates)
+        end
+        return
+    end
+
     -- Buildup phase: advance phase_t, trigger a chip-land sound each
     -- time a new chip lands in the pot. Once phase_t crosses the
     -- buildup total we transition to "ready_to_deal" so ShoveState's
@@ -1022,6 +1108,123 @@ end
 -- nation so the visual reads as the actual bankroll being shoved.
 -- Mult / win-% counters tick up as chips land, then "ALL IN" pops
 -- once every chip is in the pot.
+-- The room with what you own, each counted item flashing white as its
+-- turn comes and keeping a thin outline after; the counter above.
+function ShoveView:_drawRoomCount(W, H)
+    local R     = Style.room
+    local fonts = self.fonts
+    local s     = (self.game and self.game.ui_scale) or 1
+
+    Theme.setColor(Theme.bg.window)
+    love.graphics.rectangle("fill", 0, 0, W, H)
+    local lit  = self.room_lit
+    local sil  = R.silhouette
+    self.room_view:draw(true, {
+        zoom = R.zoom,
+        -- Uncounted things are dark shapes; counted ones are themselves.
+        item_tint = function(obj) if not lit[obj.id] then return sil end end,
+    })
+
+    -- This frame's rects, by id, in room space; the overlay draws under
+    -- the same transform the room did. Items the layout does not place
+    -- have no rect: they still count, nothing lights.
+    local rects = {}
+    for _, r in ipairs(self.room_view._hit_rects or {}) do
+        rects[r.obj.id] = rects[r.obj.id] or r
+    end
+    local view = self.room_view._view or { cx = W * 0.5, cy = H * 0.5, zoom = 1 }
+    love.graphics.push()
+    love.graphics.translate(view.cx, view.cy)
+    love.graphics.scale(view.zoom, view.zoom)
+    love.graphics.translate(-view.cx, -view.cy)
+    local loader = self.game.sprite_loader
+    local halo = R.halo
+    local now  = love.timer.getTime()
+    local k = 0
+    for id, on in pairs(lit) do
+        local r = on and rects[id]
+        if r and loader then
+            k = k + 1
+            local o = r.obj
+            local still = o.anim_room == false or o.frame ~= nil
+            local sprite = loader:getSprite(o.sprite or o.id,
+                (not still) and now or false, o.fps, o.frame)
+            if sprite then
+                local p  = Pop.progress("room_item:" .. id, R.flash_secs)
+                -- The glow is the item's moment, then it settles: gone
+                -- after glow_secs, so the room ends up lit, not on fire.
+                local age = now - (self.room_lit_at[id] or now)
+                local g = 1 - math.min(1, age / halo.glow_secs)
+                g = g * g   -- snaps in, settles fast
+                if g <= 0 and p <= 0 then goto continue end
+                local sc = Pop.scale(p, 1, 0.18)
+                local cxr, cyr = r.x + r.w * 0.5, r.y + r.h * 0.5
+                local sx = r.w / sprite:getWidth() * sc
+                local sy = r.h / sprite:getHeight() * sc
+                if o.flip_x then sx = -sx end
+                local ox, oy = sprite:getWidth() * 0.5, sprite:getHeight() * 0.5
+                love.graphics.setBlendMode("add")
+                -- Glow in the sprite's own shape, breathing; each item a
+                -- little out of step with the next.
+                local pulse = math.sin((now / halo.pulse_secs + k * 0.37) * 2 * math.pi)
+                local hc = halo.color
+                love.graphics.setColor(hc[1], hc[2], hc[3],
+                    (halo.alpha + halo.pulse * pulse) * g + p * halo.flash_alpha)
+                for _, d in ipairs(halo.offsets) do
+                    love.graphics.draw(sprite, cxr + d[1] * s / view.zoom, cyr + d[2] * s / view.zoom, 0, sx, sy, ox, oy)
+                end
+                -- The flash: the sprite itself, white, as its turn comes.
+                if p > 0 then
+                    love.graphics.setColor(1, 1, 1, p)
+                    love.graphics.draw(sprite, cxr, cyr, 0, sx, sy, ox, oy)
+                end
+                love.graphics.setBlendMode("alpha")
+            end
+        end
+        ::continue::
+    end
+    love.graphics.pop()
+
+    -- The counter
+    local n      = self.room_count
+    local total  = #self.room_ids
+    local locked = self.room_locked
+    love.graphics.setFont(fonts.lg)
+    local num  = tostring(n)
+    local nw   = fonts.lg:getWidth(num)
+    local ny   = math.floor(H * R.counter_y)
+    local nsc  = Pop.changeScale("room_count", n, 1, 0.35, 0.3)
+    love.graphics.push()
+    love.graphics.translate(W * 0.5, ny + fonts.lg:getHeight() * 0.5)
+    love.graphics.scale(nsc, nsc)
+    Theme.setColor(locked and Theme.status.good or Theme.fg.heading)
+    love.graphics.print(num, -nw * 0.5, -fonts.lg:getHeight() * 0.5)
+    love.graphics.pop()
+    love.graphics.setFont(fonts.sm)
+    local label = locked and "BASE" or "THINGS YOU OWN"
+    local lw = fonts.sm:getWidth(label)
+    Theme.setColor(locked and Theme.status.good or Theme.fg.muted)
+    love.graphics.print(label, math.floor(W * 0.5 - lw * 0.5),
+        ny + fonts.lg:getHeight() + math.floor(4 * s))
+
+    -- The House
+    if total == 0 then
+        self.house_line = Story.shove.room_empty.text
+    elseif locked then
+        self.house_line = Story.shove.room_done.text
+    else
+        self.house_line = Story.shove.room_count.text
+    end
+    if self.phase_t > R.fade_in * 0.6 then self:_drawHeadline(W) end
+
+    -- Materialize: black over everything, gone by fade_in.
+    local fade_alpha = 1 - math.min(1, self.phase_t / R.fade_in)
+    if fade_alpha > 0 then
+        Theme.setColor(Theme.bg.sunken, fade_alpha)
+        love.graphics.rectangle("fill", 0, 0, W, H)
+    end
+end
+
 function ShoveView:_drawBuildup(W, H)
     local rates = self.buildup_rates or {}
     local s     = (self.game and self.game.ui_scale) or 1
@@ -1517,6 +1720,11 @@ function ShoveView:draw()
     -- Card sizes are fixed (see the constant block): they have to stay an exact
     -- ratio of the source art. Only the chain around them scales.
     recomputeLayout(H, self.fonts, s)
+
+    if self.phase == "room" then
+        self:_drawRoomCount(W, H)
+        return
+    end
 
     -- The table. views/ShoveDecor paints the room, the felt band, its rim and
     -- the lighting; this view only says where the band goes. The band is sized

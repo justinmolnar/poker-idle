@@ -28,6 +28,15 @@ function RoomState:new(game)
     }, RoomState)
 end
 
+-- The one RoomView. The shove borrows it for its intro (the room counts
+-- what you own), so it exists before the room screen is ever visited.
+function RoomState:getRoomView()
+    if not self.room_view then
+        self.room_view = RoomView:new(self.game)
+    end
+    return self.room_view
+end
+
 function RoomState:enter()
     do  -- first-visit bookkeeping for the `screen_visits` hint kind
         local v = self.game.state and self.game.state.screen_visits

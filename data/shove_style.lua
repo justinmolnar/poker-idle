@@ -285,4 +285,35 @@ return {
         curtain_secs   = 2.6,    -- silence over the pile before credits
         max_angle      = 0.6,    -- radians, cards landing off the board row
     },
+
+    -- The room counts you in. Before the felt, the player's room comes up
+    -- and every owned item lights in turn while a counter climbs to the
+    -- number that becomes BASE. Cadence: seconds between items by item
+    -- index, slow first then a blur, like the ending's deal.
+    room = {
+        fade_in    = 0.6,     -- room comes up from black
+        first_tick = 0.8,     -- first item lights after the fade
+        intervals  = { { upto = 5, secs = 0.45 }, { upto = 12, secs = 0.25 },
+                       { upto = 25, secs = 0.12 }, { upto = 80, secs = 0.05 } },
+        flash_secs = 0.22,    -- the lit item's white flash: a pop
+        lock_secs  = 1.2,     -- the final number sits before the cut
+        empty_secs = 1.6,     -- nothing owned: the line, then the cut
+        counter_y  = 0.12,    -- of H; big number, label under it
+        zoom       = 1.9,     -- the room drawn big for the intro
+        -- Not yet counted: a dark silhouette. Counted: the sprite pops in
+        -- and glows in its own shape (additive copies at these pixel
+        -- offsets, scaled by ui_scale), breathing on `pulse_secs`.
+        silhouette = { 0.06, 0.05, 0.08, 0.9 },
+        halo = {
+            color       = { 1.0, 0.85, 0.45 },
+            alpha       = 0.45,   -- glow at the pop
+            pulse       = 0.0,    -- no breathing; the glow is the pop and gone
+            pulse_secs  = 1.0,
+            glow_secs   = 0.35,   -- eased out over this; then the item just sits there
+            flash_alpha = 0.45,   -- added at the peak of the flash
+            offsets     = { { 2, 0 }, { -2, 0 }, { 0, 2 }, { 0, -2 },
+                            { 3, 3 }, { -3, 3 }, { 3, -3 }, { -3, -3 },
+                            { 5, 0 }, { -5, 0 }, { 0, 5 }, { 0, -5 } },
+        },
+    },
 }
