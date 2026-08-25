@@ -880,15 +880,9 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         st_angle = angle
     end
 
-    -- Precompute the shove stat (registry-dispatched, no kind-string checks).
-    local sctx = {}
-    self.game.effects:applyAll(item, sctx)
-    local shove = sctx.shove_rate or 0
-    -- One decimal, not zero. Band A runs 0.005..0.018, which whole-percent
-    -- rounding flattened into "+1%" for five different price tiers -- the
-    -- stat was on screen and still could not be compared.
-    local shove_txt = shove > 0 and string.format("+%.1f%% shove", shove * 100) or nil
-    local shove_ink = dim and { 0.20, 0.35, 0.55, 0.45 } or { 0.20, 0.35, 0.55 }
+    -- No per-item shove stat on the card: an item is a thing you own, and
+    -- the shove is the number of things you own times your bankroll.
+    -- Printing "+1%" on every card said the opposite.
     -- On offer: the effect line itself becomes "now {arrow} corrupted", in
     -- the purple, on the SAME line, so the card does not grow a row. The
     -- shove stat is left alone: the shove is beside the point in Act 3.
@@ -944,10 +938,6 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
             ty = ty + fonts.sm:getHeight() + 4
         end
 
-        if shove_txt and not unlock_locked then
-            IconText.draw(self.game, shove_txt, cxm - IconText.measure(shove_txt, fonts.sm) * 0.5, ty,
-                          fonts.sm, shove_ink)
-        end
     else
         -- Item Header info: Number code + Name. On a multi-slot feature ad
         -- the text block centres against the taller art; a 1-slot card is
@@ -1010,11 +1000,6 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         -- Shove contribution: its own right-aligned stat on the flavor line.
         -- Makes "buying builds your shove base" legible — every buyable
         -- item advertises how much % it adds. Withheld while locked.
-        if shove_txt and not unlock_locked then
-            IconText.draw(self.game, shove_txt,
-                          x + w - fl(12 * s) - IconText.measure(shove_txt, fonts.sm), flavor_y,
-                          fonts.sm, shove_ink)
-        end
     end
 
     -- COMING SOON sticker. Drawn after the card's own contents so it sits ON

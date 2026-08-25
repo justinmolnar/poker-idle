@@ -226,10 +226,16 @@ function HintLogPanel:draw()
                         Theme.setColor(Theme.bg.widget_hover)
                         love.graphics.rectangle("fill", px, row.y, pw, row_h)
                     end
+                    -- Trim by CHARACTERS, not bytes: cutting bytes split
+                    -- the ellipsis (three bytes) and produced invalid UTF-8.
+                    local chars = {}
+                    for ch in row.line.text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+                        chars[#chars + 1] = ch
+                    end
                     local text = row.line.text
-                    while IconText.measure(text, sm) > max_tw and #text > 4 do
-                        text = text:sub(1, #text - 2) .. "\u{2026}"
-                        text = text:gsub("\u{2026}\u{2026}$", "\u{2026}")
+                    while IconText.measure(text, sm) > max_tw and #chars > 2 do
+                        chars[#chars] = nil
+                        text = table.concat(chars) .. "\u{2026}"
                     end
                     local color = (not row.live) and Theme.fg.faint
                                 or (hov and Theme.fg.heading or Theme.fg.primary)

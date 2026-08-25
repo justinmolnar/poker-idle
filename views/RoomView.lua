@@ -10,6 +10,37 @@ local Theme          = require("views.Theme")
 local LabelButton    = require("views.widgets.LabelButton")
 local Catalog        = require("data.catalog")
 local Layout         = require("data.room_layout")
+
+-- The editor autosaves a draft next to the game's saves (DRAFT_FILE) so a
+-- crash or a closed window loses seconds, not the session. The draft
+-- loads over data/room_layout.lua; EXPORT writes the data file itself
+-- (when running from source) and clears the draft; RESET goes back to
+-- the data file.
+local DRAFT_FILE = "room_layout_draft.lua"
+local DRAFT_BAK  = "room_layout_draft.bak.lua"   -- the draft before the last write
+local function countItems(layout)
+    local n = 0
+    for id in pairs(layout) do if id ~= "__meta" then n = n + 1 end end
+    return n
+end
+local function backupDraft(new_str)
+    if not love.filesystem.getInfo(DRAFT_FILE) then return end
+    local prev = love.filesystem.read(DRAFT_FILE)
+    if prev and prev ~= new_str then pcall(love.filesystem.write, DRAFT_BAK, prev) end
+end
+local function loadDraft()
+    if not (love and love.filesystem and love.filesystem.getInfo(DRAFT_FILE)) then return nil end
+    local ok, chunk = pcall(love.filesystem.load, DRAFT_FILE)
+    if not ok or not chunk then return nil end
+    local ok2, layout = pcall(chunk)
+    if ok2 and type(layout) == "table" then
+        local size = (layout.__meta or {}).room_size
+        print(string.format("[room-editor] Loaded draft layout (%d items, size %s) from the save directory",
+            countItems(layout), tostring(size)))
+        return layout
+    end
+    return nil
+end
 local Anchors        = require("services.AnchorRegistry")
 local ClickFlash     = require("services.ClickFlash")
 local ShaderRegistry = require("services.ShaderRegistry")
@@ -47,10 +78,15 @@ local function getSpriteBottom(sprite, name)
     if love.filesystem.getInfo(path) then
         local ok, imgData = pcall(love.image.newImageData, path)
         if ok and imgData then
-            local max_y = h - 1
+            -- The sprite can be one cell of a strip (see SpriteLoader
+            -- _sliceStrip): scan only what both the sprite and the file
+            -- have, or getPixel throws out of range.
+            local iw, ih = imgData:getDimensions()
+            local sw, sh = math.min(w, iw), math.min(h, ih)
+            local max_y = sh - 1
             local found = false
-            for y = h - 1, 0, -1 do
-                for x = 0, w - 1 do
+            for y = sh - 1, 0, -1 do
+                for x = 0, sw - 1 do
                     local r, g, b, a = imgData:getPixel(x, y)
                     if a > 0 then
                         max_y = y
@@ -93,17 +129,21 @@ function RoomView:new(game)
     end
     self.catalog_by_id = catalog_by_id
 
-    -- Load all layout positions from room_layout
+    -- Load all layout positions: the autosaved draft, else room_layout
+    local Layout = loadDraft() or Layout
     local placed = {}
     for id, info in pairs(Layout) do
         if id ~= "__meta" then
             placed[#placed + 1] = {
                 id        = id,
+                sprite    = info.sprite or id:match("^(.-)_%d+$"),
                 gx        = info.gx or 0,
                 gy        = info.gy or 0,
                 w         = info.w or 1,
                 h         = info.h or 1,
                 z_offset  = info.z_offset or 0,
+                dx        = info.dx or 0,
+                layer     = info.layer or 0,
                 sh        = info.sh or 16,
                 color     = info.color or { 0.5, 0.5, 0.5 },
                 scale     = info.scale or 1.0,
@@ -232,6 +272,12 @@ function RoomView:new(game)
         active_flip_x    = false,      -- current sprite horizontal flip
         active_align     = "center",   -- current sprite alignment mode ("center", "left_wall", "right_wall")
         active_anim_room = nil,        -- nil (default), true (force anim), false (force static)
+        zoom             = 1.0,        -- editor view zoom about the room centre (Ctrl+wheel)
+        -- "place": a click adds the selected item (a new copy).
+        -- "replace": a click moves the copy already in the room to the
+        -- mouse (adds it if there is none). M toggles. Clicks never grab
+        -- what is placed; Alt+click does.
+        mode             = "place",
         active_fps       = nil,        -- nil (default), numeric FPS
         active_frame     = nil,        -- nil (default), numeric frame index
         active_shader    = nil,        -- nil (default), string shader name
@@ -267,8 +313,11 @@ function RoomView:_cycleSelection(delta)
     local visible_indices = {}
     for _, g in ipairs(self.groups) do
         if (self.browser_tab == 1 and g.is_catalog) or (self.browser_tab == 2 and not g.is_catalog) then
-            for _, idx in ipairs(g.indices) do
-                visible_indices[#visible_indices + 1] = idx
+            -- Only what the list shows: cycling never opens a folder.
+            if not g.collapsed or delta == 0 then
+                for _, idx in ipairs(g.indices) do
+                    visible_indices[#visible_indices + 1] = idx
+                end
             end
         end
     end
@@ -427,6 +476,14 @@ function RoomView:draw(full_screen)
     local tw, th, tile_k = tileMetrics(s)
     local wh = WALL_H * s
 
+    -- The room (walls, floor, items, preview) draws zoomed about its centre;
+    -- the HUD does not. Mouse positions are unzoomed with _unzoom.
+    local zoom = self.editor_mode and (self.zoom or 1) or 1   -- editor-only; play is 1:1
+    love.graphics.push()
+    love.graphics.translate(cx, cy)
+    love.graphics.scale(zoom, zoom)
+    love.graphics.translate(-cx, -cy)
+
     -- 1. Draw background walls (corner walls of the room - fallback vector or sprite segments)
     local l_wall_sprite = nil
     local r_wall_sprite = nil
@@ -566,7 +623,11 @@ function RoomView:draw(full_screen)
     end
 
     -- 4. Depth sort (Painter's algorithm: sort back-to-front by center index)
+    -- `layer` (Z / X on the thing in hand) overrides depth: higher draws
+    -- over everything on a lower layer, whatever its position.
     table.sort(render_list, function(a, b)
+        local la, lb = a.layer or 0, b.layer or 0
+        if la ~= lb then return la < lb end
         local depth_a = (a.gx + a.w * 0.5) + (a.gy + a.h * 0.5)
         local depth_b = (b.gx + b.w * 0.5) + (b.gy + b.h * 0.5)
         if math.abs(depth_a - depth_b) < 0.001 then
@@ -576,7 +637,10 @@ function RoomView:draw(full_screen)
         return depth_a < depth_b
     end)
 
-    -- 5. Draw the items
+    -- 5. Draw the items. Their on-screen rects are kept (room space, in
+    -- draw order) so move mode can grab what the mouse is actually on.
+    self._hit_rects = {}
+    local zmx0, zmy0 = self:_unzoom(love.mouse.getX(), love.mouse.getY(), cx, cy)
     for _, obj in ipairs(render_list) do
         local color = obj.color
         local is_owned = owned_set[obj.id] or self.editor_mode
@@ -606,6 +670,7 @@ function RoomView:draw(full_screen)
             is_room_anim = cat_anim.enabled
         end
 
+        if obj.frame then is_room_anim = false end
         local time_arg  = is_room_anim and love.timer.getTime() or false
         local fps_arg   = obj.fps or obj_anim.fps or cat_item.fps or cat_anim.fps
         local frame_arg = obj.frame or obj.static_frame or obj_anim.frame or cat_item.frame or cat_item.static_frame or cat_anim.frame
@@ -646,13 +711,25 @@ function RoomView:draw(full_screen)
                 draw_scale_x = -draw_scale_x
             end
             
-            local px = sx
+            local px = sx + (obj.dx or 0) * s
             local py = sy - (obj.z_offset or 0) * s
-            
+
+            local asx = math.abs(draw_scale_x)
+            local rect = { obj = obj, x = px - ox * asx, y = py - oy * draw_scale_y,
+                           w = sprite:getWidth() * asx, h = sprite:getHeight() * draw_scale_y }
+            self._hit_rects[#self._hit_rects + 1] = rect
+
             if not is_owned then
                 love.graphics.setColor(1, 1, 1, 0.40)
             else
                 love.graphics.setColor(1, 1, 1, 1)
+            end
+            -- Replace mode: the copy the click will move lights up.
+            if self.editor_mode and self.mode == "replace" and not self.picked_item then
+                local spec = self.placeable[self.selected_idx]
+                if spec and (obj.id == spec.id or obj.sprite == (spec.sprite or spec.id)) then
+                    love.graphics.setColor(1, 0.85, 0.5, 1)
+                end
             end
 
             if shader_name and ShaderRegistry and ShaderRegistry.apply then
@@ -679,9 +756,12 @@ function RoomView:draw(full_screen)
         end
     end
 
+    love.graphics.pop()
+
     -- 6. Editor overlay: Selected active item preview + cursor grid position
     local mx, my = love.mouse.getPosition()
-    local gx, gy = screenToGrid(mx, my, cx, cy, tw, th)
+    local zmx, zmy = self:_unzoom(mx, my, cx, cy)
+    local gx, gy = screenToGrid(zmx, zmy, cx, cy, tw, th)
     local step = self.snap_options[self.snap_idx] or 0.125
     gx = math.floor(gx / step + 0.5) * step
     gy = math.floor(gy / step + 0.5) * step
@@ -689,6 +769,10 @@ function RoomView:draw(full_screen)
     local active_spec = self.placeable[self.selected_idx]
 
     if self.editor_mode and active_spec then
+        love.graphics.push()
+        love.graphics.translate(cx, cy)
+        love.graphics.scale(zoom, zoom)
+        love.graphics.translate(-cx, -cy)
         -- Hover preview tile highlighting
         if gx >= 0 and gx + self.active_w <= self.room_size and gy >= 0 and gy + self.active_h <= self.room_size then
             local tx1, ty1 = gridToScreen(gx, gy, cx, cy, tw, th)
@@ -703,7 +787,18 @@ function RoomView:draw(full_screen)
             love.graphics.polygon("line", tx1, ty1, tx2, ty2, tx3, ty3, tx4, ty4)
 
             -- Draw placement preview block (sprite or fallback box)
-            local sprite = game.sprite_loader:getSprite(active_spec.sprite or active_spec.id)
+            local pv_anim = self.active_anim_room
+            if pv_anim == nil then
+                local ca = active_spec.anim or {}
+                if active_spec.anim_room ~= nil then pv_anim = active_spec.anim_room
+                elseif ca.room_enabled ~= nil then pv_anim = ca.room_enabled
+                elseif ca.enabled ~= nil then pv_anim = ca.enabled
+                else pv_anim = true end
+            end
+            if self.active_frame then pv_anim = false end
+            local pv_time = pv_anim and love.timer.getTime() or false
+            local sprite = game.sprite_loader:getSprite(active_spec.sprite or active_spec.id,
+                pv_time, self.active_fps or active_spec.fps, self.active_frame or active_spec.frame)
             if sprite then
                 local draw_gx, draw_gy
                 if self.active_align == "left_wall" then
@@ -736,7 +831,7 @@ function RoomView:draw(full_screen)
                     draw_scale_x = -draw_scale_x
                 end
                 
-                local px = sx
+                local px = sx + (self.active_dx or 0) * s
                 local py = sy - self.active_z * s
                 
                 love.graphics.setColor(1, 1, 1, 0.60)
@@ -746,6 +841,7 @@ function RoomView:draw(full_screen)
                 drawIsoBox(gx, gy, self.active_w, self.active_h, self.active_z, self.active_sh, preview_c, tw, th, cx, cy, s, self.active_scale, self.active_flip_x)
             end
         end
+        love.graphics.pop()
 
         if not self.hide_editor_hud then
             -- ── Top Toolbar (Action buttons & Meta selectors in top bar)
@@ -1008,8 +1104,10 @@ function RoomView:draw(full_screen)
             love.graphics.setScissor()
 
             -- Scrollbar
+            local thumb_h = math.max(fl(20 * s), view_h * (view_h / math.max(1, total_h)))
+            self._list_bar = { x = sidebar_x + sidebar_w - fl(14 * s), w = fl(14 * s),
+                               y = view_y, h = view_h, max_scroll = max_scroll, thumb_h = thumb_h }
             if max_scroll > 0 then
-                local thumb_h = math.max(fl(20 * s), view_h * (view_h / total_h))
                 local thumb_y = view_y + (view_h - thumb_h) * (self.list_scroll / max_scroll)
                 Theme.setColor(Theme.bg.sunken, 0.6)
                 love.graphics.rectangle("fill", sidebar_x + sidebar_w - 6, view_y, 4, view_h, 2)
@@ -1025,7 +1123,17 @@ function RoomView:draw(full_screen)
             Theme.setColor(Theme.fg.muted)
             love.graphics.setFont(game.fonts.sm)
             local active_tab_str = self.browser_tab == 1 and "1. CATALOG" or "2. FLAVOR"
-            local sb_msg = string.format("ACTIVE: [%s] | Q/E: Cycle Item | Shift+Click: Surface Stack | Press [H] for Controls | Enter: Export", active_tab_str)
+            local n_frames = self:_activeFrameCount()
+            local anim_str
+            if self.active_frame then
+                anim_str = string.format("FRAME %d/%d (still)", self.active_frame, n_frames)
+            elseif self.active_anim_room == false then
+                anim_str = string.format("STILL frame 1/%d", n_frames)
+            else
+                anim_str = string.format("ANIM %d frames @ %s fps", n_frames, tostring(self.active_fps or "default"))
+            end
+            local mode_str = self.mode == "replace" and "REPLACE (M): click moves the existing copy" or "PLACE (M): click adds a copy"
+            local sb_msg = string.format("%s | [%s] | LAYER %d (Z/X) | %s | Frame: , . | FPS: - = | Anim: V | [H] Controls | Enter: Export", mode_str, active_tab_str, self.active_layer or 0, anim_str)
             love.graphics.print(sb_msg, fl(12 * s), sb_y + fl(4 * s))
         else
             -- Clean preview mode: draw small bottom prompt
@@ -1044,8 +1152,8 @@ function RoomView:draw(full_screen)
 
     -- Render Top-Right Non-Modal Instructions Panel (Hidable with H)
     if self.editor_mode and self.show_help_overlay then
-        local pw = fl(260 * s)
-        local ph = fl(245 * s)
+        local pw = fl(270 * s)
+        local ph = fl(360 * s)
         local px = W - pw - fl(16 * s)
         local py = TOP_BAR_H + fl(12 * s)
 
@@ -1066,25 +1174,32 @@ function RoomView:draw(full_screen)
         Theme.setColor(Theme.status.warn)
         love.graphics.print("NAVIGATION & PLACEMENT", px + fl(10 * s), iy); iy = iy + ilh
 
+        -- Every key RoomView:keypressed actually handles, and nothing else.
         Theme.setColor(Theme.fg.primary)
-        love.graphics.print("• 1 / 2 : Catalog / Flavor Tab", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• TAB : Switch Category Tab", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• Q / E / Wheel : Cycle Item", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• L-Click : Place / Move Item", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• R-Click : Delete / Cancel", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• Shift+L-Click : Surface Stack", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
+        love.graphics.print("• TAB : Catalog / Flavor tab", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• Q / E : Cycle item (open folders)   Ctrl+Wheel : Zoom", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• List: wheel, drag the bar, PgUp / PgDn / Home / End", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• M : PLACE (click adds a copy) / REPLACE (click moves it)", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• L-Click : Place   Alt+L-Click : Grab   Alt+R-Click : Delete", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• Shift+L-Click : Stack on surface", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• Ctrl+Arrows : Move the sprite in px (hold, Shift x8)", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• G : Grid step   D : Clone   Z / X : Layer down / up", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
 
         Theme.setColor(Theme.status.warn)
         love.graphics.print("TRANSFORMS & STYLING", px + fl(10 * s), iy); iy = iy + ilh
 
         Theme.setColor(Theme.fg.primary)
-        love.graphics.print("• Ctrl+Arrows : Nudge Pos", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• D : Clone / Duplicate Item", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• T : Cycle Material Color Tint", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• V : Animation Toggle (ON/OFF)", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• S : Cycle GLSL Shader", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• F / R / A : Flip / Rotate / Align", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• Enter : Export Layout to File", px + fl(10 * s), iy)
+        love.graphics.print("• 1 / 2 : Width -/+   3 / 4 : Depth -/+", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• 5 / 6 : Thickness   7 / 8 : Height (Shift x8)", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• 9 / 0 : Scale   F / R / A : Flip / Rotate / Align", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• T : Tint   S : Shader   V : Anim on/off", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• Comma , and period . : previous / next frame (also [ and ])", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• Minus - and equals = : slower / faster FPS", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
+
+        Theme.setColor(Theme.status.warn)
+        love.graphics.print("EXIT", px + fl(10 * s), iy); iy = iy + ilh
+        Theme.setColor(Theme.fg.primary)
+        love.graphics.print("• Enter : Export layout   F3 / Esc : Leave editor", px + fl(10 * s), iy)
     end
 
     -- Render Toast Notification Banner when layout exported
@@ -1103,7 +1218,7 @@ function RoomView:draw(full_screen)
         love.graphics.rectangle("line", banner_x, banner_y, banner_w, banner_h, 6)
         Theme.setColor({ 1.0, 1.0, 1.0, 1.0 * alpha })
         love.graphics.setFont(game.fonts.md)
-        local msg = "LAYOUT EXPORTED TO CONSOLE & FILE"
+        local msg = self.export_written and "SAVED TO data/room_layout.lua" or "LAYOUT EXPORTED TO CONSOLE & FILE"
         local tw = game.fonts.md:getWidth(msg)
         love.graphics.print(msg, banner_x + (banner_w - tw) * 0.5, banner_y + fl(8 * s))
     end
@@ -1126,15 +1241,21 @@ function RoomView:mousepressed(x, y, button)
                and y >= self._rst_btn_rect.y and y < self._rst_btn_rect.y + self._rst_btn_rect.h then
                 ClickFlash.flash("room_btn", "room_btn")
                 self.placed = {}
+                backupDraft(nil)
+                pcall(love.filesystem.remove, DRAFT_FILE)
+                self._last_autosave = nil
                 for id, info in pairs(Layout) do
                     if id ~= "__meta" then
                         self.placed[#self.placed + 1] = {
                             id       = id,
+                            sprite    = info.sprite or id:match("^(.-)_%d+$"),
                             gx       = info.gx or 0,
                             gy       = info.gy or 0,
                             w        = info.w or 1,
                             h        = info.h or 1,
                             z_offset = info.z_offset or 0,
+                            dx       = info.dx or 0,
+                            layer     = info.layer or 0,
                             sh       = info.sh or 16,
                             color    = info.color or { 0.5, 0.5, 0.5 },
                             scale    = info.scale or 1.0,
@@ -1221,6 +1342,14 @@ function RoomView:mousepressed(x, y, button)
             end
         end
 
+        -- Scrollbar: click jumps there and drags until release
+        local b = self._list_bar
+        if b and b.max_scroll > 0 and x >= b.x and y >= b.y and y < b.y + b.h then
+            self._bar_drag = true
+            self:_scrollTo(y)
+            return true
+        end
+
         -- Item-browser rows
         local lr = self._list_rect
         if lr and y >= lr.y and y < lr.y + lr.h then
@@ -1247,7 +1376,8 @@ function RoomView:mousepressed(x, y, button)
     -- where the tiles actually rendered.
     local tw, th = tileMetrics(s)
 
-    local gx, gy = screenToGrid(x, y, cx, cy, tw, th)
+    local zx, zy = self:_unzoom(x, y, cx, cy)
+    local gx, gy = screenToGrid(zx, zy, cx, cy, tw, th)
     local click_gx, click_gy = gx, gy
 
     local step = self.snap_options[self.snap_idx] or 0.125
@@ -1259,27 +1389,30 @@ function RoomView:mousepressed(x, y, button)
 
         if gx >= 0 and gx + self.active_w <= self.room_size and gy >= 0 and gy + self.active_h <= self.room_size then
             -- 1. Check if hovering an existing object to PICK UP
-            local clicked_obj = nil
+            local clicked_obj = self:_hitItem(zx, zy, click_gx, click_gy)
             local clicked_idx = nil
             for i, o in ipairs(self.placed) do
-                if click_gx >= o.gx and click_gx < o.gx + o.w and click_gy >= o.gy and click_gy < o.gy + o.h then
-                    clicked_obj = o
-                    clicked_idx = i
-                    break
-                end
+                if o == clicked_obj then clicked_idx = i; break end
             end
 
             local is_shift = love.keyboard and (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift"))
+            local is_alt   = love.keyboard and love.keyboard.isDown("lalt", "ralt")
 
-            if clicked_obj and not is_shift then
+            -- Placed items are scenery to the mouse: a click places what is
+            -- in hand (PLACE adds a copy, REPLACE moves the existing one).
+            -- Alt+click is the only grab.
+            if clicked_obj and is_alt and not is_shift and not self.picked_item then
                 -- Pick up the item! Save it in self.picked_item
                 self.picked_item = {
                     id        = clicked_obj.id,
+                    sprite    = clicked_obj.sprite,
                     gx        = clicked_obj.gx,
                     gy        = clicked_obj.gy,
                     w         = clicked_obj.w,
                     h         = clicked_obj.h,
                     z_offset  = clicked_obj.z_offset,
+                    dx        = clicked_obj.dx or 0,
+                    layer     = clicked_obj.layer or 0,
                     sh        = clicked_obj.sh,
                     color     = clicked_obj.color,
                     scale     = clicked_obj.scale or 1.0,
@@ -1295,6 +1428,8 @@ function RoomView:mousepressed(x, y, button)
                 self.active_h         = clicked_obj.h
                 self.active_sh        = clicked_obj.sh
                 self.active_z         = clicked_obj.z_offset
+                self.active_dx        = clicked_obj.dx or 0
+                self.active_layer     = clicked_obj.layer or 0
                 self.active_scale     = clicked_obj.scale or 1.0
                 self.active_flip_x    = clicked_obj.flip_x or false
                 self.active_align     = clicked_obj.align or "center"
@@ -1306,7 +1441,8 @@ function RoomView:mousepressed(x, y, button)
                 
                 -- Sync selected_idx to match this item (browser follows)
                 for idx, item in ipairs(self.placeable) do
-                    if item.id == clicked_obj.id then
+                    -- numbered copies (Door_2_Brown_2) match by sprite
+                    if item.id == clicked_obj.id or item.id == clicked_obj.sprite then
                         self.selected_idx = idx
                         self:_onSelectionChanged()
                         break
@@ -1325,23 +1461,44 @@ function RoomView:mousepressed(x, y, button)
                         auto_z = clicked_obj.z_offset + (clicked_obj.sh or 16)
                     end
 
-                    local place_id = is_shift and (active_spec.id .. "_" .. tostring(math.random(100, 999))) or active_spec.id
-                    if not is_shift then
+                    -- Catalog items are one per room (the id is what the
+                    -- game owns), so placing again moves it. Flavor sprites
+                    -- can repeat: a second copy gets a numbered id, and
+                    -- keeps its sprite name so it still draws.
+                    local place_id = self.picked_item and self.picked_item.id or active_spec.id
+                    local is_catalog = self.catalog_by_id[active_spec.id] ~= nil
+                    local sprite_name = active_spec.sprite or active_spec.id
+                    if self.picked_item then
+                        -- putting the same thing back: its id is its own
+                    elseif is_catalog or self.mode == "replace" then
+                        -- one copy: the existing one moves to the mouse
                         for i = #self.placed, 1, -1 do
-                            if self.placed[i].id == active_spec.id then
+                            local o = self.placed[i]
+                            if o.id == active_spec.id or (not is_catalog and o.sprite == sprite_name) then
                                 table.remove(self.placed, i)
                             end
+                        end
+                    else
+                        local taken = {}
+                        for _, o in ipairs(self.placed) do taken[o.id] = true end
+                        local n = 2
+                        while taken[place_id] do
+                            place_id = active_spec.id .. "_" .. n
+                            n = n + 1
                         end
                     end
 
                     -- Add to placed list
                     table.insert(self.placed, {
                         id        = place_id,
+                        sprite    = self.picked_item and self.picked_item.sprite or active_spec.sprite or active_spec.id,
                         gx        = gx,
                         gy        = gy,
                         w         = self.active_w,
                         h         = self.active_h,
                         z_offset  = auto_z,
+                        dx        = self.active_dx or 0,
+                        layer     = self.active_layer or 0,
                         sh        = self.active_sh,
                         color     = { self.active_color[1], self.active_color[2], self.active_color[3] },
                         scale     = self.active_scale,
@@ -1368,16 +1525,14 @@ function RoomView:mousepressed(x, y, button)
             print("[room-editor] Cancelled edit, returned " .. self.picked_item.id .. " to grid")
             self.picked_item = nil
             self:syncActiveParams() -- restore current tool parameters
-        else
-            -- Delete hovered item
-            if click_gx >= 0 and click_gx < self.room_size and click_gy >= 0 and click_gy < self.room_size then
-                for i = #self.placed, 1, -1 do
-                    local o = self.placed[i]
-                    if click_gx >= o.gx and click_gx < o.gx + o.w and click_gy >= o.gy and click_gy < o.gy + o.h then
-                        print("[room-editor] Deleted object: " .. o.id)
-                        table.remove(self.placed, i)
-                        break
-                    end
+        elseif love.keyboard.isDown("lalt", "ralt") then
+            -- Alt+right-click deletes what the mouse is on
+            local o = self:_hitItem(zx, zy, click_gx, click_gy)
+            for i = #self.placed, 1, -1 do
+                if self.placed[i] == o then
+                    print("[room-editor] Deleted object: " .. o.id)
+                    table.remove(self.placed, i)
+                    break
                 end
             end
         end
@@ -1416,6 +1571,33 @@ function RoomView:keypressed(key)
         return true
     end
 
+    -- Layer (draw order) of the thing in hand
+    if key == "z" or key == "x" then
+        self.active_layer = (self.active_layer or 0) + (key == "x" and 1 or -1)
+        print("[room-editor] Layer " .. self.active_layer)
+        self:_updateActivePlacedItemAnim()
+        return true
+    end
+
+    -- Mode: place / move
+    if key == "m" then
+        self.mode = self.mode == "place" and "replace" or "place"
+        print("[room-editor] Mode: " .. self.mode:upper())
+        return true
+    end
+
+    -- List paging
+    if key == "pageup" or key == "pagedown" or key == "home" or key == "end" then
+        local b = self._list_bar
+        if b then
+            if key == "pageup" then self.list_scroll = self.list_scroll - b.h
+            elseif key == "pagedown" then self.list_scroll = self.list_scroll + b.h
+            elseif key == "home" then self.list_scroll = 0
+            else self.list_scroll = b.max_scroll end
+        end
+        return true
+    end
+
     -- Footprint adjustments
     if key == "1" then
         self.active_w = math.max(1, self.active_w - 1)
@@ -1431,12 +1613,16 @@ function RoomView:keypressed(key)
         return true
     end
 
-    -- Height offset adjustments
+    -- Height offset adjustments. Shift is the coarse step (x8), so a
+    -- thing that belongs near the top of a wall gets there in a few taps;
+    -- keys repeat while held in the editor (RoomState turns that on).
+    local shift = love.keyboard and (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift"))
+    local coarse = shift and 8 or 1
     if key == "7" then
-        self.active_z = math.max(0, self.active_z - 4)
+        self.active_z = self.active_z - 4 * coarse   -- below 0 sinks into the floor
         return true
     elseif key == "8" then
-        self.active_z = self.active_z + 4
+        self.active_z = self.active_z + 4 * coarse
         return true
     end
 
@@ -1506,42 +1692,40 @@ function RoomView:keypressed(key)
     end
 
     -- Frame adjustment ([ / ])
-    if key == "[" then
-        if not self.active_frame or self.active_frame <= 1 then
-            self.active_frame = nil
-        else
-            self.active_frame = self.active_frame - 1
-        end
-        print("[room-editor] Frame set to: " .. tostring(self.active_frame or "AUTO"))
-        self:_updateActivePlacedItemAnim()
-        return true
-    elseif key == "]" then
-        self.active_frame = (self.active_frame or 0) + 1
-        print("[room-editor] Frame set to: " .. self.active_frame)
+    if key == "[" or key == "]" or key == "," or key == "." then
+        local n = self:_activeFrameCount()
+        local f = self.active_frame or 0            -- 0 = AUTO (animating)
+        f = f + ((key == "]" or key == ".") and 1 or -1)
+        if f < 0 then f = n end
+        if f > n then f = 0 end
+        self.active_frame = f > 0 and f or nil
+        -- A chosen frame is a still; AUTO animates again.
+        self.active_anim_room = (f > 0) and false or nil
+        print("[room-editor] Frame set to: " .. tostring(self.active_frame or "AUTO") .. " / " .. n)
         self:_updateActivePlacedItemAnim()
         return true
     end
 
     -- Speed / FPS adjustment (- / =)
     if key == "-" then
-        local fps_steps = { nil, 1, 2, 3, 4, 6, 8, 12, 15, 20, 30 }
+        local fps_steps = { 0, 1, 2, 3, 4, 6, 8, 12, 15, 20, 30 }   -- 0 = default
         local cur_idx = 1
         for i, f in ipairs(fps_steps) do
-            if f == self.active_fps then cur_idx = i; break end
+            if f == (self.active_fps or 0) then cur_idx = i; break end
         end
         cur_idx = math.max(1, cur_idx - 1)
-        self.active_fps = fps_steps[cur_idx]
+        self.active_fps = fps_steps[cur_idx] ~= 0 and fps_steps[cur_idx] or nil
         print("[room-editor] FPS set to: " .. tostring(self.active_fps or "DEFAULT"))
         self:_updateActivePlacedItemAnim()
         return true
     elseif key == "=" then
-        local fps_steps = { nil, 1, 2, 3, 4, 6, 8, 12, 15, 20, 30 }
+        local fps_steps = { 0, 1, 2, 3, 4, 6, 8, 12, 15, 20, 30 }   -- 0 = default
         local cur_idx = 1
         for i, f in ipairs(fps_steps) do
-            if f == self.active_fps then cur_idx = i; break end
+            if f == (self.active_fps or 0) then cur_idx = i; break end
         end
         cur_idx = math.min(#fps_steps, cur_idx + 1)
-        self.active_fps = fps_steps[cur_idx]
+        self.active_fps = fps_steps[cur_idx] ~= 0 and fps_steps[cur_idx] or nil
         print("[room-editor] FPS set to: " .. tostring(self.active_fps or "DEFAULT"))
         self:_updateActivePlacedItemAnim()
         return true
@@ -1608,11 +1792,14 @@ function RoomView:keypressed(key)
             end
             table.insert(self.placed, {
                 id        = clone_id,
+                sprite    = active_spec.sprite or active_spec.id,
                 gx        = clone_gx,
                 gy        = clone_gy,
                 w         = self.active_w,
                 h         = self.active_h,
                 z_offset  = self.active_z,
+                dx        = self.active_dx or 0,
+                layer     = self.active_layer or 0,
                 sh        = self.active_sh,
                 color     = { self.active_color[1], self.active_color[2], self.active_color[3] },
                 scale     = self.active_scale,
@@ -1631,20 +1818,19 @@ function RoomView:keypressed(key)
     -- Arrow key fine nudge (Left/Right/Up/Down when modifier key held or for precise alignment)
     local is_nudge = love.keyboard and (love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") or love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt"))
     if is_nudge and (key == "left" or key == "right" or key == "up" or key == "down") then
-        local step = self.snap_options[self.snap_idx] or 0.125
-        local active_spec = self.placeable[self.selected_idx]
-        if active_spec then
-            for _, o in ipairs(self.placed) do
-                if o.id == active_spec.id then
-                    if key == "left" then o.gx = math.max(0, o.gx - step) end
-                    if key == "right" then o.gx = math.min(self.room_size - o.w, o.gx + step) end
-                    if key == "up" then o.gy = math.max(0, o.gy - step) end
-                    if key == "down" then o.gy = math.min(self.room_size - o.h, o.gy + step) end
-                    print(string.format("[room-editor] Nudged %s to (%.3f, %.3f)", o.id, o.gx, o.gy))
-                    return true
-                end
-            end
-        end
+        -- One grid step per tap; Shift makes it eight. Held keys repeat.
+        -- Screen-space, in pixels: up is UP (the sprite rises off its
+        -- footprint: z_offset), left/right slide it sideways (dx). The
+        -- footprint (the green) never moves; that is what the mouse is for.
+        -- Applies to the thing in hand: the held item, or the preview
+        -- that lands on the next placement.
+        local px_step = 1 * coarse
+        if key == "up"    then self.active_z  = self.active_z + px_step end
+        if key == "down"  then self.active_z  = self.active_z - px_step end   -- may go below 0
+        if key == "left"  then self.active_dx = (self.active_dx or 0) - px_step end
+        if key == "right" then self.active_dx = (self.active_dx or 0) + px_step end
+        print(string.format("[room-editor] height %d px, sideways %d px", self.active_z, self.active_dx or 0))
+        return true
     end
 
     -- Browser Tab toggle (TAB)
@@ -1686,6 +1872,8 @@ function RoomView:syncActiveParams()
             self.active_w         = o.w
             self.active_h         = o.h
             self.active_z         = o.z_offset
+            self.active_dx        = o.dx or 0
+            self.active_layer     = o.layer or 0
             self.active_sh        = o.sh
             self.active_scale     = o.scale or 1.0
             self.active_flip_x    = o.flip_x or false
@@ -1705,6 +1893,8 @@ function RoomView:syncActiveParams()
         self.active_h         = 1
         self.active_sh        = 16
         self.active_z         = 0
+        self.active_dx        = 0
+        self.active_layer     = 0
         self.active_scale     = 1.0
         self.active_flip_x    = false
         self.active_align     = "center"
@@ -1716,46 +1906,99 @@ function RoomView:syncActiveParams()
     end
 end
 
+-- Frames in the active item's animation (1 for a still sprite).
+function RoomView:_activeFrameCount()
+    local spec = self.placeable[self.selected_idx]
+    if not spec then return 1 end
+    local loader = self.game.sprite_loader
+    local name = spec.sprite or spec.id
+    local anim = loader.animations and (loader.animations[name]
+        or (loader.aliases and loader.aliases[name] and loader.animations[loader.aliases[name]]))
+    return anim and #anim or 1
+end
+
 function RoomView:_updateActivePlacedItemAnim()
     if self.picked_item then
         self.picked_item.anim_room = self.active_anim_room
         self.picked_item.fps       = self.active_fps
+        self.picked_item.layer     = self.active_layer or 0
         self.picked_item.frame     = self.active_frame
         self.picked_item.shader    = self.active_shader
         self.picked_item.color     = self.active_color
     end
-    local active_spec = self.placeable[self.selected_idx]
-    if active_spec then
-        for _, o in ipairs(self.placed) do
-            if o.id == active_spec.id then
-                o.anim_room = self.active_anim_room
-                o.fps       = self.active_fps
-                o.frame     = self.active_frame
-                o.shader    = self.active_shader
-                o.color     = self.active_color
-                break
-            end
-        end
-    end
+    -- Placed items are never touched here: what is placed stays as it was
+    -- placed until it is picked up. With nothing in hand, the params are
+    -- the preview's, and land on the next placement.
 end
 
 -- Wheel: over the sidebar it scrolls the item browser; over the room it
 -- cycles the selection (and the browser follows the selection).
+-- The placed item under a room-space point: the topmost drawn sprite
+-- whose pixels' box contains it, else the one whose footprint does.
+function RoomView:_hitItem(x, y, gx, gy)
+    local rects = self._hit_rects or {}
+    for i = #rects, 1, -1 do
+        local r = rects[i]
+        if x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h then
+            return r.obj
+        end
+    end
+    if gx then
+        for i = #self.placed, 1, -1 do
+            local o = self.placed[i]
+            if gx >= o.gx and gx < o.gx + o.w and gy >= o.gy and gy < o.gy + o.h then
+                return o
+            end
+        end
+    end
+    return nil
+end
+
+-- Screen -> room space, undoing the zoom about the room centre.
+function RoomView:_unzoom(x, y, cx, cy)
+    local z = self.editor_mode and (self.zoom or 1) or 1
+    return (x - cx) / z + cx, (y - cy) / z + cy
+end
+
 function RoomView:wheelmoved(dy)
     if not self.editor_mode then return false end
+    if love.keyboard.isDown("lctrl", "rctrl") then
+        local z = (self.zoom or 1) * (dy > 0 and 1.15 or 1 / 1.15)
+        self.zoom = math.max(0.5, math.min(4, z))
+        return true
+    end
     local mx = love.mouse.getX()
     local s  = self.game.ui_scale or 1
     if mx < math.floor(270 * s) then
         self.list_scroll = self.list_scroll - dy * math.floor(40 * s)
         return true   -- clamped in draw against the live layout
     end
-    if self.picked_item then return true end
-    self:_cycleSelection(dy > 0 and -1 or 1)
+    -- Over the room the wheel does nothing (Ctrl+wheel zooms above). It
+    -- used to cycle the selection, which opened folders by itself.
     return true
 end
 
+-- Scrollbar drag (the bar is a 14px column at the list's right edge).
+function RoomView:_scrollTo(y)
+    local b = self._list_bar
+    if not b or b.max_scroll <= 0 then return end
+    local track = b.h - b.thumb_h
+    local t = track > 0 and (y - b.y - b.thumb_h * 0.5) / track or 0
+    self.list_scroll = math.max(0, math.min(1, t)) * b.max_scroll
+end
+
+function RoomView:mousemoved(x, y)
+    if self._bar_drag then self:_scrollTo(y); return true end
+    return false
+end
+
+function RoomView:mousereleased(x, y, button)
+    if self._bar_drag then self._bar_drag = false; return true end
+    return false
+end
+
 -- Export function: Print the Lua return layout array directly to standard output
-function RoomView:serializeLayout()
+function RoomView:layoutString()
     local lines = {}
     lines[#lines + 1] = "return {"
 
@@ -1767,9 +2010,11 @@ function RoomView:serializeLayout()
     lines[#lines + 1] = string.format("        wall_theme = %q,", wall_theme)
     lines[#lines + 1] = "    },"
 
-    -- Sort placed items alphabetically by id for neatness
+    -- Sort placed items alphabetically by id for neatness. What is in
+    -- hand is part of the room too (at the spot it was picked from).
     local sorted = {}
     for _, o in ipairs(self.placed) do sorted[#sorted + 1] = o end
+    if self.picked_item then sorted[#sorted + 1] = self.picked_item end
     table.sort(sorted, function(a, b) return a.id < b.id end)
 
     for _, o in ipairs(sorted) do
@@ -1780,13 +2025,39 @@ function RoomView:serializeLayout()
         local fps_str    = o.fps and string.format(", fps = %d", o.fps) or ""
         local frame_str  = o.frame and string.format(", frame = %d", o.frame) or ""
         local shader_str = o.shader and string.format(", shader = %q", o.shader) or ""
+        local dx_str     = (o.dx and o.dx ~= 0) and string.format(", dx = %d", o.dx) or ""
+        local sprite_str = (o.sprite and o.sprite ~= o.id) and string.format(", sprite = %q", o.sprite) or ""
+        local layer_str  = (o.layer and o.layer ~= 0) and string.format(", layer = %d", o.layer) or ""
 
-        lines[#lines + 1] = string.format("    %-20s = { gx = %.3f, gy = %.3f, w = %d, h = %d, z_offset = %d, sh = %d, color = { %.2f, %.2f, %.2f }%s%s%s%s%s%s%s },",
-            o.id, o.gx, o.gy, o.w, o.h, o.z_offset, o.sh, o.color[1], o.color[2], o.color[3], scale_str, flip_str, align_str, anim_str, fps_str, frame_str, shader_str)
+        -- Flavor ids are sprite paths (slashes, dots, parens): not Lua
+        -- names, so they go in ["..."].
+        local key = o.id:match("^[%a_][%w_]*$") and o.id or string.format("[%q]", o.id)
+        lines[#lines + 1] = string.format("    %-20s = { gx = %.3f, gy = %.3f, w = %d, h = %d, z_offset = %d, sh = %d, color = { %.2f, %.2f, %.2f }%s%s%s%s%s%s%s%s%s%s },",
+            key, o.gx, o.gy, o.w, o.h, o.z_offset, o.sh, o.color[1], o.color[2], o.color[3], scale_str, flip_str, align_str, anim_str, fps_str, frame_str, shader_str, dx_str, sprite_str, layer_str)
     end
     lines[#lines + 1] = "}"
+    return table.concat(lines, "\n")
+end
 
-    local output_str = table.concat(lines, "\n")
+-- Called every couple of seconds while the editor is open (RoomState).
+-- Writes the draft only when the room changed.
+function RoomView:autosave()
+    if not (love and love.filesystem and love.filesystem.write) then return end
+    local str = self:layoutString()
+    if str == self._last_autosave then return end
+    -- Keep the previous draft: an accidental CLEAR (or anything that
+    -- empties the room) is then one file copy away from undone.
+    local out = str .. "\n"
+    backupDraft(out)
+    local ok = pcall(love.filesystem.write, DRAFT_FILE, out)
+    if ok then
+        self._last_autosave = str
+        print(string.format("[room-editor] Autosaved draft (%d items)", #self.placed + (self.picked_item and 1 or 0)))
+    end
+end
+
+function RoomView:serializeLayout()
+    local output_str = self:layoutString()
 
     print("---------------- COPY FROM LINE BELOW ----------------")
     print(output_str)
@@ -1799,6 +2070,24 @@ function RoomView:serializeLayout()
         if ok then
             local save_dir = love.filesystem.getSaveDirectory and love.filesystem.getSaveDirectory() or ""
             print("[room-editor] Exported layout file: " .. save_dir .. "/room_layout_export.lua")
+        end
+    end
+
+    -- Running from source: write data/room_layout.lua itself, so EXPORT
+    -- is the whole job. (A fused build has no source dir to write into.)
+    local src = love and love.filesystem and love.filesystem.getSource and love.filesystem.getSource()
+    if src and love.filesystem.isFused and not love.filesystem.isFused() then
+        local path = src .. "/data/room_layout.lua"
+        local f = io.open(path, "w")
+        if f then
+            f:write(output_str .. "\n")
+            f:close()
+            print("[room-editor] Wrote " .. path)
+            self._last_autosave = output_str
+            pcall(love.filesystem.remove, DRAFT_FILE)
+            self.export_written = true
+        else
+            print("[room-editor] Could not write " .. path .. " (export copy is in the save dir)")
         end
     end
 end

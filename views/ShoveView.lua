@@ -44,6 +44,7 @@ local RollingValue           = require("services.RollingValue")
 local IconText               = require("views.IconText")
 local AnchorRegistry         = require("services.AnchorRegistry")
 local Timeline               = require("services.Timeline")
+local Decal                  = require("services.Decal")
 local Button                 = require("views.Button")
 local PaletteData            = require("data.theme")
 local ClickFlash             = require("services.ClickFlash")
@@ -383,6 +384,8 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     self.elapsed        = 0
     self.card_anims     = {}
     self.chip_visible   = { false, false, false }
+    self.ending         = false
+    self.pile           = nil
     -- The beat machine is services/Timeline: the same engine the House's
     -- story beats run on everywhere else. This view mirrors its clock and
     -- hold into self.elapsed / self.hold_id / self.phase after each tick so
@@ -585,12 +588,15 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
 
             add(t, showChip(3), chipSound(3))
             if r.outcomes[3] then
-                -- Full clear. Nothing left to bury.
+                -- Full clear. He does not believe it. Another card has always
+                -- worked, so: another card. The rest of the deck, one after
+                -- another, every one still a win, until the felt and then
+                -- the screen are buried. Then credits, over the pile.
                 light(t + 0.05, "player")
                 potTo(t + 0.10, "player", "chip_land_you")
                 add(t + 0.40, function() self:_confetti() end)
                 add(t + 0.90, function() self:_confetti() end)
-                say(t + 1.20, "clear")
+                t = self:_scheduleEnding(t, add, say)
             else
                 light(t + 0.05, "dealer")
                 summary(t + 0.80, true)
@@ -610,10 +616,162 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     -- "why did I lose" was covered before it could be read.
     -- The summary gets its own beat after everything else has settled, then
     -- the hold. Nothing arrives at the same instant as anything else.
+    if self.ending then
+        -- No summary, no catalog, no hold: the ending carries itself to
+        -- credits. `t` is the end of the curtain.
+        self.total_duration = t
+        return
+    end
     summary(t + 2.6)
     throwCatalog(t + 3.4)
     hold(t + 3.6, "result")
     self.total_duration = t + 3.6
+end
+
+-- ─── The ending ───────────────────────────────────────────────────────
+
+-- Seconds until the next card, by card index (data/shove_style ending).
+local function endingInterval(i)
+    for _, band in ipairs(Style.ending.intervals) do
+        if i <= band.upto then return band.secs end
+    end
+    return Style.ending.intervals[#Style.ending.intervals].secs
+end
+
+-- Lay the rest of the deck onto the timeline. Returns the time the
+-- curtain ends (the caller makes it total_duration). `t` is when chip 3
+-- landed.
+function ShoveView:_scheduleEnding(t, add, say)
+    local E = Style.ending
+    self.ending      = true
+    self.pile        = {}
+    self.extra_dealt = 0
+    -- The real remaining deck: 41 cards after 4 hole, 5 board, 2 cheats.
+    -- Stashed now; the host nils the gauntlet once the ending is over.
+    local deck = self.ss and self.ss.gauntlet and self.ss.gauntlet.deck
+    self.extra_cards = (deck and deck.remaining and deck:remaining()) or {}
+
+    say(t + 0.9, "deck_no")
+    local tt = t + 1.5
+    local lines = { [9] = "deck_again", [10] = "deck_doesnt", [11] = "deck_deal", [12] = "deck_all" }
+    local last_i = 7 + math.max(#self.extra_cards, 45)
+    for i = 8, last_i do
+        local idx = i
+        if lines[i] then say(tt - 0.6, lines[i]) end
+        add(tt, function() self:_dealExtra(idx) end)
+        tt = tt + endingInterval(i)
+    end
+    local t_last = tt - endingInterval(last_i) + (E.flight_secs or 0.55)
+    say(t_last + 0.8, "deck_out")
+    add(t_last + 0.8, function() self.pot_gone = true end)
+    return t_last + 0.8 + (E.curtain_secs or 2.6)
+end
+
+-- Where card i (8..52) lands. The first few extend the board row outward,
+-- alternating sides, so the readout and the hand names go under first;
+-- after that anywhere on the felt, and past card 30 anywhere on the
+-- screen. Hashed from the index, so a replay lands the same way.
+function ShoveView:_pileTarget(i)
+    local E  = Style.ending
+    local W, H = love.graphics.getDimensions()
+    local k  = i - 7
+    if i <= (E.spread_rows or 12) then
+        local origin = rowOriginFor(W)
+        local step   = math.ceil(k / 2)
+        local x = (k % 2 == 1) and (slotX(origin, 5) + step * (CARD_W + CARD_GAP))
+                                 or (slotX(origin, 1) - step * (CARD_W + CARD_GAP))
+        local _, _, angle = Decal.place("pile:" .. i, { angle = 0.12 })
+        return x, Y_BOARD, angle
+    end
+    local x0, x1, y0, y1
+    if i <= 30 then
+        x0, x1 = 0, W - CARD_W
+        y0, y1 = Y_DEALER_HOLE - 40, Y_PLAYER_HOLE + 40
+    else
+        x0, x1 = -CARD_W * 0.3, W - CARD_W * 0.7
+        y0, y1 = -CARD_H * 0.3, H - CARD_H * 0.7
+    end
+    local x = Decal.lerp("pile_x:" .. i, 1, x0, x1)
+    local y = Decal.lerp("pile_y:" .. i, 2, y0, y1)
+    local _, _, angle = Decal.place("pile:" .. i, { angle = E.max_angle or 0.6 })
+    return x, y, angle
+end
+
+-- Deal card i: fly it from the top of the screen to its spot, tumbling,
+-- and land it on the pile. `_land_now` (skip) lands it without the flight.
+function ShoveView:_dealExtra(i)
+    local E    = Style.ending
+    local card = self.extra_cards and self.extra_cards[i - 7]
+    local x, y, angle = self:_pileTarget(i)
+    local landed = false
+    local function land()
+        if landed then return end
+        landed = true
+        self.pile[#self.pile + 1] = { card = card, x = x, y = y, angle = angle }
+        self.extra_dealt = (self.extra_dealt or 0) + 1
+        -- Still a win. The lift re-fires and the cards glow again.
+        self.winner   = "player"
+        self.winner_t = 0
+        if self.game.sounds and self.game.sounds.playNamed then
+            self.game.sounds.playNamed("cheat_card_dealt")
+        end
+        local k = i - 7
+        if i <= (E.confetti_first or 17) or k % (E.confetti_every or 5) == 0 then
+            Confetti.burst({ math.floor(x + CARD_W / 2), math.floor(y + CARD_H / 2) },
+                           E.confetti_count or 14, { duration = 1.2 })
+        end
+    end
+    if self._land_now then land(); return end
+
+    local sl = self.game.sprite_loader
+    local name = card and card.spriteName and card:spriteName()
+    local W = love.graphics.getWidth()
+    local from = { math.floor(tableCenterX(W)), (Style.house.deal_from_y or -180) }
+    local to   = { x + CARD_W / 2, y + CARD_H / 2 }
+    local function face(px, py)
+        if not name then return end
+        CardSprites.shadow(px - CARD_W / 2, py - CARD_H / 2, CARD_W, CARD_H, 1, ShoveDecor.shadowOffset())
+        CardSprites.sprite(sl, name, px - CARD_W / 2, py - CARD_H / 2, CARD_W, CARD_H, 1, 1)
+    end
+    -- One full spin and one full flip so the card lands face-up at its
+    -- resting angle: at t = 1 the tumble frame is exactly `angle`.
+    local fn = Tumble.wrap(face, { axis = angle, spins = 1, flips = 1, phase = 0, loft = 0.15, spin_dir = 1 })
+    FlightSystem.emit(from, to, fn, {
+        duration   = E.flight_secs or 0.55,
+        arc_height = E.flight_arc or 120,
+        on_arrive  = land,
+    })
+end
+
+-- The pile, in deal order, each card at its resting angle.
+function ShoveView:_drawPile()
+    if not self.pile or #self.pile == 0 then return end
+    local sl = self.game.sprite_loader
+    for _, p in ipairs(self.pile) do
+        local name = p.card and p.card.spriteName and p.card:spriteName()
+        if name then
+            love.graphics.push()
+            love.graphics.translate(p.x + CARD_W / 2, p.y + CARD_H / 2)
+            love.graphics.rotate(p.angle or 0)
+            CardSprites.shadow(-CARD_W / 2, -CARD_H / 2, CARD_W, CARD_H, 1, ShoveDecor.shadowOffset())
+            CardSprites.sprite(sl, name, -CARD_W / 2, -CARD_H / 2, CARD_W, CARD_H, 1, 1)
+            love.graphics.pop()
+        end
+    end
+end
+
+-- The last frame of the ending, for credits to fade in over.
+function ShoveView:snapshot()
+    local W, H = love.graphics.getDimensions()
+    local ok, canvas = pcall(love.graphics.newCanvas, W, H)
+    if not ok or not canvas then return nil end
+    local prev = love.graphics.getCanvas()
+    love.graphics.setCanvas(canvas)
+    love.graphics.clear(0, 0, 0, 1)
+    self:draw()
+    FlightSystem.draw()
+    love.graphics.setCanvas(prev)
+    return canvas
 end
 
 -- True while the host must wait: the buildup, the deal, and every hold.
@@ -686,6 +844,10 @@ function ShoveView:resetTimeline()
     self.pot_gone       = false
     self.summary_shown  = false
     self.robbed         = false
+    self.ending         = false
+    self.pile           = nil
+    self.extra_cards    = nil
+    self.extra_dealt    = 0
     RollingValue.reset("shove:allin")
     self.buildup_rates  = nil
     self.buildup_chip_count_shown = 0
@@ -706,8 +868,12 @@ function ShoveView:skip()
     if not self.timeline then return end
     -- Fire remaining events, sounds suppressed, up to and INCLUDING the
     -- next hold, then stop there. A skip lands the player on the next
-    -- thing worth reading, never past it.
+    -- thing worth reading, never past it. During the ending the remaining
+    -- cards land where they were going, no flight, so a skip gives the
+    -- buried screen and not a half-dealt one.
+    self._land_now = self.ending or nil
     self.timeline:skip()
+    self._land_now = nil
     self:_mirrorTimeline()
     for _, anim in pairs(self.card_anims) do
         if anim.update then anim:update(10) end
@@ -1003,7 +1169,9 @@ function ShoveView:_drawStats(base_pct, mult_val, total_pct, covered)
         Theme.setColor((covered and covered[kind]) and Theme.fg.faint or Theme.fg.muted)
         printCentered(text, fonts.md, slotX(origin, i), ty, CARD_W)
     end
-    put(6, "base", string.format("BASE %d%%", base_pct))
+    -- BASE is a count of things (each catalog item is one; the readout's
+    -- units are 1/100 of the rate, which is exactly one item), not a %.
+    put(6, "base", string.format("BASE %d", base_pct))
     -- Decimals shrink as the number grows: the column is one card wide and the
     -- Act 3 underflow puts 999 in it. "MULT 999.00" would not fit; "MULT 999"
     -- does, and the decimals mean nothing at that magnitude anyway.
@@ -1530,6 +1698,13 @@ function ShoveView:draw()
     end
 
     self:_drawHeadline(W)
+
+    -- The ending's pile buries everything drawn above, the headline
+    -- included; the cards still in the air stay on top of the pile.
+    if self.ending then
+        self:_drawPile()
+        FlightSystem.draw()
+    end
 
     -- Leaving is a deliberate act on a button, never a stray click on the
     -- felt. The button is the grind's SHOVE button: same rect, same face,

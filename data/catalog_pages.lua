@@ -46,8 +46,8 @@ return {
     -- voids, and the free rebuy when it still goes wrong.
     { title = "Bed & Bath",
       items = {
-          "stress_ball", "worry_stone", "rubber_duck", "headphones",
-          "medical_kit", "bathtub",
+          "stress_ball", "worry_stone", "rubber_duck", "bathtub",
+          "medical_kit",
       } },
 
     -- Machines that fire on their own at an event: a pot bumps, a beat gets
@@ -63,7 +63,7 @@ return {
     { title = "Home Office",
       items = {
           "water_cooler", "gaming_chair", "second_monitor", "headset",
-          "wall_clock", "projector", "big_tv",
+          "wall_clock", "projector", "big_tv", "headphones",
       } },
 
     -- Paper goods. Everything here bends the run-upgrade economy or the
@@ -79,6 +79,7 @@ return {
     { title = "Computer Accessories",
       items = {
           "cursor_pool", "first_cursor", "mouse_pad", "tireless_assistants",
+          "pc_tower", "curved_monitor", "desk_speakers", "shredder",
       } },
 
     -- Things on the wall that pay you: bounty bonuses, tournament payout

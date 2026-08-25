@@ -228,7 +228,7 @@ function PayoutBreakdown.cached(game, gtype, stake, opts)
     local key = tostring(game.state and game.state.effects_cache)
                 .. "|" .. tostring(gtype.id) .. "|" .. tostring(stake.id)
                 .. "|" .. string.format("%.4f", (opts and opts.focus_mult) or 1)
-                .. "|" .. string.format("%.2f", math.log10(br + 1))
+                .. "|" .. string.format("%.2f", math.log10(math.max(0, br) + 1))
     if _cache.key == key then return _cache.value end
     _cache.key   = key
     _cache.value = PayoutBreakdown.compute(game, gtype, stake, opts)

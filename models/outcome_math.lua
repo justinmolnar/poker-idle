@@ -554,7 +554,7 @@ function OutcomeMath.payoutMult(ctx, stake, tier, won, opts)
 
     if opts.focus_mult then mult = mult * opts.focus_mult end
     if ctx.earnings_scale_by_bankroll and opts.bankroll then
-        mult = mult * (1.0 + math.log10((opts.bankroll or 0) + 1) * 0.1)
+        mult = mult * (1.0 + math.log10(math.max(0, opts.bankroll or 0) + 1) * 0.1)
     end
     return mult
 end

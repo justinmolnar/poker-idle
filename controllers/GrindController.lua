@@ -212,9 +212,13 @@ function GrindController:update(dt)
     -- Pending cash-outs: tables flagged for close while mid-hand. Finalise
     -- the moment they return to idle. Iterate in reverse so removal-driven
     -- index shifts don't skip entries.
+    -- A tournament that has just settled still holds its payout until the
+    -- drain below reads it; closing it first threw the payout (and the
+    -- {chip} on a win) away. Such a table waits one tick.
     for i = #self.pool.tables, 1, -1 do
         local t = self.pool.tables[i]
-        if t and t.pending_close and t.state == "idle" then
+        if t and t.pending_close and t.state == "idle"
+           and not (t.mtt and t.mtt.pending_payout ~= nil) then
             self:_finalizeRemove(i)
         end
     end
@@ -363,7 +367,9 @@ function GrindController:update(dt)
         -- focus mult). Lives here rather than in Table so the effects
         -- cache never has to carry live bankroll.
         if self.ctx and self.ctx.earnings_scale_by_bankroll then
-            local br = self.game.state.bankroll or 0
+            -- Floored at 0: log10 of a negative bankroll (Act 3, past the
+            -- underflow) is NaN, and one NaN hand poisons the bankroll.
+            local br = math.max(0, self.game.state.bankroll or 0)
             r.delta = r.delta * (1.0 + math.log10(br + 1) * 0.1)
         end
 
@@ -400,6 +406,18 @@ function GrindController:update(dt)
         local overflow_amount = 0
         if tbl and r.chip_stack_table then
             -- No-op: stack already reconciled. r.delta is informational.
+        elseif tbl and state.shove_r2_won and stake and stake.band == "ultra"
+               and r.delta < 0 and r.tier == "jackpot" then
+            -- A STACK loss at Ultra is the underflow. It is not a number you
+            -- creep under; losing that much at once breaks the count. The
+            -- seat empties and the bankroll lands below the threshold
+            -- whatever it was before, whether or not the loss exceeded the
+            -- stack (80-100 bb of a 100 bb seat would not have).
+            local threshold = Constants.GAMEPLAY.UNDERFLOW_THRESHOLD or -100000000000
+            tbl.stack = 0
+            if state.bankroll > threshold - 1 then
+                state.bankroll = threshold - 1
+            end
         elseif tbl then
             local new_stack = tbl.stack + r.delta
             if new_stack > cap then
@@ -408,6 +426,9 @@ function GrindController:update(dt)
                 state.bankroll = state.bankroll + overflow_amount
             elseif new_stack < 0 then
                 if state.shove_r2_won and stake and stake.band == "ultra" then
+                    -- A smaller Ultra loss than the seat holds: the excess
+                    -- comes off the bankroll (it may go negative). The stack
+                    -- loss itself is handled above.
                     local excess_loss = -new_stack
                     tbl.stack = 0
                     state.bankroll = state.bankroll - excess_loss
@@ -1320,8 +1341,10 @@ function GrindController:removeTable(idx)
     local t = self.pool.tables[idx]
     if not t then return false end
     -- Mid-hand → defer close until the hand resolves and we're idle again.
-    -- The update loop scans for pending_close + idle each frame.
-    if t.state ~= "idle" then
+    -- The update loop scans for pending_close + idle each frame. A settled
+    -- tournament whose payout has not been drained yet defers the same
+    -- way, so the X never eats a cash.
+    if t.state ~= "idle" or (t.mtt and t.mtt.pending_payout ~= nil) then
         t.pending_close = true
         return true
     end

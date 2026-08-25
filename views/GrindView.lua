@@ -43,6 +43,7 @@ local RunUpgrades    = require("data.run_upgrades")
 local Catalog        = require("data.catalog")
 local Constants      = require("data.constants")
 local ShoveRate      = require("models.shove_rate")
+local GlyphMorph     = require("services.GlyphMorph")
 local Decks          = require("models.Decks")
 local OutcomeMath    = require("models.outcome_math")
 local Lookups        = require("utils.lookups")
@@ -79,7 +80,6 @@ local BANKROLL_CELL_W      = 160
 local CELL_W = {
     tied = 72, total = 72,                   -- money cluster
     chip = 48, achip = 48, shove = 56, deck = 50, -- run cluster (chip + deck are icon/sprite)
-    underflow = 84,                          -- Act 3 bleed meter
     tables = 72, focus = 56,                 -- workload cluster
 }
 local TOPBAR_LABEL_Y       = 8
@@ -212,7 +212,6 @@ local function recomputeLayout(W, H, fonts, state)
     CELL_W.deck   = math.max(cellW("DECK", "L9"), math.floor(36 * s) + math.floor(8 * s))
     -- Act 3 bleed meter: label plus a bar, so it sizes off the label and a
     -- minimum bar width rather than a value string.
-    CELL_W.underflow = math.max(cellW("UNDERFLOW", "100%"), math.floor(84 * s))
     CELL_W.tables = cellW("TABLES",  "99 / 99")
     CELL_W.focus  = cellW("FOCUS",   "100%")
 
@@ -222,11 +221,10 @@ local function recomputeLayout(W, H, fonts, state)
                          + CELL_W.chip  + CELL_W.shove
                          + CELL_W.tables + CELL_W.focus
     if state and state.shove_r2_won then
-        -- Both Act 3 cells are reserved on the ACT, though the meter only
-        -- DRAWS once the bankroll actually goes negative. recomputeLayout
-        -- reruns on resize only, so reserving on the live bleed condition
-        -- would reflow the whole bar under the player mid-run.
-        cells_total = cells_total + CELL_W.achip + CELL_W.underflow
+        -- The {achip} cell is reserved on the ACT so the bar never reflows
+        -- mid-run. (The old bleed meter is gone: a stack loss at Ultra IS
+        -- the underflow, so there is no bleed to watch.)
+        cells_total = cells_total + CELL_W.achip
     end
     -- Reserve on the static flag, not Decks.systemUnlocked: the system
     -- unlocks mid-session (first gauntlet clear) and this only reruns on
@@ -1045,27 +1043,6 @@ function GrindView:update(dt)
         TooltipSvc.set("Currently held in tables.", mx, my)
     end
 
-    -- Act 3 bleed meter tooltip. The bar is log-scaled so it can read as
-    -- most of the way there while the debt is orders of magnitude short;
-    -- these two lines are the honest version and the reason the bar is
-    -- allowed to lie about pace.
-    local ur = self._underflow_cell_rect
-    if ur and mx >= ur.x and mx < ur.x + ur.w and my >= ur.y and my < ur.y + ur.h then
-        local bank      = state.bankroll or 0
-        local threshold = Constants.GAMEPLAY.UNDERFLOW_THRESHOLD or 0
-        -- Format.money puts the sign INSIDE the currency symbol ("$-1.2M").
-        -- Debt is the whole subject here, so it is formatted on the absolute
-        -- value with the minus in front. Left local rather than changing a
-        -- formatter every readout in the game shares.
-        local function debt(v) return "-" .. Format.money(math.abs(v)) end
-        TooltipSvc.set({
-            { text = "Bankroll overflow", style = "md" },
-            { text = string.format("%s of %s", debt(bank), debt(threshold)),
-              style = "sm" },
-            "Take it far enough negative and the count breaks.",
-        }, mx, my)
-    end
-
     -- Top-bar SHOVE cell hover tooltip — full breakdown of the live
     -- shove-rate. Rect is stashed by _drawTopBar (1-frame stale); nil
     -- while the shove hasn't revealed itself (TUTORIAL gate).
@@ -1140,6 +1117,14 @@ function GrindView:update(dt)
 
     -- Tween top-bar numbers toward live state values.
     local state = self.game.state
+    -- The underflow: the count breaks. Snap the display (no tween through
+    -- trillions) and start the break (shake + flash) on the transition.
+    local broken_now = ShoveRate.underflowed(state.bankroll)
+    if broken_now and not self._was_broken then
+        self._break_t0 = love.timer.getTime()
+        self.displayed_bankroll = state.bankroll
+    end
+    self._was_broken = broken_now
     self.displayed_bankroll = tweenNumber(self.displayed_bankroll, state.bankroll,            dt)
     self.displayed_chips    = tweenNumber(self.displayed_chips,    state.chips,               dt)
     self.displayed_anti_chips = tweenNumber(self.displayed_anti_chips or 0, state.anti_chips or 0, dt)
@@ -1348,6 +1333,13 @@ function GrindView:_drawTopBar(W)
     love.graphics.setFont(fonts.lg)
     local bank_y = math.floor((TOP_BAR_H - fonts.lg:getHeight()) * 0.5)
     local bank_str = moneyText(d_bank)
+    if self:_broken() then
+        -- The number is not a number any more. It never resolves.
+        bank_str = self:_brokenText(bank_str, "bank")
+        self:_brokenGlow(bank_str, fonts.lg, TOPBAR_PAD_X, bank_y)
+        Theme.setColor(Theme.currency.achip)
+        love.graphics.setFont(fonts.lg)
+    end
     love.graphics.print(bank_str, TOPBAR_PAD_X, bank_y)
     -- Hint-anchor on the big number (distinct from "bankroll", the chip
     -- pile point anchor chip-flights target).
@@ -1393,9 +1385,14 @@ function GrindView:_drawTopBar(W)
 
     -- Money cluster: TIED · TOTAL
     local tied_cell_x = x
-    drawStatCell(x, CELL_W.tied,  "TIED UP", moneyText(d_tied), Theme.fg.muted,   fonts)
+    local broken = self:_broken()
+    drawStatCell(x, CELL_W.tied,  "TIED UP",
+                 broken and self:_brokenText(moneyText(d_tied), "tied") or moneyText(d_tied),
+                 broken and Theme.currency.achip or Theme.fg.muted, fonts)
     x = x + CELL_W.tied
-    drawStatCell(x, CELL_W.total, "TOTAL",   moneyText(total),  Theme.fg.primary, fonts)
+    drawStatCell(x, CELL_W.total, "TOTAL",
+                 broken and self:_brokenText(moneyText(total), "total") or moneyText(total),
+                 broken and Theme.currency.achip or Theme.fg.primary, fonts)
     x = x + CELL_W.total + CLUSTER_GAP
 
     -- Stash the TIED UP cell rect for hover tooltip in update().
@@ -1443,41 +1440,17 @@ function GrindView:_drawTopBar(W)
     local shove_unlocked = self.controller:shoveUnlocked()
     local shove_cell_x = x
     if shove_unlocked then
-        drawStatCell(x, CELL_W.shove, "SHOVE",
-                     string.format("%.0f%%", r1_raw * 100), rate_color, fonts,
+        local shove_txt = string.format("%.0f%%", r1_raw * 100)
+        if self:_broken() then
+            -- Mostly 999, warping now and then: readable as the number it
+            -- is, never quite trusted.
+            shove_txt  = self:_brokenText("-999%", "shove", 0.92, 0.12)
+            rate_color = Theme.currency.achip
+        end
+        drawStatCell(x, CELL_W.shove, "SHOVE", shove_txt, rate_color, fonts,
                      function(ix, iy, isize) return Icons.draw(self.game, "shove", ix, iy, isize, isize) end)
     end
     x = x + CELL_W.shove
-
-    -- Act 3 bleed meter. Appears only once the bankroll is actually
-    -- negative, so the cell showing up IS the signal that something new is
-    -- happening -- there is nothing to watch before the bleed starts.
-    --
-    -- The bar is log-scaled (models/shove_rate.underflowProgress), because a
-    -- linear one sits at a fraction of a percent for hours. That overstates
-    -- early progress, so the hover tooltip carries the real figures.
-    local d_bank = self.displayed_bankroll or (state.bankroll or 0)
-    if state.shove_r2_won and d_bank < 0 then
-        local uw = CELL_W.underflow
-        drawStatCell(x, uw, "UNDERFLOW", "", Theme.fg.heading, fonts)
-        local bar_w = uw - math.floor(12 * (self.game.ui_scale or 1))
-        local bar_h = math.max(3, math.floor(5 * (self.game.ui_scale or 1)))
-        local bar_x = x + math.floor((uw - bar_w) / 2)
-        local bar_y = TOPBAR_VALUE_Y + math.floor(fonts.md:getHeight() * 0.35)
-        Theme.setColor(Theme.bg.sunken)
-        love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, bar_h * 0.5)
-        local frac = ShoveRate.underflowProgress(d_bank)
-        if frac > 0 then
-            Theme.setColor(Theme.data.violet)
-            love.graphics.rectangle("fill", bar_x, bar_y,
-                                    math.max(bar_h, bar_w * frac), bar_h, bar_h * 0.5)
-        end
-        AnchorRegistry.set("cell:underflow", x, 2, uw, TOP_BAR_H - 4)
-        self._underflow_cell_rect = { x = x, y = 2, w = uw, h = TOP_BAR_H - 4 }
-        x = x + uw
-    else
-        self._underflow_cell_rect = nil
-    end
 
     -- DECK chip (sprite) sits in the run cluster once the deck system
     -- has unlocked (first gauntlet clear). The chip renders the active
@@ -2219,6 +2192,43 @@ end
 -- `overlay_fn` (optional): host-provided layer (the tutorial hint) drawn
 -- above every gameplay layer but below the hover tooltip, so tooltips —
 -- including the one a hint asks the player to go look at — stay on top.
+-- ── The underflow ─────────────────────────────────────────────────────
+-- Once the bankroll is past the threshold the count is broken: the money
+-- cells render as glyphs that never settle, in the anti ink, and SHOVE
+-- reads -999%. The break itself (shake and flash) plays once, on the hand
+-- that did it.
+local BREAK_SECS = 1.4
+
+function GrindView:_broken()
+    return ShoveRate.underflowed(self.game.state.bankroll)
+end
+
+function GrindView:_breakProgress()
+    if not self._break_t0 then return nil end
+    local p = (love.timer.getTime() - self._break_t0) / BREAK_SECS
+    if p >= 1 then return nil end
+    return p
+end
+
+-- A string that never resolves: progress wanders between mostly-alien and
+-- mostly-real, with a per-key phase so the cells do not breathe in step.
+--   base   how resolved the string sits on average (default 0.42)
+--   swing  how far it wanders either side of that (default 0.18)
+function GrindView:_brokenText(str, key, base, swing)
+    local now = love.timer.getTime()
+    local ph  = (#key * 1.7) % 6.28
+    local progress = (base or 0.42) + (swing or 0.18) * math.sin(now * 1.9 + ph)
+    return GlyphMorph.text(str, progress, "underflow:" .. key, math.floor(now * 14))
+end
+
+function GrindView:_brokenGlow(str, font, x, y)
+    love.graphics.setFont(font)
+    Theme.setColor(Theme.currency.achip, 0.22)
+    for _, o in ipairs{ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
+        love.graphics.print(str, x + o[1], y + o[2])
+    end
+end
+
 function GrindView:draw(overlay_fn)
     local W, H = love.graphics.getDimensions()
 
@@ -2227,6 +2237,16 @@ function GrindView:draw(overlay_fn)
 
     -- Reset hit boxes — they're rebuilt during this draw pass.
     self.hit_boxes = {}
+
+    -- The break: for BREAK_SECS after the underflow the whole screen
+    -- shakes. Popped before the overlay; the flash goes on after.
+    local break_p = self:_breakProgress()
+    if break_p then
+        local k = (1 - break_p) * 9
+        local t = love.timer.getTime() * 60
+        love.graphics.push()
+        love.graphics.translate(math.sin(t * 1.3) * k, math.cos(t * 1.7) * k)
+    end
 
     self:_drawTopBar(W)
     -- Origin for the tutorial [i] hint-queue strip (views/HintView):
@@ -2267,6 +2287,12 @@ function GrindView:draw(overlay_fn)
     -- Cursor swarm — drawn last so cursors are always on top, including
     -- on top of the press-fade ghost they just dispatched.
     CursorPool.draw(self.game.fonts)
+
+    if break_p then
+        love.graphics.pop()
+        Theme.setColor(Theme.currency.achip, (1 - break_p) * 0.55)
+        love.graphics.rectangle("fill", 0, 0, W, H)
+    end
 
     if overlay_fn then overlay_fn() end
 

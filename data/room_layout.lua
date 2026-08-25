@@ -1,31 +1,63 @@
--- data/room_layout.lua
---
--- Grid placement and dimensions for isometric room objects.
--- Edited via the in-game Room Editor and saved/pasted here.
---
--- Schema:
---   [item_id] = {
---     gx       = number,  -- grid x (0..9)
---     gy       = number,  -- grid y (0..9)
---     w        = number,  -- width in grid tiles (default 1)
---     h        = number,  -- height in grid tiles (default 1)
---     z_offset = number,  -- vertical height offset in screen px (default 0)
---     sh       = number,  -- visual box height/thickness in screen px (default 16)
---     color    = {r,g,b}, -- fallback shaded block color (graybox representation)
---   }
 return {
     __meta = {
-        room_size = 10,
+        room_size = 5,
         floor_theme = "Default",
         wall_theme = "Default",
     },
-    poker_poster        = { gx = 0, gy = 3, w = 1, h = 1, z_offset = 35, sh = 20, color = { 0.82, 0.42, 0.38 } },
-    branded_hat         = { gx = 2, gy = 2, w = 1, h = 1, z_offset = 0,  sh = 10, color = { 0.40, 0.55, 0.75 } },
-    whiteboard          = { gx = 4, gy = 1, w = 2, h = 1, z_offset = 25, sh = 30, color = { 0.90, 0.90, 0.90 } },
-    lava_lamp           = { gx = 3, gy = 4, w = 1, h = 1, z_offset = 12, sh = 15, color = { 0.85, 0.30, 0.85 } },
-    self_help_book      = { gx = 2, gy = 4, w = 1, h = 1, z_offset = 12, sh = 8,  color = { 0.45, 0.78, 0.45 } },
-    mirror              = { gx = 0, gy = 1, w = 1, h = 1, z_offset = 30, sh = 24, color = { 0.55, 0.72, 0.85 } },
-    energy_drink        = { gx = 3, gy = 3, w = 1, h = 1, z_offset = 12, sh = 8,  color = { 0.92, 0.72, 0.32 } },
-    stress_ball         = { gx = 4, gy = 3, w = 1, h = 1, z_offset = 12, sh = 6,  color = { 0.80, 0.35, 0.35 } },
-    lucky_coin          = { gx = 4, gy = 4, w = 1, h = 1, z_offset = 12, sh = 4,  color = { 0.92, 0.85, 0.30 } },
+    ["TinyHouse_0.17(@Pixel_Salvaje)/Chairs/Chair_2_C_Tile"] = { gx = 1.000, gy = 2.000, w = 1, h = 1, z_offset = 11, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00 },
+    ["TinyHouse_0.17(@Pixel_Salvaje)/Computer/OldKeyboard_Tile"] = { gx = 0.000, gy = 1.500, w = 1, h = 1, z_offset = 32, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, flip_x = true, dx = 6, layer = 1 },
+    ["TinyHouse_0.17(@Pixel_Salvaje)/Computer/OldPC_A_Tile"] = { gx = 0.000, gy = 1.500, w = 1, h = 1, z_offset = 34, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.80, flip_x = true, dx = -7, layer = 1 },
+    ["TinyHouse_0.17(@Pixel_Salvaje)/Desks/Desk_1_Tile"] = { gx = 0.000, gy = 1.500, w = 1, h = 2, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, flip_x = true },
+    bathtub              = { gx = 0.000, gy = 4.000, w = 2, h = 1, z_offset = -16, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.80 },
+    big_tv               = { gx = 1.500, gy = 0.000, w = 1, h = 1, z_offset = 72, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.30, layer = 1 },
+    branded_hat          = { gx = 3.000, gy = 0.000, w = 1, h = 1, z_offset = 60, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, flip_x = true, align = "left_wall" },
+    calculator           = { gx = 0.000, gy = 2.500, w = 1, h = 1, z_offset = 32, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70, flip_x = true, dx = 21 },
+    copy_machine         = { gx = 2.500, gy = 0.000, w = 1, h = 1, z_offset = -11, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.80, layer = 1 },
+    cursor_pool          = { gx = 0.500, gy = 3.000, w = 1, h = 1, z_offset = 5, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.80, dx = 8, layer = -1 },
+    curved_monitor       = { gx = 0.250, gy = 2.750, w = 1, h = 1, z_offset = 17, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, flip_x = true },
+    desk_speakers        = { gx = 1.375, gy = 4.000, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00 },
+    discount_sits        = { gx = 0.000, gy = 0.500, w = 1, h = 1, z_offset = 10, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70 },
+    dishwasher           = { gx = 0.500, gy = 0.000, w = 1, h = 1, z_offset = -25, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, anim_room = false, dx = 6 },
+    dogs_playing_poker   = { gx = 0.000, gy = 2.500, w = 1, h = 1, z_offset = 40, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, align = "right_wall" },
+    energy_drink         = { gx = 0.000, gy = 2.500, w = 1, h = 1, z_offset = 35, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70, dx = 12, layer = 2 },
+    engraved_plaque      = { gx = 1.500, gy = 0.000, w = 1, h = 1, z_offset = 45, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.50, dx = 16, layer = 2 },
+    filing_cabinet       = { gx = 1.500, gy = 0.000, w = 1, h = 1, z_offset = -12, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, dx = 3, layer = 1 },
+    fire_extinguisher    = { gx = 1.000, gy = 0.000, w = 1, h = 1, z_offset = 48, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, dx = -7 },
+    first_cursor         = { gx = 2.500, gy = 3.500, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, flip_x = true, layer = 1 },
+    free_sit             = { gx = 1.000, gy = 3.125, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, anim_room = false },
+    fridge               = { gx = 4.000, gy = 0.000, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, flip_x = true, layer = 1 },
+    gaming_chair         = { gx = 2.125, gy = 1.875, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, anim_room = false },
+    glass_door           = { gx = 1.125, gy = 1.000, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, anim_room = false, layer = 1 },
+    headphones           = { gx = 1.000, gy = 2.000, w = 1, h = 1, z_offset = 15, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70, dx = 8 },
+    headset              = { gx = 0.000, gy = 2.500, w = 1, h = 1, z_offset = 61, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.80, flip_x = true, dx = 13, layer = 1 },
+    lava_lamp            = { gx = 0.000, gy = 1.500, w = 1, h = 1, z_offset = 64, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.50, dx = -6, layer = 1 },
+    lucky_coin           = { gx = 0.000, gy = 3.500, w = 1, h = 1, z_offset = 32, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, anim_room = false },
+    medical_kit          = { gx = 4.000, gy = 0.000, w = 1, h = 1, z_offset = 38, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70, flip_x = true, dx = 19, layer = 3 },
+    microwave            = { gx = 4.000, gy = 0.000, w = 1, h = 1, z_offset = 68, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, anim_room = false, layer = 1 },
+    mirror               = { gx = 2.000, gy = 0.000, w = 1, h = 1, z_offset = 28, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, align = "left_wall" },
+    mouse_pad            = { gx = 2.000, gy = 2.875, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00 },
+    pc_tower             = { gx = 0.625, gy = 0.500, w = 1, h = 1, z_offset = 26, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00 },
+    pen                  = { gx = 0.000, gy = 2.500, w = 1, h = 1, z_offset = 45, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.80, dx = 1 },
+    plastic_trophy       = { gx = 2.000, gy = 3.500, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00 },
+    pocket_cash          = { gx = 2.000, gy = 4.000, w = 1, h = 1, z_offset = -16, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00 },
+    projector            = { gx = 0.000, gy = 0.500, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.50, align = "right_wall" },
+    punch_card           = { gx = 0.000, gy = 1.500, w = 1, h = 1, z_offset = 44, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.50, frame = 1, dx = -1, layer = 3 },
+    ring_binder          = { gx = 0.000, gy = 3.000, w = 1, h = 1, z_offset = 1, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, flip_x = true, dx = 4, layer = 1 },
+    rubber_duck          = { gx = 4.000, gy = 4.000, w = 1, h = 1, z_offset = 4, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, dx = 5 },
+    second_monitor       = { gx = 4.000, gy = 1.000, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00 },
+    self_help_book       = { gx = 0.000, gy = 3.500, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, flip_x = true },
+    shredder             = { gx = 3.500, gy = 3.000, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00 },
+    sticky_notes         = { gx = 0.000, gy = 1.500, w = 1, h = 1, z_offset = 45, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70, frame = 5, dx = -6, layer = 2 },
+    stress_ball          = { gx = 0.000, gy = 4.000, w = 1, h = 1, z_offset = 5, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, flip_x = true, dx = -3 },
+    study_chart          = { gx = 3.000, gy = 0.000, w = 1, h = 1, z_offset = -5, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.80, flip_x = true, dx = 6, layer = 1 },
+    supply_closet        = { gx = 4.000, gy = 2.500, w = 1, h = 1, z_offset = -13, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.80, dx = 9, layer = 1 },
+    the_sink             = { gx = 3.500, gy = 3.500, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, layer = 1 },
+    tip_jar              = { gx = 0.000, gy = 2.500, w = 1, h = 1, z_offset = 36, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00 },
+    tireless_assistants  = { gx = 2.500, gy = 3.000, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, layer = 1 },
+    toaster              = { gx = 0.000, gy = 0.000, w = 1, h = 1, z_offset = 64, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, anim_room = false },
+    unlock_ultra         = { gx = 2.000, gy = 1.000, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00 },
+    wall_clock           = { gx = 0.000, gy = 0.500, w = 1, h = 1, z_offset = 52, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.60, flip_x = true, align = "right_wall" },
+    water_cooler         = { gx = 0.000, gy = 0.000, w = 1, h = 1, z_offset = -16, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, anim_room = false },
+    whiteboard           = { gx = 3.000, gy = 0.000, w = 1, h = 1, z_offset = 32, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.30, align = "left_wall" },
+    worry_stone          = { gx = 3.000, gy = 4.000, w = 2, h = 1, z_offset = -28, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 1.00, flip_x = true },
 }

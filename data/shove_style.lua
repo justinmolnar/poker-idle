@@ -264,4 +264,25 @@ return {
         h_pad       = 60,
         radius_mult = 4,
     },
+
+    -- The ending. After runout 3 is beaten the House keeps dealing: the
+    -- rest of the deck, one card after another, every one still a win,
+    -- until the felt and then the screen are buried, and credits fade in
+    -- over the pile. Timing and reach are here; the sequence is
+    -- views/ShoveView (onGauntletBegin, clear branch).
+    ending = {
+        enabled        = true,
+        -- Seconds between cards, by card index (8 = the first extra card):
+        -- a beat each while he still talks, then shrinking to a blur.
+        intervals      = { { upto = 12, secs = 1.4 }, { upto = 20, secs = 0.8 },
+                           { upto = 30, secs = 0.45 }, { upto = 52, secs = 0.18 } },
+        flight_secs    = 0.55,   -- from the top of the screen to the felt
+        flight_arc     = 120,
+        spread_rows    = 12,     -- cards up to this index land on the board row, outward
+        confetti_first = 17,     -- every landing bursts up to this index...
+        confetti_every = 5,      -- ...then every Nth
+        confetti_count = 14,
+        curtain_secs   = 2.6,    -- silence over the pile before credits
+        max_angle      = 0.6,    -- radians, cards landing off the board row
+    },
 }

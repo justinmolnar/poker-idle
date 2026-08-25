@@ -324,10 +324,10 @@ local Decks = {
             { kind = "shove_base_per_deck_level", value = 0.01 },
         },
         capstone  = {
-            text    = "Doubles the shove base it restores",
+            text    = "Doubles the base it restores, and it may exceed the things you own",
             effects = { { kind = "shove_base_double" } },
         },
-        bonus_text  = "+1% shove base per total deck level",
+        bonus_text  = "+1 to your BASE per total deck level, never more than the things you own",
         flavor_text = "Every deck you've mastered, in one hand.",
         unlock = {
             kind      = "decks_maxed",

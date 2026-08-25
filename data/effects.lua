@@ -375,7 +375,7 @@ Effects.kinds = {
         affects     = "ctx.run_upgrade_strength_mult (additive from 1.0)",
     },
     run_upgrade_bonus_levels = {
-        description = "Adds extra purchasable levels to run upgrades (Investor capstone, Supply Closet). For the fill upgrades each extra level is one more level's worth of gain at every stake: 5 levels that added 25% become 6 that add 30%. Consumed in GrindController:getRunUpgradeMaxLevel (the shop) and outcome_math.fillRatio (the cap).",
+        description = "Adds extra purchasable levels to run upgrades (Investor capstone, Bookshelf). For the fill upgrades each extra level is one more level's worth of gain at every stake: 5 levels that added 25% become 6 that add 30%. Consumed in GrindController:getRunUpgradeMaxLevel (the shop) and outcome_math.fillRatio (the cap).",
         value_shape = "integer, e.g. 1 for +1 level",
         affects     = "ctx.run_upgrade_bonus_levels (additive)",
     },
@@ -434,7 +434,7 @@ Effects.kinds = {
         affects     = "ctx.void_first_stack_loss",
     },
     copy_first_denied = {
-        description = "Flag — the first denied {chip} bounty each run banks anyway (Copy Machine).",
+        description = "Flag — the first denied {chip} bounty each run banks anyway (Receipt Printer).",
         value_shape = "no field (presence sets ctx.copy_first_denied = true)",
         affects     = "ctx.copy_first_denied",
     },
@@ -484,7 +484,7 @@ Effects.kinds = {
         affects     = "ctx.overcap_loss_mult (multiplicative)",
     },
     copy_denied_chance = {
-        description = "Chance that a denied {chip} bounty banks anyway (corrupted Copy Machine). Consumed at the denied-bounty site beside copy_first_denied.",
+        description = "Chance that a denied {chip} bounty banks anyway (corrupted Receipt Printer). Consumed at the denied-bounty site beside copy_first_denied.",
         value_shape = "number 0..1, e.g. 0.5",
         affects     = "ctx.copy_denied_chance (max)",
     },

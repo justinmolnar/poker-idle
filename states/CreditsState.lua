@@ -21,7 +21,17 @@ function CreditsState:new(game)
     return setmetatable({ game = game }, CreditsState)
 end
 
-function CreditsState:enter()
+-- `opts.backdrop` (optional): a canvas of the shove's last frame. The
+-- credits fade in over it; without one (loading a cleared save straight
+-- into credits) the screen draws as it always did.
+local FADE_SECS   = 2.5    -- the pile darkens over this
+local TEXT_DELAY  = 1.2    -- the words start after this
+local TEXT_SECS   = 1.5
+local FADE_ALPHA  = 0.88
+
+function CreditsState:enter(opts)
+    self.backdrop = opts and opts.backdrop or nil
+    self.t = 0
     do  -- first-visit bookkeeping for the `screen_visits` hint kind
         local v = self.game.state and self.game.state.screen_visits
         if v then v["credits"] = (v["credits"] or 0) + 1 end
@@ -33,17 +43,36 @@ end
 
 function CreditsState:exit() end
 
-function CreditsState:update(_) end
+function CreditsState:update(dt)
+    self.t = (self.t or 0) + (dt or 0)
+end
+
+-- Alpha of the text, 0 until TEXT_DELAY then up to 1; 1 with no backdrop.
+function CreditsState:_textAlpha()
+    if not self.backdrop then return 1 end
+    local a = ((self.t or 0) - TEXT_DELAY) / TEXT_SECS
+    if a < 0 then return 0 elseif a > 1 then return 1 end
+    return a
+end
 
 function CreditsState:draw()
     local W, H  = love.graphics.getDimensions()
     local fonts = self.game.fonts
 
-    Theme.setColor(Theme.bg.window)
-    love.graphics.rectangle("fill", 0, 0, W, H)
+    if self.backdrop then
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(self.backdrop, 0, 0)
+        local p = math.min(1, (self.t or 0) / FADE_SECS)
+        Theme.setColor(Theme.bg.window, p * FADE_ALPHA)
+        love.graphics.rectangle("fill", 0, 0, W, H)
+    else
+        Theme.setColor(Theme.bg.window)
+        love.graphics.rectangle("fill", 0, 0, W, H)
+    end
+    local ta = self:_textAlpha()
 
     love.graphics.setFont(fonts.lg)
-    Theme.setColor(Theme.fg.heading)
+    Theme.setColor(Theme.fg.heading, ta)
     love.graphics.printf("you walked out.", 0, math.floor(H * 0.30), W, "center")
     -- The House's last word lands under it (story beat "credits").
     AnchorRegistry.set("story:band", 0,
@@ -51,16 +80,16 @@ function CreditsState:draw()
         W, fonts.md:getHeight())
 
     love.graphics.setFont(fonts.lg)
-    Theme.setColor(Theme.fg.muted)
+    Theme.setColor(Theme.fg.muted, ta)
     love.graphics.printf(
         "the gauntlet cleared. the room is empty behind you.",
         0, math.floor(H * 0.46), W, "center")
 
     love.graphics.setFont(fonts.md)
-    Theme.setColor(Theme.fg.muted)
+    Theme.setColor(Theme.fg.muted, ta)
     love.graphics.printf("[ SPACE to keep playing ]",
         0, H - 90, W, "center")
-    Theme.setColor(Theme.fg.faint)
+    Theme.setColor(Theme.fg.faint, ta)
     love.graphics.printf("[ R to wipe save and start over ]",
         0, H - 60, W, "center")
 end

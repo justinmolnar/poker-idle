@@ -8,7 +8,10 @@
 --
 -- ─── Formula ────────────────────────────────────────────────────────────
 --   r1 = clamp((catalog + deck) × mult)   no card covers anything
---   r2 = clamp(deck × mult)               card 6 covers the catalog BASE
+--   r2 = clamp(deck × mult)               card 6 covers the catalog BASE;
+--                                         deck is capped at catalog (never
+--                                         more than the things you own)
+--                                         until the master capstone lifts it
 --   r3 = clamp(deck × mult3)              card 7 covers the MULT: mult3 is
 --                                         0, or 999 once the bankroll has
 --                                         underflowed (Act 3's way through)
@@ -160,7 +163,15 @@ end
 function ShoveRate.compute(ctx, bankroll)
     local base = (ctx and ctx.shove_rate) or 0
     local deck = (ctx and ctx.shove_base) or 0
-    if ctx and ctx.shove_base_double then deck = deck * 2 end
+    -- The deck can never be worth more than the things you own: it is a
+    -- copy of your base that survives the sixth card, not a second base.
+    -- 25 deck levels against 18 items is a deck worth 18. The master deck's
+    -- capstone removes the limit and doubles it.
+    if ctx and ctx.shove_base_double then
+        deck = deck * 2
+    elseif deck > base then
+        deck = base
+    end
     local lower, upper = lookupBracket(bankroll or 0)
     local mult = interpolateMult(bankroll or 0, lower, upper)
 
@@ -238,15 +249,19 @@ function ShoveRate.formatBreakdown(rates)
     -- override on the total — it inherits the tooltip's default heading
     -- color, which keeps it consistent with the top-bar SHOVE cell that
     -- already paints the % red/amber/green from rate_color.
+    -- The base is a COUNT of things: every catalog item is one, and the
+    -- master deck's base is worth some number of them. Never a percent.
+    local per = 0.01
     local lines = {
-        { text = string.format("Catalog base: %.1f%%", (rates.catalog or 0) * 100), style = "sm" },
+        { text = string.format("Things you own: %d", math.floor((rates.catalog or 0) / per + 0.5)), style = "sm" },
     }
-    -- ALWAYS shown, including at zero. This is the term the dealer's first
-    -- cheat leaves standing, so a deck base of 0% is the difference between
-    -- a winnable second runout and an impossible one. Hiding it hid exactly
-    -- the number the player needed; showing 0.0% is the honest reading and
-    -- still gives away nothing about the runouts themselves.
-    lines[#lines + 1] = { text = string.format("Deck base: %.1f%%", (rates.deck or 0) * 100), style = "sm" }
+    -- The deck line exists only once the master deck is contributing. Before
+    -- that the only base there is is the count of things you own; a "Deck: 0"
+    -- row would reveal the subversion (a base that survives the sixth card)
+    -- before the player has any reason to know a second base exists.
+    if (rates.deck or 0) > 0 then
+        lines[#lines + 1] = { text = string.format("Deck: %d", math.floor((rates.deck or 0) / per + 0.5)), style = "sm" }
+    end
     lines[#lines + 1] = { text = string.format("Bankroll Mult: %.1f×", rates.mult),         style = "sm" }
     lines[#lines + 1] = { text = string.format("ALL-IN: %.0f%% to win", rates.raw_r1 * 100), style = "md" }
     return lines

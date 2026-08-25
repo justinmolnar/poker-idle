@@ -63,7 +63,7 @@ Screen: grind. Trigger: screen name grind, hands_played max 0, tables_open max 0
 | Go on, open a table. | `add_table:s001:six_max` | wait: tables_open min 1 |
 
 ### S2 `look_around`
-Screen: grind. Trigger: hands_played min 2.
+Screen: grind. Trigger: hands_played min 2, tables_open min 1.
 
 | block | anchor | hold |
 |---|---|---|
@@ -109,6 +109,12 @@ Scheduled by the shove timeline, not the director. The act ledes play on the gri
 | `shove:panic_again` | Twice. Nobody does this twice. |
 | `shove:panic_no_more` | You get nothing. Ever. |
 | `shove:clear` | There is nothing left to take from you. (once) |
+| `shove:deck_no` | No. |
+| `shove:deck_again` | Again. |
+| `shove:deck_doesnt` | That one doesn't count. |
+| `shove:deck_deal` | Deal. |
+| `shove:deck_all` | All of it, then. |
+| `shove:deck_out` | There's nothing left to deal. |
 
 ### S7 `first_catalog`
 Screen: shove. Trigger: screen name shove, catalog_open.
@@ -150,7 +156,15 @@ Screen: grind. Trigger: screen name grind, act3_unlocked.
 |---|---|---|
 | Twice. Honestly, that's a first. Bad news: the last card covers your multiplier, so the final hand is a zero however rich you are. | `cell:shove` | click |
 | Good news: lose a whole stack anywhere and I'll pay you for it. The cheaper the table, the more. Spend those in the catalog on things you already own. | `cell:achips`, `btn:catalog` | click |
-| And your money sits in a box with a bottom. Worth knowing. | `cell:underflow` | click |
+| And your money sits in a box with a bottom. Lose a whole stack at the top table and it falls out. | `cell:bankroll` | click |
+
+### ? `underflow`
+Screen: grind. Trigger: screen name grind, bankroll max -100000000001.
+
+| block | anchor | hold |
+|---|---|---|
+| That's... not a number. | `cell:bankroll` | click |
+| I don't have a card that covers that. Go on. Shove. | `btn:shove` | click |
 
 ### S11 `credits`
 Screen: credits. Trigger: screen name credits.

@@ -408,6 +408,15 @@ function GameState:applySaved(saved)
     -- Saves predating the hint system start with an empty seen-set; no
     -- deeper migration needed — HintController silently retires any hint
     -- whose done-condition the save already satisfies.
+    -- A NaN bankroll (a save written while a log of a negative bankroll
+    -- was poisoning it) is repaired to the underflowed value in Act 3, the
+    -- starting bankroll otherwise. NaN is the only number not equal to
+    -- itself; a JSON round trip may also turn it into nil.
+    if self.bankroll == nil or self.bankroll ~= self.bankroll then
+        self.bankroll = self.shove_r2_won
+            and ((Constants.GAMEPLAY.UNDERFLOW_THRESHOLD or -100000000000) - 1)
+            or  Constants.GAMEPLAY.INITIAL_BANKROLL
+    end
     self.hints_seen   = self.hints_seen   or {}
     self.hints_queued = self.hints_queued or {}
     self.screen_visits = self.screen_visits or {}

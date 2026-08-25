@@ -130,6 +130,7 @@ end
 function SpriteLoader:init()
     self.sprites = {}
     self.animations = {}
+    self.strips = {}        -- sprite name -> cells of a side-by-side sheet
     self.loaded = false
     self.aliases = nil
     -- sprite name -> { Image, ... } largest first. Only card backs build one;
@@ -149,6 +150,24 @@ end
 -- Recursive directory walk. Builds sprite names by joining the relative
 -- path components with '/'. dir is "" for the root scan, "cards/" for a
 -- nested call, etc.
+-- A sheet of N square cells laid side by side (width = N * height, N >= 3)
+-- is a strip; returns its cells as Images, or nil for a plain sprite.
+function SpriteLoader:_sliceStrip(item_path)
+    local ok, data = pcall(love.image.newImageData, item_path)
+    if not ok or not data then return nil end
+    local w, h = data:getWidth(), data:getHeight()
+    if h <= 0 or w % h ~= 0 or w / h < 3 then return nil end
+    local frames = {}
+    for i = 0, w / h - 1 do
+        local cell = love.image.newImageData(h, h)
+        cell:paste(data, 0, 0, i * h, 0, h, h)
+        local img = love.graphics.newImage(cell)
+        pcall(img.setFilter, img, "nearest", "nearest")
+        frames[#frames + 1] = img
+    end
+    return frames
+end
+
 function SpriteLoader:_scan(rel_dir)
     local full_dir = joinPath(SPRITE_DIR, rel_dir)
     local items = love.filesystem.getDirectoryItems(full_dir)
@@ -163,15 +182,28 @@ function SpriteLoader:_scan(rel_dir)
                     count = count + self:_scan(rel_path)
                 elseif info.type == "file" and isSupported(item) then
                     local sprite_name = stripExt(rel_path)
-                    local ok, image = pcall(love.graphics.newImage, item_path)
-                    if ok and image then
-                        if sprite_name:sub(1, #CARD_PREFIX) == CARD_PREFIX then
-                            image = self:_conditionCard(sprite_name, image)
-                        else
-                            pcall(image.setFilter, image, "nearest", "nearest")
-                        end
-                        self.sprites[sprite_name] = image
+                    local is_card = sprite_name:sub(1, #CARD_PREFIX) == CARD_PREFIX
+                    local frames = (not is_card) and self:_sliceStrip(item_path) or nil
+                    if frames then
+                        -- A strip (Door_2_Brown.png is 5 cells of 128x128):
+                        -- the cells are the frames. _buildAnimations turns
+                        -- them into a sequence, so the room, the catalog
+                        -- and the frame/anim keys all see a normal
+                        -- animated sprite instead of the whole strip.
+                        self.strips[sprite_name] = frames
+                        self.sprites[sprite_name] = frames[1]
                         count = count + 1
+                    else
+                        local ok, image = pcall(love.graphics.newImage, item_path)
+                        if ok and image then
+                            if is_card then
+                                image = self:_conditionCard(sprite_name, image)
+                            else
+                                pcall(image.setFilter, image, "nearest", "nearest")
+                            end
+                            self.sprites[sprite_name] = image
+                            count = count + 1
+                        end
                     end
                 end
             end
@@ -237,6 +269,10 @@ function SpriteLoader:_buildAnimations()
     end
 
     local anim_count = 0
+    for name, frames in pairs(self.strips or {}) do
+        self.animations[name] = frames
+        anim_count = anim_count + 1
+    end
     for base_prefix, frames in pairs(groups) do
         if #frames >= 2 then
             table.sort(frames, function(a, b) return a.num < b.num end)

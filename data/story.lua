@@ -53,17 +53,21 @@ return {
         },
 
         -- S2. Hover, the run upgrades, and the nudge that waits until it
-        -- is affordable. Never says "reset": there has been no run yet.
+        -- is affordable without bricking the run: the same strand check the
+        -- shop button uses (a table is open, or a buy-in stays in hand).
+        -- Never says "reset": there has been no run yet.
         {
             id      = "look_around",
             screen  = "grind",
-            trigger = { kind = "hands_played", min = 2 },
+            trigger = { kind = "all",
+                        { kind = "hands_played", min = 2 },
+                        { kind = "tables_open",  min = 1 } },
             lines = {
                 { text = "Everything here explains itself. Hover anything. The upgrades on the right make you better at the tables.",
                   anchor = { "ev:1", "buy_runup_sharper_reads" } },
                 { text = "You can afford Sharper Reads now. I'd grab it.",
                   anchor = "buy_runup_sharper_reads",
-                  show = { kind = "can_afford_run_upgrade", id = "sharper_reads" },
+                  show = { kind = "can_afford_run_upgrade", id = "sharper_reads", safe = true },
                   wait = { kind = "run_upgrades_owned", min = 1 } },
             },
         },
@@ -181,7 +185,20 @@ return {
                   anchor = "cell:shove" },
                 { text = "Good news: lose a whole stack anywhere and I'll pay you for it. The cheaper the table, the more. Spend those in the catalog on things you already own.",
                   anchor = { "cell:achips", "btn:catalog" } },
-                { text = "And your money sits in a box with a bottom. Worth knowing.", anchor = "cell:underflow" },
+                { text = "And your money sits in a box with a bottom. Lose a whole stack at the top table and it falls out.", anchor = "cell:bankroll" },
+            },
+        },
+
+        -- S10b. The underflow. The count is broken; he says so.
+        {
+            id      = "underflow",
+            screen  = "grind",
+            trigger = { kind = "all",
+                        { kind = "screen", name = "grind" },
+                        { kind = "bankroll", max = Constants.GAMEPLAY.UNDERFLOW_THRESHOLD - 1 } },
+            lines = {
+                { text = "That's... not a number.", anchor = "cell:bankroll" },
+                { text = "I don't have a card that covers that. Go on. Shove.", anchor = "btn:shove" },
             },
         },
 
@@ -209,5 +226,13 @@ return {
         panic_again    = { text = "Twice. Nobody does this twice." },
         panic_no_more  = { text = "You get nothing. Ever." },
         clear          = { text = "There is nothing left to take from you.", once = true },
+        -- The ending. He does not see the count is broken. Another card has
+        -- always worked. Not once-lines: a second clear replays it.
+        deck_no        = { text = "No." },
+        deck_again     = { text = "Again." },
+        deck_doesnt    = { text = "That one doesn't count." },
+        deck_deal      = { text = "Deal." },
+        deck_all       = { text = "All of it, then." },
+        deck_out       = { text = "There's nothing left to deal." },
     },
 }

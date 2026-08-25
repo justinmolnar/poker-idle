@@ -190,7 +190,7 @@ return {
         id     = "shove_readout",
         title  = "Your odds",
         anchor = "shove:readout",
-        text   = "BASE is your catalog. MULT is your money. The bar under them is your number. Keep an eye on it.",
+        text   = "BASE is how many things you own. MULT is your money. The bar under them is your number. Keep an eye on it.",
         trigger = { kind = "all",
                     { kind = "screen", name = "shove" },
                     { kind = "shove_phase", phase = "running" } },

@@ -29,8 +29,12 @@ Balance.CATALOG_TARGET_ACT1    = Balance.ACT1_SHOVE_TARGET / Balance.T3_MULT    
 -- Number of items owned at expected Act 1 win
 Balance.ITEMS_AT_WIN           = Balance.ACT1_ITEM_COUNT * Balance.ACT1_COMPLETION_AT_WIN  -- 25 * 0.70 = 17.5
 
--- Shove rate added per catalog item (k)
-Balance.K_SHOVE_PER_ITEM       = Balance.CATALOG_TARGET_ACT1 / Balance.ITEMS_AT_WIN       -- 0.2666... / 17.5 = 0.015238...
+-- Shove rate added per catalog item. A FLAT 1%: one item, one point of
+-- shove. The pacing model above prices items (getItemCost); it no longer
+-- sets what they are worth, because a derived 0.78% per item was a number
+-- nobody could read off the card. (The derived value is kept for reference.)
+Balance.K_SHOVE_PER_ITEM_DERIVED = Balance.CATALOG_TARGET_ACT1 / Balance.ITEMS_AT_WIN
+Balance.K_SHOVE_PER_ITEM         = 0.01
 
 --- Returns derived chip cost for an item based on its authored base cost
 -- @param authored_cost integer hand-authored base chip cost

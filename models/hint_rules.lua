@@ -185,12 +185,20 @@ function HintRules.registerAll(reg)
 
     -- ── Run upgrades ─────────────────────────────────────────────────
     -- Bankroll covers the NEXT level of run upgrade cond.id (false at max).
+    -- Optional `safe = true`: the buy must also pass the shop's own strand
+    -- check (GrindController:wouldStrandRun: with no live table, a buy that
+    -- drops the bankroll under the cheapest buy-in is refused). The House's
+    -- "I'd grab it" uses the same rule as the button it points at.
     reg:register("can_afford_run_upgrade", function(cond, ctx)
         if not (ctx.grind and ctx.state) then return false end
         local up = Lookups.findById(RunUpgrades, cond.id)
         if not up then return false end
         local cost = ctx.grind:getRunUpgradeNextCost(up)
-        return cost ~= nil and (ctx.state.bankroll or 0) >= cost
+        if cost == nil or (ctx.state.bankroll or 0) < cost then return false end
+        if cond.safe and ctx.grind.wouldStrandRun and ctx.grind:wouldStrandRun(cost) then
+            return false
+        end
+        return true
     end)
 
     -- Total run-upgrade levels owned this run (sum across all upgrades).

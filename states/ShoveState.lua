@@ -231,9 +231,13 @@ function ShoveState:_onGauntletEnded()
         -- (and with it the deck-system unlock).
         self.game.save_service:saveAll(
             state:serializeMeta(), state:serializeRun())
+        -- The last frame of the ending, so credits can fade in over the
+        -- pile instead of cutting to a bare screen.
+        local shot = self.view.snapshot and self.view:snapshot() or nil
+        self.catalog_modal = nil
         self.gauntlet = nil
         self.view:resetTimeline()
-        self.game.state_machine:switch("credits")
+        self.game.state_machine:switch("credits", { backdrop = shot })
     else
         -- The catalog was thrown onto the felt before the hold; the click
         -- that advanced the hold means "leave". If the throw never fired

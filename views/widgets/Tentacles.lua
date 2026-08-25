@@ -32,6 +32,15 @@ local INK    = { 0.36, 0.12, 0.58 }
 local CORE   = { 0.62, 0.40, 0.82 }   -- a lighter line down the middle: a tube, not a smear
 local SEG    = 48
 
+-- LuaJIT's math.atan takes ONE argument (the second is ignored), which
+-- put every heading in the right half-plane and made every arm lean
+-- right. atan2 where it exists, two-argument atan (Lua 5.4) otherwise.
+local atan2 = math.atan2 or function(y, x)
+    if x > 0 then return math.atan(y / x) end
+    if x < 0 then return math.atan(y / x) + (y >= 0 and math.pi or -math.pi) end
+    return (y >= 0) and (math.pi / 2) or (-math.pi / 2)
+end
+
 local function unit(seed, i, salt)
     return Decal.unit(tostring(seed) .. ":" .. i, salt)
 end
@@ -59,7 +68,7 @@ local function armPath(o, i, len)
     local c, s = math.cos(rot), math.sin(rot)
     local rx = cx + lx * c - ly * s
     local ry = cy + lx * s + ly * c
-    local heading = math.atan(ny * c + nx * s, nx * c - ny * s)   -- outward normal, rotated
+    local heading = atan2(ny * c + nx * s, nx * c - ny * s)   -- outward normal, rotated
     heading = heading + (unit(o.seed, i, 2) - 0.5) * 1.2
 
     -- Turn profile: a bias (which way it tends to curl) plus two slow

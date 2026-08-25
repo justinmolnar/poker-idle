@@ -237,9 +237,12 @@ return {
         id           = "s010",
         name         = "ULTRA — no limit",
         display_name = "ULTRA",
-        sb           = 5000000,
-        bb           = 10000000,
-        buy_in       = 100000000000,
+        -- $50B/$100B, a $10T seat. Not a table you grind: you sit once, and
+        -- a single stack loss (80-120 bb, ~$10T) is the underflow
+        -- (GrindController, the Ultra branch of the resolution loop).
+        sb           = 50000000000,
+        bb           = 100000000000,
+        buy_in       = 10000000000000,
         chip_award     = 10,
         band              = "ultra",
         win_chance        = 0.0001,

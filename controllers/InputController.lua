@@ -18,6 +18,15 @@ end
 
 function InputController:wire()
     local game       = self.game
+    -- The room editor owns F3, `-`, `=` (and its own keys) while the room
+    -- is up. The dispatcher stops at the first passing predicate, so the
+    -- dev hotkeys below yield to a state that says it captures them
+    -- (duck-typed capturesDevKeys, like hintsBlocked).
+    local function stateOwnsKeys()
+        local sm  = game.state_machine
+        local cur = sm and sm.current_state
+        return cur and cur.capturesDevKeys and cur:capturesDevKeys() or false
+    end
     local dispatcher = game.input_dispatcher
     local sm         = game.state_machine
 
@@ -103,7 +112,7 @@ function InputController:wire()
     -- (models/payout_breakdown) so they can be compared in place; two get
     -- deleted once one wins.
     dispatcher:on("keypressed",
-        function(key) return key == "f3" end,
+        function(key) return key == "f3" and not stateOwnsKeys() end,
         function()
             local shapes = require("views.TablePanelStats").PAYOUT_SHAPES
             local n = (game.debug.payout_shape or 0) + 1
@@ -119,14 +128,14 @@ function InputController:wire()
     -- Useful for skipping the grind while iterating on upgrade / shove flows.
     -- Will be ripped before any release build.
     dispatcher:on("keypressed",
-        function(key) return key == "-" end,
+        function(key) return key == "-" and not stateOwnsKeys() end,
         function()
             local state = game.state
             state.bankroll = math.max(0, state.bankroll - 1000)
             print(string.format("[debug] bankroll -$1000 -> $%.2f", state.bankroll))
         end)
     dispatcher:on("keypressed",
-        function(key) return key == "=" end,
+        function(key) return key == "=" and not stateOwnsKeys() end,
         function()
             local state = game.state
             state.bankroll = state.bankroll + 1000

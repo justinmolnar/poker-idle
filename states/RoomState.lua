@@ -18,6 +18,8 @@ end
 
 local RoomState = {}
 RoomState.__index = RoomState
+-- The room is a picture; the [i] queue stays off it (main.lua reads this).
+RoomState.suppressHintQueue = true
 
 function RoomState:new(game)
     return setmetatable({
@@ -41,10 +43,34 @@ function RoomState:exit()
     if self.room_view then
         self.room_view.editor_mode = false
     end
+    if love.keyboard and love.keyboard.setKeyRepeat then love.keyboard.setKeyRepeat(false) end
+    self._key_repeat = false
 end
 
 function RoomState:update(dt)
-    -- Room visual elements update if needed
+    -- Held keys repeat while the editor is up, so Ctrl+Up walks a piece
+    -- across the room instead of needing a tap per grid step. Off again
+    -- the moment the editor closes; nothing else in the game wants it.
+    local want = (self.room_view and self.room_view.editor_mode) and true or false
+    if want ~= (self._key_repeat or false) then
+        if love.keyboard and love.keyboard.setKeyRepeat then love.keyboard.setKeyRepeat(want) end
+        self._key_repeat = want
+    end
+
+    -- Autosave the draft while the editor is up, and once more on the way
+    -- out (want false, was true) so closing the editor loses nothing.
+    if self.room_view then
+        if want then
+            self._autosave_t = (self._autosave_t or 0) + dt
+            if self._autosave_t >= 2 then
+                self._autosave_t = 0
+                self.room_view:autosave()
+            end
+        elseif self._autosave_t then
+            self._autosave_t = nil
+            self.room_view:autosave()
+        end
+    end
 end
 
 function RoomState:draw()
@@ -57,8 +83,12 @@ function RoomState:draw()
     Theme.setColor(Theme.bg.window)
     love.graphics.rectangle("fill", 0, 0, W, H)
 
-    -- Draw Room View (centered full-screen)
-    if self.room_view then
+    -- Draw Room View (centered full-screen). With the editor open the view
+    -- is drawn LAST instead (see the end of this function): its toolbar
+    -- lives inside the top bar, and drawing the bar after the view painted
+    -- straight over Export / Reset / Clear / Help / Size / Floor.
+    local view_last = self.room_view and self.room_view.editor_mode
+    if self.room_view and not view_last then
         self.room_view:draw(true)
     end
 
@@ -134,6 +164,15 @@ function RoomState:draw()
         hovered     = btn_hov,
         press_alpha = ClickFlash.alpha("room_back_btn", "room_back_btn"),
     }
+    if view_last then
+        self.room_view:draw(true)
+    end
+end
+
+-- The room editor's keys (F3 to enter/exit, -/= FPS, [ ] frame, ...)
+-- collide with the global dev hotkeys; on this screen the room wins.
+function RoomState:capturesDevKeys()
+    return true
 end
 
 function RoomState:keypressed(key)
@@ -221,6 +260,18 @@ function RoomState:mousepressed(x, y, button)
     -- Otherwise forward to RoomView
     if self.room_view then
         self.room_view:mousepressed(x, y, button)
+    end
+end
+
+function RoomState:mousemoved(x, y, dx, dy)
+    if self.room_view and self.room_view.mousemoved then
+        self.room_view:mousemoved(x, y, dx, dy)
+    end
+end
+
+function RoomState:mousereleased(x, y, button)
+    if self.room_view and self.room_view.mousereleased then
+        self.room_view:mousereleased(x, y, button)
     end
 end
 
