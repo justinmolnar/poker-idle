@@ -95,6 +95,7 @@ Effects.kinds = {
         description = "Pushes a win_chance fill descriptor onto ctx.win_chance_fills. Optional tier_min/tier_max (1-based stake index) scope the fill to certain stakes (High Roller fills WC at T4+ only).",
         value_shape = "{ strength, gtype?, tier_min?, tier_max? }",
         affects     = "ctx.win_chance_fills (ordered list)",
+        scale       = "fill",      -- one level = one unit; run_upgrade_strength_mult is applied in the outcome model, not here
     },
 
     -- Run-upgrade win_dist fill — same mechanism on the win-tier dist.
@@ -102,6 +103,7 @@ Effects.kinds = {
         description = "Pushes a win_dist fill descriptor onto ctx.win_dist_fills.",
         value_shape = "{ strength, gtype? }",
         affects     = "ctx.win_dist_fills (ordered list)",
+        scale       = "fill",      -- one level = one unit; run_upgrade_strength_mult is applied in the outcome model, not here
     },
 
     -- Run-upgrade loss_dist fill — same mechanism on the loss-tier dist.
@@ -109,6 +111,7 @@ Effects.kinds = {
         description = "Pushes a loss_dist fill descriptor onto ctx.loss_dist_fills.",
         value_shape = "{ strength, gtype? }",
         affects     = "ctx.loss_dist_fills (ordered list)",
+        scale       = "fill",      -- one level = one unit; run_upgrade_strength_mult is applied in the outcome model, not here
     },
 
     -- Catalog flat additive on WC. Layered AFTER the lerp; pushes WC
@@ -263,6 +266,7 @@ Effects.kinds = {
         description = "Adds N to the autonomous cursor pool size.",
         value_shape = "integer, e.g. 1 for +1 cursor",
         affects     = "ctx.cursor_count",
+        scale       = "integer",   -- run_upgrade_strength_mult leaves it alone
     },
     cursor_speed_mult = {
         description = "Multiplies the cursor pool's travel speed.",
@@ -296,6 +300,7 @@ Effects.kinds = {
         description = "Raises focus capacity (tables you can run before the focus penalty kicks in).",
         value_shape = "integer, e.g. 1 for +1 capacity",
         affects     = "ctx.focus_capacity",
+        scale       = "integer",   -- run_upgrade_strength_mult leaves it alone
     },
     focus_penalty_reduce_mult = {
         description = "Multiplies the focus penalty per extra table (lower = softer curve).",
@@ -365,12 +370,12 @@ Effects.kinds = {
         affects     = "ctx.focus_penalty_immune",
     },
     run_upgrade_strength_mult = {
-        description = "Multiplies the strength of every run-upgrade effect (Investor). Additive from 1.0; consumed in GameState:computeEffects (scales strength/value per each kind's `scale`).",
+        description = "Makes run upgrades stronger (Investor, Calculator). Additive from 1.0. For the fill upgrades (Sharper Reads, Pot Control) it multiplies each stake's per-level gain in the outcome model, so 5 levels that added 25% add 28.75% and MAX stays at level 5. For value kinds it is applied in GameState:computeEffects per the kind's `scale`; integer kinds are left alone.",
         value_shape = "number, e.g. 0.15 for +15% per level",
         affects     = "ctx.run_upgrade_strength_mult (additive from 1.0)",
     },
     run_upgrade_bonus_levels = {
-        description = "Adds extra purchasable levels to run upgrades (Investor capstone).",
+        description = "Adds extra purchasable levels to run upgrades (Investor capstone, Supply Closet). For the fill upgrades each extra level is one more level's worth of gain at every stake: 5 levels that added 25% become 6 that add 30%. Consumed in GrindController:getRunUpgradeMaxLevel (the shop) and outcome_math.fillRatio (the cap).",
         value_shape = "integer, e.g. 1 for +1 level",
         affects     = "ctx.run_upgrade_bonus_levels (additive)",
     },
@@ -447,7 +452,7 @@ Effects.kinds = {
     bust_refund_pct = {
         description = "Fraction of the buy-in refunded to bankroll when a cash table busts (The Sink).",
         value_shape = "number 0..1, e.g. 0.30 for 30% back",
-        affects     = "ctx.bust_refund_pct (additive, capped at 1)",
+        affects     = "ctx.bust_refund_pct (additive; may exceed 1 for a corrupt block)",
     },
     deck_xp_mult = {
         description = "Multiplies XP granted to the active deck (Tori Gate). Applied in models/Decks.gainXp.",
@@ -458,6 +463,30 @@ Effects.kinds = {
         description = "Fraction of the previous run's total losses seeded into the next run's starting bankroll (The Dishwasher).",
         value_shape = "number 0..1, e.g. 0.10 for 10%",
         affects     = "ctx.loss_recycle_pct (additive)",
+    },
+
+    -- ── Act 3 corruptions ────────────────────────────────────────────────
+    -- Kinds that only corrupt blocks use. Consumed in the controller's
+    -- resolution loop, so they behave identically under both table models.
+    anti_award_mult = {
+        description = "Multiplies the {achip} paid for a stack loss (corrupted Worry Stone). Consumed at the anti award site in GrindController.",
+        value_shape = "number, e.g. 2 for double",
+        affects     = "ctx.anti_award_mult (multiplicative)",
+    },
+    first_anti_mult = {
+        description = "Multiplies the run's FIRST {achip} award (corrupted Fridge); state.first_anti_this_run latches it.",
+        value_shape = "number, e.g. 3",
+        affects     = "ctx.first_anti_mult (max)",
+    },
+    overcap_loss_mult = {
+        description = "Multiplies losses while more tables are open than the focus capacity (corrupted Gaming Chair). Consumed beside the focus multiplier in GrindController.",
+        value_shape = "number > 1, e.g. 3",
+        affects     = "ctx.overcap_loss_mult (multiplicative)",
+    },
+    copy_denied_chance = {
+        description = "Chance that a denied {chip} bounty banks anyway (corrupted Copy Machine). Consumed at the denied-bounty site beside copy_first_denied.",
+        value_shape = "number 0..1, e.g. 0.5",
+        affects     = "ctx.copy_denied_chance (max)",
     },
 
 }

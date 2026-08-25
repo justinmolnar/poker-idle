@@ -169,13 +169,13 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
     if eff_wc < 0 then eff_wc = 0
     elseif eff_wc > OutcomeMath.WC_ABSOLUTE_CAP then eff_wc = OutcomeMath.WC_ABSOLUTE_CAP end
 
-    -- 2. Lerp finish_dist by the player's win_chance_fills ratio (same
-    --    fill curve cash tables use to lerp win_dist / loss_dist).
-    --    auto_win_total pushes the effective fill toward `capped` so
-    --    MTT Pro biases toward top finishes without touching naked.
-    local wc_units    = OutcomeMath.sumFills(ctx and ctx.win_chance_fills, gtype)
-    local fill_ratio  = OutcomeMath.fillRatio(wc_units, stake and stake.fill_window)
-    local eff_fill    = fill_ratio + auto_win_total
+    -- 2. Lerp finish_dist by the player's EFFECTIVE win chance at this
+    --    stake (OutcomeMath.mttFinishFill): the stake's difficulty, the
+    --    game type and every upgrade ride in through `wc`. It used to lerp
+    --    by the fill ratio alone, which made every tier the same 30% to
+    --    win at full levels. auto_win_total pushes the fill toward
+    --    `capped` so MTT Pro biases toward top finishes.
+    local eff_fill    = OutcomeMath.mttFinishFill(wc) + auto_win_total
     if eff_fill > 1 then eff_fill = 1 end
 
     local finish_weights = {}

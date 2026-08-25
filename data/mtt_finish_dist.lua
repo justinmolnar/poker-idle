@@ -4,8 +4,11 @@
 --
 -- Used by models/MttSession:planRun. At the click-DEAL moment of a fresh
 -- tournament, the session lerps `naked` toward `capped` by the player's
--- fill ratio (same fill curve cash tables use to lerp win_dist /
--- loss_dist) and samples one of positions 1..8.
+-- EFFECTIVE PER-HAND WIN CHANCE at that stake (everything the cash table
+-- uses: the stake, the game type, upgrades, decks, catalog) over `wc_ref`,
+-- and samples one of positions 1..8. It used to lerp by the fill ratio
+-- alone, which ignored the stake entirely: every tier at full levels was
+-- the same 30% to win outright, and T6 was as easy as T1.
 --
 --   • naked  — the Run-0 / no-upgrades baseline. Mass concentrated on
 --              4th-8th, so a fresh player busts out of most tournaments
@@ -21,6 +24,11 @@
 -- Pure data — no logic.
 
 return {
+    -- The per-hand win chance at which `capped` is fully deserved: T1's
+    -- ceiling. A stake whose ceiling is 25% (T6) reaches a third of the
+    -- way there at its own max, and gets the rest from stronger upgrades.
+    wc_ref = 0.75,
+
     naked = {
         [1] = 0.02,
         [2] = 0.04,

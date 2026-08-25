@@ -482,21 +482,16 @@ function GrindView:_buildTablesTabComponents()
                 end
             end
 
-            -- Chip-bounty badge: green + full gold/purple once banked this run; greyed
-            -- while still unearned, greyer still when you can't even buy in.
-            local is_achip = (stake.band == "high" or stake.band == "ultra")
-            local banked, award, icon_id, border_color
-            if is_achip then
-                banked = self.controller:antiBountyBanked(stake.id, gtype_id)
-                award  = self.controller:antiBountyAward(stake.id)
-                icon_id = "achip"
-                border_color = banked and { 0.65, 0.35, 0.95 } or nil
-            else
-                banked = self.controller:bountyBanked(stake.id, gtype_id)
-                award  = self.controller:bountyAward(stake.id)
-                icon_id = "chip"
-                border_color = banked and Theme.currency.chip or nil
-            end
+            -- Bounty badges. Every stake pays a {chip} for winning a stack;
+            -- in Act 3 every stake also pays an {achip} for losing one, shown
+            -- as a second badge beside the gold. Green + full colour once
+            -- banked this run; greyed while unearned, greyer still when you
+            -- can't even buy in. The trim goes gold when the {chip} is
+            -- banked, purple when only the {achip} is.
+            local banked  = self.controller:bountyBanked(stake.id, gtype_id)
+            local award   = self.controller:bountyAward(stake.id)
+            local icon_id = "chip"
+            local border_color = banked and Theme.currency.chip or nil
 
             local chip_text = string.format("+%d", award)
             local chip_color_tok, chip_shade
@@ -506,6 +501,20 @@ function GrindView:_buildTablesTabComponents()
                 chip_color_tok, chip_shade = "faint", 0.15
             else
                 chip_color_tok, chip_shade = "muted", 0.35
+            end
+
+            local achip_text, achip_color_tok, achip_shade
+            if state.shove_r2_won then
+                local abanked = self.controller:antiBountyBanked(stake.id, gtype_id)
+                achip_text = string.format("+%d", self.controller:antiBountyAward(stake.id))
+                if abanked then
+                    achip_color_tok, achip_shade = "good", 1.0
+                    if not banked then border_color = { 0.65, 0.35, 0.95 } end
+                elseif cant_afford then
+                    achip_color_tok, achip_shade = "faint", 0.15
+                else
+                    achip_color_tok, achip_shade = "muted", 0.35
+                end
             end
 
             -- Trailing QOL strip: acts on the tables THIS row opened, not on
@@ -579,6 +588,8 @@ function GrindView:_buildTablesTabComponents()
                         text  = "+ " .. stake.display_name, style = "heading",
                         right = chip_text, right_color_token = chip_color_tok,
                         right_icon = icon_id, right_icon_shade = chip_shade,
+                        right2 = achip_text, right2_color_token = achip_color_tok,
+                        right2_icon = achip_text and "achip" or nil, right2_icon_shade = achip_shade,
                     },
                     { text = sub_left, style = "small", color_token = sub_color,
                       right = sub_right, right_color_token = "muted" },
@@ -619,8 +630,10 @@ end
 
 local function _capped(ctx, fill_key, gt, stake)
     local window = stake.fill_window
-    return window ~= nil
-        and OutcomeMath.sumFills(ctx[fill_key], gt) >= (window.complete or 0)
+    if not window then return false end
+    local _, complete = OutcomeMath.effectiveWindow(window, ctx)
+    return OutcomeMath.sumFills(ctx[fill_key], gt)
+           >= complete + (ctx.run_upgrade_bonus_levels or 0)
 end
 
 -- Win chance: the fill delta cancels the per-mode additive shift, so a single

@@ -11,6 +11,14 @@
 -- Catalog perks layer ON TOP of run-capped (additive), pushing toward an
 -- absolute 0.95 WC ceiling enforced in buildOutcome.
 --
+-- There is no anti_chip_award field. The {achip} for LOSING a whole stack
+-- in Act 3 is computed from the stake's position on this ladder, inverse
+-- to it over the real rungs: with N stakes below Ultra the first pays N
+-- and the last pays 1. Ultra is not a rung and pays nothing
+-- (GrindController:antiBountyAward). Add a stake and every award shifts
+-- on its own. Inverse because a maxed build almost never loses a stack at
+-- T1, and the top tables are where you go to lose on purpose.
+--
 --   win_chance        — naked probability ∈ [0, 1] of a Win
 --   win_chance_capped — value reached when run-upgrade fill = 1
 --   win_dist          — naked tier dist sampled when winning (sums to 1)
@@ -177,7 +185,6 @@ return {
         buy_in       = 1000000,
         chip_award     = 7,
         band              = "high",
-        anti_chip_award   = 1,
         win_chance        = 0.002,
         win_chance_capped = 0.20,
         win_dist          = { small = 0.65, medium = 0.35, large = 0.00, jackpot = 0.00 },
@@ -195,7 +202,6 @@ return {
         buy_in       = 10000000,
         chip_award     = 8,
         band              = "high",
-        anti_chip_award   = 5,
         win_chance        = 0.001,
         win_chance_capped = 0.15,
         win_dist          = { small = 0.70, medium = 0.30, large = 0.00, jackpot = 0.00 },
@@ -213,7 +219,6 @@ return {
         buy_in       = 100000000,
         chip_award     = 9,
         band              = "high",
-        anti_chip_award   = 20,
         win_chance        = 0.0005,
         win_chance_capped = 0.10,
         win_dist          = { small = 0.75, medium = 0.25, large = 0.00, jackpot = 0.00 },
@@ -237,7 +242,6 @@ return {
         buy_in       = 100000000000,
         chip_award     = 10,
         band              = "ultra",
-        anti_chip_award   = 100,
         win_chance        = 0.0001,
         win_chance_capped = 0.001,
         win_dist          = { small = 0.90, medium = 0.10, large = 0.00, jackpot = 0.00 },

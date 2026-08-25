@@ -101,6 +101,11 @@ local function lineRenderedHeight(line, game, content_w)
         right_w = game.fonts.sm:getWidth(line.right) + 8
         if line.right_icon then right_w = right_w + game.fonts.sm:getHeight() + 4 end
     end
+    -- A second badge (line.right2 / right2_icon) sits left of the first.
+    if line.right2 and game.fonts and game.fonts.sm then
+        right_w = right_w + game.fonts.sm:getWidth(line.right2) + 8
+        if line.right2_icon then right_w = right_w + game.fonts.sm:getHeight() + 4 end
+    end
     local wrap_w = math.max(1, content_w - indent - 4 - right_w)
     local _, wrapped = font:getWrap(line.text or "", wrap_w)
     local n  = math.max(1, #wrapped)
@@ -441,6 +446,31 @@ function CR._button(comp, px, pw, p, y, game)
                     Anchors.set(comp.badge_anchor, sx, sy,
                         (fx + indent + printf_w) - bx0,
                         right_font:getHeight())
+                end
+                -- Second badge: the same shape, immediately left of the
+                -- first (the add-table button shows "+N {achip}" beside
+                -- "+N {chip}" in Act 3, when a stake pays both).
+                if line.right2 then
+                    local color2 = color
+                    if line.right2_color_token then
+                        color2 = (Theme.data and Theme.data[line.right2_color_token])
+                              or (Theme.status and Theme.status[line.right2_color_token])
+                              or (Theme.fg and Theme.fg[line.right2_color_token])
+                              or color
+                    end
+                    local first_w = right_font:getWidth(line.right) + icon_d + 4
+                    local icon2_d = line.right2_icon and right_font:getHeight() or 0
+                    local text2_w = math.max(1, printf_w - first_w - 8 - icon2_d - 4)
+                    Theme.setColor(color2)
+                    love.graphics.printf(line.right2, fx + indent, right_y, text2_w, "right")
+                    local ix2 = fx + indent + text2_w + 4
+                    if line.right2_icon == "achip" then
+                        Icons.drawAntiChip(game, ix2, right_y, icon2_d,
+                            line.right2_icon_alpha, line.right2_icon_shade)
+                    elseif line.right2_icon then
+                        Icons.drawChip(game, ix2, right_y, icon2_d,
+                            line.right2_icon_alpha, line.right2_icon_shade)
+                    end
                 end
                 Theme.setColor(color)
                 love.graphics.setFont(font)

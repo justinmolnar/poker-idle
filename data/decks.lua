@@ -273,7 +273,7 @@ local Decks = {
             text    = "Adds a final Super Level to run upgrades in the shop",
             effects = { { kind = "run_upgrade_bonus_levels", value = 1 } },
         },
-        bonus_text  = "All run upgrades are 15% stronger per level",
+        bonus_text  = "Sharper Reads and Pot Control are 15% stronger per level",
         flavor_text = "Invest in upgrades. Compound your poker edge.",
         unlock = {
             kind      = "lifetime_upgrades_bought",

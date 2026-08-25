@@ -148,8 +148,8 @@ Screen: grind. Trigger: screen name grind, act3_unlocked.
 
 | block | anchor | hold |
 |---|---|---|
-| Twice. Honestly, that's a first. Bad news: your multiplier's zero now. Money won't fix it. | `cell:shove` | click |
-| Good news: lose a stack up top and I'll pay you for it. Spend those in the catalog on things you already own. | `cell:achips`, `btn:catalog` | click |
+| Twice. Honestly, that's a first. Bad news: the last card covers your multiplier, so the final hand is a zero however rich you are. | `cell:shove` | click |
+| Good news: lose a whole stack anywhere and I'll pay you for it. The cheaper the table, the more. Spend those in the catalog on things you already own. | `cell:achips`, `btn:catalog` | click |
 | And your money sits in a box with a bottom. Worth knowing. | `cell:underflow` | click |
 
 ### S11 `credits`

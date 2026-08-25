@@ -32,6 +32,8 @@ local Sticker      = require("views.widgets.Sticker")
 local Stamp        = require("views.widgets.Stamp")
 local Pop          = require("services.Pop")
 local Icons        = require("views.Icons")
+local GlyphMorph   = require("services.GlyphMorph")
+local Tentacles    = require("views.widgets.Tentacles")
 local IconText     = require("views.IconText")
 local Format       = require("utils.format")
 local Decal        = require("services.Decal")
@@ -46,6 +48,9 @@ for i, it in ipairs(Catalog) do CATALOG_ORD[it.id] = i end
 local drawFrontCover   -- defined below; _drawClosedOnFelt above it uses it
 local SLIDE_IN_SECS = 0.45
 local THROW_SECS    = 0.70
+-- What comes out from behind the CORRUPTED stamp (views/widgets/Tentacles).
+local TENTACLE_GROW_SECS = 2.2   -- from the stamp's slam to full reach
+local TENTACLE_REACH     = 300   -- px before ui_scale; longest arm
 
 -- The closed book as an object on the felt.
 local CLOSED = {
@@ -689,7 +694,6 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- Vintage newsprint border for this ad
     Theme.setColor({ 0.15, 0.15, 0.12, 0.30 })
     love.graphics.rectangle("line", x, y, w, h)
-
     -- Picture frame for the illustration. Hero: a large square centered in the
     -- card's upper half. Normal: a small thumb on the left.
     local img_w, img_h, img_x, img_y
@@ -743,7 +747,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
             -- Silhouette: draw the art as a dark ink shape, no detail.
             love.graphics.setColor(0.15, 0.15, 0.12, 0.55)
         else
-            love.graphics.setColor(1, 1, 1, (is_owned and not is_corruptible and not is_corrupted) and 0.40 or 1.0)
+            love.graphics.setColor(1, 1, 1, is_owned and 0.40 or 1.0)
         end
 
         if shader_name and ShaderRegistry and ShaderRegistry.apply then
@@ -764,12 +768,11 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
 
 
     -- Stamp price tag in upper-right corner
+    -- The book is immutable: this ring is the printed price, and it reads
+    -- OWN once ordered, corruption or not. The corruption gets its OWN
+    -- ring, beside this one (below).
     local price_color = { 0.15, 0.15, 0.12, 0.50 } -- black ink default
-    if is_corruptible then
-        price_color = { 0.55, 0.25, 0.85 } -- purple stamp for active corruption price
-    elseif is_corrupted then
-        price_color = { 0.40, 0.15, 0.60 } -- dark purple for corrupted
-    elseif not is_owned and not locked then
+    if not is_owned and not locked then
         price_color = { 0.75, 0.20, 0.20 } -- red rubber stamp for active purchase price
     end
 
@@ -785,11 +788,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
 
     love.graphics.setFont(fonts.sm)
     local cost_text = string.format("%d", item.cost_chip or 0)
-    if is_corruptible then
-        cost_text = string.format("%d", item.corrupt.cost_achip or 0)
-    elseif is_corrupted then
-        cost_text = "OWN"
-    elseif is_owned then
+    if is_owned then
         cost_text = "OWN"
     elseif locked then
         -- Show the real price rather than "LCK": you can't order it yet, but
@@ -800,11 +799,34 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     elseif (item.cost_chip or 0) <= 0 then
         cost_text = "FREE"
     end
-    local tw_c = fonts.sm:getWidth(cost_text)
     love.graphics.setFont(fonts.sm)   -- measured in sm; print in sm, not whatever was left set
+    local tw_c = fonts.sm:getWidth(cost_text)
     love.graphics.print(cost_text, cx_stamp - tw_c * 0.5, cy_stamp - fonts.sm:getHeight() * 0.5)
 
-    local dim = (is_owned and not is_corruptible and not is_corrupted)
+    -- The corruption's own ring, the same size, UNDER the printed one (no
+    -- room beside it): the {achip} price while it is on offer, OWN once paid.
+    if is_corruptible or is_corrupted then
+        local ccy  = cy_stamp + r_stamp * 2 + fl(8 * s)
+        local ccol = is_corrupted and { 0.40, 0.15, 0.60 } or { 0.55, 0.25, 0.85 }
+        Theme.setColor(ccol)
+        love.graphics.setLineWidth(2)
+        love.graphics.circle("line", cx_stamp, ccy, r_stamp)
+        love.graphics.setLineWidth(1)
+        love.graphics.circle("line", cx_stamp, ccy, r_stamp - fl(2 * s))
+        love.graphics.setFont(fonts.sm)
+        if is_corrupted then
+            local tw = fonts.sm:getWidth("OWN")
+            love.graphics.print("OWN", cx_stamp - tw * 0.5, ccy - fonts.sm:getHeight() * 0.5)
+        else
+            local ct  = "{achip}" .. tostring(item.corrupt.cost_achip or 0)
+            local ctw = IconText.measure(ct, fonts.sm)
+            IconText.draw(self.game, ct, cx_stamp - ctw * 0.5, ccy - fonts.sm:getHeight() * 0.5, fonts.sm, ccol)
+        end
+    end
+
+    -- Owned is dimmed, as the book prints it; the corruption's own marks
+    -- (its ring, its line on the No. row, its stamp) are full ink on top.
+    local dim = is_owned
     local ink = dim and { 0.15, 0.15, 0.12, 0.40 } or { 0.15, 0.15, 0.12 }
     -- An unlock-gated item is dimmed like an owned one — it is not orderable
     -- either way. The requirement itself lives on the sticker, not in the
@@ -867,6 +889,19 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- stat was on screen and still could not be compared.
     local shove_txt = shove > 0 and string.format("+%.1f%% shove", shove * 100) or nil
     local shove_ink = dim and { 0.20, 0.35, 0.55, 0.45 } or { 0.20, 0.35, 0.55 }
+    -- On offer: the effect line itself becomes "now {arrow} corrupted", in
+    -- the purple, on the SAME line, so the card does not grow a row. The
+    -- shove stat is left alone: the shove is beside the point in Act 3.
+    -- The other hand's line, on the No. row: the priced offer before
+    -- corruption, the corrupted effect itself after. The House's own
+    -- effect line stays where it always was, in its own ink, either way.
+    local corrupt_line
+    if is_corruptible then
+        corrupt_line = "CORRUPT {achip}" .. tostring(item.corrupt.cost_achip or 0)
+                       .. " {arrow} " .. (item.corrupt.effect_text or "")
+    elseif is_corrupted then
+        corrupt_line = item.corrupt.effect_text or ""
+    end
 
     if hero then
         -- Centered feature layout beneath the big art.
@@ -877,6 +912,11 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         Theme.setColor({ 0.15, 0.15, 0.12, 0.60 })
         local code = string.format("No. %03d", index or 0)
         love.graphics.print(code, cxm - fonts.sm:getWidth(code) * 0.5, ty)
+        if corrupt_line then
+            -- The offer rides the code row, right of it, in someone else's hand.
+            self:_drawCorruptLine(item, corrupt_line,
+                                  cxm + fonts.sm:getWidth(code) * 0.5 + fl(12 * s), ty, fonts)
+        end
         ty = ty + fonts.sm:getHeight() + 2
 
         love.graphics.setFont(fonts.md)
@@ -890,7 +930,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         -- blurb still prints, so a locked hero card says what the object is
         -- and how to earn it, never what it does.
         if not unlock_locked then
-            local line = (is_corrupted and item.corrupt.effect_text or item.effect_text) or ""
+            local line = item.effect_text or ""
             local lw = IconText.measure(line, fonts.sm)
             IconText.draw(self.game, line, cxm - lw * 0.5, ty, fonts.sm, ink)
             ty = ty + fonts.sm:getHeight() + 4
@@ -905,9 +945,8 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         end
 
         if shove_txt and not unlock_locked then
-            love.graphics.setFont(fonts.sm)
-            Theme.setColor(shove_ink)
-            love.graphics.print(shove_txt, cxm - fonts.sm:getWidth(shove_txt) * 0.5, ty)
+            IconText.draw(self.game, shove_txt, cxm - IconText.measure(shove_txt, fonts.sm) * 0.5, ty,
+                          fonts.sm, shove_ink)
         end
     else
         -- Item Header info: Number code + Name. On a multi-slot feature ad
@@ -934,6 +973,11 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         Theme.setColor({ 0.15, 0.15, 0.12, 0.60 })
         love.graphics.setFont(fonts.sm)
         love.graphics.print(index_text, text_x, title_y)
+        if corrupt_line then
+            -- The offer rides the code row, right of it, in someone else's hand.
+            self:_drawCorruptLine(item, corrupt_line,
+                                  text_x + fonts.sm:getWidth(index_text) + fl(12 * s), title_y, fonts)
+        end
 
         local name_y = title_y + fonts.sm:getHeight() + 1
         Theme.setColor(name_ink)
@@ -949,7 +993,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         local effect_y = name_y + fonts.md:getHeight() + 3
         local flavor_y = effect_y
         if not unlock_locked then
-            local line = (is_corrupted and item.corrupt.effect_text or item.effect_text) or ""
+            local line = item.effect_text or ""
             IconText.draw(self.game, line, text_x, effect_y, fonts.sm, ink)
             flavor_y = effect_y + fonts.sm:getHeight() + 2
         end
@@ -967,9 +1011,9 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         -- Makes "buying builds your shove base" legible — every buyable
         -- item advertises how much % it adds. Withheld while locked.
         if shove_txt and not unlock_locked then
-            Theme.setColor(shove_ink)
-            love.graphics.setFont(fonts.sm)
-            love.graphics.print(shove_txt, x + w - fl(12 * s) - fonts.sm:getWidth(shove_txt), flavor_y)
+            IconText.draw(self.game, shove_txt,
+                          x + w - fl(12 * s) - IconText.measure(shove_txt, fonts.sm), flavor_y,
+                          fonts.sm, shove_ink)
         end
     end
 
@@ -1055,16 +1099,14 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- hw/hh/r are the ORIGINAL hand-tuned box dimensions per stamp, kept
     -- verbatim: sizing the box to its label instead changed how they look,
     -- which was never the ask.
+    -- The card's primary stamp (one of these), plus a SECOND stamp,
+    -- CORRUPTED, once the item has been corrupted: it keeps its ORDERED
+    -- stamp and gets another banged down somewhere else on the card, keyed
+    -- separately so the two never land in the same spot. Before that,
+    -- there is no "CORRUPT?" stamp; the offer is the purple price and the
+    -- line under the effect saying what it would do.
     local stamp
-    if is_corrupted then
-        stamp = { label = "CORRUPTED", color = { 0.45, 0.15, 0.70, 0.90 },
-                  font = fonts.md, lw = 3,
-                  hw = 60, hh = 14, r = 4 }
-    elseif is_corruptible then
-        stamp = { label = "CORRUPT?", color = { 0.55, 0.25, 0.85, 0.85 },
-                  font = fonts.sm, lw = 2,
-                  hw = 50, hh = 12, r = 3 }
-    elseif is_owned then
+    if is_owned then
         stamp = { label = "ORDERED", color = { 0.75, 0.20, 0.20, 0.85 },
                   font = fonts.md, lw = 3,
                   hw = 55, hh = 14, r = 4 }
@@ -1117,6 +1159,107 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
             impact      = impact,
         }
     end
+
+    -- The second stamp. Watched every frame like the first so the moment of
+    -- corruption slams.
+    local c_impact = Pop.onChange("cstamp:" .. item.id,
+                                  is_corrupted and "CORRUPTED" or "none", STAMP_IMPACT_SECS)
+    if is_corrupted then
+        local hw, hh = fl(60 * s), fl(14 * s)
+        local cx = Decal.lerp("cstamp_x:" .. item.id, 3,
+                              x + hw + fl(10 * s), x + w - hw - fl(10 * s))
+        local cy = Decal.lerp("cstamp_y:" .. item.id, 4,
+                              y + hh + fl(6 * s), y + h - hh - fl(6 * s))
+        local _, _, angle = Decal.place("cstamp:" .. item.id, { angle = 0.30 })
+
+        -- What comes out from behind the stamp. The arms start growing the
+        -- moment the stamp slams (Pop fires on the transition) and are
+        -- already grown for an item that was corrupted before this open of
+        -- the book, so they never re-grow on a page flip. Clipped to the
+        -- card: they consume the entry, not the page.
+        self._tentacle_t0 = self._tentacle_t0 or {}
+        local now = love.timer.getTime()
+        if not self._tentacle_t0[item.id] then
+            self._tentacle_t0[item.id] = (c_impact > 0) and now or (now - 60)
+        end
+        local grow = math.min(1, (now - self._tentacle_t0[item.id]) / TENTACLE_GROW_SECS)
+        local sx, sy, sw, sh = love.graphics.getScissor()
+        love.graphics.intersectScissor(x, y, w, h)
+        Tentacles.draw{
+            x = cx, y = cy, hw = hw, hh = hh, angle = angle, seed = item.id,
+            grow = grow, reach = fl(TENTACLE_REACH * s), count = 7,
+            alpha = 0.9,
+        }
+        love.graphics.setScissor(sx, sy, sw, sh)
+
+        Stamp.draw{
+            x = cx, y = cy, hw = hw, hh = hh,
+            label       = "CORRUPTED",
+            fonts       = fonts,
+            font        = fonts.md,
+            color_token = { 0.45, 0.15, 0.70, 0.90 },
+            angle       = angle,
+            radius      = fl(4 * s),
+            line_width  = 3,
+            impact      = c_impact,
+        }
+    end
+end
+
+-- The corruption offer, written by something that is not the House. The
+-- line arrives as alien glyphs (services/GlyphMorph) that re-roll and lock
+-- into the real text left to right over SETTLE seconds, with a purple glow
+-- and a contrast that will not hold still; once settled it re-sweeps every
+-- RESWEEP seconds and, between sweeps, throws a single wrong glyph for a
+-- blink. Timing is per item, from the first frame the offer is drawn this
+-- open of the book.
+local MORPH_SETTLE  = 1.4
+local MORPH_RESWEEP = 7.0
+local MORPH_SWEEP_T = 0.5
+local MORPH_SPARK_EVERY = 2.3
+local MORPH_SPARK_T = 0.10
+function CatalogModal:_drawCorruptLine(item, text, x, y, fonts)
+    self._morph_t0 = self._morph_t0 or {}
+    local now = love.timer.getTime()
+    local t0  = self._morph_t0[item.id]
+    if not t0 then t0 = now; self._morph_t0[item.id] = t0 end
+    local t = now - t0
+    local seed = item.id
+    local tick = math.floor(now * 18)
+
+    local progress, shown
+    if t < MORPH_SETTLE then
+        progress = t / MORPH_SETTLE
+    else
+        local since = (t - MORPH_SETTLE) % MORPH_RESWEEP
+        if since < MORPH_SWEEP_T then
+            progress = since / MORPH_SWEEP_T
+        else
+            progress = 1
+        end
+    end
+    if progress < 1 then
+        shown = GlyphMorph.text(text, progress, seed, tick)
+    else
+        local phase = (t - MORPH_SETTLE) % MORPH_SPARK_EVERY
+        if phase < MORPH_SPARK_T then
+            shown = GlyphMorph.spark(text, seed, tick, math.floor((t - MORPH_SETTLE) / MORPH_SPARK_EVERY))
+        else
+            shown = text
+        end
+    end
+
+    local f      = fonts.sm
+    local unrest = 1 - progress
+    -- Glow: the text again, offset, low alpha, more while unsettled.
+    local glow_a = 0.10 + 0.30 * unrest
+    local glow   = { 0.70, 0.35, 1.00 }
+    for _, o in ipairs{ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
+        IconText.draw(self.game, shown, x + o[1], y + o[2], f, glow, glow_a)
+    end
+    -- Contrast that breathes while it resolves, steady once it has.
+    local a = 1 - 0.45 * unrest * (0.5 + 0.5 * math.sin(now * 23))
+    IconText.draw(self.game, shown, x, y, f, { 0.55, 0.25, 0.85 }, a)
 end
 
 -- ─── Book rendering ────────────────────────────────────────────────────
@@ -1176,6 +1319,17 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
         Theme.setColor({ 0.75, 0.20, 0.20 })
         love.graphics.print(bal, bx, y + fl(10 * s))
         Icons.drawChip(self.game, bx + bal_w + gap, y + fl(10 * s), gsize)
+        -- {achip} beside it once Act 3 has begun: the corruption prices are
+        -- in this currency, so the ledger has to show it.
+        if state.shove_r2_won then
+            local abal   = string.format("%d", state.anti_chips or 0)
+            local abal_w = fonts.md:getWidth(abal)
+            local ax     = bx - fl(14 * s) - (abal_w + gap + gsize)
+            love.graphics.setFont(fonts.md)
+            Theme.setColor({ 0.45, 0.15, 0.70 })
+            love.graphics.print(abal, ax, y + fl(10 * s))
+            Icons.drawAntiChip(self.game, ax + abal_w + gap, y + fl(10 * s), gsize)
+        end
     end
     local head_h = fonts.md:getHeight() + fl(16 * s)
     Theme.setColor({ 0.15, 0.15, 0.12, 0.20 })

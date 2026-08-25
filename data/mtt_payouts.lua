@@ -14,5 +14,8 @@
 return {
     [0] = { [6] = 3, [7] = 6,  [8] = 20 },   -- baseline (no perks)
     [1] = { [6] = 4, [7] = 8,  [8] = 20 },   -- with Plastic Trophy
-    [2] = { [6] = 5, [7] = 10, [8] = 20 },   -- with Engraved Plaque
+    [2] = { [6] = 5, [7] = 10, [8] = 20 },
+    -- Corrupted Plastic Trophy / Engraved Plaque.
+    [3] = { [6] = 20, [7] = 40,  [8] = 80 },
+    [4] = { [6] = 40, [7] = 80,  [8] = 160 },   -- with Engraved Plaque
 }

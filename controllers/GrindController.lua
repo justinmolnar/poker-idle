@@ -14,6 +14,7 @@ local TableModel     = require("models.Table")            -- only for anchorKey(
 local Decks          = require("models.Decks")
 local Catalog        = require("data.catalog")
 local RunUpgrades    = require("data.run_upgrades")
+local OutcomeMath    = require("models.outcome_math")
 local Stakes         = require("data.stakes")
 local GameTypes      = require("data.game_types")
 local Constants      = require("data.constants")
@@ -350,6 +351,12 @@ function GrindController:update(dt)
         -- currentFocusMult prevents zero, so a tiny positive delta is
         -- still positive and counts as a win for the chip bounty.
         r.delta = r.delta * focus_mult
+        -- Corrupted Gaming Chair: no focus penalty, but every table past
+        -- the cap loses bigger.
+        if r.delta < 0 and self.ctx and self.ctx.overcap_loss_mult
+           and self.pool:count() > self:currentFocusCapacity() then
+            r.delta = r.delta * self.ctx.overcap_loss_mult
+        end
 
         -- Bank capstone: scale every hand's magnitude by a bankroll-log
         -- multiplier, read live here (magnitude-only, commutes with the
@@ -650,7 +657,13 @@ function GrindController:update(dt)
                     end
                 else
                     -- Copy Machine: the run's first denied bounty banks anyway.
-                    if self.ctx and self.ctx.copy_first_denied and not state.denied_copied_this_run then
+                    -- Corrupted: every denied bounty banks with a chance.
+                    local copies = self.ctx and self.ctx.copy_first_denied and not state.denied_copied_this_run
+                    local copy_chance = self.ctx and self.ctx.copy_denied_chance or 0
+                    if not copies and copy_chance > 0 and love.math.random() < copy_chance then
+                        copies = true
+                    end
+                    if copies then
                         state.denied_copied_this_run = true
                         local cp = self:bountyAward(tbl.stake_id)
                         if cp > 0 then
@@ -672,12 +685,16 @@ function GrindController:update(dt)
             end
         end
 
-        -- Anti-chip award: stack loss (r.delta < 0 and r.tier == "jackpot") at High/Ultra stakes during Act 3.
+        -- Anti-chip award: a stack loss (r.delta < 0 and r.tier == "jackpot")
+        -- at ANY stake during Act 3, once per stake x game type per run,
+        -- alongside the {chip} for winning one. The award ladder is inverse
+        -- (antiBountyAward, from ladder position): T1 pays most because a maxed
+        -- build almost never loses a stack there.
         if r.delta < 0 and r.tier == "jackpot" and not r.chip_stack_table then
             local tbl = self.pool.tables[r.table_idx]
             if tbl then
                 local stake = Lookups.findById(Stakes, tbl.stake_id)
-                if stake and (stake.band == "high" or stake.band == "ultra") and state.shove_r2_won then
+                if stake and state.shove_r2_won then
                     local cap = 1
                     local key = bountyKey(tbl.stake_id, tbl.game_type_id)
                     state.anti_stakes_won_this_run = state.anti_stakes_won_this_run or {}
@@ -687,6 +704,15 @@ function GrindController:update(dt)
                         state.anti_stakes_won_this_run[key] = true
                         state.hands_since_last_bank = 0
                         local award = self:antiBountyAward(tbl.stake_id)
+                        -- Corrupted Worry Stone: every anti pays more.
+                        -- Corrupted Fridge: the run's first pays more still.
+                        if self.ctx then
+                            award = math.floor(award * (self.ctx.anti_award_mult or 1) + 0.5)
+                            if not state.first_anti_this_run then
+                                state.first_anti_this_run = true
+                                award = math.floor(award * (self.ctx.first_anti_mult or 1) + 0.5)
+                            end
+                        end
                         if award > 0 then
                             state.anti_chips_this_run = (state.anti_chips_this_run or 0) + award
                             self.game.floating_text.emit(
@@ -862,7 +888,7 @@ end
 
 -- Stacking run upgrade purchase. Each click bumps the upgrade's level by one
 -- (up to its max_level). Cost for the next level is item.costs[N+1], multiplied
--- by ctx.run_upgrade_cost_mult so the cheap_coaching catalog perk discounts
+-- by ctx.run_upgrade_cost_mult so the Ring Binder catalog perk discounts
 -- every run-upgrade buy. Returns true on a successful level-up.
 -- True if the optional `requires` field on a catalog/run-upgrade item is
 -- met by the player's owned_items list. nil/missing → unconditional.
@@ -907,10 +933,20 @@ function GrindController:bountyAward(stake_id)
     return math.floor((stake.chip_award or 0) * mult + 0.5) + bonus
 end
 
+-- The {achip} for losing a whole stack at this stake: the ladder's length
+-- minus the stake's position, plus one, so the first stake pays the most
+-- and the top pays 1. Computed, not authored: it follows the ladder if a
+-- stake is added or removed, the way chip_award follows position.
 function GrindController:antiBountyAward(stake_id)
     local stake = Lookups.findById(Stakes, stake_id)
-    if not stake then return 0 end
-    return stake.anti_chip_award or 0
+    local idx   = Lookups.indexById(Stakes, stake_id)
+    if not stake or not idx then return 0 end
+    -- Ultra is not a rung. It is played once, to underflow, and pays no
+    -- bounty either way. The ladder is every stake below it.
+    if stake.band == "ultra" then return 0 end
+    local rungs = 0
+    for _, s in ipairs(Stakes) do if s.band ~= "ultra" then rungs = rungs + 1 end end
+    return rungs - idx + 1
 end
 
 function GrindController:buyRunUpgrade(upgrade_id)
@@ -991,10 +1027,12 @@ function GrindController:getRunUpgradeMaxLevel(upgrade)
     if not upgrade then return 0 end
     local max_lvl
     if upgrade.fill_scaled then
+        -- The EFFECTIVE window (OutcomeMath.effectiveWindow): a widened
+        -- window needs more levels to fill, and those must be buyable.
         local best = 0
         for _, s in ipairs(Stakes) do
-            if s.band ~= "ultra" and self:stakeAvailable(s) then
-                local complete = (s.fill_window and s.fill_window.complete) or 0
+            if s.band ~= "ultra" and self:stakeAvailable(s) and s.fill_window then
+                local _, complete = OutcomeMath.effectiveWindow(s.fill_window, self.ctx)
                 if complete > best then best = complete end
             end
         end

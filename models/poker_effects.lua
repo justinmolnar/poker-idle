@@ -404,10 +404,25 @@ function PokerEffects.registerAll(reg)
     end)
 
     -- ── Catalog appliances ──────────────────────────────────────────────
-    -- The Sink: a busted table hands part of its buy-in back. Additive,
-    -- clamped at 1 so stacking can never mint money on a bust.
+    -- The Sink: a busted table hands part of its buy-in back. Additive.
+    -- The old clamp at 1 is gone: the corrupted Sink refunds 120%, which
+    -- minting money on a bust is the whole point of, in Act 3.
     reg:register("bust_refund_pct", function(e, ctx)
-        ctx.bust_refund_pct = math.min(1, (ctx.bust_refund_pct or 0) + (e.value or 0))
+        ctx.bust_refund_pct = (ctx.bust_refund_pct or 0) + (e.value or 0)
+    end)
+
+    -- ── Act 3 corruptions ──────────────────────────────────────────────
+    reg:register("anti_award_mult", function(e, ctx)
+        ctx.anti_award_mult = (ctx.anti_award_mult or 1) * (e.value or 1)
+    end)
+    reg:register("first_anti_mult", function(e, ctx)
+        ctx.first_anti_mult = math.max(ctx.first_anti_mult or 1, e.value or 1)
+    end)
+    reg:register("overcap_loss_mult", function(e, ctx)
+        ctx.overcap_loss_mult = (ctx.overcap_loss_mult or 1) * (e.value or 1)
+    end)
+    reg:register("copy_denied_chance", function(e, ctx)
+        ctx.copy_denied_chance = math.max(ctx.copy_denied_chance or 0, e.value or 0)
     end)
     -- Tori Gate: the active deck learns faster. Consumed in Decks.gainXp
     -- via GrindController:_grantDeckXp.

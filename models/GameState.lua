@@ -185,6 +185,7 @@ function GameState:new(saved)
     instance.first_stack_loss_voided_this_run = false
     instance.denied_copied_this_run           = false
     instance.first_bounty_this_run            = false
+    instance.first_anti_this_run              = false   -- corrupted Fridge latch
     -- Hands resolved since a {chip} bounty last banked (0 on a banking
     -- hand). Run-scoped; drives the tutorial's shove-stall nudge.
     instance.hands_since_last_bank = 0
@@ -234,6 +235,7 @@ function GameState:resetRun()
     self.first_stack_loss_voided_this_run = false
     self.denied_copied_this_run           = false
     self.first_bounty_this_run            = false
+    self.first_anti_this_run              = false
     self.hands_since_last_bank = 0
     -- Freeze the run's losses before wiping them — the Dishwasher spends
     -- the frozen figure at the next applyStartingPerks.
@@ -418,6 +420,7 @@ function GameState:applySaved(saved)
     self.first_stack_loss_voided_this_run = self.first_stack_loss_voided_this_run or false
     self.denied_copied_this_run           = self.denied_copied_this_run or false
     self.first_bounty_this_run            = self.first_bounty_this_run or false
+    self.first_anti_this_run              = self.first_anti_this_run or false
 end
 
 -- Drop unknown deck ids from unlocked_decks / deck_levels / deck_xp and
@@ -548,6 +551,7 @@ function GameState:serializeRun()
         first_stack_loss_voided_this_run = self.first_stack_loss_voided_this_run,
         denied_copied_this_run           = self.denied_copied_this_run,
         first_bounty_this_run            = self.first_bounty_this_run,
+        first_anti_this_run              = self.first_anti_this_run,
         hands_since_last_bank      = self.hands_since_last_bank,
         run_money_lost             = self.run_money_lost,
     }
@@ -638,11 +642,18 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
                 for _, e in ipairs(item.effects) do
                     local copy = {}
                     for k, v in pairs(e) do copy[k] = v end
-                    if copy.strength then
+                    local kind_meta = EffectKinds[copy.kind]
+                    local scale     = kind_meta and kind_meta.scale
+                    if scale == "integer" or scale == "fill" then
+                        -- +1 focus / +1 cursor stays +1: a scaled integer
+                        -- is floored downstream and reads as nothing. A
+                        -- fill level stays one unit: the multiplier is
+                        -- applied to the per-level gain in the outcome
+                        -- model, so MAX stays where the level count is.
+                    elseif copy.strength then
                         copy.strength = copy.strength * upgrade_mult
                     elseif copy.value then
-                        local kind_meta = EffectKinds[copy.kind]
-                        if kind_meta and kind_meta.scale == "value_mult1" then
+                        if scale == "value_mult1" then
                             copy.value = (copy.value - 1) * upgrade_mult + 1
                         else
                             copy.value = copy.value * upgrade_mult

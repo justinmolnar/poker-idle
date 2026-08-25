@@ -6,18 +6,22 @@
 -- truth; called both at-shove-time (ShoveState locks the value) and live-
 -- rendering-time (top bar + SHOVE button render every frame).
 --
--- ─── Formula (locked, see docs/math.md + docs/act3-endgame-plan.md) ─────
---   r1 = clamp((catalog + deck) × mult)         (no cheat)
---   r2 = clamp(deck × (mult / 2))               (cheat 1: bankroll halved,
---                                                catalog base nullified)
---   r3 = clamp((deck / 2) × (mult / 2))         (cheat 2: deck also halved)
+-- ─── Formula ────────────────────────────────────────────────────────────
+--   r1 = clamp((catalog + deck) × mult)   no card covers anything
+--   r2 = clamp(deck × mult)               card 6 covers the catalog BASE
+--   r3 = clamp(deck × mult3)              card 7 covers the MULT: mult3 is
+--                                         0, or 999 once the bankroll has
+--                                         underflowed (Act 3's way through)
 --   clear = r1 × r2 × r3
 --
--- Two base sources: `catalog` (ctx.shove_rate, from catalog shove_rate_add
--- effects) and `deck` (ctx.shove_base, from the master deck). The master
--- deck base is the ONLY base that survives the dealer's R2 cheat, so with no
--- master deck (deck = 0) r2 = r3 = 0 and R2 is unwinnable — the Act 2 gate.
--- Building the master deck lifts R1 too.
+-- A cheat card covers a number. Nothing is halved and nothing is zeroed
+-- "forever": the multiplier is the real bankroll multiplier on every
+-- runout except the one whose card is on it. Two base sources: `catalog`
+-- (ctx.shove_rate, from catalog shove_rate_add effects) and `deck`
+-- (ctx.shove_base, from the master deck). The master deck base is the
+-- ONLY base that survives card 6, so with no master deck r2 = 0 and R2
+-- is unwinnable: the Act 2 gate. R3 is unwinnable until the underflow:
+-- the Act 3 gate.
 --
 -- The 1.0 clamp is a math-reality clamp — you can't have >100% chance.
 -- `clear` is what the player is actually risking when they SHOVE; it's the
@@ -25,10 +29,11 @@
 -- tooltip so the player can see where the wall is (math.md: "R3 is always
 -- the wall").
 --
--- The two halvings are the dealer's two cheats. Diegetically: cheat 1
--- attacks your bankroll-as-tribute, cheat 2 also disqualifies your
--- catalog-as-evidence. Mechanically: they reduce different multiplicative
--- factors so each runout is structurally weaker than the last.
+-- The two cards are the dealer's two cheats. Diegetically: card 6 covers
+-- your catalog-as-evidence, card 7 covers your bankroll-as-tribute. The
+-- underflow is the bankroll multiplier itself wrapping to 999: it applies
+-- to every runout, and R3's covered mult comes out from under the card as
+-- that same 999.
 
 local BankrollTiers = require("data.bankroll_tiers")
 local Constants     = require("data.constants")
@@ -90,11 +95,12 @@ local function clamp01(v)
     return v
 end
 
-local function buildRates(catalog, deck, mult, tier)
-    -- catalog base wins R1; the master-deck base survives the R2 cheat.
+local function buildRates(catalog, deck, mult, tier, mult3)
+    -- catalog base wins R1; the master-deck base survives card 6; card 7
+    -- covers the mult on R3 (mult3: 0, or 999 after the underflow).
     local raw1 = (catalog + deck) * mult
-    local raw2 = deck * (mult / 2)
-    local raw3 = (deck / 2) * (mult / 2)
+    local raw2 = deck * mult
+    local raw3 = deck * (mult3 or 0)
     local r1   = clamp01(raw1)
     local r2   = clamp01(raw2)
     local r3   = clamp01(raw3)
@@ -158,17 +164,18 @@ function ShoveRate.compute(ctx, bankroll)
     local lower, upper = lookupBracket(bankroll or 0)
     local mult = interpolateMult(bankroll or 0, lower, upper)
 
-    -- Act 3 underflow mechanism: dealer zeroes mult, underflow overrides to 999x.
-    if ctx and ctx.shove_r2_won then
-        local threshold = Constants.GAMEPLAY.UNDERFLOW_THRESHOLD or -100000000000
-        if (bankroll or 0) < threshold then
-            mult = 999
-        else
-            mult = 0
-        end
+    -- Card 7 covers the multiplier on R3 only (mult3 = 0). R1 and R2 keep
+    -- the real multiplier in every act; zeroing it globally used to make
+    -- R1 unwinnable the moment Act 3 began. The underflow is the
+    -- multiplier wrapping to 999 for every runout, R3's included.
+    local mult3 = 0
+    if ShoveRate.underflowed(bankroll) then
+        mult  = 999
+        mult3 = 999
     end
 
-    local rates = buildRates(base, deck, mult, lower)
+    local rates = buildRates(base, deck, mult, lower, mult3)
+    rates.mult3 = mult3
     rates.bankroll = bankroll or 0
     return rates
 end
@@ -210,7 +217,7 @@ function ShoveRate.computeFromBase(catalog, bankroll)
     local lower, upper = lookupBracket(bankroll or 0)
     local mult = interpolateMult(bankroll or 0, lower, upper)
     -- Debug-only synthesis from a raw catalog base; no deck base.
-    local rates = buildRates(catalog or 0, 0, mult, lower)
+    local rates = buildRates(catalog or 0, 0, mult, lower, 0)
     rates.bankroll = bankroll or 0
     return rates
 end

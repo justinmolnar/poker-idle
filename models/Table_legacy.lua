@@ -180,17 +180,60 @@ local function sumFills(list, gtype)
     return total
 end
 
--- Convert fill units to a [0, 1] ratio via the stake's fill_window.
--- Below window.start: 0 (warmup). At window.complete: 1. Linear in between.
-local function fillRatio(units, window)
-    if not window then return 1 end
+-- Convert fill units to a ratio via the stake's fill_window. Below
+-- window.start: 0 (warmup). At window.complete: 1. Bonus levels
+-- (ctx.run_upgrade_bonus_levels) extend the top at the same per-level
+-- rate (mirror of models/outcome_math).
+-- (Mirror of models/outcome_math.) The window a stake actually fills against, after the ctx modifiers:
+-- widening (fill_window_widen: start down, complete up, symmetric) and
+-- cascade (fill_cascade: start at 0, so every level counts at every
+-- stake). ONE definition, read by the model (fillRatio), the sidebar
+-- tooltip's MAX cell and the shop's level cap, so all three agree on
+-- where a stake's max is. They used to disagree: the tooltip and the
+-- shop read the raw window, so with Tier Manipulator the grid said MAX
+-- two levels early and the last widened levels could not be bought.
+--   returns start, complete
+local function effectiveWindow(window, ctx)
     local start    = window.start    or 0
     local complete = window.complete or (start + 1)
+    -- Each point of widen alternates: one off the start (the stake begins
+    -- improving a level earlier), one onto the top (one more level to
+    -- buy). A point that cannot go down (start is already 0) goes up
+    -- instead, so a point is never lost: T1 (0..5) with 4 points is 0..9,
+    -- T3 (6..11) is 4..13.
+    local L = ctx and ctx.fill_window_widen
+    if L and L > 0 then
+        for i = 1, L do
+            if i % 2 == 1 and start > 0 then
+                start = start - 1
+            else
+                complete = complete + 1
+            end
+        end
+    end
+    if ctx and ctx.fill_cascade then start = 0 end
+    return start, complete
+end
+
+local function fillRatio(units, window, ctx)
+    if not window then return 1 end
+    local start, complete = effectiveWindow(window, ctx)
     local span     = complete - start
     if span <= 0 then return units >= complete and 1 or 0 end
-    local r = (units - start) / span
+    -- "15% stronger" applies to every level, the warm-up ones included:
+    -- each level counts as `mult` units against a window whose top is
+    -- scaled the same way, so a stronger build enters a stake's window
+    -- sooner and STILL tops out at exactly its level count (r = 1 at
+    -- complete). buildOutcome then scales the gain by mult. Eating the
+    -- warm-up without scaling the top is what made MAX land at level 9.
+    local mult  = (ctx and ctx.run_upgrade_strength_mult) or 1
+    local units_m = units * mult
+    local span_m  = complete * mult - start
+    if span_m <= 0 then span_m = span end
+    local r_max = (span_m + ((ctx and ctx.run_upgrade_bonus_levels) or 0) * mult) / span_m
+    local r = (units_m - start) / span_m
     if r < 0 then return 0 end
-    if r > 1 then return 1 end
+    if r > r_max then return r_max end
     return r
 end
 
@@ -217,16 +260,18 @@ local function buildOutcome(ctx, gtype, stake)
 
     -- 2. Convert to fill ratio via stake's window.
     local window = stake and stake.fill_window
-    local wc_fill = fillRatio(wc_units, window)
-    local wd_fill = fillRatio(wd_units, window)
-    local ld_fill = fillRatio(ld_units, window)
+    local wc_fill = fillRatio(wc_units, window, ctx)
+    local wd_fill = fillRatio(wd_units, window, ctx)
+    local ld_fill = fillRatio(ld_units, window, ctx)
 
-    -- 3. Lerp naked → run-capped on each dimension.
+    -- 3. Lerp naked → run-capped on each dimension; the strength
+    --    multiplier scales the gain per level (mirror of outcome_math).
+    local gain_mult = (ctx and ctx.run_upgrade_strength_mult) or 1
     local naked_wc  = (stake and stake.win_chance)        or 0
     local capped_wc = (stake and stake.win_chance_capped) or naked_wc
-    local win_chance = naked_wc + (capped_wc - naked_wc) * wc_fill
-    local win_dist   = lerpDist(stake and stake.win_dist,  stake and stake.win_dist_capped,  wd_fill)
-    local loss_dist  = lerpDist(stake and stake.loss_dist, stake and stake.loss_dist_capped, ld_fill)
+    local win_chance = naked_wc + (capped_wc - naked_wc) * wc_fill * gain_mult
+    local win_dist   = lerpDist(stake and stake.win_dist,  stake and stake.win_dist_capped,  wd_fill * gain_mult)
+    local loss_dist  = lerpDist(stake and stake.loss_dist, stake and stake.loss_dist_capped, ld_fill * gain_mult)
 
     -- 4. Per-gtype additive shape on both dists (depth/pace texture).
     if gtype and gtype.dist_shifts then
@@ -295,10 +340,11 @@ local function buildOutcome(ctx, gtype, stake)
     --    near-zero stack rate (the lerp+shift cancel out) — the Pot Control ramp
     --    silently broke in the prototype.
     if gtype and gtype.jackpot_emerge then
-        local sh     = gtype.dist_shifts and gtype.dist_shifts.win_dist
-        local offset = (sh and sh.jackpot) or 0
+        -- The target is a FRACTION of the stake's capped jackpot share
+        -- (gtype.jackpot_scale), scaled by the strength multiplier like
+        -- every other gain. A flat `capped + shift` fell to zero at T5.
         local capped = (stake and stake.win_dist_capped and stake.win_dist_capped.jackpot) or 0
-        local target = capped + offset
+        local target = capped * (gtype.jackpot_scale or 1) * gain_mult
         if target < 0 then target = 0 end
         local thr  = gtype.jackpot_emerge
         local ramp = (wd_fill - thr) / math.max(1e-6, 1 - thr)

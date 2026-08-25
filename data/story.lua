@@ -177,9 +177,9 @@ return {
                         { kind = "screen", name = "grind" },
                         { kind = "act3_unlocked" } },
             lines = {
-                { text = "Twice. Honestly, that's a first. Bad news: your multiplier's zero now. Money won't fix it.",
+                { text = "Twice. Honestly, that's a first. Bad news: the last card covers your multiplier, so the final hand is a zero however rich you are.",
                   anchor = "cell:shove" },
-                { text = "Good news: lose a stack up top and I'll pay you for it. Spend those in the catalog on things you already own.",
+                { text = "Good news: lose a whole stack anywhere and I'll pay you for it. The cheaper the table, the more. Spend those in the catalog on things you already own.",
                   anchor = { "cell:achips", "btn:catalog" } },
                 { text = "And your money sits in a box with a bottom. Worth knowing.", anchor = "cell:underflow" },
             },

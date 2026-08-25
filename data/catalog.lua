@@ -167,6 +167,13 @@ local items = {
             { kind = "shove_rate_add",   value = 0.010 },
             { kind = "win_chance_shift", amount = 0.10, gtype = "hu" },
         },
+        corrupt = {
+            cost_achip = 2,
+            effects = {
+                { kind = "win_chance_shift", amount = 0.35, gtype = "hu" },
+            },
+            effect_text = "+35% win chance at Heads-Up.",
+        },
     },
     {
         id          = "energy_drink",
@@ -181,6 +188,13 @@ local items = {
             { kind = "shove_rate_add",  value = 0.008 },
             { kind = "hand_pace_mult",  value = 1.25 },
         },
+        corrupt = {
+            cost_achip = 2,
+            effects = {
+                { kind = "hand_pace_mult", value = 4.0 },
+            },
+            effect_text = "Hands resolve 4× faster.",
+        },
     },
     {
         id          = "whiteboard",
@@ -194,6 +208,13 @@ local items = {
         effects     = {
             { kind = "shove_rate_add",   value = 0.010 },
             { kind = "win_chance_shift", amount = 0.05 },
+        },
+        corrupt = {
+            cost_achip = 2,
+            effects = {
+                { kind = "win_chance_shift", amount = 0.2 },
+            },
+            effect_text = "+20% win chance at all tables.",
         },
     },
     {
@@ -210,6 +231,13 @@ local items = {
             { kind = "win_tier_shift",
               from = "small", to = "medium", chance = 0.25 },
         },
+        corrupt = {
+            cost_achip = 3,
+            effects = {
+                { kind = "win_tier_shift", from = "small", to = "medium", chance = 0.45 },
+            },
+            effect_text = "45% chance {small} {arrow} {medium}.",
+        },
     },
     {
         id          = "stress_ball",
@@ -225,6 +253,13 @@ local items = {
             { kind = "loss_tier_shift",
               from = "large", to = "medium", chance = 0.25 },
         },
+        corrupt = {
+            cost_achip = 2,
+            effects = {
+                { kind = "loss_tier_shift", from = "large", to = "jackpot", chance = 0.4 },
+            },
+            effect_text = "40% chance {l:large} {arrow} {l:stack}.",
+        },
     },
     {
         id          = "lucky_coin",
@@ -238,6 +273,13 @@ local items = {
         effects     = {
             { kind = "shove_rate_add",     value = 0.010 },
             { kind = "start_bankroll_pct", value = 0.50 },
+        },
+        corrupt = {
+            cost_achip = 3,
+            effects = {
+                { kind = "start_bankroll_pct", value = 25.0 },
+            },
+            effect_text = "Start with 25× last run's bankroll.",
         },
     },
     {
@@ -253,6 +295,13 @@ local items = {
             { kind = "shove_rate_add", value = 0.012 },
             { kind = "win_tier_shift",
               from = "medium", to = "large", chance = 0.15 },
+        },
+        corrupt = {
+            cost_achip = 3,
+            effects = {
+                { kind = "win_tier_shift", from = "medium", to = "large", chance = 0.45 },
+            },
+            effect_text = "45% chance {medium} {arrow} {large}.",
         },
     },
     {
@@ -279,12 +328,11 @@ local items = {
             text      = "{l:stack} losses taken",
         },
         corrupt = {
-            cost_achip = 5,
+            cost_achip = 2,
             effects = {
-                { kind = "shove_rate_add", value = 0.20 },
-                { kind = "loss_tier_shift", from = "jackpot", to = "small", chance = 0.90 },
+                { kind = "anti_award_mult", value = 2.0 },
             },
-            effect_text = "90% chance to soften {l:stack} {arrow} {l:small}.",
+            effect_text = "{l:stack} losses pay {achip} twice.",
         },
     },
     {
@@ -298,6 +346,13 @@ local items = {
         effects     = {
             { kind = "shove_rate_add", value = 0.008 },
             { kind = "earnings_mult",  value = 1.25 },
+        },
+        corrupt = {
+            cost_achip = 4,
+            effects = {
+                { kind = "earnings_mult", value = 4.0 },
+            },
+            effect_text = "Wins pay 4×.",
         },
     },
     {
@@ -318,6 +373,13 @@ local items = {
             threshold = 3,
             text      = "tables busted",
         },
+        corrupt = {
+            cost_achip = 2,
+            effects = {
+                { kind = "loss_tier_shift", from = "small", to = "jackpot", chance = 0.35 },
+            },
+            effect_text = "35% chance {l:small} {arrow} {l:stack}.",
+        },
     },
 
     -- ═══ BAND B — Act 1 late (T2-T3) · 190 {chip} · shove 0.135 ═════════
@@ -334,6 +396,13 @@ local items = {
         effects     = {
             { kind = "shove_rate_add",     value = 0.006 },
             { kind = "start_bankroll_add", value = 5 },
+        },
+        corrupt = {
+            cost_achip = 3,
+            effects = {
+                { kind = "start_bankroll_add", value = 100000 },
+            },
+            effect_text = "+$100,000 starting bankroll.",
         },
     },
     {
@@ -354,11 +423,18 @@ local items = {
             threshold = 25,
             text      = "{chip} banked",
         },
+        corrupt = {
+            cost_achip = 3,
+            effects = {
+                { kind = "first_bounty_bonus", value = 8 },
+            },
+            effect_text = "First {chip} bounty each run pays +8.",
+        },
     },
     {
         id          = "calculator",
         name        = "Calculator",
-        effect_text = "Upgrades are 15% stronger.",
+        effect_text = "Sharper Reads and Pot Control 15% stronger.",
         description = "Solar. Works under the desk lamp.",
         sprite      = "calculator",
         phase       = "mid",
@@ -367,6 +443,13 @@ local items = {
         effects     = {
             { kind = "shove_rate_add",            value = 0.006 },
             { kind = "run_upgrade_strength_mult", value = 0.15 },
+        },
+        corrupt = {
+            cost_achip = 4,
+            effects = {
+                { kind = "run_upgrade_strength_mult", value = 1.5 },
+            },
+            effect_text = "Sharper Reads and Pot Control 2.5× stronger.",
         },
     },
     {
@@ -386,6 +469,13 @@ local items = {
             threshold = 25,
             text      = "upgrade levels bought",
         },
+        corrupt = {
+            cost_achip = 4,
+            effects = {
+                { kind = "run_upgrade_cost_mult", value = 0.2 },
+            },
+            effect_text = "Upgrades cost 80% less.",
+        },
     },
     {
         id          = "headphones",
@@ -402,8 +492,10 @@ local items = {
         },
         corrupt = {
             cost_achip = 8,
-            effects = { { kind = "loss_mult", value = 0.50 } },
-            effect_text = "Losses 50% softer.",
+            effects = {
+                { kind = "loss_mult", value = 3.0 },
+            },
+            effect_text = "Losses 3× bigger.",
         },
     },
     {
@@ -424,6 +516,13 @@ local items = {
             threshold = 60,
             text      = "{chip} banked",
         },
+        corrupt = {
+            cost_achip = 4,
+            effects = {
+                { kind = "jackpot_chip_add", value = 4 },
+            },
+            effect_text = "+4 {chip} on every bounty.",
+        },
     },
     {
         id          = "water_cooler",
@@ -443,6 +542,13 @@ local items = {
             threshold = 2000,
             text      = "hands at 6-max",
         },
+        corrupt = {
+            cost_achip = 5,
+            effects = {
+                { kind = "win_chance_shift", amount = 0.35, gtype = "six_max" },
+            },
+            effect_text = "+35% win chance at 6-max.",
+        },
     },
     {
         id          = "free_sit",
@@ -456,6 +562,13 @@ local items = {
         effects     = {
             { kind = "shove_rate_add",    value = 0.010 },
             { kind = "start_table_count", value = 1 },
+        },
+        corrupt = {
+            cost_achip = 5,
+            effects = {
+                { kind = "start_table_count", value = 6 },
+            },
+            effect_text = "Start each run with 6 tables.",
         },
     },
     {
@@ -474,6 +587,13 @@ local items = {
             kind      = "total_rebuys",
             threshold = 50,
             text      = "rebuys",
+        },
+        corrupt = {
+            cost_achip = 5,
+            effects = {
+                { kind = "rebuy_discount", value = 0.75 },
+            },
+            effect_text = "Rebuys cost 75% less.",
         },
     },
     {
@@ -494,6 +614,14 @@ local items = {
             threshold = 500,
             text      = "hands over focus cap",
         },
+        corrupt = {
+            cost_achip = 5,
+            effects = {
+                { kind = "focus_penalty_immune" },
+                { kind = "overcap_loss_mult", value = 3.0 },
+            },
+            effect_text = "No focus penalty. Tables over the cap lose 3× bigger.",
+        },
     },
     {
         id          = "headset",
@@ -512,6 +640,13 @@ local items = {
             gtype     = "zoom",
             threshold = 2000,
             text      = "Zoom hands",
+        },
+        corrupt = {
+            cost_achip = 5,
+            effects = {
+                { kind = "win_chance_shift", amount = 0.35, gtype = "zoom" },
+            },
+            effect_text = "+35% win chance at Zoom.",
         },
     },
     {
@@ -532,6 +667,13 @@ local items = {
             threshold = 1,
             text      = "tournament wins",
         },
+        corrupt = {
+            cost_achip = 6,
+            effects = {
+                { kind = "mtt_payout_boost", value = 3 },
+            },
+            effect_text = "Tournament cashes pay 20× / 40× / 80×.",
+        },
     },
     {
         id          = "fridge",
@@ -551,6 +693,13 @@ local items = {
             threshold = 25,
             text      = "{l:stack} losses taken",
         },
+        corrupt = {
+            cost_achip = 6,
+            effects = {
+                { kind = "first_anti_mult", value = 3.0 },
+            },
+            effect_text = "First {l:stack} each run pays {achip} 3×.",
+        },
     },
     {
         id          = "wall_clock",
@@ -569,6 +718,13 @@ local items = {
             threshold = 5000,
             text      = "hands played",
         },
+        corrupt = {
+            cost_achip = 7,
+            effects = {
+                { kind = "auto_win_chance", amount = 0.25 },
+            },
+            effect_text = "25% of hands win outright.",
+        },
     },
 
     -- ═══ BAND C — Act 2, deck era (T4-T6) · 330 {chip} · shove 0.200 ════
@@ -585,6 +741,13 @@ local items = {
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "buy_in_mult",    value = 0.85 },
+        },
+        corrupt = {
+            cost_achip = 5,
+            effects = {
+                { kind = "buy_in_mult", value = 0.3 },
+            },
+            effect_text = "Buy-ins 70% cheaper.",
         },
     },
     {
@@ -604,6 +767,13 @@ local items = {
             threshold = 1000,
             text      = "hands at 4+ tables",
         },
+        corrupt = {
+            cost_achip = 6,
+            effects = {
+                { kind = "focus_capacity_add", value = 4 },
+            },
+            effect_text = "+4 focus capacity.",
+        },
     },
     {
         id            = "first_cursor",
@@ -621,6 +791,14 @@ local items = {
             { kind = "cursor_count_add",      value = 1 },
             { kind = "cursor_optical_sensor" },
         },
+        corrupt = {
+            cost_achip = 6,
+            effects = {
+                { kind = "cursor_count_add", value = 4 },
+                { kind = "cursor_optical_sensor" },
+            },
+            effect_text = "+4 cursors.",
+        },
     },
     {
         id            = "mouse_pad",
@@ -637,6 +815,14 @@ local items = {
             { kind = "cursor_speed_mult",    value = 1.30 },
             { kind = "cursor_sync_unlocked" },
         },
+        corrupt = {
+            cost_achip = 6,
+            effects = {
+                { kind = "cursor_instant_click" },
+                { kind = "cursor_sync_unlocked" },
+            },
+            effect_text = "Cursors click instantly and coordinate.",
+        },
     },
     {
         id          = "cursor_pool",
@@ -651,6 +837,14 @@ local items = {
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
             { kind = "cursor_unlocked" },
+        },
+        corrupt = {
+            cost_achip = 7,
+            effects = {
+                { kind = "cursor_unlocked" },
+                { kind = "cursor_count_add", value = 8 },
+            },
+            effect_text = "+8 cursors.",
         },
     },
     {
@@ -668,6 +862,16 @@ local items = {
             { kind = "shove_rate_add",          value = 0.012 },
             { kind = "cursor_rebuy_unlocked" },
             { kind = "cursor_collision_phasing" },
+        },
+        corrupt = {
+            cost_achip = 7,
+            effects = {
+                { kind = "cursor_rebuy_unlocked" },
+                { kind = "cursor_collision_phasing" },
+                { kind = "cursor_sync_unlocked" },
+                { kind = "cursor_instant_click" },
+            },
+            effect_text = "Cursors rebuy, phase, sync and click instantly.",
         },
     },
     {
@@ -687,6 +891,13 @@ local items = {
             threshold = 100,
             text      = "tables busted",
         },
+        corrupt = {
+            cost_achip = 8,
+            effects = {
+                { kind = "bust_refund_pct", value = 1.2 },
+            },
+            effect_text = "Busted tables refund 120% of the buy-in.",
+        },
     },
     {
         id          = "toaster",
@@ -704,6 +915,13 @@ local items = {
             kind      = "total_jackpots",
             threshold = 250,
             text      = "Jackpots hit",
+        },
+        corrupt = {
+            cost_achip = 8,
+            effects = {
+                { kind = "tier_bump_chance", value = 0.35 },
+            },
+            effect_text = "35% chance a pot bumps one tier.",
         },
     },
     {
@@ -723,6 +941,13 @@ local items = {
             threshold = 250,
             text      = "rebuys",
         },
+        corrupt = {
+            cost_achip = 8,
+            effects = {
+                { kind = "free_rebuy_chance", value = 0.6 },
+            },
+            effect_text = "60% of rebuys are free.",
+        },
     },
     {
         id          = "filing_cabinet",
@@ -740,6 +965,13 @@ local items = {
             kind      = "total_upgrade_levels",
             threshold = 150,
             text      = "upgrade levels bought",
+        },
+        corrupt = {
+            cost_achip = 8,
+            effects = {
+                { kind = "fill_window_widen", value = 4 },
+            },
+            effect_text = "Upgrades reach 4 levels further.",
         },
     },
     {
@@ -760,6 +992,13 @@ local items = {
             threshold = 10,
             text      = "{chip} denied",
         },
+        corrupt = {
+            cost_achip = 9,
+            effects = {
+                { kind = "copy_denied_chance", value = 0.5 },
+            },
+            effect_text = "50% of denied {chip} bank anyway.",
+        },
     },
     {
         id          = "microwave",
@@ -778,6 +1017,13 @@ local items = {
             threshold = 500,
             text      = "Jackpots hit",
         },
+        corrupt = {
+            cost_achip = 10,
+            effects = {
+                { kind = "payout_double_chance", value = 0.45 },
+            },
+            effect_text = "45% chance a pot pays double.",
+        },
     },
     {
         id          = "engraved_plaque",
@@ -792,6 +1038,13 @@ local items = {
         effects     = {
             { kind = "shove_rate_add",   value = 0.014 },
             { kind = "mtt_payout_boost", value = 2 },
+        },
+        corrupt = {
+            cost_achip = 9,
+            effects = {
+                { kind = "mtt_payout_boost", value = 4 },
+            },
+            effect_text = "Tournament cashes pay 40× / 80× / 160×.",
         },
     },
     {
@@ -810,6 +1063,13 @@ local items = {
             kind      = "decks_unlocked_count",
             threshold = 3,
             text      = "decks unlocked",
+        },
+        corrupt = {
+            cost_achip = 10,
+            effects = {
+                { kind = "deck_xp_mult", value = 8.0 },
+            },
+            effect_text = "Active deck earns 8× XP.",
         },
     },
     {
@@ -831,6 +1091,14 @@ local items = {
             threshold = 2500,
             text      = "hands over focus cap",
         },
+        corrupt = {
+            cost_achip = 13,
+            effects = {
+                { kind = "focus_capacity_add", value = 10 },
+                { kind = "earnings_mult", value = 0.5 },
+            },
+            effect_text = "+10 focus. Wins pay 50% less.",
+        },
     },
 
     -- ═══ BAND D — Act 2 late · 233 {chip} · shove 0.120 ═════════════════
@@ -851,6 +1119,13 @@ local items = {
             kind      = "highest_stake_idx",
             threshold = 4,
             text      = "stake tiers reached",
+        },
+        corrupt = {
+            cost_achip = 9,
+            effects = {
+                { kind = "buy_in_mult", value = 0.1, tier_min = 4 },
+            },
+            effect_text = "Buy-ins 90% cheaper at NL1K and above.",
         },
     },
     {
@@ -876,6 +1151,13 @@ local items = {
             -- the plain count one.
             format    = "money",
         },
+        corrupt = {
+            cost_achip = 10,
+            effects = {
+                { kind = "win_dist_shift", shift = { small = -0.4, jackpot = 0.4 }, tier_min = 4 },
+            },
+            effect_text = "At NL1K and above, 40% more wins land as {w:stack}.",
+        },
     },
     {
         id          = "supply_closet",
@@ -895,6 +1177,13 @@ local items = {
             threshold = 300,
             text      = "upgrade levels bought",
         },
+        corrupt = {
+            cost_achip = 11,
+            effects = {
+                { kind = "run_upgrade_bonus_levels", value = 4 },
+            },
+            effect_text = "+4 levels on every upgrade.",
+        },
     },
     {
         id          = "dishwasher",
@@ -912,6 +1201,13 @@ local items = {
         unlock = {
             kind = "shove_r1_won",
             text = "Win your first shove",
+        },
+        corrupt = {
+            cost_achip = 12,
+            effects = {
+                { kind = "loss_recycle_pct", value = 0.75 },
+            },
+            effect_text = "Start with 75% of last run's losses.",
         },
     },
     {
@@ -932,6 +1228,13 @@ local items = {
             threshold = 250,
             text      = "{l:stack} losses taken",
         },
+        corrupt = {
+            cost_achip = 12,
+            effects = {
+                { kind = "loss_dist_shift", shift = { small = -0.5, jackpot = 0.5 } },
+            },
+            effect_text = "Half of all losses roll {l:stack}.",
+        },
     },
     {
         id          = "bathtub",
@@ -951,6 +1254,13 @@ local items = {
             threshold = 1,
             text      = "decks maxed",
         },
+        corrupt = {
+            cost_achip = 12,
+            effects = {
+                { kind = "earnings_per_tier", value = 0.5 },
+            },
+            effect_text = "Wins pay +50% more per stake tier.",
+        },
     },
     {
         id          = "tip_jar",
@@ -969,6 +1279,13 @@ local items = {
             kind      = "total_chips_banked",
             threshold = 500,
             text      = "{chip} banked",
+        },
+        corrupt = {
+            cost_achip = 12,
+            effects = {
+                { kind = "chip_award_mult", value = 4.0 },
+            },
+            effect_text = "{chip} bounties pay 4×.",
         },
     },
 
@@ -1025,6 +1342,19 @@ for _, item in ipairs(items) do
         end
         if not found_shove then
             table.insert(item.effects, 1, { kind = "shove_rate_add", value = Balance.getItemShoveRate(item.id) })
+        end
+        -- A corrupt block REPLACES the item's effects (GameState:computeEffects),
+        -- so one without a shove_rate_add would strip the item's shove base.
+        -- Give it the item's own unless the block authored a value.
+        if item.corrupt and item.corrupt.effects then
+            local has = false
+            for _, eff in ipairs(item.corrupt.effects) do
+                if eff.kind == "shove_rate_add" then has = true end
+            end
+            if not has then
+                table.insert(item.corrupt.effects, 1,
+                    { kind = "shove_rate_add", value = Balance.getItemShoveRate(item.id) })
+            end
         end
     end
 end
