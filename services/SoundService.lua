@@ -30,6 +30,25 @@ local _file_sources = {}   -- { [path] = love.audio.Source }   prototype/cloned 
 -- compound with other heap pressure into observable lag.
 local _clone_pool   = {}   -- { [path] = { source, source, ... } }
 local _master       = 1.0  -- master volume 0–1
+-- Discovered sounds (services/SoundLoader) sit behind data/sounds.lua: a
+-- name with no preset plays the file that shares its name, following
+-- sprite aliases from `_alias_source.aliases` when one is attached.
+local _loader       = nil
+local _alias_source = nil
+local _mix          = Sounds._mix or {}
+local _damage       = 0          -- 0..1, the global damage bus (underflow)
+local _efx_ready    = nil        -- nil untried, true set up, false unavailable
+
+-- The OpenAL distortion effect, set up once and only where it exists
+-- (desktop yes, love.js no). A failure just means the cheap damage.
+local function efxReady()
+    if _efx_ready ~= nil then return _efx_ready end
+    local d = _mix.damage and _mix.damage.efx
+    local ok = d and love.audio and love.audio.setEffect
+        and pcall(love.audio.setEffect, "damage", d)
+    _efx_ready = ok and true or false
+    return _efx_ready
+end
 
 -- ── Tone generators ──────────────────────────────────────────────────────────
 
@@ -117,8 +136,44 @@ end
 -- Play a file-based sound. The base source is cached by path; each play
 -- clones it so overlapping triggers (e.g. successive card-deal beats) don't
 -- cut each other off. Cheap — clone reuses the same SoundData.
-function SoundService.playFile(path, volume_mult)
+function SoundService.attachLoader(loader, alias_source)
+    _loader       = loader
+    _alias_source = alias_source
+end
+
+-- True when `name` is a preset or a discovered file.
+function SoundService.has(name)
+    if Sounds[name] then return true end
+    local aliases = _alias_source and _alias_source.aliases
+    return _loader ~= nil and _loader:has(name, aliases)
+end
+
+-- Global damage 0..1: everything played sounds broken (the underflow).
+function SoundService.setDamage(level)
+    _damage = math.max(0, math.min(1, level or 0))
+end
+
+function SoundService.getDamage()
+    return _damage
+end
+
+local function rnd(lo, hi)
+    local r = (love.math and love.math.random) or math.random
+    return lo + (hi - lo) * r()
+end
+
+function SoundService.playFile(path, volume_mult, pitch, damaged)
     if not path then return end
+    local dmg = _mix.damage
+    local level = math.max(_damage, damaged and 1 or 0)
+    if level > 0 and dmg then
+        if rnd(0, 1) < dmg.dropout * level then return end     -- swallowed
+        pitch = (pitch or 1.0) * (1 + rnd(-dmg.pitch_wobble, dmg.pitch_wobble) * level)
+        volume_mult = (volume_mult or 1.0) * (1 - (1 - dmg.volume) * level)
+    end
+    -- Nothing repeats identically.
+    local j = _mix.pitch_jitter or 0
+    if j > 0 then pitch = (pitch or 1.0) * (1 + rnd(-j, j)) end
     local base = _file_sources[path]
     if not base then
         local ok, src = pcall(love.audio.newSource, path, "static")
@@ -139,6 +194,11 @@ function SoundService.playFile(path, volume_mult)
         pool[#pool + 1] = s
     end
     s:setVolume(math.max(0, math.min(1, (volume_mult or 1.0) * _master)))
+    if s.setPitch then s:setPitch(pitch or 1.0) end
+    if s.setEffect then
+        if level > 0 and efxReady() then pcall(s.setEffect, s, "damage")
+        elseif _efx_ready then pcall(s.setEffect, s, "damage", false) end
+    end
     s:stop()
     s:play()
 end
@@ -151,19 +211,30 @@ end
 -- sound played alongside (e.g. an ambient loop layered under a click).
 -- Recursion lets layers themselves carry layers, but in practice we only use
 -- a single level of nesting.
-local function playEntry(entry, vol_mult)
+local function playEntry(entry, vol_mult, pitch, damaged)
     if not entry then return end
     vol_mult = vol_mult or 1.0
     local v  = (entry.volume or 1) * vol_mult
     if entry.files and #entry.files > 0 then
         local pick = entry.files[love.math.random(1, #entry.files)]
-        SoundService.playFile(pick, v)
+        SoundService.playFile(pick, v, pitch, damaged)
     elseif entry.file then
-        SoundService.playFile(entry.file, v)
+        SoundService.playFile(entry.file, v, pitch, damaged)
     elseif entry.kind then
         SoundService.play(entry.kind, v)
     end
-    if entry.layer then playEntry(entry.layer, vol_mult) end
+    if entry.layer then playEntry(entry.layer, vol_mult, pitch, damaged) end
+end
+
+-- Pitch for step `i` of an accelerating sequence of `n` steps: `from` at
+-- the first step rising to `to` at the last. Every sequence that speeds up
+-- (a chip pour, a count, a flood of cards) uses this so they all rise the
+-- same way; the numbers live with the sequence's other timings in data.
+function SoundService.rampPitch(i, n, from, to)
+    from, to = from or 1.0, to or 1.5
+    if not n or n <= 1 then return from end
+    local t = math.max(0, math.min(1, (i - 1) / (n - 1)))
+    return from + (to - from) * t
 end
 
 -- Look up a semantic name in data/sounds.lua and play it. Optional opts:
@@ -171,9 +242,28 @@ end
 --                      Used for tier-scaled feedback (quiet on Small,
 --                      louder on Jackpot) without duplicating sound
 --                      entries per tier.
+--   opts.pitch       — playback pitch (1 = as recorded); presets and
+--                      discovered files alike. See rampPitch.
+--   opts.damaged     — play through the damage bus (a corrupted item).
 function SoundService.playNamed(name, opts)
+    if name == "_mix" then return false end
     local vol_mult = (opts and opts.volume_mult) or 1.0
-    playEntry(Sounds[name], vol_mult)
+    local pitch    = opts and opts.pitch
+    local damaged  = opts and opts.damaged
+    local entry = Sounds[name]
+    if entry then
+        playEntry(entry, vol_mult, pitch, damaged)
+        return true
+    end
+    if _loader then
+        local aliases = _alias_source and _alias_source.aliases
+        local path = _loader:resolve(name, aliases)
+        if path then
+            SoundService.playFile(path, vol_mult, pitch, damaged)
+            return true
+        end
+    end
+    return false
 end
 
 function SoundService.stopAll()

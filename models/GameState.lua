@@ -325,6 +325,18 @@ function GameState:applySaved(saved)
     if saved.run then
         AutoSerializer.apply(self, saved.run, GameState.REFS, function() return nil end)
     end
+    -- Catalog ids renamed after saves went public (data/catalog_id_migrations).
+    do
+        local Migrations = require("data.catalog_id_migrations")
+        for _, key in ipairs{ "owned_items", "corrupted_items" } do
+            local list = self[key]
+            if type(list) == "table" then
+                for i, id in ipairs(list) do
+                    if Migrations[id] then list[i] = Migrations[id] end
+                end
+            end
+        end
+    end
     self.effects_cache = nil
 
     -- Currency rename pp → chips (2026-05, post public launch). Old saves

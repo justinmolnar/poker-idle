@@ -284,12 +284,18 @@ return {
         confetti_count = 14,
         curtain_secs   = 2.6,    -- silence over the pile before credits
         max_angle      = 0.6,    -- radians, cards landing off the board row
+        deal_pitch     = { from = 1.0, to = 1.6 },   -- the flood rises as it speeds up
     },
 
     -- The room counts you in. Before the felt, the player's room comes up
     -- and every owned item lights in turn while a counter climbs to the
     -- number that becomes BASE. Cadence: seconds between items by item
     -- index, slow first then a blur, like the ending's deal.
+    -- The chip pour into the pot before the deal.
+    buildup = {
+        land_pitch = { from = 1.0, to = 1.35 },   -- each landing a little higher than the last
+    },
+
     room = {
         fade_in    = 0.6,     -- room comes up from black
         first_tick = 0.8,     -- first item lights after the fade
@@ -299,6 +305,11 @@ return {
         lock_secs  = 1.2,     -- the final number sits before the cut
         empty_secs = 1.6,     -- nothing owned: the line, then the cut
         counter_y  = 0.19,    -- of H; the number, its label beside it on the same line
+        -- Each counted item plays the sound that shares its name (assets/audio/items);
+        -- pitch climbs with the index so the fill rises. No file: the chip tick.
+        item_volume   = 0.8,
+        item_pitch    = { from = 1.0, to = 1.5 },   -- rises across the count (SoundService.rampPitch)
+        fallback_tick = "chip_land_pot",
         room_dy    = 0.06,    -- of H; the room sits this much lower so the counter clears its top corner
         -- After the cut the number flies from where it sat to the BASE
         -- readout on the felt, shrinking to that font on the way.

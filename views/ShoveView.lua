@@ -290,6 +290,10 @@ end
 function ShoveView:beginRoomCount(room_view, ids, rates)
     self.room_view    = room_view
     self.room_ids     = ids or {}
+    self.room_corrupt = {}
+    for _, id in ipairs((self.game.state and self.game.state.corrupted_items) or {}) do
+        self.room_corrupt[id] = true
+    end
     self.room_lit     = {}
     self.room_lit_at  = {}
     self.room_count   = 0
@@ -772,7 +776,10 @@ function ShoveView:_dealExtra(i)
         self.winner   = "player"
         self.winner_t = 0
         if self.game.sounds and self.game.sounds.playNamed then
-            self.game.sounds.playNamed("cheat_card_dealt")
+            local P = Style.ending.deal_pitch
+            local n = #(self.extra_cards or {})
+            local pitch = self.game.sounds.rampPitch and self.game.sounds.rampPitch(i - 7, n, P.from, P.to) or 1
+            self.game.sounds.playNamed("cheat_card_dealt", { pitch = pitch })
         end
         local k = i - 7
         if i <= (E.confetti_first or 17) or k % (E.confetti_every or 5) == 0 then
@@ -983,7 +990,16 @@ function ShoveView:update(dt)
             self.room_lit_at[id] = love.timer.getTime()
             Pop.trigger("room_count")
             Pop.trigger("room_item:" .. id)
-            if sounds and sounds.playNamed then sounds.playNamed("chip_land_pot") end
+            if sounds and sounds.playNamed then
+                -- The item's own sound (the file that shares its name),
+                -- rising with the count; the chip tick when it has none.
+                local R = Style.room
+                local pitch = sounds.rampPitch and sounds.rampPitch(self.room_count, #self.room_ids,
+                    R.item_pitch.from, R.item_pitch.to) or 1
+                local damaged = self.room_corrupt and self.room_corrupt[id] or false
+                local played = sounds.playNamed(id, { volume_mult = R.item_volume, pitch = pitch, damaged = damaged })
+                if not played then sounds.playNamed(R.fallback_tick, { pitch = pitch, damaged = damaged }) end
+            end
         end
         if not self.room_locked and self.phase_t >= self.room_lock_t
            and self.room_count >= #self.room_ids then
@@ -1017,8 +1033,12 @@ function ShoveView:update(dt)
             end
             if arrived > (self.buildup_arrived_count or 0) then
                 self.buildup_arrived_count = arrived
-                if self.game.sounds and self.game.sounds.playNamed then
-                    self.game.sounds.playNamed("chip_land_pot")
+                local sounds = self.game.sounds
+                if sounds and sounds.playNamed then
+                    -- The pour rises: each landing a little higher than the last.
+                    local P = Style.buildup.land_pitch
+                    local pitch = sounds.rampPitch and sounds.rampPitch(arrived, #self.buildup_chips, P.from, P.to) or 1
+                    sounds.playNamed("chip_land_pot", { pitch = pitch })
                 end
             end
         end

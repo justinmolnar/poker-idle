@@ -129,7 +129,7 @@ return {
     -- upgrades can come with it.)
 
     -- ── Box of Mice — more cursors in the swarm ──────────────────────
-    -- Adds 1 cursor per level. Requires the catalog `cursor_pool` unlock
+    -- Adds 1 cursor per level. Requires the catalog `box_of_mice` unlock
     -- + at least one cursor (catalog or run) to do anything visible.
     -- 12 levels.
     {
@@ -141,7 +141,7 @@ return {
             "REBUY (if purchased in catalog) buttons automatically.",
         },
         icon          = "cursor",
-        requires      = "cursor_pool",
+        requires      = "box_of_mice",
         requires_hide = true,
         max_level     = 12,
         -- Steepened so cursor investment spans the game (tops ~$40M ≈ T6),
@@ -164,7 +164,7 @@ return {
             "+25% cursor movement speed.",
         },
         icon          = "cursor_speed",
-        requires      = "cursor_pool",
+        requires      = "box_of_mice",
         requires_hide = true,
         max_level     = 8,
         -- Steepened (8 levels, tops ~$30M). Placeholder.

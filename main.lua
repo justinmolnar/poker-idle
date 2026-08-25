@@ -19,6 +19,7 @@ local InputDispatcher = require("lib.input_dispatcher")
 
 local SaveService     = require("services.SaveService")
 local SoundService    = require("services.SoundService")
+local SoundLoader     = require("services.SoundLoader")
 local SpriteLoader    = require("services.SpriteLoader")
 local AnimationSystem = require("services.AnimationSystem")
 local FloatingText    = require("services.FloatingTextSystem")
@@ -178,6 +179,11 @@ local function buildGame()
     -- Stateful or instance-backed services live on the DI container so
     -- consumers reach them via `self.game.foo`.
     g.sounds          = SoundService
+    -- Sounds are discovered like sprites: a file under assets/audio pairs
+    -- with whatever shares its name (sprite aliases followed).
+    g.sound_loader    = SoundLoader:new()
+    g.sound_loader:loadAll()
+    SoundService.attachLoader(g.sound_loader, g.sprite_loader)
     g.animations      = AnimationSystem
     g.floating_text   = FloatingText
     g.hover           = HoverService
@@ -501,6 +507,8 @@ function love.draw()
             -- A state may keep the [i] queue off its screen (sticky hints
             -- still show). The shove felt does.
             Game.hint_view.suppress_queue = cur and cur.suppressHintQueue == true
+            -- Everything sounds broken once the bankroll has underflowed.
+            SoundService.setDamage(Game.state.underflowed and 1 or 0)
             Game.hint_view:draw(Game.hints:activeHint(), Game.hints:queuedHints(),
                                 Game.hints.paused)
             -- The story band, last, so it is never under a hint's dim.

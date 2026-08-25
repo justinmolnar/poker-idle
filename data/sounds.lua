@@ -27,6 +27,23 @@ local CHIP_DROP_4      = expand(UVEGAS .. "Chips/Drops/4onStaple_",             
 local COINS            = expand(UVEGAS .. "Coins/coins_",                         5)
 
 return {
+    -- ── Mix rules (read by SoundService; not sound names) ─────────────
+    _mix = {
+        -- Nothing repeats identically: every play is detuned by up to this.
+        pitch_jitter = 0.03,
+        -- The damage bus. On for a corrupted item's sound, or for
+        -- everything once the bankroll has underflowed. Cheap version
+        -- that works everywhere: the pitch wanders, some plays drop out,
+        -- the rest are quieter and dirtier. Where OpenAL EFX exists the
+        -- distortion effect is layered on too.
+        damage = {
+            pitch_wobble = 0.18,    -- +/- pitch, random per play
+            dropout      = 0.12,    -- chance a play is swallowed
+            volume       = 0.8,
+            efx = { type = "distortion", gain = 0.35, edge = 0.6, lowcut = 300, center = 2400, bandwidth = 2000 },
+        },
+    },
+
 
     -- ── Card events (deal beats + showdown flip) ────────────────────────
     -- Both random-pick from the 10-sample give set; flip is louder so it

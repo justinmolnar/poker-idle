@@ -168,7 +168,7 @@ return {
         title  = "The cursors",
         anchor = { "buy_runup_box_of_mice", "buy_runup_cursor_speed" },
         text   = "The cursors deal for you. More of them, and faster, in the sidebar. The D on a table stops them dealing there.",
-        trigger = { kind = "owns_item", id = "cursor_pool" },
+        trigger = { kind = "owns_item", id = "box_of_mice" },
     },
 
     -- ── The shove felt ────────────────────────────────────────────────

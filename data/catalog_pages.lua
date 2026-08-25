@@ -37,8 +37,8 @@ return {
     -- cheap things worth buying first.
     { title = "Value Buys",
       items = {
-          "poker_poster", "branded_hat", "mirror", "energy_drink",
-          "whiteboard", "self_help_book", "lucky_coin", "lava_lamp",
+          "poker_poster", "wall_hanger", "mirror", "energy_drink",
+          "corkboard", "stack_of_books", "gift_box", "lava_lamp",
           "sticky_notes",
       } },
 
@@ -46,15 +46,15 @@ return {
     -- voids, and the free rebuy when it still goes wrong.
     { title = "Bed & Bath",
       items = {
-          "stress_ball", "worry_stone", "rubber_duck", "bathtub",
-          "medical_kit",
+          "throw_pillow", "comfort_bed", "rubber_duck", "blackout_curtains",
+          "first_aid_kit",
       } },
 
     -- Machines that fire on their own at an event: a pot bumps, a beat gets
     -- eaten, a bust drains back, last run's losses come back clean.
     { title = "Kitchen & Appliances",
       items = {
-          "fridge", "toaster", "the_sink", "microwave", "dishwasher",
+          "fridge", "toaster", "kettle", "microwave", "cereal_shelf",
           "fire_extinguisher",
       } },
 
@@ -62,23 +62,23 @@ return {
     -- per-game-type edges you get from paying attention at one kind of table.
     { title = "Home Office",
       items = {
-          "water_cooler", "gaming_chair", "second_monitor", "headset",
-          "wall_clock", "projector", "big_tv", "headphones",
+          "desk_plant", "gaming_chair", "second_monitor", "headset",
+          "wall_clock", "window", "console_tv", "space_heater",
       } },
 
     -- Paper goods. Everything here bends the run-upgrade economy or the
     -- bounty paperwork around it.
     { title = "Desk & Stationery",
       items = {
-          "calculator", "ring_binder", "pen", "filing_cabinet",
-          "copy_machine", "supply_closet",
+          "calculator", "ring_binder", "pencil_holder", "nightstand",
+          "receipt_printer", "bookshelf",
       } },
 
-    -- The cursor swarm. cursor_pool is slots=3, so it fills its own leaf as
+    -- The cursor swarm. box_of_mice is slots=3, so it fills its own leaf as
     -- a hero card and the crew lands on the next one.
     { title = "Computer Accessories",
       items = {
-          "cursor_pool", "first_cursor", "mouse_pad", "tireless_assistants",
+          "box_of_mice", "laptop", "gaming_keyboard", "wacom_tablet",
           "pc_tower", "curved_monitor", "desk_speakers", "shredder",
       } },
 
@@ -86,14 +86,14 @@ return {
     -- tiers, deck XP.
     { title = "Awards & Wall Art",
       items = {
-          "dogs_playing_poker", "plastic_trophy", "engraved_plaque",
-          "study_chart", "tip_jar",
+          "dogs_playing_poker", "prize_vase", "diploma",
+          "blueprint", "tip_jar",
       } },
 
     -- Paperwork that makes sitting down cheaper or richer.
     { title = "Memberships & Vouchers",
       items = {
-          "pocket_cash", "free_sit", "discount_sits", "punch_card",
-          "glass_door", "unlock_ultra",
+          "stash_box", "seat_card", "vouchers", "rebuy_note",
+          "high_roller_pass", "unlock_ultra",
       } },
 }
