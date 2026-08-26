@@ -14,6 +14,15 @@ local GameTypes = require("data.game_types")
 -- Fallback gtype for unknown ids in a saved spec (e.g. a deprecated mode
 -- from a prior build). Six-max is the safe baseline — same buy-in, same
 -- panel layout, no missing dist_shifts.
+local StakesData = require("data.stakes")
+
+local function stakeExists(id)
+    for _, st in ipairs(StakesData) do
+        if st.id == id then return true end
+    end
+    return false
+end
+
 local function findGtype(id)
     for _, gt in ipairs(GameTypes) do
         if gt.id == id then return gt end
@@ -67,7 +76,21 @@ function TablePool:rebuildFromState(ctx)
     local stack_vals   = self.state.active_table_stack       or {}
     for i, spec in ipairs(self.state.active_table_specs or {}) do
         local stake_id, gtype_id = unpackSpec(spec)
-        if stake_id and gtype_id then
+        -- Save-safe degrade #2: a stake id that no longer exists (renamed or
+        -- retired ladder entry) can't rebuild a playable table at all — the
+        -- old behavior was a permanently dead panel that never deals. Skip
+        -- the spec and refund its persisted stack so the money isn't
+        -- stranded.
+        local stake_ok = stake_id and stakeExists(stake_id)
+        if stake_id and gtype_id and not stake_ok then
+            local stranded = (self.state.active_table_stack or {})[i]
+            if type(stranded) == "number" and stranded > 0 then
+                self.state.bankroll = (self.state.bankroll or 0) + stranded
+            end
+            print(string.format("[TablePool] dropped saved table with unknown stake %q (refunded %s)",
+                tostring(stake_id), tostring(stranded or 0)))
+        end
+        if stake_ok and gtype_id then
             -- Save-safe degrade: an unknown gtype (e.g. a deprecated mode
             -- from a pre-rip build) silently downgrades to six_max so the
             -- table can still be reconstructed.
@@ -81,6 +104,16 @@ function TablePool:rebuildFromState(ctx)
             t.mtt.hands_won  = hands[i] or 0
             t.mtt.state      = mstate[i]
             t.mtt.plan       = mtt_plans[i]
+            -- A tournament marked mid-run without its per-seat state is a
+            -- cross-build save (the old binary-MTT prototype wrote
+            -- state="playing" but never seat_stacks/plans). Restoring it
+            -- as "playing" nil-indexes seat_busted on the first deal —
+            -- restart the tournament cleanly instead.
+            if t.mtt.state == "playing" and not (seat_stacks[i] and mtt_plans[i]) then
+                t.mtt.hands_won = 0
+                t.mtt.state     = nil
+                t.mtt.plan      = nil
+            end
             if seat_stacks[i] then
                 t.seat_stacks       = seat_stacks[i]
                 t.seat_busted       = seat_busted[i] or {}

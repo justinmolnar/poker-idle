@@ -110,8 +110,13 @@ function ActionModal:consumeKey(key)
     if self._resolved == nil then
         local v = self.keys[key]
         if v ~= nil then self._resolved = v end
+        -- Swallow EVERY key while unresolved (matching ConfirmDialog): a
+        -- modal that lets unmapped keys fall through invites the host
+        -- state to act underneath it — ESC used to stack Settings on top
+        -- of an open modal this way.
+        return true
     end
-    return self._resolved ~= nil
+    return true
 end
 
 function ActionModal:consumeMouse(mx, my, button)

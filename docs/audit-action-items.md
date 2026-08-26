@@ -35,7 +35,7 @@ group; individual bullets inherit it unless tagged.
 
 ---
 
-## 1. Save integrity hardening — HIGH (before the demo ships)
+## 1. Save integrity hardening — DONE Aug 26 (all bullets; covered by scratchpad save_guard2_unit)
 
 The remaining save-layer work after the Aug 26 fixes. Full fix list at
 [audit 4569-4583]; write-safety evidence [audit 4498-4531].
@@ -76,7 +76,7 @@ The remaining save-layer work after the Aug 26 fixes. Full fix list at
 - Low: `highest_stake_idx` persists a positional index, store the id
   [audit 4359-4361]. `current_stake_id` is write-only dead payload [audit 4363].
 
-## 2. Web/demo ship-readiness — HIGH (demo-blocking)
+## 2. Web/demo ship-readiness — DONE Aug 26 (code side). USER: `wrangler secret put DASHBOARD_TOKEN` + deploy; verify the FS flush + prune on the next real web build
 
 - **Consent modal is unreachable — analytics never sends.** `main.lua:229`
   coerces `analytics_consent` nil→false at load, so GrindState's `== nil`
@@ -103,7 +103,7 @@ The remaining save-layer work after the Aug 26 fixes. Full fix list at
   MP3s [audit 5025-5034]. Also delete SpriteLoader's dead `assets/isometric`
   scan block [audit 5036-5045].
 
-## 3. Live gameplay bugs — HIGH
+## 3. Live gameplay bugs — DONE Aug 26 (all bullets; input fixes need the playtest checklist)
 
 - **KO cash-out exploit**: `ShoveState:enter` hand-rolls cash-out
   (`pool.tables = {}`, credits `t.stack` 1:1), so a doubled tournament stack

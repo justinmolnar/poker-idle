@@ -1173,6 +1173,8 @@ function GrindController:quickReset()
     -- Run-start perks are silent: they land while the player is between
     -- screens (the deck modal, the reset), which is nowhere to hear them.
     state:applyStartingPerks(self.ctx)
+    -- Queued chip bursts reference anchors of tables the rebuild replaces.
+    self.pending_bursts = {}
     self.pool:rebuildFromState(self.ctx)
 end
 
@@ -1304,7 +1306,7 @@ end
 -- table (no hand dealt yet → mtt not yet playing) still refunds the
 -- buy-in so accidental adds aren't punitive; a busted or post-settle
 -- table has stack = 0 already.
-function GrindController:_finalizeRemove(idx)
+function GrindController:_finalizeRemove(idx, quiet)
     local t = self.pool.tables[idx]
     if not t then return false end
     local gtype = Lookups.findById(GameTypes, t.game_type_id)
@@ -1314,7 +1316,7 @@ function GrindController:_finalizeRemove(idx)
     else
         refund = t.stack or 0
     end
-    self:_emitCashOutChips(t, refund)
+    if not quiet then self:_emitCashOutChips(t, refund) end
     self.pool:removeTable(idx)
     self.game.state.bankroll = self.game.state.bankroll + refund
     self:invalidateEffects()
@@ -1337,11 +1339,27 @@ end
 
 -- Cash out every active table. Idle tables close now; busy tables get
 -- their pending_close flag set and finalise once they return to idle.
-function GrindController:cashOutAll()
+-- `force` closes every table NOW (mid-hand included) instead of deferring
+-- busy ones to pending_close — the SHOVE entry needs an empty pool this
+-- frame. A settled tournament's undrained payout is credited first so the
+-- forced close can't eat a cash; forced closes are also quiet (no chip
+-- bursts into a screen we're leaving).
+function GrindController:cashOutAll(force)
     if self.pool:count() == 0 then return false end
     -- Reverse iteration: synchronous closes shift indices.
     for i = #self.pool.tables, 1, -1 do
-        self:removeTable(i)
+        if force then
+            local t = self.pool.tables[i]
+            if t and t.mtt and t.mtt.pending_payout ~= nil then
+                local payout = t.mtt:drainPayout()
+                if payout and payout > 0 then
+                    self.game.state.bankroll = self.game.state.bankroll + payout
+                end
+            end
+            self:_finalizeRemove(i, true)
+        else
+            self:removeTable(i)
+        end
     end
     return true
 end

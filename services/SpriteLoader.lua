@@ -307,15 +307,6 @@ function SpriteLoader:loadAll()
         sprite_count = sprite_count + self:_scan("")
     end
 
-    -- Scan assets/isometric
-    local iso_dir = "assets/isometric"
-    print("[SpriteLoader] Scanning " .. iso_dir)
-    if love.filesystem.getInfo(iso_dir) then
-        local iso_count = self:scanDirectory(iso_dir, "isometric/")
-        sprite_count = sprite_count + iso_count
-        print("[SpriteLoader] Loaded " .. iso_count .. " isometric sprites from " .. iso_dir)
-    end
-
     self:loadAliases()
     self:_buildAnimations()
 

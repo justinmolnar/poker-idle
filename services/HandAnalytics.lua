@@ -47,10 +47,19 @@ end
 
 local function _writeRaw()
     if not _file_data or not _filename then return end
-    local ok, err = love.filesystem.write(_filename, json.encode(_file_data, true))
+    local ok, err = love.filesystem.write(_filename, json.encode(_file_data))
     if not ok then
         print("[HandAnalytics] write failed: " .. tostring(err))
     end
+end
+
+-- Remove the current save's analytics file (a new game mints a new
+-- save_id, which used to orphan the old file forever).
+function HandAnalytics.deleteCurrent()
+    if _filename and love.filesystem.getInfo(_filename) then
+        love.filesystem.remove(_filename)
+    end
+    _filename, _file_data, _current_run = nil, nil, nil
 end
 
 -- Called from GrindState:enter(). Loads (or creates) the per-save analytics
@@ -62,6 +71,16 @@ function HandAnalytics.startRun(state)
 
     _filename  = "analytics_" .. state.save_id .. ".json"
     _file_data = _readRaw(_filename) or { save_id = state.save_id, shoves = {} }
+
+    -- The file is rewritten in full on every flush; unbounded history made
+    -- that write grow forever. Keep the newest runs only.
+    local MAX_KEPT_SHOVES = 50
+    local n = #_file_data.shoves
+    if n > MAX_KEPT_SHOVES then
+        local kept = {}
+        for i = n - MAX_KEPT_SHOVES + 1, n do kept[#kept + 1] = _file_data.shoves[i] end
+        _file_data.shoves = kept
+    end
 
     -- Find an existing entry (game resumed mid-shove and re-entered grind).
     local run = nil

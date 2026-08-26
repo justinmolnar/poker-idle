@@ -1790,8 +1790,9 @@ end
 
 function RoomView:keypressed(key)
     if not self.editor_mode then
-        -- F3 to enter editor mode
-        if key == "f3" then
+        -- F3 to enter editor mode (dev builds only — the editor is tooling,
+        -- not demo content)
+        if key == "f3" and Constants.FEATURES.DEV_HOTKEYS then
             self.editor_mode = true
             print("[room-editor] Entered Room Editor Mode. Press F3 to exit.")
             return true

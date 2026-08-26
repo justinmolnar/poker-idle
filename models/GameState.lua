@@ -4,12 +4,15 @@
 --   meta-side: chips, owned_items (persists forever)
 --   run-side:  bankroll, current_stake_id, run_upgrade_levels (wiped on prestige)
 --
--- AutoSerializer-driven. Adding a new persistent field = adding the field;
--- everything that's not in TRANSIENTS or REFS saves automatically.
+-- Persistence is allowlist-driven: a new persistent field must be added to
+-- serializeMeta()/serializeRun() by hand (AutoSerializer only handles the
+-- LOAD side). TRANSIENTS lists the fields deliberately left out, and the
+-- save suite's coverage test fails on any field in neither place.
 
 local AutoSerializer = require("services.AutoSerializer")
 local Constants      = require("data.constants")
 local Decks          = require("models.Decks")
+local StakesData     = require("data.stakes")
 local DeckSpecs      = require("data.decks")
 local EffectKinds    = require("data.effects").kinds
 
@@ -24,7 +27,9 @@ GameState.__index = GameState
 -- TRANSIENTS: not persisted (computed/runtime caches, registry refs).
 -- REFS:       entity references serialized as ids and resolved on load.
 GameState.TRANSIENTS = {
-    effects_cache = true,   -- rolled-up stat ctx, recomputed from owned_items
+    effects_cache     = true,  -- rolled-up stat ctx, recomputed from owned_items
+    current_stake_id  = true,  -- runtime-only; persisted copies were never read back
+    highest_stake_idx = true,  -- persisted as highest_stake_id (stable across ladder inserts)
 }
 GameState.REFS = {}         -- nothing yet — owned_items (list) and
                             -- run_upgrade_levels (id→level table) are already
@@ -423,6 +428,18 @@ function GameState:applySaved(saved)
     if not had_catalog_seen then
         self.catalog_seen = (self.shove_count or 0) > 0
     end
+    -- highest stake rides in the save as an id; resolve to the runtime
+    -- index (unlock gates compare numerically). Saves from before the
+    -- rename carry the raw index and keep it as-is.
+    if type(self.highest_stake_id) == "string" then
+        for i, s in ipairs(StakesData) do
+            if s.id == self.highest_stake_id then
+                self.highest_stake_idx = i
+                break
+            end
+        end
+        self.highest_stake_id = nil
+    end
     -- Saves predating the hint system start with an empty seen-set; no
     -- deeper migration needed — HintController silently retires any hint
     -- whose done-condition the save already satisfies.
@@ -546,7 +563,12 @@ function GameState:serializeMeta()
         total_chips_banked              = self.total_chips_banked,
         total_mtt_wins                  = self.total_mtt_wins,
         total_hands_by_gtype            = self.total_hands_by_gtype,
-        highest_stake_idx               = self.highest_stake_idx,
+        -- Persisted as the stake ID, not the positional index: inserting a
+        -- stake mid-ladder must not silently re-gate every existing save.
+        highest_stake_id                = (self.highest_stake_idx or 0) > 0
+                                          and StakesData[self.highest_stake_idx]
+                                          and StakesData[self.highest_stake_idx].id
+                                          or nil,
         last_run_money_lost             = self.last_run_money_lost,
     }
 end
@@ -556,7 +578,6 @@ end
 function GameState:serializeRun()
     return {
         bankroll                   = self.bankroll,
-        current_stake_id           = self.current_stake_id,
         run_upgrade_levels         = self.run_upgrade_levels,
         active_table_specs         = self.active_table_specs,
         active_table_mutes         = self.active_table_mutes,

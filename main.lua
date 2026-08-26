@@ -226,7 +226,10 @@ local function buildGame()
     end
     g.settings = {
         volume            = SoundService.getMasterVolume(),
-        analytics_consent = prefs.analytics_consent == true,  -- nil → false
+        -- Tri-state on purpose: nil = never asked. Coercing nil to false
+        -- here made GrindState's first-run consent ask unreachable, so the
+        -- modal never showed and web analytics silently never sent.
+        analytics_consent = prefs.analytics_consent,
     }
 
     g.effects = EffectsRegistry:new()
@@ -304,6 +307,7 @@ local function buildGame()
     g.state_machine:register("room",    RoomState:new(g))
 
     g.startNewGame = function()
+        HandAnalytics.deleteCurrent()
         g.save_service:clearAll()
         g.state:wipeAll()
         if g.settings then
@@ -600,6 +604,23 @@ local function flushSave()
         return true
     end
     return false
+end
+
+-- Losing window focus (tab switch, minimise) flushes a save. On the web
+-- build love.quit never fires when the tab closes, so this is the last
+-- reliable Lua-side hook; on desktop it is harmless extra safety.
+function love.focus(f)
+    if not f then pcall(flushSave) end
+end
+
+-- A button released OUTSIDE the window never delivers love.mousereleased,
+-- leaving drag latches (volume slider, panel scrollbars, room editor bars)
+-- stuck down. Focus loss is that case — send a synthetic release so every
+-- drag ends.
+function love.mousefocus(f)
+    if not f and Game and Game.input_dispatcher then
+        Game.input_dispatcher:dispatch("mousereleased", -1, -1, 1)
+    end
 end
 
 function love.quit()

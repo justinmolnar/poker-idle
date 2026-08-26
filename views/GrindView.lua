@@ -220,12 +220,11 @@ local function recomputeLayout(W, H, fonts, state)
     local cells_total    = CELL_W.tied  + CELL_W.total
                          + CELL_W.chip  + CELL_W.shove
                          + CELL_W.tables + CELL_W.focus
-    if state and state.shove_r2_won then
-        -- The {achip} cell is reserved on the ACT so the bar never reflows
-        -- mid-run. (The old bleed meter is gone: a stack loss at Ultra IS
-        -- the underflow, so there is no bleed to watch.)
-        cells_total = cells_total + CELL_W.achip
-    end
+    -- The {achip} cell is reserved UNCONDITIONALLY, same reasoning as the
+    -- deck cell below: layout only reruns on resize, and winning R2
+    -- mid-session used to shove the whole cluster into CASH OUT until the
+    -- next resize because the cell was reserved on the live flag.
+    cells_total = cells_total + CELL_W.achip
     -- Reserve on the static flag, not Decks.systemUnlocked: the system
     -- unlocks mid-session (first gauntlet clear) and this only reruns on
     -- resize — reserving up front keeps the bar from reflowing under the
@@ -280,6 +279,17 @@ local function tweenNumber(curr, target, dt)
     local out = curr + (target - curr) * k
     if math.abs(target - out) < 0.005 then out = target end
     return out
+end
+
+-- Snap every display tween to the live state. Called on hard resets so a
+-- fresh game doesn't animate down from the previous game's totals.
+function GrindView:resetDisplays()
+    local state = self.game.state
+    self.displayed_bankroll   = state.bankroll   or 0
+    self.displayed_chips      = state.chips      or 0
+    self.displayed_anti_chips = state.anti_chips or 0
+    self.displayed_tied       = self.controller:tiedUp()
+    self.frozen_grid          = nil
 end
 
 function GrindView:_buildPanels()
@@ -2465,6 +2475,20 @@ function GrindView:_handleHitBox(hb)
     -- cursor-swarm dispatches alike (cursor pool routes through here).
     -- Key by (action + idx) so [x] / [C] / DEAL on the same table don't
     -- share a flash bucket and tint each other on click.
+    -- Identity check: hit-boxes are built by draw and consumed up to a
+    -- frame later (the cursor swarm especially), and table removals shift
+    -- indices in between. When the box carries the table's id, re-resolve
+    -- the index against the live pool — and drop the action entirely if
+    -- that table is gone.
+    if hb.table_id then
+        local resolved
+        for i, t in ipairs(self.controller.pool.tables) do
+            if t._id == hb.table_id then resolved = i; break end
+        end
+        if not resolved then return end
+        hb.idx = resolved
+    end
+
     if hb.action and hb.idx then
         ClickFlash.flash("hit", hb.action .. ":" .. hb.idx)
     end

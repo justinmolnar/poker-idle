@@ -302,7 +302,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     if can_remove then
         hit_boxes[#hit_boxes + 1] = {
             x = rb_x, y = rb_y, w = REMOVE_BTN_SIZE, h = REMOVE_BTN_SIZE,
-            action = "remove_table", idx = idx,
+            action = "remove_table", idx = idx, table_id = tbl._id,
             label = "X",
             fill_color = rb_fill,
             tooltip = pending_close
@@ -347,7 +347,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
         end)
         hit_boxes[#hit_boxes + 1] = {
             x = cb_x, y = cb_y, w = REMOVE_BTN_SIZE, h = REMOVE_BTN_SIZE,
-            action = "toggle_cursor", idx = idx,
+            action = "toggle_cursor", idx = idx, table_id = tbl._id,
             tooltip = muted and "Unmute: allow cursors to deal at this table."
                             or  "Mute: stop the cursor swarm from dealing at this table.",
         }
@@ -386,7 +386,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
         end)
         hit_boxes[#hit_boxes + 1] = {
             x = rcb_x, y = rcb_y, w = REMOVE_BTN_SIZE, h = REMOVE_BTN_SIZE,
-            action = "toggle_rebuy_cursor", idx = idx,
+            action = "toggle_rebuy_cursor", idx = idx, table_id = tbl._id,
             tooltip = rmuted and "Unmute: cursors will rebuy this table."
                              or  "Mute: cursors won't rebuy this table.",
         }
@@ -1134,7 +1134,7 @@ end
 -- DEAL / REBUY action. The CursorPool still finds the same `action="deal"`
 -- entries and clicks at the rect's center, which sits over the visual
 -- button so the click animation feels natural.
-local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, fill_color, enabled)
+local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, fill_color, enabled, table_id)
     local btn_w = math.min(DEAL_BTN_W, w - 16)
     local btn_h = math.min(DEAL_BTN_H, h - 8)
     if btn_w < 40 then btn_w = math.max(20, w - 4) end
@@ -1166,7 +1166,7 @@ local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, 
             -- animations on click can render the button shape correctly
             -- after the hit_box vanishes.
             visual_x = bx, visual_y = by, visual_w = btn_w, visual_h = btn_h,
-            action = action, idx = idx,
+            action = action, idx = idx, table_id = table_id,
             label = label,
             fill_color = fill_color,
             tooltip = (action == "deal")
@@ -1659,7 +1659,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             local label = string.format("REBUY %s", Format.moneyExact(cost))
             drawFeltButton(felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, label, "rebuy",
-                Theme.status.error, can_rebuy)
+                Theme.status.error, can_rebuy, tbl._id)
             -- Tag the rebuy hit_box with the per-table rebuy-mute flag
             -- so CursorPool can skip this table when the player has
             -- opted out of auto-rebuy here.
@@ -1670,7 +1670,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         else
             drawFeltButton(felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, "DEAL", "deal",
-                Theme.status.good, true)
+                Theme.status.good, true, tbl._id)
             -- Tag the just-pushed DEAL hit_box so CursorPool can skip
             -- this table when the player has muted it. Mouse-click hit
             -- testing in GrindView ignores this field — muted tables

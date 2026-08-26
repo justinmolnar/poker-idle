@@ -1,49 +1,12 @@
 -- services/AutoSerializer.lua
--- Generic, data-driven model serializer. Each model declares:
---   MODEL.TRANSIENTS = { field_name = true, ... }     fields NOT to save
---   MODEL.REFS       = { field_name = {kind, list} }  fields that are entity
---                                                     refs (other_model → id,
---                                                     list_of_models → ids, etc.)
--- Everything else on the instance saves automatically. Adding a new data
--- field to a model costs zero — it will persist. Only new transients or refs
--- need an entry in the model's declaration.
+-- LOAD side of persistence only. The WRITE side is NOT automatic: the
+-- payloads come from GameState:serializeMeta()/serializeRun(), which are
+-- hand-maintained allowlists — a new persistent field must be added there
+-- (the coverage test in the save suite fails when one is forgotten).
+-- MODEL.TRANSIENTS documents the deliberately-unpersisted fields for that
+-- same test; MODEL.REFS maps entity-reference fields to ids on apply.
 
 local AutoSerializer = {}
-
-local function shouldSkipType(v)
-    local t = type(v)
-    return t == "function" or t == "userdata" or t == "thread"
-end
-
--- Serialize an instance according to its model declarations.
-function AutoSerializer.serialize(obj, transients, refs)
-    local out = {}
-    for k, v in pairs(obj) do
-        if transients and transients[k] then
-            -- skip
-        elseif shouldSkipType(v) then
-            -- skip non-serializable (methods etc.)
-        elseif refs and refs[k] then
-            local r = refs[k]
-            if r.list then
-                local ids = {}
-                for i, item in ipairs(v or {}) do
-                    ids[i] = item and item[r.kind] or nil
-                end
-                out[k] = ids
-            else
-                out[k] = v and v[r.kind] or nil
-            end
-        else
-            -- Plain data (primitives, pure data tables): copy by reference.
-            -- Entity instances should be in `refs` or `transients` — if one
-            -- sneaks through here the JSON encoder will barf, which is a
-            -- deliberate loud signal to classify the field.
-            out[k] = v
-        end
-    end
-    return out
-end
 
 -- Apply serialized data onto an instance. `refs_resolver(kind, id)` returns
 -- the live instance for a given ref kind + id. Fields listed in `refs` on

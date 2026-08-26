@@ -18,6 +18,7 @@ local FlightSystem    = require("services.FlightSystem")
 local ChipPile        = require("views.ChipPile")
 local ClickFlash      = require("services.ClickFlash")
 local Ghosts          = require("services.Ghosts")
+local RollingValue    = require("services.RollingValue")
 local CatalogModal    = require("views.CatalogModal")
 local DeckSelectModal = require("views.DeckSelectModal")
 local SettingsModal   = require("views.SettingsModal")
@@ -203,6 +204,15 @@ function GrindState:hintsBlocked()
 end
 
 function GrindState:update(dt)
+    -- Cursor swarm steps BEFORE the controller tick: its hit-boxes came
+    -- from last frame's draw, and the controller's update is what removes
+    -- tables (deferred closes) — dispatching first keeps a box's index
+    -- valid for the pool it was built against. The identity check in
+    -- _handleHitBox covers whatever this ordering can't.
+    local cursor_view = self.view
+    CursorPool.update(dt, cursor_view.hit_boxes, self.controller.ctx,
+        function(hb) cursor_view:_handleHitBox(hb) end)
+
     self.controller:update(dt)
     self.view:update(dt)
     if self.help_panel then
@@ -224,13 +234,6 @@ function GrindState:update(dt)
             HoverService.clear()
         end
     end
-    -- Cursor swarm steps after the controller/view tick. Hit-boxes were
-    -- populated by last frame's draw — 1-frame stale, invisible at 60fps.
-    -- The dispatcher closure routes a synthetic click through the same
-    -- handler the mouse uses (GrindView:_handleHitBox).
-    local view = self.view
-    CursorPool.update(dt, view.hit_boxes, self.controller.ctx,
-        function(hb) view:_handleHitBox(hb) end)
 end
 
 function GrindState:draw()
@@ -268,6 +271,12 @@ function GrindState:fullReset()
     ChipPile.clearAll()
     ClickFlash.clear()
     Ghosts.clear()
+    RollingValue.clear()
+    -- Queued chip bursts reference anchors of tables the wipe destroyed.
+    if self.controller then self.controller.pending_bursts = {} end
+    -- Snap the view's display tweens to the fresh state so the bankroll
+    -- doesn't visibly count down from the previous game's total.
+    if self.view and self.view.resetDisplays then self.view:resetDisplays() end
     -- Drop open overlays so a new-game wipe (Settings → Start new game) doesn't
     -- leave the Settings / catalog / deck modal hanging over the fresh run.
     -- The onboarding modal is intentionally left alone — :enter reopens it for
@@ -285,11 +294,6 @@ end
 -- Phase 2 debug: H deals one hand on table 1. J deals every idle table.
 -- Both are temporary — Phase 3 brings click-to-deal via TablePanel buttons.
 function GrindState:keypressed(key)
-    if key == "tab" then
-        self.game.state_machine:switch("room")
-        return
-    end
-
     -- Hint-log panel: ESC slides it out; everything else is mouse-driven.
     if self.help_panel then
         if key == "escape" then self.help_panel:beginClose() end
@@ -320,6 +324,13 @@ function GrindState:keypressed(key)
         end
         return
     end
+    -- Tab sits BELOW the modal blocks on purpose: it used to be checked
+    -- first, which let it yank the screen to the Room out from under any
+    -- open modal.
+    if key == "tab" then
+        self.game.state_machine:switch("room")
+        return
+    end
     -- ESC outside any modal opens the settings modal (which carries its own
     -- Quit row and closes on a second ESC). It must NOT also fire the quit
     -- confirm — that stacked a second dialog on top of the freshly-opened
@@ -343,6 +354,7 @@ function GrindState:keypressed(key)
 end
 
 function GrindState:mousepressed(x, y, b)
+    if b ~= 1 then return end
     -- Hint-log panel: clicks inside are consumed (hover does the work);
     -- clicking anywhere else slides it away.
     if self.help_panel then

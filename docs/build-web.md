@@ -13,11 +13,20 @@ this doc explains the prerequisites, the moving parts, and how to ship.
 # one-time setup
 cd build-tools && npm install && cd ..
 
-# every build
+# every build (a dev build; C.DEMO must be false)
 python build-tools/build_web.py
+
+# a demo build (data/constants.lua committed with C.DEMO = true)
+python build-tools/build_web.py --demo
 ```
 
 Then upload `build/PokerIdle-web.zip` to itch (see [Uploading](#uploading)).
+
+The script refuses a dirty working tree (pass `--allow-dirty` to
+override), asserts the committed `C.DEMO` flag matches the build you asked
+for, and prunes package-only dead assets (unreferenced sample-pack audio,
+`.gif` files, asset manifests) from the `.love` — the repo keeps every file.
+
 
 ## Prerequisites
 

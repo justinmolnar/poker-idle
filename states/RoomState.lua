@@ -126,12 +126,17 @@ function RoomState:draw()
     -- The House's story band: a strip along the bottom of the room.
     AnchorRegistry.set("story:band", fl(16 * s), H - fl(60 * s), W - fl(32 * s), fl(44 * s))
 
+    local mx, my = love.mouse.getPosition()
+
+    -- DESIGNER button + unlock-cheat status: dev tooling, not demo content.
+    -- The editor's EXPORT writes into the source tree, which doesn't even
+    -- exist on the web build.
+    if Constants.FEATURES.DEV_HOTKEYS then
     -- Draw DESIGNER button
     local des_w = fl(140 * s)
     local des_x = btn_x - des_w - fl(12 * s)
     local is_editing = self.room_view and self.room_view.editor_mode
 
-    local mx, my = love.mouse.getPosition()
     local des_hov = mx >= des_x and mx < des_x + des_w and my >= btn_y and my < btn_y + btn_h
 
     LabelButton.draw{
@@ -164,6 +169,7 @@ function RoomState:draw()
             Theme.setColor(Theme.fg.muted)
             love.graphics.print("UNLOCK ALL [U]", des_x - fl(140 * s), btn_y + fl(10 * s))
         end
+    end
     end
 
     local btn_hov = mx >= btn_x and mx < btn_x + btn_w
@@ -262,14 +268,16 @@ function RoomState:mousepressed(x, y, button)
         return
     end
 
-    -- Check top-bar DESIGNER button click
-    local des_w = fl(140 * s)
-    local des_x = btn_x - des_w - fl(12 * s)
-    if x >= des_x and x < des_x + des_w and y >= btn_y and y < btn_y + btn_h then
-        if self.room_view then
-            self.room_view.editor_mode = not self.room_view.editor_mode
+    -- Check top-bar DESIGNER button click (dev builds only)
+    if Constants.FEATURES.DEV_HOTKEYS then
+        local des_w = fl(140 * s)
+        local des_x = btn_x - des_w - fl(12 * s)
+        if x >= des_x and x < des_x + des_w and y >= btn_y and y < btn_y + btn_h then
+            if self.room_view then
+                self.room_view.editor_mode = not self.room_view.editor_mode
+            end
+            return
         end
-        return
     end
 
     -- Otherwise forward to RoomView

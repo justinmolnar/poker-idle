@@ -138,6 +138,15 @@ export default {
 
     if (request.method === "GET") {
       const url = new URL(request.url);
+      // Reads are the developer's dashboard, not the game: ?all returns
+      // every player's full dataset, so GETs require the token set via
+      // `wrangler secret put DASHBOARD_TOKEN`. POST (the game's anonymous,
+      // capped upload) stays open.
+      const auth = request.headers.get("Authorization") || "";
+      const token = url.searchParams.get("token") || auth.replace(/^Bearer\s+/i, "");
+      if (!env.DASHBOARD_TOKEN || token !== env.DASHBOARD_TOKEN) {
+        return bad("unauthorized", 401);
+      }
       const save_id = url.searchParams.get("save_id");
 
       if (url.searchParams.has("all")) {

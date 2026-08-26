@@ -42,4 +42,8 @@ end
 -- Drop an id's cached state (e.g. on a hard reset so the next get snaps).
 function RollingValue.reset(id) _v[id] = nil end
 
+-- Drop every rolled value (hard resets / new game): stale entries otherwise
+-- animate from the previous game's numbers.
+function RollingValue.clear() _v = {} end
+
 return RollingValue

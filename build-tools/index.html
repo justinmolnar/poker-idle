@@ -206,6 +206,22 @@
         };
       };
 
+      // Emscripten's FS persists to IndexedDB asynchronously; closing the
+      // tab can discard writes the game already made. Nudge a sync when the
+      // page hides or unloads so the last autosave actually lands. Older
+      // love.js builds export no FS object — the guard makes this a no-op
+      // there, and the in-game focus-loss flush still covers the Lua side.
+      var flushFS = function() {
+        try {
+          var FSref = (typeof FS !== 'undefined' && FS) || (Module && Module.FS);
+          if (FSref && FSref.syncfs) FSref.syncfs(false, function() {});
+        } catch (e) {}
+      };
+      window.addEventListener('beforeunload', flushFS);
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') flushFS();
+      });
+
       var applicationLoad = function(e) { Love(Module); };
     </script>
 

@@ -280,7 +280,10 @@ function SettingsModal:draw()
 
     -- Analytics consent — same checkbox style as the onboarding modal.
     do
-        local ana_on  = not (self.game.settings and self.game.settings.analytics_consent == false)
+        -- Strict true: consent is tri-state and nil means "never asked" —
+        -- displaying that as ON contradicted the send gate, which treats
+        -- anything but true as off.
+        local ana_on  = (self.game.settings and self.game.settings.analytics_consent) == true
         local ana_hov = mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H
         local box_sz  = math.floor(12 * s)
         local lh      = fonts.md:getHeight()

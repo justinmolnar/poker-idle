@@ -48,12 +48,18 @@ end
 function TitleState:_buttons()
     -- Order matters: drawn top-to-bottom, hit-tested same.
     local has = hasSave()
-    return {
+    -- No Exit on the web build: a browser tab can't quit itself, and
+    -- love.event.quit() hard-errors the canvas there.
+    local os_name = (love.system and love.system.getOS and love.system.getOS()) or ""
+    local list = {
         { id = "start",   label = "Start",       enabled = true },
         { id = "load",    label = "Load Save",   enabled = has  },
         { id = "delete",  label = "Delete Save", enabled = has  },
-        { id = "exit",    label = "Exit",        enabled = true },
     }
+    if os_name ~= "Web" and os_name ~= "Emscripten" then
+        list[#list + 1] = { id = "exit", label = "Exit", enabled = true }
+    end
+    return list
 end
 
 function TitleState:_buttonRects()

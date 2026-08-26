@@ -97,20 +97,13 @@ function ShoveState:enter()
     -- fresh gauntlet entry; if we're re-entering shove after a hot
     -- reload (F6 path) the gauntlet flag prevents a double cash-out.
     if not self.gauntlet and self.game.grind then
-        local pool = self.game.grind.pool
-        if pool and pool.tables then
-            local tied = 0
-            for _, t in ipairs(pool.tables) do
-                tied = tied + (t.stack or 0)
-            end
-            pool.tables = {}
-            state.bankroll = state.bankroll + tied
-        end
-        state.active_table_specs         = {}
-        state.active_table_mutes         = {}
-        state.active_table_rebuy_mutes   = {}
-        state.active_table_mtt_hands_won = {}
-        state.active_table_mtt_state     = {}
+        -- Route through the controller's REAL close rules: a chip-stack
+        -- tournament refunds $0 (its chips are tournament chips, not
+        -- money — crediting t.stack 1:1 here converted a doubled-up KO
+        -- stack straight into bankroll, a shove-to-cash exploit), and a
+        -- settled one drains its payout first. force = every table closes
+        -- this frame; the pool sync updates the save arrays itself.
+        self.game.grind:cashOutAll(true)
     end
 
     -- Lock in the shove rate from the current catalog ctx + post-
@@ -474,8 +467,11 @@ function ShoveState:keypressed(key)
         if key == "space" or key == "return" or key == "kpenter" then
             if self.view:isHolding() then self.view:advance()
             else self:_dismissCatalogAndReturn() end
-            return
         end
+        -- Swallow everything else: without this, ESC fell through and
+        -- stacked Settings over the post-bust catalog, and dev keys reset
+        -- the gauntlet underneath it.
+        return
     end
     if self.deck_select_modal and self.deck_select_modal:consumeKey(key) then
         if self.deck_select_modal:resolved() then
@@ -541,6 +537,7 @@ function ShoveState:keypressed(key)
 end
 
 function ShoveState:mousepressed(mx, my, button)
+    if button ~= 1 then return end
     -- Settings modal owns input first (ESC overlay).
     if self.settings_modal then
         local consumed = self.settings_modal:consumeMouse(mx, my, button)

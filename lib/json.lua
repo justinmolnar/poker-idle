@@ -43,7 +43,13 @@ encode = function(val, pretty, level, seen)
         -- file's own decoder) rejects — one bad number made the whole
         -- save unreadable on the next boot.
         if val ~= val or val == math.huge or val == -math.huge then return "null" end
-        return tostring(val)
+        -- Integers print exact; everything else gets 17 significant digits
+        -- so a late-game bankroll round-trips bit-for-bit (%.14g tostring
+        -- was silently shaving cents past 14 digits).
+        if val == math.floor(val) and math.abs(val) < 2^53 then
+            return string.format("%d", val)
+        end
+        return string.format("%.17g", val)
     elseif t == "string" then
         return encode_string(val)
     elseif t == "table" then
