@@ -37,6 +37,7 @@ local _loader       = nil
 local _alias_source = nil
 local _mix          = Sounds._mix or {}
 local _damage       = 0          -- 0..1, the global damage bus (underflow)
+local _last_play    = {}         -- name -> time of its last play (opts.min_gap)
 local _efx_ready    = nil        -- nil untried, true set up, false unavailable
 
 -- The OpenAL distortion effect, set up once and only where it exists
@@ -215,6 +216,7 @@ local function playEntry(entry, vol_mult, pitch, damaged)
     if not entry then return end
     vol_mult = vol_mult or 1.0
     local v  = (entry.volume or 1) * vol_mult
+    if entry.pitch then pitch = (pitch or 1.0) * entry.pitch end
     if entry.files and #entry.files > 0 then
         local pick = entry.files[love.math.random(1, #entry.files)]
         SoundService.playFile(pick, v, pitch, damaged)
@@ -245,8 +247,16 @@ end
 --   opts.pitch       — playback pitch (1 = as recorded); presets and
 --                      discovered files alike. See rampPitch.
 --   opts.damaged     — play through the damage bus (a corrupted item).
+--   opts.min_gap     — seconds; a play of the same name inside this
+--                      window is skipped (returns false).
 function SoundService.playNamed(name, opts)
     if name == "_mix" then return false end
+    local gap = opts and opts.min_gap
+    if gap and gap > 0 and love.timer then
+        local now = love.timer.getTime()
+        if _last_play[name] and now - _last_play[name] < gap then return false end
+        _last_play[name] = now
+    end
     local vol_mult = (opts and opts.volume_mult) or 1.0
     local pitch    = opts and opts.pitch
     local damaged  = opts and opts.damaged
@@ -264,6 +274,30 @@ function SoundService.playNamed(name, opts)
         end
     end
     return false
+end
+
+-- Stop every playing clone of a named sound (its files and its layers):
+-- a hum that must end when its source does.
+function SoundService.stopNamed(name)
+    local function stopEntry(entry)
+        if not entry then return end
+        local files = entry.files or (entry.file and { entry.file }) or {}
+        for _, path in ipairs(files) do
+            for _, s in ipairs(_clone_pool[path] or {}) do
+                if s:isPlaying() then s:stop() end
+            end
+        end
+        if entry.layer then stopEntry(entry.layer) end
+    end
+    local entry = Sounds[name]
+    if entry then stopEntry(entry); return end
+    local aliases = _alias_source and _alias_source.aliases
+    local path = _loader and _loader:resolve(name, aliases)
+    if path then
+        for _, s in ipairs(_clone_pool[path] or {}) do
+            if s:isPlaying() then s:stop() end
+        end
+    end
 end
 
 function SoundService.stopAll()

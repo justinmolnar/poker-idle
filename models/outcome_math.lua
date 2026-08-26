@@ -36,6 +36,7 @@
 --   6. Clamp WC to [0, 0.95]. Clamp dist cells ≥0 and renormalize.
 
 local Lookups       = require("utils.lookups")
+local ShoveRate = require("models.shove_rate")
 local StakesData    = require("data.stakes")
 local PotTiers      = require("data.pot_tiers")
 local MttFinishDist = require("data.mtt_finish_dist")
@@ -554,7 +555,8 @@ function OutcomeMath.payoutMult(ctx, stake, tier, won, opts)
 
     if opts.focus_mult then mult = mult * opts.focus_mult end
     if ctx.earnings_scale_by_bankroll and opts.bankroll then
-        mult = mult * (1.0 + math.log10(math.max(0, opts.bankroll or 0) + 1) * 0.1)
+        -- The Bank capstone: literally the BANK multiplier.
+        mult = mult * ShoveRate.bankrollMultiplier(opts.bankroll)
     end
     return mult
 end

@@ -104,7 +104,7 @@ function CreditsState:keypressed(key)
         state:resetRun()
         local meta_ctx = state:computeEffects(
             self.game.effects, self.game.catalog, self.game.run_upgrades)
-        state:applyStartingPerks(meta_ctx)
+        state:applyStartingPerks(meta_ctx)   -- silent: between screens
         self.game.save_service:saveAll(
             state:serializeMeta(), state:serializeRun())
         self.game.state_machine:switch("grind")

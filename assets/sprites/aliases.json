@@ -33,7 +33,6 @@
     "space_heater": "TinyHouse_0.17(@Pixel_Salvaje)/Office/AC",
     "pencil_holder": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Pencil_Holder",
     "desk_plant": "TinyHouse_0.17(@Pixel_Salvaje)/Plants/Plant_1",
-    "seat_card": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Paper_2",
     "rebuy_note": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Sticky_Note_2",
     "prize_vase": "TinyHouse_0.17(@Pixel_Salvaje)/Japanese_Room/Japanese_Vase",
     "vouchers": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Rolled_Papers",
@@ -52,6 +51,7 @@
     "window": "TinyHouse_0.17(@Pixel_Salvaje)/Windows/Window_7_A_Tile",
     "bookshelf": "TinyHouse_0.17(@Pixel_Salvaje)/Living Roon/shelving_6",
     "cereal_shelf": "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/Cereals",
-    "blackout_curtains": "TinyHouse_0.17(@Pixel_Salvaje)/Windows/Window_11_B"
+    "blackout_curtains": "TinyHouse_0.17(@Pixel_Salvaje)/Windows/Window_11_B",
+    "desk": "TinyHouse_0.17(@Pixel_Salvaje)/Desks/Desk_1_Tile"
   }
 }

@@ -10,6 +10,7 @@
 -- bought or run state changes (cheap, since we're not doing it per-frame).
 
 local TablePool      = require("models.TablePool")
+local ShoveRate = require("models.shove_rate")
 local TableModel     = require("models.Table")            -- only for anchorKey()
 local Decks          = require("models.Decks")
 local Catalog        = require("data.catalog")
@@ -290,7 +291,10 @@ function GrindController:update(dt)
                         if not state.first_bounty_this_run then
                             state.first_bounty_this_run = true
                             award = award + ((self.ctx and self.ctx.first_bounty_bonus) or 0)
+                            if (self.ctx and self.ctx.first_bounty_bonus or 0) > 0 then self:itemFired("first_bounty_bonus") end
                         end
+                        self:itemFired("jackpot_chip_add")
+                        self:itemFired("chip_award_mult")
                         state.chips_this_run = state.chips_this_run + award
                         state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
                         state.total_chips_banked = (state.total_chips_banked or 0) + award
@@ -299,6 +303,7 @@ function GrindController:update(dt)
                     -- Copy Machine: the run's first denied bounty banks anyway.
                     if self.ctx and self.ctx.copy_first_denied and not state.denied_copied_this_run then
                         state.denied_copied_this_run = true
+                        self:itemFired("copy_first_denied")
                         local cp = self:bountyAward(t.stake_id)
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
@@ -362,15 +367,12 @@ function GrindController:update(dt)
             r.delta = r.delta * self.ctx.overcap_loss_mult
         end
 
-        -- Bank capstone: scale every hand's magnitude by a bankroll-log
-        -- multiplier, read live here (magnitude-only, commutes with the
-        -- focus mult). Lives here rather than in Table so the effects
-        -- cache never has to carry live bankroll.
+        -- Bank capstone: every hand's magnitude times the player's actual
+        -- bankroll multiplier (the BANK number), read live here so the
+        -- effects cache never has to carry live bankroll. The card says
+        -- "multiplied by your bankroll multiplier" and means it.
         if self.ctx and self.ctx.earnings_scale_by_bankroll then
-            -- Floored at 0: log10 of a negative bankroll (Act 3, past the
-            -- underflow) is NaN, and one NaN hand poisons the bankroll.
-            local br = math.max(0, self.game.state.bankroll or 0)
-            r.delta = r.delta * (1.0 + math.log10(br + 1) * 0.1)
+            r.delta = r.delta * ShoveRate.bankrollMultiplier(self.game.state.bankroll)
         end
 
         -- Once-per-run loss voids: The Fridge (first jackpot-tier stack loss)
@@ -383,9 +385,11 @@ function GrindController:update(dt)
                and not state.first_stack_loss_voided_this_run then
                 state.first_stack_loss_voided_this_run = true
                 r.delta = 0
+                self:itemFired("void_first_stack_loss")
             elseif self.ctx.void_first_loss and not state.first_loss_voided_this_run then
                 state.first_loss_voided_this_run = true
                 r.delta = 0
+                self:itemFired("void_first_loss")
             end
         end
 
@@ -442,6 +446,7 @@ function GrindController:update(dt)
                     local refund_pct = (self.ctx and self.ctx.bust_refund_pct) or 0
                     if refund_pct > 0 and cap > 0 then
                         state.bankroll = state.bankroll + cap * refund_pct
+                        self:itemFired("bust_refund_pct")
                     end
                 end
             else
@@ -664,7 +669,10 @@ function GrindController:update(dt)
                         if not state.first_bounty_this_run then
                             state.first_bounty_this_run = true
                             award = award + ((self.ctx and self.ctx.first_bounty_bonus) or 0)
+                            if (self.ctx and self.ctx.first_bounty_bonus or 0) > 0 then self:itemFired("first_bounty_bonus") end
                         end
+                        self:itemFired("jackpot_chip_add")
+                        self:itemFired("chip_award_mult")
                         -- Pending chips — commit to state.chips at SHOVE
                         -- time. The float is the satisfying "you locked a
                         -- bounty" signal; the top bar's chip figure stays
@@ -686,6 +694,8 @@ function GrindController:update(dt)
                     end
                     if copies then
                         state.denied_copied_this_run = true
+                        self:itemFired("copy_first_denied")
+                        self:itemFired("copy_denied_chance")
                         local cp = self:bountyAward(tbl.stake_id)
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
@@ -734,6 +744,8 @@ function GrindController:update(dt)
                                 award = math.floor(award * (self.ctx.first_anti_mult or 1) + 0.5)
                             end
                         end
+                        -- An anti-chip banking: the chip bank sound, corrupted.
+                        self:_playNamed("chip_land_bankroll", { damaged = true })
                         if award > 0 then
                             state.anti_chips_this_run = (state.anti_chips_this_run or 0) + award
                             self.game.floating_text.emit(
@@ -946,6 +958,17 @@ end
 -- then any flat ctx.jackpot_chip_add (Pen) added on top. Every award
 -- site (cash jackpot, tournament win) and every display (sidebar "+N"
 -- badge) calls this, so payouts can never drift from what's advertised.
+-- An effect kind just did something: tell whoever listens which items
+-- put it there (ctx.sources, from computeEffects). Sound and any future
+-- visual feedback hang off the "item_fired" event; this file stays mute.
+function GrindController:itemFired(kind, ctx)
+    ctx = ctx or self.ctx
+    local bus = self.game.event_bus
+    local ids = ctx and ctx.sources and ctx.sources[kind]
+    if not bus or not ids then return end
+    for _, id in ipairs(ids) do bus:publish("item_fired", id, kind) end
+end
+
 function GrindController:bountyAward(stake_id)
     local stake = Lookups.findById(Stakes,stake_id)
     if not stake then return 0 end
@@ -1187,6 +1210,8 @@ function GrindController:quickReset()
     state.anti_chips = (state.anti_chips or 0) + (state.anti_chips_this_run or 0)
     state:resetRun()
     self:invalidateEffects()
+    -- Run-start perks are silent: they land while the player is between
+    -- screens (the deck modal, the reset), which is nowhere to hear them.
     state:applyStartingPerks(self.ctx)
     self.pool:rebuildFromState(self.ctx)
 end
@@ -1805,6 +1830,7 @@ function GrindController:rebuyTable(idx)
         local free_chance = self.ctx.free_rebuy_chance or 0
         if free_chance > 0 and love.math.random() < free_chance then
             cost = 0
+            self:itemFired("free_rebuy_chance")
         end
     end
     local state = self.game.state

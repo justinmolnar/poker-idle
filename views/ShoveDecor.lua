@@ -145,6 +145,20 @@ end
 -- Light over the card rows, from the centre-bright mask built in configure().
 -- Drawn wider and taller than the band so it bleeds past the edges instead of
 -- stopping at one.
+-- The radial light, anywhere: `color` (a theme colour or rgb table) at
+-- `alpha`, stretched to the rect. views/RoomLighting builds its lightmap
+-- from this. Blend mode is the caller's.
+function ShoveDecor.drawLight(x, y, w, h, color, alpha)
+    if not _glow or w <= 0 or h <= 0 or (alpha or 0) <= 0 then return end
+    local mw, mh = _glow:getWidth(), _glow:getHeight()
+    Theme.setColor(color or Theme.fg.heading, alpha)
+    love.graphics.draw(_glow, x, y, 0, w / mw, h / mh)
+end
+
+function ShoveDecor.hasLight()
+    return _glow ~= nil
+end
+
 function ShoveDecor.drawGlow(band)
     local cfg = Style.glow
     if not band or not cfg.enabled or not _glow then return end

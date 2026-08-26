@@ -63,7 +63,7 @@ return {
     { title = "Home Office",
       items = {
           "desk_plant", "gaming_chair", "second_monitor", "headset",
-          "wall_clock", "window", "console_tv", "space_heater",
+          "wall_clock", "window", "console_tv", "space_heater", "desk",
       } },
 
     -- Paper goods. Everything here bends the run-upgrade economy or the
@@ -93,7 +93,7 @@ return {
     -- Paperwork that makes sitting down cheaper or richer.
     { title = "Memberships & Vouchers",
       items = {
-          "stash_box", "seat_card", "vouchers", "rebuy_note",
+          "stash_box", "vouchers", "rebuy_note",
           "high_roller_pass", "unlock_ultra",
       } },
 }

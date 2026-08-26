@@ -11,6 +11,12 @@ local LabelButton    = require("views.widgets.LabelButton")
 local Catalog        = require("data.catalog")
 local Layout         = require("data.room_layout")
 local Tiles          = require("data.room_tiles")
+local RoomLighting   = require("views.RoomLighting")
+local RoomLights     = require("data.room_lights")
+local RoomPlacement  = require("models.room_placement")
+local LayersPanel    = require("views.RoomLayersPanel")
+local Scrollbar      = require("views.Scrollbar")
+local LIGHTS_DRAFT   = "room_lights_draft.lua"
 local Constants      = require("data.constants")
 
 -- The editor autosaves a draft next to the game's saves (DRAFT_FILE) so a
@@ -30,6 +36,7 @@ local function backupDraft(new_str)
     local prev = love.filesystem.read(DRAFT_FILE)
     if prev and prev ~= new_str then pcall(love.filesystem.write, DRAFT_BAK, prev) end
 end
+local loadLightsDraft   -- defined below new(); forward declared
 local function loadDraft()
     if not (love and love.filesystem and love.filesystem.getInfo(DRAFT_FILE)) then return nil end
     local ok, chunk = pcall(love.filesystem.load, DRAFT_FILE)
@@ -57,6 +64,81 @@ local TILE_H    = 32
 local WALL_H    = 96
 
 -- Cache for dynamic sprite bottom coordinate scanning
+-- Per-sprite alpha maps, for pixel hit tests: clicking the empty corner
+-- of a chair's bounding box must not grab the chair.
+local sprite_alpha_cache = {}
+local function loadAlphaMap(path)
+    local map = sprite_alpha_cache[path]
+    if map == nil then
+        if love.filesystem.getInfo(path) then
+            local ok, data = pcall(love.image.newImageData, path)
+            map = ok and data or false
+        else
+            map = false
+        end
+        sprite_alpha_cache[path] = map
+    end
+    return map
+end
+
+-- The alpha of the DRAWN pixels: for a frame-pinned animation, the pinned
+-- frame's file; for a live animation, any frame's pixels count (the eye
+-- tracks the whole motion); else the sprite's own file.
+local function spriteAlphaAt(loader, name, u, v, sprite, frame, animated)
+    if not name then return 1 end
+    local resolved = name
+    if loader and loader.aliases and loader.aliases[name] then
+        resolved = loader.aliases[name]
+    end
+    local frames = loader and loader.animation_paths and
+        (loader.animation_paths[resolved] or loader.animation_paths[name])
+    local map
+    if frames and #frames > 0 then
+        if animated and not frame then
+            local best = 0
+            for _, key in ipairs(frames) do
+                local m = loadAlphaMap("assets/sprites/" .. key .. ".png")
+                if m then
+                    local iw, ih = m:getWidth(), m:getHeight()
+                    local _, _, _, a = m:getPixel(
+                        math.min(iw - 1, math.max(0, math.floor(u * iw))),
+                        math.min(ih - 1, math.max(0, math.floor(v * ih))))
+                    if a > best then best = a end
+                    if best > 0.1 then return best end
+                end
+            end
+            return best
+        end
+        local i = math.max(1, math.min(#frames, math.floor(frame or 1)))
+        map = loadAlphaMap("assets/sprites/" .. frames[i] .. ".png")
+    else
+        local path = "assets/sprites/" .. resolved .. ".png"
+        if not love.filesystem.getInfo(path) then path = "assets/sprites/" .. name .. ".png" end
+        if not love.filesystem.getInfo(path) then path = "assets/" .. name .. ".png" end
+        map = loadAlphaMap(path)
+    end
+    if not map then
+        if RoomViewDebugAlpha then print("[hit] no alpha map for " .. tostring(name)) end
+        return 1
+    end
+    local iw, ih = map:getWidth(), map:getHeight()
+    -- A sliced strip (the doors): the file is N cells wide, the drawn
+    -- sprite one cell. Sample inside the cell the item shows.
+    local x0, cw = 0, iw
+    if sprite then
+        local sw = sprite:getWidth()
+        if sw > 0 and iw > sw and iw % sw == 0 then
+            cw = sw
+            x0 = ((frame or 1) - 1) * sw
+            if x0 + sw > iw then x0 = 0 end
+        end
+    end
+    local px = math.min(x0 + cw - 1, math.max(x0, x0 + math.floor(u * cw)))
+    local py = math.min(ih - 1, math.max(0, math.floor(v * ih)))
+    local _, _, _, a = map:getPixel(px, py)
+    return a
+end
+
 local sprite_bottom_cache = {}
 local function getSpriteBottom(sprite, name)
     if not sprite then return 0 end
@@ -133,6 +215,8 @@ function RoomView:new(game)
 
     -- Load all layout positions: the autosaved draft, else room_layout
     local Layout = loadDraft() or Layout
+    loadLightsDraft()
+    local _migrate_dx = true
     local placed = {}
     for id, info in pairs(Layout) do
         if id ~= "__meta" then
@@ -155,6 +239,8 @@ function RoomView:new(game)
                 fps       = info.fps,
                 frame     = info.frame,
                 shader    = info.shader,
+                hidden_when = info.hidden_when,
+                homes     = info.homes,
             }
         end
     end
@@ -261,6 +347,10 @@ function RoomView:new(game)
         if t == wall_theme then wall_idx = i; break end
     end
 
+    if _migrate_dx then
+        local n = RoomPlacement.migrateRelativeDx(placed)
+        if n > 0 then print("[room-editor] " .. n .. " homes migrated to the parent frame") end
+    end
     return setmetatable({
         game             = game,
         placed           = placed,     -- active placed furniture objects list
@@ -279,6 +369,15 @@ function RoomView:new(game)
         active_align     = "center",   -- current sprite alignment mode ("center", "left_wall", "right_wall")
         active_anim_room = nil,        -- nil (default), true (force anim), false (force static)
         zoom             = 1.0,        -- editor view zoom about the room centre (Ctrl+wheel)
+        -- Designing for what the player owns (models/room_placement):
+        -- anchors ticked off in the panel are treated as not owned, and the
+        -- room reflows; placements written go to whichever home is active.
+        anchors_off      = {},
+        parent_pick      = nil,        -- a child waiting for a click on its parent
+        sel_placed       = nil,        -- the layers panel's selection (a placed entry)
+        hover_placed     = nil,        -- the row under the mouse, lit in the room
+        panel_tab        = "layers",
+        layer_scroll     = 0,
         -- "place": a click adds the selected item (a new copy).
         -- "replace": a click moves the copy already in the room to the
         -- mouse (adds it if there is none). M toggles. Clicks never grab
@@ -464,9 +563,11 @@ end
 -- ─── Main Interface ───
 
 -- opts (optional): zoom = scale the room about its centre (the shove intro
--- draws it big); item_tint = fn(obj) -> {r,g,b,a} or nil, the colour a
--- placed item is drawn with (nil = normal). The centre and zoom used are
--- left in self._view = { cx, cy, zoom } so an overlay can match them.
+-- draws it big); dy = vertical offset; item_tint = fn(obj) -> {r,g,b,a} or
+-- nil, the colour a placed item is drawn with (nil = normal); lighting =
+-- { fixture = level, emitters = bool, lit = fn(id) } runs views/RoomLighting
+-- over the drawn room. The centre, zoom and bounds used are left in
+-- self._view so an overlay can match them.
 function RoomView:draw(full_screen, opts)
     opts = opts or {}
     self._anchored_item = nil   -- "first placed item" hint anchor is per draw
@@ -497,7 +598,17 @@ function RoomView:draw(full_screen, opts)
     -- the HUD does not. Mouse positions are unzoomed with _unzoom.
     local zoom = opts.zoom or (self.editor_mode and (self.zoom or 1) or 1)
     local oy = opts.dy or 0
-    self._view = { cx = cx, cy = cy, zoom = zoom, dy = oy }
+    -- The room's extent in room space (floor diamond plus the walls'
+    -- height), for the lighting pass to centre its pool on.
+    local n = self.room_size
+    local bx1 = select(1, gridToScreen(0, n, cx, cy, tw, th))
+    local bx2 = select(1, gridToScreen(n, 0, cx, cy, tw, th))
+    local _, by1 = gridToScreen(0, 0, cx, cy, tw, th)
+    local _, by2 = gridToScreen(n, n, cx, cy, tw, th)
+    by1 = by1 - wh
+    self._view = { cx = cx, cy = cy, zoom = zoom, dy = oy,
+                   bounds = { x1 = bx1, y1 = by1, x2 = bx2, y2 = by2,
+                              cx = (bx1 + bx2) * 0.5, cy = (by1 + by2) * 0.5 } }
     love.graphics.push()
     love.graphics.translate(cx, cy + oy)
     love.graphics.scale(zoom, zoom)
@@ -643,12 +754,31 @@ function RoomView:draw(full_screen, opts)
         end
     end
 
-    -- 3. Gather items to render (owned only, unless in editor mode)
+    -- 3. Gather items to render. What the player owns decides where a
+    -- thing sits and whether it shows (models/room_placement): the real
+    -- set in play; in the editor, everything in the room minus the anchors
+    -- ticked off. Each entry drawn is the RESOLVED fields with __src
+    -- pointing at the placed entry itself.
+    local resolve_set = self:_resolveSet(owned_set)
+    self._resolved = RoomPlacement.resolveAll(self.placed, resolve_set)
     local render_list = {}
     for _, obj in ipairs(self.placed) do
-        local owned = owned_set[obj.id]
-        if owned or self.editor_mode then
-            render_list[#render_list + 1] = obj
+        local r = self._resolved[obj]
+        local fields = r.fields
+        local show
+        if self.editor_mode then
+            -- the eye in the layers panel; an anchor ticked off is gone
+            show = not obj.hidden and not (self.anchors_off and self.anchors_off[obj.id])
+        else
+            -- Catalog items (and numbered copies of them) need owning;
+            -- flavor is the room itself and is always there.
+            local needs = self:_catalogBase(obj)
+            show = (needs == nil or owned_set[needs]) and r.shown
+        end
+        if show then
+            fields.__src   = obj
+            fields.__ghost = (self.editor_mode and not r.shown) or false
+            render_list[#render_list + 1] = fields
         end
     end
 
@@ -670,10 +800,14 @@ function RoomView:draw(full_screen, opts)
     -- 5. Draw the items. Their on-screen rects are kept (room space, in
     -- draw order) so move mode can grab what the mouse is actually on.
     self._hit_rects = {}
+    self._draw_order = {}
+    for i, f in ipairs(render_list) do self._draw_order[i] = f.__src end
     local zmx0, zmy0 = self:_unzoom(love.mouse.getX(), love.mouse.getY(), cx, cy)
     for _, obj in ipairs(render_list) do
         local color = obj.color
-        local is_owned = owned_set[obj.id] or self.editor_mode
+        -- Anything that reached the render list is meant to be here: play
+        -- already filtered by ownership, and flavor needs no owner.
+        local is_owned = true
         if not is_owned then
             -- Unowned items drawn slightly transparent/desaturated in editor mode
             color = { color[1], color[2], color[3], 0.40 }
@@ -749,13 +883,19 @@ function RoomView:draw(full_screen, opts)
             local py = sy - (obj.z_offset or 0) * s
 
             local asx = math.abs(draw_scale_x)
-            local rect = { obj = obj, x = px - ox * asx, y = py - oy * draw_scale_y,
-                           w = sprite:getWidth() * asx, h = sprite:getHeight() * draw_scale_y }
+            local rect = { obj = obj.__src or obj, x = px - ox * asx, y = py - oy * draw_scale_y,
+                           w = sprite:getWidth() * asx, h = sprite:getHeight() * draw_scale_y,
+                           -- exactly how it was drawn, so an overlay can redraw it in place
+                           draw = { sprite = sprite, px = px, py = py, sx = draw_scale_x, sy = draw_scale_y, ox = ox, oy = oy,
+                                    animated = (time_arg ~= false) or nil } }
             self._hit_rects[#self._hit_rects + 1] = rect
 
             local tint = opts.item_tint and opts.item_tint(obj)
             if tint then
                 love.graphics.setColor(tint[1], tint[2], tint[3], tint[4] or 1)
+            elseif obj.__ghost then
+                -- not shown under these anchors: faint, so what replaces it reads
+                Theme.setColor(Theme.fg.heading, 0.25)
             elseif not is_owned then
                 love.graphics.setColor(1, 1, 1, 0.40)
             else
@@ -794,6 +934,14 @@ function RoomView:draw(full_screen, opts)
     end
 
     love.graphics.pop()
+
+    -- The lighting pass: the room so far times a lightmap (the fixture,
+    -- the things that glow). Everything after this (the editor overlay,
+    -- the HUD) is unlit UI.
+    if opts.lighting then
+        RoomLighting.draw(self, opts.lighting, W, H)
+    end
+    if self.editor_mode then self:_drawEditorHighlights() end
 
     -- 6. Editor overlay: Selected active item preview + cursor grid position
     local mx, my = love.mouse.getPosition()
@@ -1188,17 +1336,12 @@ function RoomView:draw(full_screen, opts)
             end
             love.graphics.setScissor()
 
-            -- Scrollbar
-            local thumb_h = math.max(fl(20 * s), view_h * (view_h / math.max(1, total_h)))
-            self._list_bar = { x = sidebar_x + sidebar_w - fl(14 * s), w = fl(14 * s),
-                               y = view_y, h = view_h, max_scroll = max_scroll, thumb_h = thumb_h }
-            if max_scroll > 0 then
-                local thumb_y = view_y + (view_h - thumb_h) * (self.list_scroll / max_scroll)
-                Theme.setColor(Theme.bg.sunken, 0.6)
-                love.graphics.rectangle("fill", sidebar_x + sidebar_w - 6, view_y, 4, view_h, 2)
-                Theme.setColor(Theme.fg.muted)
-                love.graphics.rectangle("fill", sidebar_x + sidebar_w - 6, thumb_y, 4, thumb_h, 2)
-            end
+            -- Scrollbar (views/Scrollbar: the same bar every list uses)
+            self._list_bar = { x = sidebar_x + sidebar_w - Scrollbar.width() - 2,
+                               y = view_y, h = view_h, content_h = total_h, max_scroll = max_scroll }
+            local b = self._list_bar
+            Scrollbar.draw(b.x, b.y, b.h, self.list_scroll, b.content_h,
+                Scrollbar.containsPoint(b.x, b.y, b.h, mx, my))
 
             -- Bottom Status Bar
             local sb_h = fl(24 * s)
@@ -1220,6 +1363,22 @@ function RoomView:draw(full_screen, opts)
             local mode_str = self.mode == "replace" and "REPLACE (M): click moves the existing copy" or "PLACE (M): click adds a copy"
             local sb_msg = string.format("%s | [%s] | LAYER %d (Z/X) | %s | Frame: , . | FPS: - = | Anim: V | [H] Controls | Enter: Export", mode_str, active_tab_str, self.active_layer or 0, anim_str)
             love.graphics.print(sb_msg, fl(12 * s), sb_y + fl(4 * s))
+            local off = {}
+            for id in pairs(self.anchors_off or {}) do off[#off + 1] = id end
+            table.sort(off)
+            local right_msg
+            if self.parent_pick then
+                right_msg = "PARENT: click the item " .. self.parent_pick.id .. " sits on"
+            elseif #off > 0 then
+                right_msg = "WITHOUT: " .. table.concat(off, ", ")
+            end
+            if right_msg then
+                Theme.setColor(Theme.status.warn)
+                love.graphics.print(right_msg, W - game.fonts.sm:getWidth(right_msg) - fl(12 * s), sb_y + fl(4 * s))
+            end
+
+            -- The right panel: layers and light
+            if not self.hide_editor_hud then LayersPanel.draw(self, W, H) end
         else
             -- Clean preview mode: draw small bottom prompt
             local bw, bh = fl(340 * s), fl(24 * s)
@@ -1238,7 +1397,7 @@ function RoomView:draw(full_screen, opts)
     -- Render Top-Right Non-Modal Instructions Panel (Hidable with H)
     if self.editor_mode and self.show_help_overlay then
         local pw = fl(270 * s)
-        local ph = fl(360 * s)
+        local ph = fl(405 * s)
         local px = W - pw - fl(16 * s)
         local py = TOP_BAR_H + fl(12 * s)
 
@@ -1266,9 +1425,11 @@ function RoomView:draw(full_screen, opts)
         love.graphics.print("• List: wheel, drag the bar, PgUp / PgDn / Home / End", px + fl(10 * s), iy); iy = iy + ilh
         love.graphics.print("• M : PLACE (click adds a copy) / REPLACE (click moves it)", px + fl(10 * s), iy); iy = iy + ilh
         love.graphics.print("• L-Click : Place   Alt+L-Click : Grab   Alt+R-Click : Delete", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• Shift+L-Click : Stack on surface", px + fl(10 * s), iy); iy = iy + ilh
         love.graphics.print("• Ctrl+Arrows : Move the sprite in px (hold, Shift x8)", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• G : Grid step   D : Clone   Z / X : Layer down / up", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
+        love.graphics.print("• G : Grid step   D : Clone   Z / X : Layer down / up", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• LAYERS: hover lights, click selects, again grabs, drag reorders", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• Selection: Delete, Ctrl+D copy, Ctrl+Home/End front/back", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• PARENT: pick what it sits on; ANCHORS: tick off to see the room without", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
 
         Theme.setColor(Theme.status.warn)
         love.graphics.print("TRANSFORMS & STYLING", px + fl(10 * s), iy); iy = iy + ilh
@@ -1326,6 +1487,11 @@ function RoomView:mousepressed(x, y, button)
         end
     end
 
+    -- The right panel (layers / light)
+    if not self.hide_editor_hud and LayersPanel.mousepressed(self, x, y, button) then
+        return true
+    end
+
     -- Check Top Toolbar clicks (Export, Reset, Clear, Help, Meta Selectors)
     if y < math.floor(56 * s) then
         if button == 1 then
@@ -1358,9 +1524,16 @@ function RoomView:mousepressed(x, y, button)
                             scale    = info.scale or 1.0,
                             flip_x   = info.flip_x or false,
                             align    = info.align or "center",
+                            anim_room = info.anim_room,
+                            fps      = info.fps,
+                            frame    = info.frame,
+                            shader   = info.shader,
+                            hidden_when = info.hidden_when,
+                            homes    = info.homes,
                         }
                     end
                 end
+                RoomPlacement.migrateRelativeDx(self.placed)
                 self.picked_item = nil
                 print("[room-editor] Reset all layout changes to saved defaults")
                 return true
@@ -1439,11 +1612,14 @@ function RoomView:mousepressed(x, y, button)
             end
         end
 
-        -- Scrollbar: click jumps there and drags until release
+        -- Scrollbar: the thumb drags, the track jumps
         local b = self._list_bar
-        if b and b.max_scroll > 0 and x >= b.x and y >= b.y and y < b.y + b.h then
-            self._bar_drag = true
-            self:_scrollTo(y)
+        if b and b.max_scroll > 0 and Scrollbar.containsPoint(b.x, b.y, b.h, x, y) then
+            if Scrollbar.containsThumb(b.x, b.y, b.h, self.list_scroll, b.content_h, x, y) then
+                self._bar_drag = { y0 = y, scroll0 = self.list_scroll }
+            else
+                self.list_scroll = Scrollbar.scrollFromTrackClick(b.y, b.h, y, b.content_h)
+            end
             return true
         end
 
@@ -1483,80 +1659,27 @@ function RoomView:mousepressed(x, y, button)
 
     -- Left click
     if button == 1 then
+        -- Item hits FIRST, by the sprite's pixels, wherever they are on
+        -- screen: a wall clock or a monitor projects OUTSIDE the floor
+        -- diamond, so these must not sit behind the floor-bounds guard.
+        local is_alt  = love.keyboard and love.keyboard.isDown("lalt", "ralt")
+        local hit_obj = self:_hitItem(zx, zy, nil, nil, is_alt)   -- Alt+click logs each candidate
+        if self.parent_pick and hit_obj then
+            self:parentTo(self.parent_pick, hit_obj)
+            self.parent_pick = nil
+            return true
+        end
+        if hit_obj and is_alt and not self.picked_item then
+            self:_grabPlaced(hit_obj)
+            return true
+        end
 
         if gx >= 0 and gx + self.active_w <= self.room_size and gy >= 0 and gy + self.active_h <= self.room_size then
-            -- 1. Check if hovering an existing object to PICK UP
-            local clicked_obj = self:_hitItem(zx, zy, click_gx, click_gy)
-            local clicked_idx = nil
-            for i, o in ipairs(self.placed) do
-                if o == clicked_obj then clicked_idx = i; break end
-            end
-
-            local is_shift = love.keyboard and (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift"))
-            local is_alt   = love.keyboard and love.keyboard.isDown("lalt", "ralt")
-
-            -- Placed items are scenery to the mouse: a click places what is
-            -- in hand (PLACE adds a copy, REPLACE moves the existing one).
-            -- Alt+click is the only grab.
-            if clicked_obj and is_alt and not is_shift and not self.picked_item then
-                -- Pick up the item! Save it in self.picked_item
-                self.picked_item = {
-                    id        = clicked_obj.id,
-                    sprite    = clicked_obj.sprite,
-                    gx        = clicked_obj.gx,
-                    gy        = clicked_obj.gy,
-                    w         = clicked_obj.w,
-                    h         = clicked_obj.h,
-                    z_offset  = clicked_obj.z_offset,
-                    dx        = clicked_obj.dx or 0,
-                    layer     = clicked_obj.layer or 0,
-                    sh        = clicked_obj.sh,
-                    color     = clicked_obj.color,
-                    scale     = clicked_obj.scale or 1.0,
-                    flip_x    = clicked_obj.flip_x or false,
-                    align     = clicked_obj.align or "center",
-                    anim_room = clicked_obj.anim_room,
-                    fps       = clicked_obj.fps,
-                    frame     = clicked_obj.frame,
-                    shader    = clicked_obj.shader,
-                }
-                -- Load its specs to the active cursor parameters
-                self.active_w         = clicked_obj.w
-                self.active_h         = clicked_obj.h
-                self.active_sh        = clicked_obj.sh
-                self.active_z         = clicked_obj.z_offset
-                self.active_dx        = clicked_obj.dx or 0
-                self.active_layer     = clicked_obj.layer or 0
-                self.active_scale     = clicked_obj.scale or 1.0
-                self.active_flip_x    = clicked_obj.flip_x or false
-                self.active_align     = clicked_obj.align or "center"
-                self.active_anim_room = clicked_obj.anim_room
-                self.active_fps       = clicked_obj.fps
-                self.active_frame     = clicked_obj.frame
-                self.active_shader    = clicked_obj.shader
-                self.active_color     = clicked_obj.color or { 1.0, 1.0, 1.0 }
-                
-                -- Sync selected_idx to match this item (browser follows)
-                for idx, item in ipairs(self.placeable) do
-                    -- numbered copies (Door_2_Brown_2) match by sprite
-                    if item.id == clicked_obj.id or item.id == clicked_obj.sprite then
-                        self.selected_idx = idx
-                        self:_onSelectionChanged()
-                        break
-                    end
-                end
-
-                -- Remove it from the grid so it's only attached to cursor
-                table.remove(self.placed, clicked_idx)
-                print("[room-editor] Picked up " .. clicked_obj.id .. " for editing")
-            else
+            do
                 -- Place active item (Shift+Click stacks on top of furniture!)
                 local active_spec = self.placeable[self.selected_idx]
                 if active_spec then
                     local auto_z = self.active_z
-                    if is_shift and clicked_obj then
-                        auto_z = clicked_obj.z_offset + (clicked_obj.sh or 16)
-                    end
 
                     -- Catalog items are one per room (the id is what the
                     -- game owns), so placing again moves it. Flavor sprites
@@ -1565,6 +1688,28 @@ function RoomView:mousepressed(x, y, button)
                     local place_id = self.picked_item and self.picked_item.id or active_spec.id
                     local is_catalog = self.catalog_by_id[active_spec.id] ~= nil
                     local sprite_name = active_spec.sprite or active_spec.id
+                    local placement = { gx = gx, gy = gy, z_offset = auto_z, dx = self.active_dx or 0,
+                                        layer = self.active_layer or 0, align = self.active_align,
+                                        flip_x = self.active_flip_x, scale = self.active_scale }
+                    -- An entry that already exists (in hand, or the one
+                    -- REPLACE moves) keeps its homes: the placement goes to
+                    -- whichever home is active under the anchors, else the base.
+                    local target = self.picked_item
+                    if not target then
+                        for _, o in ipairs(self.placed) do
+                            if o.id == active_spec.id or (not is_catalog and self.mode == "replace" and o.sprite == sprite_name) then
+                                target = o; break
+                            end
+                        end
+                    end
+                    if target then
+                        if self.picked_item then table.insert(self.placed, target) end
+                        self:_writePlacement(target, placement)
+                        self.picked_item = nil
+                        self.sel_placed  = target
+                        print(string.format("[room-editor] Placed %s at (%.3f, %.3f, Z=%d)", target.id, gx, gy, auto_z))
+                        return true
+                    end
                     if self.picked_item then
                         -- putting the same thing back: its id is its own
                     elseif is_catalog or self.mode == "replace" then
@@ -1605,7 +1750,10 @@ function RoomView:mousepressed(x, y, button)
                         fps       = self.active_fps,
                         frame     = self.active_frame,
                         shader    = self.active_shader,
+                        hidden_when = self.picked_item and self.picked_item.hidden_when or nil,
+                        homes     = self.picked_item and self.picked_item.homes or nil,
                     })
+                    self.sel_placed = self.placed[#self.placed]
                     print(string.format("[room-editor] Placed %s at (%.3f, %.3f, Z=%d)", place_id, gx, gy, auto_z))
                     self.picked_item = nil -- successfully placed, clear picked state
                 end
@@ -1666,6 +1814,17 @@ function RoomView:keypressed(key)
         self.editor_mode = false
         print("[room-editor] Exited Room Editor Mode.")
         return true
+    end
+
+    -- The layers panel's selection: Delete, Ctrl+D duplicate, Home/End front/back
+    local ctrl = love.keyboard.isDown("lctrl", "rctrl")
+    if self.parent_pick and key == "escape" then self.parent_pick = nil; return true end
+    if self.sel_placed and not self.picked_item then
+        if key == "delete" then self:deletePlaced(self.sel_placed); return true end
+        if key == "d" and ctrl then self:duplicatePlaced(self.sel_placed); return true end
+        if key == "home" and ctrl then self:sendToFront(self.sel_placed); return true end
+        if key == "end" and ctrl then self:sendToBack(self.sel_placed); return true end
+        if key == "escape" then self.sel_placed = nil; return true end
     end
 
     -- Layer (draw order) of the thing in hand
@@ -2032,14 +2191,41 @@ end
 -- cycles the selection (and the browser follows the selection).
 -- The placed item under a room-space point: the topmost drawn sprite
 -- whose pixels' box contains it, else the one whose footprint does.
-function RoomView:_hitItem(x, y, gx, gy)
+function RoomView:_hitItem(x, y, gx, gy, debug_log)
     local rects = self._hit_rects or {}
+    local loader = self.game and self.game.sprite_loader
+    if debug_log then
+        RoomViewDebugAlpha = true
+        print(string.format("[hit] click at (%.0f, %.0f); %d rects this frame; nearby boxes:", x, y, #rects))
+        for i = #rects, 1, -1 do
+            local r = rects[i]
+            local cxr, cyr = r.x + r.w * 0.5, r.y + r.h * 0.5
+            if math.abs(cxr - x) < 250 and math.abs(cyr - y) < 250 then
+                print(string.format("[hit]   %-24s box x %.0f..%.0f  y %.0f..%.0f", r.obj.id, r.x, r.x + r.w, r.y, r.y + r.h))
+            end
+        end
+    end
     for i = #rects, 1, -1 do
         local r = rects[i]
         if x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h then
-            return r.obj
+            -- The box is only the gate; the sprite's own pixels decide, so
+            -- overlapping boxes (a chair behind a keyboard) resolve to
+            -- whatever is actually under the cursor.
+            local u = (x - r.x) / r.w
+            local v = (y - r.y) / r.h
+            if r.draw and r.draw.sx and r.draw.sx < 0 then u = 1 - u end
+            local a = spriteAlphaAt(loader, r.obj.sprite or r.obj.id, u, v, r.draw and r.draw.sprite, r.obj.frame,
+                                     r.draw and r.draw.animated)
+            if debug_log then
+                print(string.format("[hit] %-24s u %.2f v %.2f alpha %.2f %s", r.obj.id, u, v, a, a > 0.1 and "<< HIT" or "(pass through)"))
+            end
+            if a > 0.1 then
+                RoomViewDebugAlpha = nil
+                return r.obj
+            end
         end
     end
+    RoomViewDebugAlpha = nil
     if gx then
         for i = #self.placed, 1, -1 do
             local o = self.placed[i]
@@ -2049,6 +2235,220 @@ function RoomView:_hitItem(x, y, gx, gy)
         end
     end
     return nil
+end
+
+-- Pick a placed entry up into the hand (Alt+click, or the layers panel).
+-- The hand takes the item's placement as resolved under the current
+-- anchors; putting it down writes that home (or the base).
+function RoomView:_grabPlaced(obj)
+    if self.picked_item or obj.locked then return end
+    local idx
+    for i, o in ipairs(self.placed) do if o == obj then idx = i; break end end
+    if not idx then return end
+    local hw, vs = RoomPlacement.copyConditions(obj)
+    self.picked_item = {
+        id        = obj.id,
+        sprite    = obj.sprite,
+        gx        = obj.gx,
+        gy        = obj.gy,
+        w         = obj.w,
+        h         = obj.h,
+        z_offset  = obj.z_offset,
+        dx        = obj.dx or 0,
+        layer     = obj.layer or 0,
+        sh        = obj.sh,
+        color     = obj.color,
+        scale     = obj.scale or 1.0,
+        flip_x    = obj.flip_x or false,
+        align     = obj.align or "center",
+        anim_room = obj.anim_room,
+        fps       = obj.fps,
+        frame     = obj.frame,
+        shader    = obj.shader,
+        hidden_when = hw,
+        homes     = vs,
+    }
+    local r = self._resolved and self._resolved[obj]
+    local res = r and r.fields or obj
+    self.active_w         = obj.w
+    self.active_h         = obj.h
+    self.active_sh        = obj.sh
+    self.active_z         = res.z_offset
+    self.active_dx        = res.dx or 0
+    self.active_layer     = res.layer or 0
+    self.active_scale     = res.scale or 1.0
+    self.active_flip_x    = res.flip_x or false
+    self.active_align     = res.align or "center"
+    self.active_anim_room = obj.anim_room
+    self.active_fps       = obj.fps
+    self.active_frame     = obj.frame
+    self.active_shader    = obj.shader
+    self.active_color     = obj.color or { 1.0, 1.0, 1.0 }
+    for i, item in ipairs(self.placeable) do
+        if item.id == obj.id or item.id == obj.sprite then
+            self.selected_idx = i
+            self:_onSelectionChanged()
+            break
+        end
+    end
+    table.remove(self.placed, idx)
+    self.sel_placed = nil
+    print("[room-editor] Picked up " .. obj.id)
+end
+
+-- The catalog id an entry needs owned to show, or nil for flavor.
+-- Numbered copies (rubber_duck_2) need their base item.
+function RoomView:_catalogBase(obj)
+    if self.catalog_by_id[obj.id] then return obj.id end
+    if obj.sprite and self.catalog_by_id[obj.sprite] then return obj.sprite end
+    return nil
+end
+
+-- What counts as present for placement: in play the real owned set plus
+-- every flavor entry (the room itself is always there); in the editor
+-- everything in the room, minus the anchors ticked off.
+function RoomView:_resolveSet(owned_set)
+    local set = {}
+    if self.editor_mode then
+        for _, o in ipairs(self.placed) do set[o.id] = true end
+        if self.picked_item then set[self.picked_item.id] = true end
+        for id in pairs(self.anchors_off or {}) do set[id] = nil end
+        return set
+    end
+    for k, v in pairs(owned_set or {}) do set[k] = v end
+    for _, o in ipairs(self.placed) do
+        local needs = self:_catalogBase(o)
+        if needs == nil then set[o.id] = true
+        elseif owned_set[needs] then set[o.id] = true end
+    end
+    return set
+end
+
+-- Write a placement into the entry's active home (relative to its
+-- parent) or its base, under the current anchors. The entry must be in
+-- self.placed.
+function RoomView:_writePlacement(obj, placement)
+    local res_all = RoomPlacement.resolveAll(self.placed, self:_resolveSet({}))
+    local r = res_all[obj]
+    local parent_res
+    if r and r.home > 0 then
+        local h = obj.homes[r.home]
+        for _, o in ipairs(self.placed) do
+            if o.id == h.on then parent_res = res_all[o].fields; break end
+        end
+    end
+    RoomPlacement.writePlacement(obj, r, parent_res, placement)
+end
+
+-- Link `child` to sit on `parent`: the offset is wherever the child is
+-- right now. Nothing moves.
+function RoomView:parentTo(child, parent)
+    if child == parent then return false end
+    local res_all = RoomPlacement.resolveAll(self.placed, self:_resolveSet({}))
+    if not res_all[child] or not res_all[parent] then return false end
+    RoomPlacement.setHome(child, parent.id, res_all[child].fields, res_all[parent].fields)
+    print(string.format("[room-editor] %s now sits on %s", child.id, parent.id))
+    return true
+end
+
+-- The layers panel's hover and selection, lit in the room: the item's
+-- own silhouette, additive, plus its box. Drawn after the lighting pass,
+-- under the room's transform.
+function RoomView:_drawEditorHighlights()
+    -- The mouse over the room lights what it is on, the same as a row in
+    -- the layers panel. Nothing glows otherwise (a selection is a row).
+    local hov = self.hover_placed
+    if not hov and not self.hide_editor_hud then
+        local mx, my = love.mouse.getPosition()
+        local pr = self._panel_rect
+        local over_panel = pr and mx >= pr.x and mx < pr.x + pr.w and my >= pr.y and my < pr.y + pr.h
+        local s0 = self.game.ui_scale or 1
+        if not over_panel and mx >= math.floor(280 * s0) and my >= math.floor(96 * s0) then
+            local v = self._view
+            local ux, uy = (mx - v.cx) / v.zoom + v.cx, (my - (v.dy or 0) - v.cy) / v.zoom + v.cy
+            hov = self:_hitItem(ux, uy)
+        end
+    end
+    if not hov then return end
+    local view = self._view
+    if not view then return end
+    love.graphics.push()
+    love.graphics.translate(view.cx, view.cy + (view.dy or 0))
+    love.graphics.scale(view.zoom, view.zoom)
+    love.graphics.translate(-view.cx, -view.cy)
+    local s = self.game.ui_scale or 1
+    for _, r in ipairs(self._hit_rects or {}) do
+        if r.obj == hov and r.draw then
+            -- The item redrawn over itself, additive: it brightens in place
+            -- (same sprite, frame, flip and scale as the frame that drew it).
+            local d = r.draw
+            love.graphics.setBlendMode("add")
+            Theme.setColor(Theme.fg.heading, 0.28)
+            love.graphics.draw(d.sprite, d.px, d.py, 0, d.sx, d.sy, d.ox, d.oy)
+            love.graphics.setBlendMode("alpha")
+        end
+    end
+    love.graphics.pop()
+
+    -- What the cursor is on, next to it, while Alt is down (the grab
+    -- gesture) or while picking a parent.
+    local alt = love.keyboard.isDown("lalt", "ralt")
+    if hov and (alt or self.parent_pick) then
+        local mx, my = love.mouse.getPosition()
+        local sm = self.game.fonts and self.game.fonts.sm
+        if sm then
+            local label = hov.id:match("([^/]+)$") or hov.id
+            if self.parent_pick then label = self.parent_pick.id .. " onto " .. label end
+            local s0 = self.game.ui_scale or 1
+            local pad = math.floor(4 * s0)
+            local tw2 = sm:getWidth(label)
+            local tx = math.min(mx + math.floor(14 * s0), love.graphics.getWidth() - tw2 - pad * 2)
+            local ty = my - sm:getHeight() - pad * 2
+            Theme.setColor(Theme.bg.sunken, 0.9)
+            love.graphics.rectangle("fill", tx, ty, tw2 + pad * 2, sm:getHeight() + pad * 2, 2)
+            Theme.setColor(Theme.fg.heading)
+            love.graphics.setFont(sm)
+            love.graphics.print(label, tx + pad, ty + pad)
+        end
+    end
+end
+
+-- data/room_lights.lua from the live table (the LIGHT tab edits it).
+function RoomView:lightsString()
+    local F = RoomLights.fixture
+    local function c3(c) return string.format("{ %.2f, %.2f, %.2f }", c[1], c[2], c[3]) end
+    local L = {}
+    L[#L + 1] = "-- data/room_lights.lua"
+    L[#L + 1] = "--"
+    L[#L + 1] = "-- How the player's room is lit (views/RoomLighting.lua). Edited in the"
+    L[#L + 1] = "-- room editor's LIGHT tab and written by EXPORT. See models/room_placement"
+    L[#L + 1] = "-- for the layout; this file is the light: a fixture (fluorescent: blooms"
+    L[#L + 1] = "-- then settles; cone: a hanging bulb) and the things that make light, by"
+    L[#L + 1] = "-- catalog id (radius in sprite widths; pulse breathes the glow). Tables only."
+    L[#L + 1] = ""
+    L[#L + 1] = "return {"
+    L[#L + 1] = "    fixture = {"
+    L[#L + 1] = string.format("        kind    = %q,", F.kind)
+    L[#L + 1] = "        color   = " .. c3(F.color) .. ","
+    L[#L + 1] = "        ambient = " .. c3(F.ambient) .. ","
+    L[#L + 1] = string.format("        bloom   = { peak = %.2f, peak_at = %.2f, settle_at = %.2f },", F.bloom.peak, F.bloom.peak_at, F.bloom.settle_at)
+    L[#L + 1] = string.format("        base    = %.2f,", F.base)
+    L[#L + 1] = string.format("        pool    = { w = %.2f, h = %.2f, alpha = %.2f },", F.pool.w, F.pool.h, F.pool.alpha)
+    L[#L + 1] = string.format("        cone    = { w = %.2f, h = %.2f, alpha = %.2f, base = %.2f },", F.cone.w, F.cone.h, F.cone.alpha, F.cone.base)
+    L[#L + 1] = "    },"
+    L[#L + 1] = "    emitters = {"
+    local ids = {}
+    for id in pairs(RoomLights.emitters) do ids[#ids + 1] = id end
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+        local e = RoomLights.emitters[id]
+        local key = id:match("^[%a_][%w_]*$") and id or string.format("[%q]", id)
+        local pulse = e.pulse and string.format(", pulse = { secs = %.2f, amount = %.2f }", e.pulse.secs, e.pulse.amount) or ""
+        L[#L + 1] = string.format("        %-16s = { color = %s, radius = %.2f, alpha = %.2f%s },", key, c3(e.color), e.radius, e.alpha, pulse)
+    end
+    L[#L + 1] = "    },"
+    L[#L + 1] = "}"
+    return table.concat(L, "\n")
 end
 
 -- Screen -> room space, undoing the zoom about the room centre.
@@ -2070,28 +2470,113 @@ function RoomView:wheelmoved(dy)
         self.list_scroll = self.list_scroll - dy * math.floor(40 * s)
         return true   -- clamped in draw against the live layout
     end
+    if LayersPanel.wheelmoved(self, dy, mx, love.mouse.getY()) then return true end
     -- Over the room the wheel does nothing (Ctrl+wheel zooms above). It
     -- used to cycle the selection, which opened folders by itself.
     return true
 end
 
--- Scrollbar drag (the bar is a 14px column at the list's right edge).
-function RoomView:_scrollTo(y)
-    local b = self._list_bar
-    if not b or b.max_scroll <= 0 then return end
-    local track = b.h - b.thumb_h
-    local t = track > 0 and (y - b.y - b.thumb_h * 0.5) / track or 0
-    self.list_scroll = math.max(0, math.min(1, t)) * b.max_scroll
-end
-
 function RoomView:mousemoved(x, y)
-    if self._bar_drag then self:_scrollTo(y); return true end
+    local d = self._bar_drag
+    if d then
+        local b = self._list_bar
+        if b then self.list_scroll = Scrollbar.scrollFromDrag(b.h, y - d.y0, d.scroll0, b.content_h) end
+        return true
+    end
+    if LayersPanel.mousemoved(self, x, y) then return true end
     return false
 end
 
 function RoomView:mousereleased(x, y, button)
-    if self._bar_drag then self._bar_drag = false; return true end
+    if self._bar_drag then self._bar_drag = nil; return true end
+    if LayersPanel.mousereleased(self, x, y, button) then return true end
     return false
+end
+
+-- ── Layer operations (the panel's buttons, drag, and keys) ─────────────
+
+function RoomView:deletePlaced(obj)
+    for i, o in ipairs(self.placed) do
+        if o == obj then
+            table.remove(self.placed, i)
+            if self.sel_placed == obj then self.sel_placed = nil end
+            print("[room-editor] Deleted " .. obj.id)
+            return true
+        end
+    end
+    return false
+end
+
+-- A copy beside the original; catalog items stay one-per-room, so the
+-- copy is a flavor entry with a numbered id and the same sprite.
+function RoomView:duplicatePlaced(obj)
+    local base = obj.id:match("^(.-)_%d+$") or obj.id
+    local taken = {}
+    for _, o in ipairs(self.placed) do taken[o.id] = true end
+    local n = 2
+    local new_id = base .. "_" .. n
+    while taken[new_id] do n = n + 1; new_id = base .. "_" .. n end
+    local hw, vs = RoomPlacement.copyConditions(obj)
+    local copy = {}
+    for k, v in pairs(obj) do copy[k] = v end
+    copy.id = new_id
+    copy.sprite = obj.sprite or obj.id
+    copy.color = { obj.color[1], obj.color[2], obj.color[3] }
+    copy.gx = math.min(self.room_size - obj.w, obj.gx + 0.25)
+    copy.gy = math.min(self.room_size - obj.h, obj.gy + 0.25)
+    copy.hidden_when, copy.homes = hw, vs
+    copy.hidden, copy.locked = nil, nil
+    self.placed[#self.placed + 1] = copy
+    self.sel_placed = copy
+    print("[room-editor] Duplicated " .. obj.id .. " as " .. new_id)
+    return copy
+end
+
+-- The layer an entry draws at right now (its active home's, else its own).
+function RoomView:layerOf(obj)
+    local r = self._resolved and self._resolved[obj]
+    return (r and r.fields.layer) or obj.layer or 0
+end
+
+-- Set an entry's layer where it lives: its active home, else its base.
+function RoomView:setLayer(obj, layer)
+    self:_writePlacement(obj, { layer = layer })
+end
+
+-- Put `obj` in front of / behind everything: one layer beyond the extremes.
+function RoomView:sendToFront(obj)
+    local top = 0
+    for _, o in ipairs(self.placed) do if o ~= obj then top = math.max(top, self:layerOf(o)) end end
+    self:setLayer(obj, top + 1)
+end
+
+function RoomView:sendToBack(obj)
+    local bottom = 0
+    for _, o in ipairs(self.placed) do if o ~= obj then bottom = math.min(bottom, self:layerOf(o)) end end
+    self:setLayer(obj, bottom - 1)
+end
+
+-- Dropped in the list above `target` (front-most first): draw in front
+-- of it. Same layer when depth already puts it in front, else one up.
+-- Depth is by the RESOLVED placement (where things are, not their base).
+function RoomView:_depthOf(obj)
+    local r = self._resolved and self._resolved[obj]
+    local f = r and r.fields or obj
+    return (f.gx + f.w * 0.5) + (f.gy + f.h * 0.5)
+end
+
+function RoomView:placeInFrontOf(obj, target)
+    if obj == target then return end
+    local tl = self:layerOf(target)
+    if self:_depthOf(target) >= self:_depthOf(obj) then tl = tl + 1 end
+    self:setLayer(obj, tl)
+end
+
+function RoomView:placeBehind(obj, target)
+    if obj == target then return end
+    local tl = self:layerOf(target)
+    if self:_depthOf(target) <= self:_depthOf(obj) then tl = tl - 1 end
+    self:setLayer(obj, tl)
 end
 
 -- Export function: Print the Lua return layout array directly to standard output
@@ -2129,12 +2614,33 @@ function RoomView:layoutString()
         local dx_str     = (o.dx and o.dx ~= 0) and string.format(", dx = %d", o.dx) or ""
         local sprite_str = (o.sprite and o.sprite ~= o.id) and string.format(", sprite = %q", o.sprite) or ""
         local layer_str  = (o.layer and o.layer ~= 0) and string.format(", layer = %d", o.layer) or ""
+        local cond_str   = ""
+        if o.hidden_when and #o.hidden_when > 0 then
+            local qs = {}
+            for i, h in ipairs(o.hidden_when) do qs[i] = string.format("%q", h) end
+            cond_str = cond_str .. ", hidden_when = { " .. table.concat(qs, ", ") .. " }"
+        end
+        if o.homes and #o.homes > 0 then
+            local hs = {}
+            for i, h in ipairs(o.homes) do
+                -- frame homes only (f = 2): everything is migrated at load
+                local extra = ""
+                if h.dx and h.dx ~= 0 then extra = extra .. string.format(", dx = %d", h.dx) end
+                if h.flip_x then extra = extra .. ", flip_x = true" end
+                if h.align and h.align ~= "center" then extra = extra .. string.format(", align = %q", h.align) end
+                -- layer and scale always: the home's own, a nil would leak the base's
+                extra = extra .. string.format(", layer = %d, scale = %.2f", h.layer or 0, h.scale or 1)
+                hs[i] = string.format("{ on = %q, u = %.3f, v = %.3f, z_offset = %d, w = %d, h = %d%s, f = 3 }",
+                    h.on, h.u or 0, h.v or 0, h.z_offset or 0, h.w or 1, h.h or 1, extra)
+            end
+            cond_str = cond_str .. ", homes = { " .. table.concat(hs, ", ") .. " }"
+        end
 
         -- Flavor ids are sprite paths (slashes, dots, parens): not Lua
         -- names, so they go in ["..."].
         local key = o.id:match("^[%a_][%w_]*$") and o.id or string.format("[%q]", o.id)
-        lines[#lines + 1] = string.format("    %-20s = { gx = %.3f, gy = %.3f, w = %d, h = %d, z_offset = %d, sh = %d, color = { %.2f, %.2f, %.2f }%s%s%s%s%s%s%s%s%s%s },",
-            key, o.gx, o.gy, o.w, o.h, o.z_offset, o.sh, o.color[1], o.color[2], o.color[3], scale_str, flip_str, align_str, anim_str, fps_str, frame_str, shader_str, dx_str, sprite_str, layer_str)
+        lines[#lines + 1] = string.format("    %-20s = { gx = %.3f, gy = %.3f, w = %d, h = %d, z_offset = %d, sh = %d, color = { %.2f, %.2f, %.2f }%s%s%s%s%s%s%s%s%s%s%s },",
+            key, o.gx, o.gy, o.w, o.h, o.z_offset, o.sh, o.color[1], o.color[2], o.color[3], scale_str, flip_str, align_str, anim_str, fps_str, frame_str, shader_str, dx_str, sprite_str, layer_str, cond_str)
     end
     lines[#lines + 1] = "}"
     return table.concat(lines, "\n")
@@ -2154,6 +2660,26 @@ function RoomView:autosave()
     if ok then
         self._last_autosave = str
         print(string.format("[room-editor] Autosaved draft (%d items)", #self.placed + (self.picked_item and 1 or 0)))
+    end
+    -- The lights too, when they changed.
+    local ls = self:lightsString()
+    if ls ~= self._last_lights_autosave then
+        if pcall(love.filesystem.write, LIGHTS_DRAFT, ls .. "\n") then self._last_lights_autosave = ls end
+    end
+end
+
+-- A lights draft in the save dir (autosaved by the editor) replaces the
+-- data file's contents in place, so RoomLighting sees it without a rebind.
+loadLightsDraft = function()
+    if not (love and love.filesystem and love.filesystem.getInfo(LIGHTS_DRAFT)) then return end
+    local ok, chunk = pcall(love.filesystem.load, LIGHTS_DRAFT)
+    if not ok or not chunk then return end
+    local ok2, t = pcall(chunk)
+    if ok2 and type(t) == "table" and t.fixture and t.emitters then
+        for k, v in pairs(t.fixture) do RoomLights.fixture[k] = v end
+        for k in pairs(RoomLights.emitters) do RoomLights.emitters[k] = nil end
+        for k, v in pairs(t.emitters) do RoomLights.emitters[k] = v end
+        print("[room-editor] Loaded lights draft from the save directory")
     end
 end
 
@@ -2187,6 +2713,14 @@ function RoomView:serializeLayout()
             self._last_autosave = output_str
             pcall(love.filesystem.remove, DRAFT_FILE)
             self.export_written = true
+            local lf = io.open(src .. "/data/room_lights.lua", "w")
+            if lf then
+                lf:write(self:lightsString() .. "\n")
+                lf:close()
+                pcall(love.filesystem.remove, LIGHTS_DRAFT)
+                self._last_lights_autosave = nil
+                print("[room-editor] Wrote " .. src .. "/data/room_lights.lua")
+            end
         else
             print("[room-editor] Could not write " .. path .. " (export copy is in the save dir)")
         end

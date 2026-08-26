@@ -48,6 +48,7 @@
 -- question worth asking of an item you're deciding whether to buy.
 
 local OutcomeMath  = require("models.outcome_math")
+local ShoveRate = require("models.shove_rate")
 local Catalog      = require("data.catalog")
 local RunUpgrades  = require("data.run_upgrades")
 local Decks        = require("models.Decks")
@@ -220,15 +221,15 @@ local _cache = { key = nil, value = nil }
 
 function PayoutBreakdown.cached(game, gtype, stake, opts)
     if not game or not gtype or not stake then return nil end
-    -- Bankroll enters through earnings_scale_by_bankroll as a log term, so
-    -- it's bucketed by log10: the displayed number moves when the order of
-    -- magnitude does, and a bankroll ticking up every hand doesn't rebuild
-    -- the whole thing every frame.
+    -- Bankroll enters through earnings_scale_by_bankroll as the BANK
+    -- multiplier, so the cache is bucketed by that multiplier's value: the
+    -- displayed number moves when the multiplier does, and a bankroll
+    -- ticking up every hand doesn't rebuild the whole thing every frame.
     local br  = (opts and opts.bankroll) or 0
     local key = tostring(game.state and game.state.effects_cache)
                 .. "|" .. tostring(gtype.id) .. "|" .. tostring(stake.id)
                 .. "|" .. string.format("%.4f", (opts and opts.focus_mult) or 1)
-                .. "|" .. string.format("%.2f", math.log10(math.max(0, br) + 1))
+                .. "|" .. string.format("%.3f", ShoveRate.bankrollMultiplier(br))
     if _cache.key == key then return _cache.value end
     _cache.key   = key
     _cache.value = PayoutBreakdown.compute(game, gtype, stake, opts)

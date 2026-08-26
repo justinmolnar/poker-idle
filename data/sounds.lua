@@ -25,12 +25,19 @@ local CHIP_DROP_2      = expand(UVEGAS .. "Chips/Drops/2onStaple_",             
 local CHIP_DROP_3      = expand(UVEGAS .. "Chips/Drops/3onStaple_",               3)
 local CHIP_DROP_4      = expand(UVEGAS .. "Chips/Drops/4onStaple_",               3)
 local COINS            = expand(UVEGAS .. "Coins/coins_",                         5)
+-- Rendered from the pack's card deal (build-tools/render_felt_sounds.py):
+-- the same sound degraded three ways, for the ending flood.
+local FELT             = "assets/audio/felt/"
 
 return {
     -- ── Mix rules (read by SoundService; not sound names) ─────────────
     _mix = {
         -- Nothing repeats identically: every play is detuned by up to this.
         pitch_jitter = 0.03,
+        -- An item doing its job in play: its own sound, under the felt,
+        -- and never the same sound twice within `min_gap` seconds (the
+        -- cursor and clock items would otherwise chatter).
+        item_fire = { volume = 0.55, min_gap = 0.2 },
         -- The damage bus. On for a corrupted item's sound, or for
         -- everything once the bankroll has underflowed. Cheap version
         -- that works everywhere: the pitch wanders, some plays drop out,
@@ -53,8 +60,22 @@ return {
 
     -- ── Shove-state events ──────────────────────────────────────────────
     shove_initiated     = { files = CARD_RIFFLE,  volume = 0.70 },
-    cheat_card_dealt    = { files = CHIP_DROP_3,  volume = 0.85 },
+    -- The cheat card is a card slapped on felt, not a chip: the heavier
+    -- takes of the pack's deal, dry.
+    cheat_card_dealt    = { files = CARD_GIVE,    volume = 0.95 },
     runout_won          = { files = COINS,        volume = 0.70 },
+    -- The ending flood: the deal sound, degrading every dozen cards.
+    deck_card_degraded_1 = { file = FELT .. "card_degraded_1.ogg", volume = 0.9 },
+    deck_card_degraded_2 = { file = FELT .. "card_degraded_2.ogg", volume = 0.9 },
+    deck_card_degraded_3 = { file = FELT .. "card_degraded_3.ogg", volume = 0.9 },
+    -- The room's lights (assets/audio/room, credited in its MANIFEST):
+    -- on = the switch with the tube coming on over it; off = the switch.
+    lights_on           = { file = "assets/audio/room/light_switch.ogg", volume = 0.8,
+                            layer = { file = "assets/audio/room/fluorescent.ogg", volume = 0.12 } },
+    lights_off          = { file = "assets/audio/room/light_switch.ogg", volume = 0.8 },
+    -- Still to find (see docs/sound-checklist.md): catalog_thud. The name
+    -- is wired on the shove timeline; a file named catalog_thud under
+    -- assets/audio/ pairs by itself. Silent until then.
     -- Pack has no fanfare / game-over equivalents — keep the legacy assets.
     gauntlet_won        = { file  = "assets/audio/victory_fanfare.mp3", volume = 1.0  },
     gauntlet_lost       = { file  = "assets/audio/game_over.mp3",       volume = 0.85 },

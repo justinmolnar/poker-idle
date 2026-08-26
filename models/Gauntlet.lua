@@ -100,9 +100,9 @@ function Gauntlet:begin()
     return self.result
 end
 
--- Whether the player STRICTLY beats the dealer given the current
--- player_hole, dealer_hole, and board. Draw = loss.
-function Gauntlet:_currentlyWinning()
+-- Player vs dealer on the current board: 1 the player wins, -1 the
+-- dealer wins, 0 a tie.
+function Gauntlet:_compare()
     local p_cards, d_cards = {}, {}
     for _, c in ipairs(self.player_hole)  do table.insert(p_cards, c) end
     for _, c in ipairs(self.board)        do table.insert(p_cards, c) end
@@ -110,7 +110,21 @@ function Gauntlet:_currentlyWinning()
     for _, c in ipairs(self.board)        do table.insert(d_cards, c) end
     local p_rank = HandEval.bestFiveOfN(p_cards)
     local d_rank = HandEval.bestFiveOfN(d_cards)
-    return HandEval.compare(p_rank, d_rank) > 0
+    return HandEval.compare(p_rank, d_rank)
+end
+
+-- Whether the player STRICTLY beats the dealer. Draw = loss.
+function Gauntlet:_currentlyWinning()
+    return self:_compare() > 0
+end
+
+-- Whether the board shows the rolled outcome with a clear winner: a win
+-- is the player strictly ahead, a loss is the dealer strictly ahead. A
+-- tie matches nothing, so the search keeps looking: the winner wins.
+function Gauntlet:_shows(outcome)
+    local c = self:_compare()
+    if outcome then return c > 0 end
+    return c < 0
 end
 
 local function shuffle(t)
@@ -130,7 +144,7 @@ function Gauntlet:_findCheatCards()
 
     for _, c6 in ipairs(c6_candidates) do
         table.insert(self.board, c6)
-        if self:_currentlyWinning() == self.outcomes[2] then
+        if self:_shows(self.outcomes[2]) then
             if not self.outcomes[2] then
                 self.deck:removeCard(c6)
                 return true
@@ -142,7 +156,7 @@ function Gauntlet:_findCheatCards()
             shuffle(c7_candidates)
             for _, c7 in ipairs(c7_candidates) do
                 table.insert(self.board, c7)
-                if self:_currentlyWinning() == self.outcomes[3] then
+                if self:_shows(self.outcomes[3]) then
                     self.deck:removeCard(c6)
                     self.deck:removeCard(c7)
                     return true
@@ -166,7 +180,7 @@ function Gauntlet:_constructJointly()
             self.deck:draw(), self.deck:draw(),
         }
 
-        if self:_currentlyWinning() == self.outcomes[1] then
+        if self:_shows(self.outcomes[1]) then
             if self:_findCheatCards() then
                 self.natural[1] = true
                 if self.outcomes[1] then self.natural[2] = true end

@@ -298,7 +298,7 @@ function ShoveState:_resolvePrototypeEnd(choice)
         state:resetRun()
         local meta_ctx = state:computeEffects(
             self.game.effects, self.game.catalog, self.game.run_upgrades)
-        state:applyStartingPerks(meta_ctx)
+        state:applyStartingPerks(meta_ctx)   -- silent: between screens
         self.gauntlet       = nil
         self._ended_handled = false
         self.view:resetTimeline()
@@ -375,7 +375,7 @@ function ShoveState:_dismissCatalogAndReturn()
     -- the freshly seeded specs.
     local meta_ctx = state:computeEffects(
         self.game.effects, self.game.catalog, self.game.run_upgrades)
-    state:applyStartingPerks(meta_ctx)
+    state:applyStartingPerks(meta_ctx)   -- silent: between screens
     self.catalog_modal = nil
 
     if Decks.systemUnlocked(state) then

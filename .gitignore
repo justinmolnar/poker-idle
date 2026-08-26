@@ -31,3 +31,5 @@ luac.out
 # Audio sources: raw cuts kept beside the finished .ogg files, and local backups
 assets/audio/items/raw/
 assets/audio/items - Copy/
+
+assets/audio/room/raw/

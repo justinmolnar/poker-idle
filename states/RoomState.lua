@@ -98,7 +98,7 @@ function RoomState:draw()
     -- straight over Export / Reset / Clear / Help / Size / Floor.
     local view_last = self.room_view and self.room_view.editor_mode
     if self.room_view and not view_last then
-        self.room_view:draw(true)
+        self.room_view:draw(true, { lighting = { fixture = self.room_view.fixture_off and 0 or 1, emitters = true } })
     end
 
     -- Draw top bar
@@ -174,7 +174,7 @@ function RoomState:draw()
         press_alpha = ClickFlash.alpha("room_back_btn", "room_back_btn"),
     }
     if view_last then
-        self.room_view:draw(true)
+        self.room_view:draw(true, { lighting = { fixture = self.room_view.fixture_off and 0 or 1, emitters = true } })
     end
 end
 

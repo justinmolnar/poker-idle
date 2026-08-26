@@ -184,6 +184,18 @@ local function buildGame()
     g.sound_loader    = SoundLoader:new()
     g.sound_loader:loadAll()
     SoundService.attachLoader(g.sound_loader, g.sprite_loader)
+    -- An item doing its job is heard: its own sound (the file that shares
+    -- its name), damaged if the item is corrupted.
+    g.event_bus:subscribe("item_fired", function(item_id)
+        local mix = require("data.sounds")._mix
+        local rule = (mix and mix.item_fire) or {}
+        local damaged = false
+        for _, id in ipairs(g.state.corrupted_items or {}) do
+            if id == item_id then damaged = true end
+        end
+        SoundService.playNamed(item_id, { volume_mult = rule.volume or 0.5,
+                                          min_gap = rule.min_gap, damaged = damaged })
+    end)
     g.animations      = AnimationSystem
     g.floating_text   = FloatingText
     g.hover           = HoverService

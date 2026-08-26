@@ -39,6 +39,8 @@ local Story                  = require("data.story")
 local StoryView              = require("views.StoryView")
 local FlightSystem           = require("services.FlightSystem")
 local Pop                    = require("services.Pop")
+local RoomLighting           = require("views.RoomLighting")
+local RoomLights             = require("data.room_lights")
 local ChipFlight             = require("views.ChipFlight")
 local Confetti               = require("services.Confetti")
 local RollingValue           = require("services.RollingValue")
@@ -290,6 +292,8 @@ end
 function ShoveView:beginRoomCount(room_view, ids, rates)
     self.room_view    = room_view
     self.room_ids     = ids or {}
+    self.room_id_set  = {}
+    for _, id in ipairs(self.room_ids) do self.room_id_set[id] = true end
     self.room_corrupt = {}
     for _, id in ipairs((self.game.state and self.game.state.corrupted_items) or {}) do
         self.room_corrupt[id] = true
@@ -314,13 +318,17 @@ function ShoveView:beginRoomCount(room_view, ids, rates)
         t = t + roomInterval(i)
     end
     self.room_ticks  = ticks
+    -- "off" (black, looking in) -> "on" at lights_on_at -> "dark" at
+    -- room_off_t (the switch) -> the felt at room_total.
+    self.room_lights = "off"
     if #self.room_ids > 0 then
         self.room_lock_t = ticks[#ticks]
-        self.room_total  = self.room_lock_t + R.lock_secs
+        self.room_off_t  = self.room_lock_t + R.lock_secs
     else
         self.room_lock_t = 0
-        self.room_total  = R.empty_secs
+        self.room_off_t  = R.empty_secs
     end
+    self.room_total = self.room_off_t + R.lights_off_secs
 end
 
 function ShoveView:beginBuildup(rates)
@@ -526,7 +534,7 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     local function throwCatalog(at)
         add(at, function()
             if self.ss and self.ss.throwCatalog then self.ss:throwCatalog() end
-        end)
+        end, "catalog_thud")
     end
 
     -- Pick the right resolution sound for runout i: gauntlet-final win/loss
@@ -779,7 +787,11 @@ function ShoveView:_dealExtra(i)
             local P = Style.ending.deal_pitch
             local n = #(self.extra_cards or {})
             local pitch = self.game.sounds.rampPitch and self.game.sounds.rampPitch(i - 7, n, P.from, P.to) or 1
-            self.game.sounds.playNamed("cheat_card_dealt", { pitch = pitch })
+            -- Every `degrade_every` cards the deal sound breaks one step
+            -- further; by the flood it is clicks.
+            local level = math.min(3, math.floor((i - 8) / Style.ending.degrade_every))
+            local name = level <= 0 and "cheat_card_dealt" or ("deck_card_degraded_" .. level)
+            self.game.sounds.playNamed(name, { pitch = pitch })
         end
         local k = i - 7
         if i <= (E.confetti_first or 17) or k % (E.confetti_every or 5) == 0 then
@@ -929,6 +941,7 @@ function ShoveView:skip()
         end
         self.room_count  = #self.room_ids
         self.room_locked = true
+        if self.room_lights == "off" then self.room_lights = "on" end
         self.phase_t     = math.max(self.phase_t, self.room_lock_t)
         return
     end
@@ -982,6 +995,16 @@ function ShoveView:update(dt)
     if self.phase == "room" then
         self.phase_t = self.phase_t + dt
         local sounds = self.game.sounds
+        local R = Style.room
+        if self.room_lights == "off" and self.phase_t >= R.lights_on_at then
+            self.room_lights = "on"
+            if sounds and sounds.playNamed then sounds.playNamed("lights_on") end
+        end
+        if self.room_lights == "on" and self.phase_t >= self.room_off_t then
+            self.room_lights = "dark"
+            if sounds and sounds.stopNamed then sounds.stopNamed("lights_on") end   -- the tube's hum ends with it
+            if sounds and sounds.playNamed then sounds.playNamed("lights_off") end
+        end
         while self.room_count < #self.room_ids
               and self.phase_t >= self.room_ticks[self.room_count + 1] do
             self.room_count = self.room_count + 1
@@ -1004,9 +1027,8 @@ function ShoveView:update(dt)
         if not self.room_locked and self.phase_t >= self.room_lock_t
            and self.room_count >= #self.room_ids then
             self.room_locked = true
-            if #self.room_ids > 0 and sounds and sounds.playNamed then
-                sounds.playNamed("upgrade_purchased")
-            end
+            -- No sound: the count just played one per item; the lock is
+            -- the silence after them.
         end
         if self.phase_t >= (self.room_total or 0) then
             local from = self._room_counter_pos
@@ -1204,16 +1226,53 @@ function ShoveView:_drawRoomCount(W, H)
     local fonts = self.fonts
     local s     = (self.game and self.game.ui_scale) or 1
 
-    Theme.setColor(Theme.bg.window)
+    -- The counter: the number and its word, centred at the top. Drawn lit,
+    -- and again in the dark after the switch (it is what you take with you).
+    local function drawCounter()
+        local n      = self.room_count
+        local locked = self.room_locked
+        love.graphics.setFont(fonts.lg)
+        local num  = tostring(n)
+        local nw   = fonts.lg:getWidth(num)
+        local ny   = math.floor(H * R.counter_y)
+        local nsc  = Pop.changeScale("room_count", n, 1, 0.35, 0.3)
+        local ncx = math.floor(W * 0.5)
+        self._room_counter_pos = { x = ncx, y = ny + fonts.lg:getHeight() * 0.5 }
+        love.graphics.push()
+        love.graphics.translate(ncx, ny + fonts.lg:getHeight() * 0.5)
+        love.graphics.scale(nsc, nsc)
+        Theme.setColor(locked and Theme.status.good or Theme.fg.heading)
+        love.graphics.print(num, -nw * 0.5, -fonts.lg:getHeight() * 0.5)
+        love.graphics.pop()
+        love.graphics.setFont(fonts.sm)
+        local label = locked and "ITEMS" or "THINGS YOU OWN"
+        Theme.setColor(locked and Theme.status.good or Theme.fg.muted)
+        love.graphics.print(label, ncx + math.floor(nw * 0.5) + math.floor(10 * s),
+            ny + fonts.lg:getHeight() - fonts.sm:getHeight() - math.floor(3 * s))
+    end
+
+    -- The fixture: off while we look in (the lamp and the screens glow
+    -- in the dark), blooms and settles once switched on, dies at the
+    -- switch-off; the emitters carry the dark beat.
+    local level = 0
+    if self.room_lights == "on" then
+        level = RoomLighting.fixtureLevel(RoomLights.fixture, self.phase_t - R.lights_on_at)
+    end
+
+    Theme.setColor(Theme.bg.sunken)
     love.graphics.rectangle("fill", 0, 0, W, H)
     local lit  = self.room_lit
     local sil  = R.silhouette
+    local counted = self.room_id_set
     self.room_view:draw(true, {
         zoom = R.zoom,
         dy   = math.floor(H * R.room_dy),
-        -- Uncounted things are dark shapes; counted ones are themselves.
-        item_tint = function(obj) if not lit[obj.id] then return sil end end,
+        -- Things still to be counted are dark shapes; counted ones, and
+        -- the room's own flavor, are themselves.
+        item_tint = function(obj) if counted[obj.id] and not lit[obj.id] then return sil end end,
+        lighting  = { fixture = level, emitters = true },
     })
+    self._room_fixture_level = level
 
     -- This frame's rects, by id, in room space; the overlay draws under
     -- the same transform the room did. Items the layout does not place
@@ -1275,45 +1334,21 @@ function ShoveView:_drawRoomCount(W, H)
     end
     love.graphics.pop()
 
-    -- The counter
-    local n      = self.room_count
-    local total  = #self.room_ids
-    local locked = self.room_locked
-    love.graphics.setFont(fonts.lg)
-    local num  = tostring(n)
-    local nw   = fonts.lg:getWidth(num)
-    local ny   = math.floor(H * R.counter_y)
-    local nsc  = Pop.changeScale("room_count", n, 1, 0.35, 0.3)
-    local ncx = math.floor(W * 0.5)
-    self._room_counter_pos = { x = ncx, y = ny + fonts.lg:getHeight() * 0.5 }
-    love.graphics.push()
-    love.graphics.translate(ncx, ny + fonts.lg:getHeight() * 0.5)
-    love.graphics.scale(nsc, nsc)
-    Theme.setColor(locked and Theme.status.good or Theme.fg.heading)
-    love.graphics.print(num, -nw * 0.5, -fonts.lg:getHeight() * 0.5)
-    love.graphics.pop()
-    love.graphics.setFont(fonts.sm)
-    local label = locked and "ITEMS" or "THINGS YOU OWN"
-    local lw = fonts.sm:getWidth(label)
-    Theme.setColor(locked and Theme.status.good or Theme.fg.muted)
-    love.graphics.print(label, ncx + math.floor(nw * 0.5) + math.floor(10 * s),
-        ny + fonts.lg:getHeight() - fonts.sm:getHeight() - math.floor(3 * s))
+    -- The counter once the lights are on, and through the dark after.
+    if self.room_lights ~= "off" then drawCounter() end
 
-    -- The House
-    if total == 0 then
-        self.house_line = Story.shove.room_empty.text
-    elseif locked then
-        self.house_line = Story.shove.room_done.text
-    else
-        self.house_line = Story.shove.room_count.text
-    end
-    if self.phase_t > R.fade_in * 0.6 then self:_drawHeadline(W) end
-
-    -- Materialize: black over everything, gone by fade_in.
-    local fade_alpha = 1 - math.min(1, self.phase_t / R.fade_in)
-    if fade_alpha > 0 then
-        Theme.setColor(Theme.bg.sunken, fade_alpha)
-        love.graphics.rectangle("fill", 0, 0, W, H)
+    -- The House, while the lights are on.
+    if self.room_lights == "on" then
+        local total  = #self.room_ids
+        local locked = self.room_locked
+        if total == 0 then
+            self.house_line = Story.shove.room_empty.text
+        elseif locked then
+            self.house_line = Story.shove.room_done.text
+        else
+            self.house_line = Story.shove.room_count.text
+        end
+        self:_drawHeadline(W)
     end
 end
 

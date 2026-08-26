@@ -92,6 +92,17 @@ local function interpolateMult(bankroll, lower, upper)
     return lower.mult + (upper.mult - lower.mult) * frac
 end
 
+-- The player's bankroll multiplier: the BANK number on the felt, the
+-- figure the top bar's breakdown shows, and (through the Bank deck's
+-- capstone) the per-hand earnings scale. One function so copy that says
+-- "your bankroll multiplier" is always literally this value. Clamps at 0
+-- (an underflowed bankroll is not a NaN factory).
+function ShoveRate.bankrollMultiplier(bankroll)
+    bankroll = math.max(0, bankroll or 0)
+    local lower, upper = lookupBracket(bankroll)
+    return interpolateMult(bankroll, lower, upper)
+end
+
 local function clamp01(v)
     if v > 1.0 then return 1.0 end
     if v < 0.0 then return 0.0 end

@@ -1,7 +1,34 @@
 # Audio audit and sound design brainstorm
 
 August 2026. Assessment of what the game sounds like today and a plan for
-what it should sound like. Nothing here is built unless a section says so.
+what it should sound like.
+
+## Status (2026-08-25)
+
+Built:
+- Sounds are discovered like sprites (`services/SoundLoader`): a file under
+  `assets/audio/` pairs with whatever shares its name; presets in
+  `data/sounds.lua` still win when they exist.
+- One sound per catalog item (52, `assets/audio/items`, credited in its
+  MANIFEST): played in the room count, and again when the item fires in play
+  through the `item_fired` event (`GrindController:itemFired` reads
+  `ctx.sources` from `computeEffects`). Discrete triggers are wired (voids,
+  refunds, free rebuys, bounties, run start); the per-hand distribution
+  effects (toaster, microwave, clock, tier shifts) are not, because
+  `outcome_math.sampleOutcome` does not yet report what fired.
+- `SoundService.rampPitch` on the chip pour, the room count and the deck
+  flood; +/-3% jitter on every play; the damage bus (corrupt items,
+  underflow); a per-name `min_gap` gate for chattery fires.
+- From the pack: the cheat card is the pack's card deal (was a chip drop),
+  and the ending flood degrades that deal in three rendered steps
+  (`build-tools/render_felt_sounds.py`). Nothing else was substituted;
+  `room_lock`, `number_land`, `catalog_thud`, `anti_chip_bank` are wired by
+  name and silent (or on their old sound) until a real file is found.
+
+Not built: music and the music service, the House's tick and stinger, the
+catalog paper set, the grind UI replacements (chair, upgrade click, focus
+tone), the room materialize swell, the lift whoosh, a shorter win fanfare.
+`docs/sound-checklist.md` is the tick list.
 
 ## What is there today
 

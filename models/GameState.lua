@@ -622,6 +622,19 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
     -- or via granted_at_start. The handicap's removed_by="poker_poster"
     -- always wins as soon as the Poster is owned. (Engine-neutral mechanism
     -- — handicaps / debuffs / anti-perks / lift to a service unchanged.)
+    -- ctx.sources[kind] = { item_id, ... }: which owned items put each
+    -- effect kind on the ctx. Read when an effect fires in play, so the
+    -- item can be heard (and later seen) doing its job. Data only.
+    ctx.sources = {}
+    local function noteSources(item_id, effects)
+        for _, eff in ipairs(effects or {}) do
+            if eff.kind then
+                local list = ctx.sources[eff.kind]
+                if not list then list = {}; ctx.sources[eff.kind] = list end
+                list[#list + 1] = item_id
+            end
+        end
+    end
     for _, item in ipairs(catalog) do
         if owned_set[item.id]
            and not (exclude and exclude[item.id])
@@ -629,8 +642,10 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
             if corrupted_set[item.id] and item.corrupt and item.corrupt.effects then
                 local temp_item = { effects = item.corrupt.effects }
                 registry:applyAll(temp_item, ctx)
+                noteSources(item.id, item.corrupt.effects)
             else
                 registry:applyAll(item, ctx)
+                noteSources(item.id, item.effects)
             end
         end
     end
@@ -776,20 +791,28 @@ end
 --
 -- Idempotency: this is meant to be called once per resetRun. Calling it
 -- twice would double-apply, so don't.
+-- Returns the effect kinds that did something, in order, so the caller
+-- can announce them (the items are heard doing their job).
 function GameState:applyStartingPerks(ctx)
+    local fired = {}
     if (ctx.start_bankroll_add or 0) > 0 then
         self.bankroll = self.bankroll + ctx.start_bankroll_add
+        fired[#fired + 1] = "start_bankroll_add"
     end
     if (ctx.start_bankroll_pct or 0) > 0 then
         self.bankroll = self.bankroll * (1 + ctx.start_bankroll_pct)
+        fired[#fired + 1] = "start_bankroll_pct"
     end
-    if (ctx.loss_recycle_pct or 0) > 0 then
+    if (ctx.loss_recycle_pct or 0) > 0 and (self.last_run_money_lost or 0) > 0 then
         self.bankroll = self.bankroll
                         + (self.last_run_money_lost or 0) * ctx.loss_recycle_pct
+        fired[#fired + 1] = "loss_recycle_pct"
     end
     for _ = 1, (ctx.start_table_count or 0) do
         self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"
     end
+    if (ctx.start_table_count or 0) > 0 then fired[#fired + 1] = "start_table_count" end
+    return fired
 end
 
 return GameState

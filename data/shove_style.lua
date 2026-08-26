@@ -285,6 +285,7 @@ return {
         curtain_secs   = 2.6,    -- silence over the pile before credits
         max_angle      = 0.6,    -- radians, cards landing off the board row
         deal_pitch     = { from = 1.0, to = 1.6 },   -- the flood rises as it speeds up
+        degrade_every  = 12,     -- cards per step of sound damage (3 steps)
     },
 
     -- The room counts you in. Before the felt, the player's room comes up
@@ -297,12 +298,16 @@ return {
     },
 
     room = {
-        fade_in    = 0.6,     -- room comes up from black
-        first_tick = 0.8,     -- first item lights after the fade
+        -- We are looking in: the room dark but for the lamp and the
+        -- screens; the fluorescent blooms and settles; the count; the number
+        -- sits; the fixture dies; the glows hold the dark; the felt.
+        lights_on_at    = 1.0,    -- the fluorescent switches on (data/room_lights.lua: how it lights)
+        lights_off_secs = 1.2,    -- after the lock: fixture off, the emitters hold the dark, then the felt
+        first_tick = 2.4,     -- first item counted: the lights settle, a breath, then the count
         intervals  = { { upto = 5, secs = 0.45 }, { upto = 12, secs = 0.25 },
                        { upto = 25, secs = 0.12 }, { upto = 80, secs = 0.05 } },
         flash_secs = 0.22,    -- the lit item's white flash: a pop
-        lock_secs  = 1.2,     -- the final number sits before the cut
+        lock_secs  = 1.8,     -- the final number sits, a breath, then the fixture dies
         empty_secs = 1.6,     -- nothing owned: the line, then the cut
         counter_y  = 0.19,    -- of H; the number, its label beside it on the same line
         -- Each counted item plays the sound that shares its name (assets/audio/items);

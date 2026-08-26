@@ -1,6 +1,6 @@
 # Item sounds manifest and attribution
 
-52 sounds from Pixabay (Content License: free for commercial use, no attribution required; credited anyway). One per catalog item, downloaded 2026-08-25. Files are named by catalog id; the original upload name, artist and Pixabay asset id are kept here for credit. Not wired into the game yet.
+51 sounds from Pixabay (the Reserved Seat Card became the Desk on 2026-08-25; its sound was dropped, the desk has none yet) (Content License: free for commercial use, no attribution required; credited anyway). One per catalog item, downloaded 2026-08-25. Files are named by catalog id; the original upload name, artist and Pixabay asset id are kept here for credit. Not wired into the game yet.
 
 | # | catalog id | item | file | artist | original title | pixabay id |
 |---|---|---|---|---|---|---|
@@ -22,7 +22,6 @@
 | 16 | `space_heater` | Space Heater | `space_heater.mp3` | freesound_community | switch on water heater | 65792 |
 | 17 | `pencil_holder` | Pencil Holder | `pencil_holder.mp3` | soundreality | pen click | 411629 |
 | 18 | `desk_plant` | Desk Plant | `desk_plant.mp3` | freesound_community | moving plant | 75923 |
-| 19 | `seat_card` | Reserved Seat Card | `seat_card.mp3` | freesound_community | switch knife flick and put away | 35763 |
 | 20 | `rebuy_note` | Rebuy Sticky Note | `rebuy_note.mp3` | freesound_community | sticky note | 43933 |
 | 21 | `gaming_chair` | Gaming Chair | `gaming_chair.mp3` | freesound_community | squeaking office chair | 67137 |
 | 22 | `headset` | Headset | `headset.mp3` | freesound_community | headphones jack pugged out | 41879 |
@@ -94,7 +93,6 @@ freesound_community-closing-a-binder-84633.mp3
 freesound_community-switch-on-water-heater-65792.mp3
 soundreality-pen-click-411629.mp3
 freesound_community-moving-plant-75923.mp3
-freesound_community-switch-knife-flick-and-put-away-35763.mp3
 freesound_community-sticky-note-43933 (1).mp3
 freesound_community-squeaking-office-chair-67137.mp3
 freesound_community-headphones-jack-pugged-out-41879.mp3

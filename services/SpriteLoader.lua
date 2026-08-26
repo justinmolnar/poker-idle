@@ -130,6 +130,7 @@ end
 function SpriteLoader:init()
     self.sprites = {}
     self.animations = {}
+    self.animation_paths = {}   -- name -> { sprite key per frame } (file-per-frame groups only)
     self.strips = {}        -- sprite name -> cells of a side-by-side sheet
     self.loaded = false
     self.aliases = nil
@@ -282,8 +283,12 @@ function SpriteLoader:_buildAnimations()
             end
 
             self.animations[base_prefix] = seq
+            local keys = {}
+            for i, f in ipairs(frames) do keys[i] = f.key end
+            self.animation_paths[base_prefix] = keys
             for _, f in ipairs(frames) do
                 self.animations[f.key] = seq
+                self.animation_paths[f.key] = keys
             end
             anim_count = anim_count + 1
         end
