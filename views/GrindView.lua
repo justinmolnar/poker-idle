@@ -335,19 +335,7 @@ function GrindView:_makeGameTypeStrip()
         six_max  = "6-Max — the baseline. Standard pace, 5 seated opponents, no pot-shape bias.",
         hu       = "Heads-Up — duel with one opponent. Fast pace, you win less often, but pots run deep both ways.",
         zoom     = "Zoom — fast hands, random opponents. Easier to win, but pots smaller overall.",
-        mtt      = Constants.FEATURES.MTT_KO
-                   and "8-max KO — every seat sits down with a 10bb stack. Hands play normally; seats bust at zero. Win it all or finish top-3 to cash."
-                   or  {
-                       "Tournament — 8 hands play out automatically. Win more hands to climb the payout ladder; lose one and the run ends.",
-                       {  -- {chip} icon row: chips only come from winning all 8
-                           measure = function(fonts) local f = fonts.sm
-                               return IconText.measure("Winning all 8 also pays {chip}.", f), f:getHeight() end,
-                           render  = function(x, y, fonts)
-                               IconText.draw(self_ref.game,
-                                   "Winning all 8 also pays {chip}.",
-                                   x, y, fonts.sm, Theme.fg.heading, 1) end,
-                       },
-                   },
+        mtt      = "8-max KO — every seat sits down with a 10bb stack. Hands play normally; seats bust at zero. Win it all or finish top-3 to cash.",
     }
     return {
         type = "custom",
@@ -1404,11 +1392,11 @@ function GrindView:_drawTopBar(W)
     -- Run cluster: CHIPS · SHOVE · (DECK). The Gold Chip is the meta
     -- currency — drawn prominently as a real-sized glyph + count, not a
     -- tiny label-slot dot. (Procedural until ui/icons/chip art lands.)
-    -- TUTORIAL builds hide it until the player has shoved once:
+    -- Hidden until the player has shoved once:
     -- pre-shove the banked balance is always 0 and this-run chips live
     -- on the SHOVE button's "+N" badge instead. Slot still advances —
     -- no reflow at the reveal.
-    if (not Constants.FEATURES.TUTORIAL) or (state.shove_count or 0) > 0 then
+    if (state.shove_count or 0) > 0 then
         local cs = self.game.ui_scale or 1
         local cd = math.floor(TOP_BAR_H * 0.6)
         Icons.drawChip(self.game, x, math.floor((TOP_BAR_H - cd) / 2), cd)
@@ -1592,7 +1580,7 @@ end
 -- shows the button. The rect itself stays put, so the button pops into
 -- its slot on unlock without moving CASH OUT or SETTINGS.
 function GrindView:_catalogButtonVisible()
-    return (not Constants.FEATURES.TUTORIAL) or self.game.state.catalog_seen
+    return self.game.state.catalog_seen
 end
 
 function GrindView:_catalogButtonRect()
@@ -1677,34 +1665,6 @@ function GrindView:_drawSettingsButton()
 end
 
 -- ─── Help button (top bar, "?" — reopens the how-to-play modal) ──────
-
-function GrindView:_helpButtonRect()
-    local cb = self:_cashOutButtonRect()
-    local sz = CATALOG_BTN_H
-    return {
-        x = cb.x - TOPBAR_BTN_GAP - sz,
-        y = math.floor((TOP_BAR_H - sz) / 2),
-        w = sz, h = sz,
-    }
-end
-
--- TUTORIAL builds have no top-bar "?" — THE HOUSE poster is the help
--- desk (click it). The button survives only for prototype builds, where
--- it reopens the how-to-play modal.
-function GrindView:_drawHelpButton()
-    if Constants.FEATURES.TUTORIAL then return end
-    local rect   = self:_helpButtonRect()
-    AnchorRegistry.set("btn:help", rect.x, rect.y, rect.w, rect.h)
-    local mx, my = love.mouse.getPosition()
-    LabelButton.draw{
-        x = rect.x, y = rect.y, w = rect.w, h = rect.h,
-        text        = "?",
-        fonts       = self.game.fonts,
-        hovered     = mx >= rect.x and mx < rect.x + rect.w
-                      and my >= rect.y and my < rect.y + rect.h,
-        press_alpha = ClickFlash.alpha("help_btn", "help_btn"),
-    }
-end
 
 -- ─── Center grid ──────────────────────────────────────────────────────
 
@@ -1927,7 +1887,7 @@ function GrindView:_drawHouse()
         fl(gw * 0.20), fl(gh * 0.34))
 
     -- The "?" help-desk button, bottom-right corner of the poster.
-    if Constants.FEATURES.TUTORIAL then
+    do
         local hb = self:_houseHelpBtnRect()
         AnchorRegistry.set("btn:help", hb.x, hb.y, hb.w, hb.h)
         local mx, my = love.mouse.getPosition()
@@ -2255,7 +2215,6 @@ function GrindView:draw(overlay_fn)
         local m = math.floor(8 * (self.game.ui_scale or 1))
         AnchorRegistry.set("hint_queue", LEFT_W + m, TOP_BAR_H + m)
     end
-    self:_drawHelpButton()
     self:_drawCashOutButton()
     if self:_catalogButtonVisible() then self:_drawCatalogButton() end
     self:_drawRoomButton()
@@ -2375,21 +2334,9 @@ function GrindView:mousepressed(x, y, b)
         return
     end
 
-    -- Help button ("?", top bar) — prototype builds only. Reopens the
-    -- how-to-play modal.
-    if not Constants.FEATURES.TUTORIAL then
-        local help_rect = self:_helpButtonRect()
-        if x >= help_rect.x and x < help_rect.x + help_rect.w
-           and y >= help_rect.y and y < help_rect.y + help_rect.h then
-            ClickFlash.flash("help_btn", "help_btn")
-            if self.game.openHelp then self.game.openHelp() end
-            return
-        end
-    end
-
-    -- The "?" on THE HOUSE poster: the help desk (TUTORIAL builds — the
-    -- hint-log list rises from the poster).
-    if Constants.FEATURES.TUTORIAL then
+    -- The "?" on THE HOUSE poster: the help desk (the hint-log list
+    -- rises from the poster).
+    do
         local hb = self:_houseHelpBtnRect()
         if x >= hb.x and x < hb.x + hb.w
            and y >= hb.y and y < hb.y + hb.h then

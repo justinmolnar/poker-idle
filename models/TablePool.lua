@@ -8,15 +8,7 @@
 -- Update tick collects resolutions from each table and returns them for the
 -- controller to act on (apply to bankroll, emit floating text, etc.).
 
--- FEATURES.MTT_KO gates the post-1617f0d chip-flow MTT system. When off
--- (prototype builds), we route ALL tables through Table_legacy — the
--- pre-refactor snapshot of Table.lua that still carries the binary_outcome
--- code path the old MTT uses. Cash-table behavior is unchanged between
--- the two files for prototype-mode purposes; this isn't a per-table swap.
-local Constants = require("data.constants")
-local Table     = Constants.FEATURES.MTT_KO
-                  and require("models.Table")
-                  or  require("models.Table_legacy")
+local Table     = require("models.Table")
 local GameTypes = require("data.game_types")
 
 -- Fallback gtype for unknown ids in a saved spec (e.g. a deprecated mode
@@ -89,17 +81,6 @@ function TablePool:rebuildFromState(ctx)
             t.mtt.hands_won  = hands[i] or 0
             t.mtt.state      = mstate[i]
             t.mtt.plan       = mtt_plans[i]
-            -- Legacy binary MTT does NOT resume across reload: its stack isn't
-            -- persisted (always reloads to a full buy-in -> DEAL), so a carried
-            -- hands_won lets the next hand re-settle the tournament payout on
-            -- EVERY reload -- a money exploit, since the save is never consumed
-            -- (win, autosave, reopen, +payout, repeat). Force a fresh run on
-            -- load. Chip-stack KO tables DO resume (seat_stacks + plan below).
-            local gt = findGtype(gtype_id)
-            if gt and gt.binary_outcome then
-                t.mtt.hands_won = 0
-                t.mtt.state     = nil
-            end
             if seat_stacks[i] then
                 t.seat_stacks       = seat_stacks[i]
                 t.seat_busted       = seat_busted[i] or {}
@@ -169,13 +150,17 @@ function TablePool:changeStake(idx, new_stake_id, ctx)
 end
 
 -- ctx = player's computed effects rollup. Returns array of resolutions:
--- each entry { table_idx, won, delta, x, y }.
+-- each entry { table, won, delta, x, y }. The TABLE REFERENCE is the
+-- identity — an index would be stale by the time the controller consumes
+-- the resolution (its pending-close sweep may table.remove tables in
+-- between, shifting every index past the removed one, so a same-tick
+-- payout landed on the neighbouring table).
 function TablePool:update(dt, ctx)
     local resolutions = {}
-    for i, t in ipairs(self.tables) do
+    for _, t in ipairs(self.tables) do
         local r = t:update(dt, ctx)
         if r then
-            r.table_idx = i
+            r.table = t
             resolutions[#resolutions + 1] = r
         end
     end

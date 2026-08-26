@@ -1,4 +1,3 @@
-> **Legacy (moved 2026-08-25). Line numbers are stale.** Code audit pinned to the tree of 2026-08-18. A week of heavy edits followed (RoomView, ShoveView, GrindController, catalog, sprites). The findings are still a punch list worth re-verifying one by one; every `file:line` needs re-locating, and it references `DESIGN_W`, which was renamed `BASE_W`.
 
 # Poker Idle — full codebase audit
 

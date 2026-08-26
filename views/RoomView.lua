@@ -118,7 +118,6 @@ local function spriteAlphaAt(loader, name, u, v, sprite, frame, animated)
         map = loadAlphaMap(path)
     end
     if not map then
-        if RoomViewDebugAlpha then print("[hit] no alpha map for " .. tostring(name)) end
         return 1
     end
     local iw, ih = map:getWidth(), map:getHeight()
@@ -1663,7 +1662,7 @@ function RoomView:mousepressed(x, y, button)
         -- screen: a wall clock or a monitor projects OUTSIDE the floor
         -- diamond, so these must not sit behind the floor-bounds guard.
         local is_alt  = love.keyboard and love.keyboard.isDown("lalt", "ralt")
-        local hit_obj = self:_hitItem(zx, zy, nil, nil, is_alt)   -- Alt+click logs each candidate
+        local hit_obj = self:_hitItem(zx, zy)
         if self.parent_pick and hit_obj then
             self:parentTo(self.parent_pick, hit_obj)
             self.parent_pick = nil
@@ -2191,20 +2190,9 @@ end
 -- cycles the selection (and the browser follows the selection).
 -- The placed item under a room-space point: the topmost drawn sprite
 -- whose pixels' box contains it, else the one whose footprint does.
-function RoomView:_hitItem(x, y, gx, gy, debug_log)
+function RoomView:_hitItem(x, y, gx, gy)
     local rects = self._hit_rects or {}
     local loader = self.game and self.game.sprite_loader
-    if debug_log then
-        RoomViewDebugAlpha = true
-        print(string.format("[hit] click at (%.0f, %.0f); %d rects this frame; nearby boxes:", x, y, #rects))
-        for i = #rects, 1, -1 do
-            local r = rects[i]
-            local cxr, cyr = r.x + r.w * 0.5, r.y + r.h * 0.5
-            if math.abs(cxr - x) < 250 and math.abs(cyr - y) < 250 then
-                print(string.format("[hit]   %-24s box x %.0f..%.0f  y %.0f..%.0f", r.obj.id, r.x, r.x + r.w, r.y, r.y + r.h))
-            end
-        end
-    end
     for i = #rects, 1, -1 do
         local r = rects[i]
         if x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h then
@@ -2216,16 +2204,11 @@ function RoomView:_hitItem(x, y, gx, gy, debug_log)
             if r.draw and r.draw.sx and r.draw.sx < 0 then u = 1 - u end
             local a = spriteAlphaAt(loader, r.obj.sprite or r.obj.id, u, v, r.draw and r.draw.sprite, r.obj.frame,
                                      r.draw and r.draw.animated)
-            if debug_log then
-                print(string.format("[hit] %-24s u %.2f v %.2f alpha %.2f %s", r.obj.id, u, v, a, a > 0.1 and "<< HIT" or "(pass through)"))
-            end
             if a > 0.1 then
-                RoomViewDebugAlpha = nil
                 return r.obj
             end
         end
     end
-    RoomViewDebugAlpha = nil
     if gx then
         for i = #self.placed, 1, -1 do
             local o = self.placed[i]
@@ -2390,10 +2373,9 @@ function RoomView:_drawEditorHighlights()
     end
     love.graphics.pop()
 
-    -- What the cursor is on, next to it, while Alt is down (the grab
-    -- gesture) or while picking a parent.
-    local alt = love.keyboard.isDown("lalt", "ralt")
-    if hov and (alt or self.parent_pick) then
+    -- What the cursor is on, named next to it. Always: knowing what the
+    -- click will land on is the point of hovering.
+    if hov then
         local mx, my = love.mouse.getPosition()
         local sm = self.game.fonts and self.game.fonts.sm
         if sm then

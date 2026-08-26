@@ -5,87 +5,46 @@
 
 local C = {}
 
--- Master build-mode preset. Toggling this flips every entry in
--- C.FEATURES below. New systems should each declare their own flag in
--- C.FEATURES and reference it directly — don't add new branches on
--- C.PROTOTYPE_MODE.
+-- Build mode. false = the full game (dev default). true = the DEMO:
+-- the same game, cut at the Act 1 cliffhanger — win Runout 1, forced
+-- Runout 2 loss, demo-end modal. Continue loops Act 1 forever; the act
+-- flags are never recorded, so nothing from Act 2+ (decks, mid/high
+-- stakes, the act2 story beats) ever unlocks, and Act 2+ catalog items
+-- are stripped at load.
 --
 -- Things that always run regardless of this flag: auto-save, the title
 -- screen, the dealer-always-cheats outcome.
 --
 -- itch/web builds ship whatever is committed here — build_web.py is a
--- pure packager, it rewrites nothing. Set back to true before building
--- for itch.
-C.PROTOTYPE_MODE = false
+-- pure packager, it rewrites nothing. Set to true before building the
+-- demo for itch.
+C.DEMO = false
 
--- Per-feature flags. Default values follow C.PROTOTYPE_MODE; override an
--- individual entry below the assignment if you need a non-default mix
--- for testing (e.g. develop the deck system with HIGH_TIER_STAKES = true
--- but DEMO_CUT still on so the modal-end is still wired up).
+-- Per-feature flags derived from C.DEMO; override an individual entry
+-- below the assignment if you need a non-default mix for testing.
 C.FEATURES = {
-    -- Demo cut. Hard-stops the gauntlet at win-R1/lose-R2 with the
-    -- Prototype Complete modal; suppresses the R2/R3 cinematic; collapses
-    -- the result-chip strip to a single slot. The three coordinated
-    -- effects exist together — flipping individual pieces produces
-    -- broken UI (e.g. modal off + single-slot = no end + no R2 reveal).
-    DEMO_CUT          = C.PROTOTYPE_MODE,
+    -- The demo cut. Hard-stops the gauntlet at the cliffhanger with the
+    -- demo-end modal; suppresses the R2/R3 cinematic; collapses the
+    -- result-chip strip to a single slot; keeps the act flags and the
+    -- act-break milestone from being recorded. The coordinated effects
+    -- exist together — flipping individual pieces produces broken UI.
+    DEMO_CUT    = C.DEMO,
 
-    -- Show T4-T6 stakes in the grind view's add-table buttons. Existing
-    -- T4-T6 tables in a save still render; this only gates the +ADD-TABLE
-    -- buttons.
-    HIGH_TIER_STAKES  = not C.PROTOTYPE_MODE,
+    -- Deck system. Belt over the real gate (the R1 win the demo never
+    -- records); also keeps the top-bar DECK cell from reserving space.
+    DECKS       = not C.DEMO,
 
     -- Wire the developer hotkeys (F2/F6/F7/backtick/-/=, H/J in grind,
     -- R/[/]/D in shove). Off in shipping builds.
-    DEV_HOTKEYS       = not C.PROTOTYPE_MODE,
-
-    -- Deck system. Off in the prototype build (the demo cut wraps before
-    -- the long-tail progression that decks live on); on in the dev build
-    -- where the full roster + unlock gating live.
-    DECKS             = not C.PROTOTYPE_MODE,
-
-    -- Poker theater. Per-hand cinematic switches from the rigid
-    -- dealing/flop/turn/river/showdown timeline to a fully-scripted
-    -- sequence written by models/HandScript.lua at resolution time
-    -- (blinds, betting rounds, action passing, fold-outs vs. showdowns).
-    -- Math is unchanged.
-    POKER_THEATER     = not C.PROTOTYPE_MODE,
-
-    -- 8-max knockout MTT with real chip flow. Off → prototype falls back
-    -- to the pre-1617f0d "8-hand binary outcome" tournament: seats=5,
-    -- 8 hands auto-played, payout keyed by hands_won via mtt_payouts.
-    -- When off, TablePool loads models/Table_legacy (the snapshot of
-    -- Table.lua from before the 1617f0d refactor) for MTT tables, and
-    -- data/game_types.lua swaps the `mtt` entry to the old definition.
-    -- The new chip-flow system (Table.lua, MttSession.lua, HandScript.lua)
-    -- only runs when MTT_KO is on.
-    MTT_KO            = not C.PROTOTYPE_MODE,
-
-    -- Disable the Settings "Quit" button. The web/love.js build can't quit a
-    -- browser tab — love.event.quit() hard-errors the canvas — so the
-    -- prototype (web) build greys Quit out with a "disabled for web" tooltip.
-    QUIT_DISABLED     = C.PROTOTYPE_MODE,
-
-    -- Tutorial-style onboarding. ON: no run-0 scripting — the handicap
-    -- phantom and free Poker Poster never load, the post-bust catalog
-    -- doesn't force a purchase, quick-reset isn't poster-gated; the
-    -- future captor-hint system lives behind this flag too. OFF: the
-    -- current scripted intro loss.
-    TUTORIAL          = not C.PROTOTYPE_MODE,
-
-    -- Force-open the how-to-play modal on a player's first grind. OFF:
-    -- the modal is reachable only via the top-bar "?", and first-run
-    -- setup goes straight to the analytics-consent ask.
-    ONBOARDING_MODAL  = C.PROTOTYPE_MODE,
+    DEV_HOTKEYS = not C.DEMO,
 }
 
 -- Stake band → the state flag that unlocks it (false = always available).
 -- Milestone-gated ladder: low is always on; mid opens on the first shove
 -- win, high on the second, ultra once it's bought with anti-chips. The
--- whole non-low ladder ALSO requires FEATURES.HIGH_TIER_STAKES, which is
--- off in the prototype build (ships low stakes only). Consumed by
--- GrindController:stakeAvailable — the single source of truth for which
--- stakes the add-table UI offers.
+-- demo never records the shove wins, so it ships low stakes only through
+-- this same gate. Consumed by GrindController:stakeAvailable — the single
+-- source of truth for which stakes the add-table UI offers.
 C.STAKE_BAND_GATE = {
     low   = false,
     mid   = "shove_r1_won",
@@ -154,6 +113,9 @@ C.SAVE = {
     META_FILE         = "meta.save",
     RUN_FILE          = "run.save",
     SETTINGS_FILE     = "settings.save",
+    -- Bumping VERSION no longer wipes saves: SaveService applies a
+    -- mismatched file anyway; migrations are field-level in
+    -- GameState:applySaved.
     VERSION           = 1,
 }
 

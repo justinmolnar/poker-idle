@@ -47,7 +47,7 @@ local function simulateAct1()
             local cheapest_cost = 999999
 
             for _, item in ipairs(Catalog) do
-                if not item.run0 and item.phase ~= "system" and item.id ~= "unlock_ultra" then
+                if item.phase ~= "system" and item.id ~= "unlock_ultra" then
                     if not owned_set[item.id] then
                         local cost = item.cost_chip or 0
                         if cost <= chips_banked and cost < cheapest_cost then

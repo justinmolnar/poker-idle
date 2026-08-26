@@ -19,7 +19,7 @@
 local Theme              = require("views.Theme")
 local ShoveView          = require("views.ShoveView")
 local Overlay            = require("views.ShoveDebugOverlay")
-local PrototypeEndModal  = require("views.PrototypeEndModal")
+local DemoEndModal       = require("views.DemoEndModal")
 local CatalogModal       = require("views.CatalogModal")
 local DeckSelectModal    = require("views.DeckSelectModal")
 local SettingsModal      = require("views.SettingsModal")
@@ -54,7 +54,7 @@ function ShoveState:new(game)
         catalog_modal        = nil,    -- bust step 2: post-run chip shop
         deck_select_modal    = nil,    -- bust step 3: choose active deck for next run (post-first-clear)
         settings_modal       = nil,    -- ESC overlay (volume, resolution, quit)
-        prototype_end_modal  = nil,    -- prototype-mode "you beat the demo" screen
+        demo_end_modal       = nil,    -- the demo build's end-of-content screen
         _ended_handled       = false,  -- guard so _onGauntletEnded fires once per gauntlet
     }, ShoveState)
     self.view    = ShoveView:new(game, self)
@@ -79,7 +79,7 @@ function ShoveState:fullReset()
     self.gauntlet            = nil
     self.catalog_modal       = nil
     self.deck_select_modal   = nil
-    self.prototype_end_modal = nil
+    self.demo_end_modal = nil
     self.settings_modal      = nil
     self._ended_handled      = false
     self.view:resetTimeline()
@@ -174,7 +174,7 @@ function ShoveState:exit() end
 ShoveState.suppressHintQueue = true
 
 function ShoveState:hintsBlocked()
-    return (self.settings_modal or self.prototype_end_modal) ~= nil
+    return (self.settings_modal or self.demo_end_modal) ~= nil
 end
 
 function ShoveState:_beginGauntlet()
@@ -203,6 +203,9 @@ end
 -- Which act a result opens: "act2" for a first R1 win, "act3" for a first
 -- R2 win, nil otherwise. R2 implies R1, so act3 wins on a double.
 function ShoveState:_milestoneFor(result)
+    -- The demo records no act breaks: without this, every cliffhanger
+    -- R1 win would replay the House's act-2 reaction on the felt.
+    if Constants.FEATURES.DEMO_CUT then return nil end
     local state = self.game.state
     local m = nil
     if result and result.outcomes then
@@ -232,8 +235,12 @@ function ShoveState:_onGauntletEnded()
     -- R2 can only be won on a shove that also won R1, so on a
     -- double-milestone shove act3 correctly overwrites act2: the bigger
     -- reveal is the one worth showing.
+    -- The demo never records the act flags: the gauntlet stays Act 1
+    -- shaped forever (R2 is never even rolled), every future R1 win
+    -- repeats the same cliffhanger, and nothing downstream (act2 story
+    -- beats, decks, mid/high stakes, act-gated catalog items) unlocks.
     local save_needed = false
-    if result.outcomes then
+    if result.outcomes and not Constants.FEATURES.DEMO_CUT then
         if result.outcomes[1] == true and not state.shove_r1_won then
             state.shove_r1_won = true
             save_needed = true
@@ -251,14 +258,14 @@ function ShoveState:_onGauntletEnded()
 
     -- Demo-cut intercept: when FEATURES.DEMO_CUT is on, winning R1 then
     -- losing R2 is the natural cliffhanger that ends the demo. Show the
-    -- end-of-prototype modal instead of the bust prestige flow. The
+    -- demo-end modal instead of the bust prestige flow. The
     -- player chooses Continue (resetRun + grind) or Exit to Title.
     if Constants.FEATURES.DEMO_CUT
        and not result.won
        and result.busted_at == 2
        and result.outcomes
        and result.outcomes[1] == true then
-        self.prototype_end_modal = PrototypeEndModal:new(self.game)
+        self.demo_end_modal = DemoEndModal:new(self.game)
         return
     end
 
@@ -285,13 +292,13 @@ function ShoveState:_onGauntletEnded()
     end
 end
 
--- Prototype-end resolution. "Continue Playing" routes through the
+-- Demo-end resolution. "Continue Playing" routes through the
 -- catalog (mirrors the standard post-bust flow — same chance to spend
 -- banked chips before the next run starts). "Exit to Title" skips the
 -- catalog and drops the player back at the start screen with their
 -- current run reset.
-function ShoveState:_resolvePrototypeEnd(choice)
-    self.prototype_end_modal = nil
+function ShoveState:_resolveDemoEnd(choice)
+    self.demo_end_modal = nil
 
     if choice == "exit" then
         local state = self.game.state
@@ -316,11 +323,10 @@ function ShoveState:_resolvePrototypeEnd(choice)
 end
 
 -- The catalog's one-time tutorial lede shows on the first post-shove
--- visit only (TUTORIAL builds; seen-flag set on dismiss).
+-- visit only (seen-flag set on dismiss).
 function ShoveState:_catalogIntroPending()
     local seen = self.game.state.hints_seen
-    return Constants.FEATURES.TUTORIAL
-       and seen ~= nil
+    return seen ~= nil
        and not seen["catalog_intro"]
 end
 
@@ -426,7 +432,7 @@ function ShoveState:update(dt)
        and not self.view:isAnimating()
        and not self._ended_handled
        and not self.deck_select_modal
-       and not self.prototype_end_modal then
+       and not self.demo_end_modal then
         self:_onGauntletEnded()
     end
 end
@@ -434,8 +440,8 @@ end
 function ShoveState:draw()
     self.view:draw()
     self.overlay:draw()
-    if self.prototype_end_modal then
-        self.prototype_end_modal:draw()
+    if self.demo_end_modal then
+        self.demo_end_modal:draw()
     elseif self.catalog_modal then
         self.catalog_modal:draw()
     elseif self.deck_select_modal then
@@ -455,12 +461,12 @@ function ShoveState:keypressed(key)
         if key == "escape" then self:closeSettings() end
         return
     end
-    -- Modals consume input first; sequence is prototype-end →
+    -- Modals consume input first; sequence is demo-end →
     -- prestige → catalog → grind.
-    if self.prototype_end_modal then
-        self.prototype_end_modal:consumeKey(key)
-        local r = self.prototype_end_modal:resolved()
-        if r then self:_resolvePrototypeEnd(r) end
+    if self.demo_end_modal then
+        self.demo_end_modal:consumeKey(key)
+        local r = self.demo_end_modal:resolved()
+        if r then self:_resolveDemoEnd(r) end
         return
     end
     if self.catalog_modal then
@@ -541,11 +547,11 @@ function ShoveState:mousepressed(mx, my, button)
         if not consumed then self:closeSettings() end
         return
     end
-    -- Prototype-end modal sits above the post-bust flow.
-    if self.prototype_end_modal then
-        self.prototype_end_modal:consumeMouse(mx, my, button)
-        local r = self.prototype_end_modal:resolved()
-        if r then self:_resolvePrototypeEnd(r) end
+    -- Demo-end modal sits above the post-bust flow.
+    if self.demo_end_modal then
+        self.demo_end_modal:consumeMouse(mx, my, button)
+        local r = self.demo_end_modal:resolved()
+        if r then self:_resolveDemoEnd(r) end
         return
     end
     -- Prestige modal: click Continue to advance to catalog.

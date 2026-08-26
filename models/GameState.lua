@@ -319,6 +319,12 @@ end
 -- Apply both meta and run payloads. Called from SaveService:loadAll wrapper
 -- (saved = { meta = ..., run = ... }).
 function GameState:applySaved(saved)
+    -- Presence in the RAW save decides the promotions further down:
+    -- AutoSerializer only writes keys the save actually has, and the
+    -- constructor defaults are false, so a post-apply `== nil` test can
+    -- never fire (the old guards were dead code).
+    local had_has_shoved   = saved.meta ~= nil and saved.meta.has_shoved   ~= nil
+    local had_catalog_seen = saved.meta ~= nil and saved.meta.catalog_seen ~= nil
     if saved.meta then
         AutoSerializer.apply(self, saved.meta, GameState.REFS, function() return nil end)
     end
@@ -408,13 +414,13 @@ function GameState:applySaved(saved)
     -- shoved has been through the post-shove catalog — count it as seen
     -- so existing players keep their top-bar CATALOG button.
     -- Saves predating has_shoved: anything with a shove_count had almost
-    -- certainly shoved, so keep their SHOVE button. Guarded on nil rather
-    -- than falsy, or a current save that merely quick-reset would be
-    -- promoted to has_shoved every time it loads.
-    if self.has_shoved == nil then
+    -- certainly shoved, so keep their SHOVE button. Guarded on the key
+    -- being ABSENT from the save rather than falsy, or a current save
+    -- that merely quick-reset would be promoted every time it loads.
+    if not had_has_shoved then
         self.has_shoved = (self.shove_count or 0) > 0
     end
-    if self.catalog_seen == nil then
+    if not had_catalog_seen then
         self.catalog_seen = (self.shove_count or 0) > 0
     end
     -- Saves predating the hint system start with an empty seen-set; no

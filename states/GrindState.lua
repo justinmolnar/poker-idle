@@ -21,7 +21,6 @@ local Ghosts          = require("services.Ghosts")
 local CatalogModal    = require("views.CatalogModal")
 local DeckSelectModal = require("views.DeckSelectModal")
 local SettingsModal   = require("views.SettingsModal")
-local OnboardingModal        = require("views.OnboardingModal")
 local HintLogPanel           = require("views.HintLogPanel")
 local AnalyticsConsentModal  = require("views.AnalyticsConsentModal")
 local Constants       = require("data.constants")
@@ -48,7 +47,6 @@ function GrindState:new(game)
         -- One-page how-to-play. Prototype builds (ONBOARDING_MODAL)
         -- auto-open it on first grind; TUTORIAL builds never show it —
         -- their "?" opens the hint log instead.
-        onboarding_modal   = nil,
         -- "Help desk": the seen-hints log behind "?" in TUTORIAL builds.
         -- A slide-in side panel, NOT a modal — the grind stays visible
         -- so hovering a log entry can spotlight its targets in-game.
@@ -57,7 +55,7 @@ function GrindState:new(game)
     }, GrindState)
     self.controller = GrindController:new(game)
     self.view       = GrindView:new(game, self.controller)
-    -- Tutorial hint queue + bubble renderer (inert unless FEATURES.TUTORIAL).
+    -- Tutorial hint queue + bubble renderer.
     -- Hints are hosted by main.lua now (game.hints / game.hint_view), so
     -- they render on every screen and above every modal. This state only
     -- says when they should stay quiet: see hintsBlocked.
@@ -116,41 +114,13 @@ function GrindState:closeSettings()
     self.settings_modal = nil
 end
 
--- Top-bar "?" — TUTORIAL builds toggle the hint-log side panel ("help
--- desk", every hint delivered so far); prototype builds open the classic
--- how-to-play modal. Neither touches the `onboarded` flag.
+-- The "?" on THE HOUSE poster toggles the hint-log side panel ("help
+-- desk", every hint delivered so far). Never touches the `onboarded` flag.
 function GrindState:openHelp()
-    if Constants.FEATURES.TUTORIAL then
-        if self.help_panel then
-            self.help_panel:beginClose()
-        else
-            self.help_panel = HintLogPanel:new(self.game, self.game.hint_view, self.game.story)
-        end
-        return
-    end
-    if not self.onboarding_modal then
-        self.onboarding_modal = OnboardingModal:new(self.game)
-    end
-end
-
--- Close the how-to-play modal. The first time it's dismissed we persist the
--- acknowledgement so it never auto-opens again. The view never sets this —
--- the host owns the state mutation (MVC).
---
--- The extra "Help Balance the Game" consent modal only escalates on the
--- true first run (fresh install) when the checkbox is left unchecked — a
--- one-time nudge, not something that should reappear every time the player
--- replays the how-to-play page via the top-bar "?". On a replay the
--- checkbox here just sets consent directly, checked or not.
-function GrindState:_dismissOnboarding()
-    local consent      = self.onboarding_modal:checkboxChecked()
-    local was_first_run = not self.game.state.onboarded
-    self.onboarding_modal = nil
-    if consent or not was_first_run then
-        self:_saveConsent(consent)
-        self:_finalizeOnboarding()
+    if self.help_panel then
+        self.help_panel:beginClose()
     else
-        self.analytics_modal = AnalyticsConsentModal:new(self.game)
+        self.help_panel = HintLogPanel:new(self.game, self.game.hint_view, self.game.story)
     end
 end
 
@@ -199,16 +169,12 @@ function GrindState:enter()
 
     HandAnalytics.startRun(self.game.state)
 
-    -- First-run setup. With ONBOARDING_MODAL the how-to-play force-opens
-    -- once (dismissing it persists `onboarded`). Without it the modal
-    -- stays behind the top-bar "?" and only the analytics-consent ask
-    -- remains — asked once, then onboarding finalizes; if consent is
-    -- already set (dev machine), finalize straight away.
+    -- First-run setup: the analytics-consent ask, once, then onboarding
+    -- finalizes; if consent is already set (dev machine), finalize
+    -- straight away.
     if not self.game.state.onboarded then
-        if Constants.FEATURES.ONBOARDING_MODAL then
-            self:openHelp()
-        elseif self.game.settings
-               and self.game.settings.analytics_consent == nil then
+        if self.game.settings
+           and self.game.settings.analytics_consent == nil then
             self.analytics_modal = AnalyticsConsentModal:new(self.game)
         else
             self:_finalizeOnboarding()
@@ -222,17 +188,17 @@ function GrindState:exit() end
 -- hint firing behind the catalog (or beside the consent dialog) is noise.
 function GrindState:_modalUp()
     return (self.catalog_modal or self.deck_roster_modal
-            or self.settings_modal or self.onboarding_modal
+            or self.settings_modal
             or self.help_panel or self.analytics_modal) ~= nil
 end
 
 -- Whether the global hint layer should stay quiet right now. Narrower than
 -- _modalUp on purpose: the catalog and deck roster are surfaces the
 -- tutorial needs to teach, so hints render OVER them. Settings is a menu,
--- onboarding and consent are already explaining, and the help desk IS the
+-- consent is already explaining, and the help desk IS the
 -- hint replay UI.
 function GrindState:hintsBlocked()
-    return (self.settings_modal or self.onboarding_modal
+    return (self.settings_modal
             or self.help_panel or self.analytics_modal) ~= nil
 end
 
@@ -288,10 +254,6 @@ function GrindState:draw()
     if self.help_panel then
         self.help_panel:draw()
     end
-    -- How-to-play sits on top of everything else.
-    if self.onboarding_modal then
-        self.onboarding_modal:draw()
-    end
     if self.analytics_modal then
         self.analytics_modal:draw()
     end
@@ -328,13 +290,6 @@ function GrindState:keypressed(key)
         return
     end
 
-    -- How-to-play is the most forced modal — it owns input while up; only its
-    -- button / space-return dismisses it (ESC does not escape it).
-    if self.onboarding_modal then
-        self.onboarding_modal:consumeKey(key)
-        if self.onboarding_modal:resolved() then self:_dismissOnboarding() end
-        return
-    end
     -- Hint-log panel: ESC slides it out; everything else is mouse-driven.
     if self.help_panel then
         if key == "escape" then self.help_panel:beginClose() end
@@ -388,11 +343,6 @@ function GrindState:keypressed(key)
 end
 
 function GrindState:mousepressed(x, y, b)
-    if self.onboarding_modal then
-        self.onboarding_modal:consumeMouse(x, y, b)
-        if self.onboarding_modal:resolved() then self:_dismissOnboarding() end
-        return
-    end
     -- Hint-log panel: clicks inside are consumed (hover does the work);
     -- clicking anywhere else slides it away.
     if self.help_panel then
@@ -437,10 +387,6 @@ function GrindState:mousepressed(x, y, b)
 end
 
 function GrindState:mousereleased(x, y, b)
-    if self.onboarding_modal then
-        self.onboarding_modal:mousereleased(x, y, b)
-        return
-    end
     if self.analytics_modal then
         self.analytics_modal:mousereleased(x, y, b)
         return
@@ -457,10 +403,6 @@ function GrindState:mousereleased(x, y, b)
 end
 
 function GrindState:mousemoved(x, y, dx, dy)
-    if self.onboarding_modal then
-        self.onboarding_modal:mousemoved(x, y)
-        return
-    end
     if self.analytics_modal then
         self.analytics_modal:mousemoved(x, y)
         return
@@ -477,10 +419,6 @@ function GrindState:mousemoved(x, y, dx, dy)
 end
 
 function GrindState:wheelmoved(x, y)
-    if self.onboarding_modal then
-        self.onboarding_modal:wheelmoved(x, y)
-        return
-    end
     if self.help_panel then
         self.help_panel:wheelmoved(x, y)
         return

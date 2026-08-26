@@ -715,15 +715,7 @@ local function drawPotLabel(tbl, pot, fonts)
     -- next one and the next hand's bets pile on top of them. Harmless when
     -- the pile was a number recomputed every frame; not harmless now that
     -- it's a collection that persists.
-    local theater = Constants.FEATURES and Constants.FEATURES.POKER_THEATER
-    local potval
-    if theater then
-        potval = (tbl.playback_state and tbl.playback_state.pot) or 0
-    elseif tbl.playback_state and (tbl.playback_state.pot or 0) > 0 then
-        potval = tbl.playback_state.pot
-    else
-        potval = (tbl.outcome_delta and math.abs(tbl.outcome_delta) * 2) or 0
-    end
+    local potval = (tbl.playback_state and tbl.playback_state.pot) or 0
 
     -- What the PILE is allowed to show: chips that have actually been
     -- committed, and nothing else. Never outcome_delta.
@@ -832,69 +824,6 @@ local function drawPotLabel(tbl, pot, fonts)
         love.graphics.printf("Pot: " .. Format.moneyExact(rolled_pot),
             pot.text_x, pot.text_y, pot.text_w, "center")
     end
-end
-
--- Legacy MTT bottom row: "HAND N/M" on the left + the payout pip ladder
--- filling the rest — ONE thin row that sits in the same bottom band the cash
--- table uses for its chips/tied-up/EV stats (so the cards never shrink and the
--- ladder lands at the felt bottom). Used when FEATURES.MTT_KO is off and the
--- gtype is the binary_outcome 8-round MTT.
-local function drawLegacyMttLadder(tbl, gtype, ctx, band, fonts)
-    local hands_won = (tbl.mtt and tbl.mtt.hands_won) or 0
-    local f, fh = fonts.sm, fonts.sm:getHeight()
-    love.graphics.setFont(f)
-
-    -- The HAND x/x counter lives at the (empty) pot slot now (drawn by the
-    -- orchestrator); the payout ladder gets the FULL bottom-band width here.
-    local boost        = (ctx and ctx.mtt_payout_boost) or 0
-    local payout_table = MttPayouts[boost] or MttPayouts[0]
-    local thresholds   = {}
-    for k in pairs(payout_table) do thresholds[#thresholds + 1] = k end
-    table.sort(thresholds)
-    local n = #thresholds
-    if n == 0 then return end
-
-    local pip_gap = 4
-    local left    = band.x
-    local strip_w = band.w
-    local pip_w   = math.floor((strip_w - (n - 1) * pip_gap) / n)
-    if pip_w < 24 then pip_w = 24 end
-    local pip_h   = band.h
-    local pip_y   = band.y
-
-    for i, th in ipairs(thresholds) do
-        local px      = left + (i - 1) * (pip_w + pip_gap)
-        local prev    = thresholds[i - 1] or 0     -- previous tier (0 for the first)
-        local cleared = hands_won >= th
-        -- Progress toward THIS tier, measured from the previous tier. The first
-        -- pip fills over its full hand span (e.g. 0->6), so it starts empty and
-        -- gains ~1/span per won hand instead of flashing yellow at hand 0. Once
-        -- reached it's a solid green pip. Later (1-hand) tiers fill in one step.
-        local progress = 0
-        if cleared then
-            progress = 1
-        elseif hands_won > prev then
-            progress = (hands_won - prev) / math.max(1, th - prev)
-        end
-
-        -- Empty pip background, then a left-anchored green fill for the progress.
-        Theme.setColor(Theme.bg.sunken)
-        love.graphics.rectangle("fill", px, pip_y, pip_w, pip_h, Theme.space.radius)
-        if progress > 0 then
-            Theme.setColor(Theme.status.good)
-            love.graphics.rectangle("fill", px, pip_y,
-                math.max(1, math.floor(pip_w * progress)), pip_h, Theme.space.radius)
-        end
-        Theme.setColor(Theme.border.soft)
-        love.graphics.rectangle("line", px, pip_y, pip_w, pip_h, Theme.space.radius)
-        -- Dark text on a solid (cleared) pip; light text otherwise so it reads
-        -- over both the sunken background and a partial green fill.
-        Theme.setColor(cleared and Theme.bg.window or Theme.fg.heading)
-        love.graphics.printf(string.format("%d:%dx", th, payout_table[th] or 0),
-            px, pip_y + math.floor((pip_h - fh) / 2), pip_w, "center")
-    end
-
-    Anchors.set(Table.anchorKey(tbl, "you"), band.x + band.w * 0.5, band.y + band.h * 0.5)
 end
 
 -- Tournament bottom row for chip-stack tables: finish-position payout pips,
@@ -1014,13 +943,7 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
                              cards_y + card_h, button.d, 1)
     end
 
-    -- Legacy MTT (FEATURES.MTT_KO off): hand counter + payout ladder in the
-    -- bottom band (the felt-bottom slot), spanning the felt width.
     local gtype = Lookups.findById(GameTypes,tbl.game_type_id)
-    if gtype and gtype.hand_count and not gtype.chip_stack_table then
-        drawLegacyMttLadder(tbl, gtype, ctx, bottom.band, fonts)
-        return
-    end
 
     -- Chip-stack tournaments: alive/FINISH counter at the felt LEFT edge,
     -- Depth Nbb at the RIGHT edge, finish-position pip strip below — all in

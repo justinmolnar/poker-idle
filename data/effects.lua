@@ -445,9 +445,8 @@ Effects.kinds = {
     },
 
     -- ── Catalog appliances ──────────────────────────────────────────────
-    -- All three are consumed in the controller / model layer, never in the
-    -- outcome roll — so they behave identically under both per-hand models
-    -- (Table.lua and Table_legacy.lua).
+    -- All three are consumed in the controller / model layer, never in
+    -- the outcome roll.
 
     bust_refund_pct = {
         description = "Fraction of the buy-in refunded to bankroll when a cash table busts (The Sink).",

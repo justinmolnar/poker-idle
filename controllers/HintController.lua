@@ -21,11 +21,7 @@
 -- Seen-ness persists as state.hints_seen (meta-side set, id → true), the
 -- queue as state.hints_queued (id list); the main.lua autosave picks
 -- both up — no explicit save here.
---
--- Inert unless FEATURES.TUTORIAL: prototype builds teach via the forced
--- how-to-play modal instead.
 
-local Constants = require("data.constants")
 local Hints     = require("data.hints")
 
 local HintController = {}
@@ -57,7 +53,7 @@ function HintController:new(game)
     return setmetatable({
         game      = game,
         by_id     = by_id,
-        enabled = Constants.FEATURES.TUTORIAL,
+        enabled = true,
         paused  = false,
         active  = nil,   -- the currently-showing STICKY spec, or nil
         _timer  = 0,

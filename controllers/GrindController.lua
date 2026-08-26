@@ -231,14 +231,10 @@ function GrindController:update(dt)
         local payout = t.mtt and t.mtt:drainPayout()
         if payout ~= nil then
             local hands_cleared = t.mtt.hands_won
-            -- Win detection. Two flavors: chip-stack KO (finish 1st) and the
-            -- legacy binary tournament (cleared all hand_count hands).
+            -- Win detection: chip-stack KO, finish 1st.
             local gtype = Lookups.findById(GameTypes, t.game_type_id)
-            local won_ko     = t.mtt and t.mtt.last_finish == 1
-                              and gtype and gtype.chip_stack_table
-            local won_legacy = gtype and gtype.binary_outcome
-                              and t.mtt and hands_cleared >= (gtype.hand_count or 0)
-            local is_win = gtype and (won_ko or won_legacy)
+            local is_win = t.mtt and t.mtt.last_finish == 1
+                           and gtype and gtype.chip_stack_table or false
             local center = AnchorRegistry.get(TableModel.anchorKey(t, "center"))
                            or { 0, 0 }
 
@@ -257,7 +253,7 @@ function GrindController:update(dt)
                     stake_id     = t.stake_id,
                     stake_bb     = mtt_stake and mtt_stake.bb or nil,
                     game_type_id = t.game_type_id,
-                    prototype    = Constants.PROTOTYPE_MODE,
+                    demo         = Constants.DEMO,
                     hands_played = hands_cleared,
                 })
             end
@@ -404,7 +400,7 @@ function GrindController:update(dt)
         -- Skip the stack write so we don't double-count, and skip the
         -- buy-in cap entirely (a winning seat can hold up to the full
         -- 800bb chip pool, far above the 100bb buy-in).
-        local tbl   = self.pool.tables[r.table_idx]
+        local tbl   = r.table
         local stake = tbl and Lookups.findById(Stakes,tbl.stake_id)
         local cap   = (stake and stake.buy_in) or 0
         local overflow_amount = 0
@@ -483,7 +479,7 @@ function GrindController:update(dt)
                     game_type_id   = tbl.game_type_id,
                     hand_pace_mult = (self.ctx and self.ctx.hand_pace_mult) or 1,
                     deck_id        = self.game.state.active_deck_id,
-                    prototype      = Constants.PROTOTYPE_MODE,
+                    demo           = Constants.DEMO,
                 })
                 tbl._hand_start_t = nil
             end
@@ -492,24 +488,14 @@ function GrindController:update(dt)
             end
         end
 
-        -- Floater label & color. Three flavors:
+        -- Floater label & color. Two flavors:
         --   • cash hand               → "+/-$X.XX"
         --   • chip-stack MTT hand     → "+/-Nbb" (no cash until placement)
-        --   • legacy binary MTT hand  → "WIN" / "OUT" (delta is forced 0,
-        --                                so a dollar label is meaningless)
         -- Tournament cash payout fires its own "+$X.XX" floater from the
         -- drainPayout block above when the tournament ends.
-        local gtype_for_floater = tbl and Lookups.findById(GameTypes, tbl.game_type_id)
-        local is_binary = gtype_for_floater and gtype_for_floater.binary_outcome
         local label
         local floater_opts_override = nil
-        if is_binary then
-            label = r.won and "WIN" or "OUT"
-            -- Short-lived so the rapid auto-dealt tournament hands don't pile
-            -- their floaters on top of each other.
-            floater_opts_override = { color_token = r.won and "good" or "error",
-                                      lifetime = 0.85 }
-        elseif r.chip_stack_table then
+        if r.chip_stack_table then
             local stake = tbl and Lookups.findById(Stakes, tbl.stake_id)
             local bb_val = (stake and stake.bb and stake.bb > 0) and stake.bb or 1
             local bb_delta = (r.delta or 0) / bb_val
@@ -530,21 +516,7 @@ function GrindController:update(dt)
             floater_opts_override = { color_token = "error" }
         end
 
-        -- MTT WIN feedback scales with tournament PROGRESS, not the (for a
-        -- binary tournament hand, meaningless) pot tier: early hands stay
-        -- small and ramp toward large as the stack clears to the win. The
-        -- winning hand itself is left to the TOURNAMENT WON banner.
         local mtt_final = false
-        if is_binary and r.won and tbl and tbl.mtt then
-            local hc   = gtype_for_floater.hand_count or 8
-            local n    = math.max(1, math.min(hc, tbl.mtt.hands_won or 1))
-            local ramp = { "small", "small", "medium", "medium",
-                           "large", "large", "large", "large" }
-            r.tier    = ramp[n] or "large"
-            -- The winning hand is the one that settled the tournament (payout
-            -- pending) — let the TOURNAMENT WON banner stand in for its float.
-            mtt_final = (tbl.mtt.pending_payout ~= nil)
-        end
 
         -- Tier-scaled floater opts from data. Small = small + compact;
         -- jackpot = huge + arcing. The data layer paints wins amber
@@ -649,7 +621,7 @@ function GrindController:update(dt)
         state.hands_since_last_bank = (state.hands_since_last_bank or 0) + 1
 
         if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table then
-            local tbl = self.pool.tables[r.table_idx]
+            local tbl = r.table
             if tbl then
                 local cap = 1
                 local key = bountyKey(tbl.stake_id, tbl.game_type_id)
@@ -722,7 +694,7 @@ function GrindController:update(dt)
         -- (antiBountyAward, from ladder position): T1 pays most because a maxed
         -- build almost never loses a stack there.
         if r.delta < 0 and r.tier == "jackpot" and not r.chip_stack_table then
-            local tbl = self.pool.tables[r.table_idx]
+            local tbl = r.table
             if tbl then
                 local stake = Lookups.findById(Stakes, tbl.stake_id)
                 if stake and state.shove_r2_won then
@@ -1162,7 +1134,6 @@ end
 -- quick-reset doesn't gate on chips, so a stranded sub-threshold player
 -- still has the rescue.
 function GrindController:shoveUnlocked()
-    if not Constants.FEATURES.TUTORIAL then return true end
     local state = self.game.state
     -- has_shoved, NOT shove_count: shove_count is bumped by GameState.resetRun,
     -- which the quick-reset rescue button also calls, so bailing out of a
@@ -1181,22 +1152,11 @@ function GrindController:isStranded()
     return self.game.state.bankroll < cheapest
 end
 
--- Whether the no-cost quick-reset should be offered: bricked and past the
--- intro handicap (owns the Poster). Chips don't gate it — :quickReset banks
--- this run's chips first, so a bricked player who can't yet afford anything in
--- the shop can still bail to a fresh stake without losing them. Before the
--- Poster a reset just lands you right back here, and the first bust should
--- teach Shove + the free Poster, not this. Under FEATURES.TUTORIAL there is
--- no scripted intro to protect, so the rescue is available from the start.
+-- Whether the no-cost quick-reset should be offered: bricked. Chips don't
+-- gate it — :quickReset banks this run's chips first, so a bricked player
+-- who can't yet afford anything in the shop can still bail to a fresh
+-- stake without losing them.
 function GrindController:canQuickReset()
-    local state = self.game.state
-    if not Constants.FEATURES.TUTORIAL then
-        local has_poster = false
-        for _, id in ipairs(state.owned_items) do
-            if id == "poker_poster" then has_poster = true; break end
-        end
-        if not has_poster then return false end
-    end
     return self:isStranded()
 end
 
@@ -1270,14 +1230,13 @@ end
 -- Whether a stake is offered to the player right now. Low band is always
 -- available; mid/high/ultra gate behind their milestone flag (see
 -- data/constants STAKE_BAND_GATE), and the whole non-low ladder is off in
--- the prototype build (FEATURES.HIGH_TIER_STAKES). Single source of truth
+-- Single source of truth
 -- for stake availability — the add-table buttons and the win-chance / stack-
 -- rate range tooltips all route through it so they never disagree.
 function GrindController:stakeAvailable(stake)
     local band = (stake and stake.band) or "low"
     local gate = Constants.STAKE_BAND_GATE[band]
     if not gate then return true end
-    if not Constants.FEATURES.HIGH_TIER_STAKES then return false end
     return self.game.state[gate] == true
 end
 
@@ -1515,10 +1474,8 @@ function GrindController:dealHand(idx)
     if ok then
         -- New hand, new pile: clear any spent detonation so the pot draws
         -- again. Set here rather than in Table:deal because these are view
-        -- FX fields, and because the model has two implementations
-        -- (Table / Table_legacy) that would both need it.
+        -- FX fields.
         t.pot_exploded, t.pot_explode_pending = nil, nil
-        self:_emitDealChips(t)
     end
     return ok
 end
@@ -1583,40 +1540,6 @@ end
 
 local function _anchor(t, slot)
     return AnchorRegistry.get(TableModel.anchorKey(t, slot))
-end
-
--- The legacy "ante up" burst: chips shoved to the middle the instant a
--- hand is dealt, from back when nothing else moved chips during a hand.
---
--- DEAD under the theater, which emits a real flight per post_blind /
--- call / raise as the action happens. Running both meant every deal
--- opened by throwing the hand's whole outcome into the pot before a
--- blind was posted — and because outcome_delta is the MULTIPLIED payout,
--- composing it against the stake's four-chip window produced one $1 chip
--- per dollar, hundreds of them, stopped only by the breakdown's token
--- ceiling. It also gave the tier away before a card was dealt.
-function GrindController:_emitDealChips(t)
-    if not t then return end
-    if Constants.FEATURES and Constants.FEATURES.POKER_THEATER then return end
-    local you = _anchor(t, "you")
-    local pot = _anchor(t, "pot")
-    if not you or not pot then return end
-    local amount = math.abs(t.outcome_delta or 0)
-    if amount <= 0 then return end
-    -- outcome_delta is a payout, so the palette has to be able to hold it.
-    local chips = Denoms.breakdown(amount, ChipData.denominations,
-                                   _paletteForAmount(t.stake_id, amount),
-                                   ChipData.tier_chip_target,
-                                   t.outcome_tier or "medium")
-    -- Chips are composed at the seat rather than taken from your pile —
-    -- outside the theater the stack isn't debited at deal time, so
-    -- draining it here would only have to slide back. The pot end IS a
-    -- pile, so the pot grows as they land.
-    self:_queueBurst(you, pot, chips, {
-        kind          = "stack",
-        arrival_sound = "chip_land_pot",
-        dest_key      = TableModel.anchorKey(t, "pot"),
-    })
 end
 
 function GrindController:_emitBuyInChips(t, amount)
@@ -1704,56 +1627,13 @@ function GrindController:_emitResolutionChips(r, tbl, overflow_amount)
     local stake_theme = StakeThemes[tbl.stake_id]
     local chip_tint   = stake_theme and stake_theme.chip_tint
 
-    -- Skip the main pot-to-winner burst when poker theater is on — the
-    -- script's pot_push anim handler emits that burst with the correct
-    -- visible-pot amount and timing. The overflow spill (stack → bankroll
-    -- when the stack caps) is otherwise unconditional, because the script
-    -- doesn't model stack-cap overflow.
-    local theater_on = Constants.FEATURES and Constants.FEATURES.POKER_THEATER
-
-    -- Under the theater, the script's pot_push handler owns the entire
-    -- payout — it fabricates whatever the multipliers added on top of the
-    -- visible pot and splits it across the stack and the bankroll per the
-    -- buy-in cap, whether or not the pot detonated. So the overflow spill
-    -- below would be the same chips a second time.
-    local push_pays_out = theater_on and r.delta > 0
-
-    if not theater_on and r.delta > 0 then
-        local chips = Denoms.breakdown(r.delta, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
-        -- Pot → your stack. Pile to pile: the chips leave the pot's
-        -- collection and are inserted into yours as they land, which is
-        -- what keeps your pile from completing before they get there —
-        -- the stack has already been credited in state by this point.
-        -- Mirrors what the theater's pot_push handler does, so the two
-        -- builds behave the same.
-        self:_queueBurst(pot_xy, you_xy, chips, {
-            kind          = "stack",
-            amount        = r.delta,
-            arrival_sound = "chip_land_you",
-            chip_tint     = chip_tint,
-            source_key    = TableModel.anchorKey(tbl, "pot"),
-            dest_key      = TableModel.anchorKey(tbl, "you"),
-        })
-    elseif not theater_on and r.delta < 0 then
-        local chips = Denoms.breakdown(-r.delta, ChipData.denominations, palette, ChipData.tier_chip_target, tier)
-        -- Loss → chips fly to the winning opponent's seat (their cards).
-        -- Falls back to off-screen if the panel hasn't drawn yet (first
-        -- frame after table add) so the burst still has a destination.
-        local target_xy
-        if tbl.opponent_idx then
-            target_xy = _anchor(tbl, "opp_" .. tbl.opponent_idx)
-        end
-        target_xy = target_xy or self:_offscreenAnchor(pot_xy[1])
-        self:_queueBurst(pot_xy, target_xy, chips, {
-            kind          = "stack",
-            amount        = -r.delta,
-            arrival_sound = "chip_land_pot",
-            chip_tint     = chip_tint,
-            -- The opponent's seat is not a pile, so nothing is reserved
-            -- there; the pot still empties out of its own collection.
-            source_key    = TableModel.anchorKey(tbl, "pot"),
-        })
-    end
+    -- The script's pot_push handler owns the entire payout — it
+    -- fabricates whatever the multipliers added on top of the visible
+    -- pot and splits it across the stack and the bankroll per the
+    -- buy-in cap, whether or not the pot detonated. So the overflow
+    -- spill below skips when the push pays out (it would be the same
+    -- chips a second time).
+    local push_pays_out = r.delta > 0
 
     if overflow_amount and overflow_amount > 0 and not push_pays_out then
         local v = self.game.viewport or { w = 0, h = 0 }

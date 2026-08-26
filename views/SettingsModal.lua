@@ -16,7 +16,6 @@ local Modal         = require("views.widgets.Modal")
 local Row           = require("views.widgets.Row")
 local ConfirmDialog = require("views.widgets.ConfirmDialog")
 local Slider        = require("views.widgets.Slider")
-local Constants     = require("data.constants")
 local TooltipSvc    = require("services.Tooltip")
 
 local SettingsModal = {}
@@ -114,8 +113,14 @@ end
 function SettingsModal:_performLoad()
     local g = self.game
     if not (g.save_service and g.state) then return end
+    -- Read FIRST: loadAll always returns a table, so wiping before the
+    -- check meant a missing or unreadable save wiped the live game.
+    local saved = g.save_service:loadAll()
+    if not (saved.meta or saved.run) then
+        print("SettingsModal: no readable save to load")
+        return
+    end
     g.state:wipeAll()
-    local saved = g.save_service:loadAll() or {}
     g.state:applySaved(saved)
     g.state.effects_cache = nil
     if g.state_machine and g.state_machine.states then
@@ -309,7 +314,13 @@ function SettingsModal:draw()
     action_row("Save now",       "save")
     action_row("Load save",      "load")
     action_row("Start new game", "new_game")
-    local quit_off = Constants.FEATURES and Constants.FEATURES.QUIT_DISABLED
+    -- The web/love.js build can't quit a browser tab — love.event.quit()
+    -- hard-errors the canvas — so Quit greys out on that platform.
+    -- getOS() returns "Web" there (verified against the shipped
+    -- love.js compat wasm); "Emscripten" belts any variant that passes
+    -- SDL's platform name through instead.
+    local os_name  = love.system and love.system.getOS and love.system.getOS() or ""
+    local quit_off = os_name == "Web" or os_name == "Emscripten"
     action_row("Quit", "quit", quit_off
         and { disabled = true, tip = "Disabled for web build." } or nil)
 

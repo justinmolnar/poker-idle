@@ -39,7 +39,10 @@ encode = function(val, pretty, level, seen)
     elseif t == "boolean" then
         return val and "true" or "false"
     elseif t == "number" then
-        if val ~= val then return "null" end  -- NaN guard
+        -- NaN/inf guard: tostring renders both as tokens JSON (and this
+        -- file's own decoder) rejects — one bad number made the whole
+        -- save unreadable on the next boot.
+        if val ~= val or val == math.huge or val == -math.huge then return "null" end
         return tostring(val)
     elseif t == "string" then
         return encode_string(val)

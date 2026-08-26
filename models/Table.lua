@@ -52,7 +52,6 @@ local MttSession    = require("models.MttSession")
 local StakesData    = require("data.stakes")
 local GameTypesData = require("data.game_types")
 local NameData      = require("data.opponent_names")
-local Timelines     = require("data.cinematic_timelines")
 local MttPayouts    = require("data.mtt_payouts")
 local Lookups       = require("utils.lookups")
 local Constants     = require("data.constants")
@@ -88,15 +87,7 @@ function Table.anchorKey(t, slot)
 end
 
 -- Cinematic timeline lookup. Per-(gtype, tier) lists of {state, duration}
--- live in data/cinematic_timelines.lua; we resolve at deal-time and walk
 -- the list by index in :update.
-local function resolveTimeline(gtype_id, tier)
-    local key = (gtype_id or "") .. ":" .. (tier or "")
-    return Timelines.overrides[key]
-        or Timelines.overrides[gtype_id]
-        or Timelines.default
-end
-
 -- ─── Helpers ──────────────────────────────────────────────────────────
 
 local function pickRandomName()
@@ -129,9 +120,7 @@ function Table:new(stake_id, game_type_id, ctx, poker_events)
 
         -- Poker-event registry. Used at deal time (writer state mutation
         -- inside HandScript.write) and at play time (cinematic walker
-        -- mutates the table's playback state as each event fires). Only
-        -- consulted when FEATURES.POKER_THEATER is on; nil otherwise is
-        -- harmless because the script branch is never entered.
+        -- mutates the table's playback state as each event fires).
         poker_events  = poker_events,
         script             = nil,
         script_idx         = 0,
@@ -495,20 +484,15 @@ function Table:deal(ctx)
     -- so the view doesn't recompute every frame. HandEval.describe
     -- returns e.g. "pair of Aces" / "trip 7s" / "Ace-high flush".
     -- Cleared in :_finalizeHand so they don't leak across hands.
-    -- Name + best-5 combo for each side (the combo drives the view's showdown
-    -- emphasis). One shared HandEval.handLabel so this can't drift from the
-    -- copy in models/Table_legacy.
+    -- Name + best-5 combo for each side (the combo drives the view's
+    -- showdown emphasis), through the one shared HandEval.handLabel.
     self.player_hand_name,   self.player_combo   = HandEval.handLabel(p_hole, board)
     self.opponent_hand_name, self.opponent_combo = HandEval.handLabel(o_hole, board)
 
-    -- Cinematic setup. Two paths gated by FEATURES.POKER_THEATER:
-    --   * Theater on  → models/HandScript.write composes a per-hand
-    --                   event list (post_blind, fold, call, raise,
-    --                   deal_*, pot_push). :update walks events by
-    --                   timestamp; the view reads playback_state.
-    --   * Theater off → existing timeline walk (rigid phase sequence
-    --                   from data/cinematic_timelines).
-    if Constants.FEATURES and Constants.FEATURES.POKER_THEATER then
+    -- Cinematic setup: models/HandScript.write composes a per-hand
+    -- event list (post_blind, fold, call, raise, deal_*, pot_push).
+    -- :update walks events by timestamp; the view reads playback_state.
+    do
         self.script_idx     = 0
         self.script_timer   = 0
         self.view_event_cursor = 0
@@ -693,14 +677,6 @@ function Table:deal(ctx)
                 self.opponent_idx = n_opps
             end
         end
-    else
-        -- Resolve the cinematic shape for this (gtype, tier). Walker
-        -- advances index in :update; phase[1] is the entry state.
-        self.script           = nil
-        self.timeline         = resolveTimeline(gtype.id, tier)
-        self.phase_idx        = 1
-        self.state            = self.timeline[1][1]
-        self.state_timer      = 0
     end
     return true
 end
@@ -777,7 +753,7 @@ function Table:update(dt, ctx)
 
     self.state_timer = self.state_timer + effective_dt
 
-    -- ── Script-walker branch (FEATURES.POKER_THEATER on) ──────────────
+    -- ── Script walker ──────────────────────────────────────────────────
     -- When the table has a script attached, walk it event-by-event.
     -- Each event whose absolute timestamp `t` has been crossed gets
     -- popped, applied via the registry (mutates self.playback_state),
@@ -832,43 +808,6 @@ function Table:update(dt, ctx)
             return r
         end
         return nil
-    end
-
-    -- Walk the cinematic timeline. Each entry is {state_name, duration};
-    -- when the timer crosses the current phase's duration we advance and
-    -- spend the leftover on the next phase (preserves smoothness when a
-    -- single dt exceeds a short phase). Past the last phase, finalize.
-    local phase = self.timeline and self.timeline[self.phase_idx]
-    while phase and self.state_timer >= phase[2] do
-        self.state_timer = self.state_timer - phase[2]
-        self.phase_idx   = self.phase_idx + 1
-        local next_phase = self.timeline[self.phase_idx]
-        if next_phase then
-            self.state = next_phase[1]
-            -- Resolution dict pushed on entering "settling", regardless
-            -- of which phases preceded it (Zoom+small skips most phases).
-            if next_phase[1] == "settling" then
-                self._pending_resolution = {
-                    won   = self.outcome_won,
-                    delta = self.outcome_delta,
-                    tier  = self.outcome_tier,
-                    x     = self.x,
-                    y     = self.y,
-                    felt_pot = self.playback_state and self.playback_state.pot_at_push or 0,
-                }
-                -- Slam to rest at the same instant the resolution emits,
-                -- not at end-of-settling. _finalizeHand runs ~0.4 s
-                -- later and was previously the only place that reset
-                -- lift_t — that gap was the "panel hovers up after the
-                -- hand resolved, then awkwardly drops on its own"
-                -- artifact.
-                self.lift_t = 0
-            end
-            phase = next_phase
-        else
-            self:_finalizeHand()
-            phase = nil
-        end
     end
 
     if self._pending_resolution then

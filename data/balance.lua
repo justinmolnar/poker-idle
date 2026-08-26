@@ -53,7 +53,7 @@ end
 -- @param item_id string catalog item ID
 -- @return number shove rate addition
 function Balance.getItemShoveRate(item_id)
-    if item_id == "poker_poster" or item_id == "no_poster_handicap" or item_id == "unlock_ultra" then
+    if item_id == "unlock_ultra" then
         return 0
     end
     return Balance.K_SHOVE_PER_ITEM

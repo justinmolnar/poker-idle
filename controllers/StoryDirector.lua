@@ -18,7 +18,6 @@
 -- deps = { game, rules = UnlockRegistry (hint kinds), story = data/story,
 --          save = fn() }
 
-local Constants = require("data.constants")
 local Timeline  = require("services.Timeline")
 
 local StoryDirector = {}
@@ -33,7 +32,7 @@ function StoryDirector:new(deps)
         rules    = deps.rules,
         story    = deps.story,
         save     = deps.save,
-        enabled  = Constants.FEATURES.TUTORIAL,
+        enabled  = true,
         beat     = nil,
         timeline = nil,
         _timer   = 0,

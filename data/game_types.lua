@@ -26,17 +26,9 @@
 -- ONLY in dist_shifts (shaping tier variance, not win_chance) and pace_mult
 -- (throughput, not per-hand EV).
 --
--- Pure data — no logic, except for one feature-flag swap of the `mtt`
--- entry below: when FEATURES.MTT_KO is off (prototype build), the entry
--- reverts to the pre-1617f0d "8-hand binary outcome" tournament shape.
--- This is the only branch in this file — every other gtype is shared.
+-- Pure data — no logic.
 
-local Constants = require("data.constants")
-local mtt_ko    = Constants.FEATURES.MTT_KO
-
-local mtt_entry
-if mtt_ko then
-    mtt_entry = {
+local mtt_entry = {
         id   = "mtt",
         name = "Tournament",
         short = "8-MAX KO",
@@ -64,23 +56,6 @@ if mtt_ko then
         -- and pre-rolls per-hand outcomes; per-hand tier mass doesn't
         -- need a separate crush on top.
     }
-else
-    -- Legacy 6-max MTT: 8 hands of binary outcome, payout keyed by
-    -- hands_won via data/mtt_payouts.lua. Used by Table_legacy.lua when
-    -- FEATURES.MTT_KO is off (prototype builds).
-    mtt_entry = {
-        id   = "mtt",
-        name = "Tournament",
-        short = "MTT",
-        seats = 5,
-        pace_mult = 1.0,
-        dist_shifts       = nil,
-        rerolls_opponents = false,
-        hand_count     = 8,
-        auto_deal      = true,
-        binary_outcome = true,
-    }
-end
 
 return {
 

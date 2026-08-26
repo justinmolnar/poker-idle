@@ -58,11 +58,20 @@ function SaveService:read(filename)
     if not ok or type(decoded) ~= "table" then
         return nil, "decode failed"
     end
+    if type(decoded.data) ~= "table" then
+        return nil, "no data"
+    end
     if decoded.version ~= VERSION then
-        return nil, "version mismatch"
+        -- Version drift no longer refuses the save: returning nil here
+        -- read as "fresh game" to every caller, which made the first
+        -- VERSION bump a silent wipe of every existing player. All real
+        -- migrations are field-level in GameState:applySaved; the file's
+        -- version rides along for any future one that needs to branch.
+        print(string.format("SaveService: %s is v%s (current v%s), applying with field-level migration",
+            filename, tostring(decoded.version), tostring(VERSION)))
     end
     coerceIntKeys(decoded.data)
-    return decoded.data
+    return decoded.data, decoded.version
 end
 
 -- Write a save slot. `payload` is the model-serialized table.

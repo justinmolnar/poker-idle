@@ -142,25 +142,28 @@ function RoomState:draw()
         fill_override = is_editing and { 0.20, 0.50, 0.30 } or nil,
     }
 
-    -- Render developer unlock cheat status. owned_items is an ARRAY of
-    -- ids (see GameState) — build a set to test membership.
-    local Catalog = require("data.catalog")
-    local owned_set = {}
-    for _, id in ipairs(self.game.state.owned_items) do owned_set[id] = true end
-    local is_unlocked = true
-    for _, item in ipairs(Catalog) do
-        if not item.granted_at_start and not owned_set[item.id] then
-            is_unlocked = false
-            break
+    -- Developer unlock cheat status (dev builds only, like the U key it
+    -- serves). owned_items is an ARRAY of ids (see GameState) — build a
+    -- set to test membership.
+    if Constants.FEATURES.DEV_HOTKEYS then
+        local Catalog = require("data.catalog")
+        local owned_set = {}
+        for _, id in ipairs(self.game.state.owned_items) do owned_set[id] = true end
+        local is_unlocked = true
+        for _, item in ipairs(Catalog) do
+            if not item.granted_at_start and not owned_set[item.id] then
+                is_unlocked = false
+                break
+            end
         end
-    end
-    love.graphics.setFont(fonts.sm)
-    if is_unlocked then
-        Theme.setColor(Theme.status.warn)
-        love.graphics.print("ALL UNLOCKED [U]", des_x - fl(140 * s), btn_y + fl(10 * s))
-    else
-        Theme.setColor(Theme.fg.muted)
-        love.graphics.print("UNLOCK ALL [U]", des_x - fl(140 * s), btn_y + fl(10 * s))
+        love.graphics.setFont(fonts.sm)
+        if is_unlocked then
+            Theme.setColor(Theme.status.warn)
+            love.graphics.print("ALL UNLOCKED [U]", des_x - fl(140 * s), btn_y + fl(10 * s))
+        else
+            Theme.setColor(Theme.fg.muted)
+            love.graphics.print("UNLOCK ALL [U]", des_x - fl(140 * s), btn_y + fl(10 * s))
+        end
     end
 
     local btn_hov = mx >= btn_x and mx < btn_x + btn_w
@@ -194,7 +197,10 @@ function RoomState:keypressed(key)
     -- version wrote set-style keys into it, which registered as nothing
     -- and polluted saves. Rebuild as a clean array both ways, and drop
     -- the effects cache so the rollup sees the change.
-    if key == "u" then
+    -- Dev builds only: a shipped build must not carry a key that can
+    -- wipe the whole catalog (all-owned + U empties owned_items, and the
+    -- autosave makes it stick).
+    if key == "u" and Constants.FEATURES.DEV_HOTKEYS then
         local Catalog = require("data.catalog")
         local state = self.game.state
         -- Sanitize: keep only the array part (repairs saves the old

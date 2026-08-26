@@ -37,7 +37,7 @@ return {
     -- cheap things worth buying first.
     { title = "Value Buys",
       items = {
-          "poker_poster", "wall_hanger", "mirror", "energy_drink",
+          "wall_hanger", "mirror", "energy_drink",
           "corkboard", "stack_of_books", "gift_box", "lava_lamp",
           "sticky_notes",
       } },

@@ -376,14 +376,6 @@ function CatalogModal:consumeKey(key)
         return false
     end
     if key == "space" or key == "return" or key == "kpenter" then
-        -- Poster-forcing only exists in the scripted-intro build; under
-        -- TUTORIAL the poster isn't in the catalog at all, so this gate
-        -- would lock Continue forever.
-        local _, owned = visibleItems(self.game.state)
-        if (not Constants.FEATURES.TUTORIAL) and (not self.read_only)
-           and (not owned["poker_poster"]) then
-            return true -- Block resolution, but consume the key
-        end
         self._resolved = true
         return true
     end
@@ -573,11 +565,6 @@ function CatalogModal:consumeMouse(mx, my, button)
     local r = self._continue_rect
     if r and mx >= r.x and mx < r.x + r.w
        and my >= r.y and my < r.y + r.h then
-        local _, owned = visibleItems(self.game.state)
-        if (not Constants.FEATURES.TUTORIAL) and (not self.read_only)
-           and (not owned["poker_poster"]) then
-            return true -- Block resolution
-        end
         if self.on_felt then self:closeToFelt() else self._resolved = true end
         return true
     end
@@ -1510,8 +1497,7 @@ function CatalogModal:draw()
 
     local pages, owned = self:_pages()
     local max_spread = math.ceil(#pages / 2) + 1
-    local forcing = (not Constants.FEATURES.TUTORIAL)
-                    and (not owned["poker_poster"]) and (not self.read_only)
+    local forcing = false   -- the scripted-intro forced purchase is gone
 
     -- Page + book geometry. One page = half the base modal width; an open
     -- spread is two of them, centered on the spine at screen center.

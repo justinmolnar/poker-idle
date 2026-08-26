@@ -34,7 +34,7 @@
 --     removed_by       = "<id>",  -- entry's effects suppressed when remover is owned
 --     requires         = "<id>",  -- gate: prerequisite item id
 --     requires_hide    = bool,    -- hide from UI until prerequisite owned
---     run0             = bool,    -- scripted-intro entry; stripped when FEATURES.TUTORIAL
+--     act              = 2,       -- Act 2+ entry; stripped in the demo build
 --     unlock           = { kind, threshold, text, format? }
 --   }
 --
@@ -86,52 +86,8 @@ local Constants = require("data.constants")
 
 local items = {
 
-    -- ─── System: phantom handicap entry ─────────────────────────────────
-    -- Auto-granted at game start, neutralized when the Poker Poster is
-    -- owned. The diegetic "you don't know how to play poker" Run-0
-    -- experience: T1's naked 50% WC is multiplied to ~20% and losses
-    -- skew Medium+. Once Poster lands, this entry stops applying — Run 1
-    -- onward plays at normal poker math. Hidden from all UI.
-    {
-        id              = "no_poster_handicap",
-        name            = "(handicap)",
-        description     = "Active until you receive the Poker Poster.",
-        phase           = "system",
-        run0            = true,
-        hidden          = true,
-        granted_at_start = true,
-        removed_by      = "poker_poster",
-        cost_chip         = 0,
-        effects         = {
-            -- 0.40× knocks T1's naked 0.50 WC down to ~0.20 — "you don't
-            -- know how to play" territory.
-            { kind = "wc_mult", value = 0.4 },
-            -- 4-tier loss skew: knock mass off Small/Medium, push it onto
-            -- Large and Jackpot. Renormalized in buildOutcome.
-            { kind = "loss_dist_shift",
-              shift = { small = -0.50, medium = -0.30,
-                        large = 0.50, jackpot = 0.30 } },
-        },
-    },
-
     -- ═══ BAND A — Act 1 early (T1-T2) · 47 {chip} · shove 0.115 ═════════
 
-    -- The only catalog item that names poker directly. The player buys it
-    -- for 0 chips from the post-bust catalog modal — buying it is what lifts
-    -- the no-poster handicap (via the `removed_by` hook above). Mechanism
-    -- is purely the ownership flag; the entry has no direct effects.
-    {
-        id            = "poker_poster",
-        name          = "Poker Poster",
-        effect_text   = "Learn the fundamentals.",
-        description   = "Do you not even know how to play poker?",
-        sprite        = "poker_poster",
-        phase         = "demo",
-        run0          = true,
-        cost_chip       = 0,
-        position      = { x = 80, y = 200 },
-        effects       = {},
-    },
     {
         id          = "wall_hanger",
         name        = "Wall Hanger",
@@ -731,6 +687,7 @@ local items = {
 
     {
         id          = "vouchers",
+        act         = 2,
         name        = "Rolled Vouchers",
         effect_text = "Buy-ins cost 15% less.",
         description = "Tightly rolled entry coupons.",
@@ -752,6 +709,7 @@ local items = {
     },
     {
         id          = "second_monitor",
+        act         = 2,
         name        = "Second Monitor",
         effect_text = "+1 focus capacity.",
         description = "Mismatched stand. You stop turning your head.",
@@ -777,6 +735,7 @@ local items = {
     },
     {
         id            = "laptop",
+        act         = 2,
         name          = "Laptop Terminal",
         effect_text   = "+1 cursor. Sealed optical bearings (no trackball cleaning).",
         description   = "Open laptop terminal running extra clicker scripts.",
@@ -802,6 +761,7 @@ local items = {
     },
     {
         id            = "gaming_keyboard",
+        act         = 2,
         name          = "Gaming Keyboard",
         effect_text   = "Cursors travel 30% faster & coordinate targeting (no racing).",
         description   = "Mechanical keyboard for faster cursor response.",
@@ -826,6 +786,7 @@ local items = {
     },
     {
         id          = "box_of_mice",
+        act         = 2,
         name        = "Box of Mice",
         effect_text = "Unlocks the cursor swarm and the Cursor upgrade.",
         description = "Cardboard storage box of mice.",
@@ -849,6 +810,7 @@ local items = {
     },
     {
         id            = "wacom_tablet",
+        act         = 2,
         name          = "Wacom Tablet",
         effect_text   = "Cursors click REBUY & phase through each other without bumping.",
         description   = "Graphics drawing tablet for macro commands.",
@@ -876,6 +838,7 @@ local items = {
     },
     {
         id          = "kettle",
+        act         = 2,
         name        = "Electric Kettle",
         effect_text = "Busted tables refund 30% of the buy-in.",
         description = "First thing you asked for. Took a while.",
@@ -901,6 +864,7 @@ local items = {
     },
     {
         id          = "toaster",
+        act         = 2,
         name        = "Chrome Toaster",
         effect_text = "8% chance a pot bumps one tier.",
         description = "Two slots. One setting. Pops without warning.",
@@ -926,6 +890,7 @@ local items = {
     },
     {
         id          = "first_aid_kit",
+        act         = 2,
         name        = "First Aid Kit",
         effect_text = "20% of rebuys are free.",
         description = "Wall-mounted. Break glass, sit back down.",
@@ -951,6 +916,7 @@ local items = {
     },
     {
         id          = "nightstand",
+        act         = 2,
         name        = "Nightstand",
         effect_text = "Upgrades reach one level further.",
         description = "One drawer that's yours. Nobody checks it.",
@@ -976,6 +942,7 @@ local items = {
     },
     {
         id          = "receipt_printer",
+        act         = 2,
         name        = "Receipt Printer",
         effect_text = "First denied {chip} each run banks anyway.",
         description = "It prints another. Nobody argues with paper.",
@@ -1002,6 +969,7 @@ local items = {
     },
     {
         id          = "microwave",
+        act         = 2,
         name        = "Microwave Oven",
         effect_text = "5% chance a pot pays double.",
         description = "Turntable squeaks. Clock blinks 12:00.",
@@ -1027,6 +995,7 @@ local items = {
     },
     {
         id          = "diploma",
+        act         = 2,
         name        = "Framed Diploma",
         effect_text = "Tournament cashes pay 5× / 10× / 20×.",
         description = "Wall-mounted certificate. Handsome on the wall.",
@@ -1049,6 +1018,7 @@ local items = {
     },
     {
         id          = "blueprint",
+        act         = 2,
         name        = "Laminated Blueprint",
         effect_text = "Active deck earns 50% more XP.",
         description = "Wall blueprint chart for systematic study.",
@@ -1074,6 +1044,7 @@ local items = {
     },
     {
         id          = "console_tv",
+        act         = 2,
         name        = "Console Television",
         effect_text = "+2 focus capacity. Wins pay 10% less.",
         description = "Always on. You stop noticing the sound.",
@@ -1105,6 +1076,7 @@ local items = {
 
     {
         id          = "high_roller_pass",
+        act         = 2,
         name        = "High Roller Pass",
         effect_text = "Buy-ins 30% cheaper at NL1K and above.",
         description = "Framed. You never had to show it to anyone.",
@@ -1130,6 +1102,7 @@ local items = {
     },
     {
         id          = "window",
+        act         = 2,
         name        = "Window",
         effect_text = "At NL1K and above, wins skew bigger.",
         description = "Faces a wall. It's the light you wanted.",
@@ -1161,6 +1134,7 @@ local items = {
     },
     {
         id          = "bookshelf",
+        act         = 2,
         name        = "Bookshelf",
         effect_text = "+1 level on every upgrade.",
         description = "Every book on it is about the same thing.",
@@ -1187,6 +1161,7 @@ local items = {
     },
     {
         id          = "cereal_shelf",
+        act         = 2,
         name        = "Cereal Shelf",
         effect_text = "Start each run with 10% of last run's losses.",
         description = "Restocked from somewhere. Never the same brand.",
@@ -1212,6 +1187,7 @@ local items = {
     },
     {
         id          = "fire_extinguisher",
+        act         = 2,
         name        = "Fire Extinguisher",
         effect_text = "Losses never roll {l:stack}.",
         description = "Inspection tag expired a long time ago.",
@@ -1238,6 +1214,7 @@ local items = {
     },
     {
         id          = "blackout_curtains",
+        act         = 2,
         name        = "Blackout Curtains",
         effect_text = "Wins never roll {w:small}.",
         description = "No window behind them. Still helps.",
@@ -1264,6 +1241,7 @@ local items = {
     },
     {
         id          = "tip_jar",
+        act         = 2,
         name        = "Tip Jar",
         effect_text = "{chip} bounties pay 50% more.",
         description = "Coins in a glass. Yours, mostly.",
@@ -1293,6 +1271,7 @@ local items = {
 
     {
         id          = "pc_tower",
+        act         = 2,
         name        = "Tower Upgrade",
         effect_text = "Hands resolve 15% faster.",
         description = "Fans you can hear from the bed. Boots in seconds.",
@@ -1314,6 +1293,7 @@ local items = {
     },
     {
         id          = "curved_monitor",
+        act         = 2,
         name        = "Curved Monitor",
         effect_text = "+1 focus capacity.",
         description = "Wraps around you. The room gets smaller.",
@@ -1335,6 +1315,7 @@ local items = {
     },
     {
         id          = "desk_speakers",
+        act         = 2,
         name        = "Desk Speakers",
         effect_text = "+5% win chance at tournaments.",
         description = "Two small ones. The bass is all wall.",
@@ -1356,6 +1337,7 @@ local items = {
     },
     {
         id          = "shredder",
+        act         = 2,
         name        = "Shredder",
         effect_text = "Losses 15% softer.",
         description = "Under the desk. Takes the bad ones.",
@@ -1377,6 +1359,7 @@ local items = {
     },
     {
         id          = "unlock_ultra",
+        act         = 2,
         name        = "Ultra Stake",
         effect_text = "Unlock the T10 ULTRA stake.",
         description = "Unwinnable. Bleed bankroll to underflow.",
@@ -1394,14 +1377,14 @@ local items = {
 
 }
 
--- Under tutorial onboarding the run-0 scripted intro doesn't exist: strip
--- its entries at module load (same feature-flag pattern as
--- data/game_types.lua's MTT_KO swap — the only branch in this file).
--- GameState:computeEffects iterates this catalog, so a live save that
--- owns poker_poster no-ops cleanly once the entry is gone.
-if Constants.FEATURES.TUTORIAL then
+-- The demo ends at the Act 1 cliffhanger: Act 2+ entries (bands C and
+-- D, the Act 3 section) are stripped at module load — the only branch
+-- in this file. GameState:computeEffects iterates this catalog, so a
+-- live save that owns one of them no-ops cleanly here while
+-- owned_items keeps the purchase for the full build.
+if Constants.FEATURES.DEMO_CUT then
     for i = #items, 1, -1 do
-        if items[i].run0 then table.remove(items, i) end
+        if items[i].act == 2 or items[i].requires_act3 then table.remove(items, i) end
     end
 end
 
@@ -1409,7 +1392,7 @@ local Balance = require("data.balance")
 
 -- Phase 1 Derivations: scale costs and apply k shove rate from data/balance.lua
 for _, item in ipairs(items) do
-    if not item.run0 and item.phase ~= "system" and item.id ~= "unlock_ultra" then
+    if item.phase ~= "system" and item.id ~= "unlock_ultra" then
         item.authored_cost_chip = item.authored_cost_chip or item.cost_chip
         item.cost_chip = Balance.getItemCost(item.authored_cost_chip)
         

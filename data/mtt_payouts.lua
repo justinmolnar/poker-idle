@@ -2,12 +2,11 @@
 --
 -- MTT payout multiplier table. Indexed by ctx.mtt_payout_boost (0/1/2,
 -- driven by the Plastic Trophy / Engraved Plaque catalog perks via
--- max-stacking — see models/poker_effects.lua) and by hands cleared.
---
--- Cleared count below 6 = no payout (lost buy-in). 6/7/8 cleared each
--- pay a multiplier × the table's stake buy-in. The 8-clear cap stays
--- pinned at 20× across all tiers — the perks raise the floor (the 6
--- and 7 consolation cashes), not the ceiling.
+-- max-stacking — see models/poker_effects.lua) and by finish position
+-- mapped to a key (1st = 8, 2nd = 7, 3rd = 6; 4th and below = no
+-- payout, lost buy-in). Each key pays a multiplier × the table's stake
+-- buy-in. The 8 key stays pinned at 20× across the base tiers — the
+-- perks raise the floor (the consolation cashes), not the ceiling.
 --
 -- Pure data — no logic.
 

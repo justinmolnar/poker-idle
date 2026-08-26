@@ -440,15 +440,15 @@ function love.update(dt)
     -- browse the autosave was firing every 10s and queueing JSON writes
     -- to Emscripten's IDBFS, then stalling the frame when the queue
     -- flushed on resume to grind. Counter resets on each save; love.quit
-    -- flushes unconditionally so anything not yet persisted lands on exit.
+    -- flushes from the play states so anything not yet persisted lands on
+    -- exit (the Room included — it has no autosave tick of its own).
     do
         local sm  = Game.state_machine
         local cur = sm:current()
         local s   = sm.current_state
         local idle_modal = s and (s.catalog_modal
-                                  or s.prototype_end_modal
-                                  or s.deck_select_modal
-                                  or s.onboarding_modal)
+                                  or s.demo_end_modal
+                                  or s.deck_select_modal)
         if (cur == "grind" or cur == "shove") and not idle_modal then
             autosave_timer = autosave_timer + dt
             if autosave_timer >= AUTOSAVE_INTERVAL then
@@ -586,16 +586,75 @@ function love.resize(w, h)
     end
 end
 
+-- One final flush, shared by the quit and crash paths. Saves only from
+-- the play states (grind / shove / room) — from title or credits,
+-- Game.state can be a freshly-constructed default, and writing it would
+-- overwrite the real save with a blank one.
+local function flushSave()
+    if not Game then return false end
+    HandAnalytics.flush(Game.state, Game.settings and Game.settings.analytics_consent)
+    local current = Game.state_machine and Game.state_machine:current()
+    if current == "grind" or current == "shove" or current == "room" then
+        local state = Game.state
+        Game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
+        return true
+    end
+    return false
+end
+
 function love.quit()
-    -- Flush one final save so anything between the last autosave tick and
-    -- quit doesn't get lost. Skip from the menu-class states (no useful
-    -- run state to commit).
-    if Game then
-        HandAnalytics.flush(Game.state, Game.settings and Game.settings.analytics_consent)
-        local current = Game.state_machine and Game.state_machine:current()
-        if current == "grind" or current == "shove" then
-            local state = Game.state
-            Game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
+    -- Anything between the last autosave tick and quit lands here.
+    pcall(flushSave)
+end
+
+-- A crash must not cost the run. Flush the save, then show a minimal
+-- error screen in place of LOVE's default blue screen (which saves
+-- nothing). Every step is pcall-guarded: whatever just broke must not
+-- also break the flush.
+function love.errorhandler(msg)
+    msg = tostring(msg)
+    local trace = msg
+    pcall(function() trace = debug.traceback(msg, 3) end)
+    pcall(function() print("[crash] " .. trace) end)
+    local saved = false
+    pcall(function() saved = flushSave() end)
+
+    pcall(function()
+        love.graphics.reset()
+        love.graphics.origin()
+        love.graphics.setNewFont(15)
+    end)
+    if love.mouse then
+        pcall(function() love.mouse.setVisible(true) end)
+    end
+
+    local lines = { "The game crashed.", "" }
+    if saved then
+        lines[#lines + 1] = "Your progress was saved."
+        lines[#lines + 1] = ""
+    end
+    local n = 0
+    for line in trace:gmatch("[^\r\n]+") do
+        lines[#lines + 1] = line
+        n = n + 1
+        if n >= 10 then break end
+    end
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "Press ESC to close."
+    local text = table.concat(lines, "\n")
+
+    return function()
+        love.event.pump()
+        for e, a in love.event.poll() do
+            if e == "quit" then return 1 end
+            if e == "keypressed" and a == "escape" then return 1 end
         end
+        pcall(function()
+            love.graphics.clear(0.09, 0.08, 0.11)
+            love.graphics.setColor(0.92, 0.90, 0.85)
+            love.graphics.printf(text, 40, 40, love.graphics.getWidth() - 80)
+            love.graphics.present()
+        end)
+        if love.timer then love.timer.sleep(0.05) end
     end
 end
