@@ -24,9 +24,13 @@
 -- ─── PAYLOAD CAPABILITY ─────────────────────────────────────────────────
 -- Payloads receive `event.ctrl`, which is the widest reach any data-driven
 -- thing has in this codebase. Keep it that way ON PURPOSE narrow: a
--- payload may call only _queueBurst, procFired, invalidateEffects and
--- _playStateTransitionSound. Anything beyond that should become a named
--- controller method first, so the surface stays reviewable.
+-- payload may call only _queueBurst, procFired and invalidateEffects.
+-- Anything beyond that should become a named controller method first, so
+-- the surface stays reviewable.
+--
+-- The list got shorter, which is the direction it should move: the sound
+-- poke a swept table needed is gone, because the table now announces its
+-- own move to "settling" and whoever wants to make a noise is listening.
 
 local Lookups   = require("utils.lookups")
 local Stakes    = require("data.stakes")
@@ -158,9 +162,10 @@ function TableProcs.registerAll(reg)
         if not r then return false end
         r.table = target
         event.out[#event.out + 1] = r
-        if event.ctrl then
-            event.ctrl:_playStateTransitionSound("dealing", "settling", target)
-        end
+        -- No sound poke here any more: the table announces its own move to
+        -- "settling" and the controller is listening. This used to be a
+        -- patch for the controller's snapshot diff, which ran before the
+        -- sweep and so never saw it.
         return true
     end)
 

@@ -972,12 +972,12 @@ local items = {
         position    = { x = 330, y = 400 },
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "cascade_on_jackpot" },
+            { kind = "proc", proc = "zoom_cascade" },
         },
         corrupt = {
             cost_achip = 9,
             effects = {
-                { kind = "cascade_on_jackpot" },
+                { kind = "proc", proc = "zoom_cascade" },
             },
             effect_text = "Win a {stack} and every Zoom table settles at once.",
         },
@@ -1384,6 +1384,11 @@ local items = {
         phase       = "late",
         cost_chip     = 0,
         requires_act3 = true,
+        -- A gate, not a thing you own: it unlocks a stake and sits on no
+        -- shelf, so it is outside the "every item is 1% shove" rule and
+        -- outside pricing. Authored here rather than special-cased by id in
+        -- the loader.
+        gate        = true,
         effects     = {},
         corrupt = {
             cost_achip = 25,
@@ -1405,43 +1410,9 @@ if Constants.FEATURES.DEMO_CUT then
     end
 end
 
-local Balance = require("data.balance")
-
--- Phase 1 Derivations: scale costs and apply k shove rate from data/balance.lua
-for _, item in ipairs(items) do
-    if item.phase ~= "system" and item.id ~= "unlock_ultra" then
-        item.authored_cost_chip = item.authored_cost_chip or item.cost_chip
-        item.cost_chip = Balance.getItemCost(item.authored_cost_chip)
-        
-        local found_shove = false
-        if item.effects then
-            for _, eff in ipairs(item.effects) do
-                if eff.kind == "shove_rate_add" then
-                    eff.value = Balance.getItemShoveRate(item.id)
-                    found_shove = true
-                end
-            end
-        else
-            item.effects = {}
-        end
-        if not found_shove then
-            table.insert(item.effects, 1, { kind = "shove_rate_add", value = Balance.getItemShoveRate(item.id) })
-        end
-        -- A corrupt block REPLACES the item's effects (GameState:computeEffects),
-        -- so one without a shove_rate_add would strip the item's shove base.
-        -- Give it the item's own unless the block authored a value.
-        if item.corrupt and item.corrupt.effects then
-            local has = false
-            for _, eff in ipairs(item.corrupt.effects) do
-                if eff.kind == "shove_rate_add" then has = true end
-            end
-            if not has then
-                table.insert(item.corrupt.effects, 1,
-                    { kind = "shove_rate_add", value = Balance.getItemShoveRate(item.id) })
-            end
-        end
-    end
-end
+-- Costs and the flat shove rate are DERIVED, not authored: see
+-- models/catalog_loader.lua, which main.lua runs once at boot. Edit
+-- `authored_cost_chip`; `cost_chip` is overwritten. This file is tables.
 
 return items
 

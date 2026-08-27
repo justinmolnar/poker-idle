@@ -108,7 +108,7 @@ end
 
 -- ─── Construction ─────────────────────────────────────────────────────
 
-function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry)
+function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, bus)
     local stake = Lookups.findById(StakesData,stake_id)
     local id = _next_id
     _next_id = _next_id + 1
@@ -130,6 +130,17 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry)
         -- applied through it onto this table's ctx overlay, so statuses
         -- need no effect vocabulary of their own (see :effectiveCtx).
         effects_registry = effects_registry,
+        -- The notification spine. A table says what happened to it and has
+        -- no idea who is listening; it is optional, so a headless test can
+        -- build a table without one.
+        bus                = bus,
+        -- Last state anyone was told about. The diff lives here rather than
+        -- in the controller (which used to snapshot every table every frame
+        -- to find it) because a table is the only thing that knows when it
+        -- changed — including changes made outside :update, like a deal or
+        -- a forced resolve, which the old snapshot missed and which needed
+        -- two separate patches at the call sites to paper over.
+        _prev_state        = "idle",
         script             = nil,
         script_idx         = 0,
         script_timer       = 0,
@@ -790,7 +801,23 @@ local BORDER_PULSE_DECAY_RATE = 1.0
 local LIFT_RISE_RATE       = 6.0    -- ~0.3 s up
 local LIFT_DOWN_STATES     = { idle = true, settling = true }
 
+-- Runs the tick, then tells anyone listening if the state moved. Wrapping
+-- rather than announcing inline because :_update returns from four places,
+-- and a transition missed is a sound not played.
 function Table:update(dt, ctx)
+    local r = self:_update(dt, ctx)
+    local prev = self._prev_state
+    if prev ~= self.state then
+        self._prev_state = self.state
+        if self.bus then
+            self.bus:publish("table_state_changed",
+                { table = self, from = prev, to = self.state })
+        end
+    end
+    return r
+end
+
+function Table:_update(dt, ctx)
     -- Stash latest ctx for the auto-deal path on tournament tables.
     if ctx then self._last_ctx = ctx end
 

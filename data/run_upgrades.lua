@@ -143,6 +143,11 @@ return {
         icon          = "cursor",
         requires      = "box_of_mice",
         requires_hide = true,
+        -- This row carries the GLOBAL cursor toggles (deal / rebuy, scoped
+        -- to every open table). It hangs here because this is the upgrade
+        -- that made cursors exist, so it is where a player looks for their
+        -- master switch. Authored rather than matched on id in the view.
+        cursor_master_controls = true,
         max_level     = 12,
         -- Steepened so cursor investment spans the game (tops ~$40M ≈ T6),
         -- not a first-hour dump. Placeholder.

@@ -50,7 +50,7 @@ local function unpackSpec(spec)
     return stake_id, gtype_id
 end
 
-function TablePool:new(state, ctx, poker_events, effects_registry)
+function TablePool:new(state, ctx, poker_events, effects_registry, bus)
     local self = setmetatable({
         state        = state,
         tables       = {},
@@ -58,6 +58,8 @@ function TablePool:new(state, ctx, poker_events, effects_registry)
         -- Threaded down to each Table so a status can be applied through
         -- the same registry every owned item uses (Table:effectiveCtx).
         effects_registry = effects_registry,
+        -- Threaded down to each Table so it can announce its own changes.
+        bus = bus,
     }, TablePool)
     self:rebuildFromState(ctx)
     return self
@@ -106,7 +108,8 @@ function TablePool:rebuildFromState(ctx)
             -- from a pre-rip build) silently downgrades to six_max so the
             -- table can still be reconstructed.
             if not gtypeExists(gtype_id) then gtype_id = "six_max" end
-            local t = Table:new(stake_id, gtype_id, ctx, self.poker_events, self.effects_registry)
+            local t = Table:new(stake_id, gtype_id, ctx, self.poker_events,
+                                self.effects_registry, self.bus)
             t.cursor_muted        = mutes[i] == true
             t.cursor_rebuy_muted  = rebuy_mutes[i] == true
             -- Tournament continuity: reload-mid-run drops the player back
@@ -220,7 +223,8 @@ function TablePool:_sortBySlot()
 end
 
 function TablePool:addTable(stake_id, game_type_id, ctx)
-    local t = Table:new(stake_id, game_type_id, ctx, self.poker_events, self.effects_registry)
+    local t = Table:new(stake_id, game_type_id, ctx, self.poker_events,
+                        self.effects_registry, self.bus)
     -- Takes a free cell if the board has one; otherwise the board grows a
     -- step and this table sits in the row/column that just appeared. No
     -- table already on the board moves.

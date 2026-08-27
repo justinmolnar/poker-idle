@@ -443,11 +443,6 @@ Effects.kinds = {
         value_shape = "proc = \"<id in data/procs.lua>\"",
         affects     = "ctx.procs (list of proc ids)",
     },
-    cascade_on_jackpot = {
-        description = "Flag — a jackpot-tier WIN at any table makes every Zoom table resolve its current hand immediately (Receipt Printer). A time compressor: forced hands pay exactly what they had already rolled. Self-throttling, since a swept table has no live hand to sweep again.",
-        value_shape = "no field (presence sets ctx.cascade_on_jackpot = true)",
-        affects     = "ctx.cascade_on_jackpot",
-    },
     first_bounty_bonus = {
         description = "The first {chip} bounty each run pays +value extra (Dogs Playing Poker).",
         value_shape = "integer, e.g. 1 for +1 {chip} on the run's first bounty",

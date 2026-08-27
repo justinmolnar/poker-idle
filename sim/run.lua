@@ -9,6 +9,8 @@ local cwd = (love and love.filesystem and love.filesystem.getWorkingDirectory())
 package.path = package.path .. ";" .. cwd .. "/?.lua;" .. cwd .. "/data/?.lua;" .. cwd .. "/models/?.lua"
 
 
+local CatalogLoader = require("models.catalog_loader")
+CatalogLoader.deriveAll(require("data.catalog"))
 local Balance   = require("data.balance")
 local Catalog   = require("data.catalog")
 local ShoveRate = require("models.shove_rate")
@@ -21,7 +23,7 @@ local function simulateAct1()
     local chips_banked = 0
     local elapsed_minutes = 0
     
-    local chips_per_run = Balance.getChipsPerRun()
+    local chips_per_run = CatalogLoader.chipsPerRun()
     local run_duration = Balance.RUN_MINUTES
 
     print("=========================================================")
@@ -47,7 +49,7 @@ local function simulateAct1()
             local cheapest_cost = 999999
 
             for _, item in ipairs(Catalog) do
-                if item.phase ~= "system" and item.id ~= "unlock_ultra" then
+                if CatalogLoader.isOwnable(item) then
                     if not owned_set[item.id] then
                         local cost = item.cost_chip or 0
                         if cost <= chips_banked and cost < cheapest_cost then
@@ -66,10 +68,14 @@ local function simulateAct1()
             end
         end
 
-        -- Calculate cumulative shove rate addition from owned catalog items
+        -- Calculate cumulative shove rate addition from owned catalog items.
+        -- Only ownable ones ever land in owned_set (the buy loop above uses
+        -- the same test), so this is the flat rate per item.
         local catalog_shove_sum = 0
-        for item_id, _ in pairs(owned_set) do
-            catalog_shove_sum = catalog_shove_sum + Balance.getItemShoveRate(item_id)
+        for _, item in ipairs(Catalog) do
+            if owned_set[item.id] then
+                catalog_shove_sum = catalog_shove_sum + CatalogLoader.itemShoveRate(item)
+            end
         end
 
         -- Calculate R1 shove win percentage at T3 (multiplier = 3)

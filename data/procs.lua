@@ -13,6 +13,10 @@
 --              radius, gtype, exclude_self, where, pick = "random", max }
 --   payload  { kind = "apply_status" | "resolve_now" | "refund_buyin" | "ratchet", ... }
 --   ghost    catalog item id whose sprite + sound plays when it fires
+--   impact   false if this is not a blow. Procs land with the fist or the
+--            shove by default, because most of them ARE one table doing
+--            something to another. Set it false where the fiction is not
+--            violence and you want only the ghost.
 --
 -- "Nearby" is distance in table order, which is reading order of the board
 -- and is what the player rearranges by dragging. See models/table_procs.
@@ -45,6 +49,9 @@ return {
         target  = { kind = "gtype", gtype = "zoom", exclude_self = true },
         payload = { kind = "resolve_now" },
         ghost   = "receipt_printer",
+        -- Nobody is being hit. The printer runs and those hands finish;
+        -- what you should see is the ghost and the tables settling.
+        impact  = false,
     },
 
     -- The aura. A knockout heats a neighbouring table.

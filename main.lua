@@ -11,7 +11,7 @@ local Constants     = require("data.constants")
 local Catalog       = require("data.catalog")
 local RunUpgrades   = require("data.run_upgrades")
 
-local EventBus      = require("core.event_bus")
+local EventBus      = require("services.EventBus")
 local Time          = require("core.time")
 local Camera        = require("core.camera")
 
@@ -54,6 +54,11 @@ local TableProcs       = require("models.table_procs")
 local DeckXpRules      = require("models.deck_xp_rules")
 local DeckUnlockRules  = require("models.deck_unlock_rules")
 local CatalogUnlockRules = require("models.catalog_unlock_rules")
+local CatalogLoader = require("models.catalog_loader")
+-- The catalog is authored data; its prices are arithmetic. Derive them the
+-- moment it is loaded, so nothing can ever read an authored cost by
+-- accident. Module tables are cached, so every later require sees this.
+CatalogLoader.deriveAll(Catalog)
 local HintController  = require("controllers.HintController")
 local HintView        = require("views.HintView")
 local HintRules        = require("models.hint_rules")
@@ -174,7 +179,7 @@ local function buildGame()
     -- payout_shape: 0 = off, else an index into
     -- TablePanelStats.PAYOUT_SHAPES. Cycled with F3.
     g.debug = { overlay = false, payout_shape = 0, perf = false }
-    g.event_bus       = EventBus
+    g.event_bus       = EventBus:new()
     g.time            = Time:new()
     g.camera          = Camera:new(0, 0, 1)
     g.sprite_loader   = SpriteLoader:new()
@@ -189,18 +194,18 @@ local function buildGame()
     SoundService.attachLoader(g.sound_loader, g.sprite_loader)
     -- An item doing its job is heard: its own sound (the file that shares
     -- its name), damaged if the item is corrupted.
-    g.event_bus:subscribe("item_fired", function(item_id, kind, x, y, pw, ph)
+    g.event_bus:subscribe("item_fired", function(e)
         local mix = require("data.sounds")._mix
         local rule = (mix and mix.item_fire) or {}
         local damaged = false
         for _, id in ipairs(g.state.corrupted_items or {}) do
-            if id == item_id then damaged = true end
+            if id == e.item_id then damaged = true end
         end
-        SoundService.playNamed(item_id, { volume_mult = rule.volume or 0.5,
-                                          min_gap = rule.min_gap, damaged = damaged })
+        SoundService.playNamed(e.item_id, { volume_mult = rule.volume or 0.5,
+                                            min_gap = rule.min_gap, damaged = damaged })
         -- ...and seen: the item's sprite pops over the table that fired it,
         -- because most of the foley reads alike.
-        ItemGhosts.spawn(g, item_id, x, y, pw, ph)
+        ItemGhosts.spawn(g, e.item_id, e.x, e.y, e.pw, e.ph)
     end)
     g.animations      = AnimationSystem
     g.floating_text   = FloatingText
@@ -245,7 +250,7 @@ local function buildGame()
     -- engine-agnostic registry (services/ProcRegistry), poker-specific
     -- selectors and payloads from models/table_procs, descriptors in
     -- data/procs.lua.
-    g.procs = ProcRegistry:new(love.math.random)
+    g.procs = ProcRegistry:new(love.math.random, g.event_bus)
     TableProcs.registerAll(g.procs)
 
     -- Same-shape registry for deck XP rules. Engine-agnostic skeleton
@@ -429,9 +434,19 @@ function love.update(dt)
     -- read them after.
     HoverService.clear()
     Tooltip.clear()
+    -- Per-frame budget for the notification spine, reset alongside the
+    -- other per-frame state above.
+    Game.event_bus:beginFrame()
 
     Game.time:update(dt)
     Game.state_machine:update(dt)
+    -- Deliver everything the frame's gameplay announced. Lives here rather
+    -- than inside a controller because any state can publish: an item can
+    -- fire during the shove or from the catalog, and its ghost should not
+    -- have to wait for the grind loop to come back around. Drained BEFORE
+    -- the ghost/flight/floater updates below so anything spawned by a
+    -- subscriber animates on this frame.
+    Game.event_bus:drain()
     -- The House ticks after the state so it reads this frame's facts. A
     -- state may ask for quiet (a menu is up) through the duck-typed
     -- hintsBlocked. Story first: while a beat runs, the hints are paused.

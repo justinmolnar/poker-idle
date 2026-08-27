@@ -398,13 +398,6 @@ function PokerEffects.registerAll(reg)
     reg:register("copy_first_denied", function(_e, ctx)
         ctx.copy_first_denied = true
     end)
-    -- Receipt Printer: a jackpot win anywhere makes every Zoom table
-    -- settle its hand on the spot. Consumed in GrindController's
-    -- resolution loop (:_cascadeZoomTables).
-    reg:register("cascade_on_jackpot", function(_e, ctx)
-        ctx.cascade_on_jackpot = true
-    end)
-
     -- A proc: "when X happens, do Y to Z". The applicator only collects
     -- the id — dispatch lives in services/ProcRegistry, because an
     -- applicator can only write to ctx and a proc has to reach tables.

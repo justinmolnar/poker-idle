@@ -22,6 +22,21 @@
 --   WHAT   a payload   (spec, target, event)
 -- and adding a proc becomes an edit to data/procs.lua.
 --
+-- ─── WHERE IT ACTUALLY LANDS IS NOT WHERE IT WAS AIMED ──────────────────
+-- A selector names an INTENDED target. Between choosing it and acting on
+-- it, the destination is put to the bus as a question ("deliver"), and any
+-- listener may answer with a different one — a table that soaks up what its
+-- neighbours were about to get, something that pulls effects toward itself.
+-- This file has no idea such things exist; it only knows a destination is
+-- negotiable. The listeners register from models/table_procs.lua like
+-- everything else.
+--
+-- Two things the seam has to get right, both learned the hard way:
+--   • the RESOLVED destination goes into `hit`, not the intended one, or
+--     the shove animation lunges at the wrong panel.
+--   • `chance` is rolled BEFORE targeting, so a redirect never gets a proc
+--     a second bite at its own roll.
+--
 -- Unregistered kinds ERROR rather than no-op, matching EffectsRegistry and
 -- PokerEventRegistry: a typo in the data file should be loud.
 
@@ -34,14 +49,23 @@ ProcRegistry.__index = ProcRegistry
 -- have a live hand. This is the runaway stop for a pathological chain.
 local MAX_FIRES_PER_FRAME = 24
 
+-- Fires are not deliveries. One fire against a whole game type is a dozen
+-- deliveries, and a redirect can turn one delivery into another, so the
+-- fire budget alone does not bound the work. This does.
+local MAX_DELIVERIES_PER_FRAME = 240
+
 -- `rng` is a function returning 0..1, injected so this file stays free of
 -- love.* (main.lua passes love.math.random).
-function ProcRegistry:new(rng)
+-- `bus` is optional: without one, a destination is simply never
+-- negotiated and every delivery lands where the selector aimed it.
+function ProcRegistry:new(rng, bus)
     return setmetatable({
-        selectors = {},
-        payloads  = {},
-        fires     = 0,
-        rng       = rng or math.random,
+        selectors  = {},
+        payloads   = {},
+        fires      = 0,
+        deliveries = 0,
+        rng        = rng or math.random,
+        bus        = bus,
     }, ProcRegistry)
 end
 
@@ -52,7 +76,10 @@ function ProcRegistry:hasSelector(kind) return self.selectors[kind] ~= nil end
 function ProcRegistry:hasPayload(kind)  return self.payloads[kind]  ~= nil end
 
 -- Called once per frame by the controller before any proc can fire.
-function ProcRegistry:beginFrame() self.fires = 0 end
+function ProcRegistry:beginFrame()
+    self.fires      = 0
+    self.deliveries = 0
+end
 
 -- Run one proc for one event. Returns how many targets it touched, so the
 -- caller can decide whether to play the item's ghost/sound.
@@ -85,10 +112,23 @@ function ProcRegistry:fire(proc, event)
     local targets = sel(sel_spec, event) or {}
     local touched = 0
     local hit = {}
+    -- Only ask when somebody is listening. With no routers registered this
+    -- is one table lookup and the whole seam costs nothing.
+    local negotiable = self.bus and self.bus:has("deliver")
     for _, t in ipairs(targets) do
-        if pay(pay_spec, t, event) ~= false then
+        if self.deliveries >= MAX_DELIVERIES_PER_FRAME then break end
+        self.deliveries = self.deliveries + 1
+        local dest = t
+        if negotiable then
+            dest = self.bus:resolve("deliver",
+                { to = t, aimed_at = t, spec = pay_spec, event = event }, "to")
+        end
+        -- A router may answer "nowhere", which is how something swallows a
+        -- delivery outright. That reads as a miss: no ghost, no sound, no
+        -- bump, exactly like a payload declining.
+        if dest and pay(pay_spec, dest, event) ~= false then
             touched = touched + 1
-            hit[#hit + 1] = t
+            hit[#hit + 1] = dest
         end
     end
     -- A targetless proc (a run-wide ratchet) still runs its payload once.

@@ -854,12 +854,12 @@ function GrindView:_buildUpgradesTabComponents()
                 desc_text = "open or rebuy a table first — buying now ends the run"
             end
 
-            -- The Cursor upgrade owns the GLOBAL cursor controls: same two
-            -- toggles as the per-stake rows, scoped to every open table. They
-            -- hang off this row because it is the thing that made cursors
-            -- exist, so that is where you look for their master switch.
+            -- One upgrade row carries the GLOBAL cursor controls: the same
+            -- two toggles as the per-stake rows, scoped to every open table.
+            -- Which row that is comes from data/run_upgrades.lua, not from a
+            -- name matched here.
             local up_actions
-            if up.id == "box_of_mice" then
+            if up.cursor_master_controls then
                 local ctx = self.controller and self.controller.ctx
                 if ctx and ctx.cursor_unlocked then
                     local total, deal_muted, rebuy_muted =

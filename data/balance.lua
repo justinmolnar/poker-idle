@@ -36,35 +36,8 @@ Balance.ITEMS_AT_WIN           = Balance.ACT1_ITEM_COUNT * Balance.ACT1_COMPLETI
 Balance.K_SHOVE_PER_ITEM_DERIVED = Balance.CATALOG_TARGET_ACT1 / Balance.ITEMS_AT_WIN
 Balance.K_SHOVE_PER_ITEM         = 0.01
 
---- Returns derived chip cost for an item based on its authored base cost
--- @param authored_cost integer hand-authored base chip cost
--- @return integer derived chip cost scaled by pacing
-function Balance.getItemCost(authored_cost)
-    if not authored_cost or authored_cost <= 0 then return 0 end
-
-    -- Scale cost proportionally with RUN_MINUTES relative to 20-min baseline
-    local time_scale = Balance.RUN_MINUTES / 20.0
-    local raw_cost = authored_cost * time_scale
-    return math.max(1, math.floor(raw_cost + 0.5))
-end
-
---- Returns derived shove_rate_add for catalog items
--- Every catalog item contributes k (~0.0152)
--- @param item_id string catalog item ID
--- @return number shove rate addition
-function Balance.getItemShoveRate(item_id)
-    if item_id == "unlock_ultra" then
-        return 0
-    end
-    return Balance.K_SHOVE_PER_ITEM
-end
-
---- Returns expected chips per run needed for Act 1 clear
--- @param act1_spend integer total cost of Act 1 items
--- @return integer chips per run target
-function Balance.getChipsPerRun(act1_spend)
-    local total_spend = act1_spend or 111
-    return math.ceil((total_spend * (Balance.RUN_MINUTES / 20.0)) / Balance.ACT1_RUNS_TO_CLEAR)
-end
+-- The arithmetic that used to live here moved to
+-- models/catalog_loader.lua. data/ is tables: these are the authored taste
+-- inputs and the constants derived straight from them, nothing else.
 
 return Balance

@@ -58,7 +58,20 @@ function GrindController:new(game)
     -- Compute effects first so the initial pool rebuild gets ctx (matters
     -- for Cold Read and other start-of-table catalog perks).
     self:invalidateEffects()
-    self.pool = TablePool:new(game.state, self.ctx, game.poker_events, game.effects)
+    self.pool = TablePool:new(game.state, self.ctx, game.poker_events, game.effects,
+                              game.event_bus)
+
+    -- A table announces its own transitions; we just make the noise. This
+    -- replaces a per-frame snapshot of every table's state plus a diff pass
+    -- to work out what had moved, and it catches the transitions that
+    -- snapshot structurally could not see: a deal, which happens between
+    -- frames, and a hand force-resolved by a proc, which used to need its
+    -- own patched-in call at the payload.
+    if game.event_bus then
+        game.event_bus:subscribe("table_state_changed", function(e)
+            self:_playStateTransitionSound(e.from, e.to, e.table)
+        end)
+    end
     return self
 end
 
@@ -131,6 +144,12 @@ end
 -- Called on construction and after any purchase / prestige reset.
 -- Bucket the owned procs by trigger, once per rollup. _fireProcs then
 -- does a table lookup instead of scanning every proc on every hand.
+--
+-- It also (re)subscribes, which is the point: the trigger names come out of
+-- data/procs.lua and nothing here enumerates them. Gameplay announces what
+-- happened; whether any proc cares is decided by the data. Adding a trigger
+-- is an edit to that file plus somewhere in the game that publishes the
+-- name, and no code in this controller changes at all.
 function GrindController:_rebuildProcIndex()
     local index = {}
     for _, id in ipairs((self.ctx and self.ctx.procs) or {}) do
@@ -143,11 +162,41 @@ function GrindController:_rebuildProcIndex()
         end
     end
     self.proc_index = index
+
+    local bus = self.game and self.game.event_bus
+    if not bus then return end
+    -- Drop the old subscriptions before taking new ones, or every rollup
+    -- would stack another copy and a proc would fire once per rollup.
+    for _, tok in ipairs(self._proc_tokens or {}) do bus:unsubscribe(tok) end
+    local tokens = {}
+    for trigger in pairs(index) do
+        tokens[#tokens + 1] = bus:subscribe(trigger, function(e)
+            self:_fireProcs(trigger, e.table, e)
+        end)
+    end
+    self._proc_tokens = tokens
 end
 
 -- Fire every proc watching `trigger`. `extra` carries whatever the trigger
 -- knows that a selector or payload might want: `out` (the resolution list
 -- being iterated, for resolve-style payloads), `n`, `busted_total`.
+-- Say what happened. Whether anything listens is not this function's
+-- business, and the name is a fact about the game rather than the name of a
+-- mechanism: "a stack was lost here", not "run the cooler proc".
+--
+-- Delivered immediately rather than at the frame's drain, because some of
+-- these are announced from inside the resolution loop and a listener may
+-- add to the very list that loop is walking (the zoom cascade settles other
+-- tables and their resolutions have to be paid this frame, not dropped).
+-- Immediate delivery is safe here: we are not inside a dispatch, so the bus
+-- queue still flattens any events the listeners themselves raise.
+function GrindController:_announce(name, event)
+    local bus = self.game and self.game.event_bus
+    if not bus then return end
+    bus:publish(name, event)
+    bus:drain()
+end
+
 function GrindController:_fireProcs(trigger, source_tbl, extra)
     local list = self.proc_index and self.proc_index[trigger]
     if not list then return end
@@ -177,7 +226,13 @@ function GrindController:_fireProcs(trigger, source_tbl, extra)
         }
         local touched, hit = reg:fire(entry.def, event)
         if touched > 0 then
-            self:_bumpTargets(source_tbl, hit)
+            -- Only procs that read as a BLOW get the fist or the shove.
+            -- Not everything that reaches another table is violence: the
+            -- printer chatters and those hands settle, and animating that
+            -- as an assault says something the mechanic does not mean.
+            if entry.def.impact ~= false then
+                self:_bumpTargets(source_tbl, hit)
+            end
             if entry.def.ghost then self:procFired(entry.def.ghost, source_tbl) end
             -- A proc may have put a status on a table that had none, and
             -- the save arrays hold per-table references. Re-sync so the
@@ -294,7 +349,8 @@ function GrindController:procFired(item_id, tbl)
     local x, y, pw, ph
     local pos = tbl and AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
     if pos then x, y, pw, ph = pos[1], pos[2], pos[3], pos[4] end
-    bus:publish("item_fired", item_id, "proc", x, y, pw, ph)
+    bus:publish("item_fired", { item_id = item_id, kind = "proc",
+                                x = x, y = y, pw = pw, ph = ph })
 end
 
 function GrindController:invalidateEffects()
@@ -353,31 +409,12 @@ function GrindController:currentFocusCapacity()
 end
 
 function GrindController:update(dt)
-    -- Cascade budget is per FRAME, not per run — reset before the tick.
-    self._cascade_sweeps = 0
     -- Proc budget is per frame too (services/ProcRegistry).
     if self.game.procs then self.game.procs:beginFrame() end
     -- Shockwaves in flight from a slam or a shove.
     self:_tickImpacts(dt)
 
-    -- Snapshot per-table state BEFORE the pool ticks so we can detect
-    -- transitions afterwards and play the right sound on each.
-    local prev_states = {}
-    for i, t in ipairs(self.pool.tables) do
-        prev_states[i] = t.state
-    end
-
     local resolutions = self.pool:update(dt, self.ctx)
-
-    -- Sound triggers on state transitions. (The idle → dealing chip-flight
-    -- emission lives in :dealHand instead — that transition happens
-    -- between frames, before the snapshot above can see it.)
-    for i, t in ipairs(self.pool.tables) do
-        local prev = prev_states[i]
-        if prev and prev ~= t.state then
-            self:_playStateTransitionSound(prev, t.state, t)
-        end
-    end
 
     -- Pending buy-in bursts: addTable / first-frame-after-add can't emit
     -- because the new table has no panel position yet. Resolve once the
@@ -528,11 +565,11 @@ function GrindController:update(dt)
                 self.game.floating_text.emit("BUSTED",
                     center[1], center[2],
                     { color_token = "error", lifetime = 1.6 })
-                self:_fireProcs("on_tournament_miss", t, { n = 1 })
+                self:_announce("on_tournament_miss", { table = t, n = 1 })
             end
 
             if is_win then
-                self:_fireProcs("on_tournament_win", t, { n = 1 })
+                self:_announce("on_tournament_win", { table = t, n = 1 })
             end
 
             t.mtt.hands_won = 0
@@ -824,27 +861,22 @@ function GrindController:update(dt)
         -- WINS only: a jackpot LOSS setting off your engine would read as
         -- being rewarded for getting stacked. Flip the `r.delta > 0` here
         -- if that ever seems worth trying.
-        if self.ctx and self.ctx.cascade_on_jackpot
-           and r.delta > 0 and r.tier == "jackpot" then
-            self:_cascadeZoomTables(r.table, resolutions)
-        end
-
         -- Knockouts. Fired ONCE per hand carrying the seat count, not once
         -- per seat: a scheduled multi-bust puts two seats out on the same
         -- hand, and firing twice would be a no-op for a refreshing status
         -- while double-paying a chance-based one. Payloads that should
         -- scale read event.n instead.
         if r.busted_seats then
-            self:_fireProcs("on_ko", r.table, {
-                n = #r.busted_seats, out = resolutions,
+            self:_announce("on_ko", {
+                table = r.table, n = #r.busted_seats, out = resolutions,
                 busted_total = r.busted_total,
             })
         end
         if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table then
-            self:_fireProcs("on_jackpot_win", r.table, { out = resolutions })
+            self:_announce("on_jackpot_win", { table = r.table, out = resolutions })
         end
         if r.delta < 0 and r.tier == "jackpot" and not r.chip_stack_table then
-            self:_fireProcs("on_stack_loss", r.table, { out = resolutions })
+            self:_announce("on_stack_loss", { table = r.table, out = resolutions })
         end
 
         if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table then
@@ -1160,41 +1192,6 @@ end
 -- An effect kind just did something: tell whoever listens which items
 -- put it there (ctx.sources, from computeEffects). Sound and any future
 -- visual feedback hang off the "item_fired" event; this file stays mute.
--- Runaway guard only. The real limit is physical: a swept table has no
--- live hand left, so a chain can only continue if the cursors re-deal in
--- between — which is exactly the intended cost of running the engine.
-local MAX_CASCADE_SWEEPS = 20
-
--- Force every Zoom table holding a live hand to settle immediately, and
--- push each resulting resolution onto `out` (the list the caller is
--- iterating) so it gets the full normal treatment. `source_tbl` is the
--- table whose jackpot fired this; it is never swept by its own proc.
-function GrindController:_cascadeZoomTables(source_tbl, out)
-    self._cascade_sweeps = (self._cascade_sweeps or 0) + 1
-    if self._cascade_sweeps > MAX_CASCADE_SWEEPS then return 0 end
-
-    local swept = 0
-    for _, t in ipairs(self.pool.tables) do
-        if t ~= source_tbl and t.game_type_id == "zoom" then
-            local r = t:forceResolve(self.ctx)
-            if r then
-                -- The TABLE REFERENCE is the identity (indices go stale
-                -- mid-loop). Without it the per-gtype hand counter below
-                -- has nothing to read and Zoom silently stops counting.
-                r.table = t
-                out[#out + 1] = r
-                swept = swept + 1
-                -- The state-transition sound is driven by a snapshot taken
-                -- before the pool ticked, so a table swept here would fall
-                -- through it silently. Fire its pot cue directly.
-                self:_playStateTransitionSound("dealing", "settling", t)
-            end
-        end
-    end
-    if swept > 0 then self:itemFired("cascade_on_jackpot", source_tbl) end
-    return swept
-end
-
 function GrindController:itemFired(kind, tbl)
     local ctx = self.ctx
     local bus = self.game.event_bus
@@ -1205,7 +1202,10 @@ function GrindController:itemFired(kind, tbl)
     local x, y, pw, ph
     local pos = tbl and AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
     if pos then x, y, pw, ph = pos[1], pos[2], pos[3], pos[4] end
-    for _, id in ipairs(ids) do bus:publish("item_fired", id, kind, x, y, pw, ph) end
+    for _, id in ipairs(ids) do
+        bus:publish("item_fired", { item_id = id, kind = kind,
+                                    x = x, y = y, pw = pw, ph = ph })
+    end
 end
 
 function GrindController:bountyAward(stake_id)
