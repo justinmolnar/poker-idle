@@ -843,6 +843,32 @@ function Table:update(dt, ctx)
     return nil
 end
 
+-- Finish this hand NOW, returning its resolution exactly as :update would.
+--
+-- The outcome was decided back in :deal — the script only controls WHEN it
+-- lands. So this is a time compressor, not a payout change: the hand rolls
+-- what it was always going to roll, it just stops waiting. Jumping the
+-- script clock past the final event makes the walker above drain every
+-- remaining event in order through the registry, which matters — the pot
+-- total (playback_state.pot_at_push) and, for tournaments, the per-seat
+-- chip reconciliation only exist because those events were APPLIED, not
+-- skipped.
+--
+-- dt = 0 is deliberate: state_timer doesn't advance, so the settling beat
+-- still plays out over its normal 0.4s on later frames and _finalizeHand
+-- writes its history-bar entry as usual.
+--
+-- Returns nil when there is nothing to finish (idle, already settling, or
+-- the script is spent). That nil IS the throttle for cascade effects — a
+-- table with no live hand simply can't be swept again.
+function Table:forceResolve(ctx)
+    if self.state == "idle" or self.state == "settling" then return nil end
+    if not self.script or self.script_idx >= #self.script then return nil end
+    local last = self.script[#self.script]
+    self.script_timer = (last and last.t or 0) + 1
+    return self:update(0, ctx or self._last_ctx)
+end
+
 -- Settling-phase end: log the result, increment hands_played, drop hole
 -- and community cards, return to idle. Extracted so the timeline walker
 -- has one tidy call site at end-of-list.

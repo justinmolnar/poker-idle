@@ -942,29 +942,23 @@ local items = {
     },
     {
         id          = "receipt_printer",
-        act         = 2,
         name        = "Receipt Printer",
-        effect_text = "First denied {chip} each run banks anyway.",
-        description = "It prints another. Nobody argues with paper.",
+        effect_text = "Win a {stack} and every Zoom table settles at once.",
+        description = "Chatters out a slip for every table. Feed it more paper.",
         sprite      = "receipt_printer",
-        phase       = "late",
-        cost_chip     = 26,
+        phase       = "demo",
+        cost_chip     = 2,
         position    = { x = 330, y = 400 },
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "copy_first_denied" },
-        },
-        unlock = {
-            kind      = "total_denied_stacks",
-            threshold = 10,
-            text      = "{chip} denied",
+            { kind = "cascade_on_jackpot" },
         },
         corrupt = {
             cost_achip = 9,
             effects = {
-                { kind = "copy_denied_chance", value = 0.5 },
+                { kind = "cascade_on_jackpot" },
             },
-            effect_text = "50% of denied {chip} bank anyway.",
+            effect_text = "Win a {stack} and every Zoom table settles at once.",
         },
     },
     {

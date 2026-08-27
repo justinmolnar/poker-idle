@@ -253,7 +253,7 @@ local function simCash(cand, stake, gtype_live, scen, n_hands)
     local stack_pct  = wc * (wd.jackpot or 0) * 100
 
     local sum, sum2, sum_unc, dur_sum = 0, 0, 0, 0
-    local jackpots, first_jp_hand = 0, nil
+    local jackpots, first_jp_hand, jp_dollars = 0, nil, 0
     local deltas = {}
     for i = 1, n_hands do
         local won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ctx, gtype)
@@ -266,6 +266,7 @@ local function simCash(cand, stake, gtype_live, scen, n_hands)
             delta     = math.min(mag, seats * STACK_BB) * bb * mult
             if tier == "jackpot" then
                 jackpots = jackpots + 1
+                jp_dollars = jp_dollars + delta   -- Maniac's XP rule
                 if not first_jp_hand then first_jp_hand = i end
             end
         else
@@ -305,6 +306,10 @@ local function simCash(cand, stake, gtype_live, scen, n_hands)
         ev_hand = ev_hand, s_hand = s_hand, per_hr = ev_hand * hands_hr,
         hands_hr = hands_hr,
         jp_hr = jackpots / n_hands * hands_hr,
+        -- Dollars won in jackpot-tier pots per hour: what
+        -- models/deck_xp_rules `jackpot_dollars` (the Maniac deck)
+        -- actually accrues. Rate, not per-pot size.
+        jp_cash_hr = jp_dollars / n_hands * hands_hr,
         ttf_jp = (jackpots > 0) and (n_hands / jackpots) or math.huge,
         stack_pct = stack_pct, sd = sd,
         p95_dd = pctl(drawdowns, 0.95),
@@ -331,7 +336,7 @@ local function simMtt(cand, stake, gtype_live, scen)
     return {
         ev_hand = pool.ev_per_hand, s_hand = s_hand,
         per_hr = pool.ev_per_hand * hands_hr, hands_hr = hands_hr,
-        jp_hr = 0, ttf_jp = math.huge,
+        jp_hr = 0, jp_cash_hr = 0, ttf_jp = math.huge,
         stack_pct = pool.win_chance * ((pool.win_dist and pool.win_dist.jackpot) or 0) * 100,
         sd = 0, p95_dd = 0, cap_gap = 0,
         roi = pool.roi_pct, exp_hands = pool.exp_hands,
@@ -360,8 +365,8 @@ print(string.format(
     "gtype_ev — stake %s (%s) · candidate %s · seed %d · %d hands/cell",
     stake.id, stake.display_name or "", cand_name, seed, n_hands))
 
-local HDR = "%-8s | %9s %7s %10s %8s | %6s %8s %8s | %9s %9s %6s"
-local ROW = "%-8s | %9.4f %7.2f %10.2f %8.0f | %6.2f %8.1f %8.2f | %9.2f %9.2f %5.1f%%"
+local HDR = "%-8s | %9s %7s %10s %8s | %6s %8s %8s %11s | %9s %9s %6s"
+local ROW = "%-8s | %9.4f %7.2f %10.2f %8.0f | %6.2f %8.1f %8.2f %11.2f | %9.2f %9.2f %5.1f%%"
 
 for _, scen_name in ipairs(scen_list) do
     local scen = SCENARIOS[scen_name]
@@ -374,7 +379,8 @@ for _, scen_name in ipairs(scen_list) do
             string.rep("─", 20)))
         print(string.format(HDR,
             "gtype", "$/hand", "s/hand", "$/hr", "hands/hr",
-            "jp/hr", "ttf(jp)", "{stack}%", "sd($)", "p95dd($)", "capgap"))
+            "jp/hr", "ttf(jp)", "{stack}%", "jp$/hr",
+            "sd($)", "p95dd($)", "capgap"))
         local best = { per_hr = -math.huge, jp = -math.huge, hands = -math.huge }
         local rows = {}
         for _, g in ipairs(GameTypes) do
@@ -392,7 +398,7 @@ for _, scen_name in ipairs(scen_list) do
                 print(string.format(ROW, g.id,
                     r.ev_hand, r.s_hand, r.per_hr, r.hands_hr,
                     r.jp_hr, (r.ttf_jp == math.huge) and -1 or r.ttf_jp,
-                    r.stack_pct, r.sd, r.p95_dd, r.cap_gap))
+                    r.stack_pct, r.jp_cash_hr, r.sd, r.p95_dd, r.cap_gap))
             end
         end
         print(string.format(

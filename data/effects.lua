@@ -434,9 +434,14 @@ Effects.kinds = {
         affects     = "ctx.void_first_stack_loss",
     },
     copy_first_denied = {
-        description = "Flag — the first denied {chip} bounty each run banks anyway (Receipt Printer).",
+        description = "Flag — the first denied {chip} bounty each run banks anyway. Granted by no item since the Receipt Printer became the cascade; the denied-bounty branch still reads it.",
         value_shape = "no field (presence sets ctx.copy_first_denied = true)",
         affects     = "ctx.copy_first_denied",
+    },
+    cascade_on_jackpot = {
+        description = "Flag — a jackpot-tier WIN at any table makes every Zoom table resolve its current hand immediately (Receipt Printer). A time compressor: forced hands pay exactly what they had already rolled. Self-throttling, since a swept table has no live hand to sweep again.",
+        value_shape = "no field (presence sets ctx.cascade_on_jackpot = true)",
+        affects     = "ctx.cascade_on_jackpot",
     },
     first_bounty_bonus = {
         description = "The first {chip} bounty each run pays +value extra (Dogs Playing Poker).",

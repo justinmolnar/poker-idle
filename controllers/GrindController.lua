@@ -180,6 +180,9 @@ function GrindController:currentFocusCapacity()
 end
 
 function GrindController:update(dt)
+    -- Cascade budget is per FRAME, not per run — reset before the tick.
+    self._cascade_sweeps = 0
+
     -- Snapshot per-table state BEFORE the pool ticks so we can detect
     -- transitions afterwards and play the right sound on each.
     local prev_states = {}
@@ -621,6 +624,22 @@ function GrindController:update(dt)
         -- leaves this at 0, not 1. Drives the tutorial's shove-stall hint.
         state.hands_since_last_bank = (state.hands_since_last_bank or 0) + 1
 
+        -- Receipt Printer: a {stack} anywhere settles every Zoom table on
+        -- the spot. Appending to `resolutions` mid-iteration is deliberate
+        -- — ipairs walks until it hits nil, so the swept hands run through
+        -- this exact loop body (bounties, counters, floaters, analytics)
+        -- with no duplicated logic and no recursion. A swept hand that is
+        -- itself a {stack} appends the next wave the same way, which is
+        -- how cascades chain.
+        --
+        -- WINS only: a jackpot LOSS setting off your engine would read as
+        -- being rewarded for getting stacked. Flip the `r.delta > 0` here
+        -- if that ever seems worth trying.
+        if self.ctx and self.ctx.cascade_on_jackpot
+           and r.delta > 0 and r.tier == "jackpot" then
+            self:_cascadeZoomTables(r.table, resolutions)
+        end
+
         if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table then
             local tbl = r.table
             if tbl then
@@ -934,6 +953,41 @@ end
 -- An effect kind just did something: tell whoever listens which items
 -- put it there (ctx.sources, from computeEffects). Sound and any future
 -- visual feedback hang off the "item_fired" event; this file stays mute.
+-- Runaway guard only. The real limit is physical: a swept table has no
+-- live hand left, so a chain can only continue if the cursors re-deal in
+-- between — which is exactly the intended cost of running the engine.
+local MAX_CASCADE_SWEEPS = 20
+
+-- Force every Zoom table holding a live hand to settle immediately, and
+-- push each resulting resolution onto `out` (the list the caller is
+-- iterating) so it gets the full normal treatment. `source_tbl` is the
+-- table whose jackpot fired this; it is never swept by its own proc.
+function GrindController:_cascadeZoomTables(source_tbl, out)
+    self._cascade_sweeps = (self._cascade_sweeps or 0) + 1
+    if self._cascade_sweeps > MAX_CASCADE_SWEEPS then return 0 end
+
+    local swept = 0
+    for _, t in ipairs(self.pool.tables) do
+        if t ~= source_tbl and t.game_type_id == "zoom" then
+            local r = t:forceResolve(self.ctx)
+            if r then
+                -- The TABLE REFERENCE is the identity (indices go stale
+                -- mid-loop). Without it the per-gtype hand counter below
+                -- has nothing to read and Zoom silently stops counting.
+                r.table = t
+                out[#out + 1] = r
+                swept = swept + 1
+                -- The state-transition sound is driven by a snapshot taken
+                -- before the pool ticked, so a table swept here would fall
+                -- through it silently. Fire its pot cue directly.
+                self:_playStateTransitionSound("dealing", "settling", t)
+            end
+        end
+    end
+    if swept > 0 then self:itemFired("cascade_on_jackpot", source_tbl) end
+    return swept
+end
+
 function GrindController:itemFired(kind, tbl)
     local ctx = self.ctx
     local bus = self.game.event_bus

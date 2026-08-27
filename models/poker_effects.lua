@@ -398,6 +398,12 @@ function PokerEffects.registerAll(reg)
     reg:register("copy_first_denied", function(_e, ctx)
         ctx.copy_first_denied = true
     end)
+    -- Receipt Printer: a jackpot win anywhere makes every Zoom table
+    -- settle its hand on the spot. Consumed in GrindController's
+    -- resolution loop (:_cascadeZoomTables).
+    reg:register("cascade_on_jackpot", function(_e, ctx)
+        ctx.cascade_on_jackpot = true
+    end)
     -- Dogs Playing Poker: the first {chip} bounty each run pays +value.
     reg:register("first_bounty_bonus", function(e, ctx)
         ctx.first_bounty_bonus = (ctx.first_bounty_bonus or 0) + (e.value or 0)

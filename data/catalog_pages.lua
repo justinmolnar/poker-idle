@@ -54,8 +54,8 @@ return {
     -- eaten, a bust drains back, last run's losses come back clean.
     { title = "Kitchen & Appliances",
       items = {
-          "fridge", "toaster", "kettle", "microwave", "cereal_shelf",
-          "fire_extinguisher",
+          "receipt_printer", "fridge", "toaster", "kettle", "microwave",
+          "cereal_shelf", "fire_extinguisher",
       } },
 
     -- Attention: focus capacity, the penalty for exceeding it, and the
@@ -71,7 +71,7 @@ return {
     { title = "Desk & Stationery",
       items = {
           "calculator", "ring_binder", "pencil_holder", "nightstand",
-          "receipt_printer", "bookshelf",
+          "bookshelf",
       } },
 
     -- The cursor swarm. box_of_mice is slots=3, so it fills its own leaf as
