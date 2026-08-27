@@ -38,24 +38,11 @@ local function _palette(stake_id)
     return ChipData.stake_palettes[stake_id] or ChipData.full_palette
 end
 
--- As GrindController's _paletteForAmount: a stake's four-chip window is
--- sized for table money, and a payout pushed through it composes as one
--- top-denomination chip per unit. Fall back to the full ladder once the
--- amount outruns the window. Matters here because pot_push asks for the
--- whole payout, and if the pot pile can't supply the chips this is what
--- composes them.
-local PALETTE_MAX_CHIPS = 60
-
+-- Payout-aware palette (see DenominationBreakdown.paletteForAmount).
+-- Matters here because pot_push asks for the whole payout, and if the
+-- pot pile can't supply the chips this is what composes them.
 local function _paletteForAmount(stake_id, amount)
-    local pal, top = _palette(stake_id), 0
-    for _, idx in ipairs(pal) do
-        local d = ChipData.denominations[idx]
-        if d and d.value > top then top = d.value end
-    end
-    if top > 0 and (amount or 0) / top > PALETTE_MAX_CHIPS then
-        return ChipData.full_palette
-    end
-    return pal
+    return Denoms.paletteForAmount(ChipData, stake_id, amount)
 end
 
 -- Lay a pile out and return its chip slots in SCREEN space. One

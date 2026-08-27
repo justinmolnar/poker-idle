@@ -273,7 +273,7 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
                     bust_seats    = busts_this_hand,
                     forced_winner = player_seat,
                 }
-                proj_player_bb = proj_player_bb + OutcomeMath.tierAvgBB("jackpot") * 0.7
+                proj_player_bb = proj_player_bb + OutcomeMath.tierAvgBB("jackpot", "mtt", true) * 0.7
             end
         else
             -- Filler hand. Roll won from eff_wc, tier from the actual
@@ -288,16 +288,19 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
             local forced_winner
             if won then
                 forced_winner = player_seat
-                proj_player_bb = proj_player_bb + OutcomeMath.tierAvgBB(tier) * 0.7
+                proj_player_bb = proj_player_bb + OutcomeMath.tierAvgBB(tier, "mtt", true) * 0.7
             else
                 -- Downgrade loss tier if the projected stack would dip
                 -- under SAFETY_BB before the planned bust hand.
-                local proposed_loss = OutcomeMath.tierAvgBB(tier)
+                -- Explicit "mtt": these projections are serialized inside
+                -- saved tournament plans — they must read mtt's FROZEN
+                -- bands (see data/pot_tiers.lua), never a cash override.
+                local proposed_loss = OutcomeMath.tierAvgBB(tier, "mtt", false)
                 while proj_player_bb - proposed_loss < SAFETY_BB and tier ~= "small" do
                     if     tier == "jackpot" then tier = "large"
                     elseif tier == "large"   then tier = "medium"
                     elseif tier == "medium"  then tier = "small" end
-                    proposed_loss = OutcomeMath.tierAvgBB(tier)
+                    proposed_loss = OutcomeMath.tierAvgBB(tier, "mtt", false)
                 end
                 proj_player_bb = proj_player_bb - proposed_loss
                 -- Route the win to a planned survivor — the bust targets

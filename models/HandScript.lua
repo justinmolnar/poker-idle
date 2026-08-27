@@ -36,17 +36,30 @@
 --
 -- ─── Math contract ─────────────────────────────────────────────────────
 --
--- Total pot = 2 × magnitude (= 2 × |outcome_delta|). Always. So:
+-- The player's NET is always ± magnitude. What varies is who supplied
+-- the pot:
 --
---   * Player's total contribution = magnitude (across all streets they're in)
---   * Opponents' total contributions = magnitude (across all streets played)
+--   player_contrib = min(magnitude, player's stack)
+--   pot_total      = magnitude + player_contrib
+--
+--   * Player's total contribution = player_contrib
+--   * Opponents' total contributions = magnitude
 --   * Pot push goes to winner — for wins, the player; for losses, an opp.
 --   * Player's net = pot_won - player_contributed
---                  = (2×magnitude) - magnitude = magnitude   (on wins)
---                  = -magnitude                              (on losses, never won pot)
+--                  = (magnitude + player_contrib) - player_contrib
+--                  = magnitude                                (on wins)
+--                  = -player_contrib                          (on losses)
 --
--- This guarantees the pot label always reads 2× the player's win — same
--- shape the old `pot = 2 × |outcome_delta|` heuristic gave.
+-- With no stack cap this is the old `pot = 2 × magnitude` exactly. It
+-- diverges only under the SEATS RULE: a win can be worth several stacks
+-- (one from each opponent matching your all-in), and the player can only
+-- ever put their own stack in. A 500bb six-max cooler is you all-in for
+-- 100bb and five opponents covering the other 400 — capChips turns their
+-- calls into genuine all_in events, so the cinematic shows the real pot
+-- instead of a 100bb hand with a 500bb floater.
+--
+-- Losses are capped at one stack by the caller (models/Table.lua), so
+-- the loss side never sees the multiway path.
 --
 -- ─── Algorithm ─────────────────────────────────────────────────────────
 --
@@ -70,8 +83,67 @@
 -- ≤ ~30 events per hand. No raise / counter-raise loops.
 
 local PokerEventTimings = require("data.poker_event_timings")
+local HandStructure     = require("data.hand_structure")
 
 local HandScript = {}
+
+-- ─── Per-gtype data resolution ─────────────────────────────────────────
+-- Both timing beats and hand structure carry optional per-game-type
+-- overrides merged over a `default` block. Merging on every deal would
+-- allocate a table per hand per table, so results are memoized by
+-- (data table, gtype id) — the identity of the data table is the cache
+-- key, so a sim swapping in candidate tables gets its own entries.
+
+local function memoizedMerge(cache, data, gtype_id, field)
+    local per_data = cache[data]
+    if not per_data then per_data = {}; cache[data] = per_data end
+    local key = gtype_id or "\0default"
+    local hit = per_data[key]
+    if hit then return hit end
+
+    -- Back-compat: a flat table (no `default` key) IS the default.
+    local base = data.default or data
+    local out  = {}
+    for k, v in pairs(base) do out[k] = v end
+    local ov = gtype_id and data.by_gtype and data.by_gtype[gtype_id]
+    if ov then
+        if field then ov = ov[field] end
+        if ov then for k, v in pairs(ov) do out[k] = v end end
+    end
+    per_data[key] = out
+    return out
+end
+
+local _timing_cache = setmetatable({}, { __mode = "k" })
+local _struct_cache = setmetatable({}, { __mode = "k" })
+
+-- Event-beat durations for a game type (data/poker_event_timings.lua).
+function HandScript.timingsFor(data, gtype_id)
+    return memoizedMerge(_timing_cache, data or PokerEventTimings, gtype_id, nil)
+end
+
+-- One field of the hand-structure data for a game type
+-- (data/hand_structure.lua): "showdown_chance_by_tier" or
+-- "foldout_end_street_weights".
+local function structureFor(data, gtype_id, field)
+    local per_field = _struct_cache[field]
+    if not per_field then per_field = setmetatable({}, { __mode = "k" }); _struct_cache[field] = per_field end
+    local per_data = per_field[data]
+    if not per_data then per_data = {}; per_field[data] = per_data end
+    local key = gtype_id or "\0default"
+    local hit = per_data[key]
+    if hit then return hit end
+
+    local base = (data.default and data.default[field]) or {}
+    local out  = {}
+    for k, v in pairs(base) do out[k] = v end
+    local ov = gtype_id and data.by_gtype and data.by_gtype[gtype_id]
+    ov = ov and ov[field]
+    if ov then for k, v in pairs(ov) do out[k] = v end end
+    per_data[key] = out
+    return out
+end
+HandScript.structureFor = structureFor
 
 -- ─── Small helpers ──────────────────────────────────────────────────────
 
@@ -96,27 +168,9 @@ local function r2(x) return math.floor(x * 100 + 0.5) / 100 end
 local STREETS    = { "preflop", "flop", "turn", "river" }
 local STREET_IDX = { preflop = 1, flop = 2, turn = 3, river = 4 }
 
--- Tier-biased odds the hand reaches showdown rather than ending in a
--- fold-out. Tiny pots almost never reach showdown (real poker: small
--- pots are blind-steals and continuation-bet fold-outs). Bigger pots
--- nearly always reveal cards.
-local SHOWDOWN_CHANCE_BY_TIER = {
-    small   = 0.00,
-    medium  = 0.50,
-    large   = 0.85,
-    jackpot = 1.00,
-}
-
--- For fold-outs, weights for which street the hand ends on. Smaller
--- tiers fold preflop overwhelmingly; bigger tiers run a bit deeper
--- before someone bails.
-local FOLDOUT_END_STREET_WEIGHTS = {
-    -- weights match STREETS = preflop, flop, turn, river
-    small   = { 80, 17, 2, 1 },
-    medium  = { 5, 35, 45, 15 },
-    large   = { 0, 10, 35, 55 },
-    jackpot = { 0, 5, 25, 70 },
-}
+-- Showdown odds and fold-out depth per tier now live in
+-- data/hand_structure.lua (with per-gtype overrides) — resolved through
+-- structureFor above.
 
 -- ─── Planning ──────────────────────────────────────────────────────────
 
@@ -170,12 +224,28 @@ local function firstAliveAt(start, n, alive)
 end
 
 -- Plan the hand. Pure combinatorics — no events emitted yet.
-local function plan(outcome, table_ctx)
+local function plan(outcome, table_ctx, structure_data)
+    structure_data  = structure_data or HandStructure
+    local gtype_id  = outcome.gtype_id
     local n         = table_ctx.n_seats
     local player    = table_ctx.player_seat
     local tier      = outcome.tier or "small"
     local target    = math.max(0, outcome.magnitude_bb * (outcome.stake_bb or 0))
-    local pot_total = 2 * target
+
+    -- Seats-rule pot: the player supplies at most their own stack; the
+    -- opponents supply `target` between them. See the math contract.
+    local seat_stacks = table_ctx.seat_stacks
+    local player_cap  = seat_stacks and seat_stacks[player]
+    -- Feasibility: opponents can only supply what they actually have.
+    if seat_stacks then
+        local opp_total = 0
+        for seat, amt in pairs(seat_stacks) do
+            if seat ~= player then opp_total = opp_total + (amt or 0) end
+        end
+        if target > opp_total then target = opp_total end
+    end
+    local player_contrib = player_cap and math.min(target, player_cap) or target
+    local pot_total      = target + player_contrib
 
     -- alive_seats: default all seats alive (cash game / first MTT hand).
     local alive_seats = {}
@@ -200,7 +270,8 @@ local function plan(outcome, table_ctx)
     local bb_seat = nextAlive(sb_seat, n, alive_seats) or sb_seat
 
     -- Showdown decision.
-    local showdown_p = SHOWDOWN_CHANCE_BY_TIER[tier] or 0.5
+    local showdown_p = structureFor(structure_data, gtype_id,
+                                    "showdown_chance_by_tier")[tier] or 0.5
     local showdown = love.math.random() < showdown_p
 
     -- Pick the winner seat. outcome.forced_winner_seat (set by MTT plan
@@ -245,13 +316,43 @@ local function plan(outcome, table_ctx)
     end
     if #bust_targets > 0 then showdown = true end
 
+    -- Multiway coverage: when the pot needs more than any single
+    -- opponent can put in, enough of them have to stay in to cover it.
+    -- Forced to showdown so they ride the late (biggest) streets, where
+    -- capChips drains them into real all_in events.
+    local coverage_seats = {}
+    if seat_stacks and target > 0 then
+        local opps = {}
+        for i = 1, n do
+            if i ~= player and alive_seats[i] then
+                opps[#opps + 1] = { seat = i, stack = seat_stacks[i] or 0 }
+            end
+        end
+        -- Biggest stacks first: cover with as few seats as possible.
+        table.sort(opps, function(a, b)
+            if a.stack ~= b.stack then return a.stack > b.stack end
+            return a.seat < b.seat
+        end)
+        local covered = 0
+        for _, o in ipairs(opps) do
+            if covered >= target then break end
+            coverage_seats[#coverage_seats + 1] = o.seat
+            covered = covered + o.stack
+        end
+        -- One opponent covering it alone is the ordinary heads-up pot —
+        -- no forcing needed, the existing plan handles it.
+        if #coverage_seats < 2 then coverage_seats = {} end
+    end
+    if #coverage_seats > 0 then showdown = true end
+
     -- Decide how many streets play out. Showdowns always go river (4).
     -- Fold-outs end at a tier-biased random street.
     local n_streets_played
     if showdown then
         n_streets_played = 4
     else
-        local w = FOLDOUT_END_STREET_WEIGHTS[tier] or { 25, 25, 25, 25 }
+        local w = structureFor(structure_data, gtype_id,
+                               "foldout_end_street_weights")[tier] or { 25, 25, 25, 25 }
         n_streets_played = STREET_IDX[pickWeighted(STREETS, w)]
     end
 
@@ -270,6 +371,7 @@ local function plan(outcome, table_ctx)
         stays[player] = true
     end
     for _, s in ipairs(bust_targets) do stays[s] = true end
+    for _, s in ipairs(coverage_seats) do stays[s] = true end
     local n_stays = 0
     for _ in pairs(stays) do n_stays = n_stays + 1 end
 
@@ -333,6 +435,8 @@ local function plan(outcome, table_ctx)
         tier            = tier,
         won             = outcome.won,
         target          = target,
+        player_contrib  = player_contrib,
+        pot_total       = pot_total,
     }
 end
 
@@ -454,14 +558,37 @@ local function runStreet(events, ws, plan_, street_idx, street_pot, registry, ti
     local n_folding  = math.max(0, K_at_start - K_at_end)
     local K_remain   = K_at_end
 
-    -- $ that must land in the pot from non-blind contributions this street.
+    -- $ that must land in the pot from non-blind contributions this
+    -- street (the blinds are already in, so they come off the target).
     local already_posted = 0
     if street_idx == 1 then
         already_posted = (ws.per_seat_committed[plan_.sb_seat] or 0)
                        + (ws.per_seat_committed[plan_.bb_seat] or 0)
     end
-    local remaining_to_collect = math.max(0, street_pot - already_posted)
-    local per_seat_call = (K_remain > 0) and r2(remaining_to_collect / K_remain) or 0
+    local to_collect = math.max(0, street_pot - already_posted)
+
+    -- Who can ACTUALLY pay this street? Not K_remain: a seat already
+    -- all-in from an earlier street stays in the hand (it can't fold) but
+    -- contributes nothing more, and a seat folding this street pays
+    -- nothing either. Counting them undershoots the street pot, so the
+    -- pot never reaches its total. Load-bearing under the seats rule,
+    -- where the pot label has to equal the real payout.
+    local payers = {}
+    for _, seat in ipairs(order) do
+        if ws.in_seats[seat] then
+            local rem = ws.stack_remaining and ws.stack_remaining[seat]
+            if plan_.fold_streets[seat] ~= street_idx and (rem == nil or rem > 0) then
+                payers[#payers + 1] = seat
+            end
+        end
+    end
+    local n_payers      = (#payers > 0) and #payers or math.max(1, K_remain)
+    local last_payer    = payers[#payers]
+    local per_seat_call = r2(to_collect / n_payers)
+    -- Cents don't divide evenly among six seats: the last payer settles
+    -- for whatever the street is still short instead of another rounded
+    -- share, so the pot lands exactly on its planned total.
+    local collected     = 0
 
     -- Walk seats in turn order. Each seat acts exactly once.
     for _, seat in ipairs(order) do
@@ -476,14 +603,21 @@ local function runStreet(events, ws, plan_, street_idx, street_pot, registry, ti
                     emit(events, ws, "fold", { seat = seat }, registry, timings)
                 else
                     -- Staying seat: contribute the per-seat call, capped
-                    -- at their stack. If short, emit all_in instead.
-                    local already = ws.per_seat_committed[seat] or 0
-                    local delta_needed = math.max(0, r2(per_seat_call - already))
+                    -- at their stack. If short, emit all_in instead. The
+                    -- last payer of the street absorbs the remainder.
+                    local delta_needed
+                    if seat == last_payer then
+                        delta_needed = math.max(0, r2(to_collect - collected))
+                    else
+                        local already = ws.per_seat_committed[seat] or 0
+                        delta_needed = math.max(0, r2(per_seat_call - already))
+                    end
                     if delta_needed <= 0 then
                         emit(events, ws, "check", { seat = seat }, registry, timings)
                     else
                         local amt, capped = capChips(ws, seat, delta_needed)
                         amt = r2(amt)
+                        collected = collected + amt
                         if amt <= 0 then
                             -- Defensive: stack already at 0 (shouldn't reach here).
                         elseif capped then
@@ -514,9 +648,15 @@ end
 
 -- ─── Public entry ──────────────────────────────────────────────────────
 
-function HandScript.write(outcome, table_ctx, registry, _weights, _sizing, timings_data)
-    timings_data = timings_data or PokerEventTimings
-    local plan_  = plan(outcome, table_ctx)
+-- `_weights` (data/poker_action_weights) and `_sizing`
+-- (data/poker_bet_sizing) are threaded by models/Table for future use
+-- and never read: bets are even splits of each street's planned pot.
+function HandScript.write(outcome, table_ctx, registry, _weights, _sizing,
+                          timings_data, structure_data)
+    -- Per-gtype beat overrides, merged over the defaults (memoized).
+    timings_data = HandScript.timingsFor(timings_data or PokerEventTimings,
+                                         outcome.gtype_id)
+    local plan_  = plan(outcome, table_ctx, structure_data)
     local ws     = newWriterState(plan_)
     local events = {}
 

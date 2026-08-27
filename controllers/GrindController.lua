@@ -1543,35 +1543,10 @@ end
 -- per draw under TableModel.anchorKey(t, slot). The bankroll-pile anchor
 -- is registered separately by GrindView under "bankroll".
 
-local function _paletteForStake(stake_id)
-    return ChipData.stake_palettes[stake_id] or ChipData.full_palette
-end
-
--- Palette for an amount that may be a PAYOUT rather than table money.
---
--- A stake's four-chip window exists to keep one table legible: NL10's
--- tops out at $1. Late-game multipliers settle a hand for four figures,
--- and pushing that through a $1 top denomination makes
--- DenominationBreakdown emit one token per dollar — hundreds of identical
--- chips, stopped only by its own token ceiling. Whenever the amount
--- outruns what the window can express, compose off the full ladder
--- instead; it has a rung for every magnitude.
---
--- Anything derived from outcome_delta or r.delta is a payout and belongs
--- here. Bets and blinds are table money and can use the stake window
--- directly.
-local PALETTE_MAX_CHIPS = 60
-
+-- Palette for an amount that may be a PAYOUT rather than table money —
+-- see services/DenominationBreakdown.paletteForAmount for the why.
 local function _paletteForAmount(stake_id, amount)
-    local pal, top = _paletteForStake(stake_id), 0
-    for _, idx in ipairs(pal) do
-        local d = ChipData.denominations[idx]
-        if d and d.value > top then top = d.value end
-    end
-    if top > 0 and (amount or 0) / top > PALETTE_MAX_CHIPS then
-        return ChipData.full_palette
-    end
-    return pal
+    return Denoms.paletteForAmount(ChipData, stake_id, amount)
 end
 
 -- Bottom-edge fallback for "this thing has no anchor yet" cases (first

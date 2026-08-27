@@ -32,13 +32,17 @@ local DenominationBreakdown = {}
 local MAX_TOKENS = 200
 
 -- ── Tier inference for surfaces without an explicit tier hint ────────
--- Maps a magnitude in caller-defined units to the four target buckets.
--- Thresholds match the unit conventions in the consuming data file's tier
--- table.
+-- Maps a magnitude in bb to the four target buckets. Thresholds are the
+-- DEFAULT win bands' lower bounds from data/pot_tiers.lua — derived, not
+-- duplicated, so a band retune moves these with it. Callers pass
+-- gtype-agnostic amounts (buy-ins, cash-outs), which is exactly what the
+-- default side is for.
+local PotTiers = require("data.pot_tiers")
+local _dw = PotTiers.default.win
 function DenominationBreakdown.tierFromUnit(magnitude)
-    if magnitude < 5  then return "small"    end
-    if magnitude < 18 then return "medium"   end
-    if magnitude < 80 then return "large"  end
+    if magnitude < _dw.medium.lo  then return "small"  end
+    if magnitude < _dw.large.lo   then return "medium" end
+    if magnitude < _dw.jackpot.lo then return "large"  end
     return "jackpot"
 end
 
@@ -51,6 +55,32 @@ function DenominationBreakdown.tierFromAmount(amount)
     if mag < 3 then return "medium"   end   -- < 1k
     if mag < 5 then return "large"  end   -- < 100k
     return "jackpot"
+end
+
+-- ── Palette choice for an amount ─────────────────────────────────────
+-- A stake's four-chip window is sized for TABLE money (blinds, stacks).
+-- A payout pushed through it composes as one top-denomination chip per
+-- unit — hundreds of identical chips, stopped only by MAX_TOKENS above.
+-- Past `palette_max_chips` top chips, compose off the full ladder
+-- instead; it has a rung for every magnitude.
+--
+-- ONE definition, shared by the payout bursts (GrindController), the
+-- flights (views/ChipFlight) and the live piles (views/TablePanel).
+-- Anything derived from a payout — outcome_delta, r.delta, a pot that
+-- can hold several stacks — belongs here. Bets and blinds are table
+-- money and can use the stake window directly.
+function DenominationBreakdown.paletteForAmount(chip_data, stake_id, amount)
+    local pal = chip_data.stake_palettes[stake_id] or chip_data.full_palette
+    local top = 0
+    for _, idx in ipairs(pal) do
+        local d = chip_data.denominations[idx]
+        if d and d.value > top then top = d.value end
+    end
+    local cap = chip_data.palette_max_chips or 60
+    if top > 0 and (amount or 0) / top > cap then
+        return chip_data.full_palette
+    end
+    return pal
 end
 
 -- ── Breakdown: amount → ordered denomination-index list ──────────────

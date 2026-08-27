@@ -55,7 +55,10 @@ return {
     -- ── Card events (deal beats + showdown flip) ────────────────────────
     -- Both random-pick from the 10-sample give set; flip is louder so it
     -- stands out as the single per-hand cue.
-    card_dealt          = { files = CARD_GIVE,    volume = 0.40 },
+    -- min_gap: fires once per hand per table, so a wide grid of fast
+    -- tables (or a cascade resolving several at once) would otherwise
+    -- stack a dozen identical card sounds on the same frame.
+    card_dealt          = { files = CARD_GIVE,    volume = 0.40, min_gap = 0.05 },
     hole_card_flip      = { files = CARD_GIVE,    volume = 0.55 },
 
     -- ── Shove-state events ──────────────────────────────────────────────
@@ -85,14 +88,16 @@ return {
     -- tier ∈ {small, medium, large, jackpot}. Magnitude scales chip-stack
     -- sample size: 1on1 → 2on1 → 3on2 → Drops/4onStaple. Jackpots layer in
     -- coins (win) or the legacy buzz (loss) for emphasis.
-    pot_won_small        = { files = CHIP_1ON1,    volume = 0.55 },
+    -- Small pots are the overwhelming majority of resolutions on a fast
+    -- mode; gap them so the win/loss cue stays a cue.
+    pot_won_small        = { files = CHIP_1ON1,    volume = 0.55, min_gap = 0.05 },
     pot_won_medium       = { files = CHIP_2ON1,    volume = 0.60 },
     pot_won_large      = { files = CHIP_3ON2,    volume = 0.65 },
     pot_won_jackpot     = {
         files = CHIP_DROP_4, volume = 0.80,
         layer = { files = COINS, volume = 0.70 },
     },
-    pot_lost_small       = { files = CHIP_1ON1,    volume = 0.40 },
+    pot_lost_small       = { files = CHIP_1ON1,    volume = 0.40, min_gap = 0.05 },
     pot_lost_medium      = { files = CHIP_2ON1,    volume = 0.45 },
     pot_lost_large     = { files = CHIP_3ON2,    volume = 0.50 },
     pot_lost_jackpot    = {

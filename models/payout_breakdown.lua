@@ -117,11 +117,18 @@ local function profile(ctx, gtype, stake, opts)
     local wc, wd, ld = OutcomeMath.resolvedOutcome(ctx, gtype, stake)
     local bb = (stake and stake.bb) or 1
     local p  = { win = {}, loss = {}, win_total = 0, loss_total = 0 }
+    -- Per-gtype bands + the seats-rule caps, mirroring evStats: the
+    -- attribution must profile the same dollars the table can pay.
+    local stack_bb = (bb > 0) and (((stake and stake.buy_in) or 0) / bb) or 0
+    local win_cap, loss_cap
+    if gtype and not gtype.chip_stack_table and stack_bb > 0 then
+        win_cap  = OutcomeMath.maxWinBB(gtype, stack_bb)
+        loss_cap = stack_bb
+    end
     for _, t in ipairs(TIER_KEYS) do
-        local avg = OutcomeMath.tierAvgBB(t)
-        local w = wc * (wd[t] or 0) * avg * bb
+        local w = wc * (wd[t] or 0) * OutcomeMath.tierAvgBB(t, gtype, true, win_cap) * bb
                   * OutcomeMath.payoutMult(ctx, stake, t, true, opts)
-        local l = (1 - wc) * (ld[t] or 0) * avg * bb
+        local l = (1 - wc) * (ld[t] or 0) * OutcomeMath.tierAvgBB(t, gtype, false, loss_cap) * bb
                   * OutcomeMath.payoutMult(ctx, stake, t, false, opts)
         p.win[t], p.loss[t] = w, l
         p.win_total  = p.win_total  + w

@@ -248,10 +248,14 @@ end
 --                      discovered files alike. See rampPitch.
 --   opts.damaged     — play through the damage bus (a corrupted item).
 --   opts.min_gap     — seconds; a play of the same name inside this
---                      window is skipped (returns false).
+--                      window is skipped (returns false). Falls back to
+--                      the sound entry's own `min_gap`, so a sound that
+--                      should never machine-gun can say so once in
+--                      data/sounds.lua instead of at every call site.
 function SoundService.playNamed(name, opts)
     if name == "_mix" then return false end
-    local gap = opts and opts.min_gap
+    local entry = Sounds[name]
+    local gap = (opts and opts.min_gap) or (entry and entry.min_gap)
     if gap and gap > 0 and love.timer then
         local now = love.timer.getTime()
         if _last_play[name] and now - _last_play[name] < gap then return false end
@@ -260,7 +264,6 @@ function SoundService.playNamed(name, opts)
     local vol_mult = (opts and opts.volume_mult) or 1.0
     local pitch    = opts and opts.pitch
     local damaged  = opts and opts.damaged
-    local entry = Sounds[name]
     if entry then
         playEntry(entry, vol_mult, pitch, damaged)
         return true

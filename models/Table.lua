@@ -60,6 +60,7 @@ local OutcomeMath   = require("models.outcome_math")
 local PokerActionWeights = require("data.poker_action_weights")
 local PokerBetSizing     = require("data.poker_bet_sizing")
 local PokerEventTimings  = require("data.poker_event_timings")
+local HandStructure      = require("data.hand_structure")
 
 local Table = {}
 Table.__index = Table
@@ -86,8 +87,10 @@ function Table.anchorKey(t, slot)
     return "table_" .. (t._id or 0) .. "_" .. slot
 end
 
--- Cinematic timeline lookup. Per-(gtype, tier) lists of {state, duration}
--- the list by index in :update.
+-- (The old per-(gtype, tier) cinematic timeline is gone: hand length is
+-- the sum of its script's event beats — data/poker_event_timings.lua,
+-- per-gtype overrides included — divided by pace. The script walker in
+-- :update is what advances it.)
 -- ─── Helpers ──────────────────────────────────────────────────────────
 
 local function pickRandomName()
@@ -439,7 +442,7 @@ function Table:deal(ctx)
         end
     end
 
-    local magnitude_bb = OutcomeMath.rollTierMagnitude(tier)
+    local magnitude_bb = OutcomeMath.rollTierMagnitude(tier, gtype, won)
 
     self.outcome_won  = won
     self.outcome_tier = tier
@@ -458,13 +461,15 @@ function Table:deal(ctx)
                           and (ctx.jackpot_mult or 1) or 1
     if won then
         local raw_win = magnitude_bb * stake.bb
-        -- Pot cap: a hand's pot is at most 2× your at-table stack
-        -- (your contribution + opponent matching it). So the most
-        -- you can WIN from a hand is 2× stack. A $0.05 stack tops
-        -- out at $0.10; a full $2 stack at $4. Keeps low-stack
-        -- jackpots from feeling like free money while still letting
-        -- a healthy stack catch a real haul.
-        local capped_win = math.min(raw_win, 2 * (self.stack or 0))
+        -- The seats rule: the most a hand can pay is one stack from each
+        -- opponent matching your all-in — max win = seats × stack (HU:
+        -- one stack; 6-max: five). Shares its definition with the
+        -- theater's magnitude clamp (OutcomeMath.maxWinBB) so the
+        -- cinematic and the payout can never disagree. Also keeps
+        -- low-stack jackpots from being free money: a short stack caps
+        -- proportionally.
+        local capped_win = math.min(raw_win,
+            OutcomeMath.maxWinBB(gtype, self.stack or 0))
         self.outcome_delta = capped_win * earnings_mult * jackpot_mult * payout_double
     else
         -- Loss side already capped downstream: GrindController clamps
@@ -600,7 +605,12 @@ function Table:deal(ctx)
         local effective_bb    = magnitude_bb
         if stake_bb > 0 and (self.stack or 0) > 0 then
             local stack_bb = (self.stack or 0) / stake_bb
-            if effective_bb > stack_bb then effective_bb = stack_bb end
+            -- Wins clamp at the SEATS RULE (one stack from each opponent
+            -- matching your all-in) — the same definition the payout cap
+            -- uses in :deal, so the cinematic and the money can't drift.
+            -- Losses clamp at one stack: you can only lose your own.
+            local cap_bb = won and OutcomeMath.maxWinBB(gtype, stack_bb) or stack_bb
+            if effective_bb > cap_bb then effective_bb = cap_bb end
         end
         if gtype.chip_stack_table and stake_bb > 0 and self.seat_stacks then
             local max_opp = 0
@@ -615,12 +625,26 @@ function Table:deal(ctx)
         end
         -- Per-seat stack table passed to the writer so it can cap any
         -- single seat's contribution at their remaining chips (emits
-        -- all_in instead of call when short). Cash games pass nil.
+        -- all_in instead of call when short).
+        --
+        -- Tournaments pass their live per-seat chips. CASH tables pass
+        -- stacks too (player = their stack, opponents = one buy-in each,
+        -- matching the stacks the seats are drawn with): under the seats
+        -- rule a win can be worth several stacks, and the writer needs to
+        -- know who can cover what so a 500bb pot renders as everyone
+        -- all-in instead of five impossible calls.
         local seat_stacks_for_writer = nil
         if gtype.chip_stack_table and self.seat_stacks then
             seat_stacks_for_writer = {}
             for seat = 1, n_seats do
                 seat_stacks_for_writer[seat] = self.seat_stacks[seat] or 0
+            end
+        elseif not gtype.chip_stack_table then
+            local buy_in = (stake and stake.buy_in) or 0
+            seat_stacks_for_writer = {}
+            for seat = 1, n_seats do
+                seat_stacks_for_writer[seat] =
+                    (seat == player_seat) and (self.stack or 0) or buy_in
             end
         end
         local result = HandScript.write(
@@ -648,7 +672,8 @@ function Table:deal(ctx)
             self.poker_events,
             PokerActionWeights,
             PokerBetSizing,
-            PokerEventTimings)
+            PokerEventTimings,
+            HandStructure)
         self.script           = result.events
         self.script_total     = result.total_duration
         self.timeline         = nil

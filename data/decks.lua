@@ -101,6 +101,11 @@ local Decks = {
         name      = "Maniac",
         sprite    = "cards/backs/05-acorns",
         max_level = 5,
+        -- NOTE (gtype-identity rework): this curve was tuned against the
+        -- global 80-120bb jackpot band. Per-gtype bands (data/pot_tiers)
+        -- can multiply jackpot dollars ~4x on 6-max/zoom — decide a
+        -- rescale (or keep it deliberately faster) from sim/gtype_ev's
+        -- jackpot-$/hr column when the phase-E numbers land.
         xp_curve  = { 50000, 300000, 2000000, 7000000, 20000000 },  -- $ won in jackpots
         xp_rule   = { kind = "jackpot_dollars" },
         xp_action_text = "+1 XP per dollar won in Jackpots",

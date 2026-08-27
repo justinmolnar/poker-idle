@@ -29,6 +29,7 @@ local Chips         = require("views.Chips")
 local ChipFlight    = require("views.ChipFlight")
 local ChipPile      = require("views.ChipPile")
 local ChipData      = require("data.chips")
+local Denoms        = require("services.DenominationBreakdown")
 local ClickFlash    = require("services.ClickFlash")
 local RollingValue  = require("services.RollingValue")
 local Hover         = require("services.HoverService")
@@ -750,8 +751,11 @@ local function drawPotLabel(tbl, pot, fonts)
     -- theater's chip flights and fill in as they land, so the pot grows
     -- with the chips arriving instead of jumping the instant they launch.
     if pot.allow_chips then
-        local palette = ChipData.stake_palettes[tbl.stake_id]
-                        or ChipData.full_palette
+        -- Payout-aware: under the seats rule a pot can hold several
+        -- stacks, which runs straight past what the stake's four-chip
+        -- window can express (one top chip per unit until MAX_TOKENS
+        -- clips it). Same helper the payout bursts and flights use.
+        local palette = Denoms.paletteForAmount(ChipData, tbl.stake_id, pile_val)
         -- FIXED tier while the hand is live — NOT tbl.outcome_tier.
         --
         -- outcome_tier is decided at deal, and it drives the pile's chip
@@ -1028,8 +1032,7 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
     -- against display_stack only once everything has landed (rake, rebuys,
     -- anything that moves the number without a flight) — see ChipPile.sync.
     local you_key = Table.anchorKey(tbl, "you")
-    local palette = ChipData.stake_palettes[tbl.stake_id]
-                    or ChipData.full_palette
+    local palette = Denoms.paletteForAmount(ChipData, tbl.stake_id, display_stack)
     local stake_theme = StakeThemes[tbl.stake_id]
     local tint        = stake_theme and stake_theme.chip_tint
     -- The pile's base chip is centered on its y; offset up by the (scaled)

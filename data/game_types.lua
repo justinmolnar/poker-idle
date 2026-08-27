@@ -4,8 +4,14 @@
 --
 --   • seats              — number of opponents at the felt
 --   • pace_mult          — multiplier on the per-hand cinematic. >1 = faster.
---                          The base timeline (PHASE_*_END constants in
---                          models/Table.lua) is what plays at pace_mult=1;
+--                          A hand's length is the sum of its event beats
+--                          (data/poker_event_timings.lua, optionally
+--                          overridden per gtype) divided by this; see
+--                          models/Table.lua's script walker. So seat
+--                          count moves duration too — more seats, more
+--                          fold/call events. Run sim/gtype_ev.lua for
+--                          the derived seconds-per-hand; don't trust a
+--                          number written in a comment.
 --                          6-max is intentionally below 1 to anchor the
 --                          baseline so multi-tabling is the way to scale
 --                          throughput, not single-table click-spam.
@@ -64,7 +70,7 @@ return {
         name = "6-max",
         short = "6-MAX",
         seats = 5,
-        pace_mult = 0.5,        -- baseline slow — 4.4s/hand. Anchors all multi-tabling math.
+        pace_mult = 0.5,        -- baseline slow. Anchors all multi-tabling math.
         dist_shifts = nil,      -- baseline; no shift
         rerolls_opponents = false,
     },
@@ -73,7 +79,8 @@ return {
         name = "Heads-Up",
         short = "HU",
         seats = 1,
-        pace_mult = 1.0,        -- fast — 2.6s/hand (longer showdown beat)
+        pace_mult = 1.0,        -- fast; only two seats act, so its hands
+                                -- are the shortest in the game by event count
         -- HU = the duel. Low win rate (-0.10 WC vs other modes), but
         -- when pots happen they're DEEP — both wins AND losses skew
         -- away from small/medium toward large/jackpot. Identity: "lose
@@ -90,8 +97,9 @@ return {
         name = "Zoom",
         short = "ZOOM",
         seats = 5,
-        pace_mult = 1.4,        -- very fast — most hands ~0.57s with the
-                                -- zoom:small cinematic-skip in cinematic_timelines.
+        pace_mult = 1.4,        -- very fast. Zoom also carries per-gtype
+                                -- beat overrides (timings, below) so its
+                                -- hands compress rather than just speed up.
         -- Zoom = fold-spam firehose. High WC (+0.05) — most hands are
         -- preflop spats you're ahead in. Low pot sizes — heavy small
         -- mass. Jackpots are reachable but rare: `jackpot_scale` sets the
@@ -102,8 +110,7 @@ return {
         -- T5 and left the top half of the ladder with no Stack chance at
         -- all. `jackpot_emerge` ramps the target in gradually from the
         -- halfway fill point instead of dumping it all into the final Pot
-        -- Control level (see OutcomeMath step 7). The cinematic-skip on
-        -- small outcomes (data/cinematic_timelines.lua) resolves most hands <1s.
+        -- Control level (see OutcomeMath step 7).
         win_chance_shift = 0.05,
         jackpot_emerge = 0.5,
         jackpot_scale  = 0.20,

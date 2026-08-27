@@ -79,23 +79,47 @@ OutcomeMath.WC_ABSOLUTE_CAP = WC_ABSOLUTE_CAP
 
 -- ─── Sampling helpers ──────────────────────────────────────────────────
 
+-- Deterministic iteration order for a dist's keys. Tier dists walk the
+-- canonical TIER_KEYS order; anything else (MTT finish positions keyed
+-- 1..N) sorts its keys. `pairs` order is hash order, which made sampling
+-- unreplayable even under a fixed seed — the sim and any future replay
+-- need the same roll to land on the same key every run.
+local function orderedKeys(dist)
+    for _, k in ipairs(TIER_KEYS) do
+        if dist[k] ~= nil then return TIER_KEYS end
+    end
+    local ks = {}
+    for k in pairs(dist) do ks[#ks + 1] = k end
+    table.sort(ks, function(a, b)
+        if type(a) == type(b) then return a < b end
+        return type(a) == "number"
+    end)
+    return ks
+end
+
 -- Weighted-random pick from a {[key]=weight} map. Returns one key.
 -- Defensive against unnormalized inputs (weights need not sum to 1) and
--- against zero/negative totals (falls back to first key).
+-- against zero/negative totals (falls back to first key in order).
 local function sampleDist(dist)
     if not dist then return nil end
+    local keys = orderedKeys(dist)
     local total = 0
-    for _, p in pairs(dist) do total = total + p end
+    for _, k in ipairs(keys) do total = total + (dist[k] or 0) end
     if total <= 0 then
-        for k in pairs(dist) do return k end
+        for _, k in ipairs(keys) do
+            if dist[k] ~= nil then return k end
+        end
+        return nil
     end
     local r = love.math.random() * total
     local acc = 0
-    for k, p in pairs(dist) do
-        acc = acc + p
+    for _, k in ipairs(keys) do
+        acc = acc + (dist[k] or 0)
         if r <= acc then return k end
     end
-    for k in pairs(dist) do return k end
+    for i = #keys, 1, -1 do
+        if dist[keys[i]] ~= nil then return keys[i] end
+    end
 end
 OutcomeMath.sampleDist = sampleDist
 
@@ -561,19 +585,53 @@ function OutcomeMath.payoutMult(ctx, stake, tier, won, opts)
     return mult
 end
 
--- Roll a magnitude (in bb) within the cell's tier range.
-function OutcomeMath.rollTierMagnitude(tier)
-    local r = PotTiers[tier]
+-- Resolve a tier's {lo, hi} band for a game type and side. Fallthrough:
+-- by_gtype[id][side][tier] → default[side][tier]. `gtype_or_id` may be a
+-- gtype table, a string id, or nil (default). `won == false` reads the
+-- loss side; anything else the win side.
+local function tierBand(tier, gtype_or_id, won)
+    local side = (won == false) and "loss" or "win"
+    local id = (type(gtype_or_id) == "table") and gtype_or_id.id or gtype_or_id
+    local bg = id and PotTiers.by_gtype and PotTiers.by_gtype[id]
+    local cell = bg and bg[side] and bg[side][tier]
+    if not cell then
+        cell = PotTiers.default and PotTiers.default[side]
+              and PotTiers.default[side][tier]
+    end
+    return cell
+end
+OutcomeMath.tierBand = tierBand
+
+-- THE seats rule, one definition: the most a hand can pay is one stack
+-- from each opponent matching your all-in. Unit-agnostic (bb or $ —
+-- whatever unit `stack` is in). Shared by the money cap (Table:deal) and
+-- the theater magnitude clamp so payout and cinematic can never drift.
+function OutcomeMath.maxWinBB(gtype, stack)
+    return ((gtype and gtype.seats) or 1) * (stack or 0)
+end
+
+-- Roll a magnitude (in bb) within the gtype's band for this tier/side.
+function OutcomeMath.rollTierMagnitude(tier, gtype, won)
+    local r = tierBand(tier, gtype, won)
     if not r then return 0 end
     return r.lo + love.math.random() * (r.hi - r.lo)
 end
 
--- Average bb magnitude inside a tier (uniform over [lo, hi]). Used by
--- the EV estimator in Table:estimateStats / debugStats.
-function OutcomeMath.tierAvgBB(tier)
-    local r = PotTiers[tier]
+-- Average bb magnitude inside a tier (uniform over [lo, hi]), per gtype
+-- and side. Optional `cap_bb`: the closed-form mean of min(U(lo,hi), cap)
+-- — what the EV estimator needs once the seats-rule cap can actually
+-- bite inside a band.
+function OutcomeMath.tierAvgBB(tier, gtype, won, cap_bb)
+    local r = tierBand(tier, gtype, won)
     if not r then return 0 end
-    return (r.lo + r.hi) * 0.5
+    local lo, hi = r.lo, r.hi
+    if not cap_bb or cap_bb >= hi then return (lo + hi) * 0.5 end
+    if cap_bb <= lo then return cap_bb end
+    -- P(roll ≤ cap) = (cap-lo)/(hi-lo), mean of that slice = (lo+cap)/2;
+    -- the rest sits at exactly cap.
+    local span = hi - lo
+    return ((lo + cap_bb) * 0.5) * (cap_bb - lo) / span
+         + cap_bb * (hi - cap_bb) / span
 end
 
 -- Full per-hand EV stats for a (ctx, gtype, stake) — pure, no Table needed.
@@ -602,18 +660,30 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
     local win_avg, loss_avg = 0, 0     -- bb, multiplier-free (display)
     local win_cash, loss_cash = 0, 0   -- $, fully multiplied
     local per_tier = {}
+    -- Cash tables enforce the seats-rule caps at deal time (win ≤ seats ×
+    -- stack, loss ≤ stack; stack = buy_in = 100bb) — the estimate has to
+    -- model them or it over-reports whenever a band's top can clip.
+    -- Chip-stack tables (mtt) settle through the payout table, not these
+    -- magnitudes; their per_tier stays uncapped like today.
+    local stack_bb = (bb > 0) and ((stake.buy_in or 0) / bb) or 0
+    local win_cap, loss_cap
+    if not gtype.chip_stack_table and stack_bb > 0 then
+        win_cap  = OutcomeMath.maxWinBB(gtype, stack_bb)
+        loss_cap = stack_bb
+    end
     for _, t in ipairs(TIER_KEYS) do
-        local avg = OutcomeMath.tierAvgBB(t)
+        local wavg = OutcomeMath.tierAvgBB(t, gtype, true,  win_cap)
+        local lavg = OutcomeMath.tierAvgBB(t, gtype, false, loss_cap)
         local wm  = OutcomeMath.payoutMult(ctx, stake, t, true,  opts)
         local lm  = OutcomeMath.payoutMult(ctx, stake, t, false, opts)
-        win_avg   = win_avg   + (wd[t] or 0) * avg
-        loss_avg  = loss_avg  + (ld[t] or 0) * avg
-        win_cash  = win_cash  + (wd[t] or 0) * avg * bb * wm
-        loss_cash = loss_cash + (ld[t] or 0) * avg * bb * lm
+        win_avg   = win_avg   + (wd[t] or 0) * wavg
+        loss_avg  = loss_avg  + (ld[t] or 0) * lavg
+        win_cash  = win_cash  + (wd[t] or 0) * wavg * bb * wm
+        loss_cash = loss_cash + (ld[t] or 0) * lavg * bb * lm
         per_tier[t] = {
             win_p = wd[t] or 0, loss_p = ld[t] or 0,
             win_mult = wm,      loss_mult = lm,
-            win_cash = avg * bb * wm, loss_cash = avg * bb * lm,
+            win_cash = wavg * bb * wm, loss_cash = lavg * bb * lm,
         }
     end
 

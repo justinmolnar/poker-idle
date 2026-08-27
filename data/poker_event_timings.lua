@@ -19,18 +19,32 @@
 --     and the floater fires here.
 --   - street_gap is silence between the last betting beat and the next
 --     deal — gives the eye a rest before new community cards drop.
+--
+-- Per-game-type overrides live under `by_gtype`, resolved (and memoized)
+-- by HandScript.timingsFor: a gtype's table is merged OVER `default`, so
+-- it only names the beats it changes. This is the lever that makes a
+-- mode feel fast beyond raw pace_mult — pace_mult scales the whole hand
+-- uniformly, while these compress the specific beats that drag.
+--
+-- Pure data; no logic.
 
 return {
-    post_blind       = 0.05,
-    fold             = 0.08,
-    check            = 0.10,
-    call             = 0.15,
-    raise            = 0.20,
-    all_in           = 0.30,
-    deal_flop        = 0.40,
-    deal_turn        = 0.30,
-    deal_river       = 0.30,
-    showdown_reveal  = 0.50,
-    pot_push         = 0.40,
-    street_gap       = 0.20,
+    default = {
+        post_blind       = 0.05,
+        fold             = 0.08,
+        check            = 0.10,
+        call             = 0.15,
+        raise            = 0.20,
+        all_in           = 0.30,
+        deal_flop        = 0.40,
+        deal_turn        = 0.30,
+        deal_river       = 0.30,
+        showdown_reveal  = 0.50,
+        pot_push         = 0.40,
+        street_gap       = 0.20,
+    },
+
+    by_gtype = {
+        -- Filled by the identity retune (phase E), from sim/gtype_ev.lua.
+    },
 }

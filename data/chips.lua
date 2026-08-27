@@ -157,6 +157,12 @@ return {
         15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
     },
 
+    -- A payout composed through a stake's four-chip window degrades to
+    -- one top-denomination chip per unit; past this many top chips the
+    -- composer falls back to full_palette. Render budget — data, not a
+    -- code literal (services/DenominationBreakdown.paletteForAmount).
+    palette_max_chips = 60,
+
     -- ── Tier chip-count targets (visual heft via chip count) ───────────
     -- Used by DenominationBreakdown.breakdown to pick the primary
     -- denomination — the goal isn't fewest-tokens, it's a pile whose token
