@@ -19,6 +19,7 @@ local ChipPile        = require("views.ChipPile")
 local ClickFlash      = require("services.ClickFlash")
 local Ghosts          = require("services.Ghosts")
 local RollingValue    = require("services.RollingValue")
+local ItemGhosts      = require("views.ItemGhosts")
 local CatalogModal    = require("views.CatalogModal")
 local DeckSelectModal = require("views.DeckSelectModal")
 local SettingsModal   = require("views.SettingsModal")
@@ -272,6 +273,7 @@ function GrindState:fullReset()
     ClickFlash.clear()
     Ghosts.clear()
     RollingValue.clear()
+    ItemGhosts.clear()
     -- Queued chip bursts reference anchors of tables the wipe destroyed.
     if self.controller then self.controller.pending_bursts = {} end
     -- Snap the view's display tweens to the fresh state so the bankroll

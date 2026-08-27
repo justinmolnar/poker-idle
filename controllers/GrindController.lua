@@ -287,10 +287,10 @@ function GrindController:update(dt)
                         if not state.first_bounty_this_run then
                             state.first_bounty_this_run = true
                             award = award + ((self.ctx and self.ctx.first_bounty_bonus) or 0)
-                            if (self.ctx and self.ctx.first_bounty_bonus or 0) > 0 then self:itemFired("first_bounty_bonus") end
+                            if (self.ctx and self.ctx.first_bounty_bonus or 0) > 0 then self:itemFired("first_bounty_bonus", t) end
                         end
-                        self:itemFired("jackpot_chip_add")
-                        self:itemFired("chip_award_mult")
+                        self:itemFired("jackpot_chip_add", t)
+                        self:itemFired("chip_award_mult", t)
                         state.chips_this_run = state.chips_this_run + award
                         state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
                         state.total_chips_banked = (state.total_chips_banked or 0) + award
@@ -299,7 +299,7 @@ function GrindController:update(dt)
                     -- Copy Machine: the run's first denied bounty banks anyway.
                     if self.ctx and self.ctx.copy_first_denied and not state.denied_copied_this_run then
                         state.denied_copied_this_run = true
-                        self:itemFired("copy_first_denied")
+                        self:itemFired("copy_first_denied", t)
                         local cp = self:bountyAward(t.stake_id)
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
@@ -381,11 +381,11 @@ function GrindController:update(dt)
                and not state.first_stack_loss_voided_this_run then
                 state.first_stack_loss_voided_this_run = true
                 r.delta = 0
-                self:itemFired("void_first_stack_loss")
+                self:itemFired("void_first_stack_loss", r.table)
             elseif self.ctx.void_first_loss and not state.first_loss_voided_this_run then
                 state.first_loss_voided_this_run = true
                 r.delta = 0
-                self:itemFired("void_first_loss")
+                self:itemFired("void_first_loss", r.table)
             end
         end
 
@@ -442,7 +442,7 @@ function GrindController:update(dt)
                     local refund_pct = (self.ctx and self.ctx.bust_refund_pct) or 0
                     if refund_pct > 0 and cap > 0 then
                         state.bankroll = state.bankroll + cap * refund_pct
-                        self:itemFired("bust_refund_pct")
+                        self:itemFired("bust_refund_pct", tbl)
                     end
                 end
             else
@@ -641,10 +641,10 @@ function GrindController:update(dt)
                         if not state.first_bounty_this_run then
                             state.first_bounty_this_run = true
                             award = award + ((self.ctx and self.ctx.first_bounty_bonus) or 0)
-                            if (self.ctx and self.ctx.first_bounty_bonus or 0) > 0 then self:itemFired("first_bounty_bonus") end
+                            if (self.ctx and self.ctx.first_bounty_bonus or 0) > 0 then self:itemFired("first_bounty_bonus", tbl) end
                         end
-                        self:itemFired("jackpot_chip_add")
-                        self:itemFired("chip_award_mult")
+                        self:itemFired("jackpot_chip_add", tbl)
+                        self:itemFired("chip_award_mult", tbl)
                         -- Pending chips — commit to state.chips at SHOVE
                         -- time. The float is the satisfying "you locked a
                         -- bounty" signal; the top bar's chip figure stays
@@ -666,8 +666,8 @@ function GrindController:update(dt)
                     end
                     if copies then
                         state.denied_copied_this_run = true
-                        self:itemFired("copy_first_denied")
-                        self:itemFired("copy_denied_chance")
+                        self:itemFired("copy_first_denied", tbl)
+                        self:itemFired("copy_denied_chance", tbl)
                         local cp = self:bountyAward(tbl.stake_id)
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
@@ -933,12 +933,17 @@ end
 -- An effect kind just did something: tell whoever listens which items
 -- put it there (ctx.sources, from computeEffects). Sound and any future
 -- visual feedback hang off the "item_fired" event; this file stays mute.
-function GrindController:itemFired(kind, ctx)
-    ctx = ctx or self.ctx
+function GrindController:itemFired(kind, tbl)
+    local ctx = self.ctx
     local bus = self.game.event_bus
     local ids = ctx and ctx.sources and ctx.sources[kind]
     if not bus or not ids then return end
-    for _, id in ipairs(ids) do bus:publish("item_fired", id, kind) end
+    -- Where the "what fired" ghost shows: the triggering table's centre
+    -- anchor, resolved now (the registry is view-written and stales).
+    local x, y, pw, ph
+    local pos = tbl and AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
+    if pos then x, y, pw, ph = pos[1], pos[2], pos[3], pos[4] end
+    for _, id in ipairs(ids) do bus:publish("item_fired", id, kind, x, y, pw, ph) end
 end
 
 function GrindController:bountyAward(stake_id)
@@ -1728,7 +1733,7 @@ function GrindController:rebuyTable(idx)
         local free_chance = self.ctx.free_rebuy_chance or 0
         if free_chance > 0 and love.math.random() < free_chance then
             cost = 0
-            self:itemFired("free_rebuy_chance")
+            self:itemFired("free_rebuy_chance", t)
         end
     end
     local state = self.game.state

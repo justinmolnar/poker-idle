@@ -35,6 +35,7 @@ local ChipPile        = require("views.ChipPile")
 local ClickFlash      = require("services.ClickFlash")
 local Tooltip         = require("services.Tooltip")
 local Ghosts          = require("services.Ghosts")
+local ItemGhosts      = require("views.ItemGhosts")
 local AnchorRegistry  = require("services.AnchorRegistry")
 local ShaderRegistry  = require("services.ShaderRegistry")
 local HandAnalytics   = require("services.HandAnalytics")
@@ -186,7 +187,7 @@ local function buildGame()
     SoundService.attachLoader(g.sound_loader, g.sprite_loader)
     -- An item doing its job is heard: its own sound (the file that shares
     -- its name), damaged if the item is corrupted.
-    g.event_bus:subscribe("item_fired", function(item_id)
+    g.event_bus:subscribe("item_fired", function(item_id, kind, x, y, pw, ph)
         local mix = require("data.sounds")._mix
         local rule = (mix and mix.item_fire) or {}
         local damaged = false
@@ -195,6 +196,9 @@ local function buildGame()
         end
         SoundService.playNamed(item_id, { volume_mult = rule.volume or 0.5,
                                           min_gap = rule.min_gap, damaged = damaged })
+        -- ...and seen: the item's sprite pops over the table that fired it,
+        -- because most of the foley reads alike.
+        ItemGhosts.spawn(g, item_id, x, y, pw, ph)
     end)
     g.animations      = AnimationSystem
     g.floating_text   = FloatingText
@@ -436,6 +440,7 @@ function love.update(dt)
     ChipPile.update(dt)
     ClickFlash.update(dt)
     Ghosts.update(dt)
+    ItemGhosts.update(dt)
 
     -- Periodic auto-save. Skip the menu-class states (title/credits) so
     -- we don't churn disk while the player sits at a static screen. Also

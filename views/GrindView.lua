@@ -37,6 +37,7 @@ local Button         = require("views.Button")
 local LabelButton    = require("views.widgets.LabelButton")
 local AwardGlow      = require("views.AwardGlow")
 local Ghosts         = require("services.Ghosts")
+local ItemGhosts     = require("views.ItemGhosts")
 local Stakes         = require("data.stakes")
 local GameTypes      = require("data.game_types")
 local RunUpgrades    = require("data.run_upgrades")
@@ -1748,6 +1749,12 @@ function GrindView:_drawCenterGrid(W, H)
     local grid_w = W - LEFT_W - RIGHT_W - 2 * MARGIN
     local grid_h = H - TOP_BAR_H - BOTTOM_BAND_H - 2 * MARGIN
 
+    -- The table section's centre, for anything that needs "somewhere over
+    -- the tables" without a specific table (item-fired ghosts fall back
+    -- here). Same shape as the per-table center anchors: centre point + dims.
+    AnchorRegistry.set("grid:center",
+        grid_x + grid_w / 2, grid_y + grid_h / 2, grid_w, grid_h)
+
     local tables = self.controller.pool.tables
     local n = #tables
     if n <= 0 then
@@ -2252,6 +2259,10 @@ function GrindView:draw(overlay_fn)
     -- was. Must be drawn BEFORE cursors, otherwise the ghost rendered
     -- after a cursor click covers the cursor that just clicked it.
     Ghosts.draw()
+
+    -- Item-fired ghosts: the sprite of whichever catalog item just did its
+    -- job, over the table that triggered it.
+    ItemGhosts.draw(self.game)
 
     -- Cursor swarm — drawn last so cursors are always on top, including
     -- on top of the press-fade ghost they just dispatched.
