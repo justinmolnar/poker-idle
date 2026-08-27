@@ -338,6 +338,9 @@ function GrindState:keypressed(key)
     -- confirm — that stacked a second dialog on top of the freshly-opened
     -- settings modal.
     if key == "escape" then
+        -- A table drag in flight eats the ESC (cancel + snap back)
+        -- instead of opening settings on top of a held panel.
+        if self.view.cancelDrag and self.view:cancelDrag() then return end
         self:openSettings()
         return
     end

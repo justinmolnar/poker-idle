@@ -38,6 +38,7 @@ local LabelButton    = require("views.widgets.LabelButton")
 local AwardGlow      = require("views.AwardGlow")
 local Ghosts         = require("services.Ghosts")
 local ItemGhosts     = require("views.ItemGhosts")
+local TablePanelDrag = require("views.TablePanelDrag")
 local Stakes         = require("data.stakes")
 local GameTypes      = require("data.game_types")
 local RunUpgrades    = require("data.run_upgrades")
@@ -51,6 +52,11 @@ local Lookups        = require("utils.lookups")
 
 local GrindView = {}
 GrindView.__index = GrindView
+
+-- RollingValue chase rate for table-panel display positions (the drag
+-- preview slide + the drop-settle glide). Declared up here because
+-- _drawCenterGrid, well above the mouse-routing section, reads it.
+local SLIDE_RATE = 14
 
 -- A stake is visible when its band's milestone is met. Delegates to
 -- GrindController:stakeAvailable (the single source of truth) so the
@@ -916,6 +922,17 @@ function GrindView:update(dt)
     self.left_panel:updateHover(mx, my, self.game)
     self.right_panel:updateHover(mx, my, self.game)
 
+    -- Drag upkeep. A latch with no button down means the release was
+    -- swallowed (modal opened over it, focus lost) — cancel. While
+    -- promoted, advance the hold feel (position, velocity tilt, lift).
+    if self.drag then
+        if not love.mouse.isDown(1) then
+            self:cancelDrag()
+        elseif self.drag.moved then
+            TablePanelDrag.update(self.drag, dt, mx, my)
+        end
+    end
+
     -- Chip-bounty fanfare: the moment a (stake, gtype) bounty first banks
     -- this run, pulse its add-table button gold — or, if the player isn't on
     -- that game type's sub-tab (the button isn't shown), pulse the game-type
@@ -980,7 +997,9 @@ function GrindView:update(dt)
         if mx >= hb.x and mx < hb.x + hb.w
            and my >= hb.y and my < hb.y + hb.h then
             if hb.action and hb.idx then
-                self.game.hover.set("hit", hb.action .. ":" .. hb.idx)
+                -- Key by table id when the box carries one: index-keyed
+                -- hover would tint the wrong panel across a drag-reorder.
+                self.game.hover.set("hit", hb.action .. ":" .. (hb.table_id or hb.idx))
             end
             if hb.tooltip then
                 TooltipSvc.set(hb.tooltip, mx, my)
@@ -1777,13 +1796,29 @@ function GrindView:_drawCenterGrid(W, H)
         return
     end
 
+    -- Live drag? Resolve the held table each frame — if it closed
+    -- mid-drag (pending_close finalized, tournament settled), the drag
+    -- dies with it and the grid draws normally.
+    local dragging = self.drag and self.drag.moved and self.drag
+    local held_i
+    if dragging then
+        for i, t in ipairs(tables) do
+            if t._id == dragging.table_id then held_i = i; break end
+        end
+        if not held_i then
+            self.drag = nil
+            dragging  = nil
+        end
+    end
+
     -- Freeze layout while the mouse is stationary so closing multiple
     -- tables in a row doesn't reflow cell sizes/positions under the
     -- cursor — successive [×] clicks land at the same spot. Frozen
     -- layout is invalidated on `mousemoved` (or count grew past the
-    -- frozen cell count, or the window was resized).
+    -- frozen cell count, or the window was resized). Never frozen while
+    -- a drag is live: the insert-shift preview must reflow freely.
     local frozen = self.frozen_grid
-    local use_frozen = frozen
+    local use_frozen = not dragging and frozen
         and frozen.grid_w == grid_w
         and frozen.grid_h == grid_h
         and n <= frozen.n
@@ -1791,6 +1826,9 @@ function GrindView:_drawCenterGrid(W, H)
     local layout
     if use_frozen then
         layout = frozen.layout
+    elseif dragging then
+        layout = bestGridLayout(n, grid_w, grid_h)
+        self.frozen_grid = nil
     else
         layout = bestGridLayout(n, grid_w, grid_h)
         self.frozen_grid = {
@@ -1810,12 +1848,65 @@ function GrindView:_drawCenterGrid(W, H)
     local origin_x = grid_x + math.floor((grid_w - block_w) / 2)
     local origin_y = grid_y + math.floor((grid_h - block_h) / 2)
 
-    for i = 1, n do
-        local r = math.floor((i - 1) / cols)
-        local c = (i - 1) % cols
-        local x = origin_x + c * (pw + MARGIN)
-        local y = origin_y + r * (ph + MARGIN)
-        TablePanel.draw(tables[i], i, x, y, pw, ph, self.game, self.controller, self.hit_boxes)
+    local function cellXY(slot)
+        local r = math.floor((slot - 1) / cols)
+        local c = (slot - 1) % cols
+        return origin_x + c * (pw + MARGIN), origin_y + r * (ph + MARGIN)
+    end
+
+    -- Every panel's display position chases its cell through RollingValue
+    -- (snap-on-first-sight, so boot/rebuild don't animate): panels glide
+    -- on any reflow, and the drop settle rides the same chase from the
+    -- seeded held position (see _settleDrag).
+    if dragging then
+        -- Insert-shift preview: the held panel leaves the flow; the
+        -- mouse cell (clamped into [1, n]) is the insertion slot; the
+        -- survivors fill the remaining slots in order, sliding aside.
+        -- Model order is untouched until the drop, so hit-box idx values
+        -- stay correct for the live pool.
+        local mx, my = love.mouse.getPosition()
+        local c = math.max(0, math.min(cols - 1,
+                  math.floor((mx - origin_x) / (pw + MARGIN))))
+        local r = math.max(0, math.min(rows - 1,
+                  math.floor((my - origin_y) / (ph + MARGIN))))
+        dragging.drop_idx = math.max(1, math.min(n, r * cols + c + 1))
+
+        local slot = 0
+        for i = 1, n do
+            if i ~= held_i then
+                slot = slot + 1
+                if slot == dragging.drop_idx then slot = slot + 1 end
+                local tx, ty = cellXY(slot)
+                local tbl = tables[i]
+                local dx = RollingValue.get("tblx:" .. tbl._id, tx, SLIDE_RATE)
+                local dy = RollingValue.get("tbly:" .. tbl._id, ty, SLIDE_RATE)
+                TablePanel.draw(tbl, i, dx, dy, pw, ph,
+                                self.game, self.controller, self.hit_boxes)
+            end
+        end
+        -- Held panel renders from GrindView:draw (above the sidebars) —
+        -- stash its live cell size for TablePanelDrag.drawHeld.
+        self._held_draw = { tbl = tables[held_i], idx = held_i, pw = pw, ph = ph }
+    else
+        self._held_draw = nil
+        for i = 1, n do
+            local tx, ty = cellXY(i)
+            local tbl = tables[i]
+            local dx = RollingValue.get("tblx:" .. tbl._id, tx, SLIDE_RATE)
+            local dy = RollingValue.get("tbly:" .. tbl._id, ty, SLIDE_RATE)
+            -- Post-drop settle: a tiny scale bump as the panel lands,
+            -- recentered so it grows in place.
+            local pp = Pop.progress("tbl_settle:" .. tbl._id)
+            if pp > 0 then
+                local sc = Pop.scale(pp, 1, 0.04)
+                local gw, gh = pw * sc, ph * sc
+                TablePanel.draw(tbl, i, dx - (gw - pw) / 2, dy - (gh - ph) / 2,
+                                gw, gh, self.game, self.controller, self.hit_boxes)
+            else
+                TablePanel.draw(tbl, i, dx, dy, pw, ph,
+                                self.game, self.controller, self.hit_boxes)
+            end
+        end
     end
 end
 
@@ -2245,6 +2336,13 @@ function GrindView:draw(overlay_fn)
     self:_drawShoveButton()
     self:_drawFloatingText()
 
+    -- Held (dragged) table panel — drawn after the sidebars and floating
+    -- text so it rides above them while it's carried around; the chip
+    -- flights, ghosts and cursor swarm below still render on top of it.
+    if self.drag and self.drag.moved and self._held_draw then
+        TablePanelDrag.drawHeld(self.game, self.controller, self.drag, self._held_draw)
+    end
+
     -- Bankroll chip pile in the bottom-middle band. Registers the
     -- screen-space anchor (via AnchorRegistry) flying-chip emission targets.
     self:_drawBankrollChips(W, H)
@@ -2287,6 +2385,18 @@ function GrindView:draw(overlay_fn)
 end
 
 -- ─── Mouse routing ────────────────────────────────────────────────────
+
+-- Header actions latch on press and resolve on release, so a >4px move
+-- can promote the press into a table drag instead. Felt actions (deal /
+-- rebuy) are deliberately NOT here — they fire on mouse-DOWN, unchanged.
+local HEADER_DRAG_ACTIONS = {
+    remove_table        = true,
+    toggle_cursor       = true,
+    toggle_rebuy_cursor = true,
+    drag_table          = true,
+}
+local DRAG_PROMOTE_PX = 4    -- < the 8px grid-freeze deadzone; promote
+                             -- clears the freeze itself
 
 function GrindView:mousepressed(x, y, b)
     if b ~= 1 then return end
@@ -2405,13 +2515,58 @@ function GrindView:mousepressed(x, y, b)
         return
     end
 
-    -- Center grid: per-table hit boxes (×, stake-up).
+    -- Center grid: per-table hit boxes. Header boxes latch a possible
+    -- drag (resolved on release); everything else dispatches on press.
     for _, hb in ipairs(self.hit_boxes) do
         if x >= hb.x and x < hb.x + hb.w and y >= hb.y and y < hb.y + hb.h then
-            self:_handleHitBox(hb)
+            if HEADER_DRAG_ACTIONS[hb.action] then
+                -- Copy the box: self.hit_boxes is wiped every draw, and
+                -- this one has to survive until the release. Its idx may
+                -- go stale — _handleHitBox re-resolves by table_id.
+                local copy = {}
+                for k, v in pairs(hb) do copy[k] = v end
+                self.drag = {
+                    table_id   = hb.table_id,
+                    pressed_hb = copy,
+                    x0 = x, y0 = y,
+                    moved = false,
+                    vx = 0, tilt = 0, lift = 0,
+                }
+                -- Press feel now, dispatch on release — without this the
+                -- button would look inert while held.
+                if hb.action ~= "drag_table" then
+                    ClickFlash.flash("hit", hb.action .. ":" .. (hb.table_id or hb.idx))
+                end
+            else
+                self:_handleHitBox(hb)
+            end
             return
         end
     end
+end
+
+-- Start the drop glide: panel display positions chase through
+-- RollingValue in the grid loop, so seeding the held position makes the
+-- panel glide home (commit) or back (cancel) with no extra state.
+function GrindView:_settleDrag(d)
+    if not (d and d.moved and d.px) then return end
+    RollingValue.set("tblx:" .. d.table_id, d.px)
+    RollingValue.set("tbly:" .. d.table_id, d.py)
+    Pop.trigger("tbl_settle:" .. d.table_id)
+end
+
+-- Cancel any drag in flight (ESC, focus loss, modal steal). Returns true
+-- when a PROMOTED drag was cancelled, so the caller (GrindState's ESC)
+-- knows to swallow the key instead of opening settings.
+function GrindView:cancelDrag()
+    local d = self.drag
+    if not d then return false end
+    self.drag = nil
+    if d.moved then
+        self:_settleDrag(d)
+        return true
+    end
+    return false
 end
 
 function GrindView:_handleSidebarButton(id)
@@ -2501,7 +2656,9 @@ function GrindView:_handleHitBox(hb)
     end
 
     if hb.action and hb.idx then
-        ClickFlash.flash("hit", hb.action .. ":" .. hb.idx)
+        -- table_id-keyed when present (matches the hover key + the
+        -- TablePanel render reads) so a reorder can't cross-tint.
+        ClickFlash.flash("hit", hb.action .. ":" .. (hb.table_id or hb.idx))
     end
 
     -- Press-then-vanish: ephemeral buttons (DEAL / REBUY / [×]) stop
@@ -2526,9 +2683,34 @@ function GrindView:_handleHitBox(hb)
     if handler then handler(self, hb) end
 end
 
-function GrindView:mousereleased(_, _, _)
+function GrindView:mousereleased(x, y, b)
     self.left_panel:handleMouseUp()
     self.right_panel:handleMouseUp()
+
+    local d = self.drag
+    if not d then return end
+    if b and b ~= 1 then return end
+    self.drag = nil
+
+    if not d.moved then
+        -- Plain header click: dispatch the button that was pressed.
+        -- _handleHitBox re-resolves by table_id and silently drops the
+        -- action if the table vanished between press and release.
+        if d.pressed_hb and d.pressed_hb.action ~= "drag_table" then
+            self:_handleHitBox(d.pressed_hb)
+        end
+        return
+    end
+
+    -- Promoted drag. Negative coords are the synthetic focus-loss
+    -- release (main.lua love.mousefocus) — cancel, never derive a cell
+    -- from them.
+    if x < 0 or y < 0 then
+        self:_settleDrag(d)
+        return
+    end
+    self.controller:reorderTable(d.table_id, d.drop_idx or 1)
+    self:_settleDrag(d)
 end
 
 -- Deadzone radius (px) for the grid-layout freeze. Real hand jitter on a
@@ -2537,6 +2719,32 @@ end
 local FREEZE_DEADZONE_PX = 8
 
 function GrindView:mousemoved(x, y, _, _)
+    -- Drag promote: a latched header press becomes a real drag once the
+    -- mouse travels past the threshold. Capture the grab offset from the
+    -- panel's last drawn rect (tbl.x/tbl.y, stashed by TablePanel.draw)
+    -- so the panel doesn't jump to put its corner under the cursor.
+    local d = self.drag
+    if d and not d.moved
+       and (math.abs(x - d.x0) > DRAG_PROMOTE_PX
+            or math.abs(y - d.y0) > DRAG_PROMOTE_PX) then
+        local tbl
+        for _, t in ipairs(self.controller.pool.tables) do
+            if t._id == d.table_id then tbl = t; break end
+        end
+        if not tbl then
+            self.drag = nil          -- table closed while pressed
+        else
+            d.moved   = true
+            d.grab_dx = d.x0 - (tbl.x or x)
+            d.grab_dy = d.y0 - (tbl.y or y)
+            d.px      = x - d.grab_dx
+            d.py      = y - d.grab_dy
+            -- Promote threshold (4px) sits inside the freeze deadzone
+            -- (8px): drop the freeze explicitly so the preview reflows.
+            self.frozen_grid = nil
+        end
+    end
+
     -- Mouse-stationary freeze on the center grid (see _drawCenterGrid).
     -- Movement past the deadzone releases the freeze; tiny jitters are
     -- ignored so closing tables in a streak doesn't reflow.

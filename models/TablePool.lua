@@ -175,6 +175,21 @@ function TablePool:removeTable(idx)
     self:_syncStateList()
 end
 
+-- Move the table at from_idx so it sits at to_idx (insert-shift: the
+-- tables between them slide one step). Order IS the persistence — the
+-- parallel save arrays are rebuilt from pool order by _syncStateList, so
+-- a reorder needs no save field of its own.
+function TablePool:reorder(from_idx, to_idx)
+    local n = #self.tables
+    if from_idx < 1 or from_idx > n then return false end
+    if to_idx   < 1 or to_idx   > n then return false end
+    if from_idx == to_idx then return false end
+    local t = table.remove(self.tables, from_idx)
+    table.insert(self.tables, to_idx, t)
+    self:_syncStateList()
+    return true
+end
+
 function TablePool:changeStake(idx, new_stake_id, ctx)
     local t = self.tables[idx]
     if not t then return end

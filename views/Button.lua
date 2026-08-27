@@ -13,7 +13,8 @@
 -- The whole visible envelope (face + side, hover lift + press depth) fits
 -- inside the allocated rect (x, y, w, h) — no overflow into adjacent rows.
 
-local Theme = require("views.Theme")
+local Theme  = require("views.Theme")
+local Easing = require("utils.easing")
 
 local Button = {}
 
@@ -21,8 +22,7 @@ local Button = {}
 local LIFT_PX   = 1      -- hover lift
 
 -- ── Curves (private) ────────────────────────────────────────────────────
-local function easeOutCubic(t)  return 1 - (1 - t) ^ 3            end
-local function pressCurve(a)    return easeOutCubic(a or 0)       end
+local function pressCurve(a)    return Easing.outCubic(a or 0)    end
 local function darken(c, f)     return { c[1] * f, c[2] * f, c[3] * f, c[4] } end
 
 -- ── Public API ──────────────────────────────────────────────────────────

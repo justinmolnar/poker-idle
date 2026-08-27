@@ -36,6 +36,17 @@ function CursorPool.reset()
     _sparks  = {}
 end
 
+-- Release every cursor's claimed hit-box WITHOUT killing the swarm.
+-- Called after a table reorder commits: claims are keyed by pool index,
+-- so a reorder would silently re-aim a flying cursor at whatever table
+-- now occupies its old index. Released cursors re-acquire from the next
+-- frame's hit boxes.
+function CursorPool.releaseAllTargets()
+    for _, c in ipairs(_cursors) do
+        if c.target_idx then c:releaseTarget() end
+    end
+end
+
 -- Per-frame update. dispatcher(hb) fires when a cursor reaches the center of claimed hit-box.
 function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
     local W, H = love.graphics.getDimensions()

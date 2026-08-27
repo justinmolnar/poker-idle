@@ -28,6 +28,7 @@ local StakeThemes    = require("data.stake_themes")
 local Lookups        = require("utils.lookups")
 local HandAnalytics  = require("services.HandAnalytics")
 local Format         = require("utils.format")
+local CursorPool     = require("services.CursorPool")
 
 
 -- Chip-bounty key: a (stake, game_type) combo locks one bounty per run.
@@ -1411,6 +1412,26 @@ function GrindController:toggleCursorRebuyMute(idx)
     if not t then return false end
     t.cursor_rebuy_muted = not (t.cursor_rebuy_muted == true)
     self.pool:_syncStateList()
+    return true
+end
+
+-- Move a table (identified by its runtime _id — indices go stale between
+-- the drag's frames) so it sits at to_idx; the tables between slide one
+-- step (insert-shift). Called from GrindView's drag drop, outside the
+-- update tick, so the prev_states[i] snapshot never spans a reorder.
+-- Order persists through _syncStateList — no dedicated save field.
+function GrindController:reorderTable(table_id, to_idx)
+    local from_idx
+    for i, t in ipairs(self.pool.tables) do
+        if t._id == table_id then from_idx = i; break end
+    end
+    if not from_idx then return false end   -- table closed mid-drag
+    local n = #self.pool.tables
+    to_idx = math.max(1, math.min(n, math.floor(to_idx or 1)))
+    if not self.pool:reorder(from_idx, to_idx) then return false end
+    -- Cursor claims are keyed by pool index; release them so no cursor
+    -- silently re-aims at whatever table now occupies its old index.
+    CursorPool.releaseAllTargets()
     return true
 end
 

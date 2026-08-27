@@ -282,7 +282,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     local rb_fill       = pending_close and Theme.status.warn
                           or (can_remove and Theme.bg.widget_hover or Theme.bg.sunken)
     do
-        local rid     = "remove_table:" .. idx
+        local rid     = "remove_table:" .. tbl._id
         local hovered = can_remove and Hover.is("hit", rid)
         local press   = can_remove and ClickFlash.alpha("hit", rid) or 0
         Button.draw(rb_x, rb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, {
@@ -323,7 +323,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
         local cb_x = next_btn_x
         local cb_y = y + 3
         local muted = tbl.cursor_muted == true
-        local cid     = "toggle_cursor:" .. idx
+        local cid     = "toggle_cursor:" .. tbl._id
         local hovered = Hover.is("hit", cid)
         local press   = ClickFlash.alpha("hit", cid)
         local active_color = Theme.status.good       -- DEAL = green
@@ -362,7 +362,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
         local rcb_x = next_btn_x
         local rcb_y = y + 3
         local rmuted = tbl.cursor_rebuy_muted == true
-        local rcid     = "toggle_rebuy_cursor:" .. idx
+        local rcid     = "toggle_rebuy_cursor:" .. tbl._id
         local rhovered = Hover.is("hit", rcid)
         local rpress   = ClickFlash.alpha("hit", rcid)
         local r_active_color = Theme.status.error    -- REBUY = red
@@ -407,6 +407,15 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     local graph_h    = math.max(1, math.floor(HistoryBars.layout.graph_h * scale_for_graph))
     local zone_y     = y + math.floor((HEADER_H - graph_h) / 2)
     drawHistoryBars(tbl, zone_x, zone_y, zone_w, graph_h, scale_for_graph)
+
+    -- Whole-header grab strip for drag-to-rearrange. Pushed LAST so the
+    -- [x]/D/R boxes above win the first-match hit walk; a press anywhere
+    -- else on the header latches a possible drag (GrindView resolves
+    -- click-vs-drag on release).
+    hit_boxes[#hit_boxes + 1] = {
+        x = x, y = y, w = w, h = HEADER_H,
+        action = "drag_table", idx = idx, table_id = tbl._id,
+    }
 end
 
 local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
@@ -718,21 +727,13 @@ local function drawPotLabel(tbl, pot, fonts)
     local potval = (tbl.playback_state and tbl.playback_state.pot) or 0
 
     -- What the PILE is allowed to show: chips that have actually been
-    -- committed, and nothing else. Never outcome_delta.
-    --
-    -- outcome_delta is decided at deal, so feeding it to the pile fills
-    -- the pot the instant DEAL is clicked, before a blind is posted —
-    -- and its SIZE is the tier, which hands the player the result of the
-    -- hand up front. It also runs straight past what the stake's chips
-    -- can express: a four-figure delta through a $1 top denomination is a
-    -- wall of hundreds of identical chips. The reading above keeps it for
-    -- the text, but under the theater the pile only ever draws real
-    -- committed chips. A legacy build has no per-action pot to read and
-    -- no per-action flights either, so it keeps the estimate — its pile
-    -- would otherwise be empty all hand.
-    local pile_val = theater
-        and ((tbl.playback_state and tbl.playback_state.pot) or 0)
-        or potval
+    -- committed — potval, the running playback pot. NEVER outcome_delta:
+    -- that's decided at deal, so it would fill the pot the instant DEAL
+    -- is clicked (spoiling the hand's tier up front) and blow past what
+    -- the stake's denominations can express. (A vestigial `theater`
+    -- conditional lived here after the legacy table model was ripped;
+    -- both of its branches had converged on potval.)
+    local pile_val = potval
 
     local rolled_pot = RollingValue.get("table_pot:" .. (tbl._id or 0), potval)
     -- NB: no early-out on a near-zero rolled_pot here. The pile below has
@@ -1150,7 +1151,10 @@ local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, 
     if action == "rebuy" then
         Anchors.set("rebuy:any", bx, by, btn_w, btn_h)
     end
-    local fid     = action .. ":" .. idx
+    -- Hover/flash key: table_id when provided (reorder-proof; matches the
+    -- writers in GrindView). The hint ANCHOR above stays index-keyed on
+    -- purpose — data/hints.lua targets "deal:1" literally.
+    local fid     = action .. ":" .. (table_id or idx)
     local hovered = enabled and Hover.is("hit", fid)
     local press   = enabled and ClickFlash.alpha("hit", fid) or 0
 

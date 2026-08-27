@@ -13,6 +13,7 @@
 
 local Theme          = require("views.Theme")
 local AnchorRegistry = require("services.AnchorRegistry")
+local Easing         = require("utils.easing")
 
 local ItemGhosts = {}
 
@@ -29,13 +30,6 @@ local GROW       = 0.08   -- slow breathing growth across the hold
 local BOB_PX     = 3      -- gentle vertical bob while held
 local STAGGER_X  = 46     -- offset when several items fire at one table
 local DEDUP_SECS = 0.6    -- same item at ~the same moment ghosts once
-
--- Ease-out-back: overshoots past 1 then settles — the "pop".
-local function outBack(t)
-    local c1, c3 = 1.70158, 2.70158
-    local u = t - 1
-    return 1 + c3 * u * u * u + c1 * u * u
-end
 
 -- Catalog id → display name, built lazily.
 local _names
@@ -125,7 +119,7 @@ function ItemGhosts.draw(game)
         local sc, presence
         if g.t < POP_T then
             local k = g.t / POP_T
-            sc       = 0.5 + 0.5 * outBack(k)
+            sc       = 0.5 + 0.5 * Easing.outBack(k)
             presence = math.min(1, k / 0.6)
         else
             sc       = 1 + GROW * ((g.t - POP_T) / math.max(0.01, LIFETIME - POP_T))

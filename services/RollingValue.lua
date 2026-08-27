@@ -42,6 +42,13 @@ end
 -- Drop an id's cached state (e.g. on a hard reset so the next get snaps).
 function RollingValue.reset(id) _v[id] = nil end
 
+-- Seed (or overwrite) an id's current value so the next get eases FROM
+-- here toward its target — e.g. a dropped drag panel gliding home from
+-- wherever it was released.
+function RollingValue.set(id, value)
+    _v[id] = { curr = value, t = now() }
+end
+
 -- Drop every rolled value (hard resets / new game): stale entries otherwise
 -- animate from the previous game's numbers.
 function RollingValue.clear() _v = {} end

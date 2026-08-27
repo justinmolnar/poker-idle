@@ -23,6 +23,7 @@
 -- R3 chip. SPACE during animation calls :skip() to fast-forward.
 
 local Theme                  = require("views.Theme")
+local Easing                 = require("utils.easing")
 local HandEval               = require("models.HandEval")
 local Constants              = require("data.constants")
 local Decks                  = require("models.Decks")
@@ -1356,7 +1357,7 @@ function ShoveView:_drawBuildup(W, H)
     local rates = self.buildup_rates or {}
     local s     = (self.game and self.game.ui_scale) or 1
     local fonts = self.fonts
-    local function easeOut(t) return 1 - (1 - t) * (1 - t) end
+    local easeOut = Easing.outQuad
 
     local fade_t        = math.min(1, self.phase_t / BUILDUP_FADE_DURATION)
     local total_chips   = self.buildup_chips and #self.buildup_chips or 0
