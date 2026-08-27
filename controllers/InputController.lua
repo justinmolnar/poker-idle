@@ -142,6 +142,32 @@ function InputController:wire()
             print(string.format("[debug] bankroll +$1000 -> $%.2f", state.bankroll))
         end)
 
+    -- ── Debug currency grant (dev hotkeys) ──────────────────────────────
+    --   `]` grants 10 {chip}      `[` grants 10 {achip}
+    -- Chips only ever arrive as bounties (one per stake:gtype per run), so
+    -- testing anything that costs real chips otherwise means grinding for
+    -- them. GRIND SCREEN ONLY: the shove state binds these two keys for
+    -- its rate sweep and the room editor binds them for layer nudging, so
+    -- this defers to both rather than fighting them.
+    -- Will be ripped before any release build, like the bankroll grants.
+    local function grindOnly(key, want)
+        return key == want and sm:current() == "grind" and not stateOwnsKeys()
+    end
+    dispatcher:on("keypressed",
+        function(key) return grindOnly(key, "]") end,
+        function()
+            local state = game.state
+            state.chips = (state.chips or 0) + 10
+            print(string.format("[debug] +10 chip -> %d", state.chips))
+        end)
+    dispatcher:on("keypressed",
+        function(key) return grindOnly(key, "[") end,
+        function()
+            local state = game.state
+            state.anti_chips = (state.anti_chips or 0) + 10
+            print(string.format("[debug] +10 anti-chip -> %d", state.anti_chips))
+        end)
+
     -- ESC is now handled per-state: closes any open modal first; if no
     -- modal is open the state spawns the SettingsModal in quit-confirm
     -- mode. No global insta-quit binding.

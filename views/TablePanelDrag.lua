@@ -63,12 +63,9 @@ function TablePanelDrag.drawHeld(game, controller, drag, held)
     local cx = gx + gw / 2
     local cy = gy + gh / 2
 
-    love.graphics.push()
-    love.graphics.translate(cx, cy)
-    love.graphics.rotate(drag.tilt or 0)
-    love.graphics.translate(-cx, -cy)
+    Effects.pushRotated(cx, cy, drag.tilt or 0)
     TablePanel.draw(tbl, held.idx, gx, gy, gw, gh, game, controller, {})
-    love.graphics.pop()
+    Effects.popRotated()
 end
 
 return TablePanelDrag

@@ -49,6 +49,8 @@ local InputController = require("controllers.InputController")
 local GameState        = require("models.GameState")
 local Decks            = require("models.Decks")
 local PokerEffects     = require("models.poker_effects")
+local ProcRegistry     = require("services.ProcRegistry")
+local TableProcs       = require("models.table_procs")
 local DeckXpRules      = require("models.deck_xp_rules")
 local DeckUnlockRules  = require("models.deck_unlock_rules")
 local CatalogUnlockRules = require("models.catalog_unlock_rules")
@@ -239,6 +241,13 @@ local function buildGame()
     g.effects = EffectsRegistry:new()
     PokerEffects.registerAll(g.effects)
 
+    -- Proc dispatch: "when X happens, do Y to Z". Same split as above —
+    -- engine-agnostic registry (services/ProcRegistry), poker-specific
+    -- selectors and payloads from models/table_procs, descriptors in
+    -- data/procs.lua.
+    g.procs = ProcRegistry:new(love.math.random)
+    TableProcs.registerAll(g.procs)
+
     -- Same-shape registry for deck XP rules. Engine-agnostic skeleton
     -- (services/XpRuleRegistry); poker-specific kinds register from
     -- models/deck_xp_rules. Mirrors the effects-registry pairing.
@@ -369,7 +378,7 @@ local function buildGame()
         end)
 
     if not Constants.FEATURES.DEV_HOTKEYS then
-        -- All DEV hotkeys (F2/F6/F7/backtick/-/=) are skipped — none
+        -- All DEV hotkeys (F2/F6/F7/backtick/-/=/[/]) are skipped — none
         -- of those dispatcher predicates run. But keypressed still
         -- forwards to the active state so modal-class keys like SPACE
         -- (continue), ENTER, and ESC keep working for normal UX.

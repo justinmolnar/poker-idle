@@ -180,6 +180,15 @@ function GameState:new(saved)
     -- Cash tables write their stack here too; on reload they restore
     -- without re-charging the buy-in.
     instance.active_table_stack         = {}
+    -- Which cell on the board each table occupies, packed row*100+col
+    -- (models/table_grid.lua). The board is not derived from the table
+    -- count any more: tables keep their cell when others come and go, and
+    -- a closed table leaves a hole. A save without this array falls back
+    -- to dense reading order, which is exactly the pre-slot layout.
+    instance.active_table_slot          = {}
+    -- Live heaters / tilts per table (data/statuses.lua). Persisted so a
+    -- reload doesn't silently wipe whatever is currently running.
+    instance.active_table_statuses      = {}
     instance.stakes_won_this_run = {}           -- set keyed by stake_id; locks in chip bounties per run
     instance.chips_this_run      = 0            -- running counter for the prestige modal display
     instance.anti_stakes_won_this_run = {}
@@ -191,6 +200,10 @@ function GameState:new(saved)
     instance.denied_copied_this_run           = false
     instance.first_bounty_this_run            = false
     instance.first_anti_this_run              = false   -- corrupted Fridge latch
+    -- Run-scoped ratchets granted by procs (winning a tournament lifts
+    -- every table for the rest of the run). Plain effect entries, applied
+    -- through the same registry as everything else in computeEffects.
+    instance.run_ratchets                     = {}
     -- Hands resolved since a {chip} bounty last banked (0 on a banking
     -- hand). Run-scoped; drives the tutorial's shove-stall nudge.
     instance.hands_since_last_bank = 0
@@ -232,6 +245,8 @@ function GameState:resetRun()
     self.active_table_bust_order    = {}
     self.active_table_mtt_plans     = {}
     self.active_table_stack         = {}
+    self.active_table_slot          = {}
+    self.active_table_statuses      = {}
     self.stakes_won_this_run = {}
     self.chips_this_run      = 0
     self.anti_stakes_won_this_run = {}
@@ -241,6 +256,7 @@ function GameState:resetRun()
     self.denied_copied_this_run           = false
     self.first_bounty_this_run            = false
     self.first_anti_this_run              = false
+    self.run_ratchets                     = {}
     self.hands_since_last_bank = 0
     -- Freeze the run's losses before wiping them — the Dishwasher spends
     -- the frozen figure at the next applyStartingPerks.
@@ -465,6 +481,7 @@ function GameState:applySaved(saved)
     self.denied_copied_this_run           = self.denied_copied_this_run or false
     self.first_bounty_this_run            = self.first_bounty_this_run or false
     self.first_anti_this_run              = self.first_anti_this_run or false
+    self.run_ratchets                     = self.run_ratchets or {}
 end
 
 -- Drop unknown deck ids from unlocked_decks / deck_levels / deck_xp and
@@ -591,6 +608,8 @@ function GameState:serializeRun()
         active_table_bust_order    = self.active_table_bust_order,
         active_table_mtt_plans     = self.active_table_mtt_plans,
         active_table_stack         = self.active_table_stack,
+        active_table_slot          = self.active_table_slot,
+        active_table_statuses      = self.active_table_statuses,
         stakes_won_this_run        = self.stakes_won_this_run,
         chips_this_run             = self.chips_this_run,
         anti_stakes_won_this_run   = self.anti_stakes_won_this_run,
@@ -600,6 +619,7 @@ function GameState:serializeRun()
         denied_copied_this_run           = self.denied_copied_this_run,
         first_bounty_this_run            = self.first_bounty_this_run,
         first_anti_this_run              = self.first_anti_this_run,
+        run_ratchets                     = self.run_ratchets,
         hands_since_last_bank      = self.hands_since_last_bank,
         run_money_lost             = self.run_money_lost,
     }
@@ -730,6 +750,12 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
                 registry:applyN(item, ctx, lvl)
             end
         end
+    end
+
+    -- Run ratchets: permanent-for-this-run effects a proc granted. Plain
+    -- effect entries, so they go through the registry like anything else.
+    for _, entry in ipairs(self.run_ratchets or {}) do
+        registry:apply(entry, ctx)
     end
 
     -- Only the complete rollup is the cache. A leave-one-out probe would

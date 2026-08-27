@@ -95,6 +95,21 @@ Theme.palettes = {
             error = { 0.82, 0.42, 0.38 },
             info  = { 0.55, 0.72, 0.85 },
         },
+        -- Table statuses (data/statuses.lua). Deliberately NOT the
+        -- status.good/error pair above: those mean "a hand just won or
+        -- lost", and a heater has to read as a lasting condition rather
+        -- than a result. Hot orange stays clear of the jackpot gold.
+        --
+        -- `tilt` is used as a MULTIPLY target, not as a tint: it is what
+        -- the felt gets multiplied DOWN toward. So it is dark and nearly
+        -- neutral on purpose — a saturated blue here would paint the
+        -- table blue instead of draining the colour out of it. Channels
+        -- close together = desaturate; overall darkness = the lights
+        -- going out.
+        status_fx = {
+            heater = { 0.98, 0.52, 0.28 },
+            tilt   = { 0.30, 0.33, 0.40 },
+        },
         tier = {
             -- Outcome-tier color ramps for the per-table history bars.
             -- Keyed by the internal tier id (small/medium/large/jackpot);
@@ -156,6 +171,10 @@ Theme.palettes = {
             warn  = { 0.95, 0.70, 0.20 },
             error = { 0.95, 0.20, 0.20 },
             info  = { 0.45, 0.65, 0.85 },
+        status_fx = {
+            heater = { 1.00, 0.55, 0.25 },
+            tilt   = { 0.28, 0.31, 0.38 },
+        },
         },
         tier = {
             win = {

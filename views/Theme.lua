@@ -35,6 +35,7 @@ function Theme.setActive(name)
     Theme.fg     = p.fg
     Theme.data   = p.data
     Theme.status = p.status
+    Theme.status_fx = p.status_fx
     Theme.tier   = p.tier
     Theme.tint   = p.tint
     Theme.active = (PaletteData.palettes[name] and name) or PaletteData.default

@@ -438,6 +438,11 @@ Effects.kinds = {
         value_shape = "no field (presence sets ctx.copy_first_denied = true)",
         affects     = "ctx.copy_first_denied",
     },
+    proc = {
+        description = "Grants a proc — 'when X happens, do Y to Z'. The named descriptor lives in data/procs.lua; services/ProcRegistry dispatches it. The applicator only collects the id, because an applicator can only write to ctx and a proc has to reach other tables.",
+        value_shape = "proc = \"<id in data/procs.lua>\"",
+        affects     = "ctx.procs (list of proc ids)",
+    },
     cascade_on_jackpot = {
         description = "Flag — a jackpot-tier WIN at any table makes every Zoom table resolve its current hand immediately (Receipt Printer). A time compressor: forced hands pay exactly what they had already rolled. Self-throttling, since a swept table has no live hand to sweep again.",
         value_shape = "no field (presence sets ctx.cascade_on_jackpot = true)",

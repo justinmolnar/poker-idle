@@ -39,6 +39,7 @@ local AwardGlow      = require("views.AwardGlow")
 local Ghosts         = require("services.Ghosts")
 local ItemGhosts     = require("views.ItemGhosts")
 local TablePanelDrag = require("views.TablePanelDrag")
+local TableGrid      = require("models.table_grid")
 local Stakes         = require("data.stakes")
 local GameTypes      = require("data.game_types")
 local RunUpgrades    = require("data.run_upgrades")
@@ -1713,6 +1714,26 @@ local PANEL_ASPECT = 4 / 3
 -- the other layout upvalues (recomputeLayout updates them at boot +
 -- resize). Old duplicate `local` here was shadowing — removed.
 
+-- Cell size for a board of exactly cols x rows. The shape is decided by
+-- the board itself (models/table_grid: tables own their cell, so the
+-- shape is the bounding box of what's occupied) — this only fits pixels
+-- to it, preserving the 4:3 aspect and the max-panel clamps.
+local function fitCells(cols, rows, grid_w, grid_h)
+    if cols <= 0 or rows <= 0 then return 0, 0 end
+    local pw_avail = (grid_w - (cols - 1) * MARGIN) / cols
+    local ph_avail = (grid_h - (rows - 1) * MARGIN) / rows
+    if pw_avail <= 8 or ph_avail <= 8 then return math.max(1, pw_avail), math.max(1, ph_avail) end
+    local pw, ph
+    if pw_avail / ph_avail > PANEL_ASPECT then
+        ph = ph_avail; pw = ph * PANEL_ASPECT
+    else
+        pw = pw_avail; ph = pw / PANEL_ASPECT
+    end
+    if pw > PANEL_MAX_W then pw = PANEL_MAX_W; ph = pw / PANEL_ASPECT end
+    if ph > PANEL_MAX_H then ph = PANEL_MAX_H; pw = ph * PANEL_ASPECT end
+    return pw, ph
+end
+
 local function bestGridLayout(n, grid_w, grid_h)
     local best = { cols = 1, rows = n, pw = 0, ph = 0, area = -1 }
     for cols = 1, n do
@@ -1811,34 +1832,40 @@ function GrindView:_drawCenterGrid(W, H)
         end
     end
 
-    -- Freeze layout while the mouse is stationary so closing multiple
-    -- tables in a row doesn't reflow cell sizes/positions under the
-    -- cursor — successive [×] clicks land at the same spot. Frozen
-    -- layout is invalidated on `mousemoved` (or count grew past the
-    -- frozen cell count, or the window was resized). Never frozen while
-    -- a drag is live: the insert-shift preview must reflow freely.
+    -- The board's shape comes from the tables themselves: each owns a
+    -- cell, so the board is the bounding box of what's occupied. Trailing
+    -- empty rows/columns collapse on their own; interior holes stay, and
+    -- cost everyone panel size. That is the price of holding a formation.
+    local cols, rows = self.controller.pool:boardShape()
+    if cols <= 0 or rows <= 0 then cols, rows = 1, 1 end
+
+    -- Freeze cell SIZE while the mouse is stationary so closing several
+    -- tables in a row doesn't resize panels under the cursor — successive
+    -- [×] clicks land at the same spot. Invalidated on `mousemoved`, on a
+    -- board-shape change, or on resize. Never frozen mid-drag.
     local frozen = self.frozen_grid
     local use_frozen = not dragging and frozen
         and frozen.grid_w == grid_w
         and frozen.grid_h == grid_h
-        and n <= frozen.n
+        and frozen.cols == cols and frozen.rows == rows
 
-    local layout
+    local pw, ph
     if use_frozen then
-        layout = frozen.layout
-    elseif dragging then
-        layout = bestGridLayout(n, grid_w, grid_h)
-        self.frozen_grid = nil
+        pw, ph = frozen.pw, frozen.ph
     else
-        layout = bestGridLayout(n, grid_w, grid_h)
-        self.frozen_grid = {
-            layout = layout, n = n, grid_w = grid_w, grid_h = grid_h,
-            -- Anchor for the mousemoved deadzone — small jitters around
-            -- this point keep the freeze alive.
-            anchor_x = love.mouse.getX(), anchor_y = love.mouse.getY(),
-        }
+        pw, ph = fitCells(cols, rows, grid_w, grid_h)
+        if dragging then
+            self.frozen_grid = nil
+        else
+            self.frozen_grid = {
+                pw = pw, ph = ph, cols = cols, rows = rows,
+                grid_w = grid_w, grid_h = grid_h,
+                -- Anchor for the mousemoved deadzone — small jitters
+                -- around this point keep the freeze alive.
+                anchor_x = love.mouse.getX(), anchor_y = love.mouse.getY(),
+            }
+        end
     end
-    local cols, rows, pw, ph = layout.cols, layout.rows, layout.pw, layout.ph
 
     -- Center the cell block within the available grid area so leftover
     -- space (from aspect-clamping) sits as symmetric padding instead of
@@ -1848,10 +1875,37 @@ function GrindView:_drawCenterGrid(W, H)
     local origin_x = grid_x + math.floor((grid_w - block_w) / 2)
     local origin_y = grid_y + math.floor((grid_h - block_h) / 2)
 
+    -- A cell is (row, col), packed — NOT an index into the table list.
+    -- An index would address a different cell the moment the board
+    -- widens, which is the renumbering slots exist to prevent.
     local function cellXY(slot)
-        local r = math.floor((slot - 1) / cols)
-        local c = (slot - 1) % cols
+        local r, c = TableGrid.unpack(slot)
         return origin_x + c * (pw + MARGIN), origin_y + r * (ph + MARGIN)
+    end
+
+    -- Which cell is the mouse over? Returns nil outside the board.
+    local function slotAtPoint(mx, my)
+        local c = math.floor((mx - origin_x) / (pw + MARGIN))
+        local r = math.floor((my - origin_y) / (ph + MARGIN))
+        if c < 0 or c >= cols or r < 0 or r >= rows then return nil end
+        return TableGrid.pack(r, c)
+    end
+
+    -- Empty cells: holes the player left, and the unused corner of a
+    -- board that grew for one more table. Drawn first so panels and the
+    -- held drag panel sit above them.
+    do
+        local occupied = {}
+        for _, t in ipairs(tables) do occupied[t.slot or 0] = true end
+        for r = 0, rows - 1 do
+            for c = 0, cols - 1 do
+                local s = TableGrid.pack(r, c)
+                if not occupied[s] then
+                    local ex, ey = cellXY(s)
+                    TablePanel.drawEmpty(ex, ey, pw, ph, self.game.fonts)
+                end
+            end
+        end
     end
 
     -- Every panel's display position chases its cell through RollingValue
@@ -1859,25 +1913,26 @@ function GrindView:_drawCenterGrid(W, H)
     -- on any reflow, and the drop settle rides the same chase from the
     -- seeded held position (see _settleDrag).
     if dragging then
-        -- Insert-shift preview: the held panel leaves the flow; the
-        -- mouse cell (clamped into [1, n]) is the insertion slot; the
-        -- survivors fill the remaining slots in order, sliding aside.
-        -- Model order is untouched until the drop, so hit-box idx values
-        -- stay correct for the live pool.
+        -- Drop target is a CELL, not an insertion point. Hovering an
+        -- empty cell moves the held table there; hovering an occupied one
+        -- swaps the two. The swap preview mirrors that: the table under
+        -- the cursor slides to the held table's cell. Model slots are
+        -- untouched until the drop, so hit-box idx values stay correct.
         local mx, my = love.mouse.getPosition()
-        local c = math.max(0, math.min(cols - 1,
-                  math.floor((mx - origin_x) / (pw + MARGIN))))
-        local r = math.max(0, math.min(rows - 1,
-                  math.floor((my - origin_y) / (ph + MARGIN))))
-        dragging.drop_idx = math.max(1, math.min(n, r * cols + c + 1))
+        dragging.drop_slot = slotAtPoint(mx, my)
+        local held_slot  = tables[held_i].slot
+        local swap_id
+        if dragging.drop_slot and dragging.drop_slot ~= held_slot then
+            for _, t in ipairs(tables) do
+                if t.slot == dragging.drop_slot then swap_id = t._id; break end
+            end
+        end
 
-        local slot = 0
         for i = 1, n do
             if i ~= held_i then
-                slot = slot + 1
-                if slot == dragging.drop_idx then slot = slot + 1 end
-                local tx, ty = cellXY(slot)
                 local tbl = tables[i]
+                local target = (tbl._id == swap_id) and held_slot or tbl.slot
+                local tx, ty = cellXY(target)
                 local dx = RollingValue.get("tblx:" .. tbl._id, tx, SLIDE_RATE)
                 local dy = RollingValue.get("tbly:" .. tbl._id, ty, SLIDE_RATE)
                 TablePanel.draw(tbl, i, dx, dy, pw, ph,
@@ -1890,8 +1945,8 @@ function GrindView:_drawCenterGrid(W, H)
     else
         self._held_draw = nil
         for i = 1, n do
-            local tx, ty = cellXY(i)
             local tbl = tables[i]
+            local tx, ty = cellXY(tbl.slot or 0)
             local dx = RollingValue.get("tblx:" .. tbl._id, tx, SLIDE_RATE)
             local dy = RollingValue.get("tbly:" .. tbl._id, ty, SLIDE_RATE)
             -- Post-drop settle: a tiny scale bump as the panel lands,
@@ -2709,7 +2764,7 @@ function GrindView:mousereleased(x, y, b)
         self:_settleDrag(d)
         return
     end
-    self.controller:reorderTable(d.table_id, d.drop_idx or 1)
+    if d.drop_slot then self.controller:moveTableToSlot(d.table_id, d.drop_slot) end
     self:_settleDrag(d)
 end
 

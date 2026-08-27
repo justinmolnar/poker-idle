@@ -86,6 +86,27 @@ local Constants = require("data.constants")
 
 local items = {
 
+    -- ═══ THE MENTAL GAME ════════════════════════════════════════════════
+    -- Not a purchase. Granted at run start and hidden from the book, so
+    -- the bad beats are part of the felt rather than something you opt
+    -- into. `removed_by` is the hook a future mental-game item hangs on:
+    -- one catalog entry with that id and no effects of its own suppresses
+    -- every tilt in the game.
+    {
+        id               = "the_tilt",
+        name             = "Tilt",
+        effect_text      = "Bad beats rattle the tables around them.",
+        description      = "It happens to everyone. It is happening to you.",
+        hidden           = true,
+        granted_at_start = true,
+        phase            = "system",
+        cost_chip        = 0,
+        effects = {
+            { kind = "proc", proc = "miss_tilt"   },
+            { kind = "proc", proc = "cooler_tilt" },
+        },
+    },
+
     -- ═══ BAND A — Act 1 early (T1-T2) · 47 {chip} · shove 0.115 ═════════
 
     {
@@ -608,15 +629,15 @@ local items = {
     {
         id          = "prize_vase",
         name        = "Prize Vase",
-        effect_text = "Tournament cashes pay 4× / 8× / 20×.",
+        effect_text = "Winning a tournament lifts every table 1% for the run.",
         description = "Came with a ribbon. The ribbon didn't last.",
         sprite      = "prize_vase",
         phase       = "mid",
         cost_chip     = 18,
         position    = { x = 350, y = 300 },
         effects     = {
-            { kind = "shove_rate_add",   value = 0.010 },
-            { kind = "mtt_payout_boost", value = 1 },
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "proc", proc = "tourney_ratchet" },
         },
         unlock = {
             kind      = "total_mtt_wins",
@@ -626,9 +647,9 @@ local items = {
         corrupt = {
             cost_achip = 6,
             effects = {
-                { kind = "mtt_payout_boost", value = 3 },
+                { kind = "proc", proc = "tourney_ratchet_corrupt" },
             },
-            effect_text = "Tournament cashes pay 20× / 40× / 80×.",
+            effect_text = "Winning a tournament lifts every table 3% for the run.",
         },
     },
     {
@@ -1267,44 +1288,46 @@ local items = {
         id          = "pc_tower",
         act         = 2,
         name        = "Tower Upgrade",
-        effect_text = "Hands resolve 15% faster.",
+        effect_text = "Knockouts have a 15% chance to mark a nearby table's next pot for a tier bump.",
         description = "Fans you can hear from the bed. Boots in seconds.",
         sprite      = "pc_tower",
         phase       = "mid",
         cost_chip   = 12,
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "hand_pace_mult", value = 1.15 },
+            { kind = "proc", proc = "ko_bump" },
         },
         corrupt = {
             cost_achip = 5,
             effects = {
-                { kind = "hand_pace_mult", value = 0.25 },
-                { kind = "earnings_mult",  value = 2.0 },
+                { kind = "proc", proc = "ko_bump_corrupt" },
+                -- It bumps pot tiers, so corruption bumps loss tiers back.
+                { kind = "loss_tier_shift", from = "medium", to = "large",
+                  chance = 0.35 },
             },
-            effect_text = "Hands resolve 4x slower. Wins pay double.",
+            effect_text = "Knockouts have a 25% chance to mark every nearby table. Losses run a tier bigger.",
         },
     },
     {
         id          = "curved_monitor",
         act         = 2,
         name        = "Curved Monitor",
-        effect_text = "+1 focus capacity.",
+        effect_text = "Knockouts have a 20% chance to heat a nearby table 6 seconds.",
         description = "Wraps around you. The room gets smaller.",
         sprite      = "curved_monitor",
         phase       = "mid",
         cost_chip   = 20,
         effects     = {
-            { kind = "shove_rate_add",     value = 0.012 },
-            { kind = "focus_capacity_add", value = 1 },
+            { kind = "shove_rate_add", value = 0.012 },
+            { kind = "proc", proc = "ko_heater" },
         },
         corrupt = {
             cost_achip = 7,
             effects = {
-                { kind = "focus_capacity_add", value = 6 },
-                { kind = "loss_mult",          value = 1.5 },
+                { kind = "proc",      proc = "ko_heater_corrupt" },
+                { kind = "loss_mult", value = 1.5 },
             },
-            effect_text = "+6 focus. Losses 50% heavier.",
+            effect_text = "Knockouts have a 30% chance to heat every nearby table. Losses 50% heavier.",
         },
     },
     {
@@ -1333,22 +1356,22 @@ local items = {
         id          = "shredder",
         act         = 2,
         name        = "Shredder",
-        effect_text = "Losses 15% softer.",
+        effect_text = "Knockouts have a 12% chance to refund a nearby buy-in.",
         description = "Under the desk. Takes the bad ones.",
         sprite      = "shredder",
         phase       = "late",
         cost_chip   = 26,
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "loss_mult",      value = 0.85 },
+            { kind = "proc", proc = "ko_refund" },
         },
         corrupt = {
             cost_achip = 9,
             effects = {
-                { kind = "loss_mult",     value = 0.30 },
+                { kind = "proc",          proc = "ko_refund_corrupt" },
                 { kind = "earnings_mult", value = 0.70 },
             },
-            effect_text = "Losses 70% softer. Wins pay 30% less.",
+            effect_text = "Knockouts have a 25% chance to refund a nearby buy-in. Wins pay 30% less.",
         },
     },
     {

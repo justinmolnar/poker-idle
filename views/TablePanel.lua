@@ -1400,8 +1400,16 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- felt, cards, chips) inherit the transform so the panel moves as a
     -- single object. State decays in Table:update; we just read.
     local shake_x, shake_y = Effects.shakeOffset(tbl)
+    -- The shove: this table lunging at a neighbour it just affected, or
+    -- reeling from one. Unlike shake, this one DOES move the click
+    -- targets — it is a deliberate motion the player is watching, not
+    -- jitter, and a button that stayed behind would feel broken.
+    local bump_x, bump_y, bump_sx, bump_sy, bump_lift = Effects.bumpOffset(tbl)
     local lift_y           = Effects.liftSlamOffset(tbl)
-    local transformed = (shake_x ~= 0 or shake_y ~= 0 or lift_y ~= 0)
+    -- A tilted table stays leaning until it settles.
+    local lean             = Effects.statusRotation(tbl)
+    local transformed = (shake_x ~= 0 or shake_y ~= 0 or lift_y ~= 0
+                         or bump_x ~= 0 or bump_y ~= 0)
 
     -- Hit-box offset: hit_boxes are pushed during sub-element rendering
     -- with un-transformed coords. After the panel finishes drawing, we
@@ -1416,12 +1424,36 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- the panel is at rest (lift_t = 0) the shadow sits exactly under the
     -- panel and isn't visible; as the panel lifts, the shadow becomes
     -- exposed and spreads slightly for a soft hover feel.
-    Effects.drawHoverShadow(tbl, x, y, w, h)
-
-    if transformed then
-        love.graphics.push()
-        love.graphics.translate(shake_x, shake_y + lift_y)
+    -- While a slam rears back, the panel climbs toward the camera and its
+    -- shadow stays down on the board — the same trick the gauntlet's
+    -- flying numbers use to sell height. Proxy table because Table:update
+    -- owns the real lift_t.
+    if bump_lift > 0.01 then
+        Effects.drawHoverShadow({ lift_t = math.max(tbl.lift_t or 0, bump_lift) },
+                                x, y, w, h)
+    else
+        Effects.drawHoverShadow(tbl, x, y, w, h)
     end
+
+    -- A shove swells the panel slightly when it hits everyone at once;
+    -- grow about the centre so it pushes out evenly.
+    -- Squash and stretch pivot on the panel's BOTTOM edge, so a slammed
+    -- table compresses onto the felt like something heavy landed on it
+    -- rather than shrinking toward its own middle.
+    local scaled = (bump_sx ~= 1 or bump_sy ~= 1)
+    if transformed or scaled then
+        love.graphics.push()
+        love.graphics.translate(shake_x + bump_x, shake_y + lift_y + bump_y)
+        if scaled then
+            local px, py = x + w / 2, y + h
+            love.graphics.translate(px, py)
+            love.graphics.scale(bump_sx, bump_sy)
+            love.graphics.translate(-px, -py)
+        end
+    end
+    -- The lean is its own transform so the rotation pivots on the panel's
+    -- centre rather than on wherever the shove has pushed it.
+    if lean ~= 0 then Effects.pushRotated(x + w / 2, y + h / 2, lean) end
 
     -- Screen-space center for floating-text spawn (read by GrindController
     -- via AnchorRegistry; written here once per draw). Carries the panel's
@@ -1784,29 +1816,60 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- Jackpot vignette — colored wash over the felt area when a jackpot
     -- resolution is fading. Drawn AFTER the gauge so the colored tint
     -- sits over everything inside the panel.
+    -- Status wash sits under the resolution vignette: a tilt is the
+    -- table's standing condition, the vignette is what just happened.
+    Effects.drawStatusWash(tbl, felt_x, felt_y, felt_w, felt_h)
     Effects.drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
 
     -- Radial-glow halo (jackpot wins). Additive shader pass over the
     -- whole panel rect; lasts ~0.7s after a jackpot win.
+    Effects.drawStatusRing(tbl, x, y, w, h)
+    Effects.drawStatusGlow(tbl, x, y, w, h)
     Effects.drawGlow(tbl, x, y, w, h)
 
     -- Close the shake/lift transform before the hover-hit-test stash, so
     -- the mouse-vs-panel rect calculation in the debug tooltip uses the
     -- panel's actual (un-transformed) screen rect.
-    if transformed then
+    if lean ~= 0 then Effects.popRotated() end
+    if transformed or scaled then
         love.graphics.pop()
     end
 
-    -- Sync hit_boxes pushed during this panel's render with the lift
-    -- offset so the click target tracks the visually-lifted button.
-    -- Without this, clicking on the elevated DEAL button hits empty
-    -- space below it. Shake is excluded — it's per-frame jitter that
-    -- would make click targets dance.
-    if hit_boxes and lift_y ~= 0 and #hit_boxes > hit_boxes_start then
+    -- Sync hit_boxes pushed during this panel's render with the panel's
+    -- visible position, so clicking a button hits where it is DRAWN.
+    -- Three of the four transforms are included:
+    --   lift  — the hover rise; without this a raised DEAL button eats a
+    --           click into empty space below it.
+    --   bump  — a deliberate shove the player is watching.
+    --   lean  — a tilted table's whole panel is rotated, so its targets
+    --           rotate with it about the same centre.
+    -- Shake stays excluded on purpose: it is per-frame random jitter, and
+    -- folding it in would make every click target dance.
+    if hit_boxes and #hit_boxes > hit_boxes_start
+       and (lift_y ~= 0 or bump_x ~= 0 or bump_y ~= 0 or lean ~= 0) then
+        local cx, cy = x + w / 2, y + h / 2
         for i = hit_boxes_start + 1, #hit_boxes do
             local hb = hit_boxes[i]
-            hb.y = hb.y + lift_y
-            if hb.visual_y then hb.visual_y = hb.visual_y + lift_y end
+            hb.x = hb.x + bump_x
+            hb.y = hb.y + lift_y + bump_y
+            if hb.visual_x then hb.visual_x = hb.visual_x + bump_x end
+            if hb.visual_y then hb.visual_y = hb.visual_y + lift_y + bump_y end
+            if lean ~= 0 then
+                -- Boxes stay axis-aligned; their centres follow the
+                -- rotation. At a few degrees the corner error is under a
+                -- pixel or two, and the alternative (rotated hit-testing)
+                -- would mean a bespoke test path for one status.
+                local bcx, bcy = hb.x + (hb.w or 0) / 2, hb.y + (hb.h or 0) / 2
+                local rx, ry = Effects.rotatePoint(bcx, bcy, cx, cy, lean)
+                hb.x, hb.y = hb.x + (rx - bcx), hb.y + (ry - bcy)
+                if hb.visual_x and hb.visual_y then
+                    local vcx = hb.visual_x + (hb.visual_w or 0) / 2
+                    local vcy = hb.visual_y + (hb.visual_h or 0) / 2
+                    local vrx, vry = Effects.rotatePoint(vcx, vcy, cx, cy, lean)
+                    hb.visual_x = hb.visual_x + (vrx - vcx)
+                    hb.visual_y = hb.visual_y + (vry - vcy)
+                end
+            end
         end
     end
 

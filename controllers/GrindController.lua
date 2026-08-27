@@ -12,9 +12,13 @@
 local TablePool      = require("models.TablePool")
 local ShoveRate = require("models.shove_rate")
 local TableModel     = require("models.Table")            -- only for anchorKey()
+local TableGrid      = require("models.table_grid")       -- board cells, for bump direction
+local Pop            = require("services.Pop")            -- shared-clock bump envelopes
+local StatusData     = require("data.statuses")       -- shared slam/shove timing
 local Decks          = require("models.Decks")
 local Catalog        = require("data.catalog")
 local RunUpgrades    = require("data.run_upgrades")
+local ProcData       = require("data.procs")
 local OutcomeMath    = require("models.outcome_math")
 local Stakes         = require("data.stakes")
 local GameTypes      = require("data.game_types")
@@ -54,7 +58,7 @@ function GrindController:new(game)
     -- Compute effects first so the initial pool rebuild gets ctx (matters
     -- for Cold Read and other start-of-table catalog perks).
     self:invalidateEffects()
-    self.pool = TablePool:new(game.state, self.ctx, game.poker_events)
+    self.pool = TablePool:new(game.state, self.ctx, game.poker_events, game.effects)
     return self
 end
 
@@ -125,6 +129,174 @@ end
 
 -- Recompute the effects context from the player's owned items + run upgrades.
 -- Called on construction and after any purchase / prestige reset.
+-- Bucket the owned procs by trigger, once per rollup. _fireProcs then
+-- does a table lookup instead of scanning every proc on every hand.
+function GrindController:_rebuildProcIndex()
+    local index = {}
+    for _, id in ipairs((self.ctx and self.ctx.procs) or {}) do
+        local proc = ProcData[id]
+        if proc and proc.trigger then
+            local list = index[proc.trigger]
+            if not list then list = {}; index[proc.trigger] = list end
+            -- Carry the id so feedback can name the item that fired.
+            list[#list + 1] = { id = id, def = proc }
+        end
+    end
+    self.proc_index = index
+end
+
+-- Fire every proc watching `trigger`. `extra` carries whatever the trigger
+-- knows that a selector or payload might want: `out` (the resolution list
+-- being iterated, for resolve-style payloads), `n`, `busted_total`.
+function GrindController:_fireProcs(trigger, source_tbl, extra)
+    local list = self.proc_index and self.proc_index[trigger]
+    if not list then return end
+    local reg = self.game.procs
+    if not reg then return end
+    for _, entry in ipairs(list) do
+        -- WHO it can happen to. A proc that belongs to one mode's identity
+        -- says so here; without this the 6-max cooler tilt fires when a
+        -- Heads Up table loses a stack, and HU has no multiway cooler to
+        -- lose (docs/gametype-identity-redesign.md: the cooler is "a real
+        -- cost for the tank slot").
+        local src = entry.def.source
+        local ok = not (src and src.gtype)
+                   or (source_tbl and source_tbl.game_type_id == src.gtype)
+        if ok then
+        local event = {
+            kind   = trigger,
+            source = source_tbl,
+            pool   = self.pool,
+            ctrl   = self,
+            state  = self.game.state,
+            ctx    = self.ctx,
+            ghost  = entry.def.ghost,
+            n      = (extra and extra.n) or 1,
+            out    = extra and extra.out,
+            busted_total = (extra and extra.busted_total) or 0,
+        }
+        local touched, hit = reg:fire(entry.def, event)
+        if touched > 0 then
+            self:_bumpTargets(source_tbl, hit)
+            if entry.def.ghost then self:procFired(entry.def.ghost, source_tbl) end
+            -- A proc may have put a status on a table that had none, and
+            -- the save arrays hold per-table references. Re-sync so the
+            -- new list is reachable from state (existing lists tick in
+            -- place and need no help).
+            self.pool:_syncStateList()
+        end
+        end
+    end
+end
+
+-- Make the hit visible: the source table physically shoves the tables it
+-- affected, and they rock away from it.
+--
+-- Direction comes from the board itself — tables own a cell, so the model
+-- knows which way a neighbour lies without asking the view anything. One
+-- target means a directed lunge; several means the source swells and
+-- shoves them all at once, because a table cannot lunge four ways.
+function GrindController:_bumpTargets(source_tbl, targets)
+    if not targets or #targets == 0 then return end
+
+    local sr, sc
+    if source_tbl and source_tbl.slot then
+        sr, sc = TableGrid.unpack(source_tbl.slot)
+    end
+
+    -- TWO MOTIONS, chosen by how many tables are being hit:
+    --   one   -> BUMP. The source reaches over and shoves that table.
+    --   many  -> SLAM. It can't shove four directions, so it drives a
+    --            fist into the felt and everything around it jumps.
+    -- A proc picks which one it gets by how it targets (see data/procs).
+    local single = (#targets == 1 and targets[1] ~= source_tbl)
+
+    -- Nothing reacts while the blow is still travelling. A slam connects
+    -- when the fist lands; a bump connects at the top of its arc. Until
+    -- then the struck tables sit still and show nothing of the status
+    -- they have already taken (see Table.impact_wait).
+    -- Contact is the END of the downswing (rise + strike), not the start
+    -- of it — that is the frame the blow actually arrives.
+    local cfg = single and (StatusData.shove or {}) or (StatusData.slam or {})
+    local delay = (cfg.duration or 1) * ((cfg.rise or 0.4) + (cfg.strike or 0.06))
+
+    for _, t in ipairs(targets) do
+        if t ~= source_tbl and t.slot and sr then
+            local tr, tc = TableGrid.unpack(t.slot)
+            local dx, dy = tc - sc, tr - sr
+            local len = math.sqrt(dx * dx + dy * dy)
+            if len > 0 then
+                self._pending_impacts = self._pending_impacts or {}
+                self._pending_impacts[#self._pending_impacts + 1] = {
+                    tbl = t, dx = dx / len, dy = dy / len, t_left = delay,
+                }
+                t.impact_wait = delay
+            end
+        end
+    end
+
+    if not source_tbl then return end
+
+    if single and targets[1].slot and sr then
+        -- BUMP: reach over and shove that one table.
+        local tr, tc = TableGrid.unpack(targets[1].slot)
+        local dx, dy = tc - sc, tr - sr
+        local len = math.sqrt(dx * dx + dy * dy)
+        if len > 0 then
+            source_tbl.bump_dx, source_tbl.bump_dy = dx / len, dy / len
+            source_tbl.bump_out, source_tbl.bump_slam = true, false
+            source_tbl.shake_trauma = math.max(source_tbl.shake_trauma or 0, 0.7)
+            Pop.trigger("tbl_bump:" .. (source_tbl._id or 0))
+        end
+    else
+        -- SLAM: a fist into the felt, and everything around it jumps.
+        source_tbl.bump_dx, source_tbl.bump_dy = 0, 1
+        source_tbl.bump_out, source_tbl.bump_slam = false, true
+        Pop.trigger("tbl_bump:"  .. (source_tbl._id or 0))
+        Pop.trigger("tbl_shove:" .. (source_tbl._id or 0))
+        -- Trauma is squared before it becomes pixels, so this needs to be
+        -- high to read as a shudder rather than a twitch.
+        source_tbl.shake_trauma = math.max(source_tbl.shake_trauma or 0, 1.0)
+    end
+end
+
+-- Land any shockwaves whose travel time is up. Ticked once per frame
+-- from :update, on raw dt — a blow crosses the board at the same speed
+-- whatever pace the tables are running at.
+function GrindController:_tickImpacts(dt)
+    local list = self._pending_impacts
+    if not list or #list == 0 then return end
+    for i = #list, 1, -1 do
+        local e = list[i]
+        e.t_left = e.t_left - (dt or 0)
+        local t = e.tbl
+        if e.t_left <= 0 then
+            -- Contact. Knocked away, rattled, and only NOW does whatever
+            -- it was given become visible.
+            t.bump_dx, t.bump_dy = e.dx, e.dy
+            t.bump_out, t.bump_slam = false, false
+            t.impact_wait  = 0
+            t.shake_trauma = math.max(t.shake_trauma or 0, 0.9)
+            Pop.trigger("tbl_bump:" .. (t._id or 0))
+            table.remove(list, i)
+        else
+            t.impact_wait = e.t_left
+        end
+    end
+end
+
+-- Ghost + sound for a proc. itemFired keys off ctx.sources[kind], but
+-- every proc shares the kind "proc", so that path would pop every proc
+-- item's sprite at once. The proc names its own item instead.
+function GrindController:procFired(item_id, tbl)
+    local bus = self.game.event_bus
+    if not bus or not item_id then return end
+    local x, y, pw, ph
+    local pos = tbl and AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
+    if pos then x, y, pw, ph = pos[1], pos[2], pos[3], pos[4] end
+    bus:publish("item_fired", item_id, "proc", x, y, pw, ph)
+end
+
 function GrindController:invalidateEffects()
     local n_tables = self.pool and self.pool:count() or 0
     self.ctx = self.game.state:computeEffects(self.game.effects, Catalog, RunUpgrades, { active_tables_count = n_tables })
@@ -134,6 +306,7 @@ function GrindController:invalidateEffects()
     if self.ctx.ultra_unlocked then
         self.game.state.ultra_unlocked = true
     end
+    self:_rebuildProcIndex()
 end
 
 -- Maximum concurrent tables. The catalog no longer gates *how many* tables
@@ -182,6 +355,10 @@ end
 function GrindController:update(dt)
     -- Cascade budget is per FRAME, not per run — reset before the tick.
     self._cascade_sweeps = 0
+    -- Proc budget is per frame too (services/ProcRegistry).
+    if self.game.procs then self.game.procs:beginFrame() end
+    -- Shockwaves in flight from a slam or a shove.
+    self:_tickImpacts(dt)
 
     -- Snapshot per-table state BEFORE the pool ticks so we can detect
     -- transitions afterwards and play the right sound on each.
@@ -344,6 +521,18 @@ function GrindController:update(dt)
                 -- Partial payout (busted before the win) — a plain cash float.
                 self.game.floating_text.emit(string.format("+$%.2f", payout),
                     center[1], center[2])
+            else
+                -- Out of the money. The most common way a tournament ends
+                -- and, until now, the only outcome in the game that said
+                -- nothing at all. It is the tilt beat.
+                self.game.floating_text.emit("BUSTED",
+                    center[1], center[2],
+                    { color_token = "error", lifetime = 1.6 })
+                self:_fireProcs("on_tournament_miss", t, { n = 1 })
+            end
+
+            if is_win then
+                self:_fireProcs("on_tournament_win", t, { n = 1 })
             end
 
             t.mtt.hands_won = 0
@@ -638,6 +827,24 @@ function GrindController:update(dt)
         if self.ctx and self.ctx.cascade_on_jackpot
            and r.delta > 0 and r.tier == "jackpot" then
             self:_cascadeZoomTables(r.table, resolutions)
+        end
+
+        -- Knockouts. Fired ONCE per hand carrying the seat count, not once
+        -- per seat: a scheduled multi-bust puts two seats out on the same
+        -- hand, and firing twice would be a no-op for a refreshing status
+        -- while double-paying a chance-based one. Payloads that should
+        -- scale read event.n instead.
+        if r.busted_seats then
+            self:_fireProcs("on_ko", r.table, {
+                n = #r.busted_seats, out = resolutions,
+                busted_total = r.busted_total,
+            })
+        end
+        if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table then
+            self:_fireProcs("on_jackpot_win", r.table, { out = resolutions })
+        end
+        if r.delta < 0 and r.tier == "jackpot" and not r.chip_stack_table then
+            self:_fireProcs("on_stack_loss", r.table, { out = resolutions })
         end
 
         if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table then
@@ -1469,22 +1676,21 @@ function GrindController:toggleCursorRebuyMute(idx)
     return true
 end
 
--- Move a table (identified by its runtime _id — indices go stale between
--- the drag's frames) so it sits at to_idx; the tables between slide one
--- step (insert-shift). Called from GrindView's drag drop, outside the
--- update tick, so the prev_states[i] snapshot never spans a reorder.
--- Order persists through _syncStateList — no dedicated save field.
-function GrindController:reorderTable(table_id, to_idx)
+-- Seat a table (identified by its runtime _id — indices go stale between
+-- the drag's frames) in a specific board cell. An empty cell moves it; an
+-- occupied one swaps the two. Called from GrindView's drag drop, outside
+-- the update tick, so the prev_states[i] snapshot never spans a move.
+-- The cell persists through _syncStateList (active_table_slot).
+function GrindController:moveTableToSlot(table_id, slot)
     local from_idx
     for i, t in ipairs(self.pool.tables) do
         if t._id == table_id then from_idx = i; break end
     end
     if not from_idx then return false end   -- table closed mid-drag
-    local n = #self.pool.tables
-    to_idx = math.max(1, math.min(n, math.floor(to_idx or 1)))
-    if not self.pool:reorder(from_idx, to_idx) then return false end
-    -- Cursor claims are keyed by pool index; release them so no cursor
-    -- silently re-aims at whatever table now occupies its old index.
+    if not self.pool:moveToSlot(from_idx, slot) then return false end
+    -- Cursor claims are keyed by pool index, and pool order is reading
+    -- order of the board — so a move can renumber. Release them so no
+    -- cursor silently re-aims at whatever table now sits at its index.
     CursorPool.releaseAllTargets()
     return true
 end

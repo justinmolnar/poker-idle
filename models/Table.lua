@@ -54,6 +54,7 @@ local GameTypesData = require("data.game_types")
 local NameData      = require("data.opponent_names")
 local MttPayouts    = require("data.mtt_payouts")
 local Lookups       = require("utils.lookups")
+local StatusData    = require("data.statuses")
 local Constants     = require("data.constants")
 local HandScript    = require("models.HandScript")
 local OutcomeMath   = require("models.outcome_math")
@@ -107,7 +108,7 @@ end
 
 -- ─── Construction ─────────────────────────────────────────────────────
 
-function Table:new(stake_id, game_type_id, ctx, poker_events)
+function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry)
     local stake = Lookups.findById(StakesData,stake_id)
     local id = _next_id
     _next_id = _next_id + 1
@@ -125,6 +126,10 @@ function Table:new(stake_id, game_type_id, ctx, poker_events)
         -- inside HandScript.write) and at play time (cinematic walker
         -- mutates the table's playback state as each event fires).
         poker_events  = poker_events,
+        -- The same EffectsRegistry the global rollup uses. A status is
+        -- applied through it onto this table's ctx overlay, so statuses
+        -- need no effect vocabulary of their own (see :effectiveCtx).
+        effects_registry = effects_registry,
         script             = nil,
         script_idx         = 0,
         script_timer       = 0,
@@ -183,6 +188,43 @@ function Table:new(stake_id, game_type_id, ctx, poker_events)
         lift_t             = 0,
         slam_t             = 0,
         glow_t             = 0,
+
+        -- Bump direction: this table just shoved a neighbour, or just got
+        -- shoved. Only the DIRECTION lives here — the envelope is a
+        -- services/Pop entry keyed "tbl_bump:<id>", so there is no timer
+        -- to declare or decay. bump_out is true for the one doing the
+        -- shoving (lunges out and back), false for the one taking it
+        -- (knocked away, settles home).
+        bump_dx            = 0,
+        bump_dy            = 0,
+        bump_out           = false,
+        -- The fist. Set when this table is the one being slammed on
+        -- rather than shoving or being shoved: the strike is instant and
+        -- what animates is the recovery.
+        bump_slam          = false,
+        -- Seconds until an incoming shockwave reaches this table. While
+        -- it is counting down the table has already taken its status but
+        -- shows NOTHING of it: nothing reacts until the fist lands.
+        impact_wait        = 0,
+
+        -- Shaking a lean off. When a status that tilted this table
+        -- expires, the panel doesn't snap back to level — it rocks and
+        -- settles. untilt_t is the 0..1 decay, untilt_mag the lean it is
+        -- unwinding from.
+        untilt_t           = 0,
+        untilt_mag         = 0,
+
+        -- Statuses (data/statuses.lua): the temporary things happening TO
+        -- this table. Left nil until something applies one — the decay
+        -- block runs for every table every frame, so the common case is a
+        -- single nil check. Transient by design: TablePool:_syncStateList
+        -- doesn't carry them, so they evaporate on load, which is right —
+        -- autosave is every 10s and every status is shorter than that.
+        statuses           = nil,
+        -- Bumped whenever the ctx contribution changes (add, stronger
+        -- refresh, expiry). Keys the overlay cache; a pure duration
+        -- refresh deliberately does NOT bump it.
+        _status_rev        = 0,
 
         -- Cash-out gate. Set to true by GrindController:removeTable /
         -- :cashOutAll when the player asks to close a table that's mid-
@@ -287,6 +329,7 @@ function Table:_reconcileChipFlow()
 
     local player_seat = self.player_seat_fixed
     local old_stack   = self.seat_stacks[player_seat] or 0
+    local busted_opps = nil
 
     local n_seats = ps.n_seats or 0
     for seat = 1, n_seats do
@@ -308,6 +351,15 @@ function Table:_reconcileChipFlow()
                 if not self.seat_busted[seat] then
                     self.seat_busted[seat] = true
                     self.bust_order[#self.bust_order + 1] = seat
+                    -- Knockouts, collected for the procs that key off
+                    -- them. The player's OWN seat is in bust_order too,
+                    -- and it is filtered out right here at the source so
+                    -- no consumer downstream can forget: busting out of a
+                    -- tournament must not fire your "on knockout" buffs.
+                    if seat ~= self.player_seat_fixed then
+                        busted_opps = busted_opps or {}
+                        busted_opps[#busted_opps + 1] = seat
+                    end
                 end
             end
             self.seat_stacks[seat] = stack
@@ -316,7 +368,7 @@ function Table:_reconcileChipFlow()
 
     local new_stack = self.seat_stacks[player_seat] or 0
     self.stack = new_stack
-    return new_stack - old_stack
+    return new_stack - old_stack, busted_opps
 end
 
 -- ─── Per-hand math ────────────────────────────────────────────────────
@@ -417,27 +469,36 @@ function Table:deal(ctx)
         -- shift perks (Self-Help Book / Lava Lamp on win, Stress Ball /
         -- Worry Stone on loss) chain on top — only the cash path uses
         -- these; tournaments shape difficulty via the plan instead.
-        local wc, wd, ld = OutcomeMath.buildOutcome(ctx, gtype, stake)
-        won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ctx, gtype)
+        local ec = self:effectiveCtx(ctx)
+        local wc, wd, ld = OutcomeMath.buildOutcome(ec, gtype, stake)
+        won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ec, gtype)
         if won then
-            tier = OutcomeMath.applyTierShift(tier, ctx.win_tier_shifts, gtype)
+            tier = OutcomeMath.applyTierShift(tier, ec.win_tier_shifts, gtype)
         else
-            tier = OutcomeMath.applyTierShift(tier, ctx.loss_tier_shifts, gtype)
+            tier = OutcomeMath.applyTierShift(tier, ec.loss_tier_shifts, gtype)
         end
     end
+
+    -- Everything below prices the hand, so it reads THIS table's ctx —
+    -- the global rollup plus whatever statuses are riding on this table.
+    -- Identical to `ctx` (same object) whenever nothing is active.
+    -- Deliberately after the MTT branch above: a tournament's outcomes
+    -- come from a plan rolled once at the start, so a transient status
+    -- must not be baked into it.
+    local ectx = self:effectiveCtx(ctx)
 
     -- Per-resolve tier bump + payout double (Maniac capstone). Generic
     -- capability flags — one-step, non-chaining bump via the shared tier
     -- ranking; magnitude double applied below.
     local payout_double = 1.0
-    if ctx then
-        if ctx.tier_bump_chance and love.math.random() < ctx.tier_bump_chance then
+    if ectx then
+        if ectx.tier_bump_chance and love.math.random() < ectx.tier_bump_chance then
             local rank = OutcomeMath.TIER_INDEX[tier]
             if rank then
                 tier = OutcomeMath.TIER_KEYS[math.min(#OutcomeMath.TIER_KEYS, rank + 1)]
             end
         end
-        if ctx.payout_double_chance and love.math.random() < ctx.payout_double_chance then
+        if ectx.payout_double_chance and love.math.random() < ectx.payout_double_chance then
             payout_double = 2.0
         end
     end
@@ -449,16 +510,16 @@ function Table:deal(ctx)
 
     -- earnings_mult / loss_mult scale magnitude only — they don't reshape
     -- the dists (Pot Odds Master, Damage Control, Headphones).
-    local earnings_mult = ctx.earnings_mult or 1
-    if ctx.earnings_per_tier then
+    local earnings_mult = ectx.earnings_mult or 1
+    if ectx.earnings_per_tier then
         local tier_idx = stake and Lookups.indexById(StakesData, stake.id) or 0
-        earnings_mult = earnings_mult * (1.0 + ctx.earnings_per_tier * tier_idx)
+        earnings_mult = earnings_mult * (1.0 + ectx.earnings_per_tier * tier_idx)
     end
-    local loss_mult     = ctx.loss_mult     or 1
+    local loss_mult     = ectx.loss_mult     or 1
     -- jackpot_mult (Branded Hat) stacks on top of earnings_mult — only
     -- jackpot-tier WINS get the extra boost.
     local jackpot_mult  = (won and tier == "jackpot")
-                          and (ctx.jackpot_mult or 1) or 1
+                          and (ectx.jackpot_mult or 1) or 1
     if won then
         local raw_win = magnitude_bb * stake.bb
         -- The seats rule: the most a hand can pay is one stack from each
@@ -703,6 +764,11 @@ function Table:deal(ctx)
             end
         end
     end
+
+    -- Past every early-out above, so a hand that never started never
+    -- burns a charge. Timed statuses are untouched here — they run on
+    -- the clock, not on hands.
+    self:_spendStatusCharges()
     return true
 end
 
@@ -711,6 +777,8 @@ end
 -- Decay rates per-second. Tuned for visible punch — slow enough that the
 -- effect lingers long enough to read, fast enough not to fight the next
 -- hand's animation.
+-- Shaking off a lean: slow enough to read as the table righting itself.
+local UNTILT_DECAY_RATE       = 1.6
 local SHAKE_DECAY_RATE        = 1.2
 local VIGNETTE_DECAY_RATE     = 1.2
 local BORDER_PULSE_DECAY_RATE = 1.0
@@ -761,6 +829,13 @@ function Table:update(dt, ctx)
     if (self.reroll_flash_t or 0) > 0 then
         self.reroll_flash_t = math.max(0, self.reroll_flash_t - d)
     end
+    if (self.untilt_t or 0) > 0 then
+        self.untilt_t = math.max(0, self.untilt_t - d * UNTILT_DECAY_RATE)
+    end
+    -- Statuses tick on RAW dt like the FX above, NOT on the pace-scaled
+    -- effective_dt computed below: a status that makes a table play faster
+    -- must not shorten itself by doing so.
+    if self.statuses then self:_tickStatuses(d) end
 
     if self.state == "idle" then return nil end
 
@@ -806,8 +881,9 @@ function Table:update(dt, ctx)
             -- for end-condition checks in _finalizeHand).
             local gtype = Lookups.findById(GameTypesData, self.game_type_id)
             local resolved_delta = self.outcome_delta
+            local busted_opps
             if gtype and gtype.chip_stack_table then
-                resolved_delta = self:_reconcileChipFlow()
+                resolved_delta, busted_opps = self:_reconcileChipFlow()
                 self.outcome_delta = resolved_delta
             end
             self.state       = "settling"
@@ -820,6 +896,13 @@ function Table:update(dt, ctx)
                 y     = self.y,
                 chip_stack_table = gtype and gtype.chip_stack_table or false,
                 felt_pot = self.playback_state and self.playback_state.pot_at_push or 0,
+                -- Knockout signal, opponents only. nil on cash tables and
+                -- on tournament hands where nobody busted. This is the
+                -- ONLY outlet: the per-hand bust list computed later in
+                -- _finalizeHand is consumed by the tournament planner and
+                -- thrown away, and it arrives a frame late besides.
+                busted_seats = busted_opps,
+                busted_total = busted_opps and #(self.bust_order or {}) or nil,
             }
             self.lift_t = 0
         elseif self.state == "settling" and self.state_timer >= 0.4 then
@@ -861,6 +944,149 @@ end
 -- Returns nil when there is nothing to finish (idle, already settling, or
 -- the script is spent). That nil IS the throttle for cascade effects — a
 -- table with no live hand simply can't be swept again.
+-- ─── Statuses ──────────────────────────────────────────────────────────
+-- See data/statuses.lua for the model. Applying is idempotent-ish: a live
+-- status of the same kind REFRESHES (max magnitude, max remaining life)
+-- rather than stacking, so overlapping sources extend uptime without
+-- compounding power.
+
+local STATUS_CAP = 6   -- runaway guard; entries are keyed by kind, so the
+                       -- real bound is the number of authored kinds.
+
+function Table:applyStatus(kind, spec)
+    local def = StatusData[kind]
+    if not def or not spec then return false end
+    self.statuses = self.statuses or {}
+    local mag = spec.magnitude or 0
+
+    for _, e in ipairs(self.statuses) do
+        if e.kind == kind then
+            local stronger = mag > (e.magnitude or 0)
+            e.magnitude = math.max(e.magnitude or 0, mag)
+            if def.lifetime == "charges" then
+                e.charges     = math.max(e.charges or 0, spec.charges or 0)
+                e.charges_max = math.max(e.charges_max or 0, e.charges)
+            else
+                e.t     = math.max(e.t or 0, spec.t or 0)
+                e.t_max = math.max(e.t_max or 0, e.t)
+            end
+            e.source = spec.source or e.source
+            -- A pure duration refresh doesn't change what this table
+            -- rolls, so it must not invalidate the overlay cache.
+            if stronger then self._status_rev = self._status_rev + 1 end
+            return true
+        end
+    end
+
+    if #self.statuses >= STATUS_CAP then return false end
+    self.statuses[#self.statuses + 1] = {
+        kind        = kind,
+        magnitude   = mag,
+        t           = (def.lifetime ~= "charges") and (spec.t or 0) or nil,
+        t_max       = (def.lifetime ~= "charges") and (spec.t or 0) or nil,
+        charges     = (def.lifetime == "charges") and (spec.charges or 0) or nil,
+        charges_max = (def.lifetime == "charges") and (spec.charges or 0) or nil,
+        source      = spec.source,
+    }
+    self._status_rev = self._status_rev + 1
+    return true
+end
+
+function Table:_tickStatuses(d)
+    for i = #self.statuses, 1, -1 do
+        local e = self.statuses[i]
+        if e.t then
+            e.t = math.max(0, e.t - d)
+            if e.t <= 0 then
+                -- A status that had the table leaning hands the lean over
+                -- to the shake-off, so the panel rights itself instead of
+                -- snapping level between two frames.
+                local def = StatusData[e.kind]
+                if def and (def.rotate or 0) > 0 then
+                    self.untilt_t   = 1
+                    self.untilt_mag = e.magnitude or 0
+                end
+                table.remove(self.statuses, i)
+                self._status_rev = self._status_rev + 1
+            end
+        end
+    end
+    if #self.statuses == 0 then self.statuses = nil end
+end
+
+-- Charge statuses are spent by DEALING, not by time. Called at the end of
+-- :deal, past every early-out, so a hand that never started never burns
+-- one. forceResolve goes through :update rather than :deal, so a cascaded
+-- resolution correctly spends neither a charge nor a second of a timer.
+function Table:_spendStatusCharges()
+    if not self.statuses then return end
+    for i = #self.statuses, 1, -1 do
+        local e = self.statuses[i]
+        if e.charges then
+            e.charges = e.charges - 1
+            if e.charges <= 0 then
+                table.remove(self.statuses, i)
+                self._status_rev = self._status_rev + 1
+            end
+        end
+    end
+    if #self.statuses == 0 then self.statuses = nil end
+end
+
+-- The ctx this table actually plays against.
+--
+-- Returns `base` BY IDENTITY when nothing is active — the overwhelmingly
+-- common case allocates nothing, which matters at ~35 hands/sec across a
+-- full board. Otherwise a shallow-copy overlay, cached until either the
+-- base rollup or this table's statuses change.
+--
+-- The copy is not optional. ctx is ONE table shared by every Table (each
+-- stashes it as _last_ctx), and several effect applicators APPEND to
+-- list-valued fields — appending to the shared list would leak this
+-- table's status onto every other table, permanently. Every table-valued
+-- key is copied rather than an authored list of them, so a new
+-- list-valued effect kind can never silently reintroduce that bug.
+function Table:effectiveCtx(base)
+    if not base or not self.statuses then return base end
+    if self._ctx_ov and self._ctx_ov_base == base
+       and self._ctx_ov_rev == self._status_rev then
+        return self._ctx_ov
+    end
+
+    local ov = {}
+    for k, v in pairs(base) do
+        if type(v) == "table" then
+            local c = {}
+            for kk, vv in pairs(v) do c[kk] = vv end
+            ov[k] = c
+        else
+            ov[k] = v
+        end
+    end
+
+    local reg = self.effects_registry
+    if reg then
+        for _, e in ipairs(self.statuses) do
+            local def = StatusData[e.kind]
+            for _, tpl in ipairs((def and def.effects) or {}) do
+                local m = (e.magnitude or 0) * (tpl.mag_sign or 1)
+                if tpl.mag_form == "one_plus" then m = 1 + m end
+                local entry = {}
+                for k, v in pairs(tpl) do
+                    if k ~= "mag_field" and k ~= "mag_sign" and k ~= "mag_form" then
+                        entry[k] = v
+                    end
+                end
+                entry[tpl.mag_field or "value"] = m
+                reg:apply(entry, ov)
+            end
+        end
+    end
+
+    self._ctx_ov, self._ctx_ov_base, self._ctx_ov_rev = ov, base, self._status_rev
+    return ov
+end
+
 function Table:forceResolve(ctx)
     if self.state == "idle" or self.state == "settling" then return nil end
     if not self.script or self.script_idx >= #self.script then return nil end
@@ -1026,15 +1252,21 @@ end
 -- Debug-only: pool stats for the backtick debug tooltip. Without per-seat
 -- mechanical variance, there's no per-opponent breakdown to compute — every
 -- seat at a given (stake, gtype, ctx) shares the same outcome.
+-- Both readouts price against THIS table's ctx (statuses included), not
+-- the global rollup — otherwise a heated table's panel would quote a win
+-- chance and $/hand it isn't actually playing. Identical to the raw ctx
+-- whenever no status is active. The stake-add buttons in the sidebar
+-- deliberately stay on the raw ctx: they describe a table you haven't
+-- opened, which by definition has no statuses.
 function Table:debugStats(ctx)
-    return OutcomeMath.evStats(ctx,
+    return OutcomeMath.evStats(self:effectiveCtx(ctx),
         Lookups.findById(GameTypesData, self.game_type_id),
         Lookups.findById(StakesData, self.stake_id))
 end
 
 function Table:estimateStats(ctx)
     if #self.opponents == 0 then return nil end
-    local s = OutcomeMath.evStats(ctx,
+    local s = OutcomeMath.evStats(self:effectiveCtx(ctx),
         Lookups.findById(GameTypesData, self.game_type_id),
         Lookups.findById(StakesData, self.stake_id))
     if not s then return nil end

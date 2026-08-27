@@ -15,6 +15,19 @@
 --                          6-max is intentionally below 1 to anchor the
 --                          baseline so multi-tabling is the way to scale
 --                          throughput, not single-table click-spam.
+--                          ─── 2026-08-27 GLOBAL SLOWDOWN ───
+--                          Every mode was too fast to watch. Zoom in
+--                          particular finished a hand in ~1.4s, so a table
+--                          was almost never mid-hand when something tried
+--                          to reach it (the Receipt Printer cascade can
+--                          only settle a LIVE hand, and so it whiffed
+--                          nearly every time). Old values: six_max 0.35,
+--                          hu 1.0, zoom 2.2, mtt 1.0.
+--                          Hand length follows the felt: 8-max and 6-max
+--                          are the long ones, the duel is quicker, and Zoom
+--                          is the only fast mode at ~3s. Re-run
+--                          sim/gtype_ev.lua after touching any of these;
+--                          never trust a number written in a comment.
 --   • dist_shifts        — additive deltas on win_dist / loss_dist (see
 --                          models/Table.lua:buildOutcome). Same shape as
 --                          opponent_types.style_dist_shifts: an entry with
@@ -39,7 +52,9 @@ local mtt_entry = {
         name = "Tournament",
         short = "8-MAX KO",
         seats = 7,              -- 7 opponents + player = 8 seated total
-        pace_mult = 1.0,
+        -- Eight seated is the most crowded felt in the game, so its hands
+        -- run as long as 6-max's. It is never the quick one.
+        pace_mult = 0.18,
         rerolls_opponents = false,
         -- 8-max knockout: each seat sits down with starting_stack_bb at
         -- table init. Hands play normally (no binary_outcome), with real
@@ -70,7 +85,7 @@ return {
         name = "6-max",
         short = "6-MAX",
         seats = 5,
-        pace_mult = 0.35,       -- THE TANK: slowest hands in the game.
+        pace_mult = 0.24,       -- THE TANK: slowest hands in the game.
                                 -- Anchors all multi-tabling math.
         -- 6-max is where the money is, and it pays for that with time and
         -- variance rather than with a better win rate: five opponents
@@ -87,8 +102,9 @@ return {
         name = "Heads-Up",
         short = "HU",
         seats = 1,
-        pace_mult = 1.0,        -- fast; only two seats act, so its hands
-                                -- are the shortest in the game by event count
+        pace_mult = 0.50,       -- The duel is still the quickest hand in
+                                -- the game by event count (only two seats
+                                -- act), so it needs no help being fast.
         -- HU = the duel, and THE {chip} ENGINE. One opponent means one
         -- stack, so its pots are the smallest ceiling in the game — but
         -- both dists skew hard toward large/jackpot, so it reaches that
@@ -108,7 +124,7 @@ return {
         name = "Zoom",
         short = "ZOOM",
         seats = 5,
-        pace_mult = 2.2,        -- THE FIREHOSE. Zoom also carries beat
+        pace_mult = 0.85,       -- THE FIREHOSE. Zoom also carries beat
                                 -- overrides (data/poker_event_timings.lua)
                                 -- and a fold-heavy hand shape
                                 -- (data/hand_structure.lua), so its hands

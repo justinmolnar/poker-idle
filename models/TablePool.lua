@@ -10,6 +10,7 @@
 
 local Table     = require("models.Table")
 local GameTypes = require("data.game_types")
+local TableGrid = require("models.table_grid")
 
 -- Fallback gtype for unknown ids in a saved spec (e.g. a deprecated mode
 -- from a prior build). Six-max is the safe baseline — same buy-in, same
@@ -49,11 +50,14 @@ local function unpackSpec(spec)
     return stake_id, gtype_id
 end
 
-function TablePool:new(state, ctx, poker_events)
+function TablePool:new(state, ctx, poker_events, effects_registry)
     local self = setmetatable({
         state        = state,
         tables       = {},
         poker_events = poker_events,
+        -- Threaded down to each Table so a status can be applied through
+        -- the same registry every owned item uses (Table:effectiveCtx).
+        effects_registry = effects_registry,
     }, TablePool)
     self:rebuildFromState(ctx)
     return self
@@ -74,6 +78,13 @@ function TablePool:rebuildFromState(ctx)
     local b_orders     = self.state.active_table_bust_order  or {}
     local mtt_plans    = self.state.active_table_mtt_plans   or {}
     local stack_vals   = self.state.active_table_stack       or {}
+    -- Board cells. A save written before slots existed (or one whose spec
+    -- list grew behind the pool's back — applyStartingPerks appends specs
+    -- directly) has no entry here; those tables fall back to dense reading
+    -- order, which reproduces the pre-slot layout exactly.
+    local slot_vals    = self.state.active_table_slot        or {}
+    local status_vals  = self.state.active_table_statuses    or {}
+    local dense        = TableGrid.denseSlots(#(self.state.active_table_specs or {}))
     for i, spec in ipairs(self.state.active_table_specs or {}) do
         local stake_id, gtype_id = unpackSpec(spec)
         -- Save-safe degrade #2: a stake id that no longer exists (renamed or
@@ -95,7 +106,7 @@ function TablePool:rebuildFromState(ctx)
             -- from a pre-rip build) silently downgrades to six_max so the
             -- table can still be reconstructed.
             if not gtypeExists(gtype_id) then gtype_id = "six_max" end
-            local t = Table:new(stake_id, gtype_id, ctx, self.poker_events)
+            local t = Table:new(stake_id, gtype_id, ctx, self.poker_events, self.effects_registry)
             t.cursor_muted        = mutes[i] == true
             t.cursor_rebuy_muted  = rebuy_mutes[i] == true
             -- Tournament continuity: reload-mid-run drops the player back
@@ -122,9 +133,23 @@ function TablePool:rebuildFromState(ctx)
                 t.bust_order        = b_orders[i] or {}
                 if stack_vals[i] then t.stack = stack_vals[i] end
             end
+            t.slot = slot_vals[i] or dense[i] or TableGrid.pack(0, 0)
+            -- Heaters and tilts survive a reload with their remaining
+            -- time intact. An empty list restores as no statuses at all,
+            -- which is also what a save written before statuses existed
+            -- looks like.
+            local saved_statuses = status_vals[i]
+            if saved_statuses and #saved_statuses > 0 then
+                t.statuses = saved_statuses
+                t._status_rev = (t._status_rev or 0) + 1
+            end
             self.tables[#self.tables + 1] = t
         end
     end
+    -- A dropped spec (unknown stake) leaves a hole in the middle of the
+    -- saved cells; that is fine, holes are legal. Re-sort so pool order is
+    -- reading order regardless of what the save contained.
+    self:_sortBySlot()
 end
 
 function TablePool:_syncStateList()
@@ -132,7 +157,13 @@ function TablePool:_syncStateList()
     local hands, mstate, mtt_plans = {}, {}, {}
     local seat_stacks, seat_busted = {}, {}
     local p_seats, b_seats, b_orders, stack_vals = {}, {}, {}, {}
+    local slots, statuses = {}, {}
     for i, t in ipairs(self.tables) do
+        slots[i] = t.slot or 0
+        -- A REFERENCE to the live list, not a copy: the entries tick down
+        -- in place, so whatever is serialised later is automatically
+        -- current without re-syncing every frame.
+        statuses[i] = t.statuses
         specs[i]        = packSpec(t.stake_id, t.game_type_id)
         mutes[i]        = t.cursor_muted == true
         rebuy_mutes[i]  = t.cursor_rebuy_muted == true
@@ -158,34 +189,71 @@ function TablePool:_syncStateList()
     self.state.active_table_button_seat   = b_seats
     self.state.active_table_bust_order    = b_orders
     self.state.active_table_stack         = stack_vals
+    self.state.active_table_slot          = slots
+    self.state.active_table_statuses      = statuses
 end
 
 function TablePool:count() return #self.tables end
 
 function TablePool:get(idx) return self.tables[idx] end
 
+-- The board's cells, in pool order.
+function TablePool:slots()
+    local out = {}
+    for i, t in ipairs(self.tables) do out[i] = t.slot or 0 end
+    return out
+end
+
+-- The board a view has to draw: the bounding box of occupied cells, so
+-- trailing empty rows/columns collapse while interior holes stay.
+function TablePool:boardShape()
+    return TableGrid.bounds(self:slots())
+end
+
+-- Pool order IS reading order of the board. Keeping it that way means the
+-- 12 index-keyed save arrays stay meaningful, and "the next table along"
+-- means the same thing to the player and to the code.
+function TablePool:_sortBySlot()
+    table.sort(self.tables, function(a, b)
+        return TableGrid.before(a.slot or 0, b.slot or 0)
+    end)
+end
+
 function TablePool:addTable(stake_id, game_type_id, ctx)
-    self.tables[#self.tables + 1] = Table:new(stake_id, game_type_id, ctx, self.poker_events)
+    local t = Table:new(stake_id, game_type_id, ctx, self.poker_events, self.effects_registry)
+    -- Takes a free cell if the board has one; otherwise the board grows a
+    -- step and this table sits in the row/column that just appeared. No
+    -- table already on the board moves.
+    t.slot = TableGrid.placeNew(self:slots())
+    self.tables[#self.tables + 1] = t
+    self:_sortBySlot()
     self:_syncStateList()
 end
 
+-- Closing a table leaves its cell EMPTY rather than compacting everyone
+-- along. The hole is the point: it holds a formation's shape, and it can
+-- be re-filled or used as deliberate spacing.
 function TablePool:removeTable(idx)
     if idx < 1 or idx > #self.tables then return end
     table.remove(self.tables, idx)
     self:_syncStateList()
 end
 
--- Move the table at from_idx so it sits at to_idx (insert-shift: the
--- tables between them slide one step). Order IS the persistence — the
--- parallel save arrays are rebuilt from pool order by _syncStateList, so
--- a reorder needs no save field of its own.
-function TablePool:reorder(from_idx, to_idx)
-    local n = #self.tables
-    if from_idx < 1 or from_idx > n then return false end
-    if to_idx   < 1 or to_idx   > n then return false end
-    if from_idx == to_idx then return false end
-    local t = table.remove(self.tables, from_idx)
-    table.insert(self.tables, to_idx, t)
+-- Put a table in a specific cell. An occupied target swaps the two tables;
+-- an empty one just moves. Slot IS the persistence — _syncStateList writes
+-- it alongside the other per-table arrays.
+function TablePool:moveToSlot(from_idx, slot)
+    local t = self.tables[from_idx]
+    if not t or not slot then return false end
+    if t.slot == slot then return false end
+    for _, other in ipairs(self.tables) do
+        if other ~= t and other.slot == slot then
+            other.slot = t.slot           -- swap
+            break
+        end
+    end
+    t.slot = slot
+    self:_sortBySlot()
     self:_syncStateList()
     return true
 end

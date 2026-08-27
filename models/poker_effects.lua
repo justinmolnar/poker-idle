@@ -404,6 +404,16 @@ function PokerEffects.registerAll(reg)
     reg:register("cascade_on_jackpot", function(_e, ctx)
         ctx.cascade_on_jackpot = true
     end)
+
+    -- A proc: "when X happens, do Y to Z". The applicator only collects
+    -- the id — dispatch lives in services/ProcRegistry, because an
+    -- applicator can only write to ctx and a proc has to reach tables.
+    -- data/procs.lua holds the descriptors.
+    reg:register("proc", function(e, ctx)
+        if not e.proc then return end
+        ctx.procs = ctx.procs or {}
+        ctx.procs[#ctx.procs + 1] = e.proc
+    end)
     -- Dogs Playing Poker: the first {chip} bounty each run pays +value.
     reg:register("first_bounty_bonus", function(e, ctx)
         ctx.first_bounty_bonus = (ctx.first_bounty_bonus or 0) + (e.value or 0)
