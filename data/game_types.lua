@@ -70,8 +70,16 @@ return {
         name = "6-max",
         short = "6-MAX",
         seats = 5,
-        pace_mult = 0.5,        -- baseline slow. Anchors all multi-tabling math.
-        dist_shifts = nil,      -- baseline; no shift
+        pace_mult = 0.35,       -- THE TANK: slowest hands in the game.
+                                -- Anchors all multi-tabling math.
+        -- 6-max is where the money is, and it pays for that with time and
+        -- variance rather than with a better win rate: five opponents
+        -- means five stacks can go into one pot (data/pot_tiers.lua gives
+        -- it a 380-500bb jackpot against everyone else's ~100), so the WC
+        -- comes down to keep the mode honest. You win less often; when you
+        -- win big, it is enormous.
+        win_chance_shift = -0.08,
+        dist_shifts = nil,      -- baseline shape; the bands do the work
         rerolls_opponents = false,
     },
     {
@@ -81,10 +89,13 @@ return {
         seats = 1,
         pace_mult = 1.0,        -- fast; only two seats act, so its hands
                                 -- are the shortest in the game by event count
-        -- HU = the duel. Low win rate (-0.10 WC vs other modes), but
-        -- when pots happen they're DEEP — both wins AND losses skew
-        -- away from small/medium toward large/jackpot. Identity: "lose
-        -- often, but pots are big both ways."
+        -- HU = the duel, and THE {chip} ENGINE. One opponent means one
+        -- stack, so its pots are the smallest ceiling in the game — but
+        -- both dists skew hard toward large/jackpot, so it reaches that
+        -- ceiling constantly. Since a {stack} is a jackpot-tier hit, not
+        -- a dollar amount, banking chips here is far faster than anywhere
+        -- else while the money stays modest. Identity: "small pots, but
+        -- you hit the top tier over and over."
         win_chance_shift = -0.10,
         dist_shifts = {
             win_dist  = { small = -0.20, medium = -0.10, large = 0.10, jackpot = 0.20 },
@@ -97,9 +108,12 @@ return {
         name = "Zoom",
         short = "ZOOM",
         seats = 5,
-        pace_mult = 1.4,        -- very fast. Zoom also carries per-gtype
-                                -- beat overrides (timings, below) so its
-                                -- hands compress rather than just speed up.
+        pace_mult = 2.2,        -- THE FIREHOSE. Zoom also carries beat
+                                -- overrides (data/poker_event_timings.lua)
+                                -- and a fold-heavy hand shape
+                                -- (data/hand_structure.lua), so its hands
+                                -- are structurally shorter as well as
+                                -- faster: ~6x 6-max's hands per hour.
         -- Zoom = fold-spam firehose. High WC (+0.05) — most hands are
         -- preflop spats you're ahead in. Low pot sizes — heavy small
         -- mass. Jackpots are reachable but rare: `jackpot_scale` sets the
@@ -113,7 +127,11 @@ return {
         -- Control level (see OutcomeMath step 7).
         win_chance_shift = 0.05,
         jackpot_emerge = 0.5,
-        jackpot_scale  = 0.20,
+        -- Lowered with the band rework: zoom shares 6-max's five-seat
+        -- jackpot ceiling, so a zoom Stack is now a genuinely huge pot.
+        -- It should stay a once-a-session event, not an income stream —
+        -- zoom earns through volume, and HU is the chip engine.
+        jackpot_scale  = 0.08,
         dist_shifts = {
             win_dist  = { small = 0.40, medium =  0.05, large = -0.05, jackpot = -0.40 },
             loss_dist = { small = 0.10, medium = -0.02, large = -0.03, jackpot = -0.05 },

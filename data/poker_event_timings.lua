@@ -45,6 +45,21 @@ return {
     },
 
     by_gtype = {
-        -- Filled by the identity retune (phase E), from sim/gtype_ev.lua.
+        -- ZOOM. pace_mult alone just runs the same hand faster; these
+        -- cut the beats that drag (deals, the showdown reveal, the gap
+        -- between streets) so a zoom hand is structurally shorter too.
+        -- With its pace_mult this lands around 6x the hands-per-hour of
+        -- 6-max — run sim/gtype_ev.lua for the current figure.
+        zoom = {
+            fold            = 0.05,
+            check           = 0.07,
+            call            = 0.10,
+            deal_flop       = 0.18,
+            deal_turn       = 0.14,
+            deal_river      = 0.14,
+            showdown_reveal = 0.22,
+            pot_push        = 0.22,
+            street_gap      = 0.08,
+        },
     },
 }

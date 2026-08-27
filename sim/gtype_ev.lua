@@ -91,6 +91,46 @@ local CANDIDATES = {
                      showdown_reveal = 0.25, pot_push = 0.25, street_gap = 0.10 },
         },
     },
+
+    -- c2: the shipping cut. Same seats-rule shape as c1, but zoom's
+    -- middle bands are cut hard (it is the DRIP, not a second tank) and
+    -- six-max pays for its huge win bands with a lower win rate, so the
+    -- tank earns through rare coolers rather than through winning more.
+    c2 = {
+        bands = {
+            by_gtype = {
+                six_max = { win = {
+                    small   = { 2, 6 },
+                    medium  = { 12, 35 },
+                    large   = { 70, 180 },
+                    jackpot = { 380, 500 },
+                } },
+                zoom = { win = {
+                    small   = { 1, 3 },
+                    medium  = { 4, 12 },
+                    large   = { 25, 60 },
+                    jackpot = { 300, 500 },
+                } },
+                -- HU tops out at ONE stack, so its jackpot band sits just
+                -- under the cap instead of being clipped by it.
+                hu = { win = {
+                    small   = { 3, 8 },
+                    medium  = { 15, 40 },
+                    large   = { 45, 85 },
+                    jackpot = { 70, 100 },
+                } },
+            },
+        },
+        gtype = {
+            six_max = { pace_mult = 0.35, win_chance_shift = -0.08 },
+            zoom    = { pace_mult = 2.2, jackpot_scale = 0.08, win_chance_shift = 0.05 },
+        },
+        timings = {
+            zoom = { deal_flop = 0.18, deal_turn = 0.14, deal_river = 0.14,
+                     showdown_reveal = 0.22, pot_push = 0.22, street_gap = 0.08,
+                     fold = 0.05, call = 0.10, check = 0.07 },
+        },
+    },
 }
 
 -- fill = run-upgrade fill ratio; cursor_overhead_s = seconds of deal

@@ -41,7 +41,42 @@ return {
     },
     by_gtype = {
         mtt = {},   -- frozen on default; see header
-        -- six_max / zoom win-side overrides land with the identity
-        -- retune (phase E of the chunk-1 plan), picked by sim/gtype_ev.
+
+        -- 6-MAX — the tank. Five opponents, so five stacks can go in:
+        -- the biggest pots in the game, and the reason to sit a slow
+        -- table. Loss side stays default (one stack is all you can lose).
+        six_max = {
+            win = {
+                small   = { lo = 2.0,   hi = 6.0   },
+                medium  = { lo = 12.0,  hi = 35.0  },
+                large   = { lo = 70.0,  hi = 180.0 },
+                jackpot = { lo = 380.0, hi = 500.0 },   -- 5 stacks = the cap
+            },
+        },
+
+        -- ZOOM — the drip. Same five-seat ceiling as 6-max (it is the
+        -- same table), but the mass sits in tiny pots and the jackpot is
+        -- a once-a-session event, so what you actually feel is volume.
+        zoom = {
+            win = {
+                small   = { lo = 1.0,   hi = 3.0   },
+                medium  = { lo = 4.0,   hi = 12.0  },
+                large   = { lo = 25.0,  hi = 60.0  },
+                jackpot = { lo = 300.0, hi = 500.0 },
+            },
+        },
+
+        -- HEADS-UP — the duel. One opponent means one stack: its jackpot
+        -- sits just under the 100bb cap rather than being clipped by it.
+        -- Small ceiling, but it reaches that ceiling constantly, which is
+        -- what makes it the {chip} engine.
+        hu = {
+            win = {
+                small   = { lo = 3.0,  hi = 8.0   },
+                medium  = { lo = 15.0, hi = 40.0  },
+                large   = { lo = 45.0, hi = 85.0  },
+                jackpot = { lo = 70.0, hi = 100.0 },
+            },
+        },
     },
 }
