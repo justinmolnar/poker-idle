@@ -20,6 +20,9 @@ local Panel          = require("views.Panel")
 local CR             = require("views.ComponentRenderer")
 local TablePanel     = require("views.TablePanel")
 local TablePanelStats = require("views.TablePanelStats")
+local TablePanelEffects = require("views.TablePanelEffects")
+local TableModel     = require("models.Table")
+local GameTypeThemes = require("data.game_type_themes")
 local Pop            = require("services.Pop")
 local RollingValue   = require("services.RollingValue")
 local CursorPool     = require("services.CursorPool")
@@ -373,8 +376,22 @@ function GrindView:_makeGameTypeStrip()
                 local hov    = game.hover.is("button", id) and not active
                 local press  = ClickFlash.alpha("button", id)
                 local label  = gt.short or gt.name
+                -- The tab wears its game type's chrome — the same color
+                -- the table headers wear (data/game_type_themes.lua) —
+                -- full strength when selected, sunk toward the panel
+                -- when not, so the strip reads as the four materials
+                -- rather than four grey buttons.
+                local chrome = GameTypeThemes[gt.id]
+                               and GameTypeThemes[gt.id].chrome_color
+                local fill
+                if chrome then
+                    local k = active and 1.0 or (hov and 0.85 or 0.55)
+                    fill = { chrome[1] * k, chrome[2] * k, chrome[3] * k }
+                else
+                    fill = active and Theme.bg.widget_hover or Theme.bg.chrome
+                end
                 Button.draw(bx, y, rect_w, rect_h, {
-                    fill_color   = active and Theme.bg.widget_hover or Theme.bg.chrome,
+                    fill_color   = fill,
                     border_color = active and Theme.border.strong
                                   or hov  and Theme.border.strong
                                   or Theme.border.default,
@@ -528,15 +545,23 @@ function GrindView:_buildTablesTabComponents()
             local open_n, deal_muted, rebuy_muted =
                 self.controller:typeCursorState(stake.id, gtype_id)
             local none    = open_n == 0
+            local pending = self.controller:typePendingCloses(stake.id, gtype_id)
             local suffix  = ":" .. stake.id .. ":" .. gtype_id
             local actions = {
                 -- "x", the same glyph and neutral ink the per-table close
                 -- button uses. Closing a table IS how you cash it out, so the
-                -- group control must not invent a different symbol.
+                -- group control must not invent a different symbol — and it
+                -- warn-tints the same way while any of its closes are still
+                -- queued behind a live hand.
                 { id = "cash_out_type" .. suffix, label = "X",
                   tint_token = Theme.fg.heading,
+                  fill_token = (pending > 0) and Theme.status.warn or nil,
                   disabled = none,
-                  tooltip = (not none) and string.format("Cash out all %d %s %s table%s",
+                  tooltip = (pending > 0)
+                            and string.format(
+                                "Closing %d after their hand%s. Click again to leave NOW — forfeits those hands.",
+                                pending, pending == 1 and "" or "s")
+                            or (not none) and string.format("Cash out all %d %s %s table%s",
                                 open_n, stake.display_name,
                                 (gtype_obj and gtype_obj.name) or "",
                                 open_n == 1 and "" or "s") },
@@ -581,6 +606,10 @@ function GrindView:_buildTablesTabComponents()
                 anchor       = "add_table:" .. stake.id .. ":" .. gtype_id,
                 badge_anchor = banked and "chip_badge:banked" or nil,
                 disabled = disabled,
+                -- The stake row wears its stake's felt — the same color
+                -- the tables it opens play on. (The game type is already
+                -- said by the chrome-colored tab strip above the rows.)
+                face_color   = TablePanel.feltForStake(stake.id),
                 -- Gold/Purple trim once this (stake, type) has banked its bounty this run
                 border_color = border_color,
                 -- EV breakdown tooltip only when the table can be opened.
@@ -1159,6 +1188,40 @@ function GrindView:update(dt)
         if b.kind == "scatter" then
             -- No destination — form the pile at b.source and blow it apart.
             ChipFlight.explodeStack(b.source[1], b.source[2], b.chips, b.options)
+        elseif b.kind == "seat_ko" then
+            -- A tournament elimination — the mode's signature moment, so
+            -- it gets a real one: the seat's stack detonates (tournament
+            -- chips, tumbling, scattered to the panel), the panel takes a
+            -- shake hit, the seat flashes while its finish tag stamps in
+            -- (the panel's busted-seat branch reads the progress), KO
+            -- floats off the seat, and the heaviest chip drop in the set
+            -- lands it.
+            local tbl = b.table
+            TablePanelEffects.noteSeatKO(tbl, b.seat)
+            tbl.shake_trauma = math.min(1, math.max(tbl.shake_trauma or 0, 0.45))
+            local ps = (tbl.playback_state and tbl.playback_state.player_seat)
+                       or tbl.player_seat_fixed
+            if ps and b.seat ~= ps then
+                local vis = (b.seat < ps) and b.seat or (b.seat - 1)
+                local pos = AnchorRegistry.get(
+                    TableModel.anchorKey(tbl, "opp_" .. vis))
+                if pos then
+                    -- Their stack, dying. Same tournament-chip vocabulary
+                    -- as the bet flights (views/PokerEventAnims).
+                    local c = AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
+                    local within = (c and c[3] and c[4]) and { c[3], c[4] } or nil
+                    local chips = { 1, 1, 1, 1, 1, 1, 1, 1 }
+                    ChipFlight.explodeStack(pos[1], pos[2], chips, {
+                        chip_tint = Theme.data.violet,
+                        labels    = false,
+                        within    = within,
+                    })
+                    self.game.floating_text.emit("KO", pos[1], pos[2],
+                        { color_token = "error", lifetime = 1.2,
+                          fit_table = tbl })
+                end
+            end
+            FlightSystem.scheduleSound("seat_ko", 0.05)
         elseif b.kind == "stack" then
             -- Pile to pile: the chips leave one collection and join the
             -- other. b.options carries the ChipPile keys the controller
@@ -1833,9 +1896,10 @@ function GrindView:_drawCenterGrid(W, H)
     end
 
     -- The board's shape comes from the tables themselves: each owns a
-    -- cell, so the board is the bounding box of what's occupied. Trailing
-    -- empty rows/columns collapse on their own; interior holes stay, and
-    -- cost everyone panel size. That is the price of holding a formation.
+    -- cell, so the board is the bounding box of what's occupied. Interior
+    -- holes stay only while the table count needs a board this size
+    -- (TablePool:_reflow packs the moment it doesn't), and they cost
+    -- everyone panel size. That is the price of holding a formation.
     local cols, rows = self.controller.pool:boardShape()
     if cols <= 0 or rows <= 0 then cols, rows = 1, 1 end
 
@@ -2231,6 +2295,29 @@ function GrindView:_drawFloatingText()
         local font   = fonts[t.font or "lg"] or fonts.lg
         local scale  = t.scale or 1.0
         local alpha  = t.alpha or 1
+        -- Never wider than the table it belongs to. At nine panels a
+        -- fixed-size "+$3,932.37" is wider than its whole table and
+        -- unreadable over the neighbours' floats; clamp the scale so the
+        -- widest line fits inside the panel at any board density.
+        local fit = t.fit_table or t.table
+        if fit then
+            local c = AnchorRegistry.get(TableModel.anchorKey(fit, "center"))
+            local panel_w = c and c[3]
+            if panel_w and panel_w > 24 then
+                local widest = 0
+                for line in (t.text .. "\n"):gmatch("(.-)\n") do
+                    if line ~= "" then
+                        local tw = line:find("{", 1, true)
+                                   and IconText.measure(line, font)
+                                   or font:getWidth(line)
+                        if tw > widest then widest = tw end
+                    end
+                end
+                if widest > 0 then
+                    scale = math.min(scale, (panel_w - 12) / widest)
+                end
+            end
+        end
         local line_h = font:getHeight()
         local step   = math.floor(line_h * 0.78)   -- tighter stack so the lines read as one group
         love.graphics.setFont(font)

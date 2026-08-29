@@ -46,12 +46,88 @@ local Lookups       = require("utils.lookups")
 local Format        = require("utils.format")
 local CardSprites   = require("views.CardSprites")
 local Effects       = require("views.TablePanelEffects")
+
+-- ── Felt = green, cast with the stake's chip ────────────────────────────
+-- Every felt is the SAME classic green (Theme.bg.felt) pulled a third of
+-- the way toward the stake's chip — the biggest denomination that posts
+-- its big blind, the chip a player at that table thinks in. So the tiers
+-- read as one family of card-room greens with a money cast (pale sage at
+-- NL2's white 1c, olive at the red room, teal at the blue, near-black at
+-- the $100 room, gold-green at 1k) rather than a set of unrelated paints.
+-- OPAQUE, and brightness-capped so a pale chip can't out-glow the ladder.
+--
+-- Cached per stake; the cache is keyed to the live base token so a theme
+-- palette switch rebuilds it (tokens must never be cached — Theme.lua).
+local _felt_cache, _felt_base = {}, nil
+local function feltForStake(stake_id)
+    local base = Theme.bg.felt
+    if _felt_base ~= base then
+        _felt_cache, _felt_base = {}, base
+    end
+    local cached = _felt_cache[stake_id]
+    if cached then return cached end
+    local stake = Lookups.findById(Stakes, stake_id)
+    local bb = (stake and stake.bb) or 0
+    local best
+    for _, d in ipairs(ChipData.denominations) do
+        if d.value <= bb then best = d else break end
+    end
+    best = best or ChipData.denominations[1]
+    local col = best.color
+    -- The cast can be generous here because the two steps below decide
+    -- what actually survives: hue, and only hue.
+    local MIX = 0.45
+    local r = base[1] + (col[1] - base[1]) * MIX
+    local g = base[2] + (col[2] - base[2]) * MIX
+    local b = base[3] + (col[3] - base[3]) * MIX
+    -- Green stays boss. Whatever the chip wanted, red and blue are scaled
+    -- back until the surface is green-first — every room is a card room,
+    -- warmed or cooled by its money, never repainted by it.
+    local allowed = g * 0.90
+    local mrb = math.max(r, b)
+    if mrb > allowed then
+        local s = allowed / mrb
+        r, b = r * s, b * s
+    end
+    -- Luminance IS the tier ladder: normalized to the base felt's light,
+    -- stepped gently darker per tier — the cheap room is the bright one,
+    -- the big game sits in the dark. Replaces the old brightness cap
+    -- (nothing can out-glow anything on a fixed ramp), and it's what
+    -- separates the warm-chip tiers (red/vermilion/gold) whose hue casts
+    -- converge once green wins.
+    local tier = Lookups.indexById(Stakes, stake_id) or 1
+    local base_luma = 0.30 * base[1] + 0.59 * base[2] + 0.11 * base[3]
+    local target = base_luma * math.max(0.5, 1.15 - 0.07 * (tier - 1))
+    local luma = 0.30 * r + 0.59 * g + 0.11 * b
+    if luma > 1e-6 then
+        local s = target / luma
+        r, g, b = r * s, g * s, b * s
+    end
+    local c = { r, g, b, 1 }
+    _felt_cache[stake_id] = c
+    return c
+end
+
+-- "1st" / "2nd" / "3rd" / "Nth". Shared by the FINISH readout and the
+-- finish tags eliminated seats wear.
+local function ordinal(pos)
+    if pos == 1 then return "1st"
+    elseif pos == 2 then return "2nd"
+    elseif pos == 3 then return "3rd"
+    else return string.format("%dth", pos) end
+end
 local FeltDecor     = require("views.FeltDecor")
 local FeltLayout    = require("views.FeltLayout")
 local BandStack     = require("services.BandStack")
 local Pop           = require("services.Pop")
 
 local TablePanel = {}
+
+-- Exported: the sidebar's add-table rows wear the same felt as the
+-- panels they open (views/GrindView), so the two read as one identity.
+function TablePanel.feltForStake(stake_id)
+    return feltForStake(stake_id)
+end
 
 -- Layout constants — relative to a panel's (x, y) origin.
 -- Base sizes are 1× design-space; scaled per-panel at draw time
@@ -263,7 +339,13 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     -- Per-stake header chrome: T1 dim grey, T6 near-black with a gold
     -- accent. Falls back to default Theme.bg.chrome.
     local stake_theme = StakeThemes[tbl.stake_id]
-    local header_fill = (stake_theme and stake_theme.header_bg) or Theme.bg.chrome
+    -- The header wears the GAME TYPE's color (data/game_type_themes.lua):
+    -- chrome = mode, felt = stake. Falls back to the stake header, then
+    -- the default chrome, for a type with no theme.
+    local gtype_theme = GameTypeThemes[tbl.game_type_id]
+    local header_fill = (gtype_theme and gtype_theme.chrome_color)
+                        or (stake_theme and stake_theme.header_bg)
+                        or Theme.bg.chrome
     Theme.setColor(header_fill)
     love.graphics.rectangle("fill", x, y, w, HEADER_H, Theme.space.radius)
     Theme.setColor(Theme.border.default)
@@ -307,7 +389,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
             label = "X",
             fill_color = rb_fill,
             tooltip = pending_close
-                  and "Closing after this hand finishes."
+                  and "Closing after this hand. Click again to leave NOW — forfeits the hand; a tournament cashes whatever place it stands in."
                    or "Close this table — refunds the current stack.",
         }
     end
@@ -519,17 +601,53 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
         script_seat = (opp_idx < player_seat_for_map) and opp_idx or (opp_idx + 1)
     end
 
-    -- Chip-stack tournaments (8-max KO): seats busted in earlier hands
-    -- render dimmed permanently with a "BUSTED" tag. Drawn before the
-    -- fold-dim so a busted-then-still-in-the-script seat reads as
-    -- busted (script's in_seats may briefly include them during the
-    -- hand on the first deal after they busted; the alpha tells the
-    -- player what's going on).
+    -- Chip-stack tournaments (8-max KO): an ELIMINATED player LEAVES.
+    -- No plate, no cards, no dim arithmetic — an empty chair with a small
+    -- finish tag where they sat, which is legible at any panel size and
+    -- can never be mistaken for a fold (a fold is a live seat with mucked
+    -- cards). The tag is dropped, not shrunk, when it doesn't fit the
+    -- seat; the empty chair still reads. The KO flash on top is the
+    -- moment itself (queued by the controller when the bust lands).
     local seat_busted_flag = (gtype and gtype.chip_stack_table
         and tbl.seat_busted and script_seat
         and tbl.seat_busted[script_seat]) or false
     if seat_busted_flag then
-        seat_alpha = seat_alpha * 0.18
+        local n_seats = (gtype.seats or 0) + 1
+        local finish
+        for i, s in ipairs(tbl.bust_order or {}) do
+            if s == script_seat then finish = n_seats - i + 1; break end
+        end
+        local cards_y = y + cards_y_offset
+        local ko = Effects.seatKOProgress(tbl, script_seat)
+        if finish then
+            -- The biggest font that fits the seat, dropped (never
+            -- clipped) below that. Muted, not disabled — the tags are
+            -- half the progress display and have to be readable.
+            local f, tag = fonts.sm, ordinal(finish):upper()
+            if f:getWidth(tag) > w - 2 then f = fonts.xs or f end
+            love.graphics.setFont(f)
+            if f:getWidth(tag) <= w - 2 then
+                local ty = cards_y + math.floor((card_h - f:getHeight()) / 2)
+                if ko then
+                    -- Stamping in: red and oversized on the hit, settling
+                    -- into the resting grey.
+                    local pop = 1 + 0.6 * (1 - ko)
+                    Theme.setColor(Theme.status.error, 0.5 + 0.5 * (1 - ko))
+                    love.graphics.push()
+                    love.graphics.translate(x + w / 2, ty + f:getHeight() / 2)
+                    love.graphics.scale(pop, pop)
+                    love.graphics.printf(tag, -w / 2, -f:getHeight() / 2, w, "center")
+                    love.graphics.pop()
+                else
+                    Theme.setColor(Theme.fg.muted, 0.9)
+                    love.graphics.printf(tag, x, ty, w, "center")
+                end
+            end
+        end
+        if ko then
+            Effects.drawSeatKOFlash(x, cards_y, w, card_h, ko)
+        end
+        return
     end
 
     -- Folded-seat dim. When the script has marked this seat out of the
@@ -543,10 +661,10 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
             seat_folded = true
         end
     end
-    -- Out of the hand, either way. The dim above says HOW MUCH; this says the
-    -- seat draws flat slabs instead of deck art, which is what actually reads
+    -- Out of the hand: the dim above says HOW MUCH; this says the seat
+    -- draws flat slabs instead of deck art, which is what actually reads
     -- at a glance (see CardSprites.folded).
-    local seat_out = seat_folded or seat_busted_flag
+    local seat_out = seat_folded
 
     -- Seat plate: the backing this seat's name and cards sit on, so the seat
     -- reads as a position at the table. Published by the layout only when the
@@ -624,28 +742,23 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     end
 
     -- Chip-stack tournament: render the seat's current bb stack below
-    -- the cards. Busted seats display "BUSTED" in red. Cash games skip
-    -- this — opponents there are visual flavor with no per-seat stack
-    -- model behind them.
+    -- the cards (busted seats never reach here — they returned above as
+    -- empty chairs). Cash games skip this — opponents there are visual
+    -- flavor with no per-seat stack model behind them.
     if gtype and gtype.chip_stack_table and script_seat then
         local stake_for_bb = Lookups.findById(Stakes, tbl.stake_id)
         local bb_val       = (stake_for_bb and stake_for_bb.bb) or 0
-        local label_y      = cards_y + card_h + 2
-        -- Same rule as the seat name: 8px is the floor, so a label that
-        -- doesn't fit its seat is dropped rather than clipped mid-glyph.
-        local function seatLabel(txt, color, alpha)
+        if tbl.seat_stacks and bb_val > 0 then
+            local label_y = cards_y + card_h + 2
+            local txt = string.format("%dbb",
+                math.floor((tbl.seat_stacks[script_seat] or 0) / bb_val + 0.5))
+            -- Same rule as the seat name: a label that doesn't fit its
+            -- seat is dropped rather than clipped mid-glyph.
             love.graphics.setFont(fonts.sm)
-            if fonts.sm:getWidth(txt) > w - 2 then return end
-            Theme.setColor(color, alpha)
-            love.graphics.printf(txt, x, label_y, w, "center")
-        end
-        if seat_busted_flag then
-            seatLabel("BUSTED", Theme.status.error, 0.90)
-        elseif tbl.seat_stacks and bb_val > 0 then
-            local chips = tbl.seat_stacks[script_seat] or 0
-            local bb    = chips / bb_val
-            seatLabel(string.format("%dbb", math.floor(bb + 0.5)),
-                      Theme.fg.muted, seat_alpha)
+            if fonts.sm:getWidth(txt) <= w - 2 then
+                Theme.setColor(Theme.fg.muted, seat_alpha)
+                love.graphics.printf(txt, x, label_y, w, "center")
+            end
         end
     end
 end
@@ -683,6 +796,10 @@ local function drawPotLabel(tbl, pot, fonts)
     -- and nothing below here runs, and it has to land somewhere real.
     if pot.allow_chips then
         local stake_theme_pot = StakeThemes[tbl.stake_id]
+        -- A tournament's pot pile wears tournament colors and no dollar
+        -- labels — the same chip vocabulary as its bet flights
+        -- (views/PokerEventAnims): these chips are not money.
+        local is_tourney = tbl.seat_stacks ~= nil
         ChipPile.place(pot_key, pot.center_x, pot.chips_y, {
             align = "center",
             max_w = pot.max_w,
@@ -691,7 +808,9 @@ local function drawPotLabel(tbl, pot, fonts)
             max_cols = pot.max_cols,
             max_rows = pot.max_rows,
             scale = pot.chip_scale or 1,
-            tint  = stake_theme_pot and stake_theme_pot.chip_tint,
+            tint  = is_tourney and Theme.data.violet
+                    or (stake_theme_pot and stake_theme_pot.chip_tint),
+            labels = not is_tourney,
         })
     else
         -- Felt too short for a chip that isn't a dot, so the pot is the number
@@ -777,7 +896,23 @@ local function drawPotLabel(tbl, pot, fonts)
         local cs = pot.chip_scale or 1
 
         if pile_val > 0 then
-            ChipPile.sync(pot_key, pile_val, { palette = palette, tier = tier })
+            if tbl.seat_stacks then
+                -- Tournament pot: one chip per big blind. The bet flights
+                -- reserve their chips into this pile (denomination 1, one
+                -- per bb), and syncing (bb count × that rung's value)
+                -- keeps the reconciler agreeing with them exactly — the
+                -- dollar value never touches the composition.
+                local stake = Lookups.findById(Stakes, tbl.stake_id)
+                local bbv   = (stake and stake.bb) or 0
+                local units = (bbv > 0) and math.floor(pile_val / bbv + 0.5) or 0
+                if units > 0 then
+                    ChipPile.sync(pot_key, units * 0.01, { palette = { 1 }, tier = tier })
+                else
+                    ChipPile.clear(pot_key)
+                end
+            else
+                ChipPile.sync(pot_key, pile_val, { palette = palette, tier = tier })
+            end
         else
             ChipPile.clear(pot_key)
         end
@@ -826,49 +961,120 @@ local function drawPotLabel(tbl, pot, fonts)
     if rolled_pot > 0.01 then
         Theme.setColor(Theme.fg.muted)
         love.graphics.setFont(fonts.xs or fonts.sm)
-        love.graphics.printf("Pot: " .. Format.moneyExact(rolled_pot),
-            pot.text_x, pot.text_y, pot.text_w, "center")
+        -- Tournament pots are chips, not money: no dollar sign on a pot
+        -- that will never be cashed. bb is the same unit the seat stacks
+        -- and Depth readout already speak.
+        local label
+        if tbl.seat_stacks then
+            local stake = Lookups.findById(Stakes, tbl.stake_id)
+            local bb    = (stake and stake.bb) or 0
+            if bb > 0 then
+                label = string.format("Pot %dbb",
+                                      math.floor(rolled_pot / bb + 0.5))
+            end
+        end
+        label = label or ("Pot: " .. Format.moneyExact(rolled_pot))
+        love.graphics.printf(label, pot.text_x, pot.text_y, pot.text_w, "center")
     end
 end
 
--- Tournament bottom row for chip-stack tables: finish-position payout pips,
--- a single row filling the `band` (same thin bottom band the cash stats use).
--- The alive-count / FINISH text is rendered separately by drawPlayerSeat.
+-- Tournament bottom row for chip-stack tables: THE KO PROGRESS BAR.
+--
+-- One track spanning every knockout a win takes (n_seats - 1 of them),
+-- divided into the paying finishes in the order the tournament reaches
+-- them — 3rd first, 1st last — with each segment exactly as wide as the
+-- knockouts it takes to cross it. Reaching 3rd needs five bodies and one
+-- more each for 2nd and 1st, so 3rd is the long march and the money
+-- places are the short sharp end.
+--
+-- The fill IS the tournament: one knockout, one unit, eased so a KO
+-- visibly shoves it forward. Where the fill stops when the run ends is
+-- the finish — flush with a boundary if you locked that place, short of
+-- one if you busted before it. Green while it's money, ash when the run
+-- died outside it.
 local function drawTournamentLadder(tbl, gtype, ctx, band, fonts)
-    local n_seats      = (gtype.seats or 0) + 1
+    local n_seats     = (gtype.seats or 0) + 1
+    local total_units = n_seats - 1
+    if total_units <= 0 then return end
     local boost        = (ctx and ctx.mtt_payout_boost) or 0
     local payout_table = MttPayouts[boost] or MttPayouts[0]
-    local thresholds   = {}
-    for k in pairs(payout_table) do thresholds[#thresholds + 1] = k end
-    table.sort(thresholds, function(a, b) return a > b end)   -- 1st leftmost
+    -- Paying finishes, worst place first (3rd, 2nd, 1st).
+    local finishes = {}
+    for k, mult in pairs(payout_table) do
+        finishes[#finishes + 1] = { finish = n_seats - k + 1, mult = mult }
+    end
+    if #finishes == 0 then return end
+    table.sort(finishes, function(a, b) return a.finish > b.finish end)
+
+    -- Opponent knockouts so far. The player's own bust ends the run and
+    -- advances nothing.
+    local kos = 0
+    if tbl.seat_busted then
+        for s = 1, n_seats do
+            if tbl.seat_busted[s] and s ~= tbl.player_seat_fixed then
+                kos = kos + 1
+            end
+        end
+    end
 
     local f, fh   = fonts.sm, fonts.sm:getHeight()
-    local n       = #thresholds
-    if n == 0 then return end
-    local pip_gap = 4
-    local pip_w   = math.floor((band.w - (n - 1) * pip_gap) / n)
-    if pip_w < 24 then pip_w = 24 end
-    local pip_h, pip_y = band.h, band.y
-
+    local unit_w  = band.w / total_units
+    local text_y  = band.y + math.floor((band.h - fh) / 2)
     love.graphics.setFont(f)
+
+    -- Track.
+    Theme.setColor(Theme.bg.sunken)
+    love.graphics.rectangle("fill", band.x, band.y, band.w, band.h,
+                            Theme.space.radius)
+
+    -- Fill.
+    local over   = tbl.last_finish ~= nil
+    local paid   = over and tbl.last_finish <= finishes[1].finish
+    local target = math.min(kos, total_units) * unit_w
+    local fill_w = RollingValue.get("mtt_ko:" .. tostring(tbl._id or 0), target, 6)
+    if fill_w > 0.5 then
+        if over and not paid then
+            Theme.setColor(Theme.fg.disabled, 0.9)
+        else
+            Theme.setColor(Theme.status.good, over and 0.95 or 0.55)
+        end
+        love.graphics.rectangle("fill", band.x, band.y, fill_w, band.h,
+                                Theme.space.radius)
+    end
+
+    -- Segment boundaries + labels, on top of the fill. A segment the fill
+    -- has fully crossed is a finish you've locked; its label brightens.
     local function shortPos(p)
         if p == 1 then return "1st" elseif p == 2 then return "2nd"
         elseif p == 3 then return "3rd" else return p .. "th" end
     end
-    for i, th in ipairs(thresholds) do
-        local px            = band.x + (i - 1) * (pip_w + pip_gap)
-        local finish_pos    = n_seats - th + 1
-        local is_player_won = tbl.last_finish == finish_pos
-        local fill       = is_player_won and Theme.status.good or Theme.bg.sunken
-        local text_color = is_player_won and Theme.bg.window or Theme.fg.muted
-        Theme.setColor(fill)
-        love.graphics.rectangle("fill", px, pip_y, pip_w, pip_h, Theme.space.radius)
-        Theme.setColor(Theme.border.soft)
-        love.graphics.rectangle("line", px, pip_y, pip_w, pip_h, Theme.space.radius)
-        Theme.setColor(text_color)
-        love.graphics.printf(string.format("%s:%dx", shortPos(finish_pos), payout_table[th] or 0),
-            px, pip_y + math.floor((pip_h - fh) / 2), pip_w, "center")
+    local left_units = 0
+    for _, e in ipairs(finishes) do
+        local right_units = n_seats - e.finish   -- KOs that lock this place
+        local seg_x = band.x + left_units * unit_w
+        local seg_w = (right_units - left_units) * unit_w
+        -- Shed ladder: "3rd:3x" → "3rd" → nothing. Dropped, never clipped.
+        local full, short = string.format("%s:%dx", shortPos(e.finish), e.mult),
+                            shortPos(e.finish)
+        local label
+        if f:getWidth(full) <= seg_w - 4 then label = full
+        elseif f:getWidth(short) <= seg_w - 4 then label = short end
+        if label then
+            Theme.setColor(kos >= right_units and Theme.fg.heading
+                                              or Theme.fg.muted)
+            love.graphics.printf(label, seg_x, text_y, seg_w, "center")
+        end
+        if right_units < total_units then
+            Theme.setColor(Theme.border.soft)
+            love.graphics.line(seg_x + seg_w, band.y,
+                               seg_x + seg_w, band.y + band.h)
+        end
+        left_units = right_units
     end
+
+    Theme.setColor(Theme.border.soft)
+    love.graphics.rectangle("line", band.x, band.y, band.w, band.h,
+                            Theme.space.radius)
 
     Anchors.set(Table.anchorKey(tbl, "you"), band.x + band.w * 0.5, band.y + band.h * 0.5)
 end
@@ -969,17 +1175,34 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
         else
             alive = n_seats
         end
+        -- The number that matters in a KO tournament is KNOCKOUTS — the
+        -- same unit the progress bar below fills by. Once the field is
+        -- down to the paying positions the label stops counting and says
+        -- the thing a tournament player is actually watching for.
+        local pays = 0
+        do
+            local payout_table = MttPayouts[(ctx and ctx.mtt_payout_boost) or 0]
+                                 or MttPayouts[0]
+            for _ in pairs(payout_table) do pays = pays + 1 end
+        end
+        local kos = n_seats - alive
+        if tbl.seat_busted and tbl.player_seat_fixed
+           and tbl.seat_busted[tbl.player_seat_fixed] then
+            kos = kos - 1   -- your own bust isn't a KO you scored
+        end
         local counter_label
+        local counter_color = Theme.fg.heading
         if tbl.last_finish then
-            local function positionName(pos)
-                if pos == 1 then return "1st"
-                elseif pos == 2 then return "2nd"
-                elseif pos == 3 then return "3rd"
-                else return string.format("%dth", pos) end
+            counter_label = string.format("FINISH %s", ordinal(tbl.last_finish))
+        elseif pays > 0 and alive <= pays then
+            counter_label = "IN THE MONEY"
+            counter_color = Theme.status.good
+            -- Shrink-then-drop: the short form before no form at all.
+            if font:getWidth(counter_label) > bottom.inner_w * 0.6 then
+                counter_label = "PAID"
             end
-            counter_label = string.format("FINISH %s", positionName(tbl.last_finish))
         else
-            counter_label = string.format("%d/%d ALIVE", alive, n_seats)
+            counter_label = string.format("%d KO", kos)
         end
 
         -- Tournament chips aren't reclaimable cash, so not "Tied up" —
@@ -999,7 +1222,7 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
         -- Same shed as the cash row: two edge-anchored strings on one line with
         -- no smaller font to fall back on, so the right-hand one gives up its
         -- label and then leaves rather than running into the counter.
-        Theme.setColor(Theme.fg.heading)
+        Theme.setColor(counter_color)
         love.graphics.print(counter_label, bottom.chips.x, label_y)
         if depth_full then
             local left_w = font:getWidth(counter_label)
@@ -1558,13 +1781,11 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     local felt_y = y + HEADER_H + FELT_INSET
     local felt_w = w - 2 * FELT_INSET
     local felt_h = h - HEADER_H - 2 * FELT_INSET
-    -- Per-stake felt tint (data/stake_themes.lua). Falls back to the old
-    -- default green if the stake has no theme entry. Higher tiers feel
-    -- visibly different — first step of the per-stake panel-identity work.
+    -- Felt = the stake's chip (feltForStake above): the tier read at a
+    -- glance, in casino color language. The stake theme still supplies
+    -- border / header / chip tint; its old felt_tint is retired.
     local stake_theme = StakeThemes[tbl.stake_id]
-    local felt_color  = (stake_theme and stake_theme.felt_tint)
-                        or { Theme.status.good[1], Theme.status.good[2],
-                             Theme.status.good[3], 0.18 }
+    local felt_color  = feltForStake(tbl.stake_id)
     -- ── Felt layout ─────────────────────────────────────────────────────
     -- ONE pass (views/FeltLayout) maps the felt rect → an explicit rect/anchor
     -- for every element; the draw functions below just render into what they
@@ -1695,7 +1916,11 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
                           and controller:rebuyCostFor(idx)
                           or ((stake and stake.buy_in) or 0)
             local can_rebuy = state.bankroll >= cost
-            local label = string.format("REBUY %s", Format.moneyExact(cost))
+            -- A busted tournament is re-entered, not rebought — the one
+            -- word that keeps it from reading like a busted cash table.
+            local verb  = (gtype and gtype.chip_stack_table) and "RE-ENTER"
+                          or "REBUY"
+            local label = string.format("%s %s", verb, Format.moneyExact(cost))
             drawFeltButton(felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, label, "rebuy",
                 Theme.status.error, can_rebuy, tbl._id)
@@ -1819,6 +2044,9 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- Status wash sits under the resolution vignette: a tilt is the
     -- table's standing condition, the vignette is what just happened.
     Effects.drawStatusWash(tbl, felt_x, felt_y, felt_w, felt_h)
+    -- The heater burns along the felt's bottom edge, over the wash and
+    -- the felt's own content, under the resolution vignette.
+    Effects.drawStatusFire(tbl, felt_x, felt_y, felt_w, felt_h)
     Effects.drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
 
     -- Radial-glow halo (jackpot wins). Additive shader pass over the

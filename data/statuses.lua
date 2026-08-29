@@ -24,6 +24,14 @@
 --   "charges"  counts hands, spent when the table deals. "Your next pot is
 --              bumped" is deterministic and self-limiting in a way a timer
 --              is not, which matters when knockouts arrive every 5-11s.
+--   "run"      never expires on its own. No timer, no charges; it is
+--              cleared when the run is. For the things a table EARNS over a
+--              run rather than catches for a moment.
+--
+-- `silent = true` stops a status announcing itself. Anything that reacts to
+-- statuses arriving would otherwise react to its own output and feed itself
+-- until a budget cut it off. Results are silent; things that happen TO a
+-- table are not.
 -- Fixing the mode per KIND is what makes refresh-not-stack unambiguous:
 -- there is never a timed heater meeting a charge heater.
 --
@@ -32,30 +40,67 @@
 -- writers in GrindController. Consequence worth knowing: two tournaments
 -- running at once extend uptime but do not double the power.
 --
+-- ─── EXCEPT WHERE STACKING IS THE POINT ─────────────────────────────────
+-- `stack = "add"` makes a kind accumulate instead: magnitude and charges
+-- sum rather than taking the max. That is for the statuses that ARE the
+-- engine, where the tenth one landing has to be worth more than the first.
+-- `stack_cap` bounds the magnitude, because a status fed by its own
+-- consequences has no natural ceiling and this is the only thing between a
+-- working build and a number that runs away.
+--
 -- Colours are Theme token STRINGS, never values (see data/theme.lua).
 --
 -- Pure data; no logic.
 
 return {
 
+    -- ─── WHAT A MENTAL STATE ACTUALLY DOES ──────────────────────────────
+    -- ONE thing, and the player is told exactly what it is: the hand it
+    -- lands in ends its way, and the next hand goes the same way. That is
+    -- the whole status (see Table:interrupt). No passive half — no win
+    -- chance, no pace, no tier moves riding along uninvoiced. A status
+    -- whose text says "this hand wins" must not also secretly be four
+    -- other buffs.
+    --
+    -- The empty effects list is therefore THE POINT, not an omission.
+    -- `magnitude` is inert for these two (tilt still reads it for the
+    -- lean, `rotate` below); `t` is how long the glow/wash lingers and how
+    -- long a re-application counts as a refresh, nothing more.
+    --
+    -- Consequence for authors: a CONTINUOUS heater/tilt source is a
+    -- design error. Applied with interrupts, it decides every hand
+    -- (never-lose / never-win); applied `no_interrupt`, it does nothing
+    -- at all. These statuses are punches — author sources as moments,
+    -- never as auras.
     heater = {
         name     = "HEATER",
-        blurb    = "Running hot: win chance raised.",
+        blurb    = "Running hot: this hand wins, and the next.",
         lifetime = "seconds",
+        -- Landing mid-hand ENDS that hand as a win, and the next hand wins
+        -- too. See Table:interrupt (once per hand). A status without this
+        -- key never interrupts, which is what keeps the silent engine
+        -- statuses out of the path: a result must not end a hand.
+        interrupt = "win",
         polarity = "good",
         icon     = "heater",
-        effects  = { { kind = "win_chance_shift", mag_field = "amount" } },
+        effects  = {},
+        -- Heat LOOKS like heat: animated flame tongues along the panel's
+        -- bottom (shaders/flame.frag, TablePanelEffects.drawStatusFire).
+        -- The glow is the halo; the fire is the read.
+        flame    = true,
         glow_token = "status_fx.heater",
         wash_token = nil,
     },
 
+    -- The mirror.
     tilt = {
         name     = "TILT",
-        blurb    = "Steaming: win chance cut.",
+        blurb    = "Steaming: this hand is lost, and the next.",
         lifetime = "seconds",
+        interrupt = "lose",
         polarity = "bad",
         icon     = "tilt",
-        effects  = { { kind = "win_chance_shift", mag_field = "amount", mag_sign = -1 } },
+        effects  = {},
         glow_token = nil,
         wash_token = "status_fx.tilt",
         -- A tilted table sits LITERALLY tilted, askew on the board, until
@@ -75,6 +120,60 @@ return {
         polarity = "good",
         icon     = "marked",
         effects  = { { kind = "tier_bump_chance", mag_field = "value" } },
+        glow_token = "status_fx.heater",
+        wash_token = nil,
+    },
+
+    -- ─── THE ENGINE STATUSES ────────────────────────────────────────────
+    -- These two accumulate rather than refresh, because they ARE the 6-max
+    -- payoff: the whole build is about landing them repeatedly, so the
+    -- tenth has to be worth more than the first.
+
+    -- Marks that keep piling up. Each charge bumps ONE pot a tier, so three
+    -- marks means the next three pots, not one enormous one. The magnitude
+    -- is a probability and saturates at 1, hence the cap: past that a mark
+    -- would look like it bought something and buy nothing.
+    --
+    -- Note tier_bump_chance is not win-only (models/Table.lua bumps the
+    -- rolled tier whether the hand won or lost), so a marked table's losses
+    -- run a tier bigger too. On a table that got marked BY being tilted,
+    -- that is the fiction working rather than a bug.
+    stacked_mark = {
+        name     = "MARKED",
+        blurb    = "The next pots run a tier bigger.",
+        lifetime = "charges",
+        -- Silent: this is what the engine PRODUCES. An item that reacts to
+        -- statuses landing must not react to its own output, or it feeds
+        -- itself until a budget cuts it off.
+        silent   = true,
+        stack    = "add",
+        stack_cap = 1,
+        polarity = "good",
+        icon     = "marked",
+        effects  = { { kind = "tier_bump_chance", mag_field = "value" } },
+        glow_token = "status_fx.heater",
+        wash_token = nil,
+    },
+
+    -- Reading the table better the longer you sit. Not win chance: this
+    -- moves the SHAPE of what you win, one rung up the tier ladder, and
+    -- win_tier_shift is a list kind so each application is its own roll
+    -- that can chain further up. Three templates because the ladder has
+    -- three rungs and a shift names its own from/to.
+    sharp = {
+        name     = "SHARP",
+        blurb    = "Wins reach a tier higher.",
+        lifetime = "run",
+        silent   = true,   -- a result, not an event. See stacked_mark.
+        stack    = "add",
+        stack_cap = 0.25,
+        polarity = "good",
+        icon     = "marked",
+        effects  = {
+            { kind = "win_tier_shift", from = "small",  to = "medium",  mag_field = "chance" },
+            { kind = "win_tier_shift", from = "medium", to = "large",   mag_field = "chance" },
+            { kind = "win_tier_shift", from = "large",  to = "jackpot", mag_field = "chance" },
+        },
         glow_token = "status_fx.heater",
         wash_token = nil,
     },
@@ -122,5 +221,10 @@ return {
     gates = {
         glow_min_panel_w = 260,
         chip_min_zone_w  = 90,
+        -- Below this panel width the heater's flame strip is ABSENT, not
+        -- shrunk (the ring still says something is happening). One shader
+        -- quad per heated panel, so it can afford to run smaller than the
+        -- glow does.
+        fire_min_panel_w = 120,
     },
 }

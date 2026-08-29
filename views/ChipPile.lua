@@ -192,7 +192,7 @@ local function layoutLocal(chip_indices, place)
     local s  = place.scale or 1
     local mw = place.max_w
     if mw and s ~= 1 then mw = mw / s end
-    return Chips.stackLayout(0, 0, chip_indices, {
+    local placed = Chips.stackLayout(0, 0, chip_indices, {
         align    = place.align or "center",
         max_w    = mw,
         -- Column caps are in COLUMNS, not pixels, so unlike max_w they do
@@ -200,6 +200,13 @@ local function layoutLocal(chip_indices, place)
         max_cols = place.max_cols,
         max_rows = place.max_rows,
     })
+    -- A pile placed with labels = false (tournament chips are not money
+    -- and must not say "1c") masks them HERE, at the single source every
+    -- consumer reads with_label from — draw, settle parts, takeAll debris.
+    if place.labels == false then
+        for _, p in ipairs(placed) do p.with_label = false end
+    end
+    return placed
 end
 
 local function toScreen(place, lx, ly)
@@ -298,6 +305,8 @@ function ChipPile.place(key, x, y, opts)
         -- what its pile would run into; the pile does not.
         max_cols = opts.max_cols,
         max_rows = opts.max_rows,
+        -- false = no denomination labels, ever (see layoutLocal).
+        labels   = opts.labels,
     }
     e.tint        = opts.tint
     e.since_place = 0

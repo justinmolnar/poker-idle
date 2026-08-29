@@ -70,6 +70,8 @@ function TablePool:rebuildFromState(ctx)
     local mutes        = self.state.active_table_mutes or {}
     local rebuy_mutes  = self.state.active_table_rebuy_mutes or {}
     local hands        = self.state.active_table_mtt_hands_won or {}
+    local finishes     = self.state.active_table_mtt_finishes or {}
+    local last_fins    = self.state.active_table_last_finish or {}
     local mstate       = self.state.active_table_mtt_state or {}
     -- Chip-stack tournament continuity: parallel arrays carry per-seat
     -- state across save / reload. Cash tables leave them nil.
@@ -115,9 +117,12 @@ function TablePool:rebuildFromState(ctx)
             -- Tournament continuity: reload-mid-run drops the player back
             -- at "table idle, click DEAL to fire the next hand of N".
             -- Cash tables ignore these.
-            t.mtt.hands_won  = hands[i] or 0
-            t.mtt.state      = mstate[i]
-            t.mtt.plan       = mtt_plans[i]
+            t.mtt.hands_won    = hands[i] or 0
+            t.mtt.finish_count = finishes[i] or 0
+            t.mtt.state        = mstate[i]
+            t.mtt.plan         = mtt_plans[i]
+            -- The FINISH readout on a settled tournament survives reload.
+            t.last_finish      = last_fins[i]
             -- A tournament marked mid-run without its per-seat state is a
             -- cross-build save (the old binary-MTT prototype wrote
             -- state="playing" but never seat_stacks/plans). Restoring it
@@ -149,15 +154,42 @@ function TablePool:rebuildFromState(ctx)
             self.tables[#self.tables + 1] = t
         end
     end
+    -- Repair what the save got wrong before trusting it: two tables in one
+    -- cell render stacked with the buried panel eating the clicks, and
+    -- nothing downstream ever un-stacks them. First claim on a cell wins;
+    -- the offender moves to the first free cell (growing the board if the
+    -- count's shape is somehow full). Same treatment for a slot that is
+    -- not a whole non-negative number. Only a corrupt or hand-edited save
+    -- produces either — no in-game writer does.
+    local taken = {}
+    for _, t in ipairs(self.tables) do
+        local s = t.slot
+        local bad = type(s) ~= "number" or s < 0 or s % 1 ~= 0
+        if bad or taken[s] then
+            local cols, rows = TableGrid.shape(#self.tables)
+            t.slot = TableGrid.firstFree(taken, cols, rows)
+                     or TableGrid.placeNew(self:slots())
+        end
+        taken[t.slot] = true
+    end
     -- A dropped spec (unknown stake) leaves a hole in the middle of the
     -- saved cells; that is fine, holes are legal. Re-sort so pool order is
     -- reading order regardless of what the save contained.
     self:_sortBySlot()
+    -- ...and collapse the board if the save describes one bigger than the
+    -- tables in it need. Covers a save written before the board reflowed on
+    -- close, and a spec dropped here for an unknown stake.
+    self:_reflow()
+    -- Write the state arrays back from what actually rebuilt. This is what
+    -- purges a dropped spec the moment its stack is refunded — leaving it
+    -- until the first grind tick's sync left a window where saving again
+    -- would refund the same stack twice on the next load.
+    self:_syncStateList()
 end
 
 function TablePool:_syncStateList()
     local specs, mutes, rebuy_mutes = {}, {}, {}
-    local hands, mstate, mtt_plans = {}, {}, {}
+    local hands, finishes, last_fins, mstate, mtt_plans = {}, {}, {}, {}, {}
     local seat_stacks, seat_busted = {}, {}
     local p_seats, b_seats, b_orders, stack_vals = {}, {}, {}, {}
     local slots, statuses = {}, {}
@@ -171,6 +203,8 @@ function TablePool:_syncStateList()
         mutes[i]        = t.cursor_muted == true
         rebuy_mutes[i]  = t.cursor_rebuy_muted == true
         hands[i]        = (t.mtt and t.mtt.hands_won) or 0
+        finishes[i]     = (t.mtt and t.mtt.finish_count) or 0
+        last_fins[i]    = t.last_finish              -- nil mid-run / cash
         mstate[i]       = t.mtt and t.mtt.state
         mtt_plans[i]    = t.mtt and t.mtt.plan       -- nil for cash tables
         seat_stacks[i]  = t.seat_stacks              -- may be nil for cash tables
@@ -184,6 +218,8 @@ function TablePool:_syncStateList()
     self.state.active_table_mutes         = mutes
     self.state.active_table_rebuy_mutes   = rebuy_mutes
     self.state.active_table_mtt_hands_won = hands
+    self.state.active_table_mtt_finishes  = finishes
+    self.state.active_table_last_finish   = last_fins
     self.state.active_table_mtt_state     = mstate
     self.state.active_table_mtt_plans     = mtt_plans
     self.state.active_table_seat_stacks   = seat_stacks
@@ -232,14 +268,55 @@ function TablePool:addTable(stake_id, game_type_id, ctx)
     self.tables[#self.tables + 1] = t
     self:_sortBySlot()
     self:_syncStateList()
+    -- The caller cannot find the newcomer itself: _sortBySlot inserts it
+    -- wherever its cell reads, not at the end of the array.
+    return t
 end
 
--- Closing a table leaves its cell EMPTY rather than compacting everyone
--- along. The hole is the point: it holds a formation's shape, and it can
--- be re-filled or used as deliberate spacing.
+-- Pack the board tight: the shape the table COUNT needs, filled in reading
+-- order. The only empty cells are the leftover ones at the end of the last
+-- row, which is what "a hole that makes sense" means -- seven tables cannot
+-- fill a 3x3, so two cells are over.
+--
+-- Returns whether anything actually moved, so a caller can skip the resync.
+function TablePool:_packDense()
+    local n = #self.tables
+    self:_sortBySlot()
+    local dense = TableGrid.denseSlots(n)
+    local moved = false
+    for i, t in ipairs(self.tables) do
+        if t.slot ~= dense[i] then
+            t.slot = dense[i]
+            moved = true
+        end
+    end
+    return moved
+end
+
+-- Collapse a board that is BIGGER than its count needs. Used on load,
+-- where flattening a saved arrangement outright would throw away whatever
+-- the player had dragged into place, but a board left oversized by an
+-- older build (or by a spec dropped for an unknown stake) still has to
+-- come back down.
+function TablePool:_reflow()
+    local n = #self.tables
+    local want_cols, want_rows = TableGrid.shape(n)
+    local have_cols, have_rows = TableGrid.bounds(self:slots())
+    if have_cols <= want_cols and have_rows <= want_rows then return false end
+    return self:_packDense()
+end
+
 function TablePool:removeTable(idx)
     if idx < 1 or idx > #self.tables then return end
     table.remove(self.tables, idx)
+    -- A hole is legitimate only while the COUNT needs a board that size:
+    -- eight tables cannot fill a 3x3, so closing one of nine leaves its
+    -- cell empty where it stood. The moment the count fits a smaller
+    -- board, everyone repacks -- otherwise "buy tables, close the top row"
+    -- manufactures free spacers. _reflow is that exact test, and because
+    -- bounds measures from the origin, a leading empty row (shut the top
+    -- six of nine) reads as oversize and repacks like any other.
+    self:_reflow()
     self:_syncStateList()
 end
 

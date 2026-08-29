@@ -13,6 +13,7 @@ local AutoSerializer = require("services.AutoSerializer")
 local Constants      = require("data.constants")
 local Decks          = require("models.Decks")
 local StakesData     = require("data.stakes")
+local GameTypesData  = require("data.game_types")
 local DeckSpecs      = require("data.decks")
 local EffectKinds    = require("data.effects").kinds
 
@@ -103,6 +104,11 @@ function GameState:new(saved)
     -- lifetime_* counters below only accrue once decks unlock; these
     -- always tick — they pace the tutorial hints.
     instance.total_hands_played  = 0
+    -- Hands the player WON, as opposed to played. Nothing counted this
+    -- before; the counter items ('every N hands won') are stateless and
+    -- read it modulo N, so it has to be a running total that survives a
+    -- reload rather than a per-run tally.
+    instance.total_hands_won     = 0
     instance.total_big_outcomes  = 0   -- resolutions with a large/jackpot tier (wins AND losses)
     instance.total_denied_stacks = 0   -- jackpot wins whose {chip} bounty was already banked this run
     -- The rest of the ungated family. Catalog unlock gates read THESE, never
@@ -161,6 +167,12 @@ function GameState:new(saved)
     -- Both are runtime-resilient: cash-game tables write 0 / nil and
     -- ignore them on read.
     instance.active_table_mtt_hands_won = {}
+    -- Tournaments each table has completed (any finish). High Roller Pass
+    -- derives its per-stake backing from these while the table stays open.
+    instance.active_table_mtt_finishes  = {}
+    -- Most recent finish position per table (nil mid-run / cash) — keeps
+    -- the FINISH readout on a settled tournament across a reload.
+    instance.active_table_last_finish   = {}
     instance.active_table_mtt_state     = {}
     -- Chip-stack tournament arrays (8-max KO). Each entry is per-seat
     -- (array indexed by script seat 1..n_seats) or a scalar. Cash tables
@@ -183,8 +195,9 @@ function GameState:new(saved)
     -- Which cell on the board each table occupies, packed row*100+col
     -- (models/table_grid.lua). The board is not derived from the table
     -- count any more: tables keep their cell when others come and go, and
-    -- a closed table leaves a hole. A save without this array falls back
-    -- to dense reading order, which is exactly the pre-slot layout.
+    -- a closed table leaves a hole while the count still needs a board
+    -- that size (the board repacks when it can shrink). A save without
+    -- this array falls back to dense reading order, the pre-slot layout.
     instance.active_table_slot          = {}
     -- Live heaters / tilts per table (data/statuses.lua). Persisted so a
     -- reload doesn't silently wipe whatever is currently running.
@@ -204,6 +217,10 @@ function GameState:new(saved)
     -- every table for the rest of the run). Plain effect entries, applied
     -- through the same registry as everything else in computeEffects.
     instance.run_ratchets                     = {}
+    -- Run-scoped sharp accumulated by the Framed Diploma's bank proc
+    -- (data/procs.lua millennium_bank). Zoom tables opened mid-run collect
+    -- this at open so "for the run" includes them.
+    instance.zoom_sharp_banked                = 0
     -- Hands resolved since a {chip} bounty last banked (0 on a banking
     -- hand). Run-scoped; drives the tutorial's shove-stall nudge.
     instance.hands_since_last_bank = 0
@@ -237,6 +254,8 @@ function GameState:resetRun()
     self.active_table_mutes        = {}
     self.active_table_rebuy_mutes  = {}
     self.active_table_mtt_hands_won = {}
+    self.active_table_mtt_finishes  = {}
+    self.active_table_last_finish   = {}
     self.active_table_mtt_state     = {}
     self.active_table_seat_stacks   = {}
     self.active_table_seat_busted   = {}
@@ -257,6 +276,7 @@ function GameState:resetRun()
     self.first_bounty_this_run            = false
     self.first_anti_this_run              = false
     self.run_ratchets                     = {}
+    self.zoom_sharp_banked                = 0
     self.hands_since_last_bank = 0
     -- Freeze the run's losses before wiping them — the Dishwasher spends
     -- the frozen figure at the next applyStartingPerks.
@@ -302,6 +322,7 @@ function GameState:wipeAll()
     -- Lifetime counters reset too — the unlock conditions need a fresh
     -- start when the player wipes their game.
     self.total_hands_played             = 0
+    self.total_hands_won                = 0
     self.total_big_outcomes             = 0
     self.total_denied_stacks            = 0
     self.lifetime_money_won             = 0
@@ -408,6 +429,10 @@ function GameState:applySaved(saved)
     -- accrued lifetime_hands_played ungated, so it's the best backfill.
     self.total_hands_played             = self.total_hands_played
                                           or self.lifetime_hands_played or 0
+    -- Nothing ever counted wins, so there is no honest backfill: an old
+    -- save starts this at zero and the counter items simply take a while
+    -- to come round the first time.
+    self.total_hands_won                = self.total_hands_won or 0
     self.total_big_outcomes             = self.total_big_outcomes    or 0
     self.total_denied_stacks            = self.total_denied_stacks   or 0
     -- Ungated counters added with the catalog expansion. The three that
@@ -482,6 +507,7 @@ function GameState:applySaved(saved)
     self.first_bounty_this_run            = self.first_bounty_this_run or false
     self.first_anti_this_run              = self.first_anti_this_run or false
     self.run_ratchets                     = self.run_ratchets or {}
+    self.zoom_sharp_banked                = self.zoom_sharp_banked or 0
 end
 
 -- Drop unknown deck ids from unlocked_decks / deck_levels / deck_xp and
@@ -568,6 +594,7 @@ function GameState:serializeMeta()
         lifetime_hands_overwhelmed      = self.lifetime_hands_overwhelmed,
         lifetime_chips_banked           = self.lifetime_chips_banked,
         total_hands_played              = self.total_hands_played,
+        total_hands_won                 = self.total_hands_won,
         total_big_outcomes              = self.total_big_outcomes,
         total_denied_stacks             = self.total_denied_stacks,
         total_busts                     = self.total_busts,
@@ -600,6 +627,8 @@ function GameState:serializeRun()
         active_table_mutes         = self.active_table_mutes,
         active_table_rebuy_mutes   = self.active_table_rebuy_mutes,
         active_table_mtt_hands_won = self.active_table_mtt_hands_won,
+        active_table_mtt_finishes  = self.active_table_mtt_finishes,
+        active_table_last_finish   = self.active_table_last_finish,
         active_table_mtt_state     = self.active_table_mtt_state,
         active_table_seat_stacks   = self.active_table_seat_stacks,
         active_table_seat_busted   = self.active_table_seat_busted,
@@ -620,6 +649,7 @@ function GameState:serializeRun()
         first_bounty_this_run            = self.first_bounty_this_run,
         first_anti_this_run              = self.first_anti_this_run,
         run_ratchets                     = self.run_ratchets,
+        zoom_sharp_banked                = self.zoom_sharp_banked,
         hands_since_last_bank      = self.hands_since_last_bank,
         run_money_lost             = self.run_money_lost,
     }
@@ -861,8 +891,21 @@ function GameState:applyStartingPerks(ctx)
                         + (self.last_run_money_lost or 0) * ctx.loss_recycle_pct
         fired[#fired + 1] = "loss_recycle_pct"
     end
+    -- Each free table is a random T1 CASH game — the Desk seats you
+    -- somewhere, it doesn't always deal you 6-max. Tournaments excluded:
+    -- a free KO seat is a different promise than a free cash table.
+    local cash_gtypes = {}
+    for _, gt in ipairs(GameTypesData) do
+        if not gt.chip_stack_table then
+            cash_gtypes[#cash_gtypes + 1] = gt.id
+        end
+    end
     for _ = 1, (ctx.start_table_count or 0) do
-        self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"
+        local gid = "six_max"
+        if #cash_gtypes > 0 and love and love.math then
+            gid = cash_gtypes[love.math.random(1, #cash_gtypes)]
+        end
+        self.active_table_specs[#self.active_table_specs + 1] = "s001:" .. gid
     end
     if (ctx.start_table_count or 0) > 0 then fired[#fired + 1] = "start_table_count" end
     return fired

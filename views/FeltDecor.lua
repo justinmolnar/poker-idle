@@ -91,7 +91,11 @@ function FeltDecor.hasMask() return _mask ~= nil end
 
 -- ── Rail + playing surface ───────────────────────────────────────────
 
--- The outer ring. Filled, not stroked: a table's rail is a solid band the felt
+-- The outer ring. RETIRED — the gate in data/felt_style.lua is pinned
+-- unreachable and the game type's color moved to the header chrome
+-- (`chrome_color`); if the rail ever returns it needs its color key back.
+--
+-- Filled, not stroked: a table's rail is a solid band the felt
 -- is recessed into, and stroking it would just give a thicker version of the
 -- border line the felt already had.
 --

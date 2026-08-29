@@ -345,6 +345,20 @@ function CR._button(comp, px, pw, p, y, game)
         border = Theme.border.default
     end
 
+    -- Optional identity face (the add-table rows wear their stake's felt).
+    -- State still speaks: hover lightens the same color, disabled falls
+    -- back to the sunken grey above.
+    if comp.face_color and not disabled then
+        local f = comp.face_color
+        if hovered then
+            fill = { math.min(1, f[1] * 1.35 + 0.03),
+                     math.min(1, f[2] * 1.35 + 0.03),
+                     math.min(1, f[3] * 1.35 + 0.03) }
+        else
+            fill = f
+        end
+    end
+
     -- Optional explicit border override (e.g. a gold "{chip} banked" trim on
     -- the add-table button). Stays through hover; when the button is disabled
     -- (can't afford / tables full) it persists but DIMMED, so the banked state
@@ -492,6 +506,7 @@ function CR._button(comp, px, pw, p, y, game)
                     muted      = act.muted,
                     disabled   = act.disabled,
                     tint_token = act.tint_token,
+                    fill_token = act.fill_token,
                     hovered    = act.id and HoverSvc.is("button", act.id),
                     press_alpha = (act.id and ClickFlash.alpha("button", act.id)) or 0,
                 }

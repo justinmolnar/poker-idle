@@ -165,7 +165,15 @@ end
 local function mergedTimings(cand, gtype_id)
     local ov = cand.timings and cand.timings[gtype_id]
     if not ov then return Timings end
+    -- Flatten in HandScript.timingsFor's own order — top-level, then the
+    -- live by_gtype block — and only THEN the candidate's overrides, with
+    -- by_gtype dropped from the copy. Leaving it in hands timingsFor the
+    -- live block to re-merge OVER the candidate: the data ships
+    -- by_gtype.zoom, so every candidate zoom timing was silently ignored.
     local t = shallowCopy(Timings)
+    t.by_gtype = nil
+    local live_g = Timings.by_gtype and Timings.by_gtype[gtype_id]
+    if live_g then for k, v in pairs(live_g) do t[k] = v end end
     for k, v in pairs(ov) do t[k] = v end
     return t
 end
@@ -204,8 +212,10 @@ local function ctxForFill(stake, fill)
 end
 
 -- Mean script wall-seconds per (gtype, tier, won), memoized over K rolls.
+-- `magFor(tier, won)` supplies each roll's magnitude; without one, hands
+-- roll at a flat 50bb (kept for MTT, whose chip hands aren't band-priced).
 local DUR_ROLLS = 300
-local function durationModel(gtype, timings)
+local function durationModel(gtype, timings, magFor)
     local memo = {}
     local n_seats = (gtype.seats or 0) + 1
     local pace = gtype.pace_mult or 1
@@ -215,8 +225,10 @@ local function durationModel(gtype, timings)
         if not m then
             local sum = 0
             for _ = 1, DUR_ROLLS do
+                local mag = magFor and magFor(tier, won)
+                            or math.min(50, STACK_BB)
                 local result = HandScript.write(
-                    { won = won, magnitude_bb = math.min(50, STACK_BB),
+                    { won = won, magnitude_bb = mag,
                       tier = tier, gtype_id = gtype.id, stake_bb = 0.02 },
                     { n_seats = n_seats,
                       player_seat = love.math.random(1, n_seats),
@@ -245,7 +257,15 @@ local function simCash(cand, stake, gtype_live, scen, n_hands)
     local gtype   = mergedGtype(cand, gtype_live)
     local timings = mergedTimings(cand, gtype.id)
     local ctx     = ctxForFill(stake, scen.fill)
-    local durOf   = durationModel(gtype, timings)
+    -- The writer's event count scales with the contribution target: a
+    -- 500bb six-max jackpot plays as a long multiway all-in, not a 50bb
+    -- hand. Roll each duration sample at a magnitude drawn from the same
+    -- band the money roll uses, or jackpot-heavy fills read faster than
+    -- they actually play.
+    local durOf   = durationModel(gtype, timings, function(tier, won)
+        local lo, hi = bandFor(cand, gtype.id, won, tier)
+        return lo + love.math.random() * (hi - lo)
+    end)
     local seats   = gtype.seats or 1
     local bb      = stake.bb
 

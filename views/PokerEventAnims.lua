@@ -34,10 +34,32 @@ local StakeThemes = require("data.stake_themes")
 local Stakes      = require("data.stakes")
 local Lookups     = require("utils.lookups")
 
+local Theme       = require("views.Theme")
+
 -- Card render size for the muck-fold animation. Matches the typical
 -- opponent hole-card draw size in TablePanel; tunable.
 local MUCK_CARD_W = 24
 local MUCK_CARD_H = 32
+
+-- ── Tournament chips ────────────────────────────────────────────────────
+-- Tournament chips are NOT money, so they must not wear money's clothes:
+-- no dollar denominations, no value labels, one flat off-palette color.
+-- One chip per big blind, exactly — the pot pile syncs to the same count
+-- (TablePanel.drawPotLabel), so the flights and the reconciler agree to
+-- the chip. Uncapped like every pile transfer: an all-in IS its whole
+-- stack in the air, and FlightSystem's MAX_IN_FLIGHT backstop deposits
+-- whatever it declines to fly.
+local TOURNEY_CHIP_DENOM = 1    -- near-white base takes the tint cleanly
+
+local function tournamentChips(tbl, amount)
+    local stake = Lookups.findById(Stakes, tbl.stake_id)
+    local bb = (stake and stake.bb) or 0
+    if bb <= 0 or not amount or amount <= 0 then return nil end
+    local n = math.max(1, math.floor(amount / bb + 0.5))
+    local chips = {}
+    for i = 1, n do chips[i] = TOURNEY_CHIP_DENOM end
+    return chips
+end
 
 -- Map a logical script seat (1..n_seats, including the player's seat)
 -- to the screen-space anchor position. Player → "you" anchor; opponents
@@ -91,6 +113,20 @@ local function flyChipsToPot(tbl, seat, amount)
     local seat_pos = seatScreenPos(tbl, seat)
     local pot_key  = Table.anchorKey(tbl, "pot")
     local pot_pos  = Anchors.get(pot_key)
+    -- Chip-stack tournament: tournament chips (one per bb, violet, no
+    -- dollar labels), reserved into the pot pile like any bet — the pile
+    -- is placed with the same colors (TablePanel.drawPotLabel), so what
+    -- lands is what sits there.
+    if tbl.seat_stacks then
+        ChipFlight.transfer(seat_pos, pot_pos, {
+            chips     = tournamentChips(tbl, amount),
+            labels    = false,
+            chip_tint = Theme.data.violet,
+            dest_key  = pot_key,
+            budget    = timeToNextEvent(tbl),
+        })
+        return
+    end
     local is_player = tbl.playback_state and seat == tbl.playback_state.player_seat
     ChipFlight.transfer(seat_pos, pot_pos, {
         amount     = amount,
@@ -218,6 +254,22 @@ local PokerEventAnims = {
         local target_pos = seatScreenPos(tbl, ev.seat)
         if not target_pos then return end
         local is_player = (ev.seat == tbl.playback_state.player_seat)
+
+        -- Chip-stack tournament: the felt pot flies to whoever won it, as
+        -- tournament chips. ev.amount ONLY — outcome_delta fabrication is
+        -- the cash path's payout trick, and an MTT r.delta is
+        -- informational (GrindController skips it). No detonation either:
+        -- a scheduled bust hand is tier "jackpot" for the planner, not a
+        -- money jackpot — the KO moment is the seat's, not the pot's.
+        if tbl.seat_stacks then
+            ChipFlight.transfer(pot_pos, target_pos, {
+                chips         = tournamentChips(tbl, ev.amount),
+                labels        = false,
+                chip_tint     = Theme.data.violet,
+                arrival_sound = is_player and "chip_land_you" or nil,
+            })
+            return
+        end
 
         -- Jackpot win: the pot doesn't get carried over, it DETONATES —
         -- and then the debris regroups into your stack, so the spectacle

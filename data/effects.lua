@@ -71,6 +71,48 @@ Effects.kinds = {
         affects     = "ctx.hand_pace_mult (multiplicative)",
     },
 
+    -- High Roller Pass. The value is win chance per completed tournament,
+    -- granted to CASH games at that stake, summed over the finish counts
+    -- of the open tournament tables there — derived at rollup, so closing
+    -- a tournament retires its share and cash tables opened later get the
+    -- current total at once.
+    tourney_backing = {
+        description = "Win chance for cash games at a stake, per tournament a still-open tournament table there has finished.",
+        value_shape = "number, e.g. 0.01 for +1% per finish",
+        affects     = "ctx.tourney_backing (rate); derived per-stake cash-only win_chance_shifts at rollup",
+    },
+
+    -- Chance an arriving bad-polarity status (a tilt) simply doesn't stick
+    -- (Dish Soap). Rolled once per application in Table:applyStatus.
+    tilt_resist_chance = {
+        description = "Chance an arriving tilt doesn't stick.",
+        value_shape = "number 0..1, e.g. 0.4 for 40%",
+        affects     = "ctx.tilt_resist_chance (additive)",
+    },
+
+    -- Run-ratchets land at a multiple (Whiteboard). Consumed by the
+    -- `ratchet` proc payload at grant time.
+    ratchet_gain_mult = {
+        description = "Multiplies what each run-ratchet grant is worth.",
+        value_shape = "number, e.g. 2.0 for double",
+        affects     = "ctx.ratchet_gain_mult (multiplicative)",
+    },
+
+    -- The zoom cascade deals the empty tables it finds (Copy Machine).
+    cascade_deals_empty = {
+        description = "Flag perk — forced settles deal idle Zoom tables instead of skipping them.",
+        value_shape = "no field (presence sets ctx.cascade_deals_empty = true)",
+        affects     = "ctx.cascade_deals_empty",
+    },
+
+    -- The board's top-left cell plays better (Red Rug). Consumed in
+    -- Table:deal against the table's packed slot.
+    corner_win_chance = {
+        description = "Win chance for whichever table sits in the board's top-left cell.",
+        value_shape = "number, e.g. 0.02 for +2%",
+        affects     = "ctx.corner_win_chance",
+    },
+
     -- ── Outcome-model effects ────────────────────────────────────────────
     -- The outcome model has three independent dimensions per hand:
     --   • win_chance — single probability ∈ [0, 1] that the hand is a Win
@@ -442,6 +484,11 @@ Effects.kinds = {
         description = "Grants a proc — 'when X happens, do Y to Z'. The named descriptor lives in data/procs.lua; services/ProcRegistry dispatches it. The applicator only collects the id, because an applicator can only write to ctx and a proc has to reach other tables.",
         value_shape = "proc = \"<id in data/procs.lua>\"",
         affects     = "ctx.procs (list of proc ids)",
+    },
+    router = {
+        description = "Grants a router — 'something is about to land on that table; send it elsewhere, or change what it is'. The named descriptor lives in data/routers.lua and is consulted on every delivery while the item is owned. The applicator only collects the id, for the same reason a proc's does.",
+        value_shape = "router = \"<id in data/routers.lua>\"",
+        affects     = "ctx.routers (list of router ids)",
     },
     first_bounty_bonus = {
         description = "The first {chip} bounty each run pays +value extra (Dogs Playing Poker).",

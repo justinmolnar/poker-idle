@@ -19,6 +19,7 @@ local Decks          = require("models.Decks")
 local Catalog        = require("data.catalog")
 local RunUpgrades    = require("data.run_upgrades")
 local ProcData       = require("data.procs")
+local RouterData     = require("data.routers")
 local OutcomeMath    = require("models.outcome_math")
 local Stakes         = require("data.stakes")
 local GameTypes      = require("data.game_types")
@@ -42,6 +43,16 @@ local function bountyKey(stake_id, game_type_id)
     return stake_id .. ":" .. game_type_id
 end
 
+-- A tournament being underway is a STATE, not an event, and the bus only
+-- carries events. So a running tournament says so on a slow heartbeat, and
+-- anything that wants to be true "while a tournament runs" hangs a short
+-- status off it and lets the status refresh. The aura then ends by itself
+-- within its own duration of the tournament finishing, and the whole status
+-- pipeline -- magnitude, the ctx overlay, the readouts, the visuals,
+-- persistence -- works unchanged. Same throttle the hint and story pollers
+-- use; a beat this slow is free and imperceptible.
+local TOURNEY_TICK = 0.5
+
 local GrindController = {}
 GrindController.__index = GrindController
 
@@ -54,6 +65,12 @@ function GrindController:new(game)
         -- to services/FlightSystem. Decouples the controller from the view
         -- layer — no views/* require lives in this file.
         pending_bursts = {},
+        -- Timed global buffs granted by procs (Cleaning Robot's cursor
+        -- overdrive): { kind, value, t } entries, refresh-not-stack per
+        -- kind. Ticked in :update, folded into every effects rollup in
+        -- :invalidateEffects. Deliberately NOT persisted — a ten-second
+        -- buff doesn't survive a reload, and that's fine.
+        timed_buffs = {},
     }, GrindController)
     -- Compute effects first so the initial pool rebuild gets ctx (matters
     -- for Cold Read and other start-of-table catalog perks).
@@ -163,12 +180,28 @@ function GrindController:_rebuildProcIndex()
     end
     self.proc_index = index
 
+    -- Routers, same shape: owning the item is what puts one in the delivery
+    -- path, selling it takes it out. One subscription total no matter how
+    -- many are owned, so a board with none pays nothing (ProcRegistry skips
+    -- the whole negotiation when nobody is listening on "deliver").
+    local routers = {}
+    for _, id in ipairs((self.ctx and self.ctx.routers) or {}) do
+        local def = RouterData[id]
+        if def then routers[#routers + 1] = { id = id, def = def } end
+    end
+    self.router_list = routers
+
     local bus = self.game and self.game.event_bus
     if not bus then return end
     -- Drop the old subscriptions before taking new ones, or every rollup
     -- would stack another copy and a proc would fire once per rollup.
     for _, tok in ipairs(self._proc_tokens or {}) do bus:unsubscribe(tok) end
     local tokens = {}
+    if #routers > 0 then
+        tokens[#tokens + 1] = bus:subscribe("deliver", function(d)
+            return self:_route(d)
+        end)
+    end
     for trigger in pairs(index) do
         tokens[#tokens + 1] = bus:subscribe(trigger, function(e)
             self:_fireProcs(trigger, e.table, e)
@@ -178,8 +211,12 @@ function GrindController:_rebuildProcIndex()
 end
 
 -- Fire every proc watching `trigger`. `extra` carries whatever the trigger
--- knows that a selector or payload might want: `out` (the resolution list
--- being iterated, for resolve-style payloads), `n`, `busted_total`.
+-- knows that a selector, payload, or filter might want: `out` (the
+-- resolution list being iterated, for resolve-style payloads), `n`,
+-- `busted_total`, plus the fields ProcRegistry filters on — `count` for
+-- `every`-procs, `status`/`was_refresh`/`magnitude` for `when`-procs.
+-- Every field a publisher sends that a proc can read MUST survive the
+-- rebuild below; dropping one silently kills every item filtering on it.
 -- Say what happened. Whether anything listens is not this function's
 -- business, and the name is a fact about the game rather than the name of a
 -- mechanism: "a stack was lost here", not "run the cooler proc".
@@ -195,6 +232,32 @@ function GrindController:_announce(name, event)
     if not bus then return end
     bus:publish(name, event)
     bus:drain()
+end
+
+-- Walk the owned routers over one delivery. Each may move it or change
+-- what it is; the first that answers wins, so ownership order decides and
+-- two routers cannot fight over the same delivery every frame.
+function GrindController:_route(d)
+    local reg = self.game and self.game.procs
+    if not (reg and d) then return end
+    for _, entry in ipairs(self.router_list or {}) do
+        local fn = reg.routers and reg.routers[entry.def.kind]
+        if fn then
+            local chance = entry.def.chance
+            -- The registry's injected rng, same as proc chance rolls — a
+            -- seeded sim or test harness must stay deterministic here too.
+            if not chance or reg.rng() < chance then
+                local before_to, before_status = d.to, d.status
+                fn(entry.def, d)
+                if d.to ~= before_to or d.status ~= before_status then
+                    if entry.def.ghost then
+                        self:procFired(entry.def.ghost, d.to)
+                    end
+                    return d.to
+                end
+            end
+        end
+    end
 end
 
 function GrindController:_fireProcs(trigger, source_tbl, extra)
@@ -223,6 +286,11 @@ function GrindController:_fireProcs(trigger, source_tbl, extra)
             n      = (extra and extra.n) or 1,
             out    = extra and extra.out,
             busted_total = (extra and extra.busted_total) or 0,
+            -- The filter fields. `every` reads count; `when` reads the rest.
+            count       = extra and extra.count,
+            status      = extra and extra.status,
+            was_refresh = extra and extra.was_refresh,
+            magnitude   = extra and extra.magnitude,
         }
         local touched, hit = reg:fire(entry.def, event)
         if touched > 0 then
@@ -353,14 +421,85 @@ function GrindController:procFired(item_id, tbl)
                                 x = x, y = y, pw = pw, ph = ph })
 end
 
+-- Grant (or refresh) a timed global buff. Same kind refreshes — strongest
+-- value, longest clock — matching the status layer's refresh-not-stack.
+function GrindController:addTimedBuff(kind, value, t)
+    for _, b in ipairs(self.timed_buffs) do
+        if b.kind == kind then
+            b.value = math.max(b.value, value or 1)
+            b.t     = math.max(b.t, t or 0)
+            self:invalidateEffects()
+            return
+        end
+    end
+    self.timed_buffs[#self.timed_buffs + 1] =
+        { kind = kind, value = value or 1, t = t or 0 }
+    self:invalidateEffects()
+end
+
+function GrindController:_tickTimedBuffs(dt)
+    local expired = false
+    for i = #self.timed_buffs, 1, -1 do
+        local b = self.timed_buffs[i]
+        b.t = b.t - dt
+        if b.t <= 0 then
+            table.remove(self.timed_buffs, i)
+            expired = true
+        end
+    end
+    if expired then self:invalidateEffects() end
+end
+
+-- Put an idle table back to work, on the house's clock rather than a
+-- cursor's. The Copy Machine's cascade upgrade calls this for zoom tables
+-- the sweep finds empty; the guards mirror what a cursor checks before
+-- clicking DEAL.
+function GrindController:dealIdleTable(t)
+    if not t or t.state ~= "idle" or t.pending_close then return false end
+    if (t.stack or 0) <= 0 then return false end
+    t:deal(self.ctx)
+    return true
+end
+
 function GrindController:invalidateEffects()
     local n_tables = self.pool and self.pool:count() or 0
     self.ctx = self.game.state:computeEffects(self.game.effects, Catalog, RunUpgrades, { active_tables_count = n_tables })
+    -- Timed buffs multiply onto the fresh rollup (Cleaning Robot's cursor
+    -- overdrive). Multiplicative-only for now; the entry's kind names the
+    -- ctx field it scales.
+    for _, b in ipairs(self.timed_buffs or {}) do
+        self.ctx[b.kind] = (self.ctx[b.kind] or 1) * b.value
+    end
     -- Latch the transient ultra-unlock effect into persistent state so the
     -- Ultra band stays available (stakeAvailable reads state.ultra_unlocked).
     -- One-way — any effect granting it makes the unlock permanent.
     if self.ctx.ultra_unlocked then
         self.game.state.ultra_unlocked = true
+    end
+    -- High Roller Pass: cash games at a stake get +win chance for every
+    -- tournament an OPEN tournament table there has finished. Derived
+    -- here, from the live pool, so the whole lifecycle is free: close the
+    -- tournament and its share is gone on the next rollup, open a cash
+    -- table later and it gets the bonus at once. Rollups fire on
+    -- buy/close/finish, so the counts are never stale when a hand deals.
+    local per = self.ctx.tourney_backing
+    if per and per > 0 and self.pool then
+        local by_stake
+        for _, t in ipairs(self.pool.tables) do
+            local n = (t.mtt and t.mtt.finish_count) or 0
+            if n > 0 then
+                by_stake = by_stake or {}
+                by_stake[t.stake_id] = (by_stake[t.stake_id] or 0) + n
+            end
+        end
+        if by_stake then
+            local shifts = self.ctx.win_chance_shifts
+            if not shifts then shifts = {}; self.ctx.win_chance_shifts = shifts end
+            for stake_id, n in pairs(by_stake) do
+                shifts[#shifts + 1] = { amount = per * n, stake = stake_id,
+                                        cash_only = true }
+            end
+        end
     end
     self:_rebuildProcIndex()
 end
@@ -408,9 +547,25 @@ function GrindController:currentFocusCapacity()
     return base_cap + math.floor((self.ctx and self.ctx.focus_capacity) or 0)
 end
 
+-- Heartbeat for anything that is true only while a tournament is running.
+-- Announces once per live tournament, so a proc's source is the tournament
+-- itself and it can target relative to it (its stake, its row, its column).
+function GrindController:_tickTournamentAuras(dt)
+    self._tourney_t = (self._tourney_t or 0) + (dt or 0)
+    if self._tourney_t < TOURNEY_TICK then return end
+    self._tourney_t = 0
+    for _, t in ipairs(self.pool.tables) do
+        if t.mtt and t.mtt:isPlaying() then
+            self:_announce("on_tournament_tick", { table = t })
+        end
+    end
+end
+
 function GrindController:update(dt)
     -- Proc budget is per frame too (services/ProcRegistry).
     if self.game.procs then self.game.procs:beginFrame() end
+    self:_tickTimedBuffs(dt)
+    self:_tickTournamentAuras(dt)
     -- Shockwaves in flight from a slam or a shove.
     self:_tickImpacts(dt)
 
@@ -448,6 +603,10 @@ function GrindController:update(dt)
     for _, t in ipairs(self.pool.tables) do
         local payout = t.mtt and t.mtt:drainPayout()
         if payout ~= nil then
+            -- A finished tournament just raised this table's finish count;
+            -- re-derive the High Roller Pass backing (invalidateEffects
+            -- reads the counts from the pool).
+            self:invalidateEffects()
             local hands_cleared = t.mtt.hands_won
             -- Win detection: chip-stack KO, finish 1st.
             local gtype = Lookups.findById(GameTypes, t.game_type_id)
@@ -553,18 +712,19 @@ function GrindController:update(dt)
                 if award  > 0 then msg = msg .. string.format("\n+%d {chip}", award) end
                 self.game.floating_text.emit(msg, center[1], center[2],
                     { scale = 1.4, font = "lg", color_token = "amber",
-                      lifetime = 2.6, arc_y = -math.floor(lg_h * 0.5) })
+                      lifetime = 2.6, arc_y = -math.floor(lg_h * 0.5),
+                      fit_table = t })
             elseif payout > 0 then
                 -- Partial payout (busted before the win) — a plain cash float.
                 self.game.floating_text.emit(string.format("+$%.2f", payout),
-                    center[1], center[2])
+                    center[1], center[2], { fit_table = t })
             else
                 -- Out of the money. The most common way a tournament ends
                 -- and, until now, the only outcome in the game that said
                 -- nothing at all. It is the tilt beat.
                 self.game.floating_text.emit("BUSTED",
                     center[1], center[2],
-                    { color_token = "error", lifetime = 1.6 })
+                    { color_token = "error", lifetime = 1.6, fit_table = t })
                 self:_announce("on_tournament_miss", { table = t, n = 1 })
             end
 
@@ -867,19 +1027,35 @@ function GrindController:update(dt)
         -- while double-paying a chance-based one. Payloads that should
         -- scale read event.n instead.
         if r.busted_seats then
+            -- The view's KO moment: one intent per eliminated seat (the
+            -- announce below stays once-per-hand for the procs). Not a
+            -- chip burst — GrindView routes it to the seat flash, the KO
+            -- floater and the knock.
+            for _, seat in ipairs(r.busted_seats) do
+                self.pending_bursts[#self.pending_bursts + 1] = {
+                    kind = "seat_ko", table = r.table, seat = seat,
+                }
+            end
             self:_announce("on_ko", {
                 table = r.table, n = #r.busted_seats, out = resolutions,
                 busted_total = r.busted_total,
+                seats = r.busted_seats,
             })
         end
-        if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table then
+        -- `not r.flipped` throughout: a hand whose side a heater or tilt
+        -- FLIPPED keeps its tier for the felt (the cards played out), but a
+        -- manufactured jackpot is not the chip event — the dists never
+        -- rolled it. Without this gate a heater converts every jackpot-tier
+        -- cooler into a bounty + cascade, and a tilt-flipped "cooler" feeds
+        -- the tilt procs that caused it.
+        if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table and not r.flipped then
             self:_announce("on_jackpot_win", { table = r.table, out = resolutions })
         end
-        if r.delta < 0 and r.tier == "jackpot" and not r.chip_stack_table then
+        if r.delta < 0 and r.tier == "jackpot" and not r.chip_stack_table and not r.flipped then
             self:_announce("on_stack_loss", { table = r.table, out = resolutions })
         end
 
-        if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table then
+        if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table and not r.flipped then
             local tbl = r.table
             if tbl then
                 local cap = 1
@@ -999,6 +1175,16 @@ function GrindController:update(dt)
         local focus_cap = self:currentFocusCapacity()
 
         state.total_hands_played = (state.total_hands_played or 0) + 1
+        if r.won then
+            state.total_hands_won = (state.total_hands_won or 0) + 1
+            -- Carries the running total, because a counter proc decides
+            -- whether it is the hundredth by looking at the number rather
+            -- than by keeping a tally of its own. Nothing to persist, and
+            -- a reload cannot desync it.
+            self:_announce("on_hand_won", {
+                table = tbl, count = state.total_hands_won, out = resolutions,
+            })
+        end
         if r.tier == "large" or r.tier == "jackpot" then
             -- Big outcomes, win or loss — the tutorial's tier hint fires
             -- on the first one.
@@ -1051,7 +1237,7 @@ function GrindController:update(dt)
             elseif r.delta < 0 then
                 state.lifetime_money_lost = (state.lifetime_money_lost or 0) + (-r.delta)
             end
-            if r.won and r.tier == "jackpot" then
+            if r.won and r.tier == "jackpot" and not r.flipped then
                 state.lifetime_jackpot_count = (state.lifetime_jackpot_count or 0) + 1
             end
             if r.won and gtype_id == "mtt" then
@@ -1520,17 +1706,33 @@ function GrindController:addTable(stake_id, game_type_id)
     local cost = (stake.buy_in or 0) * mult
     if self.game.state.bankroll < cost then return false end
     self.game.state.bankroll = self.game.state.bankroll - cost
-    self.pool:addTable(stake_id, game_type_id or "six_max", self.ctx)
+    -- Take the newcomer from addTable's return: the pool sorts by cell, so
+    -- a table filling an interior hole is NOT last in the array, and
+    -- tables[#tables] would hand back somebody else.
+    local new_tbl = self.pool:addTable(stake_id, game_type_id or "six_max", self.ctx)
     self:invalidateEffects()
+    -- Adding into a hole renumbers pool order the same way a drag does;
+    -- cursor claims are index-keyed, so release them (see moveTableToSlot).
+    CursorPool.releaseAllTargets()
     -- Any cash left on the table after the discount counts as the table's
     -- starting stack — Table:new already seeds stack to stake.buy_in (the
     -- 100bb cap), so the discount effectively lets the player keep the
     -- difference in bankroll. Net: same stack value, less paid up front.
 
-    -- Stash a pending bankroll → YOU chip burst on the just-added table;
-    -- :update emits it once the view has populated panel positions.
-    local new_tbl = self.pool.tables[#self.pool.tables]
-    if new_tbl then new_tbl._pending_buyin = cost end
+    if new_tbl then
+        -- Stash a pending bankroll → YOU chip burst on the just-added table;
+        -- :update emits it once the view has populated panel positions.
+        new_tbl._pending_buyin = cost
+        -- The Diploma's run bank: "sharper for the run" includes zoom
+        -- tables opened after the firings (data/procs.lua millennium_bank).
+        local banked = self.game.state.zoom_sharp_banked or 0
+        if banked > 0 and new_tbl.game_type_id == "zoom" then
+            new_tbl:applyStatus("sharp", { magnitude = banked, source = "diploma" })
+            -- The save arrays hold per-table status references; re-sync so
+            -- a save landing before the next tick doesn't miss it.
+            self.pool:_syncStateList()
+        end
+    end
     self:_playNamed("table_added")
     return true
 end
@@ -1585,9 +1787,63 @@ function GrindController:_finalizeRemove(idx, quiet)
     end
     if not quiet then self:_emitCashOutChips(t, refund) end
     self.pool:removeTable(idx)
+    -- Closing renumbers pool order (table.remove, possibly a repack), and
+    -- cursor claims are index-keyed — release them so no cursor silently
+    -- re-aims at whatever table now sits at its index (see moveTableToSlot).
+    CursorPool.releaseAllTargets()
     self.game.state.bankroll = self.game.state.bankroll + refund
     self:invalidateEffects()
     return true
+end
+
+-- Leave the table NOW, poker style — the second click on a pending [x].
+-- Whatever is in the current hand is forfeited:
+--   * Cash: your stack leaves with you MINUS what you've already pushed
+--     into this pot. Exactly what standing up mid-hand costs in a room.
+--   * Tournament mid-run: you're out where you stand — settled at the
+--     finish a bust this instant would earn (alive players = your place),
+--     which pays its ladder multiple if that's the money and nothing if
+--     it isn't. Deliberately NO on_tournament_win/miss announces: those
+--     are outcomes; walking away is a choice, and it shouldn't tilt the
+--     neighbours or feed the ratchet.
+--   * Tournament settled with an undrained payout (the one-frame window
+--     before the drain sweep): credited here, quietly, so the forced
+--     close can't eat a cash.
+function GrindController:_forceRemove(idx)
+    local t = self.pool.tables[idx]
+    if not t then return false end
+    local gtype = Lookups.findById(GameTypes, t.game_type_id)
+    if gtype and gtype.chip_stack_table then
+        if t.mtt and t.mtt:isPlaying() then
+            local n_seats = (gtype.seats or 0) + 1
+            local alive_opps = 0
+            for s = 1, n_seats do
+                if s ~= t.player_seat_fixed
+                   and not (t.seat_busted and t.seat_busted[s]) then
+                    alive_opps = alive_opps + 1
+                end
+            end
+            t:_endTournament(alive_opps + 1, n_seats)
+        end
+        local payout = t.mtt and t.mtt:drainPayout()
+        if payout and payout > 0 then
+            self.game.state.bankroll = self.game.state.bankroll + payout
+            self:_emitMttPayoutChips(t, payout)
+            local center = AnchorRegistry.get(TableModel.anchorKey(t, "center"))
+                           or { 0, 0 }
+            self.game.floating_text.emit(string.format("+$%.2f", payout),
+                center[1], center[2], { fit_table = t })
+        end
+        -- t.stack is 0 after _endTournament (and after a prior settle),
+        -- so _finalizeRemove refunds nothing further.
+    elseif t.state ~= "idle" then
+        -- Fold and stand up: the pot keeps what you've committed.
+        local ps = t.playback_state
+        local committed = (ps and ps.player_seat and ps.per_seat_total
+                           and ps.per_seat_total[ps.player_seat]) or 0
+        t.stack = math.max(0, (t.stack or 0) - committed)
+    end
+    return self:_finalizeRemove(idx)
 end
 
 function GrindController:removeTable(idx)
@@ -1598,6 +1854,11 @@ function GrindController:removeTable(idx)
     -- tournament whose payout has not been drained yet defers the same
     -- way, so the X never eats a cash.
     if t.state ~= "idle" or (t.mtt and t.mtt.pending_payout ~= nil) then
+        -- Already queued → the player is insisting. Leave NOW and forfeit
+        -- the hand (see _forceRemove).
+        if t.pending_close then
+            return self:_forceRemove(idx)
+        end
         t.pending_close = true
         return true
     end
@@ -1713,6 +1974,21 @@ function GrindController:cashOutType(stake_id, gtype_id)
         local t = self.pool.tables[i]
         if t and tableMatches(t, stake_id, gtype_id) then
             self:removeTable(i)
+            n = n + 1
+        end
+    end
+    return n
+end
+
+-- How many of this combo's tables have a close queued (pending_close).
+-- The sidebar's [x] warn-tints while this is nonzero — the same signal the
+-- per-table [x] shows — and clears itself as the closes finalise. A second
+-- click on that [x] reaches removeTable on the still-pending tables, which
+-- is the force-leave path.
+function GrindController:typePendingCloses(stake_id, gtype_id)
+    local n = 0
+    for _, t in ipairs(self.pool.tables) do
+        if t.pending_close and tableMatches(t, stake_id, gtype_id) then
             n = n + 1
         end
     end

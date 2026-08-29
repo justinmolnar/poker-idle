@@ -144,7 +144,9 @@ into corruption as a spatial drawback you play around with placement
 becomes a stat: radius effects reward smaller/more tables packed in range.
 
 Requires slot-based seating: tables live in fixed slots, positions persist,
-closing one leaves a hole, drag-to-rearrange, aura radius rings on hover.
+closing one leaves a hole only while the count still needs a board that
+size (the board repacks the moment it can shrink — holes are never free
+spacers), drag-to-rearrange, aura radius rings on hover.
 Biggest single piece of engineering in the plan. Bonus: a slot pool
 structurally kills the index-shift bug class (a table's slot is its
 identity; nothing reflows on close).

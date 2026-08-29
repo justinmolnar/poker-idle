@@ -20,7 +20,7 @@ Balance.ACT1_COMPLETION_AT_WIN = 0.70     -- fraction of Act 1 catalog owned at 
 Balance.ACT1_SHOVE_TARGET      = 0.80     -- win chance at expected winning shove (Shove 3)
 Balance.T3_MULT                = 3
 
-Balance.ACT1_ITEM_COUNT        = 49
+Balance.ACT1_ITEM_COUNT        = 65
 
 -- ─── Derived Math ────────────────────────────────────────────────────────────
 -- Target catalog R1 contribution for Act 1 (raw1 = (catalog + deck) * mult)

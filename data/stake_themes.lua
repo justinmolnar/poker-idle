@@ -11,7 +11,11 @@
 -- Schema (all fields optional; views fall back to default Theme tokens
 -- when a key is absent):
 --   {
---     felt_tint    = { r, g, b, a },   -- felt fill, alpha-blended
+--     felt_tint    = { r, g, b, a },   -- RETIRED: the felt is now derived
+--                                      -- from the stake's big-blind chip
+--                                      -- color (TablePanel.feltForStake),
+--                                      -- opaque, so the tier reads at a
+--                                      -- glance. Kept here as history.
 --     (the rail is per GAME TYPE: data/game_type_themes.lua)
 --     border_color = { r, g, b, a },   -- panel-rect border line color
 --     border_width = number,           -- panel-rect border line width

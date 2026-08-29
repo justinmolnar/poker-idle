@@ -84,6 +84,8 @@ function EventBus:new()
         pool      = {},    -- recycled event tables
         dispatched = 0,    -- events handled this frame
         dispatching = false,
+        _seq      = 0,     -- monotonic subscribe order; never reused, so a
+                           -- survivor's tiebreak can't collide after compact
     }, EventBus)
 end
 
@@ -93,16 +95,29 @@ end
 -- matters wherever money is counted: the ordering inside the old resolution
 -- loop is preserved by giving those subscribers explicit priorities rather
 -- than trusting the order they happened to register in.
+local function bySubOrder(a, b)
+    if a.priority ~= b.priority then return a.priority > b.priority end
+    return a.seq < b.seq
+end
+
 function EventBus:subscribe(name, fn, priority)
     if type(fn) ~= "function" then return nil end
     local list = self.subs[name]
     if not list then list = {}; self.subs[name] = list end
-    local rec = { fn = fn, priority = priority or 0, name = name, seq = #list + 1 }
+    self._seq = self._seq + 1
+    local rec = { fn = fn, priority = priority or 0, name = name, seq = self._seq }
     list[#list + 1] = rec
-    table.sort(list, function(a, b)
-        if a.priority ~= b.priority then return a.priority > b.priority end
-        return a.seq < b.seq
-    end)
+    -- Sorting the live array mid-dispatch would shuffle it under the loop
+    -- walking it (skip one subscriber, run another twice) — and subscribing
+    -- during dispatch is a real path: a ratchet payload rebuilds the proc
+    -- index while its own trigger is being delivered. Defer the sort; the
+    -- newcomer runs in append order until the next dispatch of this name
+    -- sorts the list, which keeps the same-frame contract intact.
+    if self.dispatching then
+        list.dirty = true
+    else
+        table.sort(list, bySubOrder)
+    end
     return rec
 end
 
@@ -168,9 +183,14 @@ end
 function EventBus:_dispatch(name, event)
     local list = self.subs[name]
     if list then
+        if list.dirty then
+            list.dirty = nil
+            table.sort(list, bySubOrder)
+        end
         -- Walk by index over the live array. Subscribers added during a
-        -- dispatch are appended (and sorted) but the #list read here is
-        -- taken once, so they run on the next event rather than this one.
+        -- dispatch are appended (never sorted until the walk is over), and
+        -- the #list read here is taken once, so they run on the next event
+        -- rather than this one.
         local n = #list
         for i = 1, n do
             local rec = list[i]
@@ -252,6 +272,9 @@ function EventBus:_compact()
             local rec = list[i]
             if not rec.dead then n = n + 1; out[n] = rec end
         end
+        -- The rebuilt list drops any pending `dirty` flag, so restore the
+        -- ordering invariant here rather than carrying the flag across.
+        if n > 0 then table.sort(out, bySubOrder) end
         self.subs[name] = (n > 0) and out or nil
     end
 end

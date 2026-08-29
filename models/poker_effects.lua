@@ -132,6 +132,43 @@ function PokerEffects.registerAll(reg)
         }
     end)
 
+    -- The mental game (Dish Soap): chance an arriving bad-polarity status
+    -- doesn't stick. Consumed in Table:applyStatus. Additive across
+    -- sources, capped there implicitly by the roll.
+    reg:register("tilt_resist_chance", function(e, ctx)
+        ctx.tilt_resist_chance = (ctx.tilt_resist_chance or 0) + (e.value or 0)
+    end)
+
+    -- The Whiteboard: run-ratchets land at a multiple of their magnitude.
+    -- Consumed by the `ratchet` payload (models/table_procs.lua).
+    reg:register("ratchet_gain_mult", function(e, ctx)
+        ctx.ratchet_gain_mult = (ctx.ratchet_gain_mult or 1) * (e.value or 1)
+    end)
+
+    -- The Copy Machine: the zoom cascade DEALS the empty tables it finds
+    -- instead of skipping them. Flag consumed by the `resolve_now` payload.
+    reg:register("cascade_deals_empty", function(_e, ctx)
+        ctx.cascade_deals_empty = true
+    end)
+
+    -- The Red Rug: the table sitting in the board's top-left cell plays a
+    -- little better. Consumed in Table:deal (the one place that knows both
+    -- the ctx and the table's cell).
+    reg:register("corner_win_chance", function(e, ctx)
+        ctx.corner_win_chance = (ctx.corner_win_chance or 0) + (e.value or 0)
+    end)
+
+    -- High Roller Pass. Win chance for CASH games per tournament FINISH at
+    -- their stake, derived rather than granted: this only records the
+    -- per-finish rate; the controller turns it into per-stake, cash-only
+    -- win_chance_shift entries from the open tournament tables' finish
+    -- counts on every rollup (GrindController:invalidateEffects). Close
+    -- the tournament and its share is gone, because nothing was ever
+    -- handed out to claw back.
+    reg:register("tourney_backing", function(e, ctx)
+        ctx.tourney_backing = (ctx.tourney_backing or 0) + (e.value or 0)
+    end)
+
     -- Flat additive chance to auto-win a hand BEFORE the WC roll fires.
     -- Each entry contributes its `amount` (0..1) to the per-hand auto-win
     -- probability; sampleOutcome rolls once against the summed total per
@@ -406,6 +443,16 @@ function PokerEffects.registerAll(reg)
         if not e.proc then return end
         ctx.procs = ctx.procs or {}
         ctx.procs[#ctx.procs + 1] = e.proc
+    end)
+
+    -- A router: "something is about to land there, send it elsewhere or
+    -- change what it is". Same collect-the-id shape as a proc, for the same
+    -- reason: an applicator can only write to ctx, and a router has to sit
+    -- in the delivery path. Dispatch is in services/ProcRegistry via the
+    -- bus; descriptors live in data/routers.lua.
+    reg:register("router", function(e, ctx)
+        ctx.routers = ctx.routers or {}
+        ctx.routers[#ctx.routers + 1] = e.router
     end)
     -- Dogs Playing Poker: the first {chip} bounty each run pays +value.
     reg:register("first_bounty_bonus", function(e, ctx)

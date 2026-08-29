@@ -15,6 +15,13 @@
 -- to true adjacency later without re-tuning anything, because a table's
 -- position no longer moves on its own.
 --
+-- `same_line` is the one selector exception, and it is deliberate: a row
+-- and a column are things the player can SEE, so an item that speaks about
+-- them has to mean the board's rows and columns rather than a rank distance
+-- that happens to wrap at the edge. It reads (row, col) off the packed
+-- slot. The `steal_nearby` router is the other: "the table beside it" is a
+-- placement claim, so it measures the board's beside, not the pool's.
+--
 -- Nothing here caches an index. Distance is computed from the live pool at
 -- fire time, which is what makes the whole system immune to the
 -- index-shift bug class that has bitten this codebase before (a table
@@ -32,9 +39,11 @@
 -- poke a swept table needed is gone, because the table now announces its
 -- own move to "settling" and whoever wants to make a noise is listening.
 
-local Lookups   = require("utils.lookups")
-local Stakes    = require("data.stakes")
-local GameTypes = require("data.game_types")
+local Lookups    = require("utils.lookups")
+local Stakes     = require("data.stakes")
+local GameTypes  = require("data.game_types")
+local TableGrid  = require("models.table_grid")
+local StatusData = require("data.statuses")
 
 local TableProcs = {}
 
@@ -63,10 +72,12 @@ local function matches(tbl, where)
     return true
 end
 
--- Trim a candidate list by `pick` and `max`.
-local function narrow(list, spec)
+-- Trim a candidate list by `pick` and `max`. `rng` is the registry's
+-- injected 0..1 roll — never love.math directly, so a seeded sim or test
+-- harness stays deterministic.
+local function narrow(list, spec, rng)
     if spec.pick == "random" and #list > 0 then
-        local one = list[love.math.random(1, #list)]
+        local one = list[math.floor(rng() * #list) + 1]
         return { one }
     end
     local cap = spec.max
@@ -105,7 +116,7 @@ function TableProcs.registerAll(reg)
                 out[#out + 1] = t
             end
         end
-        return narrow(out, spec)
+        return narrow(out, spec, reg.rng)
     end)
 
     -- Tables within `radius` places of the source in pool order.
@@ -120,16 +131,54 @@ function TableProcs.registerAll(reg)
             local skip = (spec.exclude_self ~= false) and t == event.source
             if not skip and matches(t, spec.where) then out[#out + 1] = t end
         end
-        return narrow(out, spec)
+        return narrow(out, spec, reg.rng)
     end)
 
     -- Any other table, ignoring position.
+    -- Every table sitting at the same stake as the source. Tiers are the
+    -- ladder the player climbs, so "the tables at this level" is a thing
+    -- they already think in. `where` cannot express "same as the source",
+    -- which is why this is a selector rather than a filter.
+    reg:registerSelector("same_stake", function(spec, event)
+        local src = event.source
+        if not src then return {} end
+        local out = {}
+        for _, t in ipairs(event.pool.tables) do
+            local skip = (spec.exclude_self ~= false) and t == src
+            if not skip and t.stake_id == src.stake_id
+               and matches(t, spec.where) then
+                out[#out + 1] = t
+            end
+        end
+        return narrow(out, spec, reg.rng)
+    end)
+
+    -- The source's row or column on the board. `axis = "col"` for the
+    -- column, anything else for the row. Holes are legal, so this walks
+    -- the pool rather than assuming a dense rectangle.
+    reg:registerSelector("same_line", function(spec, event)
+        local src = event.source
+        if not src then return {} end
+        local sr, sc = TableGrid.unpack(src.slot or 0)
+        local want_col = (spec.axis == "col")
+        local out = {}
+        for _, t in ipairs(event.pool.tables) do
+            local r, c = TableGrid.unpack(t.slot or 0)
+            local on_line = want_col and (c == sc) or (not want_col and r == sr)
+            local skip = (spec.exclude_self ~= false) and t == src
+            if on_line and not skip and matches(t, spec.where) then
+                out[#out + 1] = t
+            end
+        end
+        return narrow(out, spec, reg.rng)
+    end)
+
     reg:registerSelector("any_other", function(spec, event)
         local out = {}
         for _, t in ipairs(event.pool.tables) do
             if t ~= event.source and matches(t, spec.where) then out[#out + 1] = t end
         end
-        return narrow(out, spec)
+        return narrow(out, spec, reg.rng)
     end)
 
     -- ── Payloads ───────────────────────────────────────────────────────
@@ -149,17 +198,70 @@ function TableProcs.registerAll(reg)
             t         = spec.t,
             charges   = spec.charges,
             source    = event.ghost,
+            -- Ambient sources do not end hands; see Table:_maybeInterrupt.
+            no_interrupt = spec.no_interrupt,
+            -- Nor do their refreshes count as events; see _announceStatus.
+            silent_refresh = spec.silent_refresh,
         })
+    end)
+
+    -- The mental game's active half (Cool Towel). A tilt is a PUNCH: it
+    -- ends the hand it lands in and queues a forced loss on the next one
+    -- (Table:interrupt). The damage still owed lives in
+    -- `_forced_next_won == false`, so THAT is what cleansing cancels; the
+    -- lingering wash comes off with it so the felt agrees.
+    reg:registerPayload("cleanse", function(_spec, _target, event)
+        if not event.pool then return false end
+        local wiped = false
+        for _, t in ipairs(event.pool.tables) do
+            if t._forced_next_won == false then
+                t._forced_next_won = nil
+                wiped = true
+            end
+            local list = t.statuses
+            if list then
+                for i = #list, 1, -1 do
+                    local def = StatusData[list[i].kind]
+                    if def and def.polarity == "bad" then
+                        table.remove(list, i)
+                        t._status_rev = (t._status_rev or 0) + 1
+                        wiped = true
+                    end
+                end
+            end
+        end
+        return wiped
+    end)
+
+    -- Push a timed global buff (Cleaning Robot: cursors go into overdrive
+    -- after a {stack}). The controller owns the clock and folds live buffs
+    -- into every effects rollup; see GrindController.timed_buffs.
+    reg:registerPayload("timed_buff", function(spec, _target, event)
+        local ctrl = event.ctrl
+        if not (ctrl and ctrl.addTimedBuff and spec.buff) then return false end
+        ctrl:addTimedBuff(spec.buff, spec.value or 1, spec.t or 5)
+        return true
     end)
 
     -- Settle the target's hand right now. The cascade. Appends the
     -- resulting resolution to the list the controller is iterating, so a
     -- forced hand gets bounties, counters, floaters and analytics through
     -- exactly the same code an ordinary hand does.
+    --
+    -- With the Copy Machine owned (ctx.cascade_deals_empty), a table the
+    -- sweep finds EMPTY is put back to work instead of skipped: the sweep
+    -- deals it. That is the cascade's one upgrade — more live hands for
+    -- the next jackpot to find.
     reg:registerPayload("resolve_now", function(_spec, target, event)
         if not (target and event.out) then return false end
         local r = target:forceResolve(event.ctx)
-        if not r then return false end
+        if not r then
+            if event.ctx and event.ctx.cascade_deals_empty
+               and event.ctrl and event.ctrl.dealIdleTable then
+                return event.ctrl:dealIdleTable(target)
+            end
+            return false
+        end
         r.table = target
         event.out[#event.out + 1] = r
         -- No sound poke here any more: the table announces its own move to
@@ -179,30 +281,125 @@ function TableProcs.registerAll(reg)
         local rolls = (spec.per_n and (event.n or 1)) or 1
         local hits = 0
         for _ = 1, rolls do
-            if love.math.random() < (spec.chance or 0) then hits = hits + 1 end
+            if reg.rng() < (spec.chance or 0) then hits = hits + 1 end
         end
         if hits == 0 then return false end
         event.state.bankroll = (event.state.bankroll or 0) + amount * hits
         return true
     end)
 
+    -- Hand back the price of the most expensive seat you are sitting in.
+    -- Reads the RAW buy-in, matching refund_buyin: discounts are applied
+    -- where a seat is CHARGED for, never where one is paid out.
+    reg:registerPayload("pay_biggest_buyin", function(spec, _target, event)
+        if not (event.state and event.pool) then return false end
+        local best = 0
+        for _, t in ipairs(event.pool.tables) do
+            local stake = Lookups.findById(Stakes, t.stake_id)
+            local bi = (stake and stake.buy_in) or 0
+            if bi > best then best = bi end
+        end
+        if best <= 0 then return false end
+        event.state.bankroll = (event.state.bankroll or 0)
+                               + best * (spec.mult or 1)
+        return true
+    end)
+
+    -- ── Routers ────────────────────────────────────────────────────────
+    -- A router sees a delivery before it lands: `d.to` is where it is
+    -- headed, `d.status` is what will arrive. Change either. Returning
+    -- nothing leaves it alone, which is what a router that does not apply
+    -- must do — these run on EVERY delivery.
+
+    -- The tank reaches over and takes what was meant for the table beside
+    -- it. Good and bad alike: a table that eats everything near it is a
+    -- placement decision, not a filter.
+    --
+    -- Statuses only. A delivery with no status is a settle (the cascade's
+    -- resolve_now), and stealing one of those force-resolves the tank's
+    -- slow hand while the table the cascade meant to pay never settles.
+    --
+    -- "Beside" is the board's own geometry, like same_line: within
+    -- `radius` cells in any direction, nearest first (ties go to reading
+    -- order). Pool-order distance would call the end of one row adjacent
+    -- to the start of the next, and a placement mechanic has to mean what
+    -- the player sees.
+    reg:registerRouter("steal_nearby", function(spec, d)
+        local pool = d.event and d.event.pool
+        local target = d.to
+        if not (pool and target and d.status) then return end
+        if target.game_type_id == spec.gtype then return end   -- already there
+        local tr, tc = TableGrid.unpack(target.slot or 0)
+        local radius = spec.radius or 1
+        local best, best_dist
+        for _, t in ipairs(pool.tables) do
+            if t ~= target and t.game_type_id == spec.gtype then
+                local r, c = TableGrid.unpack(t.slot or 0)
+                local dist = math.max(math.abs(r - tr), math.abs(c - tc))
+                if dist <= radius and (not best_dist or dist < best_dist) then
+                    best, best_dist = t, dist
+                end
+            end
+        end
+        if best then
+            d.to = best
+            return best
+        end
+    end)
+
+    -- A running tournament bends what arrives around it. Along its row
+    -- things land warmer, down its column colder. Checked against live
+    -- tournaments rather than a cached flag, because a tournament ending
+    -- has to stop bending immediately.
+    reg:registerRouter("tournament_lines", function(spec, d)
+        local pool = d.event and d.event.pool
+        local target = d.to
+        if not (pool and target and d.status) then return end
+        local tr, tc = TableGrid.unpack(target.slot or 0)
+        for _, t in ipairs(pool.tables) do
+            if t ~= target and t.mtt and t.mtt:isPlaying() then
+                local r, c = TableGrid.unpack(t.slot or 0)
+                local map = (r == tr and spec.row)
+                         or (c == tc and spec.col)
+                if map and map[d.status] then
+                    d.status = map[d.status]
+                    return
+                end
+            end
+        end
+    end)
+
     -- A permanent-for-this-run effect. Stored as a plain effect entry, so
     -- GameState:computeEffects applies it through the same registry as
     -- everything else. Cleared by resetRun with the rest of the run.
+    -- Pay into a run-scoped bank on the GameState. The bank is what makes
+    -- a "for the run" status proc retroactive: tables opened after a firing
+    -- collect the banked total at open (GrindController:addTable), instead
+    -- of only the tables that happened to be sitting there when it fired.
+    reg:registerPayload("bank", function(spec, _target, event)
+        local state = event.state
+        if not (state and spec.field) then return false end
+        state[spec.field] = (state[spec.field] or 0) + (spec.magnitude or 0)
+        return true
+    end)
+
     reg:registerPayload("ratchet", function(spec, _target, event)
         local state = event.state
         if not (state and spec.effect) then return false end
         state.run_ratchets = state.run_ratchets or {}
         local field = spec.effect.mag_field or "value"
+        -- The Whiteboard: ratchets land harder while it's owned.
+        local mag = (spec.magnitude or 0)
+                    * ((event.ctx and event.ctx.ratchet_gain_mult) or 1)
         for _, entry in ipairs(state.run_ratchets) do
             if entry.kind == spec.effect.kind then
-                entry[field] = (entry[field] or 0) + (spec.magnitude or 0)
+                entry[field] = (entry[field] or 0) + mag
                 if event.ctrl then event.ctrl:invalidateEffects() end
                 return true
             end
         end
         local entry = { kind = spec.effect.kind }
-        entry[field] = spec.magnitude or 0
+        entry[field] = mag
         state.run_ratchets[#state.run_ratchets + 1] = entry
         if event.ctrl then event.ctrl:invalidateEffects() end
         return true

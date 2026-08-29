@@ -135,6 +135,23 @@ function Effects.drawBorderPulse(tbl, x, y, w, h)
     love.graphics.setLineWidth(1)
 end
 
+-- ── Shader quad ───────────────────────────────────────────────────────
+-- A rect a fragment shader can actually read its position in.
+-- love.graphics.rectangle hands the shader tex_coords = (0,0) at EVERY
+-- fragment (verified by pixel readback), so any shader whose falloff or
+-- shape keys off tex_coords renders one constant color — usually alpha 0.
+-- The radial glow was silently invisible for exactly this reason. A 1×1
+-- white texture drawn scaled to the rect carries real 0..1 coords.
+local _quad_img
+local function shaderRect(x, y, w, h)
+    if not _quad_img then
+        local id = love.image.newImageData(1, 1)
+        id:setPixel(0, 0, 1, 1, 1, 1)
+        _quad_img = love.graphics.newImage(id)
+    end
+    love.graphics.draw(_quad_img, x, y, 0, w, h)
+end
+
 -- Radial-glow halo via shader. Rendered additively over the panel rect
 -- after all other content. Falls back to plain rendering if the shader
 -- failed to compile (graceful degradation — see ShaderRegistry).
@@ -152,7 +169,7 @@ function Effects.drawGlow(tbl, x, y, w, h)
     sh:send("u_color",     GLOW_COLOR)
     sh:send("u_intensity", t)
     love.graphics.setBlendMode("add", "alphamultiply")
-    love.graphics.rectangle("fill", gx, gy, gw, gh)
+    shaderRect(gx, gy, gw, gh)
     love.graphics.setBlendMode("alpha")
     love.graphics.setShader()
 end
@@ -213,7 +230,7 @@ function Effects.drawStatusGlow(tbl, x, y, w, h)
     sh:send("u_color", color)
     sh:send("u_intensity", intensity)
     love.graphics.setBlendMode("add", "alphamultiply")
-    love.graphics.rectangle("fill", x - pad, y - pad, w + pad * 2, h + pad * 2)
+    shaderRect(x - pad, y - pad, w + pad * 2, h + pad * 2)
     love.graphics.setBlendMode("alpha")
     love.graphics.setShader()
 end
@@ -460,6 +477,98 @@ function Effects.drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
                             Theme.space.radius)
     FeltDecor.drawMask(felt_x, felt_y, felt_w, felt_h, color,
                        a * VIGNETTE_MAX_ALPHA * (cfg.flash_mask or 0))
+end
+
+-- ── The heater's fire ─────────────────────────────────────────────────
+-- Heat looks like heat: animated flame tongues along the felt's bottom
+-- edge (shaders/flame.frag), on any status kind flagged `flame = true`
+-- in data/statuses.lua. Absent, not shrunk, below gates.fire_min_panel_w
+-- — the ring still says "something is happening here" under that.
+function Effects.drawStatusFire(tbl, x, y, w, h)
+    if not tbl.statuses then return end
+    -- Nothing shows while a blow is still in the air.
+    if (tbl.impact_wait or 0) > 0 then return end
+    local gates = StatusData.gates or {}
+    if w < (gates.fire_min_panel_w or 0) then return end
+    local e
+    for _, s in ipairs(tbl.statuses) do
+        local def = StatusData[s.kind]
+        if def and def.flame then e = s; break end
+    end
+    if not e then return end
+    local sh = ShaderRegistry.get("flame")
+    if not sh then return end
+
+    -- Full blaze while the status runs; dies down over its last beat
+    -- instead of vanishing between frames. Magnitude is inert on heaters
+    -- (the status IS the interrupt), so remaining time is the only dial.
+    local intensity = math.min(1, (e.t or 1) / 0.6)
+    if intensity <= 0.01 then return end
+
+    local fh = math.max(10, math.min(math.floor(h * 0.45), 96))
+    local t  = (love.timer and love.timer.getTime() or 0)
+    Theme.setColor(SHADER_PASS_COLOR, 1)
+    love.graphics.setShader(sh)
+    sh:send("u_time", t)
+    sh:send("u_intensity", intensity)
+    -- Per-panel phase: neighbouring fires must not march in step.
+    sh:send("u_seed", ((tbl._id or 0) % 89) * 1.618)
+    -- ~3px cells: chunky enough to read as the game's pixel art, fine
+    -- enough that a tongue keeps a silhouette.
+    sh:send("u_cells", { math.max(24, math.floor(w / 3)),
+                         math.max(8,  math.floor(fh / 3)) })
+    shaderRect(x, y + h - fh, w, fh)
+    love.graphics.setShader()
+end
+
+-- ── Seat knockout flash ───────────────────────────────────────────────
+-- The KO moment. A fold gets a whole card-muck animation; an elimination
+-- used to be a passive alpha change on the next frame. This is its event:
+-- the controller queues one intent per busted seat (GrindView drains it
+-- into noteSeatKO), and while the flash runs the seat draws a red ring
+-- with the finish tag stamping in over it (views/TablePanel's busted-seat
+-- branch reads seatKOProgress).
+--
+-- Keyed by table id + script seat. Entries clean themselves up on read —
+-- the busted seat queries its progress every frame it draws — so the only
+-- way one lingers is a table closed mid-flash, which costs a number in a
+-- table until the next KO there.
+local KO_FLASH_S = 1.1
+local seat_kos = {}
+
+local function koKey(tbl, seat)
+    return tostring(tbl._id or tbl) .. ":" .. tostring(seat)
+end
+
+function Effects.noteSeatKO(tbl, seat)
+    if not (tbl and seat) then return end
+    seat_kos[koKey(tbl, seat)] = love.timer.getTime()
+end
+
+-- 0..1 while the flash runs, nil before the KO and after it has played out.
+function Effects.seatKOProgress(tbl, seat)
+    local key = koKey(tbl, seat)
+    local t0  = seat_kos[key]
+    if not t0 then return nil end
+    local p = (love.timer.getTime() - t0) / KO_FLASH_S
+    if p >= 1 then
+        seat_kos[key] = nil
+        return nil
+    end
+    return p
+end
+
+-- The ring, over the seat's card region: bright at the hit, gone by the
+-- end. Same always-legible treatment as drawStatusRing — a line survives
+-- any panel size, so the KO moment never falls below a gate.
+function Effects.drawSeatKOFlash(x, y, w, h, p)
+    local fade = 1 - p
+    Theme.setColor(Theme.status.error, 0.85 * fade)
+    love.graphics.setLineWidth(math.max(1, math.floor(3 * fade)))
+    local grow = 3 * p
+    love.graphics.rectangle("line", x - grow, y - grow,
+                            w + grow * 2, h + grow * 2, Theme.space.radius)
+    love.graphics.setLineWidth(1)
 end
 
 return Effects

@@ -208,6 +208,8 @@ end
 --   budget                — real seconds this burst has before whatever
 --                           comes next; the flight time and stagger are
 --                           scaled down together to fit inside it
+--   labels                — false to drop denomination labels (tournament
+--                           chips are not money and must not say "$1")
 --   tumble / tumble_opts / chip_tint / arrival_sound / duration / stagger
 --   plus FlightSystem.emit options (arc_height)
 --
@@ -335,7 +337,9 @@ function ChipFlight.transfer(source, dest, options)
         if not (sx and sy and dx and dy) then
             if s then ChipPile.accept(d and d.key, s.chip) end
         else
-            local fn = _chipFn(t.d, (s and s.with_label) ~= false, tint, scale)
+            local with_label = (options.labels ~= false)
+                               and ((s and s.with_label) ~= false)
+            local fn = _chipFn(t.d, with_label, tint, scale)
             if options.tumble ~= false then
                 fn = Tumble.wrap(fn, options.tumble_opts or Tumble.PRESETS.toss)
             end

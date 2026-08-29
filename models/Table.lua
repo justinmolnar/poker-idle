@@ -141,6 +141,10 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
         -- a forced resolve, which the old snapshot missed and which needed
         -- two separate patches at the call sites to paper over.
         _prev_state        = "idle",
+        -- One-shot: an interrupted hand makes the next one go the same
+        -- way. Consumed by the next :deal, cleared with the hand.
+        _forced_next_won   = nil,
+        _interrupted       = false,
         script             = nil,
         script_idx         = 0,
         script_timer       = 0,
@@ -160,6 +164,10 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
         outcome_delta       = nil,
         outcome_tier        = nil,    -- "small" / "medium" / "large" / "jackpot"
         natural_outcome     = true,
+        -- True when :interrupt flipped this hand's side after the deal. A
+        -- flipped hand keeps its tier for the felt but is NOT the chip
+        -- event: jackpot-keyed triggers gate on it (GrindController).
+        outcome_flipped     = false,
 
         -- When true, the autonomous cursor swarm (services/CursorPool)
         -- ignores this table's DEAL button. Mouse clicks still work.
@@ -482,7 +490,27 @@ function Table:deal(ctx)
         -- these; tournaments shape difficulty via the plan instead.
         local ec = self:effectiveCtx(ctx)
         local wc, wd, ld = OutcomeMath.buildOutcome(ec, gtype, stake)
-        won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ec, gtype)
+        -- The Red Rug: whoever sits in the board's top-left cell plays a
+        -- little better. Slot 0 is the packed (row 0, col 0) cell; this is
+        -- the one place that knows both the rolled ctx and the table's cell.
+        if (ec.corner_win_chance or 0) > 0 and (self.slot or -1) == 0 then
+            wc = wc + ec.corner_win_chance
+        end
+        -- A hand that was interrupted forces the NEXT one to go the same
+        -- way. Only the side: the tier still rolls — from the forced side's
+        -- distribution, which is why the flag goes INTO sampleOutcome — so
+        -- a forced win on a heated table is a win of whatever size, one
+        -- rung better. Same shape as the tournament branch above taking
+        -- `won` from its plan, for exactly one hand.
+        -- A consumed forced LOSS is a tilt running its course: the punch's
+        -- second half is spent on this hand. Latched here, announced when
+        -- the hand finishes (on_tilt_spent — the Waste Basket's moment).
+        if self._forced_next_won == false then
+            self._tilt_spent_pending = true
+        end
+        won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ec, gtype,
+                                              self._forced_next_won)
+        self._forced_next_won = nil
         if won then
             tier = OutcomeMath.applyTierShift(tier, ec.win_tier_shifts, gtype)
         else
@@ -516,8 +544,9 @@ function Table:deal(ctx)
 
     local magnitude_bb = OutcomeMath.rollTierMagnitude(tier, gtype, won)
 
-    self.outcome_won  = won
-    self.outcome_tier = tier
+    self.outcome_won     = won
+    self.outcome_tier    = tier
+    self.outcome_flipped = false
 
     -- earnings_mult / loss_mult scale magnitude only — they don't reshape
     -- the dists (Pot Odds Master, Damage Control, Headphones).
@@ -870,7 +899,12 @@ function Table:_update(dt, ctx)
     local pace_mult = (gtype and gtype.pace_mult) or 1
     -- ctx.hand_pace_mult (Energy Drink, future pace items) compounds on
     -- top of the gtype baseline.
-    local ctx_pace = (self._last_ctx and self._last_ctx.hand_pace_mult) or 1
+    -- The OVERLAY, not the raw ctx: a heated table deals faster, and that
+    -- is the most legible thing a status does. Safe because _tickStatuses
+    -- above runs on raw dt, so a status that speeds a table up cannot
+    -- shorten itself by doing so.
+    local pace_ctx = self:effectiveCtx(self._last_ctx)
+    local ctx_pace = (pace_ctx and pace_ctx.hand_pace_mult) or 1
     local effective_dt = (dt or 0) * pace_mult * ctx_pace
     -- Script time runs at this multiple of wall time. Published so the
     -- view can convert a gap between script events into the real seconds
@@ -919,6 +953,7 @@ function Table:_update(dt, ctx)
                 won   = self.outcome_won,
                 delta = resolved_delta,
                 tier  = self.outcome_tier,
+                flipped = self.outcome_flipped or nil,
                 x     = self.x,
                 y     = self.y,
                 chip_stack_table = gtype and gtype.chip_stack_table or false,
@@ -983,15 +1018,41 @@ local STATUS_CAP = 6   -- runaway guard; entries are keyed by kind, so the
 function Table:applyStatus(kind, spec)
     local def = StatusData[kind]
     if not def or not spec then return false end
+    -- The mental game (Dish Soap, ctx.tilt_resist_chance): a bad status
+    -- sometimes just doesn't stick. Rolled before anything else — a
+    -- resisted tilt neither lands fresh nor refreshes one already running,
+    -- and nothing announces, because nothing happened.
+    if def.polarity == "bad" then
+        local resist = self._last_ctx and self._last_ctx.tilt_resist_chance
+        if resist and resist > 0 and love.math.random() < resist then
+            return false
+        end
+    end
     self.statuses = self.statuses or {}
     local mag = spec.magnitude or 0
 
+    -- Most kinds refresh: the strongest magnitude and the longest remaining
+    -- life win, so two sources overlapping extend uptime without doubling
+    -- power. A kind marked `stack = "add"` accumulates instead, because for
+    -- those the whole point is that the tenth one is worth more than the
+    -- first (data/statuses.lua).
+    local adds = (def.stack == "add")
     for _, e in ipairs(self.statuses) do
         if e.kind == kind then
-            local stronger = mag > (e.magnitude or 0)
-            e.magnitude = math.max(e.magnitude or 0, mag)
-            if def.lifetime == "charges" then
-                e.charges     = math.max(e.charges or 0, spec.charges or 0)
+            local before = e.magnitude or 0
+            if adds then
+                local cap = def.stack_cap
+                e.magnitude = before + mag
+                if cap then e.magnitude = math.min(cap, e.magnitude) end
+            else
+                e.magnitude = math.max(before, mag)
+            end
+            if def.lifetime == "run" then
+                -- Nothing to extend: it is already there until the run ends.
+            elseif def.lifetime == "charges" then
+                local c = spec.charges or 0
+                e.charges     = adds and ((e.charges or 0) + c)
+                                     or math.max(e.charges or 0, c)
                 e.charges_max = math.max(e.charges_max or 0, e.charges)
             else
                 e.t     = math.max(e.t or 0, spec.t or 0)
@@ -1000,23 +1061,87 @@ function Table:applyStatus(kind, spec)
             e.source = spec.source or e.source
             -- A pure duration refresh doesn't change what this table
             -- rolls, so it must not invalidate the overlay cache.
-            if stronger then self._status_rev = self._status_rev + 1 end
-            return true
+            if e.magnitude ~= before then
+                self._status_rev = self._status_rev + 1
+            end
+            -- The second return says this landed on a table that ALREADY
+            -- had it. "A tilt on an already tilted table" is a real trigger,
+            -- and this is the only place that fact exists.
+            --
+            -- Except for heartbeat sources. A status re-applied on a timer
+            -- would turn its upkeep into a proc trigger — the tank items
+            -- listening on on_status_applied would convert the hum itself
+            -- (sharp pinned at cap in seconds). `silent_refresh` says the
+            -- FIRST landing is the event and the upkeep is not. No live
+            -- source sets it today; it exists so the next ambient status
+            -- doesn't reopen that hole.
+            if not spec.silent_refresh then
+                self:_announceStatus(kind, e.magnitude, spec.source, true)
+            end
+            self:_maybeInterrupt(def, spec)
+            return true, true
         end
     end
 
     if #self.statuses >= STATUS_CAP then return false end
+    if adds and def.stack_cap then mag = math.min(def.stack_cap, mag) end
     self.statuses[#self.statuses + 1] = {
         kind        = kind,
         magnitude   = mag,
-        t           = (def.lifetime ~= "charges") and (spec.t or 0) or nil,
-        t_max       = (def.lifetime ~= "charges") and (spec.t or 0) or nil,
+        -- A "run" status carries NEITHER a timer nor charges, so both tick
+        -- loops skip it (each guards on its field being present) and it
+        -- lives until resetRun clears the saved list. That is what "for the
+        -- rest of the run" means, without a third countdown to maintain.
+        t           = (def.lifetime == "seconds") and (spec.t or 0) or nil,
+        t_max       = (def.lifetime == "seconds") and (spec.t or 0) or nil,
         charges     = (def.lifetime == "charges") and (spec.charges or 0) or nil,
         charges_max = (def.lifetime == "charges") and (spec.charges or 0) or nil,
         source      = spec.source,
     }
     self._status_rev = self._status_rev + 1
-    return true
+    self:_announceStatus(kind, mag, spec.source, false)
+    self:_maybeInterrupt(def, spec)
+    return true, false
+end
+
+-- A status that declares an `interrupt` ends the hand it lands in, in its
+-- own direction (data/statuses.lua).
+--
+-- Fires on a REFRESH as well as a new application. Restricting it to new
+-- ones looked tidy and was wrong: a table under a continuous aura is
+-- permanently heated, so every genuine heater that reached it was "just a
+-- refresh" and nothing ever happened. One interrupt per hand is the honest
+-- throttle, and Table:interrupt already enforces it.
+--
+-- An application can opt out with `no_interrupt`. That is for ambient
+-- sources -- anything re-applied on a timer is a hum, not an event, and
+-- would otherwise cut every hand short. No live source sets it today
+-- (heat/tilt sources are all punches now); it stays as the guard a future
+-- ambient application must reach for.
+function Table:_maybeInterrupt(def, spec)
+    local want = def and def.interrupt
+    if not want then return end
+    if spec and spec.no_interrupt then return end
+    self:interrupt(want == "win")
+end
+
+-- Something landed here. The tank items are built on this: a table that
+-- converts what it absorbs has to be told it absorbed something, and only
+-- the table itself knows whether it already had one.
+function Table:_announceStatus(kind, magnitude, source, was_refresh)
+    if not self.bus then return end
+    -- A status marked `silent` is a RESULT, not an event. The tank items
+    -- convert what lands on a table into marks and sharpness, so if those
+    -- announced themselves they would be their own input: one tilt fed
+    -- itself 512 times and pinned the accumulator at its cap inside a
+    -- single frame. Only the bus budget stopped it, which is a runaway
+    -- guard doing a designer's job.
+    local def = StatusData[kind]
+    if def and def.silent then return end
+    self.bus:publish("on_status_applied", {
+        table = self, status = kind, magnitude = magnitude,
+        source = source, was_refresh = was_refresh,
+    })
 end
 
 function Table:_tickStatuses(d)
@@ -1104,7 +1229,13 @@ function Table:effectiveCtx(base)
                         entry[k] = v
                     end
                 end
-                entry[tpl.mag_field or "value"] = m
+                -- `mag_field = false` means this template takes no
+                -- magnitude: it is a fixed statement ("outcomes land a tier
+                -- up") rather than a dial, and writing m into it would
+                -- overwrite an authored field.
+                if tpl.mag_field ~= false then
+                    entry[tpl.mag_field or "value"] = m
+                end
                 reg:apply(entry, ov)
             end
         end
@@ -1112,6 +1243,164 @@ function Table:effectiveCtx(base)
 
     self._ctx_ov, self._ctx_ov_base, self._ctx_ov_rev = ov, base, self._status_rev
     return ov
+end
+
+-- Re-deal ONLY the opponent's hole so the showdown genuinely produces
+-- `want_win`. The player's cards and the board stay exactly as they are:
+-- they may already be face up, and a hand that rewrote what the player was
+-- holding would read as a cheat rather than a swing.
+--
+-- Rejection sampling, like constructHand, but over two cards instead of
+-- nine. Card carries no __eq, so the already-dealt cards are excluded by
+-- suit and rank rather than through Deck:removeCard.
+local REDEAL_CAP = 400
+
+local function redealOpponent(p_hole, board, want_win)
+    local seen = {}
+    local function mark(c) if c then seen[c.suit .. c.rank] = true end end
+    for _, c in ipairs(p_hole or {}) do mark(c) end
+    for _, c in ipairs(board or {}) do mark(c) end
+
+    local p_cards = {}
+    for _, c in ipairs(p_hole or {}) do p_cards[#p_cards + 1] = c end
+    for _, c in ipairs(board  or {}) do p_cards[#p_cards + 1] = c end
+    local p_rank = HandEval.bestFiveOfN(p_cards)
+
+    local best
+    for _ = 1, REDEAL_CAP do
+        local deck = Deck:new()
+        local a, b
+        repeat a = deck:draw() until not (a and seen[a.suit .. a.rank]) or a == nil
+        repeat b = deck:draw() until not (b and seen[b.suit .. b.rank]) or b == nil
+        if not (a and b) then break end
+
+        local o_cards = { a, b }
+        for _, c in ipairs(board or {}) do o_cards[#o_cards + 1] = c end
+        local o_rank = HandEval.bestFiveOfN(o_cards)
+        best = best or { a, b }
+        if (HandEval.compare(p_rank, o_rank) > 0) == want_win then
+            return { a, b }, true
+        end
+    end
+    -- A board that plays itself can make one side impossible (the player
+    -- holding an unbeatable board leaves nothing that beats it). Hand back
+    -- the best attempt rather than failing: the fallback is a hand that
+    -- reads slightly wrong, not a crash or a wrong payout.
+    return best, false
+end
+
+-- ─── THE INTERRUPT ──────────────────────────────────────────────────────
+-- A heater or a tilt landing mid-hand ends that hand, now, in its own
+-- direction. Without this a status could not touch the hand it arrived in
+-- at all: everything about a hand is decided at deal, so at 18.5 seconds a
+-- hand a six-second heater routinely lived and died inside one and changed
+-- nothing.
+--
+-- It FAST-FORWARDS rather than truncates, and that is the whole design.
+-- Cutting the script short would cash whatever small pot had gathered so
+-- far, which turns a heater landing early on a hand that was going to win
+-- big into a downgrade -- trading a stack for the blinds. Jumping the clock
+-- instead lets the ordinary walker drain every remaining event through the
+-- registry, so the pot fills to the size it was always going to reach and
+-- the hand pays what it was worth. It ends where it was going to end, just
+-- immediately.
+function Table:interrupt(want_win, ctx)
+    -- No live hand to end — the punch still lands on the NEXT hand. A
+    -- heater or tilt is "this hand ends its way and the next follows";
+    -- with no current hand there is only the next, and a status arriving
+    -- between hands must not evaporate into a glow.
+    if self.state == "idle" or self.state == "settling" then
+        local gt = Lookups.findById(GameTypesData, self.game_type_id)
+        if gt and gt.chip_stack_table then return false end
+        self._forced_next_won = want_win
+        return true
+    end
+    if not self.script or self.script_idx >= #self.script then return false end
+    -- Once per hand. An interrupt resolves a hand, a resolution fires
+    -- procs, and a proc can apply a status: without this it can re-enter.
+    if self._interrupted then return false end
+    -- Tournaments are out. Their outcomes come from a plan rolled at the
+    -- start, their pot IS the bust schedule, and _reconcileChipFlow
+    -- overwrites outcome_delta at settling anyway.
+    local gtype = Lookups.findById(GameTypesData, self.game_type_id)
+    if gtype and gtype.chip_stack_table then return false end
+    -- The push must still be ahead of us; past it the hand is spent.
+    local last = self.script[#self.script]
+    if not last or last.kind ~= "pot_push" then return false end
+
+    self._interrupted = true
+
+    -- Flip the side, and make the cards say so.
+    if self.outcome_won ~= want_win then
+        -- Only a FLIP recomputes the money. A same-side interrupt is a pure
+        -- fast-forward and must leave outcome_delta exactly alone: the
+        -- deal-time payout and the script's pot are two independent
+        -- computations of the same hand (dollars against big blinds, and
+        -- the payout carries earnings/jackpot multipliers the script never
+        -- sees), so recomputing one from the other would quietly change
+        -- what a hand pays just because a status touched it.
+        --
+        -- Predict the final pot by summing what has not played yet. The
+        -- view reads outcome_delta and outcome_tier at the moment pot_push
+        -- dispatches, so both have to be final BEFORE the drain -- which
+        -- means projecting rather than measuring. Deterministic, no rolls.
+        local ps = self.playback_state or {}
+        local pot = ps.pot or 0
+        local mine = (ps.per_seat_total
+                      and ps.per_seat_total[self.player_seat_fixed]) or 0
+        for i = self.script_idx + 1, #self.script - 1 do
+            local ev = self.script[i]
+            local amt = ev and ev.amount or 0
+            if amt > 0 then
+                pot = pot + amt
+                if ev.seat == self.player_seat_fixed then mine = mine + amt end
+            end
+        end
+
+        self.outcome_won = want_win
+        -- The tier stays for the felt, but a flipped hand is not the chip
+        -- event: jackpot-keyed triggers (bounty, cascade, lifetime count)
+        -- gate on this in the controller's resolution loop.
+        self.outcome_flipped = true
+        local o_hole = redealOpponent(self.player_hole, self.community, want_win)
+        if o_hole then
+            self.opponent_hole = o_hole
+            self.player_hand_name,   self.player_combo   =
+                HandEval.handLabel(self.player_hole, self.community)
+            self.opponent_hand_name, self.opponent_combo =
+                HandEval.handLabel(o_hole, self.community)
+        end
+        -- The push goes to whoever now wins it.
+        if want_win then
+            last.seat = self.player_seat_fixed
+        elseif last.seat == self.player_seat_fixed then
+            for s in pairs((self.playback_state or {}).in_seats or {}) do
+                if s ~= self.player_seat_fixed then last.seat = s; break end
+            end
+        end
+
+        -- The HandScript contract, straight out of the projection: a win
+        -- nets the pot minus what the player put in, a loss nets minus what
+        -- they put in. The same arithmetic the writer used, so the felt and
+        -- the payout cannot disagree -- and it caps a flipped loss at the
+        -- player's own stack for free, because that is all they ever put in.
+        self.outcome_delta = want_win and (pot - mine) or -mine
+        last.amount = pot
+    end
+
+    -- Deal the next hand the same way this one just went. One hand is a
+    -- blip; two in a row is a moment.
+    self._forced_next_won = want_win
+
+    -- Move the clock and stop. Deliberately NOT calling :update here the
+    -- way forceResolve does: that returns the resolution to its caller,
+    -- and forceResolve has one waiting (the cascade payload appends it to
+    -- the list being drained). An interrupt is fired from applyStatus,
+    -- which has nobody to hand it to -- so resolving inline would swallow
+    -- the resolution and the hand would never be paid. The pool's next
+    -- tick drains it through the ordinary path instead.
+    self.script_timer = (last.t or 0) + 1
+    return true
 end
 
 function Table:forceResolve(ctx)
@@ -1135,6 +1424,17 @@ function Table:_finalizeHand()
         table.remove(self.last_results, 1)
     end
     self.hands_played  = self.hands_played + 1
+    -- Per-hand latch: the next hand may be interrupted in its own right.
+    self._interrupted  = false
+    -- The tilt's forced loss has fully run its course. Announced at the
+    -- END of that hand, not at deal, so a converter (Waste Basket) reacts
+    -- to the beat being over rather than to it starting.
+    if self._tilt_spent_pending then
+        self._tilt_spent_pending = nil
+        if self.bus then
+            self.bus:publish("on_tilt_spent", { table = self })
+        end
+    end
     self.state         = "idle"
     self.state_timer   = 0
     self.timeline      = nil
@@ -1220,6 +1520,11 @@ function Table:_finalizeHand()
         elseif gtype.auto_deal then
             self:deal(self._last_ctx)
         end
+    elseif self._forced_next_won ~= nil then
+        -- An interrupted hand deals its successor immediately: one hand
+        -- ending abruptly is a glitch, two in a row going the same way is
+        -- a moment. The forced side is consumed by this deal.
+        self:deal(self._last_ctx)
     end
 end
 
@@ -1235,6 +1540,11 @@ function Table:_endTournament(finish_position, n_seats)
     local payouts = MttPayouts[boost] or MttPayouts[0]
     local buy_in  = (stake and stake.buy_in) or 0
     self.last_finish = finish_position
+    -- Lifetime tournaments THIS TABLE has completed, any finish position.
+    -- High Roller Pass derives its stake backing from these counts across
+    -- the open tournament tables (GrindController:invalidateEffects), so
+    -- closing the table is what retires its contribution.
+    self.mtt.finish_count = (self.mtt.finish_count or 0) + 1
     self.mtt:settle(buy_in, payouts, finish_position, n_seats, self._last_ctx)
     -- Per-seat state (seat_stacks / seat_busted / player_seat_fixed /
     -- button_seat / bust_order) is left in place — the post-tournament

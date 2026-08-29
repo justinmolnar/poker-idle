@@ -44,6 +44,78 @@ multi-tabling feel unsupported later.
 
 ---
 
+## TESTING OVERRIDES — CLOSED OUT 2026-08-28
+
+The overrides below were restored (with adjustments) in the catalog
+progression pass: real costs are back on all fifteen items plus Receipt
+Printer (balanced fresh at 30, mid phase, total_jackpots >= 100). Items
+that entered a `requires` chain did NOT get their old stat gates back —
+the chain is their gate (microwave, prize_vase and wall_clock are chain
+BASES with no `requires`, so they kept theirs). The bounty ladder
+(data/stakes.lua chip_award) was scaled ~3.5x in the same pass so chip
+income can actually pay for the shelf; sim/run.lua's income model is now
+bounty-based instead of circular. The table below stays as the historical
+record of the override period.
+
+## (historical) TESTING OVERRIDES — restore before shipping
+
+The eleven were made cheap and ungated on 2026-08-27 so the engine could be
+played at real table speeds without dev hotkeys: how long a build takes to
+come together, and whether the loop reads, are questions you cannot answer
+by granting yourself {chip}.
+
+**This is not balance.** Prices are 2-5 {chip} and every gate is gone, so
+the whole set is buyable inside a couple of runs. Put these back before any
+build goes out.
+
+| item | real cost | real unlock gate | prerequisite |
+|---|---|---|---|
+| `dogs_playing_poker` | 8 | total_chips_banked >= 25 | - |
+| `gaming_chair` | 15 | total_hands_overwhelmed >= 500 | - |
+| `wall_clock` | 20 | total_hands_played >= 5000 | - |
+| `first_aid_kit` | 24 | total_rebuys >= 250 | - |
+| `high_roller_pass` | 28 | highest_stake_idx >= 4 | - |
+| `microwave` | 28 | total_jackpots >= 500 | - |
+| `diploma` | 28 | - | `prize_vase` |
+| `window` | 30 | lifetime_money_won >= 50000000 | - |
+| `fire_extinguisher` | 35 | total_stack_losses >= 250 | - |
+| `blackout_curtains` | 36 | decks_maxed >= 1 | - |
+| `console_tv` | 40 | total_hands_overwhelmed >= 2500 | - |
+
+Four more found missed and cheapened the same way on 2026-08-28 — the
+instruction was ALL of the new identity/proc items, and these carry procs
+too (the KO trio and the ratchet):
+
+| item | real cost | real unlock gate | prerequisite |
+|---|---|---|---|
+| `prize_vase` | 18 | total_mtt_wins >= 1 | - |
+| `pc_tower` | 12 | - | - |
+| `curved_monitor` | 20 | - | - |
+| `shredder` | 26 | - | - |
+
+The `unlock` block shape, for restoring one:
+
+```lua
+        unlock = {
+            kind      = "total_chips_banked",
+            threshold = 25,
+            text      = "{chip} banked",
+        },
+```
+
+`window`'s carried one extra line, because it is the only dollar-denominated
+gate in the catalog and needs the money formatter for its sticker counter:
+
+```lua
+            format    = "money",
+```
+
+Nothing else was touched: `act` is metadata rather than a gate (only
+`requires_act3` is enforced, and none of these have it), so the items sit
+where they always did.
+
+---
+
 ## The blocks
 
 ### `dogs_playing_poker` — Dogs Playing Poker (8)
@@ -139,6 +211,13 @@ multi-tabling feel unsupported later.
 
 Note: `vouchers` still carries an untiered `buy_in_mult`, so buy-in discounts
 survive this one.
+
+Note (2026-08-28): the tournament-aura repurpose this entry documented was
+itself replaced — heat became interrupt-only, so a continuous heater aura
+could no longer mean anything. The item is now `tourney_backing`: cash
+games at a stake get +1% win chance per tournament finished by a
+still-open tournament table there (see data/effects.lua). The restore row
+above (price 28, gate) still applies as-is.
 
 ### `microwave` — Microwave Oven (28)
 

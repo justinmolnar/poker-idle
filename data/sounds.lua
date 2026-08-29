@@ -117,6 +117,9 @@ return {
     -- ── Player-action feedback (purchases, rebuys, stake-ups, table adds) ─
     upgrade_purchased   = { files = CHIP_DROP_3,  volume = 0.60 },
     rebuy_clack         = { files = CHIP_DROP_2,  volume = 0.55 },
+    -- A tournament knockout: a whole stack going in and dying. The
+    -- heaviest drop in the set, one per eliminated seat.
+    seat_ko             = { files = CHIP_DROP_3,  volume = 0.55 },
     stake_up_flourish   = {
         files = CHIP_DROP_4, volume = 0.65,
         layer = { files = COINS, volume = 0.55 },

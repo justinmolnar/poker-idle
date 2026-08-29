@@ -23,7 +23,18 @@ local function simulateAct1()
     local chips_banked = 0
     local elapsed_minutes = 0
     
-    local chips_per_run = CatalogLoader.chipsPerRun()
+    -- Income model: bounties are the chip source — one per (stake, gtype)
+    -- per run, at the stake's chip_award. An Act 1 run plays the first
+    -- three stakes across ~3 of the 4 game types (nobody sweeps every
+    -- combo every run), so income = sum(first 3 awards) × 3. This replaces
+    -- the old CatalogLoader.chipsPerRun target, which was circular — it
+    -- assumed income equals whatever the spend requires.
+    local Stakes = require("data.stakes")
+    local act1_award = 0
+    for i = 1, math.min(3, #Stakes) do
+        act1_award = act1_award + (Stakes[i].chip_award or 0)
+    end
+    local chips_per_run = act1_award * 3
     local run_duration = Balance.RUN_MINUTES
 
     print("=========================================================")
@@ -49,7 +60,16 @@ local function simulateAct1()
             local cheapest_cost = 999999
 
             for _, item in ipairs(Catalog) do
-                if CatalogLoader.isOwnable(item) then
+                -- Honest shelf: stat-gated items sit behind counters an
+                -- Act 1 run never reaches (a gate under ~25 is hit inside
+                -- act 1 and counts as open), and a requires-chain link is
+                -- only buyable once its base is owned — same rules the
+                -- game enforces (GrindController:1602, GameState:808).
+                local gate_open = not item.unlock
+                                  or (item.unlock.threshold or 0) <= 25
+                if CatalogLoader.isOwnable(item)
+                   and gate_open
+                   and (not item.requires or owned_set[item.requires]) then
                     if not owned_set[item.id] then
                         local cost = item.cost_chip or 0
                         if cost <= chips_banked and cost < cheapest_cost then

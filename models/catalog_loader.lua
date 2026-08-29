@@ -24,7 +24,9 @@
 -- Idempotent on purpose. It is called once at boot, but the sim harnesses
 -- call it too, and running it twice must not double anything.
 
-local Balance = require("data.balance")
+local Balance    = require("data.balance")
+local ProcData   = require("data.procs")
+local RouterData = require("data.routers")
 
 local CatalogLoader = {}
 
@@ -79,6 +81,24 @@ local function ensureShoveRate(effects, item)
         { kind = "shove_rate_add", value = CatalogLoader.itemShoveRate(item) })
 end
 
+-- A proc or router entry naming an id that no data file defines is a typo,
+-- and a typo in the data file should be loud (the same rule ProcRegistry
+-- applies to selector/payload kinds). Silent skips are how four items
+-- shipped inert: the rollup and the proc index both drop unknown ids
+-- without a sound, so this is the one place the whole chain gets checked.
+local function validateEffectRefs(item, effects, where)
+    for _, eff in ipairs(effects or {}) do
+        if eff.kind == "proc" and not ProcData[eff.proc] then
+            error(("catalog item '%s' (%s): unknown proc '%s'")
+                  :format(item.id or "?", where, tostring(eff.proc)))
+        end
+        if eff.kind == "router" and not RouterData[eff.router] then
+            error(("catalog item '%s' (%s): unknown router '%s'")
+                  :format(item.id or "?", where, tostring(eff.router)))
+        end
+    end
+end
+
 -- Price and rate every item in place. Returns the same list, so callers can
 -- write `local Catalog = CatalogLoader.deriveAll(require("data.catalog"))`.
 function CatalogLoader.deriveAll(items)
@@ -89,12 +109,14 @@ function CatalogLoader.deriveAll(items)
 
             item.effects = item.effects or {}
             forceShoveRate(item.effects, item)
+            validateEffectRefs(item, item.effects, "effects")
 
             -- A corrupt block REPLACES the item's effects
             -- (GameState:computeEffects), so one without a shove_rate_add
             -- would strip the item's shove base the moment it corrupted.
             if item.corrupt and item.corrupt.effects then
                 ensureShoveRate(item.corrupt.effects, item)
+                validateEffectRefs(item, item.corrupt.effects, "corrupt")
             end
         end
     end

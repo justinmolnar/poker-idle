@@ -22,6 +22,9 @@
 --   muted         (bool)            — the OFF state: greyed, with a strike
 --   disabled      (bool)            — nothing to act on: greyed, NO strike
 --   tint_token    (token, default Theme.fg.heading) — the ON colour
+--   fill_token    (token) — face-fill override for an armed/queued state
+--                  (the sidebar [x] warn-tints while closes are pending,
+--                  mirroring the per-table [x])
 --   hovered, press_alpha
 --
 -- `muted` and `disabled` are deliberately different pictures. Muted means
@@ -45,7 +48,8 @@ function MiniButton.draw(opts)
     local ink   = (off or dead) and Theme.fg.disabled or tint
 
     Button.draw(opts.x, opts.y, size, size, {
-        fill_color   = (off or dead) and Theme.bg.sunken or Theme.bg.widget_hover,
+        fill_color   = (off or dead) and Theme.bg.sunken
+                       or opts.fill_token or Theme.bg.widget_hover,
         border_color = (off or dead) and Theme.border.soft or tint,
         hovered      = opts.hovered and not dead,
         press_alpha  = (not dead) and (opts.press_alpha or 0) or 0,

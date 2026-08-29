@@ -59,15 +59,14 @@ return {
         flash_mask   = 1.00,
     },
 
-    -- The rail: the table's outer ring, with the playing surface recessed
-    -- inside it. Its colour is the GAME TYPE's (data/game_type_themes.lua);
-    -- the felt inside it is the stake's.
-    --
-    -- Gated on felt HEIGHT because that is what it spends: the ring costs
-    -- 2*width off both axes, and views/FeltLayout insets the whole band solve
-    -- inside it, so every pixel of rail is a pixel the cards do not get.
+    -- The rail: RETIRED (2026-08-28). The game type's color moved to the
+    -- header chrome (data/game_type_themes.lua `chrome_color`, consumed in
+    -- TablePanel.drawHeader) — a ring spent card pixels to say what one
+    -- painted bar says for free at any panel size. The gate below is
+    -- pinned unreachable rather than the code ripped, so re-enabling it
+    -- is one number; if it ever comes back it needs a color key again.
     rail = {
-        min_felt_h = 140,   -- below this there is no rail at all
+        min_felt_h = 1e9,   -- pinned: no felt is ever this tall (retired)
         frac       = 0.035, -- width as a fraction of the felt's SHORT side
         min_w      = 2,
         max_w      = 10,

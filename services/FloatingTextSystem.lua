@@ -44,6 +44,10 @@ function FloatingTextSystem.emit(text, x, y, opts)
         arc_x       = opts.arc_x or 0,
         arc_y       = opts.arc_y or Constants.FLOATING_TEXT.DRIFT_Y,
         table       = opts.table,
+        -- Size-clamp only: the renderer fits the text inside this table's
+        -- panel, WITHOUT the `table` field's kill-on-next-deal lifecycle.
+        -- For floats that should outlive the hand (tournament banners).
+        fit_table   = opts.fit_table,
     })
 end
 

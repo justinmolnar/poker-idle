@@ -17,7 +17,9 @@
 --
 -- So a proc is three orthogonal declarations, all data:
 --   WHEN   a trigger key ("on_ko") — just an index, needs no registry
---   IF     an optional `chance` 0..1, rolled once per event
+--   IF     an optional `chance` 0..1, rolled once per event; an `every` N,
+--          which fires only on every Nth occurrence; and a `when` table of
+--          field = value pairs the event itself has to match
 --   WHERE  a selector  (spec, event) -> array of targets
 --   WHAT   a payload   (spec, target, event)
 -- and adding a proc becomes an edit to data/procs.lua.
@@ -31,11 +33,18 @@
 -- negotiable. The listeners register from models/table_procs.lua like
 -- everything else.
 --
--- Two things the seam has to get right, both learned the hard way:
+-- A listener may also change WHAT arrives, not just where: answering with
+-- a different status turns a tilt into a heater in flight. The descriptor
+-- in data/procs.lua is authored data shared by every firing, so a change is
+-- made on a COPY. Mutating it would rewrite the item for the rest of the
+-- session, which is the kind of bug that looks like bad luck for an hour.
+--
+-- Three things the seam has to get right, all learned the hard way:
 --   • the RESOLVED destination goes into `hit`, not the intended one, or
 --     the shove animation lunges at the wrong panel.
 --   • `chance` is rolled BEFORE targeting, so a redirect never gets a proc
 --     a second bite at its own roll.
+--   • a converted payload never writes back to the authored descriptor.
 --
 -- Unregistered kinds ERROR rather than no-op, matching EffectsRegistry and
 -- PokerEventRegistry: a typo in the data file should be loud.
@@ -62,6 +71,7 @@ function ProcRegistry:new(rng, bus)
     return setmetatable({
         selectors  = {},
         payloads   = {},
+        routers    = {},
         fires      = 0,
         deliveries = 0,
         rng        = rng or math.random,
@@ -70,9 +80,11 @@ function ProcRegistry:new(rng, bus)
 end
 
 function ProcRegistry:registerSelector(kind, fn) self.selectors[kind] = fn end
+function ProcRegistry:registerRouter(kind, fn)   self.routers[kind]   = fn end
 function ProcRegistry:registerPayload(kind, fn)  self.payloads[kind]  = fn end
 
 function ProcRegistry:hasSelector(kind) return self.selectors[kind] ~= nil end
+function ProcRegistry:hasRouter(kind)   return self.routers[kind]   ~= nil end
 function ProcRegistry:hasPayload(kind)  return self.payloads[kind]  ~= nil end
 
 -- Called once per frame by the controller before any proc can fire.
@@ -92,6 +104,27 @@ function ProcRegistry:fire(proc, event)
     -- it is a permanent aura with a trigger drawn on it. `chance` is rolled
     -- ONCE per event, before targeting, so a knockout usually does nothing
     -- and occasionally does something you notice.
+    -- Not every occurrence of an event is the one a proc means. `when` is
+    -- a flat equality filter over the event's own fields, so "a tilt, and
+    -- only when the table already had one" is data rather than a branch.
+    local when = proc.when
+    if when and event then
+        for k, v in pairs(when) do
+            local actual = event[k]
+            if actual == nil then actual = false end
+            if actual ~= v then return 0 end
+        end
+    end
+
+    -- Every Nth time, counted by the event rather than by a tally kept
+    -- here: the event carries a running total, so this survives a reload
+    -- and two procs watching the same trigger cannot drift apart.
+    local every = proc.every
+    if every and every > 1 then
+        local n = event and event.count
+        if type(n) ~= "number" or n % every ~= 0 then return 0 end
+    end
+
     local chance = proc.chance
     if chance and self.rng() >= chance then return 0 end
 
@@ -118,15 +151,22 @@ function ProcRegistry:fire(proc, event)
     for _, t in ipairs(targets) do
         if self.deliveries >= MAX_DELIVERIES_PER_FRAME then break end
         self.deliveries = self.deliveries + 1
-        local dest = t
+        local dest, spec = t, pay_spec
         if negotiable then
-            dest = self.bus:resolve("deliver",
-                { to = t, aimed_at = t, spec = pay_spec, event = event }, "to")
+            local d = { to = t, aimed_at = t, spec = pay_spec, event = event,
+                        status = pay_spec.status }
+            self.bus:resolve("deliver", d, "to")
+            dest = d.to
+            if d.status ~= pay_spec.status then
+                spec = {}
+                for k, v in pairs(pay_spec) do spec[k] = v end
+                spec.status = d.status
+            end
         end
         -- A router may answer "nowhere", which is how something swallows a
         -- delivery outright. That reads as a miss: no ghost, no sound, no
         -- bump, exactly like a payload declining.
-        if dest and pay(pay_spec, dest, event) ~= false then
+        if dest and pay(spec, dest, event) ~= false then
             touched = touched + 1
             hit[#hit + 1] = dest
         end

@@ -346,9 +346,16 @@ function OutcomeMath.buildOutcome(ctx, gtype, stake)
 
     -- 5. Catalog ctx.win_chance_shifts — flat additive ON TOP of the lerp.
     --    The only mechanism for crossing run-capped toward the absolute cap.
+    --    An entry may carry `stake` and/or `cash_only` next to the gtype
+    --    filter: the derived High Roller Pass bonus is per-stake and lands
+    --    on cash games only (GrindController appends one entry per stake
+    --    with open, finished tournaments at rollup).
     if ctx and ctx.win_chance_shifts then
         for _, shift in ipairs(ctx.win_chance_shifts) do
-            if shiftApplies(shift, gtype) then
+            local stake_ok = not shift.stake or (stake and stake.id == shift.stake)
+            local cash_ok  = not shift.cash_only
+                             or not (gtype and gtype.chip_stack_table)
+            if stake_ok and cash_ok and shiftApplies(shift, gtype) then
                 win_chance = win_chance + (shift.amount or 0)
             end
         end
@@ -405,21 +412,29 @@ end
 -- the total. A successful roll forces won=true regardless of the natural
 -- win_chance — used by MTT Pro to flat-bump cash rate without touching
 -- the fill / distribution pipeline.
-function OutcomeMath.sampleOutcome(win_chance, win_dist, loss_dist, ctx, gtype)
+function OutcomeMath.sampleOutcome(win_chance, win_dist, loss_dist, ctx, gtype, forced_won)
     local won = false
-    if ctx and ctx.auto_win_chances then
-        local total = 0
-        for _, e in ipairs(ctx.auto_win_chances) do
-            if shiftApplies(e, gtype) then
-                total = total + (e.amount or 0)
+    -- An interrupted hand forces the NEXT one's side (Table.deal passes the
+    -- flag through). The side is decided, so nothing rolls for it — and the
+    -- tier below then samples from the side that actually happened. Forcing
+    -- after the fact would hand a forced win a loss-dist tier.
+    if forced_won ~= nil then
+        won = forced_won
+    else
+        if ctx and ctx.auto_win_chances then
+            local total = 0
+            for _, e in ipairs(ctx.auto_win_chances) do
+                if shiftApplies(e, gtype) then
+                    total = total + (e.amount or 0)
+                end
+            end
+            if total > 0 and love.math.random() < total then
+                won = true
             end
         end
-        if total > 0 and love.math.random() < total then
-            won = true
+        if not won then
+            won = love.math.random() < win_chance
         end
-    end
-    if not won then
-        won = love.math.random() < win_chance
     end
     local tier = sampleDist(won and win_dist or loss_dist) or "small"
 
