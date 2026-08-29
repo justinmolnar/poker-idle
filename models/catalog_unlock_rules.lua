@@ -86,6 +86,15 @@ function CatalogUnlockRules.registerAll(reg)
     reg:register("shove_r1_won", function(_cond, state)
         return (state and state.shove_r1_won) == true
     end)
+
+    -- Zoom-first opening flags: items that only mean something once a
+    -- game type exists gate on the same flags Constants.GTYPE_GATE reads.
+    reg:register("has_shoved", function(_cond, state)
+        return (state and state.has_shoved) == true
+    end)
+    reg:register("hu_unlocked", function(_cond, state)
+        return (state and state.hu_unlocked) == true
+    end)
 end
 
 return CatalogUnlockRules

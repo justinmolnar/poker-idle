@@ -86,7 +86,7 @@ return {
     {
         id     = "stake_ladder",
         title  = "Higher stakes",
-        anchor = "add_table:s002:six_max",
+        anchor = "add_table:s002:zoom",
         text   = "NL10's open. Ten times the money, but the players are better. Worth an upgrade or two first.",
         trigger = { kind = "can_afford_stake", stake = "s002" },
         retire  = { kind = "any",
@@ -121,7 +121,7 @@ return {
         id     = "chip_denied",
         title  = "{chip} denied",
         anchor = "chip_badge:banked",
-        text   = "That table's already paid its {chip}. Try a different stake or a different game.",
+        text   = "That table's already paid its {chip}. Each stake and game pays once per run — climb, or come back next run.",
         trigger = { kind = "total_denied_stacks", min = 1 },
         -- Legacy filter only: the trigger fires at the first denial, so
         -- reaching five unseen means a save that predates this hint.

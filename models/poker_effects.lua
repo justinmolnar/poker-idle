@@ -495,6 +495,20 @@ function PokerEffects.registerAll(reg)
     reg:register("ultra_unlock_effect", function(_e, ctx)
         ctx.ultra_unlocked = true
     end)
+
+    -- Opens the 6-Max tables (Desk Plant). Same latch shape as ultra:
+    -- GrindController:invalidateEffects copies it one-way into state.
+    reg:register("six_max_unlocked", function(_e, ctx)
+        ctx.six_max_unlocked = true
+    end)
+
+    -- Per-game-type bounty multiplier (Fight Night: HU bounties pay
+    -- double). Consumed by GrindController:bountyAward.
+    reg:register("bounty_gtype_mult", function(e, ctx)
+        ctx.bounty_gtype_mult = ctx.bounty_gtype_mult or {}
+        local g = e.gtype or "hu"
+        ctx.bounty_gtype_mult[g] = (ctx.bounty_gtype_mult[g] or 1) * (e.value or 1)
+    end)
 end
 
 return PokerEffects

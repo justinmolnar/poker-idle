@@ -64,15 +64,15 @@
 -- acts it has to last. A T1-T3 bounty sweep (Act 1's ceiling) banks up to
 -- 24 {chip} per run; a T1-T6 sweep banks up to 84.
 --
---   A — Act 1 early, T1-T2.        11 items ·  47 {chip} · shove 0.11
---   B — Act 1 late, T2-T3.         20 items · 190 {chip} · shove 0.20
+--   A — Act 1 early, T1-T2.        12 items ·  47 {chip} · shove 0.12
+--   B — Act 1 late, T2-T3.         21 items · 190 {chip} · shove 0.21
 --   C — Act 2, deck era, T4-T6.    23 items · 330 {chip} · shove 0.23
 --   D — Act 2 late.                11 items · 233 {chip} · shove 0.11
 --                                            ─────────────────────────────
---                                            800 {chip} · shove 0.65
+--                                            800 {chip} · shove 0.67
 --
 -- Shove is a flat 1% per item (data/balance.lua K_SHOVE_PER_ITEM), so a
--- band's shove is its item count. A+B alone carry 0.31 ≥ the 0.250 the
+-- band's shove is its item count. A+B alone carry 0.33 ≥ the 0.250 the
 -- first shove needs at T3, so a fully-bought Act 1 catalog wins it with
 -- room to spare. Later items buy capability rather than shove.
 --
@@ -107,7 +107,7 @@ local items = {
         },
     },
 
-    -- ═══ BAND A — Act 1 early (T1-T2) · 11 items · 47 {chip} ════════════
+    -- ═══ BAND A — Act 1 early (T1-T2) · 12 items · 47 {chip} ════════════
 
     {
         id          = "wall_hanger",
@@ -139,6 +139,10 @@ local items = {
         sprite      = "mirror",
         phase       = "demo",
         cost_chip     = 3,
+        unlock = {
+            kind = "hu_unlocked",
+            text = "Unlock the Heads-Up tables",
+        },
         position    = { x = 160, y = 220 },
         effects     = {
             { kind = "shove_rate_add",   value = 0.010 },
@@ -150,6 +154,34 @@ local items = {
                 { kind = "win_chance_shift", amount = 0.35, gtype = "hu" },
             },
             effect_text = "+35% win chance at Heads-Up.",
+        },
+    },
+    {
+        -- The {chip} economy's signpost: appears the moment the first
+        -- bounty banks, and says out loud what the numbers already made
+        -- true — Heads-Up is the chip mode.
+        id          = "fight_night",
+        name        = "Fight Night Poster",
+        effect_text = "Heads-Up bounties pay double {chip}.",
+        description = "A duel draws a crowd. The crowd pays.",
+        sprite      = "fight_night",
+        phase       = "demo",
+        cost_chip   = 4,
+        unlock = {
+            kind      = "lifetime_chips_banked",
+            threshold = 1,
+            text      = "{chip} banked",
+        },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "bounty_gtype_mult", gtype = "hu", value = 2.0 },
+        },
+        corrupt = {
+            cost_achip = 3,
+            effects = {
+                { kind = "bounty_gtype_mult", gtype = "hu", value = 4.0 },
+            },
+            effect_text = "Heads-Up bounties pay quadruple {chip}.",
         },
     },
     {
@@ -245,7 +277,7 @@ local items = {
         description = "A wrapped gift box for starting fresh.",
         sprite      = "gift_box",
         phase       = "demo",
-        cost_chip   = 5,
+        cost_chip   = 4,
         position    = { x = 360, y = 220 },
         effects     = {
             { kind = "shove_rate_add",     value = 0.010 },
@@ -288,7 +320,7 @@ local items = {
         description = "Restful memory-foam bed to sleep off heavy losses.",
         sprite      = "comfort_bed",
         phase       = "demo",
-        cost_chip     = 5,
+        cost_chip     = 4,
         position    = { x = 440, y = 220 },
         -- 4-tier note: spec called this "15% Big loss → Medium". The code's
         -- outcome model has 4 tiers (small/medium/large/jackpot — no Big).
@@ -319,7 +351,7 @@ local items = {
         description = "A pad of yellow notes stuck to your desk.",
         sprite      = "sticky_notes",
         phase       = "demo",
-        cost_chip   = 7,
+        cost_chip   = 5,
         effects     = {
             { kind = "shove_rate_add", value = 0.008 },
             { kind = "earnings_mult",  value = 1.25 },
@@ -359,7 +391,7 @@ local items = {
         },
     },
 
-    -- ═══ BAND B — Act 1 late (T2-T3) · 20 items · 190 {chip} ════════════
+    -- ═══ BAND B — Act 1 late (T2-T3) · 21 items · 190 {chip} ════════════
 
     {
         id          = "stash_box",
@@ -503,22 +535,53 @@ local items = {
         },
     },
     {
+        -- THE KEY TO 6-MAX, and the root of the tank chain. Owning it
+        -- latches state.six_max_unlocked (the ultra_unlocked pattern) —
+        -- the mode is a purchase, and the purchase EXPLAINS the mode: a
+        -- thing grown slow on purpose, whose payoff is the rare enormous
+        -- pot. The tier-climb effect is the identity in miniature (and a
+        -- foreshadowing of Blackout Curtains' sharp, deeper in the chain).
+        -- Gated on the first shove so the long game arrives after the
+        -- loop is understood.
+        id          = "bonsai",
+        name        = "Bonsai",
+        effect_text = "Opens the 6-Max tables — the deep game. Its large wins grow into {stack}s 15% more often.",
+        description = "Grown slow on purpose. Worth the wait.",
+        sprite      = "bonsai",
+        phase       = "mid",
+        cost_chip   = 10,
+        effects     = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "six_max_unlocked" },
+            { kind = "win_tier_shift", from = "large", to = "jackpot",
+              chance = 0.15, gtype = "six_max" },
+        },
+        unlock = {
+            kind      = "has_shoved",
+            text      = "Make your first shove",
+        },
+        corrupt = {
+            cost_achip = 5,
+            effects = {
+                { kind = "six_max_unlocked" },
+                { kind = "win_tier_shift", from = "large", to = "jackpot",
+                  chance = 0.50, gtype = "six_max" },
+            },
+            effect_text = "Opens the 6-Max tables. Half its large wins grow into {stack}s.",
+        },
+    },
+    {
         id          = "desk_plant",
         name        = "Desk Plant",
         effect_text = "+6% win chance at 6-max.",
         description = "Real. Someone waters it when you're not looking.",
         sprite      = "desk_plant",
         phase       = "mid",
-        cost_chip   = 10,
+        cost_chip   = 8,
+        requires    = "bonsai",
         effects     = {
             { kind = "shove_rate_add",   value = 0.010 },
             { kind = "win_chance_shift", amount = 0.06, gtype = "six_max" },
-        },
-        unlock = {
-            kind      = "total_hands_at_gtype",
-            gtype     = "six_max",
-            threshold = 2000,
-            text      = "hands at 6-max",
         },
         corrupt = {
             cost_achip = 5,
@@ -535,7 +598,7 @@ local items = {
         description = "Solid wood, one drawer. Somewhere to put things.",
         sprite      = "desk",
         phase       = "mid",
-        cost_chip     = 10,
+        cost_chip     = 9,
         position    = { x = 330, y = 200 },
         effects     = {
             { kind = "shove_rate_add",    value = 0.010 },
@@ -556,7 +619,7 @@ local items = {
         description = "Discount note stuck to your desk.",
         sprite      = "rebuy_note",
         phase       = "mid",
-        cost_chip   = 11,
+        cost_chip   = 10,
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "rebuy_discount", value = 0.25 },
@@ -581,7 +644,7 @@ local items = {
         description = "Ergonomic. Overload hurts less.",
         sprite      = "gaming_chair",
         phase       = "mid",
-        cost_chip     = 11,
+        cost_chip     = 10,
         unlock = {
             kind      = "total_hands_overwhelmed",
             threshold = 500,
@@ -608,7 +671,7 @@ local items = {
         description = "Foam mic cover. Someone else's earwax.",
         sprite      = "headset",
         phase       = "mid",
-        cost_chip   = 11,
+        cost_chip   = 10,
         effects     = {
             { kind = "shove_rate_add",   value = 0.010 },
             { kind = "win_chance_shift", amount = 0.06, gtype = "zoom" },
@@ -634,7 +697,7 @@ local items = {
         description = "Came with a ribbon. The ribbon didn't last.",
         sprite      = "prize_vase",
         phase       = "mid",
-        cost_chip     = 13,
+        cost_chip     = 12,
         unlock = {
             kind      = "total_mtt_wins",
             threshold = 1,
@@ -660,7 +723,7 @@ local items = {
         description = "The cooler. Eats the worst beat.",
         sprite      = "fridge",
         phase       = "mid",
-        cost_chip     = 13,
+        cost_chip     = 12,
         position    = { x = 270, y = 400 },
         effects     = {
             { kind = "shove_rate_add", value = 0.012 },
@@ -686,7 +749,7 @@ local items = {
         description = "The second hand ticks a little loud.",
         sprite      = "wall_clock",
         phase       = "mid",
-        cost_chip   = 13,
+        cost_chip   = 12,
         unlock = {
             kind      = "total_hands_played",
             threshold = 5000,
@@ -778,7 +841,7 @@ local items = {
         description = "Cuts through anything.",
         sprite      = "dish_soap",
         phase       = "mid",
-        cost_chip   = 13,
+        cost_chip   = 12,
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "tilt_resist_chance", value = 0.40 },
@@ -1127,11 +1190,9 @@ local items = {
         sprite      = "microwave",
         phase       = "late",
         cost_chip   = 18,
-        unlock = {
-            kind      = "total_jackpots",
-            threshold = 500,
-            text      = "jackpots won",
-        },
+        -- Second link of the tank chain: the Bonsai opens the room, this
+        -- starts converting what lands on it.
+        requires    = "bonsai",
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
             { kind = "proc", proc = "tank_vent" },

@@ -52,6 +52,20 @@ C.STAKE_BAND_GATE = {
     ultra = "ultra_unlocked",
 }
 
+-- Which GAME TYPES the add-table UI offers, same shape as the band gate:
+-- false = always open, a string = the GameState flag that opens it. The
+-- opening is zoom-first — fast, un-stackable, click-to-deal — and the
+-- other modes arrive as taught moments: HU when a second table is
+-- affordable (the {chip} intro; hu_unlocked latches in GrindController),
+-- 6-max after the first shove, the tournament room with Act 2. Consumed
+-- by GrindController:gtypeAvailable — the single source of truth.
+C.GTYPE_GATE = {
+    zoom    = false,
+    hu      = "hu_unlocked",
+    six_max = "six_max_unlocked",   -- bought: the Desk Plant catalog item
+    mtt     = "shove_r1_won",
+}
+
 C.WINDOW = {
     title  = "Poker Idle",
     width  = 1280,

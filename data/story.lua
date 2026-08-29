@@ -47,7 +47,8 @@ return {
                 { text = "Welcome in. Have a seat. You play, I run the room. Easy." },
                 { text = "Two dollars to start. It's yours. Win one big hand and you walk out of here.",
                   anchor = "cell:bankroll" },
-                { text = "Go on, open a table.", anchor = "add_table:s001:six_max",
+                { text = "Go on, open a table. Zoom's the quick one — new faces every hand.",
+                  anchor = "add_table:s001:zoom",
                   wait = { kind = "tables_open", min = 1 } },
             },
         },
@@ -72,16 +73,21 @@ return {
             },
         },
 
-        -- S3.
+        -- S3. The duel opens the moment a second buy-in is in hand
+        -- (GrindController latches hu_unlocked on exactly that), and the
+        -- House sells it honestly: it pays, and it hits back. This is the
+        -- {chip} economy's front door — naked Heads-Up wins whole stacks
+        -- often enough that the first bounty lands minutes after sitting.
         {
             id      = "second_table",
             screen  = "grind",
-            trigger = { kind = "all",
-                        { kind = "tables_open",      min = 1, max = 1 },
-                        { kind = "can_afford_stake", stake = "s001" } },
+            trigger = { kind = "hu_unlocked" },
             lines = {
-                { text = "One table's a bit slow. Open another.", anchor = "add_table:s001:six_max",
-                  wait = { kind = "tables_open", min = 2 } },
+                { text = "You can afford another seat. Good — the duel just opened.",
+                  anchor = "gtype:hu" },
+                { text = "Heads-Up. One opponent, whole stacks, both ways. It's where I pay. Careful — it's also where you get taken.",
+                  anchor = "add_table:s001:hu",
+                  wait = { kind = "gtype_table_open", gtype = "hu" } },
             },
         },
 
@@ -140,6 +146,8 @@ return {
                   anchor = { "cell:bankroll", "buy_runup_sharper_reads" } },
                 { text = "Your odds on the big hand: what you own, times what you hold. So it's about {chip} now. Every table pays one. Collect, then shove. You'll get it. Next time.",
                   anchor = { "cell:shove", "chip_badge:shove" } },
+                { text = "One more thing — the catalog's got the key to the 6-Max room now. The long game. Slow, deep, worth it.",
+                  anchor = "gtype:six_max" },
             },
         },
 
@@ -155,7 +163,12 @@ return {
                   anchor = "cell:deck" },
                 { text = "It levels up as it plays, and its bonus is on every hand. Max out five and something new joins the rack.",
                   anchor = "cell:deck" },
-                { text = "The big tables are open now. Bring money.", anchor = "add_table:s004:six_max" },
+                -- Anchored on a zoom row: 6-max may still be behind its
+                -- catalog key here, but zoom is always open and s004
+                -- opens with this very beat.
+                { text = "The big tables are open now. Bring money.", anchor = "add_table:s004:zoom" },
+                { text = "And the tournament room. Eight seats, one winner — it pays the tables around it more than it pays you.",
+                  anchor = "gtype:mtt" },
             },
         },
 

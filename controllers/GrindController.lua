@@ -421,6 +421,33 @@ function GrindController:procFired(item_id, tbl)
                                 x = x, y = y, pw = pw, ph = ph })
 end
 
+-- The zoom-first opening's unlock clock. Two jobs, both cheap:
+--   * Latch HU open the moment a second table is affordable (one live
+--     table AND a spare buy-in). One-way, meta-side — a spend later
+--     never re-locks the duel.
+--   * Fanfare each game type exactly ONCE per save when it becomes
+--     available: the tab flashes (AwardGlow on the strip's own anchor,
+--     same call the bounty fanfare uses) and the flourish plays. The
+--     story beats carry the words; this carries the sparkle.
+function GrindController:_tickGtypeUnlocks()
+    local state = self.game.state
+    if not state.hu_unlocked
+       and self.pool:count() >= 1
+       and state.bankroll >= self:_cheapestBuyIn() then
+        state.hu_unlocked = true
+    end
+    local announced = state.gtype_announced
+    if announced then
+        for gtype_id, gate in pairs(Constants.GTYPE_GATE) do
+            if gate and not announced[gtype_id] and state[gate] == true then
+                announced[gtype_id] = true
+                AwardGlow.flash("gtype:" .. gtype_id)
+                self:_playNamed("stake_up_flourish")
+            end
+        end
+    end
+end
+
 -- Grant (or refresh) a timed global buff. Same kind refreshes — strongest
 -- value, longest clock — matching the status layer's refresh-not-stack.
 function GrindController:addTimedBuff(kind, value, t)
@@ -475,6 +502,10 @@ function GrindController:invalidateEffects()
     -- One-way — any effect granting it makes the unlock permanent.
     if self.ctx.ultra_unlocked then
         self.game.state.ultra_unlocked = true
+    end
+    -- Same one-way latch for the Desk Plant's 6-Max key.
+    if self.ctx.six_max_unlocked then
+        self.game.state.six_max_unlocked = true
     end
     -- High Roller Pass: cash games at a stake get +win chance for every
     -- tournament an OPEN tournament table there has finished. Derived
@@ -564,6 +595,7 @@ end
 function GrindController:update(dt)
     -- Proc budget is per frame too (services/ProcRegistry).
     if self.game.procs then self.game.procs:beginFrame() end
+    self:_tickGtypeUnlocks()
     self:_tickTimedBuffs(dt)
     self:_tickTournamentAuras(dt)
     -- Shockwaves in flight from a slam or a shove.
@@ -658,7 +690,7 @@ function GrindController:update(dt)
                     -- Same award math as the cash jackpot path (incl.
                     -- chip_award_mult AND Pen's flat bonus — this used to
                     -- hand-roll the formula and dropped the Pen add).
-                    award = self:bountyAward(t.stake_id)
+                    award = self:bountyAward(t.stake_id, t.game_type_id)
                     if award > 0 then
                         -- Dogs Playing Poker: the run's first bounty pays +bonus.
                         if not state.first_bounty_this_run then
@@ -677,7 +709,7 @@ function GrindController:update(dt)
                     if self.ctx and self.ctx.copy_first_denied and not state.denied_copied_this_run then
                         state.denied_copied_this_run = true
                         self:itemFired("copy_first_denied", t)
-                        local cp = self:bountyAward(t.stake_id)
+                        local cp = self:bountyAward(t.stake_id, t.game_type_id)
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
                             state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
@@ -1070,7 +1102,7 @@ function GrindController:update(dt)
                 if count < cap then
                     state.stakes_won_this_run[key] = count + 1
                     state.hands_since_last_bank = 0
-                    local award = self:bountyAward(tbl.stake_id)
+                    local award = self:bountyAward(tbl.stake_id, tbl.game_type_id)
                     if award > 0 then
                         -- Dogs Playing Poker: the run's first bounty pays +bonus.
                         if not state.first_bounty_this_run then
@@ -1103,7 +1135,7 @@ function GrindController:update(dt)
                         state.denied_copied_this_run = true
                         self:itemFired("copy_first_denied", tbl)
                         self:itemFired("copy_denied_chance", tbl)
-                        local cp = self:bountyAward(tbl.stake_id)
+                        local cp = self:bountyAward(tbl.stake_id, tbl.game_type_id)
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
                             state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
@@ -1394,10 +1426,15 @@ function GrindController:itemFired(kind, tbl)
     end
 end
 
-function GrindController:bountyAward(stake_id)
+function GrindController:bountyAward(stake_id, gtype_id)
     local stake = Lookups.findById(Stakes,stake_id)
     if not stake then return 0 end
     local mult  = (self.ctx and self.ctx.chip_award_mult) or 1
+    -- Per-game-type multiplier (Fight Night: HU bounties pay double).
+    local gmults = self.ctx and self.ctx.bounty_gtype_mult
+    if gtype_id and gmults and gmults[gtype_id] then
+        mult = mult * gmults[gtype_id]
+    end
     local bonus = (self.ctx and self.ctx.jackpot_chip_add) or 0
     return math.floor((stake.chip_award or 0) * mult + 0.5) + bonus
 end
@@ -1695,11 +1732,24 @@ function GrindController:stakeAvailable(stake)
     return self.game.state[gate] == true
 end
 
+-- Which game types the add-table UI offers. Twin of stakeAvailable, off
+-- Constants.GTYPE_GATE: the zoom-first opening unlocks modes as taught
+-- moments instead of offering all twelve combos at minute one.
+function GrindController:gtypeAvailable(gtype_id)
+    local gate = Constants.GTYPE_GATE[gtype_id]
+    if not gate then return true end
+    return self.game.state[gate] == true
+end
+
 -- from bankroll, optionally discounted by ctx.buy_in_mult (Discount Sits
 -- catalog perk). Game type doesn't change the buy-in. Returns false if
 -- not affordable / pool full / unknown stake-or-gametype.
 function GrindController:addTable(stake_id, game_type_id)
     if self.pool:count() >= self:tableSlotsCap() then return false end
+    -- Defensive gate re-check, like buyCatalogItem re-checks its unlock:
+    -- the strip hides locked tabs from clicks, but nothing else should
+    -- trust the view.
+    if not self:gtypeAvailable(game_type_id or "six_max") then return false end
     local stake = Lookups.findById(Stakes,stake_id)
     if not stake then return false end
     local mult = self:buyInMultFor(stake)

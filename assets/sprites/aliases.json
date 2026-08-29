@@ -2,6 +2,7 @@
   "aliases": {
     "blackout_curtains": "TinyHouse_0.17(@Pixel_Salvaje)/Windows/Window_11_B",
     "blueprint": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Blueprint",
+    "bonsai": "TinyHouse_0.17(@Pixel_Salvaje)/Japanese_Room/Bonsai",
     "bookshelf": "TinyHouse_0.17(@Pixel_Salvaje)/Living Roon/shelving_6",
     "box_of_mice": "TinyHouse_0.17(@Pixel_Salvaje)/Office/White_Box",
     "calculator": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Calculator",
@@ -22,6 +23,7 @@
     "dish_soap": "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/Dish_Soap",
     "dogs_playing_poker": "TinyHouse_0.17(@Pixel_Salvaje)/Poster/Poster_4",
     "energy_drink": "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/Cola",
+    "fight_night": "TinyHouse_0.17(@Pixel_Salvaje)/Poster/Poster_5",
     "fire_extinguisher": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Fire_Extinguisher",
     "first_aid_kit": "TinyHouse_0.17(@Pixel_Salvaje)/Office/Medical_Kit_Ani/Medical_Kit_Closed",
     "fridge": "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/Fridge/Fridge_2_A_Tile",

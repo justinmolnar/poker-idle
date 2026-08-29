@@ -83,6 +83,15 @@ function GameState:new(saved)
     -- banked 3 {chip} on your first run" gate reads this, because reading
     -- shove_count let the rescue button reveal the shove without shoving.
     instance.has_shoved = false
+    -- Zoom-first opening (Constants.GTYPE_GATE): HU latches open the
+    -- moment a second table is affordable (GrindController update);
+    -- 6-max latches from owning the Desk Plant (invalidateEffects).
+    -- Both meta-side and one-way, like has_shoved.
+    instance.hu_unlocked      = false
+    instance.six_max_unlocked = false
+    -- Which game-type unlocks have had their tab fanfare, so the flash
+    -- fires exactly once per save rather than once per session.
+    instance.gtype_announced  = {}
 
     -- Deck-system meta state (persists forever; never reset by prestige).
     -- Only the starter (DeckSpecs[1]) is unlocked at fresh start. The
@@ -153,7 +162,7 @@ function GameState:new(saved)
     -- default (player buys their first table for the buy-in).
     instance.active_table_specs = {}
     for _ = 1, Constants.GAMEPLAY.INITIAL_ACTIVE_TABLES do
-        instance.active_table_specs[#instance.active_table_specs + 1] = "s001:six_max"
+        instance.active_table_specs[#instance.active_table_specs + 1] = "s001:zoom"
     end
     -- Parallel array to active_table_specs — cursor mute flag per table.
     -- Indexed identically; true = autonomous cursor swarm skips this table.
@@ -249,7 +258,7 @@ function GameState:resetRun()
     self.run_upgrade_levels  = {}
     self.active_table_specs = {}
     for _ = 1, Constants.GAMEPLAY.INITIAL_ACTIVE_TABLES do
-        self.active_table_specs[#self.active_table_specs + 1] = "s001:six_max"
+        self.active_table_specs[#self.active_table_specs + 1] = "s001:zoom"
     end
     self.active_table_mutes        = {}
     self.active_table_rebuy_mutes  = {}
@@ -353,6 +362,12 @@ function GameState:wipeAll()
     self.save_id    = genSaveId()
     self.shove_count = 0
     self.has_shoved  = false
+    -- The zoom-first gates start closed on a NEW GAME. Without this, an
+    -- old session's flags survive wipeAll and the HU unlock beat fires
+    -- before the player has done anything.
+    self.hu_unlocked      = false
+    self.six_max_unlocked = false
+    self.gtype_announced  = {}
     self:resetRun()
     -- resetRun incremented shove_count to 1; wipeAll is shove 0 (first run).
     self.shove_count = 0
@@ -466,6 +481,26 @@ function GameState:applySaved(saved)
     if not had_has_shoved then
         self.has_shoved = (self.shove_count or 0) > 0
     end
+    -- Saves PREDATING the game-type gates (no hu_unlocked key at all):
+    -- anyone with shove progress had every mode open — never re-lock a
+    -- table a player has already sat. Guarded on the key being ABSENT,
+    -- exactly like had_has_shoved above: a save written UNDER the gate
+    -- system keeps its false flags, or merely shoving would hand out
+    -- 6-max without the Bonsai.
+    if saved.meta ~= nil and saved.meta.hu_unlocked == nil then
+        self.hu_unlocked      = self.has_shoved
+        self.six_max_unlocked = self.has_shoved
+    end
+    self.hu_unlocked      = self.hu_unlocked == true
+    self.six_max_unlocked = self.six_max_unlocked == true
+    self.gtype_announced  = self.gtype_announced or {}
+    -- ...and a mode that is ALREADY open gets no retroactive fanfare
+    -- (three flourishes on load is noise, not news).
+    for gtype_id, gate in pairs(Constants.GTYPE_GATE or {}) do
+        if gate and self[gate] == true then
+            self.gtype_announced[gtype_id] = true
+        end
+    end
     if not had_catalog_seen then
         self.catalog_seen = (self.shove_count or 0) > 0
     end
@@ -563,6 +598,9 @@ function GameState:serializeMeta()
         save_id                         = self.save_id,
         shove_count                     = self.shove_count,
         has_shoved                      = self.has_shoved,
+        hu_unlocked                     = self.hu_unlocked,
+        six_max_unlocked                = self.six_max_unlocked,
+        gtype_announced                 = self.gtype_announced,
         chips                           = self.chips,
         owned_items                     = self.owned_items,
         cleared                         = self.cleared,
@@ -896,12 +934,17 @@ function GameState:applyStartingPerks(ctx)
     -- a free KO seat is a different promise than a free cash table.
     local cash_gtypes = {}
     for _, gt in ipairs(GameTypesData) do
-        if not gt.chip_stack_table then
+        -- Only modes the player has actually unlocked (zoom-first gates,
+        -- Constants.GTYPE_GATE) — the Desk must not deal a table from a
+        -- mode the player hasn't met.
+        local gate = Constants.GTYPE_GATE and Constants.GTYPE_GATE[gt.id]
+        local open = (not gate) or self[gate] == true
+        if not gt.chip_stack_table and open then
             cash_gtypes[#cash_gtypes + 1] = gt.id
         end
     end
     for _ = 1, (ctx.start_table_count or 0) do
-        local gid = "six_max"
+        local gid = "zoom"   -- the always-open mode
         if #cash_gtypes > 0 and love and love.math then
             gid = cash_gtypes[love.math.random(1, #cash_gtypes)]
         end

@@ -25,20 +25,21 @@ local function simulateAct1()
     
     -- Income model: bounties are the chip source — one per (stake, gtype)
     -- per run, at the stake's chip_award. An Act 1 run plays the first
-    -- three stakes across ~3 of the 4 game types (nobody sweeps every
-    -- combo every run), so income = sum(first 3 awards) × 3. This replaces
-    -- the old CatalogLoader.chipsPerRun target, which was circular — it
-    -- assumed income equals whatever the spend requires.
+    -- three stakes across ~3 lanes (zoom, HU, and eventually the bought
+    -- 6-max — nobody sweeps every combo every run), so the base is
+    -- sum(first 3 awards) × 3, and the Fight Night poster doubles the HU
+    -- lane once owned. This replaces the old CatalogLoader.chipsPerRun
+    -- target, which was circular — it assumed income equals whatever the
+    -- spend requires.
     local Stakes = require("data.stakes")
     local act1_award = 0
     for i = 1, math.min(3, #Stakes) do
         act1_award = act1_award + (Stakes[i].chip_award or 0)
     end
-    local chips_per_run = act1_award * 3
     local run_duration = Balance.RUN_MINUTES
 
     print("=========================================================")
-    print(string.format(" Act 1 Simulation (RUN_MINUTES=%d, Target Chips/Run=%d)", run_duration, chips_per_run))
+    print(string.format(" Act 1 Simulation (RUN_MINUTES=%d, Base Chips/Run=%d)", run_duration, act1_award * 3))
     print(" Policy: Greedy Buy-Cheapest-First")
     print("=========================================================")
     print(string.format("%-10s | %-8s | %-12s | %-12s | %-12s", "Shove", "Items", "Catalog %", "Shove @ T3", "Elapsed Time"))
@@ -50,6 +51,10 @@ local function simulateAct1()
     -- Runaway guard only; the loop is meant to end on `cleared`.
     while shove_number <= 50 and not cleared do
         elapsed_minutes = elapsed_minutes + run_duration
+        -- Two flat lanes (zoom + 6-max) and an HU lane the Fight Night
+        -- poster doubles.
+        local hu_lane = owned_set["fight_night"] and 2 or 1
+        local chips_per_run = act1_award * (2 + hu_lane)
         chips_banked = chips_banked + chips_per_run
 
         -- Greedy buy cheapest owned-candidate items

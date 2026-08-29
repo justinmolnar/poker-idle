@@ -266,7 +266,10 @@ function GrindView:new(game, controller)
         game       = game,
         controller = controller,
         hit_boxes  = {},   -- per-frame click targets for non-Panel UI (table buttons, SHOVE)
-        selected_gtype = "six_max",  -- which game-type sub-tab is showing in the Tables tab
+        selected_gtype = "zoom",  -- which game-type sub-tab is showing in the
+                                  -- Tables tab. Zoom is the always-open mode
+                                  -- (Constants.GTYPE_GATE), so the default is
+                                  -- valid on a brand-new save.
 
         -- Tweened display values for the top-bar. Each frame these lerp
         -- toward their state.* targets so wins/losses flow smoothly instead
@@ -346,7 +349,12 @@ function GrindView:_makeGameTypeStrip()
     -- 20*ui_scale on top doubled the band height. Plain pad keeps
     -- the buttons compact at every window size.
     local fh      = self.game.fonts.sm:getHeight()
-    local STRIP_H = fh + 12
+    -- Tall enough for the cassette-deck travel: keys ride a DEEP rim
+    -- (KEY_DEPTH px of visible side AND of press travel — a shallow rim
+    -- under a big drop reads as two misaligned buttons, not up/down) and
+    -- the selected one sits pressed flat at the bottom of it.
+    local KEY_DEPTH = 10
+    local STRIP_H   = fh + KEY_DEPTH + 14
     local self_ref = self
     -- Per-gtype short blurb for the hover tooltip. Hardcoded next to
     -- where the strip is built so callers don't have to juggle a string
@@ -358,6 +366,11 @@ function GrindView:_makeGameTypeStrip()
         zoom     = "Zoom — fast hands, random opponents. Easier to win, but pots smaller overall.",
         mtt      = "8-max KO — every seat sits down with a 10bb stack. Hands play normally; seats bust at zero. Win it all or finish top-3 to cash.",
     }
+    -- Locked tabs (Constants.GTYPE_GATE) draw dark and inert rather than
+    -- disappearing: the strip's width math, the hint anchors, and the
+    -- unlock fanfare's AwardGlow target all stay alive, and a visible
+    -- locked slot is something to want. They carry no tooltip and no
+    -- hover — the story beats do the explaining when each one opens.
     return {
         type = "custom",
         h    = STRIP_H,
@@ -371,34 +384,58 @@ function GrindView:_makeGameTypeStrip()
             for i, gt in ipairs(GameTypes) do
                 local bx = strip_x + (i - 1) * btn_w
                 local rect_w, rect_h = btn_w - 2, STRIP_H - 4
-                local active = (gt.id == self_ref.selected_gtype)
+                local locked = not self_ref.controller:gtypeAvailable(gt.id)
+                local active = (gt.id == self_ref.selected_gtype) and not locked
                 local id     = "gtype:" .. gt.id
                 local hov    = game.hover.is("button", id) and not active
-                local press  = ClickFlash.alpha("button", id)
+                                                           and not locked
+                -- Press TRAVEL is animated: the key eases down when it
+                -- becomes selected and eases back up when it isn't, on a
+                -- wall-clock lerp — no per-frame state to plumb.
+                local press  = RollingValue.get("gtype_press:" .. gt.id,
+                                                (active or locked) and 1 or 0, 14)
                 local label  = gt.short or gt.name
                 -- The tab wears its game type's chrome — the same color
                 -- the table headers wear (data/game_type_themes.lua) —
                 -- full strength when selected, sunk toward the panel
-                -- when not, so the strip reads as the four materials
-                -- rather than four grey buttons.
+                -- when not, and sunk near-out when LOCKED: the material
+                -- is visible as a promise, not an option.
                 local chrome = GameTypeThemes[gt.id]
                                and GameTypeThemes[gt.id].chrome_color
                 local fill
-                if chrome then
-                    local k = active and 1.0 or (hov and 0.85 or 0.55)
+                -- Cassette-deck selection: every open key rides HIGH on a
+                -- deep rim; the selected one is HELD DOWN — pressed flat,
+                -- rim swallowed, face in shadow with a lit legend. The
+                -- shape carries the state, so no underlines or borders
+                -- have to.
+                if locked then
+                    -- A dead key: flush AND near-black.
+                    fill = chrome and { chrome[1] * 0.12, chrome[2] * 0.12,
+                                        chrome[3] * 0.12 }
+                           or Theme.bg.sunken
+                elseif chrome then
+                    -- Raised keys catch the light; the pressed one sits in
+                    -- the well and reads darker.
+                    local k = active and 0.60 or (hov and 1.0 or 0.85)
                     fill = { chrome[1] * k, chrome[2] * k, chrome[3] * k }
                 else
                     fill = active and Theme.bg.widget_hover or Theme.bg.chrome
                 end
                 Button.draw(bx, y, rect_w, rect_h, {
                     fill_color   = fill,
-                    border_color = active and Theme.border.strong
-                                  or hov  and Theme.border.strong
+                    border_color = locked and Theme.border.soft
+                                  or active and Theme.border.strong
                                   or Theme.border.default,
                     hovered      = hov,
+                    -- Selected (and dead) keys are fully pressed; open
+                    -- keys ease back up (press carries the animation).
                     press_alpha  = press,
-                    depth        = 3,
+                    disabled     = locked,
+                    depth        = KEY_DEPTH,
                 }, function(fx, fy, fw, fh)
+                    -- A locked key is BLANK — no name until the mode is
+                    -- earned. The unlabeled dead keys are the tease.
+                    if locked then return end
                     Theme.setColor(active and Theme.fg.heading
                                   or hov  and Theme.fg.heading
                                   or Theme.fg.muted)
@@ -427,6 +464,11 @@ function GrindView:_makeGameTypeStrip()
                 if cx >= bx and cx < bx + btn_w - 2
                    and cy >= y and cy < y + STRIP_H - 4 then
                     local id = "gtype:" .. gt.id
+                    -- A locked tab is inert: no hover, no tooltip, no
+                    -- click. The story beats carry the explanations.
+                    if not self_ref.controller:gtypeAvailable(gt.id) then
+                        return nil
+                    end
                     -- Set hover + tooltip here so the dispatch flow reaches
                     -- both even though custom components don't have generic
                     -- post-hit-test logic in ComponentRenderer.
@@ -462,6 +504,11 @@ function GrindView:_buildTablesTabComponents()
     -- Stake-add buttons for the currently selected game type. Button id
     -- is composite "add_table:<stake>:<gtype>" so the dispatcher routes
     -- to controller:addTable(stake_id, game_type_id).
+    -- A stale selection of a still-locked mode (old save state, or a gate
+    -- future-tightened) clamps back to zoom, the always-open mode.
+    if not self.controller:gtypeAvailable(self.selected_gtype) then
+        self.selected_gtype = "zoom"
+    end
     local gtype_id  = self.selected_gtype
     local gtype_obj = Lookups.findById(GameTypes, gtype_id)
     -- Cursor perks gate the per-row cursor toggles, same two flags the
@@ -510,7 +557,7 @@ function GrindView:_buildTablesTabComponents()
             -- can't even buy in. The trim goes gold when the {chip} is
             -- banked, purple when only the {achip} is.
             local banked  = self.controller:bountyBanked(stake.id, gtype_id)
-            local award   = self.controller:bountyAward(stake.id)
+            local award   = self.controller:bountyAward(stake.id, gtype_id)
             local icon_id = "chip"
             local border_color = banked and Theme.currency.chip or nil
 
