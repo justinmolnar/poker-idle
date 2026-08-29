@@ -1685,6 +1685,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- same 600px cloud over a panel a quarter that wide — have something
     -- to measure against. Point readers only touch [1]/[2].
     Anchors.set(Table.anchorKey(tbl, "center"), x + w / 2, y + h / 2, w, h)
+    -- The same panel as a proper RECT anchor (top-left + dims) for
+    -- hint/story marks — the center anchors above are centre-point
+    -- convention and a highlight ring would draw half-offset.
+    Anchors.set("table:" .. idx, x, y, w, h)
 
     -- Seed a default pot anchor BEFORE the script-event loop below runs. The
     -- first bet of a hand flies its chips to the "pot" anchor during that loop,

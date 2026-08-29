@@ -66,6 +66,7 @@ local HintCtx          = require("controllers.hint_ctx")
 local StoryDirector    = require("controllers.StoryDirector")
 local StoryView        = require("views.StoryView")
 local HintMarks        = require("views.HintMarks")
+local RadioVoice       = require("services.RadioVoice")
 local Story            = require("data.story")
 local PokerActionApply = require("models.poker_action_apply")
 local GrindState   = require("states.GrindState")
@@ -353,18 +354,24 @@ local function buildGame()
         local cur = g.state_machine.current_state
         return not (cur and cur.hintsBlocked and cur:hintsBlocked())
     end
+    -- A click (or SPACE) mid-typewriter completes the block instead of
+    -- advancing past it; the next one advances.
+    local function storyAdvance()
+        if g.story_view:isTyping() then g.story_view:revealAll()
+        else g.story:advance() end
+    end
     g.input_dispatcher:on("mousepressed",
         function(x, y)
             return storyUnblocked() and g.story:isHoldingClick()
                    and not g.story:isPaused() and g.story_view:hitBand(x, y)
         end,
-        function() g.story:advance() end)
+        storyAdvance)
     g.input_dispatcher:on("keypressed",
         function(key)
             return key == "space" and storyUnblocked()
                    and g.story:isHoldingClick() and not g.story:isPaused()
         end,
-        function() g.story:advance() end)
+        storyAdvance)
 
     -- A forced story line locks the screen to its targets: any click
     -- outside the highlighted rect(s) is consumed here, ahead of the
@@ -430,6 +437,9 @@ end
 function love.load()
     Game = buildGame()
     Game.sprite_loader:loadAll()
+    -- Bake THE HOUSE's wall portrait (procedural, views/HouseArt) into
+    -- the sprite pool so the room draws it like any other wall item.
+    require("views.HouseArt").bake(Game.sprite_loader)
 
     -- Compile shaders at boot. ShaderRegistry caches by name; compile
     -- failures log a warning and degrade gracefully (no crash).
@@ -487,6 +497,12 @@ function love.update(dt)
             Game.hints.paused = Game.story:isActive()
             Game.hints:update(dt, ctx)
         end
+        -- The intercom's chopped voice runs exactly while a block is
+        -- typing itself out (services/RadioVoice; the cold open fires
+        -- from StoryView the frame a new block lands).
+        RadioVoice.update(dt, Game.story:isActive()
+            and not Game.story:isPaused()
+            and Game.story_view:isTyping())
     end
     Game.floating_text.update(dt)
     FlightSystem.update(dt)

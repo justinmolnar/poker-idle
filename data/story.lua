@@ -70,7 +70,7 @@ return {
                 { text = "There go your two dollars, onto the felt. Money on a table is tied up, not gone. Close the table, or CASH OUT, and it comes back.",
                   anchor = { "cell:tied", "btn:cash_out" } },
                 { text = "Click anywhere on the felt to deal a hand.",
-                  anchor = "felt",
+                  anchor = "table:1",
                   force  = true,
                   wait   = { kind = "hands_played", min = 1 } },
             },

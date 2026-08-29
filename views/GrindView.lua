@@ -25,6 +25,7 @@ local TableModel     = require("models.Table")
 local GameTypeThemes = require("data.game_type_themes")
 local Pop            = require("services.Pop")
 local RollingValue   = require("services.RollingValue")
+local HouseArt       = require("views.HouseArt")
 local CursorPool     = require("services.CursorPool")
 local Icons          = require("views.Icons")
 local IconText       = require("views.IconText")
@@ -101,8 +102,10 @@ local MARGIN               = 12
 -- so they grow/shrink with whatever sizes data/theme.lua picks.
 local SHOVE_BTN_H          = 64
 -- THE HOUSE poster (the captor) sits above the SHOVE button; hint
--- bubbles speak from it (views/HintView anchors to "house").
-local HOUSE_H              = 92
+-- bubbles speak from it (views/HintView anchors to "house"). Doubled
+-- when the portrait got real art (views/HouseArt); _buildPanels cuts
+-- the Upgrades panel by the same amount automatically.
+local HOUSE_H              = 184
 local CASH_OUT_BTN_W       = 110
 local CASH_OUT_BTN_H       = 36
 local CATALOG_BTN_W        = 110
@@ -150,7 +153,7 @@ local function recomputeLayout(W, H, fonts, state)
 
     -- Top-bar buttons + bottom band + table chrome bits scale too.
     SHOVE_BTN_H          = math.floor(64 * s)
-    HOUSE_H              = math.floor(92 * s)
+    HOUSE_H              = math.floor(184 * s)
     -- Top-bar button widths are derived from the longest label in
     -- their font so they don't waste horizontal space the stat cells
     -- could use. fonts.sm at any scale already grew with the integer
@@ -1909,11 +1912,6 @@ function GrindView:_drawCenterGrid(W, H)
     -- here). Same shape as the per-table center anchors: centre point + dims.
     AnchorRegistry.set("grid:center",
         grid_x + grid_w / 2, grid_y + grid_h / 2, grid_w, grid_h)
-    -- The same area as a proper RECT (top-left + dims) for hint/story
-    -- marks — grid:center is a centre point, which a highlight ring would
-    -- draw half-offset. "The felt" is what a beat points at to mean
-    -- "anywhere on the tables".
-    AnchorRegistry.set("felt", grid_x, grid_y, grid_w, grid_h)
 
     local tables = self.controller.pool.tables
     local n = #tables
@@ -2119,7 +2117,9 @@ end
 function GrindView:_houseHelpBtnRect()
     local r  = self:_houseRect()
     local s  = self.game.ui_scale or 1
-    local sz = math.floor(r.h * 0.40)
+    -- Fixed badge size — it used to scale with the poster's height,
+    -- which was fine at 92 and a slab at 184.
+    local sz = math.floor(30 * s)
     local m  = math.floor(6 * s)
     return { x = r.x + r.w - sz - m, y = r.y + r.h - sz - m, w = sz, h = sz }
 end
@@ -2141,26 +2141,36 @@ function GrindView:_drawHouse()
     love.graphics.rectangle("line", r.x + inset, r.y + inset,
         r.w - inset * 2, r.h - inset * 2, fl(2 * s))
 
-    -- House glyph, centered: gold roof, warm body, dark door.
-    local pad = fl(12 * s)
-    local gh  = r.h - pad * 2
-    local gw  = gh
-    local gx  = r.x + fl((r.w - gw) * 0.5)
-    local gy  = r.y + pad
-    local roof_y = gy + fl(gh * 0.42)
-    Theme.setColor(Theme.currency.chip)
-    love.graphics.polygon("fill",
-        gx - fl(gw * 0.08), roof_y,
-        gx + fl(gw * 0.5),  gy,
-        gx + gw + fl(gw * 0.08), roof_y)
-    Theme.setColor(Theme.border.strong)
-    love.graphics.rectangle("fill",
-        gx + fl(gw * 0.10), roof_y,
-        gw - fl(gw * 0.20), gy + gh - roof_y)
-    Theme.setColor(Theme.bg.sunken)
-    love.graphics.rectangle("fill",
-        gx + fl(gw * 0.40), gy + gh - fl(gh * 0.34),
-        fl(gw * 0.20), fl(gh * 0.34))
+    -- The House's portrait (views/HouseArt): the same still print that
+    -- hangs in the room. A poster, not a window — no animation, no
+    -- caption; it doesn't introduce itself.
+    local ax = r.x + inset + fl(2 * s)
+    local ay = r.y + inset + fl(2 * s)
+    local aw = r.w - (inset + fl(2 * s)) * 2
+    local ah = r.h - (inset + fl(2 * s)) * 2
+    HouseArt.paintPortrait(ax, ay, aw, ah)
+
+    -- The intercom, bolted straight onto the poster's bottom-left: how
+    -- the House speaks. Lit, breathing and rattling while a story line
+    -- is up; dead otherwise.
+    do
+        local sw2 = fl(52 * s)
+        local sh2 = fl(32 * s)
+        -- "Speaking" = the band's text is mid-typewriter, the same window
+        -- that drives the balloon buzz and the chopped radio voice.
+        local speaking = 0
+        local story, sv = self.game.story, self.game.story_view
+        if story and story.currentLine and story:currentLine()
+           and not story:isPaused()
+           and sv and sv.isTyping and sv:isTyping() then
+            speaking = 1
+        end
+        local spx, spy = ax + fl(6 * s), ay + ah - sh2 - fl(6 * s)
+        HouseArt.drawSpeaker(spx, spy, sw2, sh2, speaking, love.timer.getTime())
+        -- The story band draws a cable to this: the box the words come
+        -- out of (views/StoryView).
+        AnchorRegistry.set("house:speaker", spx, spy, sw2, sh2)
+    end
 
     -- The "?" help-desk button, bottom-right corner of the poster.
     do

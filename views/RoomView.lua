@@ -51,6 +51,7 @@ local function loadDraft()
     return nil
 end
 local Anchors        = require("services.AnchorRegistry")
+local HouseArt       = require("views.HouseArt")
 local ClickFlash     = require("services.ClickFlash")
 local ShaderRegistry = require("services.ShaderRegistry")
 
@@ -913,6 +914,22 @@ function RoomView:draw(full_screen, opts)
             end
             
             love.graphics.draw(sprite, px, py, 0, draw_scale_x, draw_scale_y, ox, oy)
+            -- THE HOUSE's wall print carries its intercom live on top of
+            -- the baked still, so it can light up and rattle while he
+            -- speaks — in the room too (views/HouseArt.drawWallSpeaker).
+            if (obj.sprite or obj.id) == "house_poster_wall" then
+                -- "Speaking" = the band's text is mid-typewriter, same
+                -- window as the grind intercom and the radio voice.
+                local speaking = 0
+                local story, sv = game.story, game.story_view
+                if story and story.currentLine and story:currentLine()
+                   and not story:isPaused()
+                   and sv and sv.isTyping and sv:isTyping() then
+                    speaking = 1
+                end
+                HouseArt.drawWallSpeaker(px, py, draw_scale_x, draw_scale_y,
+                    ox, oy, speaking, love.timer.getTime())
+            end
             -- The first placed item, for a "your things end up here" hint.
             -- The rect is the drawn sprite's footprint on screen.
             if not self._anchored_item then

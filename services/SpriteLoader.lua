@@ -315,6 +315,14 @@ function SpriteLoader:loadAll()
     self.loaded = true
 end
 
+-- Inject a runtime-generated Image under a sprite name (procedural art
+-- baked at boot, e.g. views/HouseArt's wall poster). Loads the disk
+-- sprites first so a later lazy loadAll can't clobber the injection.
+function SpriteLoader:setSprite(name, image)
+    if not self.loaded then self:loadAll() end
+    self.sprites[name] = image
+end
+
 function SpriteLoader:loadAliases()
     if not love.filesystem.getInfo(ALIASES_FILE) then return end
     local ok, contents = pcall(love.filesystem.read, ALIASES_FILE)
