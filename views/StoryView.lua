@@ -8,8 +8,10 @@
 -- edge, so the grind's sits above the bankroll pile and a modal's along
 -- its bottom edge.
 --
--- No dim: the game keeps running while he talks. The thing he is pointing
--- at gets the same pulsing mark a popup would give it (views/HintMarks).
+-- No dim of its own: the game keeps running while he talks. The thing he
+-- is pointing at gets the same pulsing mark a popup would give it
+-- (views/HintMarks). A FORCED line (line.force) does dim — main.lua draws
+-- the hint-style dim under this panel and locks clicks to the marks.
 -- A faint "click" cue sits in the panel's corner while a block is waiting
 -- on the player.
 --
@@ -49,8 +51,8 @@ function StoryView.drawLine(game, text, rect, opts)
 end
 
 -- The panel for one block of the House's text.
---   line = { text, anchor?, font? }  (the director's payload)
---   opts = { holding = bool (click cue), force = bool (draw even when the
+--   line = { text, anchor?, font?, force? }  (the director's payload)
+--   opts = { holding = bool (click cue), graced = bool (draw even when the
 --            block's target is not on screen: the anchor grace elapsed) }
 function StoryView:draw(line, opts)
     opts = opts or {}
@@ -61,7 +63,7 @@ function StoryView:draw(line, opts)
     local marks = line.anchor and HintMarks.fresh(line.anchor) or {}
     -- Presence follows the target: a block about a widget that is not on
     -- screen waits for it, unless the director gave up waiting.
-    if line.anchor and #marks == 0 and not opts.force then return end
+    if line.anchor and #marks == 0 and not opts.graced then return end
     if #marks > 0 then HintMarks.draw(self.game, marks) end
 
     local game  = self.game

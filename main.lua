@@ -65,6 +65,7 @@ local HintRules        = require("models.hint_rules")
 local HintCtx          = require("controllers.hint_ctx")
 local StoryDirector    = require("controllers.StoryDirector")
 local StoryView        = require("views.StoryView")
+local HintMarks        = require("views.HintMarks")
 local Story            = require("data.story")
 local PokerActionApply = require("models.poker_action_apply")
 local GrindState   = require("states.GrindState")
@@ -365,6 +366,29 @@ local function buildGame()
         end,
         function() g.story:advance() end)
 
+    -- A forced story line locks the screen to its targets: any click
+    -- outside the highlighted rect(s) is consumed here, ahead of the
+    -- hint layer and both state branches. A click INSIDE a target falls
+    -- through to the state — that click IS the lesson. No fresh target,
+    -- no lock: a forced line never dead-locks a screen.
+    g.input_dispatcher:on("mousepressed",
+        function(x, y)
+            if not storyUnblocked() then return false end
+            local line = g.story:forcedLine()
+            if not line then return false end
+            local marks = HintMarks.fresh(line.anchor)
+            if #marks == 0 then return false end
+            local pad = math.floor(10 * (g.ui_scale or 1))
+            for _, m in ipairs(marks) do
+                if x >= m.x - pad and x < m.x + m.w + pad
+                   and y >= m.y - pad and y < m.y + m.h + pad then
+                    return false
+                end
+            end
+            return true
+        end,
+        function() end)
+
     -- Hint-layer clicks are claimed here, ahead of both dispatcher branches
     -- below, so no state has to know the layer exists. The dispatcher fires
     -- the first handler whose predicate passes and stops: an [i] icon click
@@ -377,9 +401,9 @@ local function buildGame()
             return g.hint_view:mousepressed(x, y) ~= nil
         end,
         function(x, y)
-            local hit = g.hint_view:mousepressed(x, y)
-            if hit == "bubble" then g.hints:dismissActive()
-            elseif hit then g.hints:dismissQueued(hit.id) end
+            if g.hint_view:mousepressed(x, y) == "bubble" then
+                g.hints:dismissActive()
+            end
         end)
 
     if not Constants.FEATURES.DEV_HOTKEYS then
@@ -450,12 +474,16 @@ function love.update(dt)
     Game.event_bus:drain()
     -- The House ticks after the state so it reads this frame's facts. A
     -- state may ask for quiet (a menu is up) through the duck-typed
-    -- hintsBlocked. Story first: while a beat runs, the hints are paused.
+    -- hintsBlocked — but the story ALWAYS ticks so its triggers keep
+    -- arming behind the menu; `blocked` only stops beats starting and
+    -- the running beat's clock. Story first: while a beat runs, the
+    -- hints are paused.
     do
         local cur = Game.state_machine.current_state
-        if not (cur and cur.hintsBlocked and cur:hintsBlocked()) then
-            local ctx = Game.hint_ctx()
-            Game.story:update(dt, ctx)
+        local blocked = (cur and cur.hintsBlocked and cur:hintsBlocked()) or false
+        local ctx = Game.hint_ctx()
+        Game.story:update(dt, ctx, blocked)
+        if not blocked then
             Game.hints.paused = Game.story:isActive()
             Game.hints:update(dt, ctx)
         end
@@ -550,17 +578,24 @@ function love.draw()
     do
         local cur = Game.state_machine.current_state
         if not (cur and cur.hintsBlocked and cur:hintsBlocked()) then
-            -- A state may keep the [i] queue off its screen (sticky hints
-            -- still show). The shove felt does.
-            Game.hint_view.suppress_queue = cur and cur.suppressHintQueue == true
             -- Everything sounds broken once the bankroll has underflowed.
             SoundService.setDamage(Game.state.underflowed and 1 or 0)
-            Game.hint_view:draw(Game.hints:activeHint(), Game.hints:queuedHints(),
-                                Game.hints.paused)
+            Game.hint_view:draw(Game.hints:activeHint(), Game.hints.paused)
+            -- A forced story line dims the screen to its targets (the
+            -- same dim a sticky hint uses); StoryView then draws the
+            -- marks and the band over it. No fresh target, no dim — a
+            -- forced line never blacks out a screen it can't point at.
+            do
+                local fline = Game.story:forcedLine()
+                if fline then
+                    local holes = HintMarks.fresh(fline.anchor)
+                    if #holes > 0 then Game.hint_view:_drawDim(holes) end
+                end
+            end
             -- The story band, last, so it is never under a hint's dim.
             Game.story_view:draw(Game.story:currentLine(), {
                 holding = Game.story:isHoldingClick() and not Game.story:isPaused(),
-                force   = Game.story:anchorGraceElapsed(),
+                graced  = Game.story:anchorGraceElapsed(),
             })
         end
     end

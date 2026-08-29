@@ -1,19 +1,32 @@
 -- controllers/StoryDirector.lua
 --
--- Plays the House's story beats (data/story.lua) in order. Each tick, if a
--- beat is running it drives that beat's timeline (services/Timeline);
--- otherwise it looks for the first unseen beat whose trigger passes and
--- starts it. One beat at a time. A beat is marked seen (state.story_seen)
--- when its last line is done, and never plays again.
+-- Plays the House's story beats (data/story.lua) in order.
+--
+-- ARM, THEN PLAY. Triggers are evaluated every tick, beat running or not,
+-- right screen or not, menu up or not: the moment a trigger passes, its
+-- beat is ARMED (state.story_armed, persisted). A transient trigger — an
+-- upgrade that was briefly affordable, a table that was briefly busted —
+-- can never slip away while the House is mid-sentence or a modal is up.
+-- An armed beat then plays, first in script order, as soon as no beat is
+-- running, its own screen is up, and the band has somewhere to draw. One
+-- beat at a time. A beat is marked seen (state.story_seen) when its last
+-- line is done, and never plays again.
 --
 -- There are no skip conditions. An old save hears each beat the first
 -- time its trigger passes, however far along it is.
 --
--- A beat belongs to a screen. On any other screen, or while its band is
--- not drawn, it PAUSES: the clock stops, the current line stays, nothing
--- is cancelled, and it resumes when the screen comes back. A line about a
--- widget that is not on screen pauses too, for a grace period; after that
--- the line is shown without its mark and the beat moves on.
+-- While playing, a beat PAUSES on any other screen, or while its band is
+-- not drawn: the clock stops, the current line stays, nothing is
+-- cancelled. A line about a widget that is not on screen pauses too, for
+-- a grace period; after that the line is shown without its mark and the
+-- beat moves on.
+--
+-- FORCED LINES. A line with `force = true` and a `wait` condition demands
+-- the action: the host dims everything but the line's targets and
+-- swallows stray clicks until the wait passes (main.lua reads
+-- forcedLine()). The dim and the lock only exist while at least one
+-- target is actually on screen — a forced line must never dead-lock a
+-- screen it cannot point at.
 --
 -- deps = { game, rules = UnlockRegistry (hint kinds), story = data/story,
 --          save = fn() }
@@ -23,7 +36,7 @@ local Timeline  = require("services.Timeline")
 local StoryDirector = {}
 StoryDirector.__index = StoryDirector
 
-local CHECK_INTERVAL = 0.15   -- idle scan throttle, same as the hints
+local CHECK_INTERVAL = 0.15   -- trigger scan throttle, same as the hints
 local ANCHOR_GRACE   = 3.0    -- seconds to wait for a line's widget
 
 function StoryDirector:new(deps)
@@ -55,25 +68,21 @@ function StoryDirector:anchorGraceElapsed()
     return self._anchor_missing_t >= ANCHOR_GRACE
 end
 
--- Lines the player has heard, in script order, for the help desk.
-function StoryDirector:seenLines()
-    local out  = {}
-    local seen = self.game.state and self.game.state.story_seen or {}
-    for _, beat in ipairs(self.story.beats) do
-        if seen[beat.id] then
-            for _, line in ipairs(beat.lines) do
-                out[#out + 1] = { beat_id = beat.id, text = line.text, anchor = line.anchor }
-            end
-        end
-    end
-    return out
+-- The current line, when it demands an action (force + wait) and the beat
+-- is live on its own screen. The host dims to its targets and swallows
+-- clicks outside them — but only against targets that are actually fresh,
+-- which the host re-checks itself, so a vanished widget releases the lock.
+function StoryDirector:forcedLine()
+    if self._paused then return nil end
+    local line = self:currentLine()
+    return (line and line.force) and line or nil
 end
 
 -- ── Control ───────────────────────────────────────────────────────────
 
 -- The player clicked the band (or SPACE) on a line that was waiting for
 -- it. The band goes empty until the next line lands, so a line gated on
--- a condition (S2's "you can afford that now") arrives into silence.
+-- a condition arrives into silence.
 function StoryDirector:advance()
     if not self:isHoldingClick() then return false end
     self.timeline:advance()
@@ -93,26 +102,49 @@ end
 
 -- ── Tick ──────────────────────────────────────────────────────────────
 
-function StoryDirector:update(dt, ctx)
+-- `blocked` = a menu-class surface is up (the host's hintsBlocked):
+-- nothing starts and the running beat's clock stops, but triggers still
+-- arm — that is the whole point of arming.
+function StoryDirector:update(dt, ctx, blocked)
     if not self.enabled or not ctx then return end
     local state = self.game.state
     if not (state and state.story_seen) then return end
+
+    self._timer = self._timer + (dt or 0)
+    if self._timer >= CHECK_INTERVAL then
+        self._timer = 0
+        self:_armTriggers(ctx)
+    end
+
+    if blocked then return end
 
     if self.beat then
         self:_drive(dt, ctx)
         return
     end
 
-    self._timer = self._timer + (dt or 0)
-    if self._timer < CHECK_INTERVAL then return end
-    self._timer = 0
     -- No band, no beat: nothing can start on a screen with nowhere to
     -- speak (the title).
     if not (ctx.anchor_fresh and ctx.anchor_fresh("story:band")) then return end
+    local armed = state.story_armed
+    if not armed then return end
     for _, beat in ipairs(self.story.beats) do
-        if not state.story_seen[beat.id] and self.rules:check(beat.trigger, ctx) then
+        if armed[beat.id] and not state.story_seen[beat.id]
+           and ctx.screen == beat.screen then
             self:_start(beat, ctx)
             return
+        end
+    end
+end
+
+function StoryDirector:_armTriggers(ctx)
+    local state = self.game.state
+    state.story_armed = state.story_armed or {}
+    local armed, seen = state.story_armed, state.story_seen
+    for _, beat in ipairs(self.story.beats) do
+        if not seen[beat.id] and not armed[beat.id]
+           and self.rules:check(beat.trigger, ctx) then
+            armed[beat.id] = true
         end
     end
 end
@@ -152,7 +184,8 @@ function StoryDirector:_start(beat, ctx)
         t = t + (line.delay or 0)
         if line.show then tl:wait(t, line.show) end
         tl:say(t, { beat = beat.id, index = i, text = line.text,
-                    anchor = line.anchor, font = line.font })
+                    anchor = line.anchor, font = line.font,
+                    force = line.force })
         local hold = line.hold
         if hold == nil and line.wait == nil then hold = "click" end
         if hold == "click" then
@@ -174,8 +207,9 @@ end
 
 function StoryDirector:_finish()
     local state = self.game.state
-    if state and state.story_seen and self.beat then
-        state.story_seen[self.beat.id] = true
+    if state and self.beat then
+        if state.story_seen  then state.story_seen[self.beat.id] = true end
+        if state.story_armed then state.story_armed[self.beat.id] = nil end
     end
     self.beat     = nil
     self.timeline = nil

@@ -1,55 +1,41 @@
 -- views/HintView.lua
 --
--- Renders the tutorial hint layer (see controllers/HintController):
+-- Renders the tutorial hint layer (see controllers/HintController): the
+-- active STICKY hint — an instruction ("open a table"). The rest of the
+-- screen dims; the highlighted widget(s) + the bubble punch through at
+-- full brightness. Stays until acted on (or the bubble is clicked).
 --
---   • The active STICKY hint — an instruction ("open a table"). The rest
---     of the screen dims; the highlighted widget(s) + the bubble punch
---     through at full brightness. Stays until acted on (or the bubble is
---     clicked). While a sticky is up the [i] queue is hidden entirely —
---     one voice at a time.
---   • The info-hint QUEUE — a vertical strip of small [i] buttons at the
---     "hint_queue" anchor. Hovering an icon shows that hint with the same
---     dim treatment (the strip itself stays lit); clicking the icon
---     dismisses it. Info hints never steal focus and can't be lost to a
---     stray click.
+-- The [i] info-hint strip that used to share this layer is RETIRED:
+-- teaching lives in story beats, reference in the glossary.
 --
 -- A hint's `anchor` may be one name or a list — every fresh anchor gets a
 -- highlight hole; the bubble hangs off the first fresh one.
 --
 -- Presence follows the target. Anchors are frame-stamped; a hint with NO
 -- fresh anchor (none of its widgets drew this frame) is simply not
--- rendered: the sticky bubble vanishes, the queue [i] drops out of the
--- strip. Nothing is dismissed — the moment a target draws again, the hint
--- returns with it. Generic: no per-hint cases.
+-- rendered: the bubble vanishes, nothing is dismissed — the moment a
+-- target draws again, the hint returns with it. Generic: no per-hint
+-- cases.
 --
 -- The dim is a cached full-screen canvas: fill with the backdrop tint,
 -- erase the holes with a replace-blend, composite back. No stencil, so
 -- the main frame canvas needs no stencil buffer.
 --
--- The host state routes clicks via :mousepressed (→ "bubble" | queued
--- spec | nil) to HintController; this view never mutates anything (MVC).
--- Clicks on the highlighted widget itself pass through untouched —
--- that's the advance-on-action path.
+-- The host state routes clicks via :mousepressed (→ "bubble" | nil) to
+-- HintController; this view never mutates anything (MVC). Clicks on the
+-- highlighted widget itself pass through untouched — that's the
+-- advance-on-action path.
 
 local Theme       = require("views.Theme")
 local IconText    = require("views.IconText")
 local Anchors     = require("services.AnchorRegistry")
 local HintMarks   = require("views.HintMarks")
-local LabelButton = require("views.widgets.LabelButton")
-local AwardGlow   = require("views.AwardGlow")
 
 local HintView = {}
 HintView.__index = HintView
 
 local BUBBLE_MAX_W_BASE = 340   -- text wrap width, pre-scale
-local ICON_SIZE_BASE    = 26    -- queue [i] button square, pre-scale
-local ICON_GAP_BASE     = 6
 local FOOTER = "click to dismiss"
-
--- New-hint fanfare: the [i] gets the gold AwardGlow pop the moment it
--- first appears, then keeps a pulsing ring for NEW_PULSE_SECS so a
--- player looking elsewhere still catches it.
-local NEW_PULSE_SECS = 3
 
 -- Dim overlay: constant darkness; every hole feathers out over
 -- FEATHER_STEPS bands instead of a hard cut, and the hole EDGE grows and
@@ -76,18 +62,7 @@ function HintView:new(game)
     return setmetatable({
         game        = game,
         bubble_rect = nil,   -- active sticky hint's bubble, for hit-test
-        icon_rects  = {},    -- queue strip: { x, y, w, h, spec }
         _dim_canvas = nil,   -- lazily built full-screen scratch canvas
-        -- New-hint fanfare bookkeeping (per session: a reload re-announces
-        -- whatever's still unread — a feature, not a bug).
-        _announced  = {},    -- id → true once its arrival fanfare fired
-        _new_until  = {},    -- id → clock time the arrival pulse ends
-        -- On-screen strip order (hint ids). Kept stable across frames:
-        -- anything that becomes visible — first trigger OR a hidden hint
-        -- whose target returned — APPENDS here, so icons already showing
-        -- never get pushed around. Purely presentational; the persisted
-        -- queue on GameState keeps its own order.
-        display_order = {},
     }, HintView)
 end
 
@@ -298,14 +273,8 @@ function HintView:_drawMarks(marks)
     HintMarks.draw(self.game, marks)
 end
 
--- NOTE: views/HintLogPanel calls _drawDim and _drawMarks directly (dim
--- under its chrome, rings over it, so targets the panel covers still
--- read) — same hint-UI layer, deliberate coupling.
-
 -- Pulsing highlight around every fresh mark + the copy bubble.
--- `track_bubble` stashes the bubble rect for the host's hit-test (only
--- the active sticky hint wants that — a hovered queue hint is dismissed
--- via its icon, not its bubble).
+-- `track_bubble` stashes the bubble rect for the host's hit-test.
 function HintView:_drawHint(layout, track_bubble)
     local game  = self.game
     local fonts = game.fonts
@@ -361,205 +330,28 @@ function HintView:_drawHint(layout, track_bubble)
     end
 end
 
--- Draw the whole hint layer. `active` (sticky) may be nil; `queued` is
--- the spec list in queue order (may be empty/nil). While a sticky hint
--- renders, the queue strip is hidden entirely — one voice at a time.
--- `paused` (a story beat is running): the sticky is hidden, not
--- dismissed, and no hover preview opens; the [i] strip still draws so an
--- unread hint stays reachable.
-function HintView:draw(active, queued, paused)
+-- Draw the hint layer: the active sticky hint, or nothing. `paused` (a
+-- story beat is running): the sticky is hidden, not dismissed — he does
+-- not talk over himself.
+function HintView:draw(active, paused)
     self.bubble_rect = nil
-    self.icon_rects  = {}
-    if paused then active = nil end
+    if paused or not active then return end
 
-    -- 1. Which queued hints are visible right now (a target drew this frame).
-    local visible = {}
-    for _, spec in ipairs(queued or {}) do
-        if #freshMarks(spec) > 0 then visible[spec.id] = spec end
-    end
+    local layout = self:_layoutHint(active)
+    if not layout then return end
 
-    -- 2. Sync the stable strip order.
-    local order = self.display_order
-    for i = #order, 1, -1 do
-        if not visible[order[i]] then table.remove(order, i) end
-    end
-    local shown = {}
-    for _, id in ipairs(order) do shown[id] = true end
-    for _, spec in ipairs(queued or {}) do
-        if visible[spec.id] and not shown[spec.id] then
-            order[#order + 1] = spec.id
-            if not self._announced[spec.id] then
-                self._announced[spec.id] = true
-                self._new_until[spec.id] = love.timer.getTime() + NEW_PULSE_SECS
-                AwardGlow.flash("hint:queue")
-            end
-        end
-    end
-
-    local n_available = #order
-    local game   = self.game
-    local s      = game.ui_scale or 1
-    local fl     = math.floor
-    -- The [i] button lives on the House poster in the grind, which
-    -- registers "btn:info". Every other screen gets a corner rect instead.
-    -- This used to be `if not ib then return end`, which aborted the WHOLE
-    -- draw, sticky bubble included, anywhere the grind was not drawing --
-    -- the single line that confined the tutorial to one screen.
-    local ib = Anchors.get("btn:info") or self:_defaultInfoRect()
-    local ix, iy, iw, ih = fl(ib[1]), fl(ib[2]), fl(ib[3]), fl(ib[4])
-    -- Off the grind there is no poster to sit on, so the button only
-    -- exists while it has something to show.
-    -- Screens can opt out of the queue button entirely (the shove felt has
-    -- one thing to read and a badge counting four hints is noise there).
-    local info_visible = not self.suppress_queue
-                         and (Anchors.get("btn:info") ~= nil or n_available > 0)
-
-    -- 3. Resolve active sticky hint or hovered queued hint preview
-    local active_layout = nil
-    if active then
-        active_layout = self:_layoutHint(active)
-    end
-
-    local mx, my = love.mouse.getPosition()
-    local is_hovered = false
-    local hovered_spec = nil
-
-    if active_layout == nil and n_available > 0 and not paused then
-        is_hovered = mx >= ix and mx < ix + iw and my >= iy and my < iy + ih
-        if is_hovered then
-            hovered_spec = visible[order[1]]
-        end
-    end
-
-    local hovered_layout = hovered_spec and self:_layoutHint(hovered_spec)
-
-    -- 4. Draw the dim overlay (if active or preview is hovered)
-    if active_layout then
-        local holes = { active_layout.bubble }
-        for _, m in ipairs(active_layout.marks) do holes[#holes + 1] = m end
-        if active_layout.house then holes[#holes + 1] = active_layout.house end
-        self:_drawDim(holes)
-    elseif hovered_layout then
-        local holes = { hovered_layout.bubble }
-        for _, m in ipairs(hovered_layout.marks) do holes[#holes + 1] = m end
-        if hovered_layout.house then holes[#holes + 1] = hovered_layout.house end
-        self:_drawDim(holes)
-    end
-
-    -- Populate icon_rects for mousepressed click checking (only when interactive)
-    if active_layout == nil and n_available > 0 then
-        self.icon_rects[1] = {
-            x = ix, y = iy, w = iw, h = ih, spec = visible[order[1]],
-        }
-    end
-
-    -- 5. Draw the [i] button itself. Skipped entirely on a poster-less
-    -- screen with nothing queued: a grey disabled button floating over the
-    -- shove felt would be exactly the kind of unexplained UI this exists
-    -- to prevent.
-    local now = love.timer.getTime()
-    local is_disabled = (n_available == 0)
-    if not info_visible then
-        if active_layout then self:_drawHint(active_layout, true) end
-        return
-    end
-
-    local fill_color
-    if is_disabled then
-        fill_color = Theme.bg.sunken
-    else
-        local warn_color = Theme.status.warn
-        -- Gentle background pulse (oscillates between 0.10 and 0.26 alpha)
-        local pulse_alpha = 0.18 + 0.08 * math.sin(now * 3.5)
-        if is_hovered then
-            fill_color = { warn_color[1], warn_color[2], warn_color[3], pulse_alpha + 0.10 }
-        else
-            fill_color = { warn_color[1], warn_color[2], warn_color[3], pulse_alpha }
-        end
-    end
-
-    LabelButton.draw{
-        x = ix, y = iy, w = iw, h = ih,
-        text         = "i",
-        fonts        = game.fonts,
-        font         = game.fonts.md,
-        hovered      = is_hovered,
-        disabled     = is_disabled,
-        fill_token   = fill_color,
-        border_token = is_disabled and Theme.border.soft or Theme.status.warn,
-        text_token   = is_disabled and Theme.fg.disabled or Theme.fg.heading,
-    }
-
-    -- Pulse effect for new hints
-    local is_any_new = false
-    for _, id in ipairs(order) do
-        local until_t = self._new_until[id]
-        if until_t and now < until_t then
-            is_any_new = true
-            break
-        end
-    end
-
-    if is_any_new then
-        AwardGlow.draw("hint:queue", ix, iy, iw, ih)
-        local ring = fl(2 * math.sin(now * 6) + 2)
-        Theme.setColor(Theme.status.warn, 0.35 + 0.35 * math.sin(now * 6))
-        love.graphics.rectangle("line",
-            ix - ring, iy - ring,
-            iw + ring * 2, ih + ring * 2, fl(4 * s))
-    end
-
-    -- 6. Draw the count badge if more than 1 hint is available
-    if n_available > 1 then
-        local rad = fl(7 * s)
-        local cx  = ix + iw - fl(2 * s)
-        local cy  = iy + fl(2 * s)
-        -- Separator border
-        Theme.setColor(is_hovered and Theme.bg.widget_hover or Theme.bg.sunken)
-        love.graphics.circle("fill", cx, cy, rad + fl(1 * s))
-        -- Badge background
-        Theme.setColor(Theme.status.error)
-        love.graphics.circle("fill", cx, cy, rad)
-        -- Badge count text
-        local txt = tostring(n_available)
-        love.graphics.setFont(game.fonts.sm)
-        Theme.setColor(Theme.fg.heading)
-        local tw = game.fonts.sm:getWidth(txt)
-        local th = game.fonts.sm:getHeight()
-        love.graphics.print(txt, fl(cx - tw * 0.5), fl(cy - th * 0.5))
-    end
-
-    -- 7. Draw the actual active hint or preview bubble on top
-    if active_layout then
-        self:_drawHint(active_layout, true)
-    elseif hovered_layout then
-        self:_drawHint(hovered_layout, false)
-    end
+    local holes = { layout.bubble }
+    for _, m in ipairs(layout.marks) do holes[#holes + 1] = m end
+    if layout.house then holes[#holes + 1] = layout.house end
+    self:_drawDim(holes)
+    self:_drawHint(layout, true)
 end
 
 -- Hit-test a click against the hint layer:
---   queued spec — an [i] icon was clicked (host dismisses that hint)
---   "bubble"    — the active sticky hint's bubble was clicked
---   nil         — not ours; the click falls through to normal input
+--   "bubble" — the active sticky hint's bubble was clicked
+--   nil      — not ours; the click falls through to normal input
 --     (including clicks on the highlighted widget — advance-on-action).
--- Where the [i] button sits on a screen with no House poster: top-right
--- corner, clear of the top bar's right-hand buttons. Same size the poster
--- button is.
-function HintView:_defaultInfoRect()
-    local s = self.game.ui_scale or 1
-    local W = love.graphics.getWidth()
-    local d = math.floor(36 * s)
-    local m = math.floor(10 * s)
-    return { W - d - m, m, d, d }
-end
-
 function HintView:mousepressed(x, y)
-    for _, ir in ipairs(self.icon_rects) do
-        if x >= ir.x and x < ir.x + ir.w
-           and y >= ir.y and y < ir.y + ir.h then
-            return ir.spec
-        end
-    end
     local b = self.bubble_rect
     if b and x >= b.x and x < b.x + b.w
          and y >= b.y and y < b.y + b.h then
@@ -568,9 +360,6 @@ function HintView:mousepressed(x, y)
     return nil
 end
 
--- Static export: fresh anchor marks for an arbitrary spec (see
--- freshMarks). Used by views/HintLogPanel.
-HintView.freshMarksFor = freshMarks
 -- Static export: word-wrap with {icon} measurement. Used by views/StoryView.
 HintView.wrapLines = wrapLines
 

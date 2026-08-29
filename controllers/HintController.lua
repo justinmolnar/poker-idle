@@ -1,26 +1,22 @@
 -- controllers/HintController.lua
 --
--- Tutorial hint dispatch. Walks data/hints.lua in order; two behaviors
--- by spec class:
+-- Tutorial hint dispatch. Walks data/hints.lua in order — STICKY specs
+-- only now (instructions with a button, e.g. quick reset): at most ONE
+-- active at a time, highlight + bubble up until the `done` condition
+-- passes or the player clicks the bubble away.
 --
---   sticky — instructions ("press DEAL"). At most ONE active at a time:
---     highlight + bubble stay up until the `done` condition passes or
---     the player clicks the bubble away.
---   info (non-sticky) — FYIs ("this is your bankroll"). Triggering
---     appends them to a persisted queue (state.hints_queued) rendered as
---     hoverable [i] icons; they never steal focus, never expire, and
---     only clicking the icon dismisses them (see views/HintView).
+-- The info-hint [i] queue is RETIRED: teaching moved to story beats
+-- (data/story.lua) and the glossary (data/glossary.lua). GameState drains
+-- state.hints_queued from old saves on load; a non-sticky spec in the
+-- data is simply never delivered.
 --
 -- If a spec's `done` condition already passes when it would first fire,
 -- the hint is marked seen WITHOUT showing — a post-shove veteran or a
 -- pre-hints save has nothing to learn from "press DEAL", so the early
--- teaching silently retires. No save migration needed. Already-queued
--- info hints are exempt: once in the queue, only the player's click
--- clears them.
+-- teaching silently retires. No save migration needed.
 --
--- Seen-ness persists as state.hints_seen (meta-side set, id → true), the
--- queue as state.hints_queued (id list); the main.lua autosave picks
--- both up — no explicit save here.
+-- Seen-ness persists as state.hints_seen (meta-side set, id → true); the
+-- main.lua autosave picks it up — no explicit save here.
 
 local Hints     = require("data.hints")
 
@@ -45,14 +41,11 @@ local CHECK_INTERVAL = 0.15
 -- same frame.
 --
 -- `paused` is set by the host while a story beat is running: nothing new
--- starts or queues, the queue stays, and the active sticky is hidden by
--- the view rather than cancelled here. He does not talk over himself.
+-- starts, and the active sticky is hidden by the view rather than
+-- cancelled here. He does not talk over himself.
 function HintController:new(game)
-    local by_id = {}
-    for _, spec in ipairs(Hints) do by_id[spec.id] = spec end
     return setmetatable({
-        game      = game,
-        by_id     = by_id,
+        game    = game,
         enabled = true,
         paused  = false,
         active  = nil,   -- the currently-showing STICKY spec, or nil
@@ -64,20 +57,6 @@ function HintController:activeHint()
     return self.active
 end
 
--- Queued info-hint specs in queue order. Ids whose spec no longer exists
--- (renamed/cut in data) are skipped.
-function HintController:queuedHints()
-    local out = {}
-    local ids = self.game.state.hints_queued
-    if ids then
-        for _, id in ipairs(ids) do
-            local spec = self.by_id[id]
-            if spec then out[#out + 1] = spec end
-        end
-    end
-    return out
-end
-
 -- Player clicked the active sticky hint's bubble — counts as taught.
 function HintController:dismissActive()
     if not self.active then return end
@@ -85,19 +64,9 @@ function HintController:dismissActive()
     self.active = nil
 end
 
--- Player clicked a queue [i] icon — mark seen, drop from the queue.
-function HintController:dismissQueued(id)
-    self:_markSeen(id)
-    local ids = self.game.state.hints_queued
-    if not ids then return end
-    for i = #ids, 1, -1 do
-        if ids[i] == id then table.remove(ids, i) end
-    end
-end
-
 -- Drop the active hint without marking it seen. Called on hard resets
 -- (F6/F7 wipe) so a stale spec doesn't linger over the fresh game; the
--- seen-set and queue live on GameState and are wiped there.
+-- seen-set lives on GameState and is wiped there.
 function HintController:reset()
     self.active = nil
     self._timer = 0
@@ -108,15 +77,6 @@ function HintController:_markSeen(id)
     if seen then seen[id] = true end
 end
 
-function HintController:_isQueued(id)
-    local ids = self.game.state.hints_queued
-    if not ids then return false end
-    for _, qid in ipairs(ids) do
-        if qid == id then return true end
-    end
-    return false
-end
-
 function HintController:update(dt, ctx)
     if not self.enabled then return end
     self._timer = self._timer + (dt or 0)
@@ -124,8 +84,8 @@ function HintController:update(dt, ctx)
     self._timer = 0
 
     local state = self.game.state
-    local seen, queued = state.hints_seen, state.hints_queued
-    if not (seen and queued) then return end
+    local seen  = state.hints_seen
+    if not seen then return end
     local reg   = self.game.hint_rules
     if not ctx then
         local grind = self.game.grind
@@ -141,11 +101,9 @@ function HintController:update(dt, ctx)
     -- While the House is telling a story, no popup starts.
     if self.paused then return end
 
-    -- Scan for new firings. Sticky specs respect the one-at-a-time slot;
-    -- info specs queue independently (several [i]s may pend at once).
+    -- Scan for new firings. Sticky specs respect the one-at-a-time slot.
     for _, spec in ipairs(Hints) do
-        if not seen[spec.id] and spec ~= self.active
-           and not self:_isQueued(spec.id) then
+        if not seen[spec.id] and spec ~= self.active then
             -- `retire` is the silent-suppression predicate; `done` is a
             -- sticky hint's completion. They used to be one field, which
             -- meant a completion condition could delete a hint the player
@@ -158,9 +116,9 @@ function HintController:update(dt, ctx)
                 if not self.active and reg:check(spec.trigger, ctx) then
                     self.active = spec
                 end
-            elseif reg:check(spec.trigger, ctx) then
-                queued[#queued + 1] = spec.id
             end
+            -- Non-sticky specs: no longer delivered (the [i] queue is
+            -- retired; beats and the glossary carry the teaching).
         end
     end
 end

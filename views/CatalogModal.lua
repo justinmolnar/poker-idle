@@ -39,6 +39,7 @@ local Format       = require("utils.format")
 local Decal        = require("services.Decal")
 local TooltipSvc     = require("services.Tooltip")
 local ShaderRegistry = require("services.ShaderRegistry")
+local CatalogReceipt = require("views.CatalogReceipt")
 
 -- Stable "No. NNN" code per item = its position in the master catalog, so the
 -- serial on a card doesn't shuffle as pages filter items in and out.
@@ -145,6 +146,8 @@ function CatalogModal:new(game, opts)
         -- Continue-button rect (built each :draw); click sets _resolved.
         _continue_rect = nil,
         _resolved      = false,
+        -- The purchase manifest tucked behind the left page (its own view).
+        receipt   = CatalogReceipt:new(game),
     }, CatalogModal)
 end
 
@@ -368,6 +371,11 @@ end
 -- ─── Input ────────────────────────────────────────────────────────────
 
 function CatalogModal:consumeKey(key)
+    -- ESC tucks the manifest away before it means anything else.
+    if key == "escape" and self.receipt and self.receipt:isOpen() then
+        self.receipt:close()
+        return true
+    end
     if self.on_felt then
         -- ESC puts the book down. SPACE is not the book's key on the felt:
         -- the state reads it as "leave the shove" whether the book is open
@@ -385,6 +393,11 @@ end
 -- Forward mouse-wheel events from ShoveState. dy > 0 = wheel up = flip page back;
 -- dy < 0 = wheel down = flip page forward.
 function CatalogModal:wheelmoved(_, dy)
+    -- While the manifest is out, the wheel scrolls its paper, not the pages.
+    if self.receipt and self.receipt:isOpen() then
+        self.receipt:wheelmoved(dy)
+        return
+    end
     if not dy or dy == 0 or self.flip_t then return end
     local step = (dy > 0) and -1 or 1
     local pages = self:_pages()
@@ -551,6 +564,11 @@ function CatalogModal:consumeMouse(mx, my, button)
     -- Nothing is where it looks like it is until the book has landed.
     if self._enter_t < 1 then return false end
     if button ~= 1 then return false end
+
+    -- The manifest: its stub takes the click when tucked; while pulled out
+    -- it sits on top of everything, and even the tuck-away click is
+    -- consumed so the host's close-on-unconsumed-click can't eat the book.
+    if self.receipt and self.receipt:consumeMouse(mx, my) then return true end
 
     -- A peelable sticker takes the click before the card underneath it does —
     -- it is physically on top, and the item is not buyable through it anyway.
@@ -1534,6 +1552,16 @@ function CatalogModal:draw()
     -- sticker rects, so the label renders at the pull the mouse is actually at.
     self:_updatePeel()
 
+    -- The manifest, tucked: drawn BEFORE the leaves so the book genuinely
+    -- overlaps it and only the stub pokes out. Once pulled, it re-draws on
+    -- top instead (the "front" call after the corner controls). book_l is
+    -- the VISIBLE book's left edge — on the front cover the book is only
+    -- the right leaf, so the slip tucks behind the cover at the spine.
+    local receipt_ctx = { book_l = fl(self.spread_index == 0 and cx or (cx - page_w)),
+                          top = top, page_h = page_h,
+                          W = W, H = H, s = s, fonts = fonts }
+    if self.receipt then self.receipt:draw("behind", receipt_ctx) end
+
     self._cells = {}
     self._stickers = {}
     self._continue_rect = nil
@@ -1705,6 +1733,10 @@ function CatalogModal:draw()
         love.graphics.printf("scroll wheel or grab a corner to turn pages",
             book_l, book_b + fl(6 * s), book_r - book_l, "center")
     end
+
+    -- The manifest, pulled out: on top of the whole book. Sets the hover
+    -- tooltip, which TooltipSvc.draw below renders.
+    if self.receipt then self.receipt:draw("front", receipt_ctx) end
 
     -- The House's story band while the book is open: a strip along the
     -- bottom of the screen, under the pages. Last writer wins, so this

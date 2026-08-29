@@ -18,8 +18,6 @@ end
 
 local RoomState = {}
 RoomState.__index = RoomState
--- The room is a picture; the [i] queue stays off it (main.lua reads this).
-RoomState.suppressHintQueue = true
 
 function RoomState:new(game)
     return setmetatable({

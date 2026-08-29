@@ -62,9 +62,6 @@ function GameState:new(saved)
     -- Tutorial hints already delivered (hint id → true). Meta-side so a
     -- prestige doesn't re-teach; see controllers/HintController.lua.
     instance.hints_seen = {}
-    -- Triggered-but-unread info hints (id list, queue order) — the [i]
-    -- strip. Persisted so an unread hint survives a reload.
-    instance.hints_queued = {}
     -- Entries per screen the player has entered (room, credits, ...). Meta,
     -- so a first-visit hint stays first-visit across runs. Bumped by the
     -- state's :enter, read by the `screen_visits` hint kind.
@@ -73,6 +70,11 @@ function GameState:new(saved)
     -- "shove:<id>" for his once-lines on the felt. Meta-side: a beat is
     -- heard once per save, never once per run. See controllers/StoryDirector.
     instance.story_seen = {}
+    -- Beats whose trigger has passed but which haven't played yet (beat
+    -- id → true). A trigger can be transient (briefly affordable), so the
+    -- director latches it here the moment it passes; cleared when the
+    -- beat finishes. Persisted so a latched lesson survives a reload.
+    instance.story_armed = {}
     -- Analytics identity. save_id is stable for the lifetime of a save slot;
     -- shove_count increments each prestige so analytics can track power level.
     instance.save_id    = genSaveId()
@@ -312,9 +314,9 @@ function GameState:wipeAll()
     self.onboarded   = false
     self.catalog_seen = false
     self.hints_seen   = {}
-    self.hints_queued = {}
     self.screen_visits = {}
     self.story_seen   = {}
+    self.story_armed  = {}
     -- Deck state resets to starter-only with all unlock progress lost.
     -- Mirrors the fresh-:new defaults exactly.
     local starter = DeckSpecs[1]
@@ -529,11 +531,14 @@ function GameState:applySaved(saved)
             or  Constants.GAMEPLAY.INITIAL_BANKROLL
     end
     self.hints_seen   = self.hints_seen   or {}
-    self.hints_queued = self.hints_queued or {}
+    -- The [i] info-hint queue is retired (teaching lives in story beats
+    -- and the glossary). Drop anything an old save still carries.
+    self.hints_queued = nil
     self.screen_visits = self.screen_visits or {}
     -- Saves predating the story hear each beat when its trigger next
     -- passes; that is the rule for every save, so no migration.
     self.story_seen    = self.story_seen or {}
+    self.story_armed   = self.story_armed or {}
     self.anti_stakes_won_this_run = self.anti_stakes_won_this_run or {}
     self.anti_chips_this_run      = self.anti_chips_this_run or 0
     self.first_loss_voided_this_run       = self.first_loss_voided_this_run or false
@@ -614,9 +619,9 @@ function GameState:serializeMeta()
         onboarded                       = self.onboarded,
         catalog_seen                    = self.catalog_seen,
         hints_seen                      = self.hints_seen,
-        hints_queued                    = self.hints_queued,
         screen_visits                   = self.screen_visits,
         story_seen                      = self.story_seen,
+        story_armed                     = self.story_armed,
         unlocked_decks                  = self.unlocked_decks,
         deck_levels                     = self.deck_levels,
         deck_xp                         = self.deck_xp,

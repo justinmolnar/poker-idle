@@ -450,7 +450,12 @@ function GrindView:_makeGameTypeStrip()
                 -- Same rect, as a hint target: the tab strip is the only way
                 -- to reach HU / Zoom / tournaments and nothing could point at
                 -- it. Registered every draw so staleness hides it normally.
-                AnchorRegistry.set(id, bx, y, rect_w, rect_h)
+                -- Panel draws components under a scroll translate, so run
+                -- the local rect through the current transform to land in
+                -- screen space (same as ComponentRenderer's comp.anchor) —
+                -- raw coords put the mark a header-height off the button.
+                local ax, ay = love.graphics.transformPoint(bx, y)
+                AnchorRegistry.set(id, ax, ay, rect_w, rect_h)
             end
         end,
         hit_fn = function(px, y, pw, _, cx, cy)
@@ -1904,6 +1909,11 @@ function GrindView:_drawCenterGrid(W, H)
     -- here). Same shape as the per-table center anchors: centre point + dims.
     AnchorRegistry.set("grid:center",
         grid_x + grid_w / 2, grid_y + grid_h / 2, grid_w, grid_h)
+    -- The same area as a proper RECT (top-left + dims) for hint/story
+    -- marks — grid:center is a centre point, which a highlight ring would
+    -- draw half-offset. "The felt" is what a beat points at to mean
+    -- "anywhere on the tables".
+    AnchorRegistry.set("felt", grid_x, grid_y, grid_w, grid_h)
 
     local tables = self.controller.pool.tables
     local n = #tables
@@ -2114,14 +2124,6 @@ function GrindView:_houseHelpBtnRect()
     return { x = r.x + r.w - sz - m, y = r.y + r.h - sz - m, w = sz, h = sz }
 end
 
--- The "i" badge in the poster's top-right corner (TUTORIAL builds only).
-function GrindView:_houseInfoBtnRect()
-    local r  = self:_houseRect()
-    local s  = self.game.ui_scale or 1
-    local sz = math.floor(r.h * 0.40)
-    local m  = math.floor(6 * s)
-    return { x = r.x + r.w - sz - m, y = r.y + m, w = sz, h = sz }
-end
 
 function GrindView:_drawHouse()
     local r  = self:_houseRect()
@@ -2177,10 +2179,6 @@ function GrindView:_drawHouse()
             fill_token  = hov and Theme.bg.widget_hover or Theme.bg.sunken,
             press_alpha = ClickFlash.alpha("help_btn", "help_btn"),
         }
-
-        -- Register the "btn:info" anchor for the HintView to draw the [i] button.
-        local ib = self:_houseInfoBtnRect()
-        AnchorRegistry.set("btn:info", ib.x, ib.y, ib.w, ib.h)
     end
 end
 
@@ -2506,12 +2504,6 @@ function GrindView:draw(overlay_fn)
     end
 
     self:_drawTopBar(W)
-    -- Origin for the tutorial [i] hint-queue strip (views/HintView):
-    -- hugs the tables sidebar's right edge, below the top bar.
-    do
-        local m = math.floor(8 * (self.game.ui_scale or 1))
-        AnchorRegistry.set("hint_queue", LEFT_W + m, TOP_BAR_H + m)
-    end
     self:_drawCashOutButton()
     if self:_catalogButtonVisible() then self:_drawCatalogButton() end
     self:_drawRoomButton()
@@ -2654,8 +2646,7 @@ function GrindView:mousepressed(x, y, b)
         return
     end
 
-    -- The "?" on THE HOUSE poster: the help desk (the hint-log list
-    -- rises from the poster).
+    -- The "?" on THE HOUSE poster: the glossary rises from the poster.
     do
         local hb = self:_houseHelpBtnRect()
         if x >= hb.x and x < hb.x + hb.w

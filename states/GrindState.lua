@@ -23,7 +23,7 @@ local ItemGhosts      = require("views.ItemGhosts")
 local CatalogModal    = require("views.CatalogModal")
 local DeckSelectModal = require("views.DeckSelectModal")
 local SettingsModal   = require("views.SettingsModal")
-local HintLogPanel           = require("views.HintLogPanel")
+local GlossaryPanel          = require("views.GlossaryPanel")
 local AnalyticsConsentModal  = require("views.AnalyticsConsentModal")
 local Constants       = require("data.constants")
 local Decks           = require("models.Decks")
@@ -49,7 +49,7 @@ function GrindState:new(game)
         -- One-page how-to-play. Prototype builds (ONBOARDING_MODAL)
         -- auto-open it on first grind; TUTORIAL builds never show it —
         -- their "?" opens the hint log instead.
-        -- "Help desk": the seen-hints log behind "?" in TUTORIAL builds.
+        -- The glossary behind "?" on the House poster (TUTORIAL builds).
         -- A slide-in side panel, NOT a modal — the grind stays visible
         -- so hovering a log entry can spotlight its targets in-game.
         help_panel         = nil,
@@ -116,13 +116,13 @@ function GrindState:closeSettings()
     self.settings_modal = nil
 end
 
--- The "?" on THE HOUSE poster toggles the hint-log side panel ("help
--- desk", every hint delivered so far). Never touches the `onboarded` flag.
+-- The "?" on THE HOUSE poster toggles the glossary (everything the beats
+-- have taught, written down). Never touches the `onboarded` flag.
 function GrindState:openHelp()
     if self.help_panel then
         self.help_panel:beginClose()
     else
-        self.help_panel = HintLogPanel:new(self.game, self.game.hint_view, self.game.story)
+        self.help_panel = GlossaryPanel:new(self.game)
     end
 end
 
@@ -197,8 +197,8 @@ end
 -- Whether the global hint layer should stay quiet right now. Narrower than
 -- _modalUp on purpose: the catalog and deck roster are surfaces the
 -- tutorial needs to teach, so hints render OVER them. Settings is a menu,
--- consent is already explaining, and the help desk IS the
--- hint replay UI.
+-- consent is already explaining, and the glossary is a reading surface —
+-- nothing should talk over the player mid-lookup.
 function GrindState:hintsBlocked()
     return (self.settings_modal
             or self.help_panel or self.analytics_modal) ~= nil
@@ -315,9 +315,14 @@ function GrindState:keypressed(key)
         return
     end
     if self.catalog_modal then
-        if key == "escape" or self.catalog_modal:consumeKey(key) then
-            self:closeCatalog()
+        -- The modal gets the key first: ESC may only be tucking the
+        -- manifest away (consumed, book stays). An unconsumed ESC, or a
+        -- consumed key that resolved the modal (SPACE/ENTER), closes it.
+        if self.catalog_modal:consumeKey(key) then
+            if self.catalog_modal:resolved() then self:closeCatalog() end
+            return
         end
+        if key == "escape" then self:closeCatalog() end
         return
     end
     if self.deck_roster_modal then

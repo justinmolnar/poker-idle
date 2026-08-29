@@ -15,11 +15,10 @@
 -- (either optional). `all` / `any` / `not` compose sub-conditions from
 -- their array part.
 
-local Decks         = require("models.Decks")
 local Stakes        = require("data.stakes")
 local RunUpgrades   = require("data.run_upgrades")
-local BankrollTiers = require("data.bankroll_tiers")
 local Lookups       = require("utils.lookups")
+local Anchors       = require("services.AnchorRegistry")
 
 local HintRules = {}
 
@@ -111,18 +110,6 @@ function HintRules.registerAll(reg)
         return inRange((ctx.pool and ctx.pool:count()) or 0, cond)
     end)
 
-    -- Any table mid-hand (state left "idle"). Lets a hint complete the
-    -- moment the player clicks DEAL instead of waiting out the playback.
-    reg:register("hand_in_progress", function(_cond, ctx)
-        local pool = ctx.pool
-        if not pool then return false end
-        for i = 1, pool:count() do
-            local tbl = pool:get(i)
-            if tbl and tbl.state ~= "idle" then return true end
-        end
-        return false
-    end)
-
     -- A busted table waiting on REBUY (stack empty, hand not running).
     reg:register("any_table_busted", function(_cond, ctx)
         local pool = ctx.pool
@@ -136,39 +123,14 @@ function HintRules.registerAll(reg)
         return false
     end)
 
-    -- Any open table of the given game type (cond.gtype). Structural twin of
-    -- stake_table_open below; the game type is a parameter, not a branch.
+    -- Any open table of the given game type (cond.gtype) — the game type
+    -- is a parameter, not a branch.
     reg:register("gtype_table_open", function(cond, ctx)
         local pool = ctx.pool
         if not pool then return false end
         for i = 1, pool:count() do
             local tbl = pool:get(i)
             if tbl and tbl.game_type_id == cond.gtype then return true end
-        end
-        return false
-    end)
-
-    -- Any open table whose stake sits in the given band (cond.band: low /
-    -- mid / high / ultra). Reads stake.band out of data, so adding a band
-    -- needs no change here.
-    reg:register("stake_band_table_open", function(cond, ctx)
-        local pool = ctx.pool
-        if not pool then return false end
-        for i = 1, pool:count() do
-            local tbl = pool:get(i)
-            local stake = tbl and Lookups.findById(Stakes, tbl.stake_id)
-            if stake and stake.band == cond.band then return true end
-        end
-        return false
-    end)
-
-    -- Any open table at the given stake id (cond.stake).
-    reg:register("stake_table_open", function(cond, ctx)
-        local pool = ctx.pool
-        if not pool then return false end
-        for i = 1, pool:count() do
-            local tbl = pool:get(i)
-            if tbl and tbl.stake_id == cond.stake then return true end
         end
         return false
     end)
@@ -213,12 +175,6 @@ function HintRules.registerAll(reg)
     end)
 
     -- ── Focus ────────────────────────────────────────────────────────
-    reg:register("focus_at_capacity", function(_cond, ctx)
-        if not (ctx.grind and ctx.pool) then return false end
-        local n = ctx.pool:count()
-        return n > 0 and n >= ctx.grind:currentFocusCapacity()
-    end)
-
     reg:register("focus_overloaded", function(_cond, ctx)
         return ctx.grind ~= nil and ctx.grind:currentFocusMult() < 1.0
     end)
@@ -226,24 +182,6 @@ function HintRules.registerAll(reg)
     -- ── Meta / flow ──────────────────────────────────────────────────
     reg:register("can_quick_reset", function(_cond, ctx)
         return ctx.grind ~= nil and ctx.grind:canQuickReset() == true
-    end)
-
-    reg:register("catalog_seen", function(_cond, ctx)
-        return (ctx.state and ctx.state.catalog_seen) == true
-    end)
-
-    -- Bankroll-tier index (data/bankroll_tiers row: highest threshold ≤
-    -- bankroll + tied — same money the SHOVE % reads). cond.min/max on
-    -- the 1-based row index.
-    reg:register("bankroll_tier", function(cond, ctx)
-        if not ctx.state then return false end
-        local total = (ctx.state.bankroll or 0)
-                      + ((ctx.grind and ctx.grind:tiedUp()) or 0)
-        local idx = 1
-        for i, row in ipairs(BankrollTiers) do
-            if total >= (row.threshold or 0) then idx = i else break end
-        end
-        return inRange(idx, cond)
     end)
 
     -- ── Catalog ──────────────────────────────────────────────────────
@@ -259,18 +197,29 @@ function HintRules.registerAll(reg)
     end)
 
     -- ── Decks ────────────────────────────────────────────────────────
-    -- The system as a whole (first gauntlet win), not an individual deck.
-    reg:register("deck_system_unlocked", function(_cond, ctx)
-        return Decks.systemUnlocked(ctx.state) == true
-    end)
-
     stateCount(reg, "decks_unlocked_count", "unlocked_decks")
 
-    -- Decks at max level. This is the master-deck gate (5) and therefore
-    -- the R2 wall: the master deck is the only shove base that survives
-    -- the dealer's first cheat.
-    reg:register("decks_maxed_count", function(cond, ctx)
-        return inRange(Decks.maxedCount(ctx.state) or 0, cond)
+    -- ── Pointer ──────────────────────────────────────────────────────
+    -- The mouse is over one of the named anchors right now (cond.anchor,
+    -- a name or a list). This is how a beat forces a hover — the wait
+    -- passes the moment the pointer reaches the widget. Only fresh
+    -- anchors count (the widget drew this frame).
+    reg:register("hovering", function(cond, ctx)
+        if not (love and love.mouse) then return false end
+        local names = cond.anchor
+        if type(names) ~= "table" then names = { names } end
+        local fresh = ctx.anchor_fresh
+        local mx, my = love.mouse.getPosition()
+        for _, n in ipairs(names) do
+            if not fresh or fresh(n) then
+                local a = Anchors.get(n)
+                if a and a[3] and mx >= a[1] and mx < a[1] + a[3]
+                   and my >= a[2] and my < a[2] + a[4] then
+                    return true
+                end
+            end
+        end
+        return false
     end)
 
     -- ── Screens ──────────────────────────────────────────────────────
