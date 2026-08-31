@@ -31,7 +31,7 @@ return {
         title  = "Quick reset",
         anchor = "btn:quick_reset",
         sticky = true,
-        text   = "Stuck? Happens. Free reset to two dollars, and your {chip} come with you.",
+        text   = "Stuck. Happens. Free reset to two dollars, and your {chip} come with you.",
         trigger = { kind = "can_quick_reset" },
         done    = { kind = "not", { kind = "can_quick_reset" } },
     },

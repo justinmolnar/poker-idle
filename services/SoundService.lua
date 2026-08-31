@@ -30,6 +30,11 @@ local _file_sources = {}   -- { [path] = love.audio.Source }   prototype/cloned 
 -- compound with other heap pressure into observable lag.
 local _clone_pool   = {}   -- { [path] = { source, source, ... } }
 local _master       = 1.0  -- master volume 0–1
+-- Channel volumes under the master: every play()/playFile() (all effects,
+-- the intercom voice included) rides _sfx; services/MusicDirector reads
+-- _music. Settings exposes all three as Master / SFX / Music.
+local _sfx          = 1.0
+local _music        = 0.5  -- music defaults to 50%; prefs override
 -- Discovered sounds (services/SoundLoader) sit behind data/sounds.lua: a
 -- name with no preset plays the file that shares its name, following
 -- sprite aliases from `_alias_source.aliases` when one is attached.
@@ -130,7 +135,7 @@ function SoundService.play(kind, volume_mult)
 
     local src = _sources[kind]
     if src:isPlaying() then src:stop() end
-    src:setVolume(math.max(0, math.min(1, (volume_mult or 1.0) * _master)))
+    src:setVolume(math.max(0, math.min(1, (volume_mult or 1.0) * _master * _sfx)))
     src:play()
 end
 
@@ -194,7 +199,7 @@ function SoundService.playFile(path, volume_mult, pitch, damaged)
         s = base:clone()
         pool[#pool + 1] = s
     end
-    s:setVolume(math.max(0, math.min(1, (volume_mult or 1.0) * _master)))
+    s:setVolume(math.max(0, math.min(1, (volume_mult or 1.0) * _master * _sfx)))
     if s.setPitch then s:setPitch(pitch or 1.0) end
     if s.setEffect then
         if level > 0 and efxReady() then pcall(s.setEffect, s, "damage")
@@ -323,6 +328,22 @@ end
 
 function SoundService.getMasterVolume()
     return _master
+end
+
+function SoundService.setSfxVolume(vol)
+    _sfx = math.max(0, math.min(1, vol))
+end
+
+function SoundService.getSfxVolume()
+    return _sfx
+end
+
+function SoundService.setMusicVolume(vol)
+    _music = math.max(0, math.min(1, vol))
+end
+
+function SoundService.getMusicVolume()
+    return _music
 end
 
 return SoundService

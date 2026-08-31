@@ -143,7 +143,18 @@ local BUTTON_HANDLERS = {
             self:_doStart()
         end
     end,
-    load = function(self) self.game.state_machine:switch("grind") end,
+    load = function(self)
+        -- A save with shove_pending was written from the shove screen: the
+        -- run is already spent (chips banked, outcomes rolled). Resume the
+        -- shove itself — landing on grind here handed back the un-reset
+        -- run, which was both an infinite chip re-bank and a free gauntlet
+        -- retry.
+        if self.game.state.shove_pending then
+            self.game.state_machine:switch("shove")
+        else
+            self.game.state_machine:switch("grind")
+        end
+    end,
     delete = function(self)
         self._confirm = ConfirmDialog:new{
             prompt        = "Delete your save? This cannot be undone.",

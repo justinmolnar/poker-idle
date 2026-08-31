@@ -87,7 +87,7 @@ function RadioVoice.lineStarted()
         if d > chunk + 0.05 then
             _open:seek(math.random() * (d - chunk))
         end
-        _open:setVolume(VOL_OPEN * SoundService.getMasterVolume())
+        _open:setVolume(VOL_OPEN * SoundService.getMasterVolume() * SoundService.getSfxVolume())
         _open:play()
         _open_left  = chunk
         _open_block = chunk
@@ -126,7 +126,7 @@ function RadioVoice.update(dt, speaking)
             _voice:seek(math.random() * math.max(0.01, d - 1.0))
         end
         _voice:setPitch(PITCH_LO + math.random() * (PITCH_HI - PITCH_LO))
-        _voice:setVolume(VOL_VOICE * SoundService.getMasterVolume())
+        _voice:setVolume(VOL_VOICE * SoundService.getMasterVolume() * SoundService.getSfxVolume())
         if not _voice:isPlaying() then _voice:play() end
         _chunk_t = CHUNK_MIN + math.random() * (CHUNK_MAX - CHUNK_MIN)
     end

@@ -235,7 +235,7 @@ return {
     --    PLACEHOLDER numbers.
     {
         id           = "s010",
-        name         = "ULTRA — no limit",
+        name         = "ULTRA. No limit",
         display_name = "ULTRA",
         -- $50B/$100B, a $10T seat. Not a table you grind: you sit once, and
         -- a single stack loss (80-120 bb, ~$10T) is the underflow

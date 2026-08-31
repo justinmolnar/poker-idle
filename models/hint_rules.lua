@@ -97,6 +97,7 @@ function HintRules.registerAll(reg)
     -- two fields). Any hint asking "do they know what SHOVE is" must read
     -- this flag; `shoves` above stays for questions about prestige COUNT.
     stateFlag(reg, "has_shoved",       "has_shoved")
+    stateFlag(reg, "ultra_unlocked",   "ultra_unlocked")
     stateFlag(reg, "hu_unlocked",      "hu_unlocked")
     stateFlag(reg, "six_max_unlocked", "six_max_unlocked")
     stateFlag(reg, "act2_unlocked",    "shove_r1_won")

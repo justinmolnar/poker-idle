@@ -88,6 +88,15 @@ function GrindController:new(game)
         game.event_bus:subscribe("table_state_changed", function(e)
             self:_playStateTransitionSound(e.from, e.to, e.table)
         end)
+        -- Lifetime tilt count, for catalog unlock gates (the shop stocks
+        -- the cure once you've caught the disease). Fresh applications
+        -- only — a refresh is the same tilt still going.
+        game.event_bus:subscribe("on_status_applied", function(e)
+            if e.status == "tilt" and not e.was_refresh then
+                local st = self.game.state
+                st.total_tilts = (st.total_tilts or 0) + 1
+            end
+        end)
     end
     return self
 end
@@ -2375,19 +2384,31 @@ function GrindController:_playStateTransitionSound(_prev, new_state, t)
     end
 end
 
--- SHOVE-button intent. Banks the run's pending chips (locked-in bounties
--- only convert to spendable chips if the player actually pulls the trigger)
--- and flips the state machine to the gauntlet. The view dispatches this
--- on click; chips_this_run is NOT zeroed here — the shove state reads it
--- post-gauntlet for the "you banked N chips this run" readout, and the
--- post-modal reset zeros it.
+-- SHOVE-button intent: the COMMIT. Banks the run's pending chips (locked-in
+-- bounties only convert to spendable chips if the player actually pulls the
+-- trigger), zeroes the pending counters IN THE SAME WRITE, records the
+-- commit in state.shove_pending, saves, and flips the state machine to the
+-- gauntlet. The zero + shove_pending + immediate save are load-bearing:
+-- autosave and love.quit both fire from the shove screen, and before this a
+-- save written there carried banked chips AND a still-pending
+-- chips_this_run AND the un-reset run — close on the shove screen, reload,
+-- and the same run re-banked the same chips forever. Now the bank and the
+-- spend of the run are one atomic fact on disk; the shove screen reads the
+-- banked amount from shove_pending.chips for its readout, and TitleState
+-- routes a save with shove_pending straight back into the shove.
 function GrindController:initiateShove()
     local state = self.game.state
-    state.chips = state.chips + (state.chips_this_run or 0)
-    state.anti_chips = (state.anti_chips or 0) + (state.anti_chips_this_run or 0)
+    local banked      = state.chips_this_run or 0
+    local anti_banked = state.anti_chips_this_run or 0
+    state.chips      = state.chips + banked
+    state.anti_chips = (state.anti_chips or 0) + anti_banked
+    state.chips_this_run      = 0
+    state.anti_chips_this_run = 0
     -- The only place this is set: the tutorial's SHOVE gate needs a signal
     -- that means "actually shoved", not "started another run".
     state.has_shoved = true
+    state.shove_pending = { chips = banked, anti_chips = anti_banked }
+    self.game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
     self.game.state_machine:switch("shove")
 end
 

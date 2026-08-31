@@ -136,6 +136,7 @@ function GameState:new(saved)
     instance.total_hands_at_4plus    = 0
     instance.total_chips_banked      = 0   -- sum of bounty AWARDS (lifetime_chips_banked counts events)
     instance.total_mtt_wins          = 0   -- tournaments finished 1st
+    instance.total_tilts             = 0   -- fresh tilt statuses suffered, lifetime
     instance.total_hands_by_gtype    = {}  -- game_type_id → hands resolved there
     instance.highest_stake_idx       = 0   -- highest 1-based stake index ever played
 
@@ -217,6 +218,15 @@ function GameState:new(saved)
     instance.chips_this_run      = 0            -- running counter for the prestige modal display
     instance.anti_stakes_won_this_run = {}
     instance.anti_chips_this_run      = 0
+    -- The shove COMMIT record: { chips, anti_chips, outcomes? }. Set by
+    -- GrindController:initiateShove the instant the button is clicked
+    -- (chips banked and zeroed in the same write), outcomes filled by
+    -- ShoveState:enter (the three runouts are rolled ONCE and persisted).
+    -- While this is non-nil the run is spent: a save written from the
+    -- shove screen reloads INTO the shove with the same rolled result,
+    -- so closing the game there can neither re-bank the run's chips nor
+    -- re-roll the gauntlet. Cleared by resetRun / the gauntlet-clear path.
+    instance.shove_pending       = nil
     -- Once-per-run catalog-item flags (Rubber Duck / Fridge / Copy Machine /
     -- Dogs Playing Poker). Reset each run; the item only fires its first time.
     instance.first_loss_voided_this_run       = false
@@ -281,6 +291,7 @@ function GameState:resetRun()
     self.chips_this_run      = 0
     self.anti_stakes_won_this_run = {}
     self.anti_chips_this_run      = 0
+    self.shove_pending       = nil
     self.first_loss_voided_this_run       = false
     self.first_stack_loss_voided_this_run = false
     self.denied_copied_this_run           = false
@@ -356,6 +367,7 @@ function GameState:wipeAll()
     self.total_hands_at_4plus    = 0
     self.total_chips_banked      = 0
     self.total_mtt_wins          = 0
+    self.total_tilts             = 0
     self.total_hands_by_gtype    = {}
     self.highest_stake_idx       = 0
     self.last_run_money_lost     = 0
@@ -465,6 +477,7 @@ function GameState:applySaved(saved)
     self.total_hands_at_4plus    = self.total_hands_at_4plus    or self.lifetime_hands_at_4plus_tables or 0
     self.total_chips_banked      = self.total_chips_banked      or 0
     self.total_mtt_wins          = self.total_mtt_wins          or 0
+    self.total_tilts             = self.total_tilts             or 0
     self.total_hands_by_gtype    = self.total_hands_by_gtype    or {}
     self.highest_stake_idx       = self.highest_stake_idx       or 0
     self.run_money_lost          = self.run_money_lost          or 0
@@ -649,6 +662,7 @@ function GameState:serializeMeta()
         total_hands_at_4plus            = self.total_hands_at_4plus,
         total_chips_banked              = self.total_chips_banked,
         total_mtt_wins                  = self.total_mtt_wins,
+        total_tilts                     = self.total_tilts,
         total_hands_by_gtype            = self.total_hands_by_gtype,
         -- Persisted as the stake ID, not the positional index: inserting a
         -- stake mid-ladder must not silently re-gate every existing save.
@@ -686,6 +700,7 @@ function GameState:serializeRun()
         chips_this_run             = self.chips_this_run,
         anti_stakes_won_this_run   = self.anti_stakes_won_this_run,
         anti_chips_this_run        = self.anti_chips_this_run,
+        shove_pending              = self.shove_pending,
         first_loss_voided_this_run       = self.first_loss_voided_this_run,
         first_stack_loss_voided_this_run = self.first_stack_loss_voided_this_run,
         denied_copied_this_run           = self.denied_copied_this_run,

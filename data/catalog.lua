@@ -32,10 +32,20 @@
 --     hidden           = bool,    -- never shown in catalog UI
 --     granted_at_start = bool,    -- auto-granted at game start
 --     removed_by       = "<id>",  -- entry's effects suppressed when remover is owned
---     requires         = "<id>",  -- gate: prerequisite item id
---     requires_hide    = bool,    -- hide from UI until prerequisite owned
+--     requires         = "<id>",  -- gate: prerequisite item id. NEVER hidden:
+--                                 -- a chain member is always visible, wearing
+--                                 -- the COMING SOON sticker with its "after
+--                                 -- No. NNN, the X" line — visible-but-locked
+--                                 -- is the game's promise pattern. (The old
+--                                 -- requires_hide flag is retired; the modal
+--                                 -- still honors it if data ever sets it.)
 --     act              = 2,       -- Act 2+ entry; stripped in the demo build
---     unlock           = { kind, threshold, text, format? }
+--     unlock           = { kind, threshold, text, format?, mystery? }
+--                        mystery = a condition table (same kinds): until it
+--                        passes, the sticker prints "???" instead of the
+--                        text+counter — the card is never hidden, but a gate
+--                        whose WORDS would introduce an unmet mechanic stays
+--                        unspeakable ("0/5 tables tilted" is a tilt spoiler).
 --   }
 --
 -- ─── Writing unlock.text ────────────────────────────────────────────────
@@ -96,7 +106,7 @@ local items = {
         id               = "the_tilt",
         name             = "Tilt",
         effect_text      = "Bad beats rattle the tables around them.",
-        description      = "It happens to everyone. It is happening to you.",
+        description      = "Happens at every table sooner or later.",
         hidden           = true,
         granted_at_start = true,
         phase            = "system",
@@ -139,10 +149,11 @@ local items = {
         sprite      = "mirror",
         phase       = "demo",
         cost_chip     = 3,
-        unlock = {
-            kind = "hu_unlocked",
-            text = "Unlock the Heads-Up tables",
-        },
+        -- Page one's prerequisite teacher: the blue "SEE No. 001" slip,
+        -- resolved by the 2-{chip} first purchase — never a wall, and it
+        -- keeps the first post-shove catalog down to ONE ready-to-peel
+        -- (the Gift Box). The old hu_unlocked gate was long-met by then.
+        requires    = "wall_hanger",
         position    = { x = 160, y = 220 },
         effects     = {
             { kind = "shove_rate_add",   value = 0.010 },
@@ -235,6 +246,11 @@ local items = {
         phase       = "demo",
         cost_chip     = 4,
         position    = { x = 280, y = 220 },
+        unlock = {
+            kind      = "total_hands_won",
+            threshold = 250,
+            text      = "hands won",
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.012 },
             { kind = "win_tier_shift",
@@ -257,6 +273,11 @@ local items = {
         phase       = "demo",
         cost_chip     = 4,
         position    = { x = 320, y = 220 },
+        unlock = {
+            kind      = "total_stack_losses",
+            threshold = 1,
+            text      = "{l:stack} losses taken",
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
             { kind = "loss_tier_shift",
@@ -279,6 +300,10 @@ local items = {
         phase       = "demo",
         cost_chip   = 4,
         position    = { x = 360, y = 220 },
+        unlock = {
+            kind      = "has_shoved",
+            text      = "Make your first shove",
+        },
         effects     = {
             { kind = "shove_rate_add",     value = 0.010 },
             { kind = "start_bankroll_pct", value = 0.50 },
@@ -333,7 +358,7 @@ local items = {
         },
         unlock = {
             kind      = "total_stack_losses",
-            threshold = 3,
+            threshold = 10,
             text      = "{l:stack} losses taken",
         },
         corrupt = {
@@ -348,7 +373,7 @@ local items = {
         id          = "sticky_notes",
         name        = "Yellow Sticky Note",
         effect_text = "Wins pay 25% more.",
-        description = "A pad of yellow notes stuck to your desk.",
+        description = "A pad of yellow notes. Sticks to anything.",
         sprite      = "sticky_notes",
         phase       = "demo",
         cost_chip   = 5,
@@ -379,7 +404,7 @@ local items = {
         },
         unlock = {
             kind      = "total_busts",
-            threshold = 3,
+            threshold = 10,
             text      = "tables busted",
         },
         corrupt = {
@@ -402,6 +427,11 @@ local items = {
         phase       = "mid",
         cost_chip     = 6,
         position    = { x = 100, y = 300 },
+        unlock = {
+            kind      = "total_chips_banked",
+            threshold = 10,
+            text      = "{chip} banked",
+        },
         effects     = {
             { kind = "shove_rate_add",     value = 0.006 },
             { kind = "start_bankroll_add", value = 5 },
@@ -450,6 +480,11 @@ local items = {
         phase       = "mid",
         cost_chip     = 7,
         position    = { x = 180, y = 200 },
+        unlock = {
+            kind      = "total_upgrade_levels",
+            threshold = 50,
+            text      = "upgrade levels bought",
+        },
         effects     = {
             { kind = "shove_rate_add",            value = 0.006 },
             { kind = "run_upgrade_strength_mult", value = 0.15 },
@@ -496,6 +531,11 @@ local items = {
         phase       = "mid",
         cost_chip     = 8,
         position    = { x = 280, y = 200 },
+        unlock = {
+            kind      = "total_stack_losses",
+            threshold = 10,
+            text      = "{l:stack} losses taken",
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.008 },
             { kind = "loss_mult",      value = 0.80 },
@@ -545,7 +585,7 @@ local items = {
         -- loop is understood.
         id          = "bonsai",
         name        = "Bonsai",
-        effect_text = "Opens the 6-Max tables — the deep game. Its large wins grow into {stack}s 15% more often.",
+        effect_text = "Opens the 6-Max tables, the deep game. Its large wins grow into {stack}s 15% more often.",
         description = "Grown slow on purpose. Worth the wait.",
         sprite      = "bonsai",
         phase       = "mid",
@@ -557,8 +597,14 @@ local items = {
               chance = 0.15, gtype = "six_max" },
         },
         unlock = {
-            kind      = "has_shoved",
-            text      = "Make your first shove",
+            -- A whole game type is a mid-act MILESTONE, not a day-one key:
+            -- the game only ever sells two rooms. ~75 banked lands around
+            -- run five, so the Den spread opens genuinely mid-game.
+            kind      = "total_chips_banked",
+            threshold = 75,
+            text      = "{chip} banked",
+            -- "???" until the pitch has named the door economy
+            mystery   = { kind = "total_chips_banked", threshold = 3 },
         },
         corrupt = {
             cost_achip = 5,
@@ -600,6 +646,11 @@ local items = {
         phase       = "mid",
         cost_chip     = 9,
         position    = { x = 330, y = 200 },
+        unlock = {
+            kind      = "total_upgrade_levels",
+            threshold = 30,
+            text      = "upgrade levels bought",
+        },
         effects     = {
             { kind = "shove_rate_add",    value = 0.010 },
             { kind = "start_table_count", value = 1 },
@@ -616,7 +667,7 @@ local items = {
         id          = "rebuy_note",
         name        = "Rebuy Sticky Note",
         effect_text = "Rebuys cost 25% less.",
-        description = "Discount note stuck to your desk.",
+        description = "Discount coupon pad. Sticks where you'll see it.",
         sprite      = "rebuy_note",
         phase       = "mid",
         cost_chip   = 10,
@@ -702,6 +753,8 @@ local items = {
             kind      = "total_mtt_wins",
             threshold = 1,
             text      = "tournament wins",
+            -- "???" until they've actually sat in a tournament
+            mystery   = { kind = "total_hands_at_gtype", gtype = "mtt", threshold = 1 },
         },
         position    = { x = 350, y = 300 },
         effects     = {
@@ -777,6 +830,11 @@ local items = {
         sprite      = "house_cat",
         phase       = "mid",
         cost_chip   = 8,
+        unlock = {
+            kind      = "total_hands_won",
+            threshold = 1500,
+            text      = "hands won",
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "proc", proc = "cat_nap" },
@@ -790,6 +848,14 @@ local items = {
         sprite      = "candle",
         phase       = "mid",
         cost_chip   = 7,
+        -- Jackpots land on ~12% of hands (measured from a real save: 114
+        -- jackpots in ~960 hands over two shoves), so jackpot thresholds
+        -- are hands÷8, not "rare event" counts. 120 ≈ a thousand hands.
+        unlock = {
+            kind      = "total_jackpots",
+            threshold = 120,
+            text      = "jackpots won",
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "proc", proc = "candle_flame" },
@@ -803,6 +869,12 @@ local items = {
         sprite      = "nes_console",
         phase       = "mid",
         cost_chip   = 10,
+        unlock = {
+            kind      = "total_hands_at_gtype",
+            gtype     = "hu",
+            threshold = 500,
+            text      = "Heads-Up hands",
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "win_chance_shift", amount = 0.03, gtype = "hu" },
@@ -816,6 +888,12 @@ local items = {
         sprite      = "gameboy",
         phase       = "mid",
         cost_chip   = 10,
+        unlock = {
+            kind      = "total_hands_at_gtype",
+            gtype     = "zoom",
+            threshold = 1000,
+            text      = "Zoom hands",
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "win_chance_shift", amount = 0.03, gtype = "zoom" },
@@ -829,6 +907,11 @@ local items = {
         sprite      = "red_rug",
         phase       = "mid",
         cost_chip   = 8,
+        unlock = {
+            kind      = "total_hands_played",
+            threshold = 2500,
+            text      = "hands played",
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "corner_win_chance", value = 0.02 },
@@ -842,6 +925,13 @@ local items = {
         sprite      = "dish_soap",
         phase       = "mid",
         cost_chip   = 12,
+        unlock = {
+            kind      = "total_tilts",
+            threshold = 5,
+            text      = "tables tilted",
+            -- "???" until tilt exists in this player's game
+            mystery   = { kind = "total_tilts", threshold = 1 },
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "tilt_resist_chance", value = 0.40 },
@@ -859,6 +949,11 @@ local items = {
         phase       = "mid",
         cost_chip     = 9,
         position    = { x = 600, y = 300 },
+        unlock = {
+            kind      = "total_busts",
+            threshold = 40,
+            text      = "tables busted",
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "buy_in_mult",    value = 0.85 },
@@ -907,7 +1002,6 @@ local items = {
         phase         = "late",
         cost_chip     = 12,
         requires      = "box_of_mice",
-        requires_hide = true,
         position      = { x = 200, y = 500 },
         effects       = {
             { kind = "shove_rate_add",   value = 0.010 },
@@ -930,8 +1024,7 @@ local items = {
         sprite        = "gaming_keyboard",
         phase         = "late",
         cost_chip     = 12,
-        requires      = "box_of_mice",
-        requires_hide = true,
+        requires      = "laptop",
         effects       = {
             { kind = "shove_rate_add",    value = 0.010 },
             { kind = "cursor_speed_mult", value = 1.30 },
@@ -953,8 +1046,13 @@ local items = {
         sprite      = "box_of_mice",
         phase       = "late",
         cost_chip     = 13,
-        slots       = 3,  -- full-leaf hero card (see data/catalog_pages.lua)
+        slots       = 1,  -- demoted from hero so the whole cursor chain fits one spread
         position    = { x = 100, y = 500 },
+        unlock = {
+            kind      = "total_hands_at_4plus",
+            threshold = 2500,
+            text      = "hands at 4+ tables",
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
             { kind = "cursor_unlocked" },
@@ -977,8 +1075,7 @@ local items = {
         sprite        = "wacom_tablet",
         phase         = "late",
         cost_chip       = 13,
-        requires      = "box_of_mice",
-        requires_hide = true,
+        requires      = "gaming_keyboard",
         position      = { x = 300, y = 500 },
         effects       = {
             { kind = "shove_rate_add",       value = 0.012 },
@@ -1002,8 +1099,7 @@ local items = {
         sprite        = "desk_lamp",
         phase         = "late",
         cost_chip     = 10,
-        requires      = "box_of_mice",
-        requires_hide = true,
+        requires      = "wacom_tablet",
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "cursor_optical_sensor" },
@@ -1021,13 +1117,12 @@ local items = {
         id            = "telephone",
         act           = 2,
         name          = "Telephone",
-        effect_text   = "Cursors coordinate targeting — no two race to the same table.",
+        effect_text   = "Cursors coordinate targeting: no two race to the same table.",
         description   = "They call ahead.",
         sprite        = "telephone",
         phase         = "late",
         cost_chip     = 12,
-        requires      = "box_of_mice",
-        requires_hide = true,
+        requires      = "desk_lamp",
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "cursor_sync_unlocked" },
@@ -1042,8 +1137,7 @@ local items = {
         sprite        = "glass_partition",
         phase         = "late",
         cost_chip     = 12,
-        requires      = "box_of_mice",
-        requires_hide = true,
+        requires      = "telephone",
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "cursor_collision_phasing" },
@@ -1054,7 +1148,7 @@ local items = {
         act         = 2,
         name        = "Electric Kettle",
         effect_text = "Busted tables refund 30% of the buy-in.",
-        description = "First thing you asked for. Took a while.",
+        description = "Boils fast. Whistles louder.",
         sprite      = "kettle",
         phase       = "late",
         cost_chip   = 11,
@@ -1133,7 +1227,7 @@ local items = {
         act         = 2,
         name        = "Nightstand",
         effect_text = "Upgrades reach one level further.",
-        description = "One drawer that's yours. Nobody checks it.",
+        description = "One drawer. Lock included.",
         sprite      = "nightstand",
         phase       = "late",
         cost_chip   = 13,
@@ -1163,9 +1257,11 @@ local items = {
         sprite      = "receipt_printer",
         phase       = "mid",
         cost_chip   = 19,
+        -- Late-Act-1 machine at a late-Act-1 price: 300 jackpots ≈ 2,500
+        -- hands (see the Candle's rate note) — around shove five, not two.
         unlock = {
             kind      = "total_jackpots",
-            threshold = 100,
+            threshold = 300,
             text      = "jackpots won",
         },
         position    = { x = 330, y = 400 },
@@ -1250,6 +1346,8 @@ local items = {
             kind      = "decks_unlocked_count",
             threshold = 3,
             text      = "decks unlocked",
+            -- "???" until decks exist (Act 2)
+            mystery   = { kind = "shove_r1_won" },
         },
         corrupt = {
             cost_achip = 10,
@@ -1270,8 +1368,6 @@ local items = {
         cost_chip   = 26,
         -- The router caps the tank chain.
         requires      = "blackout_curtains",
-        requires_hide = true,
-        slots       = 2,  -- feature ad: two slot-units tall
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
             { kind = "router", router = "tank_intercept" },
@@ -1295,6 +1391,11 @@ local items = {
         sprite      = "desk_speakers",
         phase       = "mid",
         cost_chip   = 10,
+        unlock = {
+            kind      = "total_chips_banked",
+            threshold = 120,
+            text      = "{chip} banked",
+        },
         effects     = {
             { kind = "shove_rate_add",   value = 0.010 },
             { kind = "win_chance_shift", amount = 0.05, gtype = "mtt" },
@@ -1342,7 +1443,6 @@ local items = {
         phase       = "mid",
         cost_chip   = 14,
         requires      = "curved_monitor",
-        requires_hide = true,
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "proc", proc = "ko_bump" },
@@ -1395,7 +1495,7 @@ local items = {
         act         = 2,
         name        = "High Roller Pass",
         effect_text = "Each tournament finish gives cash games at its stake +1% win chance, lost if that tournament closes.",
-        description = "Framed. You never had to show it to anyone.",
+        description = "Laminated. Rarely inspected.",
         sprite      = "high_roller_pass",
         phase       = "late",
         cost_chip   = 19,
@@ -1419,13 +1519,19 @@ local items = {
         act         = 2,
         name        = "Window",
         effect_text = "While a tournament runs, tilts along its row arrive as heaters, heaters down its column as tilts.",
-        description = "Faces a wall. It's the light you wanted.",
+        description = "Mounts flat on any wall. View may vary.",
         sprite      = "window",
         phase       = "late",
         cost_chip   = 20,
         -- The router caps the tournament chain.
         requires      = "high_roller_pass",
-        requires_hide = true,
+        unlock = {
+            kind      = "total_tilts",
+            threshold = 25,
+            text      = "tables tilted",
+            -- "???" until tilt exists in this player's game
+            mystery   = { kind = "total_tilts", threshold = 1 },
+        },
         effects     = {
             { kind = "shove_rate_add", value = 0.016 },
             { kind = "router", router = "polarity_bend" },
@@ -1448,7 +1554,6 @@ local items = {
         sprite      = "bookshelf",
         phase       = "late",
         cost_chip   = 22,
-        slots       = 2,  -- feature ad: two slot-units tall
         effects     = {
             { kind = "shove_rate_add",           value = 0.016 },
             { kind = "run_upgrade_bonus_levels", value = 1 },
@@ -1475,7 +1580,6 @@ local items = {
         sprite      = "cereal_shelf",
         phase       = "late",
         cost_chip   = 24,
-        slots       = 2,  -- feature ad: two slot-units tall
         effects     = {
             { kind = "shove_rate_add",   value = 0.016 },
             { kind = "loss_recycle_pct", value = 0.10 },
@@ -1503,7 +1607,6 @@ local items = {
         cost_chip   = 24,
         -- Tilt-on-tilted only means something once tilts are farmable.
         requires    = "microwave",
-        slots       = 2,  -- feature ad: two slot-units tall
         effects     = {
             { kind = "shove_rate_add", value = 0.018 },
             { kind = "proc", proc = "tank_compress" },
@@ -1527,8 +1630,6 @@ local items = {
         phase       = "late",
         cost_chip   = 24,
         requires      = "fire_extinguisher",
-        requires_hide = true,
-        slots       = 2,  -- feature ad: two slot-units tall
         effects     = {
             { kind = "shove_rate_add", value = 0.018 },
             { kind = "proc", proc = "tank_read" },
@@ -1551,7 +1652,6 @@ local items = {
         sprite      = "tip_jar",
         phase       = "late",
         cost_chip   = 24,
-        slots       = 2,  -- feature ad: two slot-units tall
         effects     = {
             { kind = "shove_rate_add",  value = 0.022 },
             { kind = "chip_award_mult", value = 1.50 },
@@ -1580,7 +1680,6 @@ local items = {
         phase       = "late",
         cost_chip   = 18,
         requires      = "pc_tower",
-        requires_hide = true,
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
             { kind = "proc", proc = "ko_refund" },
@@ -1633,8 +1732,7 @@ local items = {
         sprite        = "cleaning_robot",
         phase         = "late",
         cost_chip     = 24,
-        requires      = "box_of_mice",
-        requires_hide = true,
+        requires      = "glass_partition",
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "proc", proc = "robot_overdrive" },
@@ -1652,7 +1750,7 @@ local items = {
         act         = 2,
         name        = "Ultra Stake",
         effect_text = "Unlock the T10 ULTRA stake.",
-        description = "Unwinnable. Bleed bankroll to underflow.",
+        description = "The top table. House limit: none.",
         sprite      = "unlock_ultra",
         phase       = "late",
         cost_chip     = 0,

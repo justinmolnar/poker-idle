@@ -113,6 +113,21 @@ function ShoveState:enter()
     local ctx = state:computeEffects(self.game.effects, Catalog, RunUpgrades)
     self.shove_rates = ShoveRate.compute(ctx, state.bankroll or 0)
 
+    -- Commit the roll. The three runout outcomes are decided HERE — after
+    -- the cash-out, so the rates they were rolled against are final — and
+    -- ride the save inside shove_pending. From this write on, closing the
+    -- game anywhere on the shove screen and reloading resumes the SAME
+    -- shove with the SAME result: no close-and-retry, no reroll scumming.
+    -- Already-rolled outcomes (a resumed shove) are left alone; the debug
+    -- entries (F2, START_IN_SHOVE) have no shove_pending and keep the
+    -- roll-at-deal behavior.
+    if state.shove_pending and not state.shove_pending.outcomes then
+        state.shove_pending.outcomes =
+            Gauntlet.rollOutcomes(state, self.shove_rates)
+        self.game.save_service:saveAll(
+            state:serializeMeta(), state:serializeRun())
+    end
+
     -- Auto-start the buildup spectacle on entry. The gauntlet itself
     -- doesn't begin until the view's buildup phase finishes (handled
     -- in :update — sees view:isReadyToDeal and fires _beginGauntlet).
@@ -169,8 +184,12 @@ end
 
 function ShoveState:_beginGauntlet()
     HandAnalytics.recordShoveStart(self.shove_rates)
+    local pending = self.game.state.shove_pending
     self.gauntlet = Gauntlet:new(self.game, self.shove_rates)
-    local result = self.gauntlet:begin()
+    -- The outcomes were rolled and persisted at :enter (shove_pending);
+    -- the gauntlet just constructs cards for them. nil on the debug
+    -- entries, where begin rolls its own.
+    local result = self.gauntlet:begin(pending and pending.outcomes)
     self.overlay:recordAttempt(result)
     -- The act this shove opens, if any, is knowable NOW: the result is
     -- pre-baked. It used to be computed at the end, in the same statement
@@ -178,7 +197,7 @@ function ShoveState:_beginGauntlet()
     -- react to it on the felt because by then the flag was already true.
     self._pending_milestone = self:_milestoneFor(result)
     self.view:onGauntletBegin(self._pending_milestone,
-                              self.game.state.chips_this_run or 0)
+                              pending and pending.chips or 0)
     self._ended_handled = false
 
     if Constants.DEBUG.SHOW_DEBUG_OVERLAY then
@@ -211,9 +230,10 @@ function ShoveState:_onGauntletEnded()
     local state  = self.game.state
 
     -- Chips aren't computed at bust anymore. They were banked into
-    -- state.chips during the run via GrindController on each
-    -- first-win-at-stake. The modal just reads state.chips_this_run.
-    local chips_banked = state.chips_this_run or 0
+    -- state.chips at the shove commit; shove_pending.chips remembers the
+    -- amount for the readout (chips_this_run was zeroed at the commit).
+    local chips_banked = (state.shove_pending and state.shove_pending.chips)
+                         or 0
     HandAnalytics.recordShoveResult(result, chips_banked)
 
     -- Which act this shove opened, if any. Captured in the same block that
@@ -261,6 +281,11 @@ function ShoveState:_onGauntletEnded()
 
     if result.won then
         state.cleared = true
+        -- The shove is resolved: drop the commit record so the save below
+        -- can't route a later boot back into a finished gauntlet. The bust
+        -- path leaves it for resetRun (quitting on the post-bust catalog
+        -- resumes the same lost shove, not a fresh grind).
+        state.shove_pending = nil
         -- Persist immediately: love.quit only saves from grind/shove, so
         -- quitting at the credits screen would otherwise lose the clear
         -- (and with it the deck-system unlock).

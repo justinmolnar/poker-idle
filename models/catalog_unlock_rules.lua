@@ -29,6 +29,7 @@ local CatalogUnlockRules = {}
 -- threshold. Declared as data so adding a gate is one line, not a function.
 local COUNTER_KINDS = {
     "total_hands_played",
+    "total_hands_won",
     "total_big_outcomes",
     "total_denied_stacks",
     "lifetime_chips_banked",
@@ -41,6 +42,7 @@ local COUNTER_KINDS = {
     "total_hands_at_4plus",
     "total_chips_banked",
     "total_mtt_wins",
+    "total_tilts",
     "highest_stake_idx",
 }
 

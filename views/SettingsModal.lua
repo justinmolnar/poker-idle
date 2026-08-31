@@ -38,7 +38,9 @@ end
 local function persistSettings(self)
     local g = self.game
     if not (g and g.save_service and g.settings) then return end
-    g.settings.volume = SoundService.getMasterVolume()
+    g.settings.volume       = SoundService.getMasterVolume()
+    g.settings.sfx_volume   = SoundService.getSfxVolume()
+    g.settings.music_volume = SoundService.getMusicVolume()
     g.save_service:saveSettings(g.settings)
 end
 
@@ -56,16 +58,30 @@ function SettingsModal:new(game)
         _row_rects     = {},
         _confirm       = nil,
         _confirm_kind  = nil,
-        _vol_slider    = nil,
+        _sliders       = {},
     }, SettingsModal)
 
-    self_inst._vol_slider = Slider:new{
-        value     = SoundService.getMasterVolume(),
-        on_change = function(v)
-            SoundService.setMasterVolume(v)
-            persistSettings(self_inst)
-        end,
+    -- The three audio channels: Master scales everything; SFX carries
+    -- every effect and the intercom voice; Music is the music layer.
+    local channels = {
+        { label = "Master", get = SoundService.getMasterVolume,
+                            set = SoundService.setMasterVolume },
+        { label = "SFX",    get = SoundService.getSfxVolume,
+                            set = SoundService.setSfxVolume },
+        { label = "Music",  get = SoundService.getMusicVolume,
+                            set = SoundService.setMusicVolume },
     }
+    for _, ch in ipairs(channels) do
+        local entry = { label = ch.label, get = ch.get }
+        entry.slider = Slider:new{
+            value     = ch.get(),
+            on_change = function(v)
+                ch.set(v)
+                persistSettings(self_inst)
+            end,
+        }
+        self_inst._sliders[#self_inst._sliders + 1] = entry
+    end
 
     return self_inst
 end
@@ -174,10 +190,12 @@ function SettingsModal:consumeMouse(mx, my, button)
         return consumed
     end
 
-    -- Volume slider: clicking on the track jumps the knob and arms a
+    -- Volume sliders: clicking on a track jumps that knob and arms a
     -- drag; subsequent mousemoved events update the value continuously.
-    if self._vol_slider and self._vol_slider:mousepressed(mx, my, button) then
-        return true
+    for _, entry in ipairs(self._sliders) do
+        if entry.slider:mousepressed(mx, my, button) then
+            return true
+        end
     end
 
     for _, rec in ipairs(self._row_rects) do
@@ -197,11 +215,15 @@ function SettingsModal:consumeMouse(mx, my, button)
 end
 
 function SettingsModal:mousemoved(mx, my)
-    if self._vol_slider then self._vol_slider:mousemoved(mx, my) end
+    for _, entry in ipairs(self._sliders) do
+        entry.slider:mousemoved(mx, my)
+    end
 end
 
 function SettingsModal:mousereleased(mx, my, button)
-    if self._vol_slider then self._vol_slider:mousereleased(mx, my, button) end
+    for _, entry in ipairs(self._sliders) do
+        entry.slider:mousereleased(mx, my, button)
+    end
 end
 
 -- No wheelmoved — host (GrindState/ShoveState) checks for the method
@@ -223,7 +245,7 @@ function SettingsModal:draw()
     -- Rebuild the modal frame each draw so its width tracks scale.
     self._modal = Modal:new{ title = "Settings", w = MODAL_W }
 
-    local rows = 6  -- volume, analytics, save, load, new game, quit
+    local rows = 8  -- master, sfx, music, analytics, save, load, new game, quit
     local body_h = rows * ROW_H + (rows - 1) * ROW_GAP
 
     local body = self._modal:draw(fonts, body_h)
@@ -232,34 +254,39 @@ function SettingsModal:draw()
     local row_w = body.w
     local y     = body.y
 
-    -- Volume — label on the left, slider track in the middle,
-    -- live percentage on the right. Drag-anywhere on the track sets
-    -- the knob; persistSettings runs on each on_change.
-    local vol_pct = math.floor(SoundService.getMasterVolume() * 100 + 0.5)
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.setFont(fonts.md)
-    love.graphics.print("Volume", row_x + 10, y + math.floor((ROW_H - fonts.md:getHeight()) / 2))
-
-    local pct_text  = string.format("%d%%", vol_pct)
-    local pct_w     = fonts.md:getWidth(pct_text) + 4
-    local label_w   = fonts.md:getWidth("Volume") + 24
-    local track_x   = row_x + label_w
-    local track_end = row_x + row_w - pct_w - 10
-    local track_w   = math.max(40, track_end - track_x)
-
-    -- Sync slider value to live SoundService each frame so external
-    -- changes (settings reload) reflect into the knob position.
-    if self._vol_slider then
-        self._vol_slider.value = SoundService.getMasterVolume()
-        self._vol_slider:draw(track_x, y, track_w, ROW_H)
+    -- Volume rows — label on the left (column sized to the widest of the
+    -- three), slider track in the middle, live percentage on the right.
+    -- Drag-anywhere on a track sets its knob; persistSettings runs on
+    -- each on_change. Slider values re-sync from SoundService each frame
+    -- so external changes reflect into the knobs.
+    local label_w = 0
+    for _, entry in ipairs(self._sliders) do
+        label_w = math.max(label_w, fonts.md:getWidth(entry.label))
     end
+    label_w = label_w + 24
+    for _, entry in ipairs(self._sliders) do
+        local vol_pct = math.floor(entry.get() * 100 + 0.5)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.setFont(fonts.md)
+        love.graphics.print(entry.label, row_x + 10,
+            y + math.floor((ROW_H - fonts.md:getHeight()) / 2))
 
-    Theme.setColor(Theme.fg.heading)
-    love.graphics.print(pct_text,
-        row_x + row_w - pct_w - 4,
-        y + math.floor((ROW_H - fonts.md:getHeight()) / 2))
+        local pct_text  = string.format("%d%%", vol_pct)
+        local pct_w     = fonts.md:getWidth("100%") + 4
+        local track_x   = row_x + label_w
+        local track_end = row_x + row_w - pct_w - 10
+        local track_w   = math.max(40, track_end - track_x)
 
-    y = y + ROW_H + ROW_GAP
+        entry.slider.value = entry.get()
+        entry.slider:draw(track_x, y, track_w, ROW_H)
+
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.print(pct_text,
+            row_x + row_w - pct_w - 4,
+            y + math.floor((ROW_H - fonts.md:getHeight()) / 2))
+
+        y = y + ROW_H + ROW_GAP
+    end
 
     local function action_row(label, action, opts)
         opts = opts or {}

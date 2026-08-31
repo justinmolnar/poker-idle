@@ -4,7 +4,7 @@
 -- left-to-right as a progress bar.
 --
 -- A STICKER IS NOT A STAMP. A stamp is ink pressed into the page: rotated
--- outline, no background, the paper shows through (see the ORDERED / SOLD OUT
+-- outline, no background, the paper shows through (see the ORDERED
 -- stamps in views/CatalogModal). A sticker is a separate piece of stock
 -- sitting ON TOP of the page: opaque background, its own die-cut edge, a drop
 -- shadow, and a slightly crooked angle because nobody applies one straight.
@@ -26,6 +26,8 @@
 --   rotation      (number, default -0.03 rad) — 0 for square-on
 --   title         (string, required) — top line, e.g. "COMING SOON!"
 --   line          (string, optional) — second line; IconText markers supported
+--   line2         (string, optional) — third line (a second gate, e.g. an item
+--                                     prerequisite riding under the condition)
 --   counter       (string, optional) — right-aligned on the title line, e.g. "2 / 3"
 --   progress      (number 0..1, default 0) — how far the stock is filled
 --   stock_token   (token, default Theme.bg.widget)   — die-cut backing (white vinyl)
@@ -213,6 +215,9 @@ function Sticker.draw(opts)
     if opts.line and opts.line ~= "" then
         text_h = text_h + LINE_GAP(s) + f_line:getHeight()
     end
+    if opts.line2 and opts.line2 ~= "" then
+        text_h = text_h + LINE_GAP(s) + f_line:getHeight()
+    end
     local d_rad = math.max(2, fl(3 * s))
     Theme.setColor(vinyl)
     love.graphics.rectangle("fill", tx - pad, ty - pad,
@@ -303,6 +308,16 @@ function Sticker.draw(opts)
                       lx, ty, f_line, ink)
     end
 
+    -- Second gate row: the item-prerequisite line, under the condition
+    -- (or straight under the title when there is no condition row).
+    if opts.line2 and opts.line2 ~= "" then
+        local prev = (opts.line and opts.line ~= "") and f_line or f_title
+        ty = ty + prev:getHeight() + LINE_GAP(s)
+        love.graphics.setFont(f_line)
+        IconText.draw(opts.game, fitLine(opts.line2, f_line, text_w),
+                      tx, ty, f_line, ink)
+    end
+
     love.graphics.pop()
 
     if peel <= 0 then return end
@@ -353,7 +368,7 @@ end
 -- it was given is mostly blank paper, and a fill bar across mostly-blank paper
 -- reads as nothing — size it to the text and the fill becomes legible.
 -- Callers should clamp the result to the space available.
-function Sticker.widthFor(font_set, scale, title, line, counter)
+function Sticker.widthFor(font_set, scale, title, line, counter, line2)
     local f_title, f_line = fonts({ fonts = font_set })
     if not f_title then return 0 end
     local s   = scale or 1
@@ -362,17 +377,23 @@ function Sticker.widthFor(font_set, scale, title, line, counter)
     if counter and counter ~= "" then
         detail = detail + f_line:getWidth(counter) + gap
     end
+    -- A second detail row (an item-prerequisite gate riding under the
+    -- condition gate) widens the sticker if it is the longest row.
+    if line2 and line2 ~= "" then
+        detail = math.max(detail, IconText.measure(line2, f_line))
+    end
     return (PAD(s) * 2 + INLAY(s)) * 2 + math.max(f_title:getWidth(title or ""), detail)
 end
 
--- Height needed for a title line plus an optional detail line, so a caller can
+-- Height needed for a title line plus optional detail lines, so a caller can
 -- size the rect before drawing.
-function Sticker.heightFor(font_set, scale, has_line)
+function Sticker.heightFor(font_set, scale, has_line, has_line2)
     local f_title, f_line = fonts({ fonts = font_set })
     if not f_title then return 0 end
     local s = scale or 1
     local inner = f_title:getHeight()
                   + (has_line and (f_line:getHeight() + LINE_GAP(s)) or 0)
+                  + (has_line2 and (f_line:getHeight() + LINE_GAP(s)) or 0)
     return (PAD(s) * 2 + INLAY(s)) * 2 + inner
 end
 

@@ -90,7 +90,7 @@ return {
     {
         id          = "pot_control",
         name        = "Pot Control",
-        description = "More {w:stack} Less {l:stack} - Drives {chip}",
+        description = "More {w:stack}, fewer {l:stack}. Where {chip} come from.",
         tooltip_blurb = {
             "Raises chance of smaller losses and bigger wins.",
             "Graph shows {w:stack}% increase, used to earn {chip}.",
@@ -135,7 +135,7 @@ return {
     {
         id            = "box_of_mice",
         name          = "Cursor",
-        description   = "+1 Cursor (auto-clicker)",
+        description   = "+1 cursor. It deals for you.",
         tooltip_blurb = {
             "Adds an autoclicking cursor that clicks DEAL /",
             "REBUY (if purchased in catalog) buttons automatically.",
@@ -185,7 +185,7 @@ return {
     {
         id          = "focus",
         name        = "Focus",
-        description = "Increase table limit before penalty",
+        description = "Watch more tables without slipping.",
         tooltip_blurb = {
             "Run more tables at once before your",
             "FOCUS multiplier starts dropping.",

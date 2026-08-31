@@ -65,13 +65,33 @@ local function simulateAct1()
             local cheapest_cost = 999999
 
             for _, item in ipairs(Catalog) do
-                -- Honest shelf: stat-gated items sit behind counters an
-                -- Act 1 run never reaches (a gate under ~25 is hit inside
-                -- act 1 and counts as open), and a requires-chain link is
-                -- only buyable once its base is owned — same rules the
-                -- game enforces (GrindController:1602, GameState:808).
+                -- Honest shelf: stat-gated items open when an Act 1 save
+                -- plausibly reaches their counter. Thresholds live in the
+                -- counter's own units, so reachability is per KIND (500
+                -- Heads-Up hands is run two; 500 jackpots is Act 2), not
+                -- one magic number. A requires-chain link is only buyable
+                -- once its base is owned — same rules the game enforces.
+                local ACT1_REACH = {
+                    total_hands_played     = 4000,
+                    total_hands_won        = 2200,
+                    total_hands_at_gtype   = 1500,
+                    total_hands_at_4plus   = 1500,
+                    total_hands_overwhelmed = 400,
+                    total_jackpots         = 400,
+                    total_chips_banked     = 100,
+                    lifetime_chips_banked  = 100,
+                    total_stack_losses     = 40,
+                    total_busts            = 50,
+                    total_rebuys           = 50,
+                    total_upgrade_levels   = 100,
+                    total_denied_stacks    = 40,
+                    total_tilts            = 25,
+                    has_shoved             = math.huge,
+                    hu_unlocked            = math.huge,
+                }
                 local gate_open = not item.unlock
-                                  or (item.unlock.threshold or 0) <= 25
+                    or (item.unlock.threshold or 0)
+                       <= (ACT1_REACH[item.unlock.kind] or 25)
                 if CatalogLoader.isOwnable(item)
                    and gate_open
                    and (not item.requires or owned_set[item.requires]) then

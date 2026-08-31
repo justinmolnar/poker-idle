@@ -2,98 +2,97 @@
 --
 -- Authored DEPARTMENT layout for the catalog order-book. PURE DATA — no logic.
 --
--- ─── A DEPARTMENT IS NOT A PAGE ─────────────────────────────────────────
--- Each entry below is a department holding as many items as it needs: five,
--- nine, whatever. views/CatalogModal:_pages packs each one into as many
--- leaves as it takes (3 slot-units per leaf), and ONLY the first of those
--- leaves prints the heading. Do NOT split a department into three-item
--- chunks to make pages — that is what produced seventeen headings for
--- forty-nine items.
+-- ─── A DEPARTMENT IS A SPREAD ───────────────────────────────────────────
+-- Leaves hold 4 slot-units (views/CatalogModal LEAF_SLOTS); departments are
+-- sized to fill spreads cleanly: 8 items = exactly one spread (two facing
+-- pages), 4 items = one page. views/CatalogModal:_pages packs each
+-- department into leaves; only the first leaf prints the heading.
 --
--- ─── TWO RULES FOR A DEPARTMENT ─────────────────────────────────────────
+-- ─── THREE RULES FOR A DEPARTMENT ───────────────────────────────────────
 -- 1. The title is something a department store prints above a shelf. Never a
---    poker concept: no "Reads & Tempo", no "Big Swings", no "Cushions".
--- 2. Its items share a MECHANIC, and they ladder cheap → expensive inside
---    it, so shopping a department reads as an upgrade path: Stationery bends
---    the run-upgrade economy, Bed & Bath takes the sting out of losses,
---    Appliances are the machines that fire on their own.
+--    poker concept.
+-- 2. A CHAIN IS A SHELF: every `requires` chain sits contiguous, root first,
+--    so requires-order = reading-order and the card's red "Stocked after
+--    No. NNN, the X." line always points at a neighbouring card. Chain
+--    adjacency outranks fiction when the two fight.
+-- 3. Size to 8 (a spread) or 4 (a page). No 9s.
 --
--- The one deliberate exception is VALUE BUYS, which is the cheap starter
--- shelf. Those items have nothing in common except being the first things
--- worth owning, and that is the point of the shelf.
---
---   { title = "Shown at the top of every leaf it spans",
---     items = { "item_id", ... } }   -- in draw order, cheap to dear
+-- The one deliberate exception is VALUE BUYS, the cheap starter shelf.
 --
 -- Items are matched by id against data/catalog.lua. An id that isn't visible
--- yet (locked/hidden/act-3-gated, or owned-prereq not met) is simply skipped;
--- a department whose items are all skipped drops out of the book entirely.
--- Any visible catalog item not listed here falls into a trailing "&c."
--- department, so nothing is ever unreachable.
+-- yet is simply skipped; a department whose items are all skipped drops out
+-- of the book entirely. Any visible catalog item not listed here falls into
+-- a trailing "&c." department, so nothing is ever unreachable — but every
+-- non-hidden item IS listed here; keep it that way when adding items.
 
 return {
 
-    -- The starter shelf. No shared mechanic by design — these are just the
-    -- cheap things worth buying first.
+    -- The starter shelf, and the unlock system's first classroom: most of
+    -- it is open from the jump, the Mirror's sticker fills the moment the
+    -- duel opens, the books count your hands, and the Gift Box arrives at
+    -- the first post-shove catalog already green — the peel tutorial.
     { title = "Value Buys",
       items = {
-          "wall_hanger", "mirror", "energy_drink",
-          "corkboard", "stack_of_books", "gift_box", "lava_lamp",
-          "sticky_notes",
+          "wall_hanger", "mirror", "energy_drink", "corkboard",
+          "stack_of_books", "gift_box", "lava_lamp", "sticky_notes",
       } },
 
-    -- Softens what losing costs you: tier downgrades, loss multipliers,
-    -- voids, and the free rebuy when it still goes wrong.
+    -- Early scars, in the order they happen: the first lost stack, the
+    -- first bust, then the tilt era and its treatments.
     { title = "Bed & Bath",
       items = {
-          "throw_pillow", "comfort_bed", "rubber_duck", "blackout_curtains",
-          "first_aid_kit",
+          "throw_pillow", "comfort_bed", "rubber_duck", "space_heater",
+          "dish_soap", "cool_towel", "waste_basket", "first_aid_kit",
       } },
 
-    -- Machines that fire on their own at an event: a pot bumps, a beat gets
-    -- eaten, a bust drains back, last run's losses come back clean.
-    { title = "Kitchen & Appliances",
+    -- The per-game-type toys, laddered by exposure.
+    { title = "Game Room",
       items = {
-          "receipt_printer", "fridge", "toaster", "kettle", "microwave",
-          "cereal_shelf", "fire_extinguisher",
+          "fight_night", "nes_console", "gameboy", "headset",
+          "dogs_playing_poker", "candle", "gaming_chair", "house_cat",
       } },
 
-    -- Attention: focus capacity, the penalty for exceeding it, and the
-    -- per-game-type edges you get from paying attention at one kind of table.
-    { title = "Home Office",
-      items = {
-          "desk_plant", "gaming_chair", "second_monitor", "headset",
-          "wall_clock", "window", "console_tv", "space_heater", "desk",
-      } },
-
-    -- Paper goods. Everything here bends the run-upgrade economy or the
-    -- bounty paperwork around it.
+    -- The workstation: the run-upgrade economy, laddered by levels bought.
     { title = "Desk & Stationery",
       items = {
-          "calculator", "ring_binder", "pencil_holder", "nightstand",
-          "bookshelf",
+          "desk", "ring_binder", "calculator", "pencil_holder",
+          "second_monitor", "nightstand", "bookshelf", "blueprint",
       } },
 
-    -- The cursor swarm. box_of_mice is slots=3, so it fills its own leaf as
-    -- a hero card and the crew lands on the next one.
+    -- Machines that fire on their own, laddered by the events that earn
+    -- them; both mini-chains adjacent (printer→copier, clock→diploma).
+    { title = "Kitchen & Appliances",
+      items = {
+          "fridge", "kettle", "receipt_printer", "copy_machine",
+          "wall_clock", "diploma", "toaster", "cereal_shelf",
+      } },
+
+    -- The 6-Max tank chain, root first (bonsai opens the room and goes
+    -- green at the first post-shove catalog), plus the den furnishings.
+    { title = "Den & Houseplants",
+      items = {
+          "bonsai", "desk_plant", "microwave", "fire_extinguisher",
+          "blackout_curtains", "console_tv", "red_rug", "desk_speakers",
+      } },
+
+    -- The cursor swarm, root first: one spread holds the whole crew.
     { title = "Computer Accessories",
       items = {
           "box_of_mice", "laptop", "gaming_keyboard", "wacom_tablet",
-          "pc_tower", "curved_monitor", "desk_speakers", "shredder",
+          "desk_lamp", "telephone", "glass_partition", "cleaning_robot",
       } },
 
-    -- Things on the wall that pay you: bounty bonuses, tournament payout
-    -- tiers, deck XP.
-    { title = "Awards & Wall Art",
+    -- The tournament ecosystem on one spread: the vase and everything
+    -- that chains off it, plus the bounty jar.
+    { title = "Awards & Trophy Wall",
       items = {
-          "dogs_playing_poker", "prize_vase", "diploma",
-          "blueprint", "tip_jar",
+          "prize_vase", "curved_monitor", "pc_tower", "shredder",
+          "whiteboard", "high_roller_pass", "window", "tip_jar",
       } },
 
-    -- Paperwork that makes sitting down cheaper or richer.
+    -- The back page. Paperwork, and the last thing in the book.
     { title = "Memberships & Vouchers",
       items = {
-          "stash_box", "vouchers", "rebuy_note",
-          "high_roller_pass", "unlock_ultra",
+          "stash_box", "vouchers", "rebuy_note", "unlock_ultra",
       } },
 }

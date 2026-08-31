@@ -364,10 +364,10 @@ function GrindView:_makeGameTypeStrip()
     -- table; the data file (data/game_types.lua) only carries gameplay
     -- knobs (seats, pace, dist_shifts), not UI copy.
     local GTYPE_BLURB = {
-        six_max  = "6-Max — the baseline. Standard pace, 5 seated opponents, no pot-shape bias.",
-        hu       = "Heads-Up — duel with one opponent. Fast pace, you win less often, but pots run deep both ways.",
-        zoom     = "Zoom — fast hands, random opponents. Easier to win, but pots smaller overall.",
-        mtt      = "8-max KO — every seat sits down with a 10bb stack. Hands play normally; seats bust at zero. Win it all or finish top-3 to cash.",
+        six_max  = "6-Max. The long game: five opponents, slow hands, the fattest pots in the room.",
+        hu       = "Heads-Up. One opponent, whole stacks, both ways. You win less often and it goes deeper.",
+        zoom     = "Zoom. A new table every hand. More wins, smaller ones, and it never holds you up.",
+        mtt      = "A tournament. Eight seats, ten blinds each, no rebuy, and it deals itself. Top three cash.",
     }
     -- Locked tabs (Constants.GTYPE_GATE) draw dark and inert rather than
     -- disappearing: the strip's width math, the hint anchors, and the

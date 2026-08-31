@@ -64,33 +64,43 @@ function Gauntlet:new(game, rates)
     }, Gauntlet)
 end
 
-function Gauntlet:begin()
-    self.state = "running"
-
-    local state = self.game.state
+-- Roll the three runout outcomes against `rates`, act-gated by the save
+-- flags (R2 only exists once Act 2 is open, R3 once Act 3 is). A module
+-- function, callable without a gauntlet, because the shove COMMIT rolls
+-- and PERSISTS these before the theater starts (ShoveState:enter stores
+-- them in state.shove_pending): quitting mid-shove and reloading replays
+-- the same result instead of granting a fresh roll.
+function Gauntlet.rollOutcomes(state, rates)
     local current_unlocked_act = 1
     if state then
         if state.shove_r2_won then
             current_unlocked_act = 3
         elseif state.shove_r1_won then
             current_unlocked_act = 2
-        else
-            current_unlocked_act = 1
         end
     end
+    local o = { false, false, false }
+    o[1] = RNG.chance(rates.r1)
+    if o[1] and current_unlocked_act >= 2 then
+        o[2] = RNG.chance(rates.r2)
+        if o[2] and current_unlocked_act >= 3 then
+            o[3] = RNG.chance(rates.r3)
+        end
+    end
+    return o
+end
 
-    self.outcomes[1] = RNG.chance(self.rates.r1)
-    if self.outcomes[1] and current_unlocked_act >= 2 then
-        self.outcomes[2] = RNG.chance(self.rates.r2)
-        if self.outcomes[2] and current_unlocked_act >= 3 then
-            self.outcomes[3] = RNG.chance(self.rates.r3)
-        else
-            self.outcomes[3] = false
-        end
-    else
-        self.outcomes[2] = false
-        self.outcomes[3] = false
-    end
+-- `forced_outcomes` (optional): a pre-rolled {bool,bool,bool} from
+-- rollOutcomes, used by the resumable-shove path. Without it (debug F2 /
+-- START_IN_SHOVE) the gauntlet rolls its own.
+function Gauntlet:begin(forced_outcomes)
+    self.state = "running"
+
+    local o = forced_outcomes
+        or Gauntlet.rollOutcomes(self.game.state, self.rates)
+    self.outcomes[1] = o[1] and true or false
+    self.outcomes[2] = o[2] and true or false
+    self.outcomes[3] = o[3] and true or false
 
     self:_constructJointly()
     self:_evaluateAllRunouts()

@@ -67,6 +67,7 @@ local StoryDirector    = require("controllers.StoryDirector")
 local StoryView        = require("views.StoryView")
 local HintMarks        = require("views.HintMarks")
 local RadioVoice       = require("services.RadioVoice")
+local MusicDirector    = require("services.MusicDirector")
 local Story            = require("data.story")
 local PokerActionApply = require("models.poker_action_apply")
 local GrindState   = require("states.GrindState")
@@ -237,8 +238,16 @@ local function buildGame()
     if type(prefs.volume) == "number" then
         SoundService.setMasterVolume(prefs.volume)
     end
+    if type(prefs.sfx_volume) == "number" then
+        SoundService.setSfxVolume(prefs.sfx_volume)
+    end
+    if type(prefs.music_volume) == "number" then
+        SoundService.setMusicVolume(prefs.music_volume)
+    end
     g.settings = {
         volume            = SoundService.getMasterVolume(),
+        sfx_volume        = SoundService.getSfxVolume(),
+        music_volume      = SoundService.getMusicVolume(),
         -- Tri-state on purpose: nil = never asked. Coercing nil to false
         -- here made GrindState's first-run consent ask unreachable, so the
         -- modal never showed and web analytics silently never sent.
@@ -504,6 +513,9 @@ function love.update(dt)
             and not Game.story:isPaused()
             and Game.story_view:isTyping())
     end
+    -- The music layer: jazz through the intercom until the player owns
+    -- speakers; cut by the House's voice, the gauntlet, and the menus.
+    MusicDirector.update(dt, Game)
     Game.floating_text.update(dt)
     FlightSystem.update(dt)
     ChipPile.update(dt)

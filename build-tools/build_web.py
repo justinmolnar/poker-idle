@@ -73,9 +73,14 @@ LOVEJS_CANDIDATES = [
 ALLOW_DIRTY = "--allow-dirty" in sys.argv
 DEMO_BUILD = "--demo" in sys.argv
 
-# Audio folders SoundLoader discovers dynamically — they ship whole (minus
-# raw/ subfolders, which the loader itself skips).
-DISCOVERY_PREFIXES = ("assets/audio/items/", "assets/audio/room/", "assets/audio/felt/")
+# Audio folders discovered dynamically at runtime — they ship whole (minus
+# raw/ subfolders, which SoundLoader itself skips). radio/ is the intercom
+# voice (services/RadioVoice), music/ the music layer (services/
+# MusicDirector); neither is referenced from data/sounds.lua, so without
+# these entries the prune would silently strip them from web builds.
+DISCOVERY_PREFIXES = ("assets/audio/items/", "assets/audio/room/",
+                      "assets/audio/felt/", "assets/audio/radio/",
+                      "assets/audio/music/")
 
 
 def log(msg):

@@ -45,6 +45,9 @@ local CatalogReceipt = require("views.CatalogReceipt")
 -- serial on a card doesn't shuffle as pages filter items in and out.
 local CATALOG_ORD = {}
 for i, it in ipairs(Catalog) do CATALOG_ORD[it.id] = i end
+-- Display names by id, for the "Stocked after the X." prerequisite line.
+local CATALOG_NAME = {}
+for _, it in ipairs(Catalog) do CATALOG_NAME[it.id] = it.name end
 
 local drawFrontCover   -- defined below; _drawClosedOnFelt above it uses it
 local SLIDE_IN_SECS = 0.45
@@ -85,7 +88,7 @@ local CARD_H            = 84
 -- Slot-units per leaf. An item costs 1 unless it declares `slots` (the
 -- cursor hero is 3, filling a leaf on its own). Both the department packer
 -- in :_pages and the card loop in drawLeaf budget against this.
-local LEAF_SLOTS        = 3
+local LEAF_SLOTS        = 4
 
 
 -- Kept for external callers (host measures header height off this).
@@ -656,12 +659,20 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- Meeting the condition does NOT clear the sticker. It fills, and then it
     -- sits there being peelable until someone peels it, so the reveal is an
     -- act rather than something that quietly happened between sessions.
+    -- TWO kinds of gate, ONE sticker. `unlock` is the earned-condition
+    -- gate (counted, e.g. "100 jackpots won"); `requires` is the
+    -- item-prerequisite gate ("after No. 038, the Bonsai"). Either (or
+    -- both) puts the COMING SOON sticker on the card, with a row per
+    -- gate; when everything is satisfied it flips to PEEL TO OPEN.
     local has_gate   = item.unlock ~= nil
-    local met        = (not has_gate) or catalogUnlocked(self.game, item, state)
-    local peeled     = (not has_gate) or isPeeled(state, item.id)
-    local sticker_on = (not is_owned) and has_gate and ((not met) or (not peeled))
+    local req_locked = (item.requires ~= nil) and (not owned[item.requires])
+    local gated      = has_gate or (item.requires ~= nil)
+    local cond_met   = (not has_gate) or catalogUnlocked(self.game, item, state)
+    local met        = cond_met and (not req_locked)
+    local peeled     = (not gated) or isPeeled(state, item.id)
+    local sticker_on = (not is_owned) and gated and ((not met) or (not peeled))
     local unlock_locked = sticker_on
-    local locked     = (item.requires and not owned[item.requires]) or sticker_on
+    local locked     = req_locked or sticker_on
     local is_corrupted = false
     if state.corrupted_items then
         for _, cid in ipairs(state.corrupted_items) do
@@ -842,15 +853,38 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- column has to know where the sticker starts in order to stay out from
     -- under it. Guessing a reserve from a character-width estimate is how you
     -- get a name running beneath a sticker at one font scale and not another.
-    local st_x, st_y, st_w, st_h, st_angle
+    -- TWO sticker TYPES, visually distinct so the fix is legible at a
+    -- glance: COMING SOON (cream/amber, counting) is an earned condition
+    -- — keep playing; SEE No. NNN (pale blue slip, binary) is an item
+    -- prerequisite — go buy that card. A dual-gated item wears both.
+    -- When every gate is met, exactly ONE sticker remains and turns green
+    -- PEEL TO OPEN: the condition sticker when there is one, else the
+    -- prerequisite slip.
+    local st_x, st_y, st_w, st_h, st_angle          -- condition sticker
     local st_line, st_counter, st_frac
-    if unlock_locked then
+    local rq_x, rq_y, rq_w, rq_h, rq_angle          -- prerequisite slip
+    local rq_title, rq_line, rq_frac, rq_ready
+    local show_cond = unlock_locked and has_gate
+                      and ((not cond_met) or (met and not peeled))
+    local show_req  = unlock_locked and (item.requires ~= nil)
+                      and (req_locked or ((not has_gate) and met and not peeled))
+    if show_cond then
         local reg = self.game.unlock_rules
-        local cur, target
-        st_frac = 0
-        if reg then st_frac, cur, target = reg:progress(item.unlock, state) end
-        st_line    = (item.unlock and item.unlock.text) or ""
-        st_counter = unlockCounter(item.unlock, cur, target)
+        -- A gate whose TEXT would introduce a mechanic the player hasn't
+        -- met yet carries unlock.mystery (a condition for when the words
+        -- become speakable). Until then the sticker reads "???" — the
+        -- card is never hidden, the reason is.
+        local mystery = item.unlock.mystery
+        local known = (not mystery) or (reg and reg:check(mystery, state))
+        if not known then
+            st_line, st_counter, st_frac = "???", nil, 0
+        else
+            local cur, target
+            st_frac = 0
+            if reg then st_frac, cur, target = reg:progress(item.unlock, state) end
+            st_line    = (item.unlock and item.unlock.text) or ""
+            st_counter = unlockCounter(item.unlock, cur, target)
+        end
 
         st_h = Sticker.heightFor(fonts, s, true)
         -- Sized to its own text, then clamped to the band. A sticker stretched
@@ -883,6 +917,33 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         -- but still both ways.
         local _, _, angle = Decal.place("coming_soon:" .. item.id, { angle = 0.10 })
         st_angle = angle
+    end
+    if show_req then
+        rq_ready = met and not peeled                 -- the peelable state
+        rq_title = rq_ready and STICKER_READY
+                   or ("SEE No. %03d"):format(CATALOG_ORD[item.requires] or 0)
+        rq_line  = "the " .. (CATALOG_NAME[item.requires] or item.requires)
+        rq_frac  = rq_ready and 1 or 0
+        rq_h = Sticker.heightFor(fonts, s, true)
+        local want_w = Sticker.widthFor(fonts, s, rq_title, rq_line, nil)
+        rq_w = math.min((x + w - fl(12 * s)) - (img_x + img_w + fl(12 * s)), want_w)
+        rq_x = Decal.lerp("rq_x:" .. item.id, 3,
+                          img_x + img_w + fl(10 * s),
+                          x + w - fl(10 * s) - rq_w)
+        rq_y = Decal.lerp("rq_y:" .. item.id, 4,
+                          y + fl(3 * s),
+                          y + h - rq_h - fl(3 * s))
+        local _, _, angle = Decal.place("see_no:" .. item.id, { angle = 0.10 })
+        rq_angle = angle
+        -- Both stickers up: keep the slip clear of the condition sticker
+        -- (push it to whichever half has room).
+        if show_cond and not (rq_y + rq_h < st_y or rq_y > st_y + st_h) then
+            if st_y - fl(4 * s) - rq_h >= y + fl(3 * s) then
+                rq_y = st_y - fl(4 * s) - rq_h
+            else
+                rq_y = math.min(st_y + st_h + fl(4 * s), y + h - rq_h - fl(3 * s))
+            end
+        end
     end
 
     -- No per-item shove stat on the card: an item is a thing you own, and
@@ -1012,29 +1073,32 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- message: the requirement, the raw count, and a stock that fills as you
     -- close the gap. Everything before this is deliberately quiet about the
     -- lock (darker paper, dimmed name) — the sticker is the loud part.
-    if sticker_on then
-        -- A met-but-unpeeled sticker is the one you can grab. Record its rect
-        -- so :consumeMouse can hit-test it, and read back how far the current
-        -- drag has pulled it.
-        local peel = 0
-        if met then
-            if not self.flip_t then
-                self._stickers[#self._stickers + 1] = {
-                    x = st_x, y = st_y, w = st_w, h = st_h, id = item.id,
-                }
-            end
-            if self._peel and self._peel.id == item.id then
-                peel = self._peel.amount or 0
-            end
+    -- A met-but-unpeeled sticker is the one you can grab. Record its rect
+    -- so :consumeMouse can hit-test it, and read back how far the current
+    -- drag has pulled it. Only the surviving sticker is ever peelable.
+    local peel = 0
+    if met and not peeled and not is_owned then
+        local px_, py_, pw_, ph_ = st_x or rq_x, st_y or rq_y, st_w or rq_w, st_h or rq_h
+        if px_ and not self.flip_t then
+            self._stickers[#self._stickers + 1] = {
+                x = px_, y = py_, w = pw_, h = ph_, id = item.id,
+            }
         end
+        if self._peel and self._peel.id == item.id then
+            peel = self._peel.amount or 0
+        end
+    end
 
-        -- First sticker on the page is what a "stickers show progress" hint
-        -- points at. Registered before the draw, off the rect the draw uses,
-        -- and only when not mid-flip (same rule as the hit rects).
-        if not self.flip_t and not self._anchored_sticker then
-            self._anchored_sticker = true
-            Anchors.set("catalog:sticker:first", st_x, st_y, st_w, st_h)
-        end
+    -- First sticker on the page is what a "stickers show progress" hint
+    -- points at. Registered before the draw, off the rect the draw uses,
+    -- and only when not mid-flip (same rule as the hit rects).
+    if (show_cond or show_req) and not self.flip_t and not self._anchored_sticker then
+        self._anchored_sticker = true
+        local ax_, ay_, aw_, ah_ = st_x or rq_x, st_y or rq_y, st_w or rq_w, st_h or rq_h
+        Anchors.set("catalog:sticker:first", ax_, ay_, aw_, ah_)
+    end
+
+    if show_cond then
         Sticker.draw{
             game     = self.game,
             fonts    = fonts,
@@ -1059,6 +1123,28 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
             vinyl_token = { 1.00, 0.97, 0.88 },
             ink_token   = { 0.15, 0.15, 0.12 },
             edge_token  = { 0.15, 0.15, 0.12, 0.45 },
+        }
+    end
+    if show_req then
+        -- The prerequisite slip: a different piece of paper entirely (cool
+        -- blue against the cream promo sticker), because it asks for a
+        -- different ACTION — not "keep playing", but "go buy No. NNN".
+        Sticker.draw{
+            game     = self.game,
+            fonts    = fonts,
+            x = rq_x, y = rq_y, w = rq_w, h = rq_h,
+            scale    = s,
+            rotation = rq_angle,
+            peel     = (rq_ready and not show_cond) and peel or 0,
+            title    = rq_title,
+            line     = rq_line,
+            progress = rq_frac,
+            stock_token = { 1.00, 1.00, 1.00 },
+            panel_token = { 0.80, 0.87, 0.93 },
+            fill_token  = rq_ready and { 0.20, 0.58, 0.28 } or { 0.42, 0.56, 0.72 },
+            vinyl_token = { 0.88, 0.93, 0.97 },
+            ink_token   = { 0.13, 0.16, 0.20 },
+            edge_token  = { 0.13, 0.16, 0.20, 0.45 },
         }
     end
 
@@ -1100,15 +1186,6 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         stamp = { label = "ORDERED", color = { 0.75, 0.20, 0.20, 0.85 },
                   font = fonts.md, lw = 3,
                   hw = 55, hh = 14, r = 4 }
-    elseif locked and not unlock_locked then
-        -- SOLD OUT is only honest for a PREREQUISITE lock (you can't order
-        -- the Engraved Plaque without the Plastic Trophy). An unlock-gated
-        -- item gets no stamp; it wears the COMING SOON sticker instead, and
-        -- "SOLD OUT" over an item that is merely not-yet-earned is a second,
-        -- contradictory story about the same card.
-        stamp = { label = "SOLD OUT", color = { 0.45, 0.45, 0.45, 0.70 },
-                  font = fonts.md, lw = 2,
-                  hw = 60, hh = 12, r = 3 }
     elseif forcing_tutorial and item.id ~= "poker_poster" then
         stamp = { label = "WAIT POSTER", color = { 0.55, 0.55, 0.55, 0.60 },
                   font = fonts.sm, lw = 1.5,

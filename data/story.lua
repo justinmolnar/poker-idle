@@ -60,16 +60,15 @@ return {
                         { kind = "hands_played", max = 0 },
                         { kind = "tables_open",  max = 0 } },
             lines = {
-                { text = "Welcome in. Have a seat. You play, I run the room. Easy." },
-                { text = "Two dollars to start. It's yours. Win one big hand and you walk out of here.",
-                  anchor = "cell:bankroll" },
-                { text = "Open a table.",
+                { text = "Morning, princess. Sleep okay. Doesn't matter, you look great." },
+                { text = "I know you've got questions. I've got answers. Not yet, though. Answers are for poker players, and so far all you've done is stand there." },
+                { text = "That's two dollars on the desk. Call it a loan. Put it on the felt.",
                   anchor = "add_table:s001:zoom",
                   force  = true,
                   wait   = { kind = "tables_open", min = 1 } },
-                { text = "There go your two dollars, onto the felt. Money on a table is tied up, not gone. Close the table, or CASH OUT, and it comes back.",
+                { text = "There they go. Money on a table is tied up, not gone. You want it back, you cash out. You won't want it back.",
                   anchor = { "cell:tied", "btn:cash_out" } },
-                { text = "Click anywhere on the felt to deal a hand.",
+                { text = "Deal.",
                   anchor = "table:1",
                   force  = true,
                   wait   = { kind = "hands_played", min = 1 } },
@@ -87,7 +86,7 @@ return {
                         { kind = "hands_played", min = 1 },
                         { kind = "bankroll",     min = 0.001 } },
             lines = {
-                { text = "See that? A table only holds its buy-in. Win past full and the rest spills straight into your pocket.",
+                { text = "See that. A table only holds its buy-in. Win past full and the rest spills straight into your pocket. That part's not the loan. That part's yours.",
                   anchor = "cell:bankroll" },
             },
         },
@@ -100,7 +99,7 @@ return {
             screen  = "grind",
             trigger = { kind = "can_afford_run_upgrade", id = "sharper_reads", safe = true },
             lines = {
-                { text = "The rack on the right makes you better at every table. You can afford Sharper Reads. Grab it.",
+                { text = "The rack on the right makes you better at every table. You can afford Sharper Reads. Grab it. I stock that rack myself.",
                   anchor = "buy_runup_sharper_reads",
                   show   = { kind = "can_afford_run_upgrade", id = "sharper_reads", safe = true },
                   force  = true,
@@ -118,7 +117,7 @@ return {
             screen  = "grind",
             trigger = { kind = "hu_unlocked" },
             lines = {
-                { text = "You can afford another seat, and the duel just opened. Heads-Up. One opponent, whole stacks, both ways. It's where I pay. It's also where you get taken.",
+                { text = "Look at you, a second buy-in already. The duel just opened. Heads-Up. One opponent, whole stacks, both ways. It's where I pay. It's also where you get taken.",
                   anchor = "gtype:hu" },
                 { text = "Sit down.",
                   anchor = { "gtype:hu", "add_table:s001:hu" },
@@ -137,7 +136,7 @@ return {
             screen  = "grind",
             trigger = { kind = "chips_this_run", min = 1 },
             lines = {
-                { text = "Oh, nice. That's a {chip}. Take a whole stack off a table and it pays one. Once per table per run, so spread out.",
+                { text = "Oh, nice. That's a {chip}. Real gold, I weigh them myself. Take a whole stack off a table and it pays one. Once per table per run, so spread out.",
                   anchor = "chip_badge:banked" },
                 { text = "You could've seen it coming. Hover the readout under a table. Go on.",
                   anchor = { "ev:1", "ev:2", "ev:3", "ev:4" },
@@ -145,11 +144,11 @@ return {
                   wait   = { kind = "hovering", anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } } },
                 { text = "Everything a table does per hour, and its odds at all four pot sizes. The gold {w:stack} is the one that pays: its shot at a whole stack.",
                   anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } },
-                { text = "Now compare your rooms. Zoom sits under a percent. The duel runs a third. Different tables, different jobs.",
+                { text = "Now compare your rooms. Zoom sits under a percent. The duel runs a third.",
                   anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } },
-                { text = "Anything I teach you gets written down. The desk under my poster keeps the glossary.",
+                { text = "Anything I teach you gets written down. The desk under my poster keeps the glossary. I keep very good records.",
                   anchor = "btn:help" },
-                { text = "Get three of those and we'll talk about the door.",
+                { text = "Get three of those and you get your first answer.",
                   anchor = "chip_badge:shove" },
             },
         },
@@ -161,10 +160,10 @@ return {
             screen  = "grind",
             trigger = { kind = "chips_this_run", min = Constants.GAMEPLAY.SHOVE_UNLOCK_CHIPS },
             lines = {
-                { text = "Three! Look at you. So here's how you get out of here.", anchor = "chip_badge:shove" },
-                { text = "One hand, everything you've got on it. Win, and you walk out with the lot. Lose, and you keep the {chip}. No harm done.",
+                { text = "Three! Look at you. So here's your answer, the only one that matters. The door.", anchor = "chip_badge:shove" },
+                { text = "One hand, everything you've got on it. Win, and you walk out with the lot. Lose, and you keep the {chip}. The loan renews. No harm done.",
                   anchor = "btn:shove" },
-                { text = "Whenever you're ready. No rush.", anchor = "btn:shove" },
+                { text = "Whenever you're ready. No rush. I'm always here.", anchor = "btn:shove" },
             },
         },
 
@@ -175,7 +174,7 @@ return {
             screen  = "shove",
             trigger = { kind = "shove_phase", phase = "buildup" },
             lines = {
-                { text = "Everything you've got, in one pile. Here we go.",
+                { text = "Everything you've got, in one pile. I love this part.",
                   anchor = "shove:pot" },
                 { text = "ITEMS is how many things you own. BANK is your money. The bar under them is your number. Keep an eye on it.",
                   anchor = "shove:readout",
@@ -191,6 +190,12 @@ return {
                   anchor = "shove:summary" },
             },
         },
+        -- NOT HIS. Corruption and {achip} get no tutorialization anywhere:
+        -- he didn't put them in the book, he doesn't know what they do,
+        -- and neither does the player. Weird text appears in the catalog;
+        -- figure it out, or don't. All he does is NOTICE — and spend his
+        -- second-ever question mark on it (legal: this is post-panic_won).
+
         -- Gated on the card being ON the felt, never a flag: nothing may
         -- name a cheat before the player has seen one.
         {
@@ -198,7 +203,7 @@ return {
             screen  = "shove",
             trigger = { kind = "cheat_dealt", min = 1 },
             lines = {
-                { text = "That card landed on your ITEMS and took them out of the count. The bar shows what's left. House rules. Plan around it.",
+                { text = "That card landed on your ITEMS and took them out of the count. The bar shows what's left. House rules. Nothing personal.",
                   anchor = "shove:cheat_6" },
             },
         },
@@ -209,11 +214,11 @@ return {
             screen  = "shove",
             trigger = { kind = "catalog_open" },
             lines = {
-                { text = "Before you head back, have a look at the catalog. Anything in here you keep. Buy it once, it's yours.",
+                { text = "Before you head back, have a look at the catalog. Anything in here you keep. Buy it once, it's yours. Not a loan, that part.",
                   anchor = "catalog:book" },
                 { text = "That stamp's the price. Stickered ones aren't ready yet. The count says how close.",
                   anchor = { "catalog:price:first", "catalog:sticker:first" } },
-                { text = "Close it when you're done and we'll set you back up.", anchor = "catalog:continue" },
+                { text = "Close it when you're done and we'll set you back up. On the house.", anchor = "catalog:continue" },
             },
         },
 
@@ -226,11 +231,11 @@ return {
                         { kind = "has_shoved" },
                         { kind = "tables_open", min = 1 } },
             lines = {
-                { text = "And we're back to two dollars. That's a run. Sharper Reads went with it. Those reset. The catalog doesn't.",
+                { text = "And we're back to two dollars. Same loan, same terms. That's a run. Sharper Reads went with it. Those reset. The catalog doesn't.",
                   anchor = { "cell:bankroll", "buy_runup_sharper_reads" } },
                 { text = "Your odds on the big hand: what you own, times what you hold. So it's about {chip} now. Every table pays one. Collect, then shove. You'll get it. Next time.",
                   anchor = { "cell:shove", "chip_badge:shove" } },
-                { text = "One more thing. The catalog's got the key to the 6-Max room now. The long game. Slow, deep, worth it.",
+                { text = "One more thing. The key to the 6-Max room is in the catalog. Keep collecting. The long game. Slow, deep, worth it. Best carpet in the building.",
                   anchor = "gtype:six_max" },
             },
         },
@@ -242,7 +247,7 @@ return {
             screen  = "grind",
             trigger = { kind = "gtype_table_open", gtype = "six_max" },
             lines = {
-                { text = "The long game. Slow hands, five stacks on the table, and the fattest pots in the room when one finally lands.",
+                { text = "The long game. Slow hands, five stacks on the table, and the fattest pots in the room when one finally lands. And one always lands.",
                   anchor = "gtype:six_max" },
             },
         },
@@ -251,7 +256,7 @@ return {
             screen  = "grind",
             trigger = { kind = "gtype_table_open", gtype = "mtt" },
             lines = {
-                { text = "A tournament. One buy-in, no rebuy, eight seats, ten blinds each, and it deals itself. Top three cash. Win it outright for the {chip}.",
+                { text = "A tournament. One buy-in, no rebuy, eight seats, ten blinds each, and it deals itself. Top three cash. Win it outright for the {chip}. Great business, tournaments.",
                   anchor = "gtype:mtt" },
             },
         },
@@ -260,7 +265,7 @@ return {
             screen  = "grind",
             trigger = { kind = "owns_item", id = "box_of_mice" },
             lines = {
-                { text = "The cursors deal for you now. More of them, and faster, in the sidebar. The D on a table stops them dealing there.",
+                { text = "Look at you, management. The cursors deal for you now. More of them, and faster, in the sidebar. The D on a table stops them dealing there.",
                   anchor = { "buy_runup_box_of_mice", "buy_runup_cursor_speed" } },
             },
         },
@@ -273,7 +278,7 @@ return {
             screen  = "grind",
             trigger = { kind = "can_afford_stake", stake = "s002" },
             lines = {
-                { text = "NL10's open. Ten times the money, but the players are better. Worth an upgrade or two first.",
+                { text = "NL10's open. Ten times the money, but the players are better. Worth an upgrade or two first. Just my advice. It's good advice.",
                   anchor = "add_table:s002:zoom" },
             },
         },
@@ -282,7 +287,7 @@ return {
             screen  = "grind",
             trigger = { kind = "any_table_busted" },
             lines = {
-                { text = "Empty, not gone. REBUY puts a fresh stack on it.",
+                { text = "Empty, not gone. REBUY puts a fresh stack on it. Happens to everyone.",
                   anchor = "rebuy:any" },
             },
         },
@@ -291,7 +296,7 @@ return {
             screen  = "grind",
             trigger = { kind = "total_denied_stacks", min = 1 },
             lines = {
-                { text = "That table's already paid its {chip}. Each stake and game pays once per run. Climb, or come back next run.",
+                { text = "That table's already paid its {chip}. Each stake and game pays once per run. Climb, or come back next run. I keep count. It's what I do.",
                   anchor = "chip_badge:banked" },
             },
         },
@@ -300,7 +305,7 @@ return {
             screen  = "grind",
             trigger = { kind = "focus_overloaded" },
             lines = {
-                { text = "That's a lot of tables. You're playing all of them a bit worse. Close one, or grab Focus.",
+                { text = "Easy, tiger. That's a lot of tables, and you're playing all of them a bit worse. Close one, or grab Focus.",
                   anchor = { "cell:focus", "buy_runup_focus" } },
             },
         },
@@ -309,7 +314,7 @@ return {
             screen  = "room",
             trigger = { kind = "screen", name = "room" },
             lines = {
-                { text = "Everything you buy ends up in here. PLAY takes you back to the tables.",
+                { text = "Everything you buy ends up in here. It'll fill up. PLAY takes you back to the tables.",
                   anchor = "room:play" },
             },
         },
@@ -318,9 +323,9 @@ return {
             screen  = "shove",
             trigger = { kind = "all",
                         { kind = "catalog_open" },
-                        { kind = "anti_chips", min = 1 } },
+                        { kind = "corrupted_count", min = 1 } },
             lines = {
-                { text = "Things you own can be corrupted for {achip}. Corrupted ones do far worse things.",
+                { text = "Wait. What did you do to it?",
                   anchor = "catalog:corrupt:first" },
             },
         },
@@ -331,9 +336,9 @@ return {
             screen  = "grind",
             trigger = { kind = "act2_unlocked" },
             lines = {
-                { text = "You actually won that. Good for you. The next hand doesn't count your catalog. Just your deck.",
+                { text = "You actually won that. Good for you. The next hand doesn't count your catalog. Just your deck. Same loan, new terms.",
                   anchor = "cell:deck" },
-                { text = "It levels up as it plays, and its bonus is on every hand. Max out five and something new joins the rack.",
+                { text = "It levels up as it plays, and its bonus is on every hand. Level them all you want. It keeps you busy.",
                   anchor = "cell:deck" },
                 -- Anchored on a zoom row: 6-max may still be behind its
                 -- catalog key here, but zoom is always open and s004
@@ -366,9 +371,23 @@ return {
             lines = {
                 { text = "Twice. Honestly, that's a first. Bad news: the last card covers your multiplier, so the final hand is a zero however rich you are.",
                   anchor = "cell:shove" },
-                { text = "Good news: lose a whole stack anywhere and I'll pay you for it. The cheaper the table, the more. Spend those in the catalog on things you already own.",
-                  anchor = { "cell:achips", "btn:catalog" } },
-                { text = "And your money sits in a box with a bottom. Lose a whole stack at the top table and it falls out.", anchor = "cell:bankroll" },
+                { text = "No new deck this time. No new terms. That's the game now. Play as long as you like." },
+            },
+        },
+
+        -- The top table opens (the Ultra key was bought). He has NO idea
+        -- the count can break; to him this is simply the biggest game in
+        -- the building and the player finally sitting where the real
+        -- money moves. He'd love it. No signposting toward the ending is
+        -- needed: corruption itself is the signpost (stuff he doesn't
+        -- know about exists, it's happening, and he doesn't like it).
+        {
+            id      = "the_top_table",
+            screen  = "grind",
+            trigger = { kind = "ultra_unlocked" },
+            lines = {
+                { text = "The top table's open. Biggest game in the building. Go on.",
+                  anchor = "add_table:s010:zoom" },
             },
         },
 
@@ -396,7 +415,7 @@ return {
 
     shove = {
         pushing        = { text = "Pushing all in." },
-        arrive         = { text = "All of it. Here we go." },
+        arrive         = { text = "All of it. That's the spirit." },
         loss           = { text = "Ah. House wins that one. Next time." },
         -- The panic. Only reachable after a runout win; the one place the
         -- host's mask slips.
@@ -418,7 +437,7 @@ return {
 
         -- The room, before the felt: counting what you own.
         room_count     = { text = "Let's see what you've got." },
-        room_done      = { text = "That's your room." },
-        room_empty     = { text = "Nothing yet. That's fine." },
+        room_done      = { text = "That's your room. Not bad." },
+        room_empty     = { text = "Nothing yet. That's fine. We'll fix that." },
     },
 }
