@@ -2565,9 +2565,9 @@ function GrindView:draw(overlay_fn)
 
     if overlay_fn then overlay_fn() end
 
-    -- Hover tooltip — sits above gameplay layers but below the backtick
-    -- debug overlay (which is the absolute top).
-    TooltipSvc.draw(self.game.fonts)
+    -- The hover tooltip is drawn by main.lua now, ABOVE the story dim and
+    -- panel — the forced EV-hover lesson was rendering its own teaching
+    -- material under the dim from here.
 
     -- Backtick debug tooltip — flushed last so it draws above every other
     -- view layer (sidebar panels, shove button, floating text, chips,

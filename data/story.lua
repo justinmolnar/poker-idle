@@ -17,19 +17,36 @@
 -- Beat:  id, screen (the screen whose box it draws in; it pauses on any
 --        other), trigger (a condition, kinds in models/hint_rules.lua),
 --        lines.
+--
+-- LINES ARE MODAL. While any line is visible, the game keeps simulating
+-- but the PLAYER is paused: every gameplay click and key is swallowed
+-- (main.lua), and a click ANYWHERE — or SPACE — completes the typewriter,
+-- then advances. Comms are cleared actively, never ignored. The screen
+-- always dims under a line: full spotlight strength with holes over the
+-- line's anchor marks when it points at something, a quarter-strength
+-- wash when it doesn't. ESC still opens settings (which pauses the beat).
+--
 -- Line:  a BLOCK of text: as many sentences as one click's worth of
 --        reading, wrapped in the box. Fields: text ({chip} markers
---        render), anchor (name or list; gets the pulsing mark), and ONE of:
---          hold = "click"   waits for a click on the box or SPACE (default)
+--        render; {dyn:NAME} tokens resolve to live numbers through
+--        models/story_dynamic — never hardcode a number the game
+--        computes), anchor (name or list; pulsing mark + spotlight
+--        holes), and ONE of:
+--          hold = "click"   waits for a click anywhere / SPACE (default)
 --          hold = <secs>    advances itself
---          wait = cond      after it is said, blocks until cond passes
+--          wait = cond      after it is said, blocks until cond passes.
+--                           HARD RULE: a `wait` line MUST also be `force`
+--                           — everything else is input-blocked, so only a
+--                           forced line's targets stay clickable and only
+--                           they can satisfy the wait.
 --        plus optionally:
---          force = true     with `wait`: the screen dims to the line's
---                           targets and clicks anywhere else are swallowed
---                           until the wait passes. The action IS the
---                           advance. Only force what is certainly doable:
---                           free (a hover, a click), or guarded by a
---                           `show` that re-checks affordability.
+--          force = true     with `wait`: clicks inside the line's fresh
+--                           marks pass through to the game — the action
+--                           IS the advance; everything else is swallowed.
+--                           Only force what is certainly doable: free (a
+--                           hover, a click), or guarded by a `show` that
+--                           re-checks affordability. No fresh target = no
+--                           lock, so a forced line never dead-locks.
 --          show = cond      the block is not said until cond passes
 --          delay = <secs>   pause before it is said
 --          font = "sm"      smaller than the default md
@@ -144,7 +161,7 @@ return {
                   wait   = { kind = "hovering", anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } } },
                 { text = "Everything a table does per hour, and its odds at all four pot sizes. The gold {w:stack} is the one that pays: its shot at a whole stack.",
                   anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } },
-                { text = "Now compare your rooms. Zoom sits under a percent. The duel runs a third.",
+                { text = "Now compare your rooms. Zoom's gold number sits at {dyn:stack_odds_zoom} a hand. The duel runs {dyn:stack_odds_hu}.",
                   anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } },
                 { text = "Anything I teach you gets written down. The desk under my poster keeps the glossary. I keep very good records.",
                   anchor = "btn:help" },
@@ -278,7 +295,7 @@ return {
             screen  = "grind",
             trigger = { kind = "can_afford_stake", stake = "s002" },
             lines = {
-                { text = "NL10's open. Ten times the money, but the players are better. Worth an upgrade or two first. Just my advice. It's good advice.",
+                { text = "NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better. Worth an upgrade or two first. Just my advice. It's good advice.",
                   anchor = "add_table:s002:zoom" },
             },
         },

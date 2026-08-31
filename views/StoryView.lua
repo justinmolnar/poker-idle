@@ -18,19 +18,22 @@
 -- ShoveView draws its own one-line headline through drawLine, which is the
 -- plain caption style (no box); the shove's band was designed that way.
 
-local Theme      = require("views.Theme")
-local IconText   = require("views.IconText")
-local HintMarks  = require("views.HintMarks")
-local HintView   = require("views.HintView")
-local RadioVoice = require("services.RadioVoice")
+local Theme        = require("views.Theme")
+local IconText     = require("views.IconText")
+local HintMarks    = require("views.HintMarks")
+local HintView     = require("views.HintView")
+local RadioVoice   = require("services.RadioVoice")
+local StoryDynamic = require("models.story_dynamic")
 
 local StoryView = {}
 StoryView.__index = StoryView
 
-local SPEAKER     = "THE HOUSE"
+-- No speaker label: the voice is never named, not even here. The poster,
+-- the intercom, and the shout-burst tail say who is talking.
 local MAX_W_BASE  = 640     -- panel width cap, before ui_scale
 local PAD_BASE    = 14
 local WORDS_PER_SEC = 9     -- typewriter reveal rate (the speaking cadence)
+local CUE_TEXT    = "click anywhere to continue"
 
 function StoryView:new(game)
     return setmetatable({
@@ -76,10 +79,6 @@ function StoryView:draw(line, opts)
     local font  = fonts[line.font or "md"] or fonts.md
     local pad   = fl(PAD_BASE * s)
     local pw    = math.min(band[3], fl(MAX_W_BASE * s))
-    local lines = HintView.wrapLines(line.text, font, pw - pad * 2)
-    local lh    = font:getHeight()
-    local label_h = fonts.sm:getHeight()
-    local ph    = pad + label_h + fl(4 * s) + #lines * lh + pad
 
     -- Typewriter: the block SPEAKS itself in, word by word. The reveal
     -- window is what everything else keys on — the balloon buzz here,
@@ -88,15 +87,26 @@ function StoryView:draw(line, opts)
     -- block lands). The panel is sized from the FULL text, so nothing
     -- moves while the words arrive. Advancing only while the band
     -- actually draws means a paused beat pauses mid-word too.
+    -- {dyn:*} tokens resolve HERE, once per block, the moment it lands:
+    -- the House reads the numbers off the player's actual game
+    -- (models/story_dynamic), and everything below uses the resolved text.
     local key = tostring(line.beat or "") .. ":" .. tostring(line.index or 0)
     local rv = self._reveal
     if not rv or rv.key ~= key then
+        local text = StoryDynamic.resolve(game, tostring(line.text))
         local words = {}
-        for wd in tostring(line.text):gmatch("%S+") do words[#words + 1] = wd end
-        rv = { key = key, words = words, shown = 0, acc = 0 }
+        for wd in text:gmatch("%S+") do words[#words + 1] = wd end
+        rv = { key = key, text = text, words = words, shown = 0, acc = 0 }
         self._reveal = rv
         RadioVoice.lineStarted()
     end
+
+    local lines = HintView.wrapLines(rv.text, font, pw - pad * 2)
+    local lh    = font:getHeight()
+    -- A cue row is always reserved (drawn only on a finished hold), so the
+    -- panel never resizes the instant the typewriter completes.
+    local cue_h = fonts.sm:getHeight() + fl(4 * s)
+    local ph    = pad + #lines * lh + cue_h + pad
     if rv.shown < #rv.words then
         rv.acc   = rv.acc + love.timer.getDelta() * WORDS_PER_SEC
         rv.shown = math.min(#rv.words, math.floor(rv.acc))
@@ -115,6 +125,33 @@ function StoryView:draw(line, opts)
     local py
     if by + bh / 2 > H / 2 then py = by + bh - ph else py = by end
     py = math.max(fl(4 * s), math.min(py, H - ph - fl(4 * s)))
+
+    -- Never sit on what you're pointing at. If the panel covers more than
+    -- ~30% of any of this line's marks, slide it up until clear of the
+    -- topmost such mark (down past the bottom one when up would leave the
+    -- screen). The box saying "BANKED is yours to keep" was covering the
+    -- banked readout.
+    if #marks > 0 then
+        local gap = fl(8 * s)
+        local top, bottom
+        for _, m in ipairs(marks) do
+            local mw, mh = m.w or 0, m.h or 0
+            local ix = math.max(0, math.min(px + pw, m.x + mw) - math.max(px, m.x))
+            local iy = math.max(0, math.min(py + ph, m.y + mh) - math.max(py, m.y))
+            if ix * iy > 0.30 * math.max(1, mw * mh) then
+                if not top or m.y < top then top = m.y end
+                if not bottom or m.y + mh > bottom then bottom = m.y + mh end
+            end
+        end
+        if top then
+            local up = top - gap - ph
+            if up >= fl(4 * s) then
+                py = up
+            elseif bottom + gap + ph <= H - fl(4 * s) then
+                py = bottom + gap
+            end
+        end
+    end
 
     -- The balloon. When the intercom on the House's poster is on screen,
     -- the box grows a jagged comic shout-burst tail to it (the box is
@@ -201,23 +238,22 @@ function StoryView:draw(line, opts)
 
     love.graphics.pop()   -- the text below stays planted while the box buzzes
 
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor(Theme.fg.faint)
-    love.graphics.print(SPEAKER, px + pad, py + pad)
-
-    local ty = py + pad + label_h + fl(4 * s)
+    local ty = py + pad
     for i, l in ipairs(shown_lines) do
         IconText.draw(game, l, px + pad, ty + (i - 1) * lh, font, Theme.fg.heading)
     end
 
+    -- The advance affordance: play is blocked while a line is up, and any
+    -- click continues, so the cue says exactly that — centred in the
+    -- reserved bottom row, pulsing hard enough to be found.
     if opts.holding and not typing then
-        local cue = "click"
         local cf  = fonts.sm
-        local cw  = cf:getWidth(cue)
-        local pulse = 0.4 + 0.25 * math.sin(love.timer.getTime() * 3)
+        local cw  = cf:getWidth(CUE_TEXT)
+        local pulse = 0.55 + 0.35 * math.sin(love.timer.getTime() * 3)
         love.graphics.setFont(cf)
-        Theme.setColor(Theme.fg.faint, pulse)
-        love.graphics.print(cue, px + pw - pad - cw, py + pad)
+        Theme.setColor(Theme.fg.muted, pulse)
+        love.graphics.print(CUE_TEXT,
+            fl(px + (pw - cw) / 2), py + ph - pad - cf:getHeight())
     end
 
     self.band_rect = { x = px, y = py, w = pw, h = ph }

@@ -218,8 +218,22 @@ end
 -- overwrites any earlier band it covers, so where two holes' feathers
 -- overlap the pixel ends at the LOWEST alpha of the two — soft holes
 -- union cleanly with no seams.
-function HintView:_drawDim(holes)
+-- `alpha_scale` (optional) scales DIM_BASE: the story's "conversation
+-- mode" dims the whole screen at a quarter strength so it reads as a
+-- different state from the full spotlight/forced dim.
+function HintView:_drawDim(holes, alpha_scale)
     local W, H = love.graphics.getDimensions()
+    local dim  = DIM_BASE * (alpha_scale or 1)
+
+    -- No holes: nothing to feather, so skip the canvas entirely and lay
+    -- down one translucent quad.
+    if not holes or #holes == 0 then
+        Theme.setColor(Theme.debug.hud_bg, dim)
+        love.graphics.rectangle("fill", 0, 0, W, H)
+        Theme.setColor(WHITE)
+        return
+    end
+
     if not self._dim_canvas
        or self._dim_canvas:getWidth()  ~= W
        or self._dim_canvas:getHeight() ~= H then
@@ -229,8 +243,6 @@ function HintView:_drawDim(holes)
     local s    = self.game.ui_scale or 1
     local fl   = math.floor
     local prev = love.graphics.getCanvas()
-
-    local dim = DIM_BASE
 
     love.graphics.setCanvas(self._dim_canvas)
     love.graphics.clear(0, 0, 0, 0)

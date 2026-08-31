@@ -98,7 +98,7 @@ action itself advances the line. `show: <cond>` delays the line until true.
 | Oh, nice. That's a {chip}. Real gold, I weigh them myself. Take a whole stack off a table and it pays one. Once per table per run, so spread out. | `chip_badge:banked` | click |
 | You could've seen it coming. Hover the readout under a table. Go on. | `ev:1..4` | **FORCE** wait: hovering a readout |
 | Everything a table does per hour, and its odds at all four pot sizes. The gold {w:stack} is the one that pays: its shot at a whole stack. | `ev:1..4` | click |
-| Now compare your rooms. Zoom sits under a percent. The duel runs a third. | `ev:1..4` | click |
+| Now compare your rooms. Zoom's gold number sits at {dyn:stack_odds_zoom} a hand. The duel runs {dyn:stack_odds_hu}. *(live numbers from the player's game)* | `ev:1..4` | click |
 | Anything I teach you gets written down. The desk under my poster keeps the glossary. I keep very good records. | `btn:help` | click |
 | Get three of those and you get your first answer. | `chip_badge:shove` | click |
 
@@ -178,7 +178,7 @@ action itself advances the line. `show: <cond>` delays the line until true.
 ## Reactive lessons (first time the situation exists)
 
 ### `stake_ladder` — grind. Trigger: can afford NL10.
-| NL10's open. Ten times the money, but the players are better. Worth an upgrade or two first. Just my advice. It's good advice. | `add_table:s002:zoom` | click |
+| NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better. Worth an upgrade or two first. Just my advice. It's good advice. | `add_table:s002:zoom` | click |
 
 ### `first_bust` — grind. Trigger: any table busted.
 | Empty, not gone. REBUY puts a fresh stack on it. Happens to everyone. | `rebuy:any` | click |

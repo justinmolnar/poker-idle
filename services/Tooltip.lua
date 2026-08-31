@@ -39,6 +39,21 @@ function Tooltip.clear()
     _t = nil
 end
 
+-- A rect {x, y, w, h} the tooltip must not cover — the story panel while
+-- the House is talking (a forced hover lesson's tooltip was landing under
+-- the dialog). Set every frame by main.lua; nil clears it. When the
+-- default below-cursor spot intersects it, the box flips above the cursor.
+local _avoid = nil
+function Tooltip.setAvoid(rect)
+    _avoid = rect
+end
+
+local function intersects(x, y, w, h, r)
+    return r ~= nil
+       and x < r.x + r.w and x + w > r.x
+       and y < r.y + r.h and y + h > r.y
+end
+
 -- Per-line resolve: string lines render in the default font; table
 -- lines pick up font / color from their style tag (resolved against
 -- the fonts table when one is passed).
@@ -123,6 +138,10 @@ function Tooltip.draw(font_or_fonts)
     if x + box_w > screen_w then x = _t.mx - box_w - 8 end
     if x < 4 then x = 4 end
     if y + box_h > screen_h then y = screen_h - box_h - 4 end
+    -- The avoid rect wins over the default spot: go above the cursor.
+    if intersects(x, y, box_w, box_h, _avoid) then
+        y = _t.my - box_h - 14
+    end
     if y < 4 then y = 4 end
 
     Theme.setColor(Theme.bg.window, 0.95)
@@ -142,6 +161,11 @@ function Tooltip.draw(font_or_fonts)
         end
         cy = cy + (r._h or 0) + 2
     end
+
+    -- Consume on draw: main.lua now draws the tooltip once per frame above
+    -- the story layer, and the modals (catalog, settings) still draw their
+    -- own — whichever runs first takes it, so nothing double-draws.
+    _t = nil
 end
 
 return Tooltip

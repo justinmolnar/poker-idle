@@ -355,55 +355,61 @@ local function buildGame()
     g.input_dispatcher = InputDispatcher:new()
     g.input_controller = InputController:new(g)
 
-    -- A story line waiting on the player: a click on its band, or SPACE,
-    -- advances it and is consumed. Every other click passes through, so
-    -- the game keeps running while he talks. Registered ahead of the hint
-    -- layer and both state branches.
+    -- STORY LINES ARE MODAL. While a line is visible the game keeps
+    -- simulating, but the PLAYER is paused: every gameplay click and key
+    -- is consumed here, ahead of the hint layer and both state branches.
+    -- A click (or SPACE) anywhere completes the typewriter, then advances
+    -- the hold — comms must be actively cleared before play resumes. The
+    -- one passthrough is a FORCED line's own targets: a click inside a
+    -- fresh mark reaches the state, because that click IS the lesson.
+    -- No fresh target, no lock — a forced line never dead-locks a screen.
+    -- ESC always falls through (settings stay reachable; opening a menu
+    -- pauses the beat). Wheel and hover are never consumed: scrolling a
+    -- forced target back on screen must stay possible, and the forced
+    -- hover lesson needs the pointer.
     local function storyUnblocked()
         local cur = g.state_machine.current_state
         return not (cur and cur.hintsBlocked and cur:hintsBlocked())
     end
+    -- The line the player is looking at right now, or nil. Paused covers
+    -- wrong-screen, band-missing, and a target mid-grace.
+    local function storyVisibleLine()
+        if not storyUnblocked() or g.story:isPaused() then return nil end
+        return g.story:currentLine()
+    end
     -- A click (or SPACE) mid-typewriter completes the block instead of
-    -- advancing past it; the next one advances.
+    -- advancing past it; the next one advances. On a forced line neither
+    -- applies — the wait owns the release — so the click just dies here.
     local function storyAdvance()
         if g.story_view:isTyping() then g.story_view:revealAll()
-        else g.story:advance() end
+        elseif g.story:isHoldingClick() then g.story:advance() end
     end
     g.input_dispatcher:on("mousepressed",
         function(x, y)
-            return storyUnblocked() and g.story:isHoldingClick()
-                   and not g.story:isPaused() and g.story_view:hitBand(x, y)
-        end,
-        storyAdvance)
-    g.input_dispatcher:on("keypressed",
-        function(key)
-            return key == "space" and storyUnblocked()
-                   and g.story:isHoldingClick() and not g.story:isPaused()
-        end,
-        storyAdvance)
-
-    -- A forced story line locks the screen to its targets: any click
-    -- outside the highlighted rect(s) is consumed here, ahead of the
-    -- hint layer and both state branches. A click INSIDE a target falls
-    -- through to the state — that click IS the lesson. No fresh target,
-    -- no lock: a forced line never dead-locks a screen.
-    g.input_dispatcher:on("mousepressed",
-        function(x, y)
-            if not storyUnblocked() then return false end
-            local line = g.story:forcedLine()
+            local line = storyVisibleLine()
             if not line then return false end
-            local marks = HintMarks.fresh(line.anchor)
-            if #marks == 0 then return false end
-            local pad = math.floor(10 * (g.ui_scale or 1))
-            for _, m in ipairs(marks) do
-                if x >= m.x - pad and x < m.x + m.w + pad
-                   and y >= m.y - pad and y < m.y + m.h + pad then
-                    return false
+            local forced = g.story:forcedLine()
+            if forced then
+                local marks = HintMarks.fresh(forced.anchor)
+                if #marks == 0 then return false end
+                local pad = math.floor(10 * (g.ui_scale or 1))
+                for _, m in ipairs(marks) do
+                    if x >= m.x - pad and x < m.x + m.w + pad
+                       and y >= m.y - pad and y < m.y + m.h + pad then
+                        return false
+                    end
                 end
             end
             return true
         end,
-        function() end)
+        storyAdvance)
+    g.input_dispatcher:on("keypressed",
+        function(key)
+            return key ~= "escape" and storyVisibleLine() ~= nil
+        end,
+        function(key)
+            if key == "space" then storyAdvance() end
+        end)
 
     -- Hint-layer clicks are claimed here, ahead of both dispatcher branches
     -- below, so no state has to know the layer exists. The dispatcher fires
@@ -609,15 +615,24 @@ function love.draw()
             -- Everything sounds broken once the bankroll has underflowed.
             SoundService.setDamage(Game.state.underflowed and 1 or 0)
             Game.hint_view:draw(Game.hints:activeHint(), Game.hints.paused)
-            -- A forced story line dims the screen to its targets (the
-            -- same dim a sticky hint uses); StoryView then draws the
-            -- marks and the band over it. No fresh target, no dim — a
-            -- forced line never blacks out a screen it can't point at.
+            -- Every visible story line dims the screen — the player is in
+            -- a conversation and play is input-blocked, so the frame says
+            -- so. Two looks: a line pointing at something on screen gets
+            -- the full spotlight dim with holes over its targets (forced
+            -- or not); a line with nothing to point at (or whose target
+            -- graced away) gets a quarter-strength wash. StoryView then
+            -- draws the marks and the panel over it.
             do
-                local fline = Game.story:forcedLine()
-                if fline then
-                    local holes = HintMarks.fresh(fline.anchor)
-                    if #holes > 0 then Game.hint_view:_drawDim(holes) end
+                local line = (not Game.story:isPaused())
+                             and Game.story:currentLine() or nil
+                if line then
+                    local holes = line.anchor
+                                  and HintMarks.fresh(line.anchor) or {}
+                    if #holes > 0 then
+                        Game.hint_view:_drawDim(holes)
+                    else
+                        Game.hint_view:_drawDim({}, 0.25)
+                    end
                 end
             end
             -- The story band, last, so it is never under a hint's dim.
@@ -627,6 +642,13 @@ function love.draw()
             })
         end
     end
+    -- The hover tooltip, above the story dim and panel: the forced
+    -- EV-hover lesson exists to make the player READ this. It consumes
+    -- itself on draw, so when a modal (catalog, settings) already drew it
+    -- inside the state, this is a no-op. Steered away from the dialog via
+    -- the avoid rect.
+    Tooltip.setAvoid(Game.story_view.band_rect)
+    Tooltip.draw(Game.fonts)
     if Game.debug and Game.debug.perf then drawPerfHud() end
     love.graphics.setCanvas()
 
