@@ -1,0 +1,12 @@
+{
+  "name": "poker-idle-tools",
+  "private": true,
+  "description": "Headless harness for tools/sim_bridge.lua (balance sweeps). The browser tool uses vendor/fengari-web.js instead.",
+  "scripts": {
+    "sweep": "node balance_sweep.js",
+    "sweep:quick": "node balance_sweep.js --quick"
+  },
+  "dependencies": {
+    "fengari": "0.1.4"
+  }
+}

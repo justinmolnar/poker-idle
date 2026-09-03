@@ -19,7 +19,7 @@ local ShoveRate = require("models.shove_rate")
 local function simulateAct1()
     local owned_set = {}
     local owned_count = 0
-    local total_catalog_items = Balance.ACT1_ITEM_COUNT -- 25
+    local total_catalog_items = Balance.ACT1_ITEM_COUNT -- bands A+B (33)
     local chips_banked = 0
     local elapsed_minutes = 0
     
@@ -71,21 +71,26 @@ local function simulateAct1()
                 -- Heads-Up hands is run two; 500 jackpots is Act 2), not
                 -- one magic number. A requires-chain link is only buyable
                 -- once its base is owned — same rules the game enforces.
+                -- Calibrated 2026-08 from a REAL save at shove five (the
+                -- per-shove rates), times the 8 shoves Act 1 runs:
+                -- hands 800/shove, won 480, gtype ~370, 4plus 720,
+                -- jackpots 155, chips 27 (act-1 lighter: use 20),
+                -- SL 75, busts 50, rebuys 38, upgrades 23, tilts 17.
                 local ACT1_REACH = {
-                    total_hands_played     = 4000,
-                    total_hands_won        = 2200,
-                    total_hands_at_gtype   = 1500,
-                    total_hands_at_4plus   = 1500,
-                    total_hands_overwhelmed = 400,
-                    total_jackpots         = 400,
-                    total_chips_banked     = 100,
-                    lifetime_chips_banked  = 100,
-                    total_stack_losses     = 40,
-                    total_busts            = 50,
-                    total_rebuys           = 50,
-                    total_upgrade_levels   = 100,
-                    total_denied_stacks    = 40,
-                    total_tilts            = 25,
+                    total_hands_played     = 6500,
+                    total_hands_won        = 3800,
+                    total_hands_at_gtype   = 3000,
+                    total_hands_at_4plus   = 5800,
+                    total_hands_overwhelmed = 30,
+                    total_jackpots         = 1250,
+                    total_chips_banked     = 160,
+                    lifetime_chips_banked  = 160,
+                    total_stack_losses     = 600,
+                    total_busts            = 400,
+                    total_rebuys           = 300,
+                    total_upgrade_levels   = 185,
+                    total_denied_stacks    = 900,
+                    total_tilts            = 135,
                     has_shoved             = math.huge,
                     hu_unlocked            = math.huge,
                 }

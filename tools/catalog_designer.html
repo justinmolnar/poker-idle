@@ -1,0 +1,2747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catalog Designer — poker-idle</title>
+<!--
+  Standalone catalog visualizer/editor for data/catalog.lua.
+
+  HOW TO USE: open this file in Chrome/Edge (file:// is fine), click
+  "Open project folder" and pick the poker-idle repo root. The tool
+  parses data/catalog.lua + friends live.
+
+  WRITE BOUNDARY: the tool writes exactly ONE file — tools/catalog_meta.json
+  (tags + notes; the game never reads it). Game-data edits (name, cost,
+  copy, sprite) are staged locally and leave only via "Export edits"
+  as a from/to JSON handed to Claude to apply to data/catalog.lua and
+  assets/sprites/aliases.json by hand. This tool NEVER writes game files.
+
+  Colors are hardcoded from data/theme.lua (grind palette: tier.win/loss
+  lines 118-129, Theme.currency lines 224-227). Cost/shove derivations
+  mirror models/catalog_loader.lua and models/shove_rate.lua.
+-->
+<style>
+:root {
+  --bg: #1E1A17; --panel: #26211C; --card: #2E2822; --card-hi: #383026;
+  --border: #453B31; --border-hi: #6B5B49;
+  --fg: #EBE1D6; --muted: #9C8F82; --faint: #6B6055;
+  --gold: #EDBF4D; --gold-dim: #856624;
+  --achip: #A659F2;
+  --blue: #73A6D9; --violet: #BF73F2;
+  --good: #73D973; --warn: #F2B333; --err: #F25252;
+  --note: #73A6D9; --edited: #F2B333;
+  --mono: Consolas, "Cascadia Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+  font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
+button { font: inherit; color: var(--fg); background: var(--card);
+  border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+button:hover { background: var(--card-hi); border-color: var(--border-hi); }
+button.primary { background: #4A3B1E; border-color: var(--gold-dim); color: var(--gold); }
+button.primary:hover { background: #5C4A26; }
+button.danger { color: var(--err); }
+input[type=text], input[type=number], input[type=search], select, textarea {
+  font: inherit; color: var(--fg); background: #191512; border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 8px; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--gold-dim); }
+textarea { width: 100%; resize: vertical; font-family: inherit; }
+img.sprite { image-rendering: pixelated; }
+.hidden { display: none !important; }
+.mono { font-family: var(--mono); }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+
+/* ── Header ── */
+#header { display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 40; }
+#header h1 { font-size: 15px; margin: 0; color: var(--gold); font-weight: 600; }
+#header .spacer { flex: 1; }
+#save-pill { font-size: 11px; padding: 2px 10px; border-radius: 10px;
+  border: 1px solid var(--border); color: var(--muted); }
+#save-pill.saved  { color: var(--good); border-color: #2E4A2E; }
+#save-pill.saving { color: var(--warn); border-color: #4A3E1E; }
+#save-pill.failed { color: var(--err);  border-color: #4A1E1E; cursor: pointer; }
+#save-pill.readonly { color: var(--muted); }
+
+/* ── Picker zone ── */
+#picker-zone { margin: 40px auto; max-width: 620px; text-align: center;
+  border: 2px dashed var(--border); border-radius: 10px; padding: 40px 30px;
+  background: var(--panel); }
+#picker-zone.dragover { border-color: var(--gold); background: #2E2820; }
+#picker-zone h2 { margin-top: 0; color: var(--gold); }
+#picker-zone .or { margin: 14px 0 10px; color: var(--faint); }
+#picker-err { color: var(--err); margin-top: 12px; white-space: pre-wrap; }
+#reopen-row { margin-bottom: 18px; }
+#status-strip { display: none; padding: 4px 14px; font-size: 11px; color: var(--muted);
+  background: #191512; border-bottom: 1px solid var(--border); }
+#status-strip .warn { color: var(--warn); }
+#status-strip b { color: var(--fg); font-weight: 600; }
+
+/* ── Global bar + tabs ── */
+#global-bar { display: none; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
+#global-bar input[type=search] { width: 200px; }
+#global-bar .tagchips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+#tab-bar { display: none; gap: 2px; padding: 8px 14px 0; background: var(--panel);
+  border-bottom: 1px solid var(--border); }
+#tab-bar button { border-radius: 6px 6px 0 0; border-bottom: none;
+  background: var(--bg); padding: 6px 18px; color: var(--muted); }
+#tab-bar button.active { background: var(--card); color: var(--gold);
+  border-color: var(--border-hi); }
+
+#content { padding: 14px; padding-right: 410px; min-height: 60vh; }
+body.no-detail #content { padding-right: 14px; }
+
+/* ── Cards ── */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px; width: 210px; cursor: pointer; position: relative; }
+.card:hover { border-color: var(--border-hi); background: var(--card-hi); }
+.card.dimmed { opacity: 0.25; }
+.card.selected { border-color: var(--gold); }
+.card.flash { animation: flash 1.6s; }
+@keyframes flash { 0%,60% { box-shadow: 0 0 0 3px var(--gold); } 100% { box-shadow: none; } }
+.card .toprow { display: flex; gap: 8px; align-items: center; }
+.card .no { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+.card .name { font-weight: 600; font-size: 13px; }
+.card .cost { margin-left: auto; font-family: var(--mono); font-size: 12px;
+  color: var(--gold); white-space: nowrap; display: flex; align-items: center; gap: 3px; }
+.card .fx { font-size: 11px; color: var(--muted); margin-top: 4px; min-height: 15px; }
+.card .badges { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; align-items: center; }
+.badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border);
+  color: var(--muted); white-space: nowrap; }
+.badge.lock { color: var(--warn); border-color: #4A3E1E; }
+.badge.req  { color: var(--blue); border-color: #1E304A; }
+.badge.corrupt { color: var(--violet); border-color: #3A1E4A; }
+.badge.act2 { color: var(--fg); background: #3A2E1E; }
+.badge.sys  { color: var(--err); }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.dot.edited { background: var(--edited); }
+.dot.note   { background: var(--note); }
+.tagstrip { display: flex; gap: 3px; margin-top: 5px; }
+.tagstrip span { height: 4px; flex: 1; border-radius: 2px; max-width: 34px; }
+.tagchip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px;
+  padding: 1px 7px; border-radius: 9px; border: 1px solid var(--border);
+  cursor: pointer; user-select: none; }
+.tagchip .x { color: var(--muted); cursor: pointer; }
+.tagchip .x:hover { color: var(--err); }
+.tagchip.on { color: #111; font-weight: 600; }
+
+/* ── Catalog view ── */
+.dept { margin-bottom: 26px; }
+.dept > h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 2px;
+  color: var(--gold); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.dept > h2 small { color: var(--muted); letter-spacing: 0; text-transform: none;
+  font-weight: 400; margin-left: 10px; }
+.cardgrid { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* ── Table view ── */
+table.items { border-collapse: collapse; width: 100%; font-size: 12px; }
+table.items th { text-align: left; padding: 5px 8px; background: var(--panel);
+  border-bottom: 2px solid var(--border); cursor: pointer; white-space: nowrap;
+  position: sticky; top: 0; user-select: none; }
+table.items th.sorted { color: var(--gold); }
+table.items td { padding: 4px 8px; border-bottom: 1px solid #2A241E; vertical-align: middle; }
+table.items tr.item:hover { background: var(--card-hi); cursor: pointer; }
+table.items tr.grouphdr td { background: #26211C; color: var(--gold); font-weight: 600;
+  border-top: 2px solid var(--border); }
+#bulkbar { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+  background: var(--panel); border: 1px solid var(--gold-dim); border-radius: 8px;
+  padding: 8px 14px; display: flex; gap: 10px; align-items: center; z-index: 60;
+  box-shadow: 0 4px 20px #000A; }
+
+/* ── Chains view ── */
+.chainband { position: relative; margin-bottom: 18px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; }
+.chainband svg.wires { position: absolute; inset: 0; pointer-events: none; }
+.chainband .cards { position: relative; }
+.chainband .card { position: absolute; }
+#chains-layout { display: flex; gap: 14px; }
+#chains-side { width: 170px; flex-shrink: 0; font-size: 11px; }
+#chains-side .jump { padding: 3px 6px; border-radius: 4px; cursor: pointer; color: var(--muted); }
+#chains-side .jump:hover { background: var(--card-hi); color: var(--fg); }
+#chains-main { flex: 1; min-width: 0; }
+.unchained-hdr { cursor: pointer; color: var(--muted); margin: 16px 0 8px; user-select: none; }
+
+/* ── Detail panel ── */
+#detail-panel { position: fixed; top: 0; right: 0; width: 396px; height: 100vh;
+  background: var(--panel); border-left: 1px solid var(--border); z-index: 50;
+  overflow-y: auto; padding: 14px; }
+#detail-panel .close { position: absolute; top: 8px; right: 10px; }
+#detail-panel h2 { margin: 4px 0 2px; }
+#detail-panel .idline { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.field { margin: 10px 0; }
+.field label { display: flex; align-items: center; gap: 6px; font-size: 11px;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
+.field input[type=text], .field input[type=number] { width: 100%; }
+.field .revert { font-size: 10px; padding: 0 5px; }
+.fx-preview { background: #191512; border: 1px dashed var(--border); border-radius: 4px;
+  padding: 6px 8px; margin-top: 4px; font-size: 12px; }
+.effects-cols { display: flex; gap: 10px; }
+.effects-cols > div { flex: 1; min-width: 0; }
+.effects-cols h4 { margin: 6px 0 4px; font-size: 11px; color: var(--muted);
+  text-transform: uppercase; }
+.effrow { font-family: var(--mono); font-size: 11px; padding: 2px 4px; border-radius: 3px;
+  cursor: help; }
+.effrow:hover { background: var(--card-hi); }
+.gates { font-size: 12px; }
+.gates a { color: var(--blue); cursor: pointer; text-decoration: none; }
+.gates a:hover { text-decoration: underline; }
+.sticker { display: inline-block; background: #3A331E; border: 1px solid #4A3E1E;
+  color: var(--warn); font-size: 11px; padding: 2px 8px; border-radius: 3px; }
+
+/* ── Tooltip ── */
+#tooltip { position: fixed; z-index: 100; max-width: 340px; background: #191512;
+  border: 1px solid var(--border-hi); border-radius: 5px; padding: 8px 10px;
+  font-size: 11px; pointer-events: none; box-shadow: 0 4px 16px #000C;
+  white-space: pre-wrap; }
+#tooltip .tt-title { color: var(--gold); font-weight: 600; }
+
+/* ── Modals ── */
+.modal-veil { position: fixed; inset: 0; background: #000A; z-index: 80;
+  display: flex; align-items: center; justify-content: center; }
+.modal { background: var(--panel); border: 1px solid var(--border-hi); border-radius: 8px;
+  padding: 16px; max-height: 86vh; overflow-y: auto; box-shadow: 0 8px 40px #000; }
+.modal h3 { margin-top: 0; color: var(--gold); }
+#sprite-modal .modal { width: 860px; }
+#sprite-grid { display: flex; flex-wrap: wrap; gap: 6px; max-height: 48vh;
+  overflow-y: auto; background: #191512; padding: 8px; border-radius: 6px; }
+.spritecell { width: 84px; text-align: center; padding: 4px; border: 1px solid transparent;
+  border-radius: 4px; cursor: pointer; font-size: 9px; color: var(--muted);
+  overflow-wrap: break-word; }
+.spritecell:hover { border-color: var(--border-hi); background: var(--card-hi); }
+.spritecell.current { border-color: var(--gold); }
+.spritecell .box { height: 64px; display: flex; align-items: center; justify-content: center; }
+.spritecell .alias { color: var(--gold); font-size: 8px; }
+#sprite-preview { display: flex; gap: 16px; align-items: flex-end; margin-top: 10px;
+  min-height: 90px; }
+#tag-modal .modal { width: 480px; }
+#tag-modal table { width: 100%; border-collapse: collapse; }
+#tag-modal td { padding: 4px 6px; border-bottom: 1px solid #2A241E; }
+.swatch { width: 16px; height: 16px; border-radius: 3px; display: inline-block;
+  cursor: pointer; border: 1px solid #0006; }
+
+/* ── Stats view ── */
+.statblock { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 16px; margin-bottom: 16px; }
+.statblock h3 { margin-top: 0; color: var(--gold); font-size: 13px;
+  text-transform: uppercase; letter-spacing: 1px; }
+table.stat { border-collapse: collapse; font-size: 12px; }
+table.stat th { text-align: left; padding: 3px 12px 3px 0; color: var(--muted);
+  border-bottom: 1px solid var(--border); }
+table.stat td { padding: 3px 12px 3px 0; border-bottom: 1px solid #2A241E; }
+table.stat td.num, table.stat th.num { text-align: right; font-family: var(--mono); }
+.gaterow { margin: 4px 0; font-size: 12px; }
+.gaterow .kind { display: inline-block; width: 190px; color: var(--muted);
+  font-family: var(--mono); font-size: 11px; }
+.gaterow .stop { cursor: pointer; }
+.gaterow .stop:hover { color: var(--gold); }
+
+/* ── Sim view ── */
+#sim-layout { display: flex; gap: 14px; align-items: flex-start; }
+#sim-loadout { width: 320px; flex-shrink: 0; }
+#sim-main { flex: 1; min-width: 0; }
+#sim-scenario { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; margin-bottom: 12px; font-size: 12px; }
+#sim-scenario label { color: var(--muted); display: flex; gap: 4px; align-items: center; }
+#sim-scenario input[type=number] { width: 90px; }
+.upg-dial { display: flex; gap: 6px; align-items: center; }
+.upg-dial input[type=range] { width: 110px; }
+.upg-dial .lvl { font-family: var(--mono); width: 22px; text-align: right; }
+#sim-items { max-height: 62vh; overflow-y: auto; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+.sim-item { display: flex; gap: 6px; align-items: center; padding: 2px 4px;
+  border-radius: 3px; font-size: 12px; }
+.sim-item:hover { background: var(--card-hi); }
+.sim-item .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.sim-item .cost { font-family: var(--mono); font-size: 10px; color: var(--gold); }
+.cov { font-size: 8px; padding: 0 4px; border-radius: 3px; border: 1px solid var(--border); }
+.cov.full { color: var(--good); border-color: #2E4A2E; }
+.cov.part { color: var(--warn); border-color: #4A3E1E; }
+.cov.none { color: var(--faint); }
+.corrupt-cb { accent-color: var(--violet); }
+table.simres { border-collapse: collapse; font-size: 12px; width: 100%; }
+table.simres th { text-align: right; padding: 3px 10px; color: var(--muted);
+  border-bottom: 1px solid var(--border); }
+table.simres th:first-child, table.simres td:first-child { text-align: left; }
+table.simres td { padding: 3px 10px; border-bottom: 1px solid #2A241E;
+  text-align: right; font-family: var(--mono); }
+td.delta-pos { color: var(--good); } td.delta-neg { color: var(--err); }
+.distbar { display: inline-flex; height: 9px; width: 110px; border-radius: 2px;
+  overflow: hidden; vertical-align: middle; }
+.distbar span { height: 100%; }
+#sim-marg td { cursor: pointer; }
+</style>
+</head>
+<body class="no-detail">
+
+<div id="header">
+  <h1>Catalog Designer</h1>
+  <span id="hdr-sub" class="muted"></span>
+  <span class="spacer"></span>
+  <span id="save-pill" title="tools/catalog_meta.json save state">no folder</span>
+  <button id="btn-tags">Tags…</button>
+  <button id="btn-import">Import…</button>
+  <button id="btn-export" class="primary">Export edits</button>
+  <button id="btn-meta-dl" class="hidden">Download meta</button>
+</div>
+
+<div id="status-strip"></div>
+
+<div id="picker-zone">
+  <h2>Open the poker-idle project</h2>
+  <div id="reopen-row" class="hidden"><button id="btn-reopen" class="primary"></button></div>
+  <button id="btn-pick" class="primary">Open project folder (read + write meta)</button>
+  <div class="or">— or drag the project folder here (read-only mode) —</div>
+  <input type="file" id="dir-input" webkitdirectory class="hidden">
+  <button id="btn-pick-ro">Pick folder (read-only)</button>
+  <div id="picker-err"></div>
+  <p class="faint" style="margin-top:22px">Reads data/catalog.lua, catalog_pages.lua, effects.lua,
+  balance.lua, assets/sprites/aliases.json.<br>Writes only tools/catalog_meta.json (tags + notes).
+  Game files are never written.</p>
+</div>
+
+<div id="global-bar">
+  <input type="search" id="f-search" placeholder="search name / id / text…">
+  <select id="f-phase"><option value="">phase: all</option></select>
+  <select id="f-act"><option value="">act: all</option><option value="1">act 1</option><option value="2">act 2</option></select>
+  <select id="f-dept"><option value="">dept: all</option></select>
+  <span class="tagchips" id="f-tags"></span>
+  <label style="font-size:11px;color:var(--muted)"><input type="checkbox" id="f-edited"> edited only</label>
+  <span class="spacer"></span>
+  <span id="f-count" class="faint"></span>
+</div>
+
+<div id="tab-bar">
+  <button data-tab="chains">Chains</button>
+  <button data-tab="catalog">Catalog</button>
+  <button data-tab="table">Table</button>
+  <button data-tab="stats">Stats</button>
+  <button data-tab="sim">Sim</button>
+</div>
+
+<div id="content"></div>
+<div id="detail-panel" class="hidden"></div>
+<div id="tooltip" class="hidden"></div>
+<div id="bulkbar" class="hidden"></div>
+<div id="sprite-modal" class="modal-veil hidden"><div class="modal"></div></div>
+<div id="tag-modal" class="modal-veil hidden"><div class="modal"></div></div>
+<div id="import-modal" class="modal-veil hidden"><div class="modal"></div></div>
+<input type="file" id="import-input" accept=".json" class="hidden">
+
+<script src="vendor/fengari-web.js"></script>
+<script>
+"use strict";
+/* ══════════════ S1 · CONST ══════════════ */
+// Colors transcribed from data/theme.lua (grind palette). Source of truth
+// is that file; update here if it changes.
+const COLORS = {
+  chip:      "#EDBF4D", chipRing:  "#856624",   // Theme.currency lines 224-227
+  achip:     "#A659F2", achipRing: "#59268C",
+  tierWin:  { small: "#619157", medium: "#75B86B", large: "#8FDB7A", jackpot: "#F5C74D" },
+  tierLoss: { small: "#85544F", medium: "#B3665E", large: "#DB7066", jackpot: "#F25285" },
+};
+const TIER_COUNT = { small: 1, medium: 2, large: 3, jackpot: 4, stack: 4 }; // views/TierGlyph.lua
+const TAG_PALETTE = ["#F25285","#F2B333","#73D973","#73A6D9","#BF73F2","#EDBF4D",
+                     "#5ED9C3","#F2825E","#9CB35E","#D973B8"];
+const LS_EDITS = "catalog_designer_edits_v1";
+const LS_METABUF = "catalog_designer_meta_buffer";
+const LS_UI = "catalog_designer_ui_v1";
+const META_PATH = ["tools", "catalog_meta.json"];
+// Fallback balance values; overwritten by data/balance.lua regexes at load.
+let RUN_MINUTES = 20, K_SHOVE = 0.01;
+// data/bankroll_tiers.lua (verified 2026-09-01)
+const BANKROLL_TIERS = [
+  { threshold: 0, mult: 1, label: "Sub-T1" }, { threshold: 2, mult: 1, label: "T1" },
+  { threshold: 10, mult: 2, label: "T2" }, { threshold: 100, mult: 3, label: "T3" },
+  { threshold: 1000, mult: 4, label: "T4" }, { threshold: 10000, mult: 5, label: "T5" },
+  { threshold: 100000, mult: 6, label: "T6" }, { threshold: 1000000, mult: 7, label: "T7" },
+  { threshold: 10000000, mult: 8, label: "T8" },
+];
+// Unlock kinds → human labels (models/catalog_unlock_rules.lua). Flag kinds
+// have no counter and render as a bare imperative.
+const UNLOCK_FLAGS = new Set(["shove_r1_won", "has_shoved", "hu_unlocked", "decks_maxed"]);
+
+/* ══════════════ utils ══════════════ */
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g,
+  c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function el(tag, attrs, html) {
+  const e = document.createElement(tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else e.setAttribute(k, v);
+  }
+  if (html != null) e.innerHTML = html;
+  return e;
+}
+function debounce(fn, ms) {
+  let t = null;
+  const d = (...a) => { clearTimeout(t); t = setTimeout(() => { t = null; fn(...a); }, ms); };
+  d.flush = (...a) => { if (t) { clearTimeout(t); t = null; fn(...a); } };
+  d.pending = () => t != null;
+  return d;
+}
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = v => Math.round(v * f).toString(16).padStart(2, "0");
+  return "#" + c((n >> 16) & 255) + c((n >> 8) & 255) + c(n & 255);
+}
+function fmtMoney(n) { return "$" + Number(n).toLocaleString("en-US"); }
+function nowIso() { return new Date().toISOString(); }
+function lsGet(key, dflt) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : dflt; }
+  catch (e) { return dflt; }
+}
+function lsSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+}
+function download(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/* ── tiny IndexedDB for the directory handle ── */
+function idb() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open("catalog_designer", 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore("kv");
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function idbGet(key) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const rq = db.transaction("kv").objectStore("kv").get(key);
+    rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+  });
+}
+async function idbSet(key, val) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const rq = db.transaction("kv", "readwrite").objectStore("kv").put(val, key);
+    rq.onsuccess = () => res(); rq.onerror = () => rej(rq.error);
+  });
+}
+
+/* ══════════════ global state ══════════════ */
+const S = {
+  mode: null,          // "fs" (writable) | "ro" (fallback)
+  dirHandle: null,     // FileSystemDirectoryHandle (fs mode)
+  files: new Map(),    // relpath (fwd slashes) -> FileSystemFileHandle | File
+  model: null,         // built by buildModel()
+  meta: null,          // { tags:[{name,color,created}], assignments:{}, notes:{} }
+  edits: {},           // id -> {field: value}
+  ui: { tab: "chains", filters: { search: "", phase: "", act: "", dept: "", tags: [], editedOnly: false },
+        sort: { col: "no", dir: 1 }, groupBy: "", bankroll: 100,
+        sim: { stake_id: "s001", gtype_id: "six_max", bankroll: 100, tables: 1,
+               useFocus: false, corner: false, overhead: 1.5, upgrades: {},
+               equipped: [], corrupted: [], baseline: "naked", search: "",
+               margSort: "perchip" } },
+  selected: new Set(), // table-view multi-select ids
+  detailId: null,
+  warnings: [],
+  spriteUrls: new Map(),  // relpath -> object URL
+};
+/* ══════════════ S2 · Lua-literal parser ══════════════ */
+// Extract the balanced {...} following an anchor regex, skipping strings,
+// line comments (--), block comments (--[[ ]]), and long strings ([[ ]]).
+function extractLiteral(text, anchors) {
+  for (const re of anchors) {
+    const m = text.match(re);
+    if (!m) continue;
+    let i = text.indexOf("{", m.index + m[0].length - 1);
+    if (i < 0) continue;
+    const start = i;
+    let depth = 0;
+    while (i < text.length) {
+      const c = text[i];
+      if (c === "-" && text[i + 1] === "-") {
+        if (text[i + 2] === "[" && text[i + 3] === "[") {          // block comment
+          const end = text.indexOf("]]", i + 4);
+          i = end < 0 ? text.length : end + 2; continue;
+        }
+        const nl = text.indexOf("\n", i);                           // line comment
+        i = nl < 0 ? text.length : nl + 1; continue;
+      }
+      if (c === '"' || c === "'") {
+        i++;
+        while (i < text.length && text[i] !== c) { if (text[i] === "\\") i++; i++; }
+        i++; continue;
+      }
+      if (c === "[" && text[i + 1] === "[") {                       // long string
+        const end = text.indexOf("]]", i + 2);
+        i = end < 0 ? text.length : end + 2; continue;
+      }
+      if (c === "{") depth++;
+      if (c === "}") { depth--; if (depth === 0) return text.slice(start, i + 1); }
+      i++;
+    }
+    throw new Error("unbalanced braces after anchor " + re);
+  }
+  throw new Error("no anchor matched: " + anchors.map(String).join(" | "));
+}
+
+function tokenizeLua(src) {
+  const toks = []; // {t: "punct"|"ident"|"num"|"str"|"bool"|"nil", v, line}
+  let i = 0, line = 1;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    if (c === "\n") { line++; i++; continue; }
+    if (c === " " || c === "\t" || c === "\r") { i++; continue; }
+    if (c === "-" && src[i + 1] === "-") {
+      if (src[i + 2] === "[" && src[i + 3] === "[") {
+        const end = src.indexOf("]]", i + 4);
+        const seg = src.slice(i, end < 0 ? n : end + 2);
+        line += (seg.match(/\n/g) || []).length;
+        i = end < 0 ? n : end + 2; continue;
+      }
+      const nl = src.indexOf("\n", i);
+      i = nl < 0 ? n : nl; continue;
+    }
+    if (c === '"' || c === "'") {
+      let j = i + 1, out = "";
+      while (j < n && src[j] !== c) {
+        if (src[j] === "\\") {
+          const e = src[j + 1];
+          out += e === "n" ? "\n" : e === "t" ? "\t" : e; j += 2;
+        } else { out += src[j]; j++; }
+      }
+      toks.push({ t: "str", v: out, line }); i = j + 1; continue;
+    }
+    if (c === "[" && src[i + 1] === "[") {
+      const end = src.indexOf("]]", i + 2);
+      const body = src.slice(i + 2, end < 0 ? n : end);
+      line += (body.match(/\n/g) || []).length;
+      toks.push({ t: "str", v: body, line }); i = end < 0 ? n : end + 2; continue;
+    }
+    if ("{}[]=,;".includes(c)) { toks.push({ t: "punct", v: c, line }); i++; continue; }
+    if (/[0-9]/.test(c) || (c === "-" && /[0-9.]/.test(src[i + 1] || "")) ||
+        (c === "." && /[0-9]/.test(src[i + 1] || ""))) {
+      let j = i + 1;
+      while (j < n && /[0-9.eExX+\-a-fA-F]/.test(src[j])) {
+        if ((src[j] === "+" || src[j] === "-") && !/[eE]/.test(src[j - 1])) break;
+        j++;
+      }
+      toks.push({ t: "num", v: Number(src.slice(i, j)), line }); i = j; continue;
+    }
+    if (/[A-Za-z_]/.test(c)) {
+      let j = i + 1;
+      while (j < n && /[A-Za-z0-9_]/.test(src[j])) j++;
+      const w = src.slice(i, j);
+      if (w === "true" || w === "false") toks.push({ t: "bool", v: w === "true", line });
+      else if (w === "nil") toks.push({ t: "nil", v: null, line });
+      else toks.push({ t: "ident", v: w, line });
+      i = j; continue;
+    }
+    throw new Error(`unexpected char '${c}' at line ${line}`);
+  }
+  return toks;
+}
+
+// Recursive-descent parse over the token stream. Pure-array tables become
+// JS arrays, otherwise objects (catalog data never mixes).
+function parseLua(src) {
+  const toks = tokenizeLua(src);
+  let p = 0;
+  const peek = () => toks[p];
+  const next = () => toks[p++];
+  const err = (msg) => { const t = toks[p]; throw new Error(msg + (t ? ` at line ${t.line}` : " at EOF")); };
+  function parseValue() {
+    const t = peek();
+    if (!t) err("unexpected EOF");
+    if (t.t === "punct" && t.v === "{") return parseTable();
+    if (t.t === "str" || t.t === "num" || t.t === "bool" || t.t === "nil") { next(); return t.v; }
+    err(`unexpected token '${t.v}'`);
+  }
+  function parseTable() {
+    const open = next();
+    if (!(open.t === "punct" && open.v === "{")) err("expected {");
+    const arr = []; const obj = {}; let hasHash = false;
+    for (;;) {
+      let t = peek();
+      if (!t) err("unclosed table");
+      if (t.t === "punct" && t.v === "}") { next(); break; }
+      if (t.t === "punct" && (t.v === "," || t.v === ";")) { next(); continue; }
+      if (t.t === "ident" && toks[p + 1] && toks[p + 1].t === "punct" && toks[p + 1].v === "=") {
+        const key = next().v; next(); // '='
+        obj[key] = parseValue(); hasHash = true;
+      } else if (t.t === "punct" && t.v === "[") {
+        next();
+        const key = parseValue();
+        const close = next();
+        if (!(close.t === "punct" && close.v === "]")) err("expected ]");
+        const eq = next();
+        if (!(eq.t === "punct" && eq.v === "=")) err("expected =");
+        obj[key] = parseValue(); hasHash = true;
+      } else {
+        arr.push(parseValue());
+      }
+    }
+    if (hasHash) {
+      if (arr.length) arr.forEach((v, i) => { obj[i + 1] = v; });
+      return obj;
+    }
+    return arr;
+  }
+  // Top level with per-element recovery: used for the catalog item list so
+  // one malformed item skips with a warning instead of killing the load.
+  function parseTopArrayRecovering() {
+    const open = next();
+    if (!(open.t === "punct" && open.v === "{")) err("expected {");
+    const out = []; const warns = [];
+    let index = 0;
+    for (;;) {
+      let t = peek();
+      if (!t) { warns.push({ index, message: "unclosed top-level table" }); break; }
+      if (t.t === "punct" && t.v === "}") { next(); break; }
+      if (t.t === "punct" && (t.v === "," || t.v === ";")) { next(); continue; }
+      index++;
+      const mark = p;
+      try {
+        out.push(parseValue());
+      } catch (e) {
+        warns.push({ index, message: e.message, line: toks[mark] && toks[mark].line });
+        // skip to the next ',' or '}' at element depth
+        p = mark; let depth = 0;
+        while (p < toks.length) {
+          const tk = toks[p];
+          if (tk.t === "punct") {
+            if (tk.v === "{") depth++;
+            else if (tk.v === "}") { if (depth === 0) break; depth--; }
+            else if (tk.v === "," && depth === 0) break;
+          }
+          p++;
+        }
+      }
+    }
+    return { items: out, warns };
+  }
+  return { parseValue, parseTable, parseTopArrayRecovering, get pos() { return p; } };
+}
+
+function parseLuaLiteral(src) { return parseLua(src).parseValue(); }
+function parseCatalogItems(src) { return parseLua(src).parseTopArrayRecovering(); }
+
+/* ══════════════ S3 · Ingress ══════════════ */
+const FS_OK = "showDirectoryPicker" in window;
+if (!FS_OK) $("#btn-pick").classList.add("hidden");
+
+async function readText(relpath) {
+  const h = S.files.get(relpath);
+  if (!h) return null;
+  const file = h.getFile ? await h.getFile() : h;
+  return file.text();
+}
+async function spriteUrl(relpath) {
+  if (S.spriteUrls.has(relpath)) return S.spriteUrls.get(relpath);
+  const h = S.files.get(relpath);
+  if (!h) return null;
+  const file = h.getFile ? await h.getFile() : h;
+  const url = URL.createObjectURL(file);
+  S.spriteUrls.set(relpath, url);
+  return url;
+}
+
+const SKIP_DIRS = new Set([".git", "node_modules", ".claude", "build-tools"]);
+async function walkFsDir(dirHandle, prefix, map, depth) {
+  if (depth > 8) return;
+  for await (const [name, h] of dirHandle.entries()) {
+    if (h.kind === "directory") {
+      if (SKIP_DIRS.has(name) || name.startsWith(".")) continue;
+      await walkFsDir(h, prefix + name + "/", map, depth + 1);
+    } else {
+      map.set(prefix + name, h);
+    }
+  }
+}
+function walkEntry(entry, prefix, map) {
+  return new Promise((resolve) => {
+    if (entry.isFile) {
+      entry.file(f => { map.set(prefix + entry.name, f); resolve(); }, resolve);
+    } else if (entry.isDirectory) {
+      if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) return resolve();
+      const rd = entry.createReader();
+      const all = [];
+      const readBatch = () => rd.readEntries(async (ents) => {
+        if (!ents.length) {
+          for (const e of all) await walkEntry(e, prefix + entry.name + "/", map);
+          resolve();
+        } else { all.push(...ents); readBatch(); }
+      }, resolve);
+      readBatch();
+    } else resolve();
+  });
+}
+
+// If the picked folder is a parent, find the child dir holding data/catalog.lua
+// and re-root the map (strip its prefix).
+function rerootFiles(map) {
+  if (map.has("data/catalog.lua")) return map;
+  let root = null;
+  for (const key of map.keys()) {
+    const m = key.match(/^([^/]+)\/data\/catalog\.lua$/);
+    if (m) { root = m[1] + "/"; break; }
+  }
+  if (!root) return map;
+  const out = new Map();
+  for (const [k, v] of map) if (k.startsWith(root)) out.set(k.slice(root.length), v);
+  return out;
+}
+
+async function openViaPicker() {
+  try {
+    const handle = await window.showDirectoryPicker({ id: "poker-idle", mode: "readwrite" });
+    await openFromHandle(handle);
+  } catch (e) {
+    if (e.name !== "AbortError") showPickerError(e);
+  }
+}
+async function openFromHandle(handle) {
+  const map = new Map();
+  await walkFsDir(handle, "", map, 0);
+  const rooted = rerootFiles(map);
+  if (!rooted.has("data/catalog.lua")) {
+    return showPickerError(new Error("data/catalog.lua not found in the picked folder (or one level below it)"));
+  }
+  S.mode = "fs"; S.dirHandle = handle; S.files = rooted;
+  try { await idbSet("projectDir", handle); } catch (e) {}
+  await loadAll();
+}
+async function openReadOnly(map) {
+  const rooted = rerootFiles(map);
+  if (!rooted.has("data/catalog.lua")) {
+    return showPickerError(new Error("data/catalog.lua not found in the dropped folder"));
+  }
+  S.mode = "ro"; S.dirHandle = null; S.files = rooted;
+  await loadAll();
+}
+function showPickerError(e) {
+  $("#picker-err").textContent = String(e.message || e);
+}
+
+/* ── loadAll: parse everything, build model, boot UI ── */
+async function loadAll() {
+  S.warnings = [];
+  const [catSrc, pagesSrc, effectsSrc, balanceSrc, aliasesSrc, metaSrc] = await Promise.all([
+    readText("data/catalog.lua"), readText("data/catalog_pages.lua"),
+    readText("data/effects.lua"), readText("data/balance.lua"),
+    readText("assets/sprites/aliases.json"), readText(META_PATH.join("/")),
+  ]);
+  if (!catSrc) return showPickerError(new Error("could not read data/catalog.lua"));
+
+  // balance regexes (fallbacks stand if absent)
+  if (balanceSrc) {
+    const rm = balanceSrc.match(/Balance\.RUN_MINUTES\s*=\s*([\d.]+)/);
+    const ks = balanceSrc.match(/Balance\.K_SHOVE_PER_ITEM\s*=\s*([\d.]+)/);
+    if (rm) RUN_MINUTES = Number(rm[1]);
+    if (ks) K_SHOVE = Number(ks[1]);
+  }
+
+  let items = [], parseWarns = [];
+  try {
+    const lit = extractLiteral(catSrc, [/local\s+items\s*=\s*\{/, /return\s*\{/]);
+    const res = parseCatalogItems(lit);
+    items = res.items; parseWarns = res.warns;
+  } catch (e) {
+    return showPickerError(new Error("catalog.lua parse failed: " + e.message));
+  }
+  for (const w of parseWarns)
+    S.warnings.push(`item #${w.index} skipped: ${w.message}`);
+
+  let pages = [];
+  try { pages = parseLuaLiteral(extractLiteral(pagesSrc || "", [/return\s*\{/])); }
+  catch (e) { S.warnings.push("catalog_pages.lua: " + e.message); }
+
+  let effectKinds = {};
+  try { effectKinds = parseLuaLiteral(extractLiteral(effectsSrc || "", [/Effects\.kinds\s*=\s*\{/])); }
+  catch (e) { S.warnings.push("effects.lua: " + e.message); }
+
+  // procs/routers: nice-to-have tooltips; failure is silent-but-noted
+  let procs = {}, routers = {};
+  for (const [rel, target] of [["data/procs.lua", "procs"], ["data/routers.lua", "routers"]]) {
+    try {
+      const src = await readText(rel);
+      if (src) {
+        const lit = extractLiteral(src, [/local\s+\w+\s*=\s*\{/, /return\s*\{/]);
+        const parsed = parseLuaLiteral(lit);
+        if (target === "procs") procs = parsed; else routers = parsed;
+      }
+    } catch (e) { S.warnings.push(rel + " (tooltips only): " + e.message); }
+  }
+
+  let aliases = {};
+  try {
+    const j = JSON.parse(aliasesSrc || "{}");
+    aliases = j.aliases || j;
+  } catch (e) { S.warnings.push("aliases.json: " + e.message); }
+
+  buildModel(items, pages, effectKinds, aliases, procs, routers);
+  S.edits = (lsGet(LS_EDITS, { edits: {} }).edits) || {};
+  loadMeta(metaSrc);
+  const ui = lsGet(LS_UI, null);
+  if (ui) {
+    const simDflt = S.ui.sim;
+    S.ui = Object.assign(S.ui, ui);
+    S.ui.filters = Object.assign(
+      { search: "", phase: "", act: "", dept: "", tags: [], editedOnly: false }, ui.filters);
+    S.ui.sim = Object.assign(simDflt, ui.sim || {});
+  }
+  bootUi();
+  bootEngine();   // async; Sim tab shows progress until ready
+}
+/* ══════════════ S4 · Model ══════════════ */
+// Mirrors models/catalog_loader.lua: authored cost is the file's cost_chip;
+// derived = max(1, floor(authored × RUN_MINUTES/20 + 0.5)); ownable =
+// phase ~= "system" and not gate; shove is flat K_SHOVE per ownable item.
+function deriveCost(authored) {
+  if (!authored || authored <= 0) return 0;
+  return Math.max(1, Math.floor(authored * (RUN_MINUTES / 20) + 0.5));
+}
+function isOwnable(it) { return it.phase !== "system" && !it.gate; }
+
+// models/shove_rate.lua: bracket + log-interp multiplier.
+function bankrollMult(bankroll) {
+  bankroll = Math.max(0, bankroll || 0);
+  let lower = BANKROLL_TIERS[0], upper = null;
+  for (let i = 0; i < BANKROLL_TIERS.length; i++) {
+    if (bankroll >= BANKROLL_TIERS[i].threshold) {
+      lower = BANKROLL_TIERS[i]; upper = BANKROLL_TIERS[i + 1] || null;
+    } else break;
+  }
+  if (!upper || lower.mult === upper.mult) return lower.mult;
+  const lo = Math.max(0.01, lower.threshold);
+  const b = Math.max(lo, bankroll);
+  let frac = (Math.log(b) - Math.log(lo)) / (Math.log(upper.threshold) - Math.log(lo));
+  frac = Math.min(1, Math.max(0, frac));
+  return lower.mult + (upper.mult - lower.mult) * frac;
+}
+function shoveR1(ownedCount, bankroll) {
+  return Math.min(0.99, Math.min(1, K_SHOVE * ownedCount * bankrollMult(bankroll)));
+}
+
+function buildModel(rawItems, pages, effectKinds, aliases, procs, routers) {
+  const items = [];
+  rawItems.forEach((raw, i) => {
+    if (!raw || typeof raw !== "object" || !raw.id) {
+      S.warnings.push(`entry #${i + 1} has no id — skipped`); return;
+    }
+    items.push({
+      raw, id: raw.id, no: items.length + 1,
+      ownable: isOwnable(raw),
+    });
+  });
+  const byId = new Map(items.map(it => [it.id, it]));
+
+  // requires forest
+  const childrenOf = new Map();
+  let edgeCount = 0;
+  for (const it of items) {
+    const req = it.raw.requires;
+    if (req) {
+      if (!byId.has(req)) S.warnings.push(`${it.id}: requires unknown item '${req}'`);
+      else {
+        if (!childrenOf.has(req)) childrenOf.set(req, []);
+        childrenOf.get(req).push(it.id);
+        edgeCount++;
+      }
+    }
+  }
+  function rootOf(id) {
+    let cur = byId.get(id), guard = 0;
+    while (cur && cur.raw.requires && byId.has(cur.raw.requires) && guard++ < 20)
+      cur = byId.get(cur.raw.requires);
+    return cur ? cur.id : id;
+  }
+  function depthOf(id) {
+    let cur = byId.get(id), d = 0, guard = 0;
+    while (cur && cur.raw.requires && byId.has(cur.raw.requires) && guard++ < 20) {
+      d++; cur = byId.get(cur.raw.requires);
+    }
+    return d;
+  }
+  for (const it of items) { it.root = rootOf(it.id); it.depth = depthOf(it.id); }
+
+  // components (chains): roots that have children, plus everything under them
+  const compMap = new Map(); // root id -> [item ids]
+  for (const it of items) {
+    if (!compMap.has(it.root)) compMap.set(it.root, []);
+    compMap.get(it.root).push(it.id);
+  }
+  const chains = [], unchained = [];
+  for (const [root, members] of compMap) {
+    if (members.length > 1) chains.push({ root, members });
+    else unchained.push(root);
+  }
+  chains.sort((a, b) => byId.get(a.root).no - byId.get(b.root).no);
+
+  // departments
+  const deptOf = new Map(); const deptOrder = [];
+  for (const page of (pages || [])) {
+    if (!page || !page.title) continue;
+    deptOrder.push(page.title);
+    for (const id of (page.items || [])) {
+      if (byId.has(id)) deptOf.set(id, page.title);
+      else S.warnings.push(`catalog_pages: unknown item '${id}' in '${page.title}'`);
+    }
+  }
+  const etc = [], system = [];
+  for (const it of items) {
+    if (!deptOf.has(it.id)) {
+      if (it.raw.hidden || it.raw.phase === "system") { deptOf.set(it.id, "System"); system.push(it.id); }
+      else { deptOf.set(it.id, "&c."); etc.push(it.id); }
+    }
+  }
+  if (etc.length) deptOrder.push("&c.");
+  if (system.length) deptOrder.push("System");
+
+  S.model = {
+    items, byId, childrenOf, chains, unchained, deptOf, deptOrder,
+    effectKinds, aliases, procs, routers, edgeCount,
+    pages: pages || [],
+    ownableCount: items.filter(it => it.ownable).length,
+    spritePoolPrefix: "assets/sprites/",
+  };
+  // sprite pool: every png under assets/sprites/ except cards/
+  S.model.spritePool = [];
+  for (const key of S.files.keys()) {
+    if (key.startsWith("assets/sprites/") && key.endsWith(".png") &&
+        !key.startsWith("assets/sprites/cards/") &&
+        !key.startsWith("assets/sprites/isometric/"))
+      S.model.spritePool.push(key.slice("assets/sprites/".length, -4));
+  }
+  S.model.spritePool.sort();
+  S.model.aliasTargets = new Map(); // target relpath-no-ext -> alias name
+  for (const [name, target] of Object.entries(aliases)) S.model.aliasTargets.set(target, name);
+}
+
+// The effective (edit-overlaid) view of an item. All views read this.
+function effective(it) {
+  const e = S.edits[it.id] || {};
+  const raw = it.raw;
+  return {
+    name: e.name ?? raw.name,
+    description: e.description ?? raw.description,
+    effect_text: e.effect_text ?? raw.effect_text,
+    cost_chip: e.cost_chip ?? raw.cost_chip,
+    sprite_target: e.sprite_target ?? (raw.sprite ? S.model.aliases[raw.sprite] : null),
+    corrupt_effect_text: e.corrupt_effect_text ?? (raw.corrupt && raw.corrupt.effect_text),
+    corrupt_cost_achip: e.corrupt_cost_achip ?? (raw.corrupt && raw.corrupt.cost_achip),
+  };
+}
+function authoredValue(it, field) {
+  const raw = it.raw;
+  switch (field) {
+    case "name": return raw.name;
+    case "description": return raw.description;
+    case "effect_text": return raw.effect_text;
+    case "cost_chip": return raw.cost_chip;
+    case "sprite_target": return raw.sprite ? S.model.aliases[raw.sprite] : null;
+    case "corrupt_effect_text": return raw.corrupt && raw.corrupt.effect_text;
+    case "corrupt_cost_achip": return raw.corrupt && raw.corrupt.cost_achip;
+  }
+}
+function isEdited(id) { return !!S.edits[id] && Object.keys(S.edits[id]).length > 0; }
+
+/* ══════════════ S5 · Edits overlay ══════════════ */
+function setEdit(id, field, value) {
+  const it = S.model.byId.get(id);
+  if (!it) return;
+  const authored = authoredValue(it, field);
+  if (!S.edits[id]) S.edits[id] = {};
+  const same = (value === authored) ||
+    (value == null && authored == null) ||
+    (typeof authored === "number" && Number(value) === authored);
+  if (same) delete S.edits[id][field];
+  else S.edits[id][field] = (field === "cost_chip" || field === "corrupt_cost_achip")
+    ? Number(value) : value;
+  if (!Object.keys(S.edits[id]).length) delete S.edits[id];
+  lsSet(LS_EDITS, { version: 1, edits: S.edits });
+}
+
+/* ══════════════ S6 · Meta store (tags + notes → tools/catalog_meta.json) ══════════════ */
+function emptyMeta() { return { tool: "catalog_designer", version: 1, updated_at: nowIso(),
+  tags: [], assignments: {}, notes: {} }; }
+
+function loadMeta(sidecarSrc) {
+  let sidecar = null;
+  if (sidecarSrc) {
+    try { sidecar = JSON.parse(sidecarSrc); }
+    catch (e) { S.warnings.push("catalog_meta.json unreadable: " + e.message); }
+  }
+  const buffer = lsGet(LS_METABUF, null);
+  S.meta = sidecar || emptyMeta();
+  S.meta.tags = S.meta.tags || []; S.meta.assignments = S.meta.assignments || {};
+  S.meta.notes = S.meta.notes || {}; S.meta.loadouts = S.meta.loadouts || {};
+  // crash recovery: buffer newer than the sidecar
+  if (buffer && (!sidecar || (buffer.updated_at || "") > (sidecar.updated_at || ""))) {
+    if (confirm("Unsaved tag/note changes from a previous session were found. Recover them?")) {
+      S.meta = buffer;
+    } else {
+      localStorage.removeItem(LS_METABUF);
+    }
+  }
+  // meta entries pointing at unknown ids: keep, but warn
+  const unknown = new Set();
+  for (const id of Object.keys(S.meta.assignments)) if (!S.model.byId.has(id)) unknown.add(id);
+  for (const id of Object.keys(S.meta.notes)) if (!S.model.byId.has(id)) unknown.add(id);
+  if (unknown.size)
+    S.warnings.push(`meta references ${unknown.size} unknown item id(s): ${[...unknown].join(", ")} (kept)`);
+}
+
+function tagDef(name) { return S.meta.tags.find(t => t.name === name); }
+function tagColor(name) {
+  const d = tagDef(name);
+  if (d && d.color) return d.color;
+  const i = S.meta.tags.findIndex(t => t.name === name);
+  return TAG_PALETTE[(i >= 0 ? i : 0) % TAG_PALETTE.length];
+}
+function itemTags(id) { return S.meta.assignments[id] || []; }
+function tagUsage(name) {
+  let n = 0;
+  for (const list of Object.values(S.meta.assignments)) if (list.includes(name)) n++;
+  return n;
+}
+function createTag(name, color) {
+  name = name.trim();
+  if (!name || tagDef(name)) return false;
+  S.meta.tags.push({ name, color: color || TAG_PALETTE[S.meta.tags.length % TAG_PALETTE.length],
+                     created: nowIso() });
+  metaChanged(); return true;
+}
+function renameTag(oldName, newName) {
+  newName = newName.trim();
+  if (!newName || tagDef(newName)) return false;
+  const d = tagDef(oldName); if (!d) return false;
+  d.name = newName;
+  for (const list of Object.values(S.meta.assignments)) {
+    const i = list.indexOf(oldName); if (i >= 0) list[i] = newName;
+  }
+  const f = S.ui.filters.tags.indexOf(oldName);
+  if (f >= 0) S.ui.filters.tags[f] = newName;
+  metaChanged(); return true;
+}
+function deleteTag(name) {
+  S.meta.tags = S.meta.tags.filter(t => t.name !== name);
+  for (const [id, list] of Object.entries(S.meta.assignments)) {
+    S.meta.assignments[id] = list.filter(t => t !== name);
+    if (!S.meta.assignments[id].length) delete S.meta.assignments[id];
+  }
+  S.ui.filters.tags = S.ui.filters.tags.filter(t => t !== name);
+  metaChanged();
+}
+function assignTag(id, name, on) {
+  const list = S.meta.assignments[id] || (S.meta.assignments[id] = []);
+  const i = list.indexOf(name);
+  if (on && i < 0) list.push(name);
+  if (!on && i >= 0) list.splice(i, 1);
+  if (!list.length) delete S.meta.assignments[id];
+  metaChanged();
+}
+function setNote(id, text) {
+  if (text && text.trim()) S.meta.notes[id] = text;
+  else delete S.meta.notes[id];
+  metaChanged();
+}
+
+/* ── save scheduler: sync crash buffer + debounced sidecar write ── */
+const writeSidecar = debounce(doWriteSidecar, 1000);
+function metaChanged() {
+  S.meta.updated_at = nowIso();
+  lsSet(LS_METABUF, S.meta);
+  if (S.mode === "fs") { setSavePill("saving"); writeSidecar(); }
+  else setSavePill("readonly");
+}
+async function doWriteSidecar() {
+  if (S.mode !== "fs" || !S.dirHandle) return;
+  try {
+    let dir = S.dirHandle;
+    for (const seg of META_PATH.slice(0, -1))
+      dir = await dir.getDirectoryHandle(seg, { create: true });
+    const fh = await dir.getFileHandle(META_PATH[META_PATH.length - 1], { create: true });
+    const w = await fh.createWritable();
+    await w.write(metaJson());
+    await w.close();
+    localStorage.removeItem(LS_METABUF);
+    setSavePill("saved");
+  } catch (e) {
+    console.error("meta write failed", e);
+    setSavePill("failed");
+  }
+}
+function metaJson() {
+  const m = S.meta;
+  const sortObj = (o) => Object.fromEntries(Object.keys(o).sort().map(k => [k, o[k]]));
+  return JSON.stringify({
+    tool: "catalog_designer", version: 1, updated_at: m.updated_at,
+    tags: m.tags, assignments: sortObj(m.assignments), notes: sortObj(m.notes),
+    loadouts: sortObj(m.loadouts || {}),
+  }, null, 2) + "\n";
+}
+function setSavePill(state) {
+  const pill = $("#save-pill");
+  pill.className = "";
+  if (state === "saved") { pill.classList.add("saved");
+    pill.textContent = "meta saved " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+  else if (state === "saving") { pill.classList.add("saving"); pill.textContent = "saving…"; }
+  else if (state === "failed") { pill.classList.add("failed"); pill.textContent = "write failed — click to retry"; }
+  else if (state === "readonly") { pill.classList.add("readonly"); pill.textContent = "read-only — meta in browser only"; }
+  else pill.textContent = state;
+}
+$("#save-pill").addEventListener("click", () => {
+  if ($("#save-pill").classList.contains("failed")) { setSavePill("saving"); doWriteSidecar(); }
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") writeSidecar.flush();
+});
+window.addEventListener("beforeunload", () => { writeSidecar.flush(); });
+/* ══════════════ S7 · IconText glyphs (SVG) ══════════════ */
+// Mirrors views/IconText.lua + views/TierGlyph.lua + views/Chips.drawGlyph.
+// Chip: outer disc (ring @0.75 shade) → rim (ring) → face (@0.76r body) →
+// inner ring stroke @0.42r. Detail spots omitted (below MIN_DETAIL_R at UI sizes).
+function chipSvg(size, body, ring) {
+  const r = size / 2, c = r;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="vertical-align:-2px">` +
+    `<circle cx="${c}" cy="${c}" r="${r}" fill="${shade(ring, 0.75)}"/>` +
+    `<circle cx="${c}" cy="${c}" r="${r * 0.92}" fill="${ring}"/>` +
+    `<circle cx="${c}" cy="${c}" r="${r * 0.76}" fill="${body}"/>` +
+    `<circle cx="${c}" cy="${c}" r="${Math.max(1, r * 0.42)}" fill="none" stroke="${shade(body, 0.55)}" stroke-width="1"/>` +
+    `</svg>`;
+}
+// Tier glyph: stack of 1..4 discs, r = 0.30×size, step 0.55r, bottom-anchored.
+function tierSvg(size, tierName, outcome) {
+  const count = TIER_COUNT[tierName];
+  const color = (outcome === "loss" ? COLORS.tierLoss : COLORS.tierWin)[tierName === "stack" ? "jackpot" : tierName];
+  const r = Math.max(2, Math.floor(size * 0.30));
+  const step = Math.max(1, Math.floor(r * 0.55));
+  const w = r * 2 + 2, h = size;
+  const baseY = h - r - 1;
+  let discs = "";
+  for (let i = count; i >= 1; i--) {
+    const cy = baseY - (i - 1) * step;
+    discs += `<circle cx="${w / 2}" cy="${cy}" r="${r}" fill="${color}" stroke="${shade(color, 0.55)}" stroke-width="1"/>`;
+  }
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="vertical-align:-2px">${discs}</svg>`;
+}
+function arrowSvg(size) {
+  const cy = size / 2, sw = size * 0.55, th = Math.max(2, size * 0.16), hh = Math.max(2, size * 0.30);
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="vertical-align:-2px">` +
+    `<rect x="0" y="${cy - th / 2}" width="${sw}" height="${th}" fill="currentColor"/>` +
+    `<polygon points="${sw},${cy - hh} ${sw},${cy + hh} ${size},${cy}" fill="currentColor"/>` +
+    `</svg>`;
+}
+// Token grammar from views/IconText.lua: {([%w_:]+)}; unknown → literal.
+function renderIconText(str, size) {
+  size = size || 13;
+  if (str == null) return "";
+  return String(str).replace(/\{([\w:]+)\}|[^{]+|\{/g, (m, token) => {
+    if (token === undefined) return esc(m);
+    if (token === "chip") return chipSvg(size, COLORS.chip, COLORS.chipRing);
+    if (token === "achip") return chipSvg(size, COLORS.achip, COLORS.achipRing);
+    if (token === "arrow") return arrowSvg(size);
+    const parts = token.split(":");
+    const pre = parts.length === 2 ? parts[0] : null;
+    const name = parts.length === 2 ? parts[1] : parts[0];
+    if (TIER_COUNT[name] !== undefined)
+      return tierSvg(size, name, pre === "l" ? "loss" : "win");
+    return esc(m); // unknown token stays literal, like IconText.lua:90
+  });
+}
+
+/* ══════════════ unlock + effect describers ══════════════ */
+function condText(cond) {
+  if (!cond) return "";
+  const isFlag = UNLOCK_FLAGS.has(cond.kind) || cond.threshold == null;
+  if (isFlag) return cond.text || cond.kind;
+  const thr = cond.format === "money" ? fmtMoney(cond.threshold) : cond.threshold;
+  return `0 / ${thr} ${cond.text || cond.kind}`;
+}
+function unlockStickerHtml(unlock, size) {
+  if (!unlock) return "";
+  let html = renderIconText(condText(unlock), size || 11);
+  if (unlock.mystery)
+    html += ` <span class="faint">(??? until: ${renderIconText(condText(unlock.mystery), size || 11)})</span>`;
+  return html;
+}
+function effectLabel(eff) {
+  const parts = [eff.kind];
+  for (const [k, v] of Object.entries(eff)) {
+    if (k === "kind") continue;
+    parts.push(`${k}=${typeof v === "object" ? JSON.stringify(v) : v}`);
+  }
+  return parts.join(" ");
+}
+function effectTooltip(eff) {
+  const reg = S.model.effectKinds[eff.kind];
+  let out = "";
+  if (reg) {
+    out = `<div class="tt-title">${esc(eff.kind)}</div>${esc(reg.description || "")}` +
+      `\n<span class="muted">value:</span> ${esc(reg.value_shape || "")}` +
+      `\n<span class="muted">affects:</span> ${esc(reg.affects || "")}`;
+  } else {
+    out = `<div class="tt-title">${esc(eff.kind)}</div><span class="muted">not in data/effects.lua registry</span>`;
+  }
+  const refId = eff.kind === "proc" ? eff.proc : eff.kind === "router" ? eff.router : null;
+  if (refId) {
+    const def = (eff.kind === "proc" ? S.model.procs : S.model.routers)[refId];
+    out += `\n<span class="muted">${esc(eff.kind)}:</span> <b>${esc(refId)}</b>`;
+    if (def) out += "\n" + esc(JSON.stringify(def, null, 1).slice(0, 700));
+  }
+  return out;
+}
+
+/* ══════════════ tooltip plumbing ══════════════ */
+const tipEl = $("#tooltip");
+function attachTip(elm, htmlFn) {
+  elm.addEventListener("mouseenter", () => {
+    tipEl.innerHTML = typeof htmlFn === "function" ? htmlFn() : htmlFn;
+    tipEl.classList.remove("hidden");
+  });
+  elm.addEventListener("mousemove", (ev) => {
+    const pad = 14;
+    let x = ev.clientX + pad, y = ev.clientY + pad;
+    const r = tipEl.getBoundingClientRect();
+    if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - pad;
+    if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - pad;
+    tipEl.style.left = x + "px"; tipEl.style.top = y + "px";
+  });
+  elm.addEventListener("mouseleave", () => tipEl.classList.add("hidden"));
+}
+
+/* ══════════════ filters ══════════════ */
+function matchItem(it) {
+  const f = S.ui.filters;
+  const eff = effective(it);
+  if (f.phase && it.raw.phase !== f.phase) return false;
+  if (f.act === "1" && it.raw.act === 2) return false;
+  if (f.act === "2" && it.raw.act !== 2) return false;
+  if (f.dept && S.model.deptOf.get(it.id) !== f.dept) return false;
+  if (f.editedOnly && !isEdited(it.id)) return false;
+  if (f.tags.length) {
+    const mine = itemTags(it.id);
+    if (!f.tags.every(t => mine.includes(t))) return false;
+  }
+  if (f.search) {
+    const q = f.search.toLowerCase();
+    const hay = [it.id, eff.name, eff.effect_text, eff.description,
+                 eff.corrupt_effect_text].join(" ").toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
+}
+
+/* ══════════════ S8 · card component ══════════════ */
+async function fillSpriteImg(img, it) {
+  const eff = effective(it);
+  if (!eff.sprite_target) { img.replaceWith(el("div", { class: "faint",
+    style: "width:32px;height:32px;display:flex;align-items:center;justify-content:center" }, "∅")); return; }
+  const url = await spriteUrl("assets/sprites/" + eff.sprite_target + ".png");
+  if (url) img.src = url; else img.alt = "?";
+}
+function itemCard(it, opts) {
+  opts = opts || {};
+  const eff = effective(it);
+  const card = el("div", { class: "card", "data-id": it.id });
+  if (!matchItem(it)) card.classList.add("dimmed");
+  const top = el("div", { class: "toprow" });
+  const img = el("img", { class: "sprite", width: 32, height: 32, alt: "" });
+  fillSpriteImg(img, it);
+  top.appendChild(img);
+  const mid = el("div", {}, `<div class="no">No. ${String(it.no).padStart(3, "0")}</div>` +
+    `<div class="name">${esc(eff.name)}</div>`);
+  top.appendChild(mid);
+  const cost = el("div", { class: "cost" });
+  if (it.ownable) cost.innerHTML = `${deriveCost(eff.cost_chip)} ${chipSvg(13, COLORS.chip, COLORS.chipRing)}`;
+  else cost.innerHTML = `<span class="badge sys">${it.raw.gate ? "GATE" : "SYSTEM"}</span>`;
+  top.appendChild(cost);
+  card.appendChild(top);
+  card.appendChild(el("div", { class: "fx" }, renderIconText(eff.effect_text, 12)));
+
+  const badges = el("div", { class: "badges" });
+  if (it.raw.unlock) {
+    const b = el("span", { class: "badge lock" }, "🔒");
+    attachTip(b, () => `<div class="tt-title">unlock gate</div>` + unlockStickerHtml(it.raw.unlock, 12));
+    badges.appendChild(b);
+  }
+  if (it.raw.requires && S.model.byId.has(it.raw.requires)) {
+    const parent = S.model.byId.get(it.raw.requires);
+    const b = el("span", { class: "badge req" }, `SEE No. ${String(parent.no).padStart(3, "0")}`);
+    attachTip(b, () => `requires <b>${esc(effective(parent).name)}</b>`);
+    badges.appendChild(b);
+  }
+  if (it.raw.corrupt) {
+    const b = el("span", { class: "badge corrupt" }, "corrupt");
+    attachTip(b, () => `<div class="tt-title">corrupted (${it.raw.corrupt.cost_achip ?? "?"} anti)</div>` +
+      renderIconText(effective(it).corrupt_effect_text || "", 12));
+    badges.appendChild(b);
+  }
+  if (it.raw.act === 2) badges.appendChild(el("span", { class: "badge act2" }, "ACT 2"));
+  if (it.raw.slots) badges.appendChild(el("span", { class: "badge" }, `${it.raw.slots} slots`));
+  badges.appendChild(el("span", { class: "badge" }, esc(it.raw.phase)));
+  if (isEdited(it.id)) badges.appendChild(el("span", { class: "dot edited", title: "has staged edits" }));
+  if (S.meta.notes[it.id]) badges.appendChild(el("span", { class: "dot note", title: "has a note" }));
+  card.appendChild(badges);
+
+  const tags = itemTags(it.id);
+  if (tags.length) {
+    const strip = el("div", { class: "tagstrip" });
+    for (const t of tags) {
+      const s = el("span", { style: `background:${tagColor(t)}` });
+      attachTip(s, esc(t));
+      strip.appendChild(s);
+    }
+    card.appendChild(strip);
+  }
+  card.addEventListener("click", () => openDetail(it.id));
+  if (opts.abs) { card.style.left = opts.x + "px"; card.style.top = opts.y + "px"; }
+  return card;
+}
+/* ══════════════ S9 · Views ══════════════ */
+function render() {
+  lsSet(LS_UI, { tab: S.ui.tab, filters: S.ui.filters, sort: S.ui.sort,
+                 groupBy: S.ui.groupBy, bankroll: S.ui.bankroll, sim: S.ui.sim });
+  $$("#tab-bar button").forEach(b => b.classList.toggle("active", b.dataset.tab === S.ui.tab));
+  const root = $("#content");
+  root.innerHTML = "";
+  const views = { chains: viewChains, catalog: viewCatalog, table: viewTable,
+                  stats: viewStats, sim: viewSim };
+  (views[S.ui.tab] || viewCatalog)(root);
+  const shown = S.model.items.filter(matchItem).length;
+  $("#f-count").textContent = `${shown} / ${S.model.items.length} items`;
+  renderTagFilterChips();
+  updateBulkbar();
+}
+
+/* ── Catalog order view ── */
+function viewCatalog(root) {
+  for (const dept of S.model.deptOrder) {
+    const ids = S.model.items.filter(it => S.model.deptOf.get(it.id) === dept);
+    if (!ids.length) continue;
+    const cost = ids.reduce((a, it) => a + (it.ownable ? deriveCost(effective(it).cost_chip) : 0), 0);
+    const sec = el("div", { class: "dept" });
+    sec.appendChild(el("h2", {}, `${esc(dept)} <small>${ids.length} items · ${cost} ${chipSvg(12, COLORS.chip, COLORS.chipRing)}</small>`));
+    const grid = el("div", { class: "cardgrid" });
+    for (const it of ids) grid.appendChild(itemCard(it));
+    sec.appendChild(grid);
+    root.appendChild(sec);
+  }
+}
+
+/* ── Table view ── */
+const TABLE_COLS = [
+  { key: "no", label: "No.", get: it => it.no },
+  { key: "sprite", label: "", get: () => "" },
+  { key: "name", label: "Name", get: it => effective(it).name },
+  { key: "fx_text", label: "Effect", get: it => effective(it).effect_text || "" },
+  { key: "id", label: "id", get: it => it.id },
+  { key: "dept", label: "Dept", get: it => S.model.deptOf.get(it.id) },
+  { key: "phase", label: "Phase", get: it => it.raw.phase },
+  { key: "act", label: "Act", get: it => it.raw.act || 1 },
+  { key: "cost", label: "Cost", get: it => it.ownable ? deriveCost(effective(it).cost_chip) : -1 },
+  { key: "achip", label: "Corrupt", get: it => effective(it).corrupt_cost_achip ?? -1 },
+  { key: "unlock", label: "Unlock", get: it => it.raw.unlock ? it.raw.unlock.kind : "" },
+  { key: "thr", label: "Thr", get: it => it.raw.unlock ? (it.raw.unlock.threshold ?? 0) : -1 },
+  { key: "requires", label: "Requires", get: it => it.raw.requires || "" },
+  { key: "tags", label: "Tags", get: it => itemTags(it.id).join(",") },
+  { key: "fx", label: "#fx", get: it => (it.raw.effects || []).length },
+  { key: "flags", label: "", get: it => (isEdited(it.id) ? 1 : 0) + (S.meta.notes[it.id] ? 2 : 0) },
+];
+function groupKeyOf(it, groupBy) {
+  switch (groupBy) {
+    case "dept": return S.model.deptOf.get(it.id);
+    case "phase": return it.raw.phase;
+    case "act": return "act " + (it.raw.act || 1);
+    case "unlock": return it.raw.unlock ? it.raw.unlock.kind : "(no gate)";
+    case "tag": {
+      const t = itemTags(it.id);
+      return t.length ? t[0] : "(untagged)";
+    }
+    default: return null;
+  }
+}
+function viewTable(root) {
+  const bar = el("div", { style: "margin-bottom:8px;display:flex;gap:10px;align-items:center" });
+  const gsel = el("select", {},
+    `<option value="">group: none</option><option value="dept">group: department</option>` +
+    `<option value="phase">group: phase</option><option value="act">group: act</option>` +
+    `<option value="tag">group: tag</option><option value="unlock">group: unlock kind</option>`);
+  gsel.value = S.ui.groupBy || "";
+  gsel.addEventListener("change", () => { S.ui.groupBy = gsel.value; render(); });
+  bar.appendChild(gsel);
+  const selInfo = el("span", { class: "faint" },
+    S.selected.size ? `${S.selected.size} selected` : "click a checkbox to bulk-tag");
+  bar.appendChild(selInfo);
+  root.appendChild(bar);
+
+  let rows = S.model.items.filter(matchItem);
+  const col = TABLE_COLS.find(c => c.key === S.ui.sort.col) || TABLE_COLS[0];
+  rows = rows.slice().sort((a, b) => {
+    const va = col.get(a), vb = col.get(b);
+    const cmp = (typeof va === "number" && typeof vb === "number")
+      ? va - vb : String(va).localeCompare(String(vb));
+    return cmp * S.ui.sort.dir || a.no - b.no;
+  });
+
+  const table = el("table", { class: "items" });
+  const thead = el("thead"); const htr = el("tr");
+  htr.appendChild(el("th", {}, `<input type="checkbox" id="selall">`));
+  for (const c of TABLE_COLS) {
+    const th = el("th", { class: S.ui.sort.col === c.key ? "sorted" : "" },
+      esc(c.label) + (S.ui.sort.col === c.key ? (S.ui.sort.dir > 0 ? " ▲" : " ▼") : ""));
+    th.addEventListener("click", () => {
+      if (S.ui.sort.col === c.key) S.ui.sort.dir *= -1;
+      else { S.ui.sort.col = c.key; S.ui.sort.dir = 1; }
+      render();
+    });
+    htr.appendChild(th);
+  }
+  thead.appendChild(htr); table.appendChild(thead);
+  const tbody = el("tbody");
+
+  const groupBy = S.ui.groupBy;
+  let lastGroup = null;
+  let lastClickedIdx = null;
+  const visibleIds = rows.map(r => r.id);
+  rows.forEach((it, idx) => {
+    if (groupBy) {
+      const g = groupKeyOf(it, groupBy);
+      if (g !== lastGroup) {
+        lastGroup = g;
+        const members = rows.filter(r => groupKeyOf(r, groupBy) === g);
+        const cost = members.reduce((a, r) => a + (r.ownable ? deriveCost(effective(r).cost_chip) : 0), 0);
+        tbody.appendChild(el("tr", { class: "grouphdr" },
+          `<td colspan="${TABLE_COLS.length + 1}">${esc(g)} — ${members.length} items · ${cost} ${chipSvg(11, COLORS.chip, COLORS.chipRing)}</td>`));
+      }
+    }
+    const eff = effective(it);
+    const tr = el("tr", { class: "item", "data-id": it.id });
+    const cbTd = el("td", {}, `<input type="checkbox" ${S.selected.has(it.id) ? "checked" : ""}>`);
+    const cb = cbTd.firstChild;
+    cb.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      if (ev.shiftKey && lastClickedIdx != null) {
+        const [a, b] = [Math.min(lastClickedIdx, idx), Math.max(lastClickedIdx, idx)];
+        for (let i = a; i <= b; i++) {
+          if (cb.checked) S.selected.add(visibleIds[i]); else S.selected.delete(visibleIds[i]);
+        }
+        render(); return;
+      }
+      lastClickedIdx = idx;
+      if (cb.checked) S.selected.add(it.id); else S.selected.delete(it.id);
+      updateBulkbar();
+    });
+    tr.appendChild(cbTd);
+    for (const c of TABLE_COLS) {
+      let html;
+      switch (c.key) {
+        case "sprite": {
+          const td = el("td");
+          const img = el("img", { class: "sprite", width: 22, height: 22 });
+          fillSpriteImg(img, it); td.appendChild(img); tr.appendChild(td); continue;
+        }
+        case "no": html = `<span class="mono faint">${String(it.no).padStart(3, "0")}</span>`; break;
+        case "cost": html = it.ownable ? `<span class="mono">${deriveCost(eff.cost_chip)}</span>` : `<span class="faint">—</span>`; break;
+        case "achip": html = eff.corrupt_cost_achip != null ? `<span class="mono" style="color:var(--violet)">${eff.corrupt_cost_achip}</span>` : `<span class="faint">—</span>`; break;
+        case "thr": html = it.raw.unlock && it.raw.unlock.threshold != null ? `<span class="mono">${it.raw.unlock.threshold}</span>` : `<span class="faint">—</span>`; break;
+        case "tags": html = itemTags(it.id).map(t =>
+          `<span class="tagchip" style="border-color:${tagColor(t)};color:${tagColor(t)}">${esc(t)}</span>`).join(" "); break;
+        case "flags": html = (isEdited(it.id) ? `<span class="dot edited"></span> ` : "") +
+          (S.meta.notes[it.id] ? `<span class="dot note"></span>` : ""); break;
+        case "name": html = `<b>${esc(eff.name)}</b>`; break;
+        case "fx_text": html = `<span style="color:var(--muted)">${renderIconText(eff.effect_text, 12)}</span>`; break;
+        case "id": html = `<span class="mono faint">${esc(it.id)}</span>`; break;
+        default: html = esc(String(c.get(it) ?? ""));
+      }
+      tr.appendChild(el("td", {}, html));
+    }
+    tr.addEventListener("click", () => openDetail(it.id));
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  root.appendChild(table);
+  $("#selall").addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    if (ev.target.checked) visibleIds.forEach(id => S.selected.add(id));
+    else S.selected.clear();
+    render();
+  });
+}
+
+function updateBulkbar() {
+  const bar = $("#bulkbar");
+  if (!S.selected.size || S.ui.tab !== "table") { bar.classList.add("hidden"); return; }
+  bar.classList.remove("hidden");
+  bar.innerHTML = `<b>${S.selected.size} selected</b>`;
+  const addSel = el("select", {}, `<option value="">+ add tag…</option>` +
+    S.meta.tags.map(t => `<option>${esc(t.name)}</option>`).join(""));
+  addSel.addEventListener("change", () => {
+    if (addSel.value) { for (const id of S.selected) assignTag(id, addSel.value, true); render(); }
+  });
+  const rmSel = el("select", {}, `<option value="">− remove tag…</option>` +
+    S.meta.tags.map(t => `<option>${esc(t.name)}</option>`).join(""));
+  rmSel.addEventListener("change", () => {
+    if (rmSel.value) { for (const id of S.selected) assignTag(id, rmSel.value, false); render(); }
+  });
+  const clr = el("button", {}, "clear");
+  clr.addEventListener("click", () => { S.selected.clear(); render(); });
+  bar.append(addSel, rmSel, clr);
+}
+
+/* ── Chains view ── */
+const CARD_W = 210, CARD_H = 110, GAP_X = 60, GAP_Y = 14, PAD = 16;
+function layoutChain(chain) {
+  // col = depth; rows assigned by DFS so children sit beside their parent.
+  const pos = new Map(); let nextRow = 0;
+  const kids = id => (S.model.childrenOf.get(id) || [])
+    .slice().sort((a, b) => S.model.byId.get(a).no - S.model.byId.get(b).no);
+  function place(id, depth) {
+    const children = kids(id);
+    if (!children.length) { pos.set(id, { col: depth, row: nextRow++ }); return pos.get(id).row; }
+    const rows = children.map(c => place(c, depth + 1));
+    const mid = (Math.min(...rows) + Math.max(...rows)) / 2;
+    pos.set(id, { col: depth, row: mid });
+    return mid;
+  }
+  place(chain.root, 0);
+  return pos;
+}
+function viewChains(root) {
+  const layout = el("div", { id: "chains-layout" });
+  const side = el("div", { id: "chains-side" });
+  side.appendChild(el("div", { class: "faint", style: "margin-bottom:6px" },
+    `${S.model.chains.length} chains · ${S.model.edgeCount} links`));
+  const main = el("div", { id: "chains-main" });
+  layout.append(side, main);
+  root.appendChild(layout);
+
+  for (const chain of S.model.chains) {
+    const rootIt = S.model.byId.get(chain.root);
+    const jump = el("div", { class: "jump" },
+      `${esc(effective(rootIt).name)} <span class="faint">(${chain.members.length})</span>`);
+    jump.addEventListener("click", () => locateInChains(chain.root));
+    side.appendChild(jump);
+
+    const pos = layoutChain(chain);
+    let maxCol = 0, maxRow = 0;
+    for (const p of pos.values()) { maxCol = Math.max(maxCol, p.col); maxRow = Math.max(maxRow, p.row); }
+    const band = el("div", { class: "chainband", "data-chain": chain.root });
+    const W = PAD * 2 + (maxCol + 1) * CARD_W + maxCol * GAP_X;
+    const H = PAD * 2 + (maxRow + 1) * (CARD_H + GAP_Y) - GAP_Y;
+    const inner = el("div", { class: "cards", style: `width:${W}px;height:${H}px` });
+    const xy = (p) => ({ x: PAD + p.col * (CARD_W + GAP_X), y: PAD + p.row * (CARD_H + GAP_Y) });
+    // wires under the cards
+    let wires = "";
+    for (const id of chain.members) {
+      const parent = S.model.byId.get(id).raw.requires;
+      if (!parent || !pos.has(parent)) continue;
+      const a = xy(pos.get(parent)), b = xy(pos.get(id));
+      const x1 = a.x + CARD_W, y1 = a.y + CARD_H / 2;
+      const x2 = b.x, y2 = b.y + CARD_H / 2;
+      const midX = x1 + GAP_X / 2;
+      wires += `<path d="M${x1},${y1} H${midX} V${y2} H${x2}" fill="none" stroke="#6B5B49" stroke-width="2"/>`;
+    }
+    inner.innerHTML = `<svg class="wires" width="${W}" height="${H}">${wires}</svg>`;
+    for (const id of chain.members) {
+      const p = xy(pos.get(id));
+      inner.appendChild(itemCard(S.model.byId.get(id), { abs: true, x: p.x, y: p.y }));
+    }
+    band.appendChild(inner);
+    main.appendChild(band);
+  }
+  // unchained
+  const un = S.model.unchained.map(id => S.model.byId.get(id)).sort((a, b) => a.no - b.no);
+  const hdr = el("div", { class: "unchained-hdr" }, `▸ Unchained items (${un.length}) — click to toggle`);
+  const grid = el("div", { class: "cardgrid hidden" });
+  for (const it of un) grid.appendChild(itemCard(it));
+  hdr.addEventListener("click", () => {
+    grid.classList.toggle("hidden");
+    hdr.textContent = (grid.classList.contains("hidden") ? "▸" : "▾") + ` Unchained items (${un.length}) — click to toggle`;
+  });
+  main.append(hdr, grid);
+}
+function locateInChains(id) {
+  if (S.ui.tab !== "chains") { S.ui.tab = "chains"; render(); }
+  requestAnimationFrame(() => {
+    const card = $(`#chains-main .card[data-id="${id}"]`) || $(`#content .card[data-id="${id}"]`);
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      card.classList.remove("flash"); void card.offsetWidth; card.classList.add("flash");
+    }
+  });
+}
+/* ── Stats view ── */
+function viewStats(root) {
+  const M = S.model;
+  const items = M.items;
+
+  // 1. Department rollup
+  {
+    const blk = el("div", { class: "statblock" });
+    blk.appendChild(el("h3", {}, "Departments"));
+    let rows = "", gCount = 0, gCost = 0, gAchip = 0, gOwn = 0;
+    for (const dept of M.deptOrder) {
+      const ids = items.filter(it => M.deptOf.get(it.id) === dept);
+      if (!ids.length) continue;
+      const own = ids.filter(it => it.ownable).length;
+      const cost = ids.reduce((a, it) => a + (it.ownable ? deriveCost(effective(it).cost_chip) : 0), 0);
+      const achip = ids.reduce((a, it) => a + (effective(it).corrupt_cost_achip || 0), 0);
+      gCount += ids.length; gCost += cost; gAchip += achip; gOwn += own;
+      rows += `<tr><td>${esc(dept)}</td><td class="num">${ids.length}</td>` +
+        `<td class="num">${own}</td><td class="num">${cost}</td><td class="num">${achip}</td></tr>`;
+    }
+    rows += `<tr style="font-weight:600"><td>TOTAL</td><td class="num">${gCount}</td>` +
+      `<td class="num">${gOwn}</td><td class="num">${gCost}</td><td class="num">${gAchip}</td></tr>`;
+    blk.appendChild(el("table", { class: "stat" },
+      `<tr><th>department</th><th class="num">items</th><th class="num">ownable</th>` +
+      `<th class="num">cost ${chipSvg(11, COLORS.chip, COLORS.chipRing)}</th>` +
+      `<th class="num">corrupt ${chipSvg(11, COLORS.achip, COLORS.achipRing)}</th></tr>` + rows));
+    blk.appendChild(el("div", { class: "faint", style: "margin-top:6px" },
+      "catalog.lua header claims 800 total across bands A–D; ownable count drives shove (1%/item)"));
+    root.appendChild(blk);
+  }
+
+  // 2. Phase × act matrix
+  {
+    const blk = el("div", { class: "statblock" });
+    blk.appendChild(el("h3", {}, "Phase × Act"));
+    const phases = [...new Set(items.map(it => it.raw.phase))];
+    let rows = "";
+    for (const ph of phases) {
+      const a1 = items.filter(it => it.raw.phase === ph && it.raw.act !== 2);
+      const a2 = items.filter(it => it.raw.phase === ph && it.raw.act === 2);
+      const cost = arr => arr.reduce((a, it) => a + (it.ownable ? deriveCost(effective(it).cost_chip) : 0), 0);
+      rows += `<tr><td>${esc(ph)}</td><td class="num">${a1.length} (${cost(a1)})</td>` +
+        `<td class="num">${a2.length} (${cost(a2)})</td></tr>`;
+    }
+    blk.appendChild(el("table", { class: "stat" },
+      `<tr><th>phase</th><th class="num">act 1 · (cost)</th><th class="num">act 2 · (cost)</th></tr>` + rows));
+    root.appendChild(blk);
+  }
+
+  // 3. Cumulative shove curve
+  {
+    const blk = el("div", { class: "statblock" });
+    blk.appendChild(el("h3", {}, "Cumulative shove (flat 1%/item × bankroll mult)"));
+    const bar = el("div", { style: "display:flex;gap:6px;align-items:center;margin-bottom:8px" });
+    bar.appendChild(el("span", { class: "muted" }, "bankroll:"));
+    const inp = el("input", { type: "number", value: S.ui.bankroll, style: "width:110px" });
+    inp.addEventListener("change", () => { S.ui.bankroll = Number(inp.value) || 0; render(); });
+    bar.appendChild(inp);
+    for (const t of BANKROLL_TIERS.slice(1)) {
+      const b = el("button", {}, t.label);
+      b.addEventListener("click", () => { S.ui.bankroll = t.threshold; render(); });
+      bar.appendChild(b);
+    }
+    blk.appendChild(bar);
+
+    const owned = items.filter(it => it.ownable)
+      .slice().sort((a, b) => deriveCost(effective(a).cost_chip) - deriveCost(effective(b).cost_chip));
+    const mult = bankrollMult(S.ui.bankroll);
+    const W = 640, H = 180, padL = 40, padB = 22;
+    let pts = "", to25 = null, to80 = null, spent = 0;
+    const spendAt = [];
+    for (let n = 0; n <= owned.length; n++) {
+      const r1 = shoveR1(n, S.ui.bankroll);
+      const x = padL + (W - padL) * (n / owned.length);
+      const y = H - padB - (H - padB - 8) * r1;
+      pts += `${x},${y} `;
+      if (to25 == null && r1 >= 0.25) to25 = n;
+      if (to80 == null && r1 >= 0.80) to80 = n;
+      if (n < owned.length) { spent += deriveCost(effective(owned[n]).cost_chip); spendAt[n + 1] = spent; }
+    }
+    const yFor = v => H - padB - (H - padB - 8) * v;
+    let svg = `<svg width="${W}" height="${H}" style="background:#191512;border-radius:6px">`;
+    for (const v of [0.25, 0.5, 0.8, 0.99]) {
+      svg += `<line x1="${padL}" y1="${yFor(v)}" x2="${W}" y2="${yFor(v)}" stroke="#3A332A" stroke-dasharray="4 4"/>` +
+        `<text x="4" y="${yFor(v) + 4}" fill="#6B6055" font-size="10">${Math.round(v * 100)}%</text>`;
+    }
+    svg += `<polyline points="${pts}" fill="none" stroke="${COLORS.chip}" stroke-width="2"/>`;
+    svg += `<text x="${padL}" y="${H - 6}" fill="#6B6055" font-size="10">0 items</text>` +
+      `<text x="${W - 60}" y="${H - 6}" fill="#6B6055" font-size="10">${owned.length} items</text></svg>`;
+    blk.appendChild(el("div", {}, svg));
+    const mkRead = (label, n) => n == null ? `${label}: unreachable at this bankroll`
+      : `${label}: <b>${n}</b> items (≈${spendAt[n] || 0} ${chipSvg(11, COLORS.chip, COLORS.chipRing)} spent, cheapest-first)`;
+    blk.appendChild(el("div", { style: "margin-top:6px" },
+      `mult ×${mult.toFixed(2)} — ${mkRead("25% (first shove)", to25)} · ${mkRead("80% (ACT1 target)", to80)}`));
+    root.appendChild(blk);
+  }
+
+  // 4. Unlock gate timeline
+  {
+    const blk = el("div", { class: "statblock" });
+    blk.appendChild(el("h3", {}, "Unlock gates by counter"));
+    const byKind = new Map();
+    const flags = [];
+    for (const it of items) {
+      const u = it.raw.unlock;
+      if (!u) continue;
+      if (u.threshold == null || UNLOCK_FLAGS.has(u.kind)) { flags.push(it); continue; }
+      const key = u.kind + (u.gtype ? `[${u.gtype}]` : "");
+      if (!byKind.has(key)) byKind.set(key, []);
+      byKind.get(key).push(it);
+    }
+    for (const [kind, arr] of [...byKind.entries()].sort()) {
+      arr.sort((a, b) => a.raw.unlock.threshold - b.raw.unlock.threshold);
+      const row = el("div", { class: "gaterow" });
+      row.appendChild(el("span", { class: "kind" }, esc(kind)));
+      arr.forEach((it, i) => {
+        const u = it.raw.unlock;
+        const thr = u.format === "money" ? fmtMoney(u.threshold) : u.threshold;
+        const stop = el("span", { class: "stop" },
+          `<b class="mono">${thr}</b> ${esc(effective(it).name)}${u.mystery ? " <span class='faint'>⁇</span>" : ""}`);
+        stop.addEventListener("click", () => openDetail(it.id));
+        row.appendChild(stop);
+        if (i < arr.length - 1) row.appendChild(el("span", { class: "faint" }, " · "));
+      });
+      blk.appendChild(row);
+    }
+    if (flags.length) {
+      const row = el("div", { class: "gaterow" });
+      row.appendChild(el("span", { class: "kind" }, "flags"));
+      row.innerHTML += flags.map(it =>
+        `<span>${esc(it.raw.unlock.kind)} → <b>${esc(effective(it).name)}</b></span>`).join(" · ");
+      blk.appendChild(row);
+    }
+    const noGate = items.filter(it => !it.raw.unlock && !it.raw.hidden).length;
+    blk.appendChild(el("div", { class: "faint", style: "margin-top:6px" },
+      `${noGate} items have no unlock gate (open from the start or gated only by requires)`));
+    root.appendChild(blk);
+  }
+
+  // 5. Chain costs
+  {
+    const blk = el("div", { class: "statblock" });
+    blk.appendChild(el("h3", {}, "Chains"));
+    let rows = "";
+    for (const chain of S.model.chains) {
+      const cost = chain.members.reduce((a, id) => {
+        const it = S.model.byId.get(id);
+        return a + (it.ownable ? deriveCost(effective(it).cost_chip) : 0);
+      }, 0);
+      const depth = Math.max(...chain.members.map(id => S.model.byId.get(id).depth)) + 1;
+      rows += `<tr><td>${esc(effective(S.model.byId.get(chain.root)).name)}</td>` +
+        `<td class="num">${chain.members.length}</td><td class="num">${depth}</td><td class="num">${cost}</td></tr>`;
+    }
+    blk.appendChild(el("table", { class: "stat" },
+      `<tr><th>root</th><th class="num">items</th><th class="num">depth</th>` +
+      `<th class="num">cost ${chipSvg(11, COLORS.chip, COLORS.chipRing)}</th></tr>` + rows));
+    root.appendChild(blk);
+  }
+
+  // 6. Tag rollup
+  if (S.meta.tags.length) {
+    const blk = el("div", { class: "statblock" });
+    blk.appendChild(el("h3", {}, "Tags"));
+    let rows = "";
+    for (const t of S.meta.tags) {
+      const ids = items.filter(it => itemTags(it.id).includes(t.name));
+      const cost = ids.reduce((a, it) => a + (it.ownable ? deriveCost(effective(it).cost_chip) : 0), 0);
+      rows += `<tr><td><span class="swatch" style="background:${tagColor(t.name)}"></span> ${esc(t.name)}</td>` +
+        `<td class="num">${ids.length}</td><td class="num">${cost}</td></tr>`;
+    }
+    blk.appendChild(el("table", { class: "stat" },
+      `<tr><th>tag</th><th class="num">items</th><th class="num">cost</th></tr>` + rows));
+    root.appendChild(blk);
+  }
+}
+
+/* ══════════════ S10 · Detail panel ══════════════ */
+function openDetail(id) {
+  S.detailId = id;
+  document.body.classList.remove("no-detail");
+  renderDetail();
+}
+function closeDetail() {
+  S.detailId = null;
+  document.body.classList.add("no-detail");
+  $("#detail-panel").classList.add("hidden");
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (!$("#sprite-modal").classList.contains("hidden")) closeSpriteModal();
+    else if (!$("#tag-modal").classList.contains("hidden")) $("#tag-modal").classList.add("hidden");
+    else closeDetail();
+  }
+});
+
+function fieldRow(it, field, label, kind) {
+  const eff = effective(it);
+  const authored = authoredValue(it, field);
+  const cur = eff[field];
+  const dirty = S.edits[it.id] && field in S.edits[it.id];
+  const wrap = el("div", { class: "field" });
+  const lab = el("label", {}, esc(label));
+  if (dirty) {
+    lab.appendChild(el("span", { class: "dot edited" }));
+    const rv = el("button", { class: "revert", title: "revert to authored: " + authored }, "⟲");
+    rv.addEventListener("click", () => { setEdit(it.id, field, authored); renderDetail(); render(); });
+    lab.appendChild(rv);
+  }
+  wrap.appendChild(lab);
+  let inp;
+  if (kind === "textarea") { inp = el("textarea", { rows: field === "description" ? 2 : 3 }); inp.value = cur ?? ""; }
+  else if (kind === "number") { inp = el("input", { type: "number", min: 0 }); inp.value = cur ?? 0; }
+  else { inp = el("input", { type: "text" }); inp.value = cur ?? ""; }
+  if (dirty) attachTip(inp, () => `<span class="muted">authored:</span> ${esc(String(authored))}`);
+  inp.addEventListener("change", () => {
+    setEdit(it.id, field, kind === "number" ? Number(inp.value) : inp.value);
+    renderDetail(); render();
+  });
+  if (field === "effect_text" || field === "corrupt_effect_text") {
+    inp.addEventListener("input", () => {
+      const pv = wrap.querySelector(".fx-preview");
+      if (pv) pv.innerHTML = renderIconText(inp.value, 13);
+    });
+  }
+  wrap.appendChild(inp);
+  if (field === "effect_text" || field === "corrupt_effect_text")
+    wrap.appendChild(el("div", { class: "fx-preview" }, renderIconText(cur, 13)));
+  return wrap;
+}
+
+function renderDetail() {
+  const panel = $("#detail-panel");
+  const it = S.model.byId.get(S.detailId);
+  if (!it) { closeDetail(); return; }
+  const eff = effective(it);
+  panel.classList.remove("hidden");
+  panel.innerHTML = "";
+  const close = el("button", { class: "close" }, "✕");
+  close.addEventListener("click", closeDetail);
+  panel.appendChild(close);
+
+  // header
+  const head = el("div", { style: "display:flex;gap:12px;align-items:center" });
+  const img = el("img", { class: "sprite", width: 64, height: 64 });
+  fillSpriteImg(img, it);
+  head.appendChild(img);
+  const hd = el("div");
+  hd.appendChild(el("h2", {}, esc(eff.name)));
+  const idline = el("div", { class: "idline", title: "IDS ARE FROZEN — serialized into saves" },
+    `No. ${String(it.no).padStart(3, "0")} · id: ${esc(it.id)}`);
+  hd.appendChild(idline);
+  const bd = el("div", { class: "badges", style: "margin-top:4px" });
+  bd.appendChild(el("span", { class: "badge" }, esc(it.raw.phase)));
+  if (it.raw.act === 2) bd.appendChild(el("span", { class: "badge act2" }, "ACT 2"));
+  bd.appendChild(el("span", { class: "badge" }, esc(S.model.deptOf.get(it.id) || "")));
+  if (!it.ownable) bd.appendChild(el("span", { class: "badge sys" }, it.raw.gate ? "GATE" : "SYSTEM"));
+  hd.appendChild(bd);
+  head.appendChild(hd);
+  panel.appendChild(head);
+
+  // sprite change
+  const sprRow = el("div", { class: "field" });
+  const sprLab = el("label", {}, "sprite");
+  const dirtySprite = S.edits[it.id] && "sprite_target" in S.edits[it.id];
+  if (dirtySprite) {
+    sprLab.appendChild(el("span", { class: "dot edited" }));
+    const rv = el("button", { class: "revert" }, "⟲");
+    rv.addEventListener("click", () => { setEdit(it.id, "sprite_target", authoredValue(it, "sprite_target")); renderDetail(); render(); });
+    sprLab.appendChild(rv);
+  }
+  sprRow.appendChild(sprLab);
+  const sprLine = el("div", { style: "display:flex;gap:8px;align-items:center" });
+  sprLine.appendChild(el("span", { class: "mono faint", style: "font-size:10px;overflow-wrap:anywhere" },
+    esc(eff.sprite_target || "(none)")));
+  const chg = el("button", {}, "Change…");
+  chg.addEventListener("click", () => openSpriteModal(it.id));
+  sprLine.appendChild(chg);
+  sprRow.appendChild(sprLine);
+  panel.appendChild(sprRow);
+
+  // editable fields
+  panel.appendChild(fieldRow(it, "name", "name", "text"));
+  panel.appendChild(fieldRow(it, "description", "flavor", "textarea"));
+  panel.appendChild(fieldRow(it, "effect_text", "effect text", "textarea"));
+  if (it.ownable) {
+    const costWrap = fieldRow(it, "cost_chip", "authored cost (cost_chip)", "number");
+    costWrap.appendChild(el("div", { class: "faint", style: "margin-top:2px" },
+      `derived in-game: ${deriveCost(eff.cost_chip)} (authored × RUN_MINUTES/20, RUN_MINUTES=${RUN_MINUTES}) · shove +${(K_SHOVE * 100).toFixed(0)}% flat`));
+    panel.appendChild(costWrap);
+  }
+  if (it.raw.corrupt) {
+    panel.appendChild(el("h4", { style: "color:var(--violet);margin:14px 0 2px" }, "Corrupt variant"));
+    panel.appendChild(fieldRow(it, "corrupt_cost_achip", "corrupt cost (anti)", "number"));
+    panel.appendChild(fieldRow(it, "corrupt_effect_text", "corrupt effect text", "textarea"));
+  }
+
+  // effects (read-only)
+  const cols = el("div", { class: "effects-cols" });
+  const mk = (title, effects) => {
+    const d = el("div");
+    d.appendChild(el("h4", {}, title));
+    for (const e of (effects || [])) {
+      const row = el("div", { class: "effrow" }, esc(effectLabel(e)));
+      attachTip(row, () => effectTooltip(e));
+      d.appendChild(row);
+    }
+    if (!(effects || []).length) d.appendChild(el("div", { class: "faint" }, "—"));
+    return d;
+  };
+  cols.appendChild(mk("effects (base)", it.raw.effects));
+  if (it.raw.corrupt) cols.appendChild(mk("effects (corrupt)", it.raw.corrupt.effects));
+  panel.appendChild(cols);
+  panel.appendChild(el("div", { class: "faint", style: "font-size:10px;margin-top:2px" },
+    "shove_rate_add on the base block is forced to 0.01 at load; authored values here are cosmetic (catalog_loader.lua)"));
+
+  // gates
+  const gates = el("div", { class: "gates", style: "margin-top:12px" });
+  if (it.raw.requires && S.model.byId.has(it.raw.requires)) {
+    const p = S.model.byId.get(it.raw.requires);
+    const a = el("a", {}, `requires: ${esc(effective(p).name)} (No. ${String(p.no).padStart(3, "0")})`);
+    a.addEventListener("click", () => { openDetail(p.id); locateInChains(p.id); });
+    gates.appendChild(el("div", {}, "")); gates.lastChild.appendChild(a);
+  }
+  const deps = S.model.childrenOf.get(it.id) || [];
+  if (deps.length) {
+    const d = el("div", {}, "unlocks: ");
+    deps.forEach((cid, i) => {
+      const c = S.model.byId.get(cid);
+      const a = el("a", {}, esc(effective(c).name));
+      a.addEventListener("click", () => openDetail(cid));
+      d.appendChild(a);
+      if (i < deps.length - 1) d.appendChild(document.createTextNode(", "));
+    });
+    gates.appendChild(d);
+  }
+  if (it.raw.unlock) {
+    const d = el("div", { style: "margin-top:4px" });
+    d.appendChild(el("span", { class: "sticker" }, unlockStickerHtml(it.raw.unlock, 11)));
+    gates.appendChild(d);
+  }
+  if (gates.children.length) panel.appendChild(gates);
+
+  // tags
+  panel.appendChild(el("h4", { style: "margin:14px 0 4px;color:var(--muted)" }, "TAGS"));
+  const tagRow = el("div", { class: "tagchips", style: "display:flex;flex-wrap:wrap;gap:4px" });
+  for (const t of itemTags(it.id)) {
+    const chip = el("span", { class: "tagchip", style: `border-color:${tagColor(t)};color:${tagColor(t)}` },
+      `${esc(t)} <span class="x">✕</span>`);
+    chip.querySelector(".x").addEventListener("click", () => { assignTag(it.id, t, false); renderDetail(); render(); });
+    tagRow.appendChild(chip);
+  }
+  const tagInp = el("input", { type: "text", list: "tag-dl", placeholder: "+ tag", style: "width:110px" });
+  const dl = el("datalist", { id: "tag-dl" },
+    S.meta.tags.map(t => `<option>${esc(t.name)}</option>`).join(""));
+  tagInp.addEventListener("change", () => {
+    const name = tagInp.value.trim();
+    if (!name) return;
+    if (!tagDef(name)) createTag(name);
+    assignTag(it.id, name, true);
+    renderDetail(); render();
+  });
+  tagRow.append(tagInp, dl);
+  panel.appendChild(tagRow);
+
+  // notes
+  panel.appendChild(el("h4", { style: "margin:14px 0 4px;color:var(--muted)" }, "NOTES"));
+  const noteTa = el("textarea", { rows: 4, placeholder: "design notes (saved to tools/catalog_meta.json)" });
+  noteTa.value = S.meta.notes[it.id] || "";
+  const noteSave = debounce(() => { setNote(it.id, noteTa.value); render(); }, 800);
+  noteTa.addEventListener("input", () => noteSave());
+  noteTa.addEventListener("blur", () => noteSave.flush());
+  panel.appendChild(noteTa);
+}
+/* ══════════════ S11 · Sprite picker ══════════════ */
+let spriteObserver = null, spriteModalUrls = [];
+function closeSpriteModal() {
+  $("#sprite-modal").classList.add("hidden");
+  if (spriteObserver) { spriteObserver.disconnect(); spriteObserver = null; }
+}
+function openSpriteModal(itemId) {
+  const veil = $("#sprite-modal"); const box = veil.querySelector(".modal");
+  veil.classList.remove("hidden");
+  const it = S.model.byId.get(itemId);
+  const current = effective(it).sprite_target;
+  let picked = null;
+
+  box.innerHTML = `<h3>Sprite for ${esc(effective(it).name)}</h3>`;
+  const bar = el("div", { style: "display:flex;gap:8px;margin-bottom:8px;align-items:center" });
+  const search = el("input", { type: "search", placeholder: "search path…", style: "width:220px" });
+  const folders = [...new Set(S.model.spritePool.map(p => p.split("/").slice(0, -1).join("/")))].sort();
+  const fsel = el("select", {}, `<option value="">all folders</option>` +
+    folders.map(f => `<option>${esc(f)}</option>`).join(""));
+  const aliasedOnly = el("label", { style: "font-size:11px;color:var(--muted)" },
+    `<input type="checkbox"> aliased only`);
+  bar.append(search, fsel, aliasedOnly);
+  box.appendChild(bar);
+  const grid = el("div", { id: "sprite-grid" });
+  box.appendChild(grid);
+  const preview = el("div", { id: "sprite-preview" });
+  box.appendChild(preview);
+  const actions = el("div", { style: "display:flex;gap:8px;justify-content:flex-end;margin-top:10px" });
+  const useBtn = el("button", { class: "primary", disabled: "" }, "Use this sprite");
+  const cancel = el("button", {}, "Cancel");
+  cancel.addEventListener("click", closeSpriteModal);
+  useBtn.addEventListener("click", () => {
+    if (picked) { setEdit(itemId, "sprite_target", picked); closeSpriteModal(); renderDetail(); render(); }
+  });
+  actions.append(cancel, useBtn);
+  box.appendChild(actions);
+
+  function refreshGrid() {
+    if (spriteObserver) spriteObserver.disconnect();
+    grid.innerHTML = "";
+    spriteObserver = new IntersectionObserver((entries) => {
+      for (const en of entries) {
+        if (!en.isIntersecting) continue;
+        const cell = en.target;
+        spriteObserver.unobserve(cell);
+        const rel = "assets/sprites/" + cell.dataset.path + ".png";
+        spriteUrl(rel).then(url => {
+          if (url) cell.querySelector(".box").innerHTML =
+            `<img class="sprite" src="${url}" style="max-width:64px;max-height:64px">`;
+        });
+      }
+    }, { root: grid, rootMargin: "200px" });
+    const q = search.value.toLowerCase();
+    const folder = fsel.value;
+    const onlyAliased = aliasedOnly.querySelector("input").checked;
+    let shown = 0;
+    for (const p of S.model.spritePool) {
+      if (q && !p.toLowerCase().includes(q)) continue;
+      if (folder && !p.startsWith(folder + "/")) continue;
+      const aliasName = S.model.aliasTargets.get(p);
+      if (onlyAliased && !aliasName) continue;
+      if (++shown > 1400) break;
+      const cell = el("div", { class: "spritecell" + (p === current ? " current" : ""), "data-path": p });
+      cell.innerHTML = `<div class="box"></div>${esc(p.split("/").pop())}` +
+        (aliasName ? `<div class="alias">= ${esc(aliasName)}</div>` : "");
+      cell.addEventListener("click", async () => {
+        picked = p;
+        useBtn.removeAttribute("disabled");
+        $$(".spritecell.current", grid).forEach(c => c.classList.remove("current"));
+        cell.classList.add("current");
+        const url = await spriteUrl("assets/sprites/" + p + ".png");
+        preview.innerHTML = url ? [1, 2, 4].map(s =>
+          `<img class="sprite" src="${url}" style="transform-origin:bottom left;image-rendering:pixelated;width:auto;height:auto;zoom:${s}">`)
+          .join("") + `<span class="mono faint" style="font-size:10px">${esc(p)}</span>` : "";
+      });
+      grid.appendChild(cell);
+      spriteObserver.observe(cell);
+    }
+    if (!shown) grid.innerHTML = `<div class="faint" style="padding:20px">no sprites match</div>`;
+  }
+  search.addEventListener("input", debounce(refreshGrid, 200));
+  fsel.addEventListener("change", refreshGrid);
+  aliasedOnly.querySelector("input").addEventListener("change", refreshGrid);
+  refreshGrid();
+}
+
+/* ══════════════ S12 · Tag manager ══════════════ */
+function openTagManager() {
+  const veil = $("#tag-modal"); const box = veil.querySelector(".modal");
+  veil.classList.remove("hidden");
+  function draw() {
+    box.innerHTML = `<h3>Tags</h3>`;
+    const table = el("table");
+    for (const t of S.meta.tags) {
+      const tr = el("tr");
+      const sw = el("td");
+      const swatch = el("span", { class: "swatch", style: `background:${tagColor(t.name)}`,
+        title: "click to cycle color" });
+      swatch.addEventListener("click", () => {
+        const i = TAG_PALETTE.indexOf(t.color);
+        t.color = TAG_PALETTE[(i + 1) % TAG_PALETTE.length];
+        metaChanged(); draw(); render();
+      });
+      sw.appendChild(swatch); tr.appendChild(sw);
+      const nameTd = el("td");
+      const inp = el("input", { type: "text", style: "width:150px" });
+      inp.value = t.name;
+      inp.addEventListener("change", () => {
+        if (!renameTag(t.name, inp.value)) inp.value = t.name;
+        draw(); render();
+      });
+      nameTd.appendChild(inp); tr.appendChild(nameTd);
+      tr.appendChild(el("td", { class: "num muted" }, `${tagUsage(t.name)} items`));
+      const delTd = el("td");
+      const del = el("button", { class: "danger" }, "delete");
+      del.addEventListener("click", () => {
+        const n = tagUsage(t.name);
+        if (!n || confirm(`Delete tag "${t.name}"? It is on ${n} item(s).`)) {
+          deleteTag(t.name); draw(); render();
+        }
+      });
+      delTd.appendChild(del); tr.appendChild(delTd);
+      table.appendChild(tr);
+    }
+    box.appendChild(table);
+    const addRow = el("div", { style: "margin-top:10px;display:flex;gap:8px" });
+    const inp = el("input", { type: "text", placeholder: "new tag name" });
+    const add = el("button", { class: "primary" }, "Add");
+    add.addEventListener("click", () => { if (createTag(inp.value)) { draw(); render(); } });
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") add.click(); });
+    addRow.append(inp, add);
+    box.appendChild(addRow);
+    const closeRow = el("div", { style: "margin-top:12px;text-align:right" });
+    const cl = el("button", {}, "Close");
+    cl.addEventListener("click", () => veil.classList.add("hidden"));
+    closeRow.appendChild(cl);
+    box.appendChild(closeRow);
+  }
+  draw();
+}
+
+/* ══════════════ S13 · Export / import ══════════════ */
+function buildExport() {
+  const out = { tool: "catalog_designer", version: 1, exported_at: nowIso(),
+    source: { item_count: S.model.items.length, run_minutes: RUN_MINUTES },
+    edits: {} };
+  for (const [id, fields] of Object.entries(S.edits)) {
+    const it = S.model.byId.get(id);
+    if (!it) continue;
+    const entry = {};
+    for (const [field, to] of Object.entries(fields)) {
+      if (field === "sprite_target") {
+        entry.sprite = {
+          from_alias: it.raw.sprite || null,
+          from_target: authoredValue(it, "sprite_target"),
+          to_target: to,
+          apply: "repoint aliases.json alias at to_target; catalog.lua sprite field unchanged",
+        };
+      } else {
+        entry[field] = { from: authoredValue(it, field), to };
+      }
+    }
+    if (Object.keys(entry).length) out.edits[id] = entry;
+  }
+  return out;
+}
+function doExport() {
+  const data = buildExport();
+  const n = Object.keys(data.edits).length;
+  if (!n) { alert("No staged edits. (Tags and notes live in tools/catalog_meta.json, not the export.)"); return; }
+  download(`catalog_edits_${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data, null, 2));
+}
+function doImport(file) {
+  file.text().then(text => {
+    let j;
+    try { j = JSON.parse(text); } catch (e) { return alert("Not valid JSON: " + e.message); }
+    const veil = $("#import-modal"); const box = veil.querySelector(".modal");
+    const isMeta = j.tags !== undefined || j.assignments !== undefined;
+    const isEdits = j.edits !== undefined;
+    if (!isMeta && !isEdits) return alert("Unrecognized file (expected an edits export or a catalog_meta.json).");
+    veil.classList.remove("hidden");
+    box.innerHTML = `<h3>Import ${isMeta ? "meta (tags + notes)" : "staged edits"}</h3>` +
+      `<p class="muted">${isMeta
+        ? `${(j.tags || []).length} tags, ${Object.keys(j.assignments || {}).length} tagged items, ${Object.keys(j.notes || {}).length} notes`
+        : `${Object.keys(j.edits || {}).length} edited items`}</p>`;
+    const row = el("div", { style: "display:flex;gap:8px;justify-content:flex-end" });
+    const merge = el("button", { class: "primary" }, "Merge");
+    const replace = el("button", {}, "Replace");
+    const cancel = el("button", {}, "Cancel");
+    cancel.addEventListener("click", () => veil.classList.add("hidden"));
+    function apply(mode) {
+      if (isMeta) {
+        if (mode === "replace") S.meta = Object.assign(emptyMeta(), j);
+        else {
+          for (const t of (j.tags || [])) if (!tagDef(t.name)) S.meta.tags.push(t);
+          Object.assign(S.meta.assignments, j.assignments || {});
+          Object.assign(S.meta.notes, j.notes || {});
+        }
+        metaChanged();
+      } else {
+        const imported = {};
+        for (const [id, fields] of Object.entries(j.edits || {})) {
+          imported[id] = {};
+          for (const [f, v] of Object.entries(fields)) {
+            if (f === "sprite") imported[id].sprite_target = v.to_target;
+            else imported[id][f] = (v && typeof v === "object" && "to" in v) ? v.to : v;
+          }
+        }
+        if (mode === "replace") S.edits = imported;
+        else for (const [id, fields] of Object.entries(imported))
+          S.edits[id] = Object.assign(S.edits[id] || {}, fields);
+        lsSet(LS_EDITS, { version: 1, edits: S.edits });
+      }
+      veil.classList.add("hidden");
+      render(); if (S.detailId) renderDetail();
+    }
+    merge.addEventListener("click", () => apply("merge"));
+    replace.addEventListener("click", () => apply("replace"));
+    row.append(cancel, replace, merge);
+    box.appendChild(row);
+  });
+}
+
+/* ══════════════ S14 · Boot + global bar ══════════════ */
+function renderTagFilterChips() {
+  const box = $("#f-tags");
+  box.innerHTML = "";
+  for (const t of S.meta.tags) {
+    const on = S.ui.filters.tags.includes(t.name);
+    const chip = el("span", { class: "tagchip" + (on ? " on" : ""),
+      style: on ? `background:${tagColor(t.name)};border-color:${tagColor(t.name)}`
+                : `border-color:${tagColor(t.name)};color:${tagColor(t.name)}` }, esc(t.name));
+    chip.addEventListener("click", () => {
+      const i = S.ui.filters.tags.indexOf(t.name);
+      if (i >= 0) S.ui.filters.tags.splice(i, 1); else S.ui.filters.tags.push(t.name);
+      render();
+    });
+    box.appendChild(chip);
+  }
+}
+function bootUi() {
+  $("#picker-zone").classList.add("hidden");
+  $("#global-bar").style.display = "flex";
+  $("#tab-bar").style.display = "flex";
+  $("#hdr-sub").textContent = `${S.model.items.length} items · ${S.model.deptOrder.length} depts · ` +
+    `${Object.keys(S.model.effectKinds).length} effect kinds · ${S.model.spritePool.length} sprites`;
+  const strip = $("#status-strip");
+  strip.style.display = "block";
+  strip.innerHTML = `<b>${S.mode === "fs" ? "writable" : "read-only"}</b> · ` +
+    `RUN_MINUTES ${RUN_MINUTES} · shove ${(K_SHOVE * 100)}%/item · ` +
+    `meta: ${S.meta.tags.length} tags, ${Object.keys(S.meta.notes).length} notes` +
+    (S.warnings.length ? ` · <span class="warn">${S.warnings.length} warning(s): ${esc(S.warnings.join(" | "))}</span>` : "");
+  if (S.mode === "ro") { $("#btn-meta-dl").classList.remove("hidden"); setSavePill("readonly"); }
+  else setSavePill("saved");
+
+  const phases = [...new Set(S.model.items.map(it => it.raw.phase))];
+  $("#f-phase").innerHTML = `<option value="">phase: all</option>` +
+    phases.map(p => `<option>${esc(p)}</option>`).join("");
+  $("#f-dept").innerHTML = `<option value="">dept: all</option>` +
+    S.model.deptOrder.map(d => `<option>${esc(d)}</option>`).join("");
+  $("#f-phase").value = S.ui.filters.phase || "";
+  $("#f-dept").value = S.ui.filters.dept || "";
+  $("#f-act").value = S.ui.filters.act || "";
+  $("#f-search").value = S.ui.filters.search || "";
+  $("#f-edited").checked = !!S.ui.filters.editedOnly;
+  render();
+}
+
+// wire once
+$("#btn-pick").addEventListener("click", openViaPicker);
+$("#btn-pick-ro").addEventListener("click", () => $("#dir-input").click());
+$("#dir-input").addEventListener("change", async (e) => {
+  const map = new Map();
+  for (const f of e.target.files) {
+    const rel = (f.webkitRelativePath || f.name).split("/").slice(1).join("/");
+    if (rel) map.set(rel, f);
+  }
+  await openReadOnly(map);
+});
+const pz = $("#picker-zone");
+pz.addEventListener("dragover", e => { e.preventDefault(); pz.classList.add("dragover"); });
+pz.addEventListener("dragleave", () => pz.classList.remove("dragover"));
+pz.addEventListener("drop", async (e) => {
+  e.preventDefault(); pz.classList.remove("dragover");
+  const items = e.dataTransfer.items;
+  if (!items || !items.length) return;
+  // Capture BOTH synchronously — DataTransfer items are neutered after the
+  // first await. Prefer the FS Access handle (writable) when it resolves.
+  const it0 = items[0];
+  const entry = it0.webkitGetAsEntry && it0.webkitGetAsEntry();
+  const handleP = it0.getAsFileSystemHandle ? it0.getAsFileSystemHandle().catch(() => null) : null;
+  if (handleP) {
+    const h = await handleP;
+    if (h && h.kind === "directory") return openFromHandle(h);
+  }
+  if (entry && entry.isDirectory) {
+    const map = new Map();
+    await walkEntry(entry, "", map);  // keys get the dir-name prefix; rerootFiles strips it
+    await openReadOnly(map);
+  }
+});
+$("#f-search").addEventListener("input", debounce(() => {
+  S.ui.filters.search = $("#f-search").value; render();
+}, 200));
+$("#f-phase").addEventListener("change", () => { S.ui.filters.phase = $("#f-phase").value; render(); });
+$("#f-act").addEventListener("change", () => { S.ui.filters.act = $("#f-act").value; render(); });
+$("#f-dept").addEventListener("change", () => { S.ui.filters.dept = $("#f-dept").value; render(); });
+$("#f-edited").addEventListener("change", () => { S.ui.filters.editedOnly = $("#f-edited").checked; render(); });
+$$("#tab-bar button").forEach(b => b.addEventListener("click", () => { S.ui.tab = b.dataset.tab; render(); }));
+$("#btn-tags").addEventListener("click", openTagManager);
+$("#btn-export").addEventListener("click", doExport);
+$("#btn-import").addEventListener("click", () => $("#import-input").click());
+$("#import-input").addEventListener("change", (e) => {
+  if (e.target.files[0]) doImport(e.target.files[0]);
+  e.target.value = "";
+});
+$("#btn-meta-dl").addEventListener("click", () => download("catalog_meta.json", metaJson()));
+
+/* ══════════════ S15 · Sim engine (fengari — runs the game's own Lua) ══════════════ */
+// The math is NOT reimplemented here. tools/sim_bridge.lua orchestrates the
+// game's models/outcome_math.lua + models/poker_effects.lua inside a fengari
+// Lua state fed from the picked folder, so balance edits to the game flow
+// into the sim on the next folder load. Headless-verified against golden
+// vectors in the session that built this (see tools/sim_bridge.lua header
+// for the three tiny mirrored functions and their game-side sources).
+const ENGINE = { ok: false, err: null, booting: false };
+// Keep in sync with the `require` list at the top of tools/sim_bridge.lua
+// (the bridge is loaded separately, so its own requires aren't auto-scanned).
+const LUA_SEEDS = ["models.poker_effects", "models.outcome_math", "models.shove_rate",
+  "services.EffectsRegistry", "utils.lookups", "data.stakes", "data.game_types",
+  "data.pot_tiers", "data.bankroll_tiers", "data.constants", "data.mtt_finish_dist",
+  "data.mtt_payouts", "data.mtt_hand_count", "data.run_upgrades", "data.effects",
+  "data.catalog", "data.catalog_pages", "data.procs", "data.routers", "data.balance"];
+// Script-only seconds per hand from sim/gtype_ev.lua runs (±20% by tier mix).
+const SEC_PER_HAND = { six_max: 17.0, hu: 6.2, zoom: 2.2, mtt: 18.4 };
+
+async function collectLuaSources() {
+  const map = new Map(); const queue = [...LUA_SEEDS];
+  while (queue.length) {
+    const mod = queue.pop();
+    if (map.has(mod)) continue;
+    const rel = mod.replace(/\./g, "/") + ".lua";
+    const src = await readText(rel);
+    if (src == null) throw new Error("missing " + rel + " in the picked folder");
+    map.set(mod, src);
+    for (const m of src.matchAll(/require\(\s*["']([\w.]+)["']\s*\)/g)) queue.push(m[1]);
+  }
+  const jsonSrc = await readText("tools/vendor/json.lua");
+  if (jsonSrc == null) throw new Error("missing tools/vendor/json.lua");
+  map.set("json", jsonSrc);
+  return map;
+}
+
+async function bootEngine() {
+  if (ENGINE.ok || ENGINE.booting) return;
+  ENGINE.booting = true; ENGINE.err = null;
+  try {
+    if (typeof fengari === "undefined")
+      throw new Error("tools/vendor/fengari-web.js is missing — the Sim tab needs it. " +
+        "Restore it from git or download fengari-web 0.1.4 into tools/vendor/.");
+    const { lua, lauxlib, lualib, to_luastring, to_jsstring } = fengari;
+    const L = lauxlib.luaL_newstate();
+    lualib.luaL_openlibs(L);
+    const sources = await collectLuaSources();
+    lua.lua_getglobal(L, to_luastring("package"));
+    lua.lua_getfield(L, -1, to_luastring("preload"));
+    for (const [mod, src] of sources) {
+      const st = lauxlib.luaL_loadbuffer(L, to_luastring(src), src.length, to_luastring("@" + mod));
+      if (st !== lua.LUA_OK)
+        throw new Error(mod + ": " + to_jsstring(lua.lua_tolstring(L, -1)));
+      lua.lua_setfield(L, -2, to_luastring(mod));
+    }
+    lua.lua_pop(L, 2);
+    const bridgeSrc = await readText("tools/sim_bridge.lua");
+    if (bridgeSrc == null) throw new Error("missing tools/sim_bridge.lua");
+    let st = lauxlib.luaL_loadbuffer(L, to_luastring(bridgeSrc), bridgeSrc.length, to_luastring("@sim_bridge"));
+    if (st !== lua.LUA_OK) throw new Error("bridge: " + to_jsstring(lua.lua_tolstring(L, -1)));
+    st = lua.lua_pcall(L, 0, 1, 0);
+    if (st !== lua.LUA_OK) throw new Error("bridge: " + to_jsstring(lua.lua_tolstring(L, -1)));
+    lua.lua_pop(L, 1);
+    ENGINE.L = L; ENGINE.lua = lua; ENGINE.to_luastring = to_luastring;
+    ENGINE.to_jsstring = to_jsstring;
+    ENGINE.info = callBridge("info", {});
+    ENGINE.ok = true;
+  } catch (e) {
+    ENGINE.err = String(e.message || e);
+  } finally {
+    ENGINE.booting = false;
+    if (S.ui.tab === "sim") render();
+  }
+}
+
+function callBridge(fn, arg) {
+  const { L, lua, to_luastring, to_jsstring } = ENGINE;
+  lua.lua_getglobal(L, to_luastring("Bridge"));
+  lua.lua_getfield(L, -1, to_luastring(fn));
+  lua.lua_remove(L, -2);
+  lua.lua_pushstring(L, to_luastring(JSON.stringify(arg)));
+  const st = lua.lua_pcall(L, 1, 1, 0);
+  if (st !== lua.LUA_OK) {
+    const e = to_jsstring(lua.lua_tolstring(L, -1));
+    lua.lua_pop(L, 1);
+    throw new Error(fn + ": " + e);
+  }
+  const out = to_jsstring(lua.lua_tolstring(L, -1));
+  lua.lua_pop(L, 1);
+  return JSON.parse(out);
+}
+
+/* ── coverage classification (which effects the analytic EV sees) ── */
+const MODELED_KINDS = new Set(["win_chance_shift", "wc_mult", "earnings_mult", "loss_mult",
+  "win_dist_shift", "loss_dist_shift", "win_tier_shift", "loss_tier_shift", "jackpot_mult",
+  "tier_bump_chance", "payout_double_chance", "earnings_per_tier", "earnings_scale_by_bankroll",
+  "win_tier_floor", "loss_tier_ceiling", "auto_win_chance", "win_chance_fill", "win_dist_fill",
+  "loss_dist_fill", "fill_window_widen", "fill_cascade", "run_upgrade_strength_mult",
+  "run_upgrade_bonus_levels", "mtt_payout_boost", "focus_capacity_add",
+  "focus_penalty_reduce_mult", "focus_penalty_immune", "solo_table_bonus", "corner_win_chance"]);
+const THROUGHPUT_KINDS = new Set(["hand_pace_mult", "solo_table_pace"]);
+function simCoverage(it, corrupted) {
+  const effects = (corrupted && it.raw.corrupt && it.raw.corrupt.effects)
+    ? it.raw.corrupt.effects : (it.raw.effects || []);
+  const kinds = effects.map(e => e.kind).filter(k => k !== "shove_rate_add");
+  if (!kinds.length) return { cls: "none", label: "inert" };
+  const modeled = kinds.filter(k => MODELED_KINDS.has(k)).length;
+  const thru = kinds.filter(k => THROUGHPUT_KINDS.has(k)).length;
+  if (modeled === kinds.length) return { cls: "full", label: "modeled" };
+  if (modeled + thru === kinds.length) return { cls: "full", label: "$/hr" };
+  if (modeled + thru > 0) return { cls: "part", label: "partial" };
+  return { cls: "none", label: "not modeled" };
+}
+
+function simRequest(equipped, corrupted) {
+  const s = S.ui.sim;
+  return {
+    equipped: equipped ?? s.equipped, corrupted: corrupted ?? s.corrupted,
+    upgrades: s.upgrades, stake_id: s.stake_id, gtype_id: s.gtype_id,
+    transient: { active_tables_count: Number(s.tables) || 1 },
+    opts: { bankroll: Number(s.bankroll) || 0, use_focus: !!s.useFocus, corner: !!s.corner },
+  };
+}
+function baselineRequest() {
+  const s = S.ui.sim;
+  if (s.baseline !== "naked" && S.meta.loadouts[s.baseline]) {
+    const lo = S.meta.loadouts[s.baseline];
+    const req = simRequest(lo.equipped || [], lo.corrupted || []);
+    req.upgrades = lo.upgrades || {};
+    return req;
+  }
+  const req = simRequest([], []);
+  if (s.baseline === "naked") req.upgrades = {};
+  return req;
+}
+function dollarsPerHour(ev, gtypeId, paceMult) {
+  const base = SEC_PER_HAND[gtypeId] || 10;
+  const overhead = gtypeId === "mtt" ? 0 : (Number(S.ui.sim.overhead) || 0);
+  const sec = base / (paceMult || 1) + overhead;
+  return ev * 3600 / sec;
+}
+
+/* ══════════════ S16 · Sim view ══════════════ */
+const simRecompute = debounce(() => { if (S.ui.tab === "sim") render(); }, 150);
+
+function viewSim(root) {
+  const s = S.ui.sim;
+  if (!ENGINE.ok) {
+    root.appendChild(el("div", { class: "statblock" }, ENGINE.err
+      ? `<h3>Sim engine failed</h3><div class="muted" style="white-space:pre-wrap">${esc(ENGINE.err)}</div>`
+      : `<h3>Sim engine loading…</h3><div class="muted">Booting the game's Lua (fengari)…</div>`));
+    if (!ENGINE.err && !ENGINE.booting) bootEngine();
+    return;
+  }
+
+  /* ── scenario bar ── */
+  const bar = el("div", { id: "sim-scenario" });
+  const stakeSel = el("select", {}, ENGINE.info.stakes.map(st =>
+    `<option value="${st.id}" ${st.id === s.stake_id ? "selected" : ""}>${esc(st.display_name)} (${esc(st.band)})</option>`).join(""));
+  stakeSel.addEventListener("change", () => { s.stake_id = stakeSel.value; render(); });
+  const gtSel = el("select", {}, ENGINE.info.gtypes.map(g =>
+    `<option value="${g.id}" ${g.id === s.gtype_id ? "selected" : ""}>${esc(g.name)}</option>`).join(""));
+  gtSel.addEventListener("change", () => { s.gtype_id = gtSel.value; render(); });
+  bar.append(stakeSel, gtSel);
+
+  const num = (label, key, step) => {
+    const l = el("label", {}, esc(label) + " ");
+    const i = el("input", { type: "number", value: s[key], step: step || 1 });
+    i.addEventListener("change", () => { s[key] = Number(i.value); render(); });
+    l.appendChild(i); return l;
+  };
+  bar.appendChild(num("bankroll $", "bankroll"));
+  bar.appendChild(num("tables", "tables"));
+  const chk = (label, key, title) => {
+    const l = el("label", { title: title || "" });
+    const i = el("input", { type: "checkbox" });
+    i.checked = !!s[key];
+    i.addEventListener("change", () => { s[key] = i.checked; render(); });
+    l.append(i, document.createTextNode(" " + label)); return l;
+  };
+  bar.appendChild(chk("focus penalty", "useFocus", "apply the over-capacity focus multiplier at this table count"));
+  bar.appendChild(chk("corner table", "corner", "Red Rug's corner_win_chance (slot 0 only in game)"));
+  bar.appendChild(num("cursor ovh s", "overhead", 0.5));
+
+  for (const u of ENGINE.info.upgrades) {
+    const dial = el("span", { class: "upg-dial" });
+    dial.appendChild(el("span", { class: "muted" }, esc(u.name)));
+    const r = el("input", { type: "range", min: 0, max: u.max_level, value: s.upgrades[u.id] || 0 });
+    const lvl = el("span", { class: "lvl" }, String(s.upgrades[u.id] || 0));
+    r.addEventListener("input", () => {
+      s.upgrades[u.id] = Number(r.value); lvl.textContent = r.value; simRecompute();
+    });
+    dial.append(r, lvl);
+    bar.appendChild(dial);
+  }
+  root.appendChild(bar);
+
+  /* ── layout: loadout | results ── */
+  const layout = el("div", { id: "sim-layout" });
+  root.appendChild(layout);
+  const left = el("div", { id: "sim-loadout" });
+  const main = el("div", { id: "sim-main" });
+  layout.append(left, main);
+
+  /* ── loadout panel ── */
+  const equipped = new Set(s.equipped);
+  const corrupted = new Set(s.corrupted);
+  const lctl = el("div", { style: "display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap" });
+  const search = el("input", { type: "search", placeholder: "filter…", style: "flex:1;min-width:90px" });
+  search.value = s.search || "";
+  search.addEventListener("input", debounce(() => { s.search = search.value; render(); }, 200));
+  lctl.appendChild(search);
+  const presets = [
+    ["none", () => []],
+    ["all modeled", () => S.model.items.filter(it => !it.raw.hidden && it.ownable &&
+        simCoverage(it, false).cls === "full").map(it => it.id)],
+    ["all", () => S.model.items.filter(it => !it.raw.hidden && it.ownable).map(it => it.id)],
+  ];
+  for (const [name, fn] of presets) {
+    const b = el("button", { style: "font-size:10px;padding:2px 6px" }, esc(name));
+    b.addEventListener("click", () => { s.equipped = fn(); render(); });
+    lctl.appendChild(b);
+  }
+  left.appendChild(lctl);
+
+  // loadout save/load (persisted in tools/catalog_meta.json)
+  const lrow = el("div", { style: "display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center" });
+  const loSel = el("select", {}, `<option value="naked">baseline: naked</option>` +
+    Object.keys(S.meta.loadouts).sort().map(n =>
+      `<option value="${esc(n)}" ${n === s.baseline ? "selected" : ""}>baseline: ${esc(n)}</option>`).join(""));
+  loSel.value = S.meta.loadouts[s.baseline] ? s.baseline : "naked";
+  loSel.addEventListener("change", () => { s.baseline = loSel.value; render(); });
+  lrow.appendChild(loSel);
+  const saveB = el("button", { style: "font-size:10px" }, "save loadout…");
+  saveB.addEventListener("click", () => {
+    const name = prompt("Loadout name:");
+    if (!name) return;
+    S.meta.loadouts[name] = { equipped: [...equipped], corrupted: [...corrupted],
+      upgrades: { ...s.upgrades } };
+    metaChanged(); render();
+  });
+  lrow.appendChild(saveB);
+  const loadB = el("button", { style: "font-size:10px" }, "load…");
+  loadB.addEventListener("click", () => {
+    const names = Object.keys(S.meta.loadouts).sort();
+    if (!names.length) return alert("No saved loadouts yet.");
+    const name = prompt("Load which loadout?\n" + names.join(", "));
+    const lo = name && S.meta.loadouts[name];
+    if (!lo) return;
+    s.equipped = [...(lo.equipped || [])]; s.corrupted = [...(lo.corrupted || [])];
+    s.upgrades = { ...(lo.upgrades || {}) };
+    render();
+  });
+  lrow.appendChild(loadB);
+  left.appendChild(lrow);
+
+  const list = el("div", { id: "sim-items" });
+  const q = (s.search || "").toLowerCase();
+  for (const it of S.model.items) {
+    if (it.raw.hidden || !it.ownable) continue;
+    const eff = effective(it);
+    if (q && !(it.id + " " + eff.name).toLowerCase().includes(q)) continue;
+    const row = el("div", { class: "sim-item" });
+    const eq = el("input", { type: "checkbox", title: "equip" });
+    eq.checked = equipped.has(it.id);
+    eq.addEventListener("change", () => {
+      if (eq.checked) equipped.add(it.id); else equipped.delete(it.id);
+      s.equipped = [...equipped]; simRecompute();
+    });
+    row.appendChild(eq);
+    const co = el("input", { type: "checkbox", class: "corrupt-cb", title: "corrupted (replaces effects)" });
+    if (!it.raw.corrupt) co.style.visibility = "hidden";
+    co.checked = corrupted.has(it.id);
+    co.addEventListener("change", () => {
+      if (co.checked) corrupted.add(it.id); else corrupted.delete(it.id);
+      s.corrupted = [...corrupted]; simRecompute();
+    });
+    row.appendChild(co);
+    const nm = el("span", { class: "nm", title: eff.effect_text || "" }, esc(eff.name));
+    nm.addEventListener("click", () => openDetail(it.id));
+    row.appendChild(nm);
+    row.appendChild(el("span", { class: "cost" }, String(deriveCost(eff.cost_chip))));
+    const cov = simCoverage(it, corrupted.has(it.id));
+    row.appendChild(el("span", { class: "cov " + cov.cls }, esc(cov.label)));
+    list.appendChild(row);
+  }
+  left.appendChild(list);
+  left.appendChild(el("div", { class: "faint", style: "font-size:10px;margin-top:4px" },
+    "purple box = corrupted (replaces base effects) · coverage: what the analytic EV sees"));
+
+  /* ── results ── */
+  let cur, base, err = null;
+  try {
+    cur = callBridge("eval", simRequest());
+    base = callBridge("eval", baselineRequest());
+  } catch (e) { err = String(e.message || e); }
+  if (err) {
+    main.appendChild(el("div", { class: "statblock" },
+      `<h3>Eval failed</h3><div class="muted">${esc(err)}</div>`));
+    return;
+  }
+
+  const gtypeId = s.gtype_id;
+  const isMtt = !!cur.mtt;
+  const fmt = (v, d) => v == null ? "—" : Number(v).toFixed(d == null ? 4 : d);
+  const pct = v => v == null ? "—" : (v * 100).toFixed(2) + "%";
+  const money = v => (v < 0 ? "-$" : "$") + Math.abs(v).toFixed(Math.abs(v) < 10 ? 4 : 2);
+  const distBar = (d, ramp) => {
+    const keys = ["small", "medium", "large", "jackpot"];
+    return `<span class="distbar">` + keys.map(k =>
+      `<span style="width:${(d[k] || 0) * 100}%;background:${ramp[k]}" title="${k} ${(d[k] * 100 || 0).toFixed(1)}%"></span>`).join("") + `</span>`;
+  };
+  const dRow = (label, b, c, fmtFn, goodUp) => {
+    if (b == null && c == null) return "";
+    const delta = (c != null && b != null) ? c - b : null;
+    const cls = delta == null || Math.abs(delta) < 1e-9 ? "" :
+      ((delta > 0) === (goodUp !== false) ? "delta-pos" : "delta-neg");
+    return `<tr><td>${label}</td><td>${fmtFn(b)}</td><td>${fmtFn(c)}</td>` +
+      `<td class="${cls}">${delta == null ? "—" : (delta >= 0 ? "+" : "") + fmtFn(delta)}</td></tr>`;
+  };
+
+  const res = el("div", { class: "statblock" });
+  const baseName = S.meta.loadouts[s.baseline] ? s.baseline : "naked";
+  res.appendChild(el("h3", {}, `Prediction — ${esc(stakeSel.selectedOptions[0].text)} · ${esc(gtSel.selectedOptions[0].text)}` +
+    ` <small class="faint">(engine: live game Lua)</small>`));
+  let rows = "";
+  const wcLabel = "win chance" + (cur.corner_add ? ` <span class="faint">(+corner)</span>` : "");
+  rows += dRow(wcLabel, base.wc + (base.corner_add || 0), cur.wc + (cur.corner_add || 0), pct, true);
+  rows += `<tr><td>win dist</td><td>${distBar(base.wd, COLORS.tierWin)}</td>` +
+    `<td>${distBar(cur.wd, COLORS.tierWin)}</td><td></td></tr>`;
+  rows += `<tr><td>loss dist</td><td>${distBar(base.ld, COLORS.tierLoss)}</td>` +
+    `<td>${distBar(cur.ld, COLORS.tierLoss)}</td><td></td></tr>`;
+  rows += dRow("stack odds / hand", base.stack_pct, cur.stack_pct, v => fmt(v, 3) + "%", true);
+  rows += dRow("loss-stack odds", base.loss_stack_pct, cur.loss_stack_pct, v => fmt(v, 3) + "%", false);
+  if (!isMtt) {
+    rows += dRow("avg win (bb)", base.win_avg_bb, cur.win_avg_bb, v => fmt(v, 2), true);
+    rows += dRow("avg loss (bb)", base.loss_avg_bb, cur.loss_avg_bb, v => fmt(v, 2), false);
+  }
+  rows += dRow("$ / hand", base.ev_per_hand, cur.ev_per_hand, money, true);
+  rows += dRow("ev (bb)", base.ev_bb, cur.ev_bb, v => fmt(v, 3), true);
+  rows += dRow("$ / hour ≈", dollarsPerHour(base.ev_per_hand, gtypeId, base.hand_pace_mult),
+    dollarsPerHour(cur.ev_per_hand, gtypeId, cur.hand_pace_mult), money, true);
+  if (isMtt) {
+    rows += dRow("ROI %", base.mtt && base.mtt.roi_pct, cur.mtt.roi_pct, v => fmt(v, 1) + "%", true);
+    rows += dRow("net $ / tournament", base.mtt && base.mtt.net_ev_run, cur.mtt.net_ev_run, money, true);
+    rows += dRow("hands / tournament", base.mtt && base.mtt.exp_hands, cur.mtt.exp_hands, v => fmt(v, 1), false);
+  }
+  const shovePctOf = req => (shoveR1(req.equipped.length, Number(s.bankroll) || 0) * 100).toFixed(1) + "%";
+  rows += `<tr><td>shove % (flat 1%/item)</td><td>${shovePctOf(baselineRequest())}</td>` +
+    `<td>${shovePctOf(simRequest())}</td><td></td></tr>`;
+  res.appendChild(el("table", { class: "simres" },
+    `<tr><th></th><th>baseline (${esc(baseName)})</th><th>loadout (${equipped.size} items)</th><th>Δ</th></tr>` + rows));
+  if (cur.focus_mult != null && cur.focus_mult < 1)
+    res.appendChild(el("div", { class: "faint", style: "margin-top:4px" },
+      `focus multiplier ×${cur.focus_mult.toFixed(2)} applied at ${s.tables} tables`));
+  res.appendChild(el("div", { class: "faint", style: "margin-top:4px" },
+    `$/hour is ±20% (fixed sec/hand table ÷ pace + cursor overhead; tier mix shifts real hand length)`));
+  main.appendChild(res);
+
+  /* ── marginal value table ── */
+  let marg = null;
+  try { marg = callBridge("marginals", simRequest()); } catch (e) { /* shown below */ }
+  const mblk = el("div", { class: "statblock" });
+  mblk.appendChild(el("h3", {}, "Marginal value — Δ$/hand vs the current loadout" +
+    ` <small class="faint">(equipped rows: value lost by removing; others: value gained by adding)</small>`));
+  if (!marg) {
+    mblk.appendChild(el("div", { class: "muted" }, "marginals failed"));
+  } else {
+    const rowsD = [];
+    for (const r of marg.rows) {
+      const it = S.model.byId.get(r.id);
+      if (!it || !it.ownable) continue;
+      const cost = deriveCost(effective(it).cost_chip) || 1;
+      rowsD.push({
+        id: r.id, name: effective(it).name, equipped: r.equipped,
+        dev: r.delta_ev ?? 0, dstack: r.delta_stack ?? 0,
+        cost, perchip: (r.delta_ev ?? 0) / cost,
+        cov: simCoverage(it, corrupted.has(r.id)),
+      });
+    }
+    const sortKey = s.margSort || "perchip";
+    rowsD.sort((a, b) => (b[sortKey] ?? 0) - (a[sortKey] ?? 0));
+    const mth = (label, key) => `<th style="cursor:pointer" data-sort="${key}" ` +
+      `class="${sortKey === key ? "sorted" : ""}">${label}${sortKey === key ? " ▼" : ""}</th>`;
+    const tbl = el("table", { class: "simres", id: "sim-marg" },
+      `<tr><th>item</th>${mth("Δ$/hand", "dev")}${mth("cost", "cost")}` +
+      `${mth("Δ$/hand per chip", "perchip")}${mth("Δstack%", "dstack")}<th>coverage</th><th></th></tr>` +
+      rowsD.map(r =>
+        `<tr data-id="${esc(r.id)}"><td style="text-align:left">${esc(r.name)}</td>` +
+        `<td class="${r.dev > 1e-9 ? "delta-pos" : r.dev < -1e-9 ? "delta-neg" : ""}">${(r.dev >= 0 ? "+" : "") + r.dev.toFixed(4)}</td>` +
+        `<td>${r.cost}</td>` +
+        `<td class="${r.perchip > 1e-9 ? "delta-pos" : ""}">${(r.perchip >= 0 ? "+" : "") + r.perchip.toFixed(5)}</td>` +
+        `<td>${(r.dstack >= 0 ? "+" : "") + r.dstack.toFixed(3)}</td>` +
+        `<td><span class="cov ${r.cov.cls}">${esc(r.cov.label)}</span></td>` +
+        `<td>${r.equipped ? "equipped" : ""}</td></tr>`).join(""));
+    tbl.addEventListener("click", (ev) => {
+      const th = ev.target.closest("th[data-sort]");
+      if (th) { s.margSort = th.dataset.sort; render(); return; }
+      const tr = ev.target.closest("tr[data-id]");
+      if (tr) openDetail(tr.dataset.id);
+    });
+    mblk.appendChild(tbl);
+    mblk.appendChild(el("div", { class: "faint", style: "margin-top:4px" },
+      `"not modeled" items show Δ0 here by definition — their value is procs/economy the analytic EV can't see, not that they're worthless.`));
+  }
+  main.appendChild(mblk);
+
+  /* ── chip sweep estimator ── */
+  const sw = el("div", { class: "statblock" });
+  sw.appendChild(el("h3", {}, "Chip sweep — bounty per lane (assumes each lane hits its jackpot)"));
+  s.lanes = s.lanes || {};
+  const grid = el("table", { class: "stat" });
+  let hdr = "<tr><th></th>";
+  for (const g of ENGINE.info.gtypes) hdr += `<th>${esc(g.name)}</th>`;
+  grid.innerHTML = hdr + "</tr>";
+  for (const st of ENGINE.info.stakes) {
+    const tr = el("tr", {}, `<td>${esc(st.display_name)}</td>`);
+    for (const g of ENGINE.info.gtypes) {
+      const key = st.id + "/" + g.id;
+      const td = el("td", { class: "num" });
+      const cb = el("input", { type: "checkbox" });
+      cb.checked = !!s.lanes[key];
+      cb.addEventListener("change", () => { s.lanes[key] = cb.checked || undefined; simRecompute(); });
+      td.appendChild(cb);
+      tr.appendChild(td);
+    }
+    grid.appendChild(tr);
+  }
+  sw.appendChild(grid);
+  const laneList = Object.keys(s.lanes).filter(k => s.lanes[k])
+    .map(k => { const [a, b] = k.split("/"); return { stake_id: a, gtype_id: b }; });
+  if (laneList.length) {
+    try {
+      const bres = callBridge("bounty", Object.assign(simRequest(), { lanes: laneList }));
+      let total = 0, lines = "";
+      for (const l of bres.lanes) {
+        total += l.award;
+        const secs = l.hands_to_jp != null
+          ? l.hands_to_jp * (SEC_PER_HAND[l.gtype_id] || 10) : null;
+        lines += `<tr><td>${esc(l.stake_id)}/${esc(l.gtype_id)}</td>` +
+          `<td class="num">${l.award}</td>` +
+          `<td class="num">${l.hands_to_jp ? l.hands_to_jp.toFixed(0) : "∞"}</td>` +
+          `<td class="num">${secs != null ? (secs / 60).toFixed(1) + " min" : "—"}</td></tr>`;
+      }
+      total += bres.first_bounty_bonus || 0;
+      sw.appendChild(el("table", { class: "stat", style: "margin-top:8px" },
+        `<tr><th>lane</th><th class="num">bounty</th><th class="num">hands to jackpot</th><th class="num">≈time</th></tr>` +
+        lines + `<tr style="font-weight:600"><td>TOTAL</td><td class="num">${total} ${chipSvg(11, COLORS.chip, COLORS.chipRing)}</td>` +
+        `<td colspan="2" class="faint">${bres.first_bounty_bonus ? "+" + bres.first_bounty_bonus + " first-bounty bonus included" : ""}</td></tr>`));
+    } catch (e) {
+      sw.appendChild(el("div", { class: "muted" }, esc(String(e.message || e))));
+    }
+  }
+  main.appendChild(sw);
+}
+
+// restore a previously granted directory handle (one-click reopen)
+(async () => {
+  if (!FS_OK) return;
+  try {
+    const h = await idbGet("projectDir");
+    if (!h) return;
+    const perm = await h.queryPermission({ mode: "readwrite" });
+    if (perm === "granted") { await openFromHandle(h); return; }
+    if (perm === "prompt") {
+      $("#reopen-row").classList.remove("hidden");
+      const btn = $("#btn-reopen");
+      btn.textContent = `Reopen "${h.name}"`;
+      btn.addEventListener("click", async () => {
+        const p = await h.requestPermission({ mode: "readwrite" });
+        if (p === "granted") await openFromHandle(h);
+      });
+    }
+  } catch (e) { /* fresh start */ }
+})();
+</script>
+</body>
+</html>

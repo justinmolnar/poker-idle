@@ -17,6 +17,7 @@ local Row           = require("views.widgets.Row")
 local ConfirmDialog = require("views.widgets.ConfirmDialog")
 local Slider        = require("views.widgets.Slider")
 local TooltipSvc    = require("services.Tooltip")
+local HoverSvc      = require("services.HoverService")
 
 local SettingsModal = {}
 SettingsModal.__index = SettingsModal
@@ -290,7 +291,8 @@ function SettingsModal:draw()
 
     local function action_row(label, action, opts)
         opts = opts or {}
-        local hov = mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H
+        local hov = HoverSvc.rest("button", "settings_row:" .. label,
+            mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H, 0)
         Row.draw{ x = row_x, y = y, w = row_w, h = ROW_H,
                   label = label, fonts = fonts,
                   hovered = hov and not opts.disabled, disabled = opts.disabled }
@@ -311,7 +313,8 @@ function SettingsModal:draw()
         -- displaying that as ON contradicted the send gate, which treats
         -- anything but true as off.
         local ana_on  = (self.game.settings and self.game.settings.analytics_consent) == true
-        local ana_hov = mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H
+        local ana_hov = HoverSvc.rest("button", "settings_analytics",
+            mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H, 0)
         local box_sz  = math.floor(12 * s)
         local lh      = fonts.md:getHeight()
         local label   = "Send Anonymous Gameplay Analytics"

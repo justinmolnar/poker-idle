@@ -46,15 +46,18 @@ local Lookups       = require("utils.lookups")
 local Format        = require("utils.format")
 local CardSprites   = require("views.CardSprites")
 local Effects       = require("views.TablePanelEffects")
+local ShaderRegistry = require("services.ShaderRegistry")
+local FeltStyle     = require("data.felt_style")
 
--- ── Felt = green, cast with the stake's chip ────────────────────────────
--- Every felt is the SAME classic green (Theme.bg.felt) pulled a third of
--- the way toward the stake's chip — the biggest denomination that posts
--- its big blind, the chip a player at that table thinks in. So the tiers
--- read as one family of card-room greens with a money cast (pale sage at
--- NL2's white 1c, olive at the red room, teal at the blue, near-black at
--- the $100 room, gold-green at 1k) rather than a set of unrelated paints.
--- OPAQUE, and brightness-capped so a pale chip can't out-glow the ladder.
+-- ── Felt = the stake's chip, leashed to the card room ───────────────────
+-- Every felt starts from the same classic green (Theme.bg.felt) and is
+-- pulled toward the stake's chip — the biggest denomination that posts
+-- its big blind, the chip a player at that table thinks in. The chip's
+-- hue is allowed to lead (the purple room reads purple, the blue room
+-- blue); the green in the mix and the shared luminance ramp keep the
+-- tiers one family instead of a set of unrelated paints. Both knobs live
+-- in data/felt_style.lua `color`. OPAQUE, luma-normalized per tier so a
+-- pale chip can't out-glow the ladder.
 --
 -- Cached per stake; the cache is keyed to the live base token so a theme
 -- palette switch rebuilds it (tokens must never be cached — Theme.lua).
@@ -68,41 +71,55 @@ local function feltForStake(stake_id)
     if cached then return cached end
     local stake = Lookups.findById(Stakes, stake_id)
     local bb = (stake and stake.bb) or 0
+    -- Which chip paints this room: the stake's felt_chip override when
+    -- set (data/stakes — used where the bb chip's hue would repeat a
+    -- neighbouring tier's), else the biggest denomination that posts
+    -- the big blind.
     local best
-    for _, d in ipairs(ChipData.denominations) do
-        if d.value <= bb then best = d else break end
+    if stake and stake.felt_chip then
+        for _, d in ipairs(ChipData.denominations) do
+            if d.value == stake.felt_chip then best = d; break end
+        end
+    end
+    if not best then
+        for _, d in ipairs(ChipData.denominations) do
+            if d.value <= bb then best = d else break end
+        end
     end
     best = best or ChipData.denominations[1]
     local col = best.color
-    -- The cast can be generous here because the two steps below decide
-    -- what actually survives: hue, and only hue.
-    local MIX = 0.45
-    local r = base[1] + (col[1] - base[1]) * MIX
-    local g = base[2] + (col[2] - base[2]) * MIX
-    local b = base[3] + (col[3] - base[3]) * MIX
-    -- Green stays boss. Whatever the chip wanted, red and blue are scaled
-    -- back until the surface is green-first — every room is a card room,
-    -- warmed or cooled by its money, never repainted by it.
-    local allowed = g * 0.90
-    local mrb = math.max(r, b)
-    if mrb > allowed then
-        local s = allowed / mrb
-        r, b = r * s, b * s
-    end
-    -- Luminance IS the tier ladder: normalized to the base felt's light,
-    -- stepped gently darker per tier — the cheap room is the bright one,
-    -- the big game sits in the dark. Replaces the old brightness cap
-    -- (nothing can out-glow anything on a fixed ramp), and it's what
-    -- separates the warm-chip tiers (red/vermilion/gold) whose hue casts
-    -- converge once green wins.
-    local tier = Lookups.indexById(Stakes, stake_id) or 1
+    -- Every room is built at the SAME luminance and the SAME chroma; the
+    -- only thing a room takes from its chip is the HUE ANGLE. This is
+    -- uniform by construction — no room can be brighter, louder, or
+    -- grayer than another, and a hue can't wash out into "another
+    -- version of teal" the way every blend-toward-green scheme did (a
+    -- green-cast blend injects green into all six rooms, so they
+    -- converge; equal-chroma construction can't converge).
+    --
+    -- Hue is read in an opponent-axis plane (cr = R-Y, cb = B-Y) and the
+    -- output color is reconstructed exactly at target luma Y with chroma
+    -- C along that hue. A hueless chip (white 1c, black $100) has no
+    -- angle, so its room takes the base felt GREEN's hue — the classic
+    -- green room. Knobs in data/felt_style `color`.
+    -- NOTE: sim/felt_check.lua mirrors this math to audit the rooms —
+    -- keep the two in step.
+    local cc  = FeltStyle.color or {}
     local base_luma = 0.30 * base[1] + 0.59 * base[2] + 0.11 * base[3]
-    local target = base_luma * math.max(0.5, 1.15 - 0.07 * (tier - 1))
-    local luma = 0.30 * r + 0.59 * g + 0.11 * b
-    if luma > 1e-6 then
-        local s = target / luma
-        r, g, b = r * s, g * s, b * s
+    local target = base_luma * (cc.luma or 1.10)
+    local C = cc.chroma or 0.10
+    local cy = 0.30 * col[1] + 0.59 * col[2] + 0.11 * col[3]
+    local cr, cb = col[1] - cy, col[3] - cy
+    local n = math.sqrt(cr * cr + cb * cb)
+    if n < (cc.min_chroma or 0.06) then
+        cr, cb = base[1] - base_luma, base[3] - base_luma
+        n = math.sqrt(cr * cr + cb * cb)
     end
+    local r = target + C * cr / n
+    local b = target + C * cb / n
+    local g = (target - 0.30 * r - 0.11 * b) / 0.59
+    r = math.max(0, math.min(1, r))
+    g = math.max(0, math.min(1, g))
+    b = math.max(0, math.min(1, b))
     local c = { r, g, b, 1 }
     _felt_cache[stake_id] = c
     return c
@@ -170,8 +187,27 @@ local cardSizesFor = FeltLayout.cardSizes
 -- (fold / deal / showdown_reveal mutate playback_state), and we read
 -- those fields directly. With theater off, fall back to the legacy
 -- state-name keying (dealing/flop/turn/river/showdown/settling).
+-- The finished hand still on the felt: only at idle, only until the next
+-- deal removes tbl.last_hand. The snapshot's keys mirror both tbl.* and
+-- playback_state.* names, so handData/seatState substitute it for either
+-- source and every draw function below renders the residue for free.
+local function residueOf(tbl)
+    return (tbl.state == "idle") and tbl.last_hand or nil
+end
+
+-- Card/name/combo source: the live table, or the residue snapshot at idle.
+local function handData(tbl)
+    return residueOf(tbl) or tbl
+end
+
+-- Seat-facts source: live playback_state, or the residue snapshot at idle.
+local function seatState(tbl)
+    return tbl.playback_state or residueOf(tbl)
+end
+
 local function communityCardCount(tbl)
-    if tbl.playback_state then return tbl.playback_state.community_count or 0 end
+    local ss = seatState(tbl)
+    if ss then return ss.community_count or 0 end
     local s = tbl.state
     if s == "idle" or s == "dealing" then return 0 end
     if s == "flop"     then return 3 end
@@ -180,12 +216,13 @@ local function communityCardCount(tbl)
 end
 
 local function holeVisible(tbl)
-    return tbl.state ~= "idle"
+    return tbl.state ~= "idle" or residueOf(tbl) ~= nil
 end
 
 local function opponentFaceUp(tbl)
-    if tbl.playback_state then
-        return tbl.playback_state.opp_revealed == true
+    local ss = seatState(tbl)
+    if ss then
+        return ss.opp_revealed == true
     end
     local s = tbl.state
     return s == "showdown" or s == "settling"
@@ -593,8 +630,9 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     -- Map this seat's visual opp_idx (1..n_opps) to a script_seat
     -- (1..n_seats including the player). Used by both fold-dim and the
     -- chip-stack busted lookup.
+    local ss_map = seatState(tbl)
     local player_seat_for_map =
-        (tbl.playback_state and tbl.playback_state.player_seat)
+        (ss_map and ss_map.player_seat)
         or tbl.player_seat_fixed
     local script_seat = nil
     if player_seat_for_map then
@@ -655,8 +693,9 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     -- so the player can see at a glance who's still in. Theater-only —
     -- when playback_state is nil we don't dim.
     local seat_folded = false
-    if tbl.playback_state and tbl.playback_state.player_seat and script_seat then
-        if not tbl.playback_state.in_seats[script_seat] then
+    local ss_fold = seatState(tbl)
+    if ss_fold and ss_fold.player_seat and ss_fold.in_seats and script_seat then
+        if not ss_fold.in_seats[script_seat] then
             seat_alpha  = seat_alpha * 0.30
             seat_folded = true
         end
@@ -689,18 +728,19 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     -- Face-up requires showdown reveal AND this is the showcase opp AND
     -- (theater-mode only) that opp is still in_seats. Without the in-seats
     -- guard a folded opp could flip face-up if opponent_idx pointed at them.
-    local face_up = opponentFaceUp(tbl) and tbl.opponent_idx == opp_idx
-    if face_up and tbl.playback_state and tbl.playback_state.player_seat then
-        local ps = tbl.playback_state.player_seat
+    local hd = handData(tbl)
+    local face_up = opponentFaceUp(tbl) and hd.opponent_idx == opp_idx
+    if face_up and ss_fold and ss_fold.player_seat and ss_fold.in_seats then
+        local ps = ss_fold.player_seat
         local script_seat = (opp_idx < ps) and opp_idx or (opp_idx + 1)
-        if not tbl.playback_state.in_seats[script_seat] then
+        if not ss_fold.in_seats[script_seat] then
             face_up = false
         end
     end
-    if face_up and tbl.opponent_hole then
-        drawCardFront(sl, tbl.opponent_hole[1], cards_x, cards_y, card_w, card_h, seat_alpha,
+    if face_up and hd.opponent_hole then
+        drawCardFront(sl, hd.opponent_hole[1], cards_x, cards_y, card_w, card_h, seat_alpha,
                       plate, shadow)
-        drawCardFront(sl, tbl.opponent_hole[2], cards_x + card_w + card_gap, cards_y, card_w, card_h,
+        drawCardFront(sl, hd.opponent_hole[2], cards_x + card_w + card_gap, cards_y, card_w, card_h,
                       seat_alpha, plate, shadow)
         -- Showdown win emphasis (dim losers / grow winners) is applied later as
         -- a single on-top overlay pass in TablePanel.draw -- see
@@ -734,7 +774,7 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     -- Straddles the lower-LEFT corner of the seat's cards, clamped inside the
     -- seat box so it can never drift over a neighbouring seat, and on the
     -- opposite side from the bb stack label that hangs under them.
-    local btn_seat = tbl.playback_state and tbl.playback_state.button_visual_seat
+    local btn_seat = ss_fold and ss_fold.button_visual_seat
     if button and btn_seat and opp_idx == btn_seat then
         local br = button.d * 0.5
         FeltDecor.drawButton(math.max(x + br, cards_x),
@@ -766,14 +806,15 @@ end
 -- Draws the 5 community slots centered in the comm layout rect
 -- (`{ x, y, w, card_w, card_h, gap }` from views/FeltLayout).
 local function drawCommunity(tbl, comm, sl, plate)
+    local hd      = handData(tbl)
     local count   = communityCardCount(tbl)
     local total_w = comm.card_w * 5 + 4 * comm.gap
     local row_x   = comm.x + math.floor((comm.w - total_w) / 2)
 
     for i = 1, 5 do
         local cx = row_x + (i - 1) * (comm.card_w + comm.gap)
-        if i <= count and tbl.community and tbl.community[i] then
-            drawCardFront(sl, tbl.community[i], cx, comm.y, comm.card_w, comm.card_h, 1,
+        if i <= count and hd.community and hd.community[i] then
+            drawCardFront(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h, 1,
                           plate, comm.shadow)
         else
             drawCardSlot(cx, comm.y, comm.card_w, comm.card_h)
@@ -1095,7 +1136,13 @@ local function displayStack(tbl)
     if pbs and tbl.state ~= "idle" and tbl.state ~= "settling" then
         local seat      = pbs.player_seat
         local committed = (seat and pbs.per_seat_total and pbs.per_seat_total[seat]) or 0
-        local won       = (seat and pbs.winner == seat and (pbs.pot_at_push or 0)) or 0
+        -- Winning credits the pot PLUS your own bets back. Under the
+        -- pot-is-what-you-win sizing (Table:deal's effective_bb), the
+        -- pot equals the payout, so the reconciliation at settling
+        -- (raw stack + delta) is exactly -committed + committed + pot —
+        -- continuous, no snap.
+        local won = (seat and pbs.winner == seat
+                     and ((pbs.pot_at_push or 0) + committed)) or 0
         return math.max(0, stack - committed + won)
     end
     return stack
@@ -1130,10 +1177,11 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
     local cards_x = hole.x + math.floor((hole.w - cards_w) / 2)
     local cards_y = hole.y
 
-    if holeVisible(tbl) and tbl.player_hole then
-        drawCardFront(sl, tbl.player_hole[1], cards_x, cards_y, card_w, card_h, 1,
+    local hd = handData(tbl)
+    if holeVisible(tbl) and hd.player_hole then
+        drawCardFront(sl, hd.player_hole[1], cards_x, cards_y, card_w, card_h, 1,
                       hole.plate, hole.shadow)
-        drawCardFront(sl, tbl.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1,
+        drawCardFront(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1,
                       hole.plate, hole.shadow)
         -- Showdown win emphasis (dim losers / grow winners) is applied later as
         -- a single on-top overlay pass in TablePanel.draw (drawShowdownEmphasis).
@@ -1147,7 +1195,7 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
     -- is where the button lands after it walks off the right-hand seat. Same
     -- lower-left placement the opponent seats use, so the disc means one thing
     -- wherever it sits.
-    local pbs = tbl.playback_state
+    local pbs = seatState(tbl)
     if button and pbs and pbs.button_visual_seat
        and pbs.button_visual_seat == (#tbl.opponents + 1) then
         FeltDecor.drawButton(math.max(hole.x + button.d * 0.5, cards_x),
@@ -1361,13 +1409,25 @@ end
 -- DEAL / REBUY action. The CursorPool still finds the same `action="deal"`
 -- entries and clicks at the rect's center, which sits over the visual
 -- button so the click animation feels natural.
-local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, fill_color, enabled, table_id)
+local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, fill_color, enabled, table_id, residue)
+    -- ONE deal-ready overlay for every idle table; `residue` is only a
+    -- layout param. With the last hand still on the felt the button moves
+    -- out of the cards (vertically centered on the pot gap instead of the
+    -- felt center) — everything else (felt-wide hover wash, rim, hit box,
+    -- tooltip, anchors, ghosting, cursor tagging) is identical whether or
+    -- not a hand has been dealt before.
     local btn_w = math.min(DEAL_BTN_W, w - 16)
     local btn_h = math.min(DEAL_BTN_H, h - 8)
     if btn_w < 40 then btn_w = math.max(20, w - 4) end
     if btn_h < 18 then btn_h = math.max(14, h - 4) end
     local bx = x + math.floor((w - btn_w) / 2)
-    local by = y + math.floor((h - btn_h) / 2)
+    local by
+    if residue then
+        by = math.floor((residue.label_cy or (y + h / 2)) - btn_h / 2)
+        by = math.max(y + 2, math.min(by, y + h - btn_h - 2))
+    else
+        by = y + math.floor((h - btn_h) / 2)
+    end
     -- Hint-anchor on the visual button ("deal:1", "rebuy:3", ...). Goes
     -- stale while a hand plays (button hidden) — fine, hints keyed to it
     -- complete on the click that hides it. "rebuy:any" aliases whichever
@@ -1381,9 +1441,30 @@ local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, 
     -- writers in GrindView). The hint ANCHOR above stays index-keyed on
     -- purpose — data/hints.lua targets "deal:1" literally.
     local fid     = action .. ":" .. (table_id or idx)
-    local hovered = enabled and Hover.is("hit", fid)
+    -- Dwell, not instant: the whole felt is the hover target, so a mouse
+    -- sweeping across the board would light every table it crosses. The
+    -- wash waits for the pointer to actually rest here.
+    local hovered = enabled and Hover.dwell("hit", fid)
     local press   = enabled and ClickFlash.alpha("hit", fid) or 0
 
+    -- Felt-wide hover wash + rim: EVERY deal-ready felt, residue or not.
+    -- The hit_box below is the whole felt on every table, so the visual
+    -- affordance must match everywhere — when only residue tables showed
+    -- the wash, the fresh ones looked broken on hover. (Style keys live
+    -- under FeltStyle.residue for history; they are the deal-overlay
+    -- style, not a residue-only one.)
+    local RS = FeltStyle.residue or {}
+    if hovered or press > 0 then
+        Theme.setColor(fill_color, (RS.wash_hover or 0.10) + press * 0.15)
+        love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
+    end
+    -- Rim just inside the felt edge, in the action's color.
+    local rim_a = hovered and (RS.rim_hover or 0.90) or (RS.rim_alpha or 0.25)
+    if not enabled then rim_a = rim_a * 0.5 end
+    Theme.setColor(fill_color, math.min(1, rim_a + press * 0.5))
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x + 1, y + 1, w - 2, h - 2, Theme.space.radius)
+    love.graphics.setLineWidth(1)
     _renderFeltButton(bx, by, btn_w, btn_h, fonts, label, fill_color,
                       enabled, hovered, press)
 
@@ -1492,39 +1573,41 @@ end
 -- emphasis pass can re-target each card after everything else has drawn.
 local function collectShownCards(tbl, L)
     local out = {}
+    local hd  = handData(tbl)
     if L.community then
         local comm    = L.community
         local count   = communityCardCount(tbl)
         local total_w = comm.card_w * 5 + 4 * comm.gap
         local row_x   = comm.x + math.floor((comm.w - total_w) / 2)
         for i = 1, count do
-            if tbl.community and tbl.community[i] then
-                out[#out + 1] = { card = tbl.community[i],
+            if hd.community and hd.community[i] then
+                out[#out + 1] = { card = hd.community[i],
                     x = row_x + (i - 1) * (comm.card_w + comm.gap),
                     y = comm.y, w = comm.card_w, h = comm.card_h,
                     plate = comm.plate, shadow = comm.shadow }
             end
         end
     end
-    if L.hole and holeVisible(tbl) and tbl.player_hole then
+    if L.hole and holeVisible(tbl) and hd.player_hole then
         local hole    = L.hole
         local cards_w = hole.card_w * 2 + hole.gap
         local cards_x = hole.x + math.floor((hole.w - cards_w) / 2)
-        out[#out + 1] = { card = tbl.player_hole[1], x = cards_x,
+        out[#out + 1] = { card = hd.player_hole[1], x = cards_x,
                           y = hole.y, w = hole.card_w, h = hole.card_h,
                           plate = hole.plate, shadow = hole.shadow }
-        out[#out + 1] = { card = tbl.player_hole[2], x = cards_x + hole.card_w + hole.gap,
+        out[#out + 1] = { card = hd.player_hole[2], x = cards_x + hole.card_w + hole.gap,
                           y = hole.y, w = hole.card_w, h = hole.card_h,
                           plate = hole.plate, shadow = hole.shadow }
     end
     -- Only the revealed, in-seat showcase opponent shows hole cards.
-    local oi = tbl.opponent_idx
-    if oi and L.opponents and L.opponents.seats[oi] and tbl.opponent_hole and opponentFaceUp(tbl) then
+    local oi = hd.opponent_idx
+    if oi and L.opponents and L.opponents.seats[oi] and hd.opponent_hole and opponentFaceUp(tbl) then
         local reveal = true
-        if tbl.playback_state and tbl.playback_state.player_seat then
-            local ps = tbl.playback_state.player_seat
+        local ss_st = seatState(tbl)
+        if ss_st and ss_st.player_seat and ss_st.in_seats then
+            local ps = ss_st.player_seat
             local ss = (oi < ps) and oi or (oi + 1)
-            if not tbl.playback_state.in_seats[ss] then reveal = false end
+            if not ss_st.in_seats[ss] then reveal = false end
         end
         if reveal then
             local ob      = L.opponents
@@ -1536,9 +1619,9 @@ local function collectShownCards(tbl, L)
             local cards_w = cw * 2 + cgap
             local cards_x = seat.x + math.floor((seat.w - cards_w) / 2)
             local cards_y = ob.y + ob.cards_y_offset
-            out[#out + 1] = { card = tbl.opponent_hole[1], x = cards_x, y = cards_y,
+            out[#out + 1] = { card = hd.opponent_hole[1], x = cards_x, y = cards_y,
                               w = cw, h = ch, plate = ob.plate, shadow = ob.shadow }
-            out[#out + 1] = { card = tbl.opponent_hole[2], x = cards_x + cw + cgap, y = cards_y,
+            out[#out + 1] = { card = hd.opponent_hole[2], x = cards_x + cw + cgap, y = cards_y,
                               w = cw, h = ch, plate = ob.plate, shadow = ob.shadow }
         end
     end
@@ -1569,8 +1652,17 @@ local function drawShowdownEmphasis(tbl, L, sl, win5)
     -- once on the showdown reveal, then the cards just hold their enlarged size
     -- through the chip move (same scale at the boundary -> no snap).
     local st    = tbl.state_timer or 0
-    local pop   = (tbl.state ~= "settling") and Pop.fromTimer(st, 0.25) or 0
-    local scale = Pop.scale(pop, 1.13, 0.13)      -- rests at 1.13, pops to ~1.26
+    -- Also gated off at idle: _finalizeHand resets state_timer, so the
+    -- residue would re-fire the pop the frame the table went idle.
+    local pop   = (tbl.state ~= "settling" and tbl.state ~= "idle")
+                  and Pop.fromTimer(st, 0.25) or 0
+    -- At idle the winning five drop back to TRUE size: the residue felt
+    -- has to read as the same deal-ready table as a fresh one, and cards
+    -- held oversized overlap their neighbours on small panels. Color
+    -- (bright five vs grey dead cards) carries the result at rest; the
+    -- enlargement is a live-showdown treatment only.
+    local rest  = (tbl.state == "idle") and 1.0 or 1.13
+    local scale = Pop.scale(pop, rest, 0.13)      -- pops to ~1.26 at reveal
     for _, c in ipairs(shown) do
         if inCombo(c.card, win5) then
             local gw, gh = c.w * scale, c.h * scale
@@ -1732,19 +1824,14 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
                         or CARD_BACK
 
     -- Panel chrome — fill stays Theme.bg.widget for chrome contrast.
-    -- Border color/width come from the per-stake theme so T6 looks gold-
-    -- trimmed, T1 looks plain, etc. Falls back to the default Theme token
-    -- when no per-stake entry exists.
-    local stake_theme_pre = StakeThemes[tbl.stake_id]
+    -- The border is the ONE default line on every table at every stake:
+    -- a colored border is reserved for the banked-bounty trim below
+    -- (gold = {chip} banked, purple = {achip} banked), and stake identity
+    -- lives on the felt tint. No per-stake border chrome.
     Theme.setColor(Theme.bg.widget)
     love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
-    local border_color = (stake_theme_pre and stake_theme_pre.border_color)
-                         or Theme.border.default
-    local border_width = (stake_theme_pre and stake_theme_pre.border_width) or 1
-    Theme.setColor(border_color)
-    love.graphics.setLineWidth(border_width)
+    Theme.setColor(Theme.border.default)
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
-    love.graphics.setLineWidth(1)
     -- Whether this (stake, game type) has banked its bounty this run — used for
     -- the chrome trim, drawn AFTER the header below so it wraps the whole
     -- panel (the header draws its own border over the top edge otherwise).
@@ -1835,10 +1922,39 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     --
     -- Decor makes no decisions of its own: views/FeltDecor draws what the
     -- layout published and skips what it published as nil.
+
+    -- Last-hand residue: the finished hand held on the idle felt. Only the
+    -- DEAD MATERIAL goes grey — the cards and the chips — wrapped draw
+    -- call by draw call below; the felt, the plates, the button, the EV
+    -- readout, the pill and the winning five keep full color, so the room
+    -- still says its stake while the spent hand reads as inert. The
+    -- ease-in off the wall-clock idle timer makes it visibly "go cold"
+    -- instead of snap.
+    local residue      = residueOf(tbl)
+    local desat_amount = nil
+    if residue then
+        local RS = FeltStyle.residue or {}
+        desat_amount = (RS.desat or 0.85)
+                       * math.min(1, (tbl.state_timer or 0) / (RS.ease_secs or 0.35))
+        -- Availability probe only; the per-element wraps do the real work.
+        if not ShaderRegistry.apply("desaturate", { u_amount = desat_amount }) then
+            desat_amount = nil   -- shader unavailable: draw in color, keep layout
+        end
+        ShaderRegistry.apply(nil)
+    end
+    local function desatOn()
+        if desat_amount then
+            ShaderRegistry.apply("desaturate", { u_amount = desat_amount })
+        end
+    end
+    local function desatOff()
+        if desat_amount then ShaderRegistry.apply(nil) end
+    end
+
     local surf = L.rail
     if surf then
         -- The rail is the game type's; the felt underneath is the stake's.
-        FeltDecor.drawRail(surf, GameTypeThemes[tbl.game_type_id], stake_theme)
+        FeltDecor.drawRail(surf, GameTypeThemes[tbl.game_type_id])
         local rw = surf.width
         FeltDecor.drawSurface(surf.x + rw, surf.y + rw,
                               surf.w - 2 * rw, surf.h - 2 * rw,
@@ -1860,13 +1976,17 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- and grows those five; the hand-name label is parked AT the winner (above
     -- your hole cards if you won, under the winning opp's seat if they did) so
     -- position says who, the label just says with-what.
+    local hd          = handData(tbl)
     local show_winner = opponentFaceUp(tbl)
-    local player_won  = (tbl.outcome_delta or 0) > 0
+    local player_won  = (hd.outcome_delta or 0) > 0
     local win5        = show_winner
-                        and (player_won and tbl.player_combo or tbl.opponent_combo)
+                        and (player_won and hd.player_combo or hd.opponent_combo)
                         or nil
 
     -- Opponents row (seats pre-split by the layout; chip-flight anchor per seat).
+    -- Residue: opp cards are dead material, so the row draws desaturated
+    -- (the winning five come back in color via the emphasis pass).
+    desatOn()
     if L.opponents then
         local ob = L.opponents
         for i, seat in ipairs(ob.seats) do
@@ -1886,6 +2006,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- so the chips -- which by design overlap the community cards -- sit on top
     -- of the dim/grow overlay instead of getting painted over by it.
     if L.community then drawCommunity(tbl, L.community, sl, L.community.plate) end
+    desatOff()
 
     -- Default chip-flight anchors — re-stamped each frame; drawPlayerSeat /
     -- drawPotLabel overwrite with more specific positions when they run.
@@ -1902,13 +2023,29 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- adapts what goes inside them instead of dropping them), so there is no
     -- cards-dropped fallback to branch to.
     local ctx = controller and controller.ctx
+    -- Residue: hole cards and the stack pile are dead material too.
+    desatOn()
     drawPlayerSeat(tbl, L.hole, L.bottom, sl, fonts, ctx, "tied:" .. idx, L.button)
+    desatOff()
 
     -- DEAL / REBUY overlay (only when idle). Stack > 0 → DEAL. Stack at
     -- 0 means the player busted out and must rebuy the buy-in to keep
     -- playing; the green DEAL button is replaced by a red REBUY $X.XX
     -- button gated on bankroll.
     if tbl.state == "idle" then
+        -- With residue on the felt, the button keeps its size but moves
+        -- into the pot gap (the one guaranteed-empty band: the pot was
+        -- pushed to the winner before the hand ended), plus a felt-wide
+        -- rim. Drawn with the shader cleared so both stay full-color
+        -- over the grey scene.
+        local residue_opts = nil
+        if residue then
+            local cy
+            if L.community and L.hole then
+                cy = math.floor(((L.community.y + L.community.card_h) + L.hole.y) / 2)
+            end
+            residue_opts = { label_cy = cy }
+        end
         if (tbl.stack or 0) <= 0 then
             -- Price comes from the controller, which owns the discount math
             -- (Night Table's rebuy_discount). Reading raw stake.buy_in here
@@ -1927,7 +2064,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             local label = string.format("%s %s", verb, Format.moneyExact(cost))
             drawFeltButton(felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, label, "rebuy",
-                Theme.status.error, can_rebuy, tbl._id)
+                Theme.status.error, can_rebuy, tbl._id, residue_opts)
             -- Tag the rebuy hit_box with the per-table rebuy-mute flag
             -- so CursorPool can skip this table when the player has
             -- opted out of auto-rebuy here.
@@ -1938,7 +2075,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         else
             drawFeltButton(felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, "DEAL", "deal",
-                Theme.status.good, true, tbl._id)
+                Theme.status.good, true, tbl._id, residue_opts)
             -- Tag the just-pushed DEAL hit_box so CursorPool can skip
             -- this table when the player has muted it. Mouse-click hit
             -- testing in GrindView ignores this field — muted tables
@@ -1960,11 +2097,16 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
 
     -- Showdown emphasis — dim the losing/unused cards, grow + pop the winning
     -- five. Runs here, after every card + EV pass, so it sits on top and reads.
+    -- Undesaturated: the winning five stay in full color against the grey
+    -- dead cards, which is the whole point of holding the result on the felt.
     drawShowdownEmphasis(tbl, L, sl, win5)
 
     -- Pot pile + "Pot: $X", drawn AFTER the emphasis so the chips stay on top of
     -- the dim/grow overlay (the pile is meant to overlap the community cards).
+    -- Chips are dead material in the residue.
+    desatOn()
     if L.pot then drawPotLabel(tbl, L.pot, fonts) end
+    desatOff()
 
     -- Legacy MTT: the binary-outcome pot is always empty, so the felt-center
     -- pot slot shows the HAND x/x tournament counter instead (the payout ladder
@@ -2004,7 +2146,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- when they win (the seat's cards are glowing green to match). Dark pill,
     -- on top, sized to the text and clamped inside the felt so it never crops.
     if show_winner then
-        local hand = player_won and tbl.player_hand_name or tbl.opponent_hand_name
+        local hand = player_won and hd.player_hand_name or hd.opponent_hand_name
         if hand and hand ~= "" then
             local f = fonts.sm
             love.graphics.setFont(f)
@@ -2017,8 +2159,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
                 cx = felt_x + felt_w * 0.5
                 by = L.hole.y + math.floor((L.hole.card_h - th) / 2)  -- centered OVER your cards
             elseif (not player_won) and L.opponents
-                   and tbl.opponent_idx and L.opponents.seats[tbl.opponent_idx] then
-                local seat = L.opponents.seats[tbl.opponent_idx]
+                   and hd.opponent_idx and L.opponents.seats[hd.opponent_idx] then
+                local seat = L.opponents.seats[hd.opponent_idx]
                 cx = seat.x + seat.w * 0.5
                 by = L.opponents.y + L.opponents.cards_y_offset
                      + L.opponents.card_h + 2              -- just under their cards

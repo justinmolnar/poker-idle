@@ -41,13 +41,15 @@
 --   3. sampleOutcome → (won, tier).
 --   4. magnitude_bb = uniform(PotTiers[tier]).
 --   5. delta = ±magnitude × stake.bb × (earnings_mult on win, loss_mult on lose).
---   6. Construct cards (rejection sampling) so best5(player) beats / loses
---      to best5(opp), matching the rolled `won`.
+--   6. Construct cards (models/HandRealism) so best5(player) beats / loses
+--      to best5(opp), matching the rolled `won` — and so the matchup it
+--      shows fits the tier: a stack lost looks like a hand worth losing a
+--      stack with.
 
 local RNG           = require("utils.rng")
-local Deck          = require("models.Deck")
 local Opponent      = require("models.Opponent")
 local HandEval      = require("models.HandEval")
+local HandRealism   = require("models.HandRealism")
 local MttSession    = require("models.MttSession")
 local StakesData    = require("data.stakes")
 local GameTypesData = require("data.game_types")
@@ -62,6 +64,7 @@ local PokerActionWeights = require("data.poker_action_weights")
 local PokerBetSizing     = require("data.poker_bet_sizing")
 local PokerEventTimings  = require("data.poker_event_timings")
 local HandStructure      = require("data.hand_structure")
+local ShowdownRealism    = require("data.showdown_realism")
 
 local Table = {}
 Table.__index = Table
@@ -79,7 +82,6 @@ local _next_id = 1
 -- target; the renderer fits fewer if the panel is too narrow to show 10
 -- legibly.
 local LAST_RESULTS_CAP = 10
-local CONSTRUCTION_CAP = 200
 
 -- Build the AnchorRegistry key for a slot ("you", "pot", "center",
 -- "opp_<i>") on a given table. Centralized so the view (writer) and the
@@ -392,30 +394,6 @@ end
 
 -- ─── Per-hand math ────────────────────────────────────────────────────
 
-local function constructHand(want_win)
-    local p_hole, o_hole, board
-    for _ = 1, CONSTRUCTION_CAP do
-        local deck = Deck:new()
-        p_hole = { deck:draw(), deck:draw() }
-        o_hole = { deck:draw(), deck:draw() }
-        board  = { deck:draw(), deck:draw(), deck:draw(), deck:draw(), deck:draw() }
-
-        local p_cards, o_cards = {}, {}
-        for _, c in ipairs(p_hole) do table.insert(p_cards, c) end
-        for _, c in ipairs(board)  do table.insert(p_cards, c) end
-        for _, c in ipairs(o_hole) do table.insert(o_cards, c) end
-        for _, c in ipairs(board)  do table.insert(o_cards, c) end
-
-        local p_rank = HandEval.bestFiveOfN(p_cards)
-        local o_rank = HandEval.bestFiveOfN(o_cards)
-        local p_wins = HandEval.compare(p_rank, o_rank) > 0
-        if p_wins == want_win then
-            return p_hole, o_hole, board, true
-        end
-    end
-    return p_hole, o_hole, board, false
-end
-
 function Table:deal(ctx)
     if self.state ~= "idle" then return false end
     ctx = ctx or {}
@@ -467,6 +445,24 @@ function Table:deal(ctx)
             tier                = entry.tier
             forced_winner_seat  = entry.forced_winner
             forced_bust_seats   = entry.bust_seats
+            -- A latched punch (heater/tilt — Table:interrupt defers the
+            -- whole thing to this hand on tournaments) overrides the
+            -- plan's side for THIS hand only. On a flip the plan's winner
+            -- and scheduled busts belonged to the other direction — drop
+            -- them; HandScript's alive-guard and MttSession:reconcile
+            -- re-steer the schedule from the next hand. The tier stays
+            -- the plan's: the punch decides who, not how big.
+            if self._forced_next_won ~= nil then
+                local fw = self._forced_next_won
+                self._forced_next_won = nil
+                self._punch_live = true
+                if fw == false then self._tilt_spent_pending = true end
+                if fw ~= won then
+                    won                = fw
+                    forced_winner_seat = fw and self.player_seat_fixed or nil
+                    forced_bust_seats  = nil
+                end
+            end
         else
             -- Plan exhausted (all n_hands played + reconcile's extension
             -- window burned). Settle at current standings instead of
@@ -508,11 +504,25 @@ function Table:deal(ctx)
         if self._forced_next_won == false then
             self._tilt_spent_pending = true
         end
+        -- This hand spends the punch: the status that latched it expires
+        -- when this hand finalizes, so the fire lives exactly as long as
+        -- the mechanic (_finalizeHand).
+        if self._forced_next_won ~= nil then self._punch_live = true end
         won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ec, gtype,
                                               self._forced_next_won)
         self._forced_next_won = nil
         if won then
             tier = OutcomeMath.applyTierShift(tier, ec.win_tier_shifts, gtype)
+            -- House Cat's one-shot (table_procs next_win_tier_up): the next
+            -- WIN reads a tier higher. Wins only, so a pending flag rides
+            -- through losses untouched until a win spends it.
+            if self._next_win_tier_up then
+                self._next_win_tier_up = nil
+                local rank = OutcomeMath.TIER_INDEX[tier]
+                if rank then
+                    tier = OutcomeMath.TIER_KEYS[math.min(#OutcomeMath.TIER_KEYS, rank + 1)]
+                end
+            end
         else
             tier = OutcomeMath.applyTierShift(tier, ec.loss_tier_shifts, gtype)
         end
@@ -580,7 +590,16 @@ function Table:deal(ctx)
     -- earnings_scale_by_bankroll (Bank capstone) is applied at resolve time
     -- in GrindController, where live bankroll is available.
 
-    local p_hole, o_hole, board, natural = constructHand(won)
+    -- Cards last, and cards only: the money above is already final. The
+    -- outcome's tier picks the matchup this hand SHOWS, so a stack that
+    -- crosses the table looks like a hand worth stacking off with.
+    local p_hole, o_hole, board, natural = HandRealism.constructShowdownHand(
+        won, tier, { policy = ShowdownRealism, gtype_id = self.game_type_id })
+    -- Point of no return: the new hand is real, so the previous hand's
+    -- residue leaves the felt. Cleared HERE and not at the top of :deal
+    -- so a failed deal attempt (missing gtype, no opponents, exhausted
+    -- MTT plan) leaves the last result visible instead of blanking it.
+    self.last_hand       = nil
     self.player_hole     = p_hole
     self.opponent_hole   = o_hole
     self.community       = board
@@ -704,6 +723,21 @@ function Table:deal(ctx)
         -- biggest alive opponent stack so the pot is feasible.
         local stake_bb        = (stake and stake.bb) or 0
         local effective_bb    = magnitude_bb
+        -- Cash tables: THE POT IS WHAT YOU WIN. The writer's contract
+        -- builds pot_total = target + player's match (2× target), so a
+        -- win hands it HALF the payout — the final pot lands at exactly
+        -- outcome_delta, and "pot $145, +$145" replaces the old
+        -- "pot $145, +$77" (real-poker net accounting, which read as a
+        -- 50% rake). outcome_delta carries the item multipliers that raw
+        -- magnitude_bb does not, so this also keeps the pot in the same
+        -- universe as the payout under x25 items. Losses keep the full
+        -- figure: you lose your own contribution, and that contribution
+        -- must BE the loss. Chip-stack tournaments are exempt — their
+        -- magnitude drives real chip flow between seat stacks.
+        if not gtype.chip_stack_table and stake_bb > 0 then
+            local payout_bb = math.abs(self.outcome_delta or 0) / stake_bb
+            effective_bb = won and (payout_bb * 0.5) or payout_bb
+        end
         if stake_bb > 0 and (self.stack or 0) > 0 then
             local stack_bb = (self.stack or 0) / stake_bb
             -- Wins clamp at the SEATS RULE (one stack from each opponent
@@ -893,7 +927,29 @@ function Table:_update(dt, ctx)
     -- must not shorten itself by doing so.
     if self.statuses then self:_tickStatuses(d) end
 
-    if self.state == "idle" then return nil end
+    if self.state == "idle" then
+        -- A latched punch AUTO-DEALS. Heat or tilt landing on a table
+        -- means the forced hand plays NOW — however the table got idle
+        -- (was idle when it landed, or just finished the hand it
+        -- interrupted) — and the status expires when that hand finishes.
+        -- If the table can't play it (busted to the REBUY screen mid-
+        -- punch — application-time retargeting in table_procs keeps
+        -- punches off busted tables, but a tilt can bust the table it
+        -- rides) or the deal is refused, the punch FIZZLES: dealing must
+        -- never spend money, and fire must never sit on a table with
+        -- nothing to deal.
+        if self._forced_next_won ~= nil then
+            if (self.stack or 0) > 0 and self:deal(ctx or self._last_ctx) then
+                return nil
+            end
+            self._forced_next_won = nil
+            self:_expirePunchStatuses()
+        end
+        -- Wall-clock idle timer (raw dt, not pace-scaled): drives the
+        -- residue desaturation ease-in. _finalizeHand resets it to 0.
+        self.state_timer = (self.state_timer or 0) + (dt or 0)
+        return nil
+    end
 
     local gtype = Lookups.findById(GameTypesData,self.game_type_id)
     local pace_mult = (gtype and gtype.pace_mult) or 1
@@ -958,6 +1014,17 @@ function Table:_update(dt, ctx)
                 y     = self.y,
                 chip_stack_table = gtype and gtype.chip_stack_table or false,
                 felt_pot = self.playback_state and self.playback_state.pot_at_push or 0,
+                -- The player's own money in the pot. What a win NATURALLY
+                -- pays is pot minus this (your own chips coming back are
+                -- not profit), and what a loss naturally costs is exactly
+                -- this — the baselines the floater's item-multiplier
+                -- readout divides against.
+                felt_stake = (function()
+                    local ps = self.playback_state
+                    local seat = ps and ps.player_seat
+                    return (seat and ps.per_seat_total
+                            and ps.per_seat_total[seat]) or 0
+                end)(),
                 -- Knockout signal, opponents only. nil on cash tables and
                 -- on tournament hands where nobody busted. This is the
                 -- ONLY outlet: the per-hand bust list computed later in
@@ -1028,6 +1095,13 @@ function Table:applyStatus(kind, spec)
             return false
         end
     end
+    -- A punch status IS its interrupt. An application that opts out of
+    -- interrupting (`no_interrupt`, ambient sources) would leave an
+    -- eternal decoration — a fire that never had a punch to spend and so
+    -- never goes out. Refuse it outright.
+    if def.lifetime == "punch" and spec and spec.no_interrupt then
+        return false
+    end
     self.statuses = self.statuses or {}
     local mag = spec.magnitude or 0
 
@@ -1047,8 +1121,9 @@ function Table:applyStatus(kind, spec)
             else
                 e.magnitude = math.max(before, mag)
             end
-            if def.lifetime == "run" then
-                -- Nothing to extend: it is already there until the run ends.
+            if def.lifetime == "run" or def.lifetime == "punch" then
+                -- Nothing to extend: run lasts until the run ends, punch
+                -- until the punch is spent (_finalizeHand).
             elseif def.lifetime == "charges" then
                 local c = spec.charges or 0
                 e.charges     = adds and ((e.charges or 0) + c)
@@ -1142,6 +1217,27 @@ function Table:_announceStatus(kind, magnitude, source, was_refresh)
         table = self, status = kind, magnitude = magnitude,
         source = source, was_refresh = was_refresh,
     })
+end
+
+-- Drop every punch-lifetime status (heater/tilt): the punch is spent —
+-- or fizzled on a refused auto-deal. Tilt hands its lean to the
+-- shake-off, same as a timed expiry. The list nils out when emptied so
+-- the per-frame nil check stays the common case.
+function Table:_expirePunchStatuses()
+    if not self.statuses then return end
+    for i = #self.statuses, 1, -1 do
+        local e   = self.statuses[i]
+        local def = StatusData[e.kind]
+        if def and def.lifetime == "punch" then
+            if (def.rotate or 0) > 0 then
+                self.untilt_t   = 1
+                self.untilt_mag = e.magnitude or 0
+            end
+            table.remove(self.statuses, i)
+            self._status_rev = self._status_rev + 1
+        end
+    end
+    if #self.statuses == 0 then self.statuses = nil end
 end
 
 function Table:_tickStatuses(d)
@@ -1250,44 +1346,8 @@ end
 -- they may already be face up, and a hand that rewrote what the player was
 -- holding would read as a cheat rather than a swing.
 --
--- Rejection sampling, like constructHand, but over two cards instead of
--- nine. Card carries no __eq, so the already-dealt cards are excluded by
--- suit and rank rather than through Deck:removeCard.
-local REDEAL_CAP = 400
-
-local function redealOpponent(p_hole, board, want_win)
-    local seen = {}
-    local function mark(c) if c then seen[c.suit .. c.rank] = true end end
-    for _, c in ipairs(p_hole or {}) do mark(c) end
-    for _, c in ipairs(board or {}) do mark(c) end
-
-    local p_cards = {}
-    for _, c in ipairs(p_hole or {}) do p_cards[#p_cards + 1] = c end
-    for _, c in ipairs(board  or {}) do p_cards[#p_cards + 1] = c end
-    local p_rank = HandEval.bestFiveOfN(p_cards)
-
-    local best
-    for _ = 1, REDEAL_CAP do
-        local deck = Deck:new()
-        local a, b
-        repeat a = deck:draw() until not (a and seen[a.suit .. a.rank]) or a == nil
-        repeat b = deck:draw() until not (b and seen[b.suit .. b.rank]) or b == nil
-        if not (a and b) then break end
-
-        local o_cards = { a, b }
-        for _, c in ipairs(board or {}) do o_cards[#o_cards + 1] = c end
-        local o_rank = HandEval.bestFiveOfN(o_cards)
-        best = best or { a, b }
-        if (HandEval.compare(p_rank, o_rank) > 0) == want_win then
-            return { a, b }, true
-        end
-    end
-    -- A board that plays itself can make one side impossible (the player
-    -- holding an unbeatable board leaves nothing that beats it). Hand back
-    -- the best attempt rather than failing: the fallback is a hand that
-    -- reads slightly wrong, not a crash or a wrong payout.
-    return best, false
-end
+-- Lives in models/HandRealism, which enumerates every remaining two-card
+-- combination rather than sampling — see the notes there.
 
 -- ─── THE INTERRUPT ──────────────────────────────────────────────────────
 -- A heater or a tilt landing mid-hand ends that hand, now, in its own
@@ -1305,28 +1365,32 @@ end
 -- the hand pays what it was worth. It ends where it was going to end, just
 -- immediately.
 function Table:interrupt(want_win, ctx)
-    -- No live hand to end — the punch still lands on the NEXT hand. A
-    -- heater or tilt is "this hand ends its way and the next follows";
-    -- with no current hand there is only the next, and a status arriving
-    -- between hands must not evaporate into a glow.
-    if self.state == "idle" or self.state == "settling" then
-        local gt = Lookups.findById(GameTypesData, self.game_type_id)
-        if gt and gt.chip_stack_table then return false end
-        self._forced_next_won = want_win
-        return true
-    end
-    if not self.script or self.script_idx >= #self.script then return false end
+    -- THE PUNCH ALWAYS LANDS. At minimum the NEXT hand goes this way —
+    -- that latch is set first, unconditionally, so no path below can
+    -- leave a lit status with nothing owed behind it. Everything after
+    -- this line is the bonus half: ending the CURRENT hand too, taken
+    -- only where a live cash hand can honestly be ended.
+    self._forced_next_won = want_win
+
+    -- No live hand — there is only the next, already latched.
+    if self.state == "idle" or self.state == "settling" then return true end
+    -- Tournaments: no mid-hand rewrite of a scripted multiway hand (the
+    -- pot is the bust schedule, _reconcileChipFlow owns the delta). The
+    -- whole punch defers to the next hand, where the deal override
+    -- rewrites the PLAN's outcome instead (see the chip-stack branch of
+    -- :deal).
+    local gtype = Lookups.findById(GameTypesData, self.game_type_id)
+    if gtype and gtype.chip_stack_table then return true end
+    -- Script spent / missing: nothing left to fast-forward.
+    if not self.script or self.script_idx >= #self.script then return true end
     -- Once per hand. An interrupt resolves a hand, a resolution fires
     -- procs, and a proc can apply a status: without this it can re-enter.
-    if self._interrupted then return false end
-    -- Tournaments are out. Their outcomes come from a plan rolled at the
-    -- start, their pot IS the bust schedule, and _reconcileChipFlow
-    -- overwrites outcome_delta at settling anyway.
-    local gtype = Lookups.findById(GameTypesData, self.game_type_id)
-    if gtype and gtype.chip_stack_table then return false end
+    -- The latch above still moved, so a second punch chains to the next
+    -- hand rather than vanishing.
+    if self._interrupted then return true end
     -- The push must still be ahead of us; past it the hand is spent.
     local last = self.script[#self.script]
-    if not last or last.kind ~= "pot_push" then return false end
+    if not last or last.kind ~= "pot_push" then return true end
 
     self._interrupted = true
 
@@ -1362,7 +1426,9 @@ function Table:interrupt(want_win, ctx)
         -- event: jackpot-keyed triggers (bounty, cascade, lifetime count)
         -- gate on this in the controller's resolution loop.
         self.outcome_flipped = true
-        local o_hole = redealOpponent(self.player_hole, self.community, want_win)
+        local o_hole = HandRealism.redealOpponent(
+            self.player_hole, self.community, want_win,
+            { policy = ShowdownRealism, gtype_id = self.game_type_id })
         if o_hole then
             self.opponent_hole = o_hole
             self.player_hand_name,   self.player_combo   =
@@ -1435,6 +1501,41 @@ function Table:_finalizeHand()
             self.bus:publish("on_tilt_spent", { table = self })
         end
     end
+    -- The hand that just finished was the punch's forced hand (latched
+    -- at :deal) — the punch is SPENT, so the status that carried it
+    -- expires now. This is the whole lifetime of a "punch" status: lit
+    -- from landing to here, so the fire and the mechanic can never
+    -- disagree (and the auto-deal in :update means "here" is at most one
+    -- hand after landing).
+    if self._punch_live then
+        self._punch_live = nil
+        self:_expirePunchStatuses()
+    end
+    -- Snapshot the finished hand before the clears below destroy it. The
+    -- felt keeps drawing this (desaturated) until the next :deal removes
+    -- it. Keys deliberately mirror both tbl.* and playback_state.* names
+    -- so the view can substitute the snapshot for either source.
+    -- Reference copies are safe: :deal builds fresh arrays every hand.
+    local ps = self.playback_state or {}
+    self.last_hand = {
+        community          = self.community,
+        player_hole        = self.player_hole,
+        opponent_hole      = self.opponent_hole,
+        player_hand_name   = self.player_hand_name,
+        opponent_hand_name = self.opponent_hand_name,
+        player_combo       = self.player_combo,
+        opponent_combo     = self.opponent_combo,
+        opponent_idx       = self.opponent_idx,
+        outcome_delta      = self.outcome_delta,
+        outcome_won        = self.outcome_won,
+        community_count    = ps.community_count or (self.community and #self.community) or 0,
+        in_seats           = ps.in_seats,
+        player_seat        = ps.player_seat,
+        button_visual_seat = ps.button_visual_seat or self.button_visual_seat,
+        n_seats            = ps.n_seats,
+        opp_revealed       = ps.opp_revealed == true,
+        winner             = ps.winner,
+    }
     self.state         = "idle"
     self.state_timer   = 0
     self.timeline      = nil

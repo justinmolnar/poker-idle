@@ -93,6 +93,9 @@ return {
         bb           = 0.10,
         buy_in       = 10.00,
         chip_award     = 2,
+        -- felt_chip (denomination VALUE) overrides which of this stake's
+        -- chips paints the felt; default is the biggest chip that posts
+        -- the bb. Unset here: the crimson 5c makes T2 the maroon room.
         band              = "low",
         win_chance        = 0.30,
         win_chance_capped = 0.65,
@@ -127,6 +130,10 @@ return {
         bb           = 10,
         buy_in       = 1000,
         chip_award     = 4,
+        -- The bb rule lands on the vermilion $5 — a second red-brown room
+        -- 20° from NL10's maroon. The 5T sienna sits at true orange,
+        -- balanced between the maroon and gold rooms.
+        felt_chip    = 5e12,
         band              = "mid",
         win_chance        = 0.10,
         win_chance_capped = 0.45,
@@ -144,6 +151,10 @@ return {
         bb           = 100,
         buy_in       = 10000,
         chip_award     = 5,
+        -- The bb rule lands on the black $100, which desaturates to a
+        -- hueless near-black. The purple $500 from this stake's palette
+        -- makes the high-roller room the purple one.
+        felt_chip    = 500,
         band              = "mid",
         win_chance        = 0.05,
         win_chance_capped = 0.35,
@@ -184,6 +195,10 @@ return {
         bb           = 10000,
         buy_in       = 1000000,
         chip_award     = 7,
+        -- T7-T10 felt_chips are picked purely for HUE SPACING against the
+        -- T1-6 rooms (sim/felt_check.lua audits this); the bb chips of
+        -- these stakes all land on hues the low board already owns.
+        felt_chip    = 100000,        -- 100K pink → the magenta room
         band              = "high",
         win_chance        = 0.002,
         win_chance_capped = 0.20,
@@ -201,6 +216,7 @@ return {
         bb           = 100000,
         buy_in       = 10000000,
         chip_award     = 8,
+        felt_chip    = 1e9,           -- 1B lavender → violet-blue room
         band              = "high",
         win_chance        = 0.001,
         win_chance_capped = 0.15,
@@ -218,6 +234,7 @@ return {
         bb           = 1000000,
         buy_in       = 100000000,
         chip_award     = 9,
+        felt_chip    = 5e9,           -- 5B chartreuse → lime-slate room
         band              = "high",
         win_chance        = 0.0005,
         win_chance_capped = 0.10,
@@ -244,6 +261,7 @@ return {
         bb           = 100000000000,
         buy_in       = 10000000000000,
         chip_award     = 10,
+        felt_chip    = 500e9,         -- 500B teal — the slot NL1K vacated
         band              = "ultra",
         win_chance        = 0.0001,
         win_chance_capped = 0.001,

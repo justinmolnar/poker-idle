@@ -169,20 +169,24 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
     if eff_wc < 0 then eff_wc = 0
     elseif eff_wc > OutcomeMath.WC_ABSOLUTE_CAP then eff_wc = OutcomeMath.WC_ABSOLUTE_CAP end
 
-    -- 2. Lerp finish_dist by the player's EFFECTIVE win chance at this
-    --    stake (OutcomeMath.mttFinishFill): the stake's difficulty, the
-    --    game type and every upgrade ride in through `wc`. It used to lerp
-    --    by the fill ratio alone, which made every tier the same 30% to
-    --    win at full levels. auto_win_total pushes the fill toward
-    --    `capped` so MTT Pro biases toward top finishes.
-    local eff_fill    = OutcomeMath.mttFinishFill(wc) + auto_win_total
-    if eff_fill > 1 then eff_fill = 1 end
+    -- 2. Blend finish_dist by the player's EFFECTIVE win chance measured
+    --    against THIS stake's bar (OutcomeMath.mttFinishFill, data/
+    --    mtt_finish_dist.lua wc_ref): the stake's difficulty rides in
+    --    through `wc` and through the bar, so a T6 tournament stays hard
+    --    at a win chance that makes T1 a favourite. The fill is NOT
+    --    clamped at 1 — out-power the bar and the title share keeps
+    --    climbing; weights that extrapolate below zero are floored.
+    --    auto_win_total pushes the fill up directly, so MTT Pro biases
+    --    toward top finishes. (Mirrored in OutcomeMath.evStats.)
+    local eff_fill    = OutcomeMath.mttFinishFill(wc, stake) + auto_win_total
 
     local finish_weights = {}
     for pos = 1, n_seats do
         local naked  = MttFinishDist.naked[pos]  or 0
         local capped = MttFinishDist.capped[pos] or naked
-        finish_weights[pos] = naked + (capped - naked) * eff_fill
+        local w = naked + (capped - naked) * eff_fill
+        if w < 0 then w = 0 end
+        finish_weights[pos] = w
     end
     local finish_position = OutcomeMath.sampleDist(finish_weights) or n_seats
 

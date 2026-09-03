@@ -137,6 +137,7 @@ function GameState:new(saved)
     instance.total_chips_banked      = 0   -- sum of bounty AWARDS (lifetime_chips_banked counts events)
     instance.total_mtt_wins          = 0   -- tournaments finished 1st
     instance.total_tilts             = 0   -- fresh tilt statuses suffered, lifetime
+    instance.total_heaters           = 0   -- fresh heaters caught, lifetime (story: first_heat)
     instance.total_hands_by_gtype    = {}  -- game_type_id → hands resolved there
     instance.highest_stake_idx       = 0   -- highest 1-based stake index ever played
 
@@ -368,6 +369,7 @@ function GameState:wipeAll()
     self.total_chips_banked      = 0
     self.total_mtt_wins          = 0
     self.total_tilts             = 0
+    self.total_heaters           = 0
     self.total_hands_by_gtype    = {}
     self.highest_stake_idx       = 0
     self.last_run_money_lost     = 0
@@ -478,6 +480,7 @@ function GameState:applySaved(saved)
     self.total_chips_banked      = self.total_chips_banked      or 0
     self.total_mtt_wins          = self.total_mtt_wins          or 0
     self.total_tilts             = self.total_tilts             or 0
+    self.total_heaters           = self.total_heaters           or 0   -- backfill: key added 2026-09
     self.total_hands_by_gtype    = self.total_hands_by_gtype    or {}
     self.highest_stake_idx       = self.highest_stake_idx       or 0
     self.run_money_lost          = self.run_money_lost          or 0
@@ -663,6 +666,7 @@ function GameState:serializeMeta()
         total_chips_banked              = self.total_chips_banked,
         total_mtt_wins                  = self.total_mtt_wins,
         total_tilts                     = self.total_tilts,
+        total_heaters                   = self.total_heaters,
         total_hands_by_gtype            = self.total_hands_by_gtype,
         -- Persisted as the stake ID, not the positional index: inserting a
         -- stake mid-ladder must not silently re-gate every existing save.

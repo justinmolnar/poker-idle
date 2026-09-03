@@ -228,8 +228,10 @@ function CatalogReceipt:draw(layer, ctx)
     local mx, my = love.mouse.getPosition()
     local stub_hover = false
     if layer == "behind" and tucked then
-        stub_hover = mx >= x - fl(6 * s) and mx < tuck_l
-                 and my >= y and my < y + ph_closed
+        stub_hover = require("services.HoverService").rest("button",
+            "manifest_stub",
+            mx >= x - fl(6 * s) and mx < tuck_l
+            and my >= y and my < y + ph_closed)
         if stub_hover then
             x = x - fl(7 * s)
             TooltipSvc.set("The manifest: everything you've bought", mx, my)

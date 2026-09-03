@@ -256,14 +256,24 @@ end
 OutcomeMath.fillRatio = fillRatio
 
 -- How far a tournament's finish odds sit between MttFinishDist.naked and
--- .capped: the player's effective per-hand win chance over the reference
--- (data/mtt_finish_dist wc_ref). The stake's difficulty rides in through
--- eff_wc, so T6 is a harder tournament than T1 at the same levels.
-function OutcomeMath.mttFinishFill(eff_wc)
-    local ref = MttFinishDist.wc_ref or 0.75
+-- .capped: the player's effective per-hand win chance over THIS STAKE's
+-- bar (data/mtt_finish_dist wc_ref, one per stake), raised to the
+-- curve exponent. Deliberately NOT clamped at 1: the bar rises with the
+-- tier, and a player who out-powers it keeps gaining (the caller floors
+-- any weight the extrapolation drives below zero). The stake's difficulty
+-- rides in twice — through eff_wc and through the bar.
+function OutcomeMath.mttFinishFill(eff_wc, stake)
+    local refs = MttFinishDist.wc_ref
+    local ref
+    if type(refs) == "table" then
+        local idx = stake and Lookups.indexById(StakesData, stake.id)
+        ref = (idx and refs[idx]) or MttFinishDist.wc_ref_default or refs[#refs] or 1
+    else
+        ref = refs or 0.75
+    end
     local f = (eff_wc or 0) / ref
-    if f < 0 then return 0 elseif f > 1 then return 1 end
-    return f
+    if f < 0 then f = 0 end
+    return f ^ (MttFinishDist.curve or 1)
 end
 
 -- Linear interpolation between two distributions (per-tier).
@@ -717,8 +727,8 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
                 end
             end
         end
-        local eff_fill = OutcomeMath.mttFinishFill(mtt_wc) + auto_win_total
-        if eff_fill > 1 then eff_fill = 1 end
+        -- Unclamped on purpose (see mttFinishFill); weights floor at 0.
+        local eff_fill = OutcomeMath.mttFinishFill(mtt_wc, stake) + auto_win_total
 
         local raw_weights = {}
         local total_weight = 0
@@ -726,6 +736,7 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
             local naked  = MttFinishDist.naked[pos]  or 0
             local capped = MttFinishDist.capped[pos] or naked
             local w = naked + (capped - naked) * eff_fill
+            if w < 0 then w = 0 end
             raw_weights[pos] = w
             total_weight = total_weight + w
         end

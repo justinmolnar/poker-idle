@@ -166,6 +166,12 @@ action itself advances the line. `show: <cond>` delays the line until true.
 
 ## Rooms and tools, as they first exist
 
+### `first_heat` — grind. Trigger: total_heaters ≥ 1 (the first table to catch a heater, any source).
+| block | anchor | hold |
+|---|---|---|
+| Heat. A table catches it and runs hot: that hand wins, and the one after it. When you see fire on the felt, that's heat. | — | click |
+| Plenty of things in the catalog throw heat around. Where it lands is the game. | — | click |
+
 ### `six_max_open` — grind. Trigger: a 6-max table open.
 | The long game. Slow hands, five stacks on the table, and the fattest pots in the room when one finally lands. And one always lands. | `gtype:six_max` | click |
 

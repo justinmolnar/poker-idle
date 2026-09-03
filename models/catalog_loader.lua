@@ -53,7 +53,7 @@ end
 -- Chips a run has to produce to stay on the Act 1 pacing curve. Used by
 -- the sims rather than the game.
 function CatalogLoader.chipsPerRun(act1_spend)
-    local total_spend = act1_spend or 111
+    local total_spend = act1_spend or 223   -- bands A+B (data/catalog.lua header)
     return math.ceil((total_spend * ((Balance.RUN_MINUTES or 20) / 20.0))
                      / Balance.ACT1_RUNS_TO_CLEAR)
 end

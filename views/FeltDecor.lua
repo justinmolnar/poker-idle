@@ -105,15 +105,14 @@ function FeltDecor.hasMask() return _mask ~= nil end
 -- say one thing.
 --
 -- A rail is wood or leather, a material per game; gold stays reserved for
--- chips. `fallback_theme` is the stake theme, used only when the game type
--- has no rail_color: its border_color is darkened so it at least reads as a
--- ring rather than a bright trim line.
-function FeltDecor.drawRail(rail, gtype_theme, fallback_theme)
+-- chips. With no rail_color on the game type, the default border token is
+-- darkened so it at least reads as a ring rather than a trim line (stake
+-- themes carry no border color — the panel border is the bounty signal).
+function FeltDecor.drawRail(rail, gtype_theme)
     if not rail then return end
     local cfg  = Style.rail
     local ring = (gtype_theme and gtype_theme.rail_color)
-                 or darken((fallback_theme and fallback_theme.border_color)
-                           or Theme.border.default, cfg.darken or 0.5)
+                 or darken(Theme.border.default, cfg.darken or 0.5)
 
     Theme.setColor(ring, 1)
     love.graphics.rectangle("fill", rail.x, rail.y, rail.w, rail.h, rail.radius)

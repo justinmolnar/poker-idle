@@ -139,6 +139,16 @@ C.FLOATING_TEXT = {
     MAX_ITEMS  = 50,
 }
 
+C.HOVER = {
+    -- Seconds the pointer must rest on a target before its hover
+    -- treatment appears. Applies to TOOLTIPS (services/Tooltip's
+    -- pointer-rest gate) and to big AREA-sized washes (the deal felt) —
+    -- sweeping the mouse across the board must not fire a lightshow.
+    -- Actual buttons highlight instantly (HoverService.is, or .rest with
+    -- secs 0).
+    DWELL = 0.25,
+}
+
 C.ANIMATIONS = {
     -- Frame rate (FPS) for isometric object ambient animations (room items & catalog previews).
     -- 4 FPS gives a relaxed, ambient, retro pixel-art cadence.

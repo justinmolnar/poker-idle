@@ -119,17 +119,25 @@ function TableProcs.registerAll(reg)
         return narrow(out, spec, reg.rng)
     end)
 
-    -- Tables within `radius` places of the source in pool order.
-    reg:registerSelector("order_near", function(spec, event)
-        local pool = event.pool
-        local i = indexOf(pool, event.source)
-        if not i then return {} end
+    -- Tables within `radius` cells of the source ON THE BOARD, by
+    -- MANHATTAN distance: "adjacent" means SHARING A SIDE — never
+    -- diagonal, and never pool-order (which calls the end of one row
+    -- adjacent to the start of the next). radius 1 = the four side
+    -- neighbours; radius 2 adds their side neighbours (the diamond).
+    -- Replaced the old pool-order "order_near" wholesale.
+    reg:registerSelector("board_near", function(spec, event)
+        local src = event.source
+        if not src then return {} end
+        local sr, sc = TableGrid.unpack(src.slot or 0)
         local r = spec.radius or 1
         local out = {}
-        for j = math.max(1, i - r), math.min(#pool.tables, i + r) do
-            local t = pool.tables[j]
+        for _, t in ipairs(event.pool.tables) do
+            local tr, tc = TableGrid.unpack(t.slot or 0)
+            local dist = math.abs(tr - sr) + math.abs(tc - sc)
             local skip = (spec.exclude_self ~= false) and t == event.source
-            if not skip and matches(t, spec.where) then out[#out + 1] = t end
+            if dist <= r and not skip and matches(t, spec.where) then
+                out[#out + 1] = t
+            end
         end
         return narrow(out, spec, reg.rng)
     end)
@@ -183,11 +191,35 @@ function TableProcs.registerAll(reg)
 
     -- ── Payloads ───────────────────────────────────────────────────────
 
+    -- The target's NEXT WINNING hand reads one tier higher (House Cat). A
+    -- plain flag on the table, consumed in Table:deal after the win-side
+    -- tier shifts; losses never see it. Not a status: nothing to name,
+    -- show, or announce, and a refresh is a no-op.
+    reg:registerPayload("next_win_tier_up", function(_spec, target, _event)
+        if not target then return false end
+        target._next_win_tier_up = true
+        return true
+    end)
+
     -- Put a status on the target. `escalate` scales the magnitude by
     -- something the event knows — the doc's "value scales with seats
     -- remaining" drama pass, e.g. { field = "busted_total", per = 0.15 }.
     reg:registerPayload("apply_status", function(spec, target, event)
         if not target then return false end
+        -- A punch (heater/tilt) needs a table that can PLAY its forced
+        -- hand. A busted target — stack 0, sitting on the REBUY screen —
+        -- can't, so retarget to a random table that can rather than
+        -- parking fire on a table with nothing to deal. No live table
+        -- anywhere = the punch fizzles unlanded.
+        local sdef = StatusData[spec.status]
+        if sdef and sdef.lifetime == "punch" and (target.stack or 0) <= 0 then
+            local live = {}
+            for _, t in ipairs(((event.pool or {}).tables) or {}) do
+                if (t.stack or 0) > 0 then live[#live + 1] = t end
+            end
+            if #live == 0 then return false end
+            target = live[math.floor(reg.rng() * #live) + 1]
+        end
         local mag = spec.magnitude or 0
         local esc = spec.escalate
         if esc and esc.field then
@@ -319,11 +351,11 @@ function TableProcs.registerAll(reg)
     -- resolve_now), and stealing one of those force-resolves the tank's
     -- slow hand while the table the cascade meant to pay never settles.
     --
-    -- "Beside" is the board's own geometry, like same_line: within
-    -- `radius` cells in any direction, nearest first (ties go to reading
-    -- order). Pool-order distance would call the end of one row adjacent
-    -- to the start of the next, and a placement mechanic has to mean what
-    -- the player sees.
+    -- "Beside" is the board's own geometry, like board_near: within
+    -- `radius` cells by MANHATTAN distance (side-sharing, no diagonals),
+    -- nearest first (ties go to reading order). Pool-order distance
+    -- would call the end of one row adjacent to the start of the next,
+    -- and a placement mechanic has to mean what the player sees.
     reg:registerRouter("steal_nearby", function(spec, d)
         local pool = d.event and d.event.pool
         local target = d.to
@@ -335,7 +367,7 @@ function TableProcs.registerAll(reg)
         for _, t in ipairs(pool.tables) do
             if t ~= target and t.game_type_id == spec.gtype then
                 local r, c = TableGrid.unpack(t.slot or 0)
-                local dist = math.max(math.abs(r - tr), math.abs(c - tc))
+                local dist = math.abs(r - tr) + math.abs(c - tc)
                 if dist <= radius and (not best_dist or dist < best_dist) then
                     best, best_dist = t, dist
                 end

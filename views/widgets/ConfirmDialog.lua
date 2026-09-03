@@ -119,10 +119,13 @@ function ConfirmDialog:draw(fonts)
     local confirm_x = bx + BOX_W - BTN_W - SIDE_PAD
 
     local mx, my = love.mouse.getPosition()
-    local cancel_hov = mx >= cancel_x and mx < cancel_x + BTN_W
-                      and my >= btn_y and my < btn_y + BTN_H
-    local confirm_hov = mx >= confirm_x and mx < confirm_x + BTN_W
-                       and my >= btn_y and my < btn_y + BTN_H
+    local HoverSvc = require("services.HoverService")
+    local cancel_hov = HoverSvc.rest("button", "confirm_dialog:cancel",
+                           mx >= cancel_x and mx < cancel_x + BTN_W
+                           and my >= btn_y and my < btn_y + BTN_H, 0)
+    local confirm_hov = HoverSvc.rest("button", "confirm_dialog:confirm",
+                            mx >= confirm_x and mx < confirm_x + BTN_W
+                            and my >= btn_y and my < btn_y + BTN_H, 0)
 
     LabelButton.draw{
         x = cancel_x, y = btn_y, w = BTN_W, h = BTN_H,

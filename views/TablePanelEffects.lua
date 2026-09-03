@@ -281,7 +281,11 @@ function Effects.drawStatusRing(tbl, x, y, w, h)
     if not tbl.statuses then return end
     -- Nothing shows while a blow is still in the air.
     if (tbl.impact_wait or 0) > 0 then return end
+    -- The list can be EMPTY, not just nil — status removal (punch expiry,
+    -- Cool Towel's cleanse) pops entries mid-frame and this draws off the
+    -- same table state. Indexing [1] unguarded was a crash.
     local e = tbl.statuses[1]
+    if not e then return end
     local def = StatusData[e.kind]
     if not def then return end
     local color = tokenColor(def.glow_token or def.wash_token)

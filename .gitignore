@@ -33,3 +33,7 @@ assets/audio/items/raw/
 assets/audio/items - Copy/
 
 assets/audio/room/raw/
+
+# Node deps for tools/ (balance sweep harness)
+tools/node_modules/
+tools/package-lock.json

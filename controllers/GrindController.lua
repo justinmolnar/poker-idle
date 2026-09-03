@@ -88,45 +88,28 @@ function GrindController:new(game)
         game.event_bus:subscribe("table_state_changed", function(e)
             self:_playStateTransitionSound(e.from, e.to, e.table)
         end)
-        -- Lifetime tilt count, for catalog unlock gates (the shop stocks
-        -- the cure once you've caught the disease). Fresh applications
-        -- only — a refresh is the same tilt still going.
+        -- Lifetime tilt / heater counts. Tilts feed catalog unlock gates
+        -- (the shop stocks the cure once you've caught the disease);
+        -- heaters feed the story (first_heat fires on the first one, from
+        -- any source). Fresh applications only — a refresh is the same
+        -- status still going.
         game.event_bus:subscribe("on_status_applied", function(e)
-            if e.status == "tilt" and not e.was_refresh then
-                local st = self.game.state
+            if e.was_refresh then return end
+            local st = self.game.state
+            if e.status == "tilt" then
                 st.total_tilts = (st.total_tilts or 0) + 1
+            elseif e.status == "heater" then
+                st.total_heaters = (st.total_heaters or 0) + 1
             end
         end)
     end
     return self
 end
 
--- ── "Pot $X ×N" suffix for the resolution floater ─────────────────────
--- Shows the pot that was on the felt and how much items multiplied it,
--- so the player understands why they got more (or less) than the pot.
--- Omitted when the multiplier rounds to exactly 1× (no item effect).
-local function _multSuffix(r)
-    if not r then return "" end
-    local pot = r.felt_pot or 0
-    if pot <= 0 then return "" end
-
-    local payout = math.abs(r.delta or 0)
-    -- The player wins the pot minus their own contribution (half the
-    -- pot in a heads-up). But outcome_delta is the NET gain/loss after
-    -- items scale it.  The multiplier the player cares about is
-    -- payout / pot — "the pot said $44, I got $88, that's x2".
-    local mult = payout / pot
-    if math.abs(mult - 1) < 0.005 then return "" end
-
-    local pot_str = Format.moneyExact(pot)
-    local mult_str
-    if mult >= 10 or mult <= 0.1 then
-        mult_str = string.format("x%.0f", mult)
-    else
-        mult_str = string.format("x%.2f", mult)
-    end
-    return string.format("\n%s %s", pot_str, mult_str)
-end
+-- (The resolution floater's "xN" mult suffix is gone: the number shown
+-- is simply what the hand paid or cost, and the felt pot is now sized
+-- from the post-multiplier payout — see effective_bb in Table:deal — so
+-- the pot on the table and the money in the floater tell one story.)
 
 -- Push a chip-flight intent onto the queue. GrindView drains this each
 -- frame. Source/dest are { x, y } pairs (or nil — burst is dropped). chips
@@ -926,20 +909,30 @@ function GrindController:update(dt)
         -- drainPayout block above when the tournament ends.
         local label
         local floater_opts_override = nil
+        -- Wins carry their tier GLYPH inline, beside the amount on the
+        -- same line — {w:small} .. {w:stack} via IconText (the floater
+        -- renderer routes any {…} line through it), NEVER the tier
+        -- words; jackpot's player-facing name is the Stack. Losses stay
+        -- a bare number.
+        local tier_glyph = ""
+        if r.tier then
+            tier_glyph = " {w:"
+                .. (r.tier == "jackpot" and "stack" or r.tier) .. "}"
+        end
         if r.chip_stack_table then
             local stake = tbl and Lookups.findById(Stakes, tbl.stake_id)
             local bb_val = (stake and stake.bb and stake.bb > 0) and stake.bb or 1
             local bb_delta = (r.delta or 0) / bb_val
             if bb_delta >= 0 then
-                label = string.format("+%dbb", math.floor(bb_delta + 0.5))
+                label = string.format("+%dbb", math.floor(bb_delta + 0.5)) .. tier_glyph
             else
                 label = string.format("-%dbb", math.floor(-bb_delta + 0.5))
                 floater_opts_override = { color_token = "error" }
             end
         elseif r.delta >= 0 then
-            label = string.format("+$%.2f", r.delta) .. _multSuffix(r)
+            label = string.format("+$%.2f", r.delta) .. tier_glyph
         else
-            label = string.format("-$%.2f", -r.delta) .. _multSuffix(r)
+            label = string.format("-$%.2f", -r.delta)
             -- Loss: override the data-file's amber default with red so
             -- losses read correctly. Without this every tier picks up
             -- color_token="amber" and "-$X.XX" floaters render in gold
@@ -973,6 +966,24 @@ function GrindController:update(dt)
             local opts_copy = {}
             for k, v in pairs(floater_opts) do opts_copy[k] = v end
             opts_copy.table = tbl
+            -- Pop-then-settle: the number pops at the panel center at
+            -- full celebration size (no slow drift — arc killed), holds
+            -- a beat, then drops to its resting font and slides to the
+            -- money corner. ONE rest spot for wins and losses, and it is
+            -- panel-relative, not seat-relative: the left flank beside
+            -- your hole cards, above the pile. Seat-relative rest spots
+            -- were tried twice and both collided — the winner's seat
+            -- holds revealed cards + the pill (and on HU the seat is
+            -- CENTERED, which parked the number on the DEAL button).
+            -- This flank is empty on every layout: hole cards center,
+            -- pile in the corner below, EV on the right. The renderer
+            -- also plates parked floats, so color never fights the felt.
+            if tbl then
+                opts_copy.arc_y         = 0
+                opts_copy.settle_anchor = TableModel.anchorKey(tbl, "center")
+                opts_copy.settle_fx     = -0.30   -- fraction of panel w from center
+                opts_copy.settle_fy     =  0.26   -- fraction of panel h from center
+            end
             -- Scale the vertical drift so the text lands at a consistent
             -- relative position regardless of panel size.  The data-layer
             -- arc_y values were authored for a ~390 px-tall panel; scale
@@ -1216,6 +1227,11 @@ function GrindController:update(dt)
         local focus_cap = self:currentFocusCapacity()
 
         state.total_hands_played = (state.total_hands_played or 0) + 1
+        -- Every hand, won or lost, for the volume counters (Energy Drink's
+        -- "every 250 hands"). Same running-total shape as on_hand_won.
+        self:_announce("on_hand_played", {
+            table = tbl, count = state.total_hands_played, out = resolutions,
+        })
         if r.won then
             state.total_hands_won = (state.total_hands_won or 0) + 1
             -- Carries the running total, because a counter proc decides
@@ -1845,6 +1861,9 @@ function GrindController:_finalizeRemove(idx, quiet)
         refund = t.stack or 0
     end
     if not quiet then self:_emitCashOutChips(t, refund) end
+    -- A resting result floater on this table would outlive it (a removed
+    -- table stays "idle" forever, so the leaves-idle removal never fires).
+    self.game.floating_text.dropForTable(t)
     self.pool:removeTable(idx)
     -- Closing renumbers pool order (table.remove, possibly a repack), and
     -- cursor claims are index-keyed — release them so no cursor silently

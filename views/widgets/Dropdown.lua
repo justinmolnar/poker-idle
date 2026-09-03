@@ -185,7 +185,9 @@ end
 -- Returns the header's hit rect (also stashed for consumeMouse).
 function Dropdown:drawHeader(x, y, w, h, label, fonts)
     local mx, my = love.mouse.getPosition()
-    local hovered = mx >= x and mx < x + w and my >= y and my < y + h
+    local hovered = require("services.HoverService").rest("button",
+        "dropdown:" .. tostring(label or "header"),
+        mx >= x and mx < x + w and my >= y and my < y + h, 0)
     local border  = self.is_open and Theme.border.strong
                  or (hovered and Theme.border.strong or Theme.border.default)
     Button.draw(x, y, w, h, {

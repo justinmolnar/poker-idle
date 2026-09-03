@@ -9,7 +9,8 @@
 -- Filled bg rect, strong border, light text. Auto-sizes to content. Keeps
 -- inside the screen via edge-clamping near the mouse cursor.
 
-local Theme = require("views.Theme")
+local Theme     = require("views.Theme")
+local Constants = require("data.constants")
 
 local Tooltip = {}
 
@@ -18,11 +19,23 @@ local _t       = nil
 local _padding = 6
 local _line_h  = 14   -- font row height; matches ui_small in Theme.font
 
+-- Pointer-rest gate: a tooltip appears only after the pointer has been
+-- STILL (within a few px) over a tooltip target for Constants.HOVER.DWELL
+-- — the same resting rule the hover washes use in HoverService. Moving
+-- resets the clock, so sweeping across the board shows nothing and
+-- sliding from one target to the next re-earns the delay; no content
+-- keys, no per-caller state.
+local REST_PX = 6
+local _rx, _ry, _rest_since, _last_req = nil, nil, 0, -1
+local function now()
+    return (love and love.timer and love.timer.getTime()) or 0
+end
+
 -- Stash a tooltip for this frame. Caller passes either a string (single
 -- line), a list of strings, or a list of structured rows
 -- `{ text, style, color_token }` where style ∈ "sm" | "md" | "lg" picks
 -- the font from the fonts table at draw time. mx/my anchor near the
--- mouse cursor.
+-- mouse cursor. Shown only once the pointer has rested for the dwell.
 function Tooltip.set(text_or_lines, mx, my)
     if not text_or_lines then return end
     local lines
@@ -32,7 +45,17 @@ function Tooltip.set(text_or_lines, mx, my)
     else
         lines = { text_or_lines }
     end
-    _t = { lines = lines, mx = mx or 0, my = my or 0 }
+    mx, my = mx or 0, my or 0
+    local t = now()
+    -- Re-anchor the rest spot when the pointer strays or the request
+    -- chain lapsed (no set() for a few frames = hover ended).
+    if not _rx or math.abs(mx - _rx) > REST_PX or math.abs(my - _ry) > REST_PX
+       or (t - _last_req) > 0.1 then
+        _rx, _ry, _rest_since = mx, my, t
+    end
+    _last_req = t
+    if (t - _rest_since) < Constants.HOVER.DWELL then return end
+    _t = { lines = lines, mx = mx, my = my }
 end
 
 function Tooltip.clear()

@@ -257,6 +257,20 @@ return {
             },
         },
 
+        -- Heat is a mechanic, not an item: the beat fires the first time
+        -- ANY table catches a heater, from whatever source (lifetime
+        -- total_heaters, tallied in GrindController), and describes heat
+        -- alone.
+        {
+            id      = "first_heat",
+            screen  = "grind",
+            trigger = { kind = "total_heaters", min = 1 },
+            lines = {
+                { text = "Heat. A table catches it and runs hot: that hand wins, and the one after it. When you see fire on the felt, that's heat." },
+                { text = "Plenty of things in the catalog throw heat around. Where it lands is the game." },
+            },
+        },
+
         -- The rooms and tools that open later, each introduced the first
         -- time it exists on the felt.
         {

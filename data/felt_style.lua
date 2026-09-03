@@ -32,6 +32,28 @@
 --   seat plate    1-4 (tied to the NAME flag, not a size of its own)
 --   button        1-9       vignette every size
 return {
+    -- Felt color derivation (views/TablePanel.feltForStake): every room
+    -- is constructed at the SAME luminance and the SAME chroma, and takes
+    -- only its HUE from the stake's felt chip (a hueless chip = the
+    -- classic green room). Uniform by construction: no room can be
+    -- brighter or louder than another, and no knob setting can collapse
+    -- two hues into the same mud. Audit with `lua sim/felt_check.lua`,
+    -- which flags any pair of rooms that read alike.
+    color = {
+        -- Room brightness: base felt luma × this. One value for ALL
+        -- stakes — "early stakes brighter than late" was never a design
+        -- rule; the tier reads from hue alone.
+        luma       = 1.10,
+        -- Room color-strength. The normalizer: every room carries exactly
+        -- this much color away from neutral, so they mute together as one
+        -- family. Raise for louder rooms, lower for grayer — hue spacing
+        -- is unaffected either way.
+        chroma     = 0.06,
+        -- Below this chip chroma the chip is considered hueless (white,
+        -- black) and the room falls back to the base green's hue.
+        min_chroma = 0.06,
+    },
+
     -- Felt vignette. A radial alpha ramp darkening the felt toward its edges
     -- so the centre reads lit instead of the surface reading as one flat fill.
     -- Always on: it is a single stretched texture, so it costs one batched
@@ -72,8 +94,8 @@ return {
         max_w      = 10,
         -- FALLBACK ONLY. The ring's colour is game_type_themes' `rail_color`,
         -- an authored material per game type; this multiplier only applies when
-        -- the type has none, where the stake's border_color stands in and needs
-        -- pulling down so it reads as a ring instead of a bright trim line.
+        -- the type has none, where the default border token stands in and needs
+        -- pulling down so it reads as a ring instead of a trim line.
         darken     = 0.45,
         -- Inner edge line at the surface boundary, so the felt reads as sunk
         -- into the ring instead of painted on it.
@@ -137,5 +159,18 @@ return {
         card_frac = 0.45,   -- diameter as a fraction of the seat's card width
         max_d     = 22,
         gap       = 3,      -- gap between the button and the cards it marks
+    },
+
+    -- Last-hand residue: the finished hand held on an idle felt until the
+    -- next deal. The whole scene draws through the desaturate shader —
+    -- desat is the greyscale mix at rest (0 = full color, 1 = grey), and
+    -- ease_secs is how long the scene takes to "go cold" after the hand
+    -- ends. The affordance on top (rim + label) stays full-color.
+    residue = {
+        desat       = 0.85,
+        ease_secs   = 0.35,
+        rim_alpha   = 0.25,  -- felt-edge rim at rest
+        rim_hover   = 0.90,  -- rim while the pointer is on the felt
+        wash_hover  = 0.10,  -- felt-wide color wash while hovered
     },
 }

@@ -44,14 +44,19 @@ local Deck      = require("models.Deck")
 local HandEval  = require("models.HandEval")
 local RNG       = require("utils.rng")
 local Constants = require("data.constants")
+local ShowdownRealism = require("data.showdown_realism")
 
 local Gauntlet = {}
 Gauntlet.__index = Gauntlet
 
-function Gauntlet:new(game, rates)
+-- `realism` (optional) overrides the gauntlet section of
+-- data/showdown_realism.lua — threaded so a sim can test candidate
+-- policies without touching the live data file.
+function Gauntlet:new(game, rates, realism)
     return setmetatable({
         game        = game,
         rates       = rates or { r1 = 0, r2 = 0, r3 = 0, clear = 0 },
+        realism     = realism or ShowdownRealism.gauntlet,
         state       = "idle",          -- idle | running | finished
         deck        = nil,
         player_hole = nil,             -- {Card, Card}
@@ -111,7 +116,8 @@ function Gauntlet:begin(forced_outcomes)
 end
 
 -- Player vs dealer on the current board: 1 the player wins, -1 the
--- dealer wins, 0 a tie.
+-- dealer wins, 0 a tie. Also returns both rank tuples so callers that
+-- need the categories (the plausibility floors) don't re-evaluate.
 function Gauntlet:_compare()
     local p_cards, d_cards = {}, {}
     for _, c in ipairs(self.player_hole)  do table.insert(p_cards, c) end
@@ -120,7 +126,7 @@ function Gauntlet:_compare()
     for _, c in ipairs(self.board)        do table.insert(d_cards, c) end
     local p_rank = HandEval.bestFiveOfN(p_cards)
     local d_rank = HandEval.bestFiveOfN(d_cards)
-    return HandEval.compare(p_rank, d_rank)
+    return HandEval.compare(p_rank, d_rank), p_rank, d_rank
 end
 
 -- Whether the player STRICTLY beats the dealer. Draw = loss.
@@ -131,8 +137,10 @@ end
 -- Whether the board shows the rolled outcome with a clear winner: a win
 -- is the player strictly ahead, a loss is the dealer strictly ahead. A
 -- tie matches nothing, so the search keeps looking: the winner wins.
+-- Stashes the two rank tuples for the plausibility check that follows.
 function Gauntlet:_shows(outcome)
-    local c = self:_compare()
+    local c, p_rank, d_rank = self:_compare()
+    self._last_p_rank, self._last_d_rank = p_rank, d_rank
     if outcome then return c > 0 end
     return c < 0
 end
@@ -144,44 +152,130 @@ local function shuffle(t)
     end
 end
 
--- After hole + 5-board are dealt and runout 1 matches, search the deck
--- for a (c6, c7) pair that satisfies runouts 2 and 3.
-function Gauntlet:_findCheatCards()
+-- The runout-1 winner has to show a hand worth the drama. The rank
+-- tuples were stashed by the _shows call this always follows, so the
+-- floor check costs nothing.
+function Gauntlet:_r1Plausible(relax)
+    local pol = self.realism
+    if not pol then return true end
+    local floor
+    if relax then
+        floor = (pol.relaxed and pol.relaxed.cat_floor) or 1
+    else
+        floor = self.outcomes[1] and pol.r1_win_cat_floor
+                                  or pol.r1_loss_cat_floor
+    end
+    local rank = self.outcomes[1] and self._last_p_rank or self._last_d_rank
+    if not rank then return true end
+    return rank[1] >= (floor or 1)
+end
+
+-- Classify every candidate runner: appended to the board, does it keep
+-- the player strictly ahead ("safe") or hand it to the dealer ("rob")?
+-- Ties land in neither list — a tie card can never be a robbery card
+-- (draw = loss is decided by _shows/_compare, untouched here) and never
+-- a survival card. Bails out (returns nil) the moment the rob count
+-- exceeds `rob_cap`: past the band there is no acceptable pick, so the
+-- rest of the scan is wasted work.
+function Gauntlet:_classifyRunnerCards(cands, rob_cap)
+    local safe, rob = {}, {}
+    local board = self.board
+    local slot  = #board + 1
+    for _, c in ipairs(cands) do
+        board[slot] = c
+        local cmp = self:_compare()
+        board[slot] = nil
+        if cmp > 0 then
+            safe[#safe + 1] = c
+        elseif cmp < 0 then
+            rob[#rob + 1] = c
+            if #rob > rob_cap then return nil end
+        end
+    end
+    return safe, rob
+end
+
+-- After hole + 5-board are dealt and runout 1 matches, plan the (c6, c7)
+-- runners. Unlike the old first-in-a-shuffle scan, this classifies EVERY
+-- candidate first — the rob-count is the House's real out-count, and the
+-- policy bands in data/showdown_realism.lua decide whether this deal's
+-- outs tell an acceptable story:
+--   * a robbery runner must come from a mid-sized out band (a real beat,
+--     not a repeated one-outer),
+--   * a survived runner must not have dodged a monster draw
+--     (and drawing dead is fine — a locked-up win is real poker).
+-- Rejecting the deal sends the outer loop back for a fresh one.
+function Gauntlet:_planCheatCards(relax)
+    self._outs_c6, self._outs_c7 = nil, nil
     if not self.outcomes[1] then return true end
 
-    local c6_candidates = self.deck:remaining()
-    shuffle(c6_candidates)
+    local pol       = self.realism
+    local rob_band  = (relax and pol.relaxed and pol.relaxed.rob_outs)
+                      or pol.rob_outs
+    local max_sweat = (relax and pol.relaxed and pol.relaxed.max_sweat_outs)
+                      or pol.max_sweat_outs
 
-    for _, c6 in ipairs(c6_candidates) do
-        table.insert(self.board, c6)
-        if self:_shows(self.outcomes[2]) then
-            if not self.outcomes[2] then
+    -- ── Runout 2: robbed at c6 ──
+    if self.outcomes[2] == false then
+        local _, rob6 = self:_classifyRunnerCards(self.deck:remaining(),
+                                                  rob_band[2])
+        if not rob6 or #rob6 < rob_band[1] then return false end
+        self._outs_c6 = #rob6
+        local c6 = rob6[love.math.random(#rob6)]
+        self.board[#self.board + 1] = c6
+        self.deck:removeCard(c6)
+        return true
+    end
+
+    -- ── Runout 2 survives: c6 must be safe, dealer outs within the sweat cap ──
+    local safe6, rob6 = self:_classifyRunnerCards(self.deck:remaining(),
+                                                  max_sweat)
+    if not safe6 or #safe6 == 0 then return false end
+    self._outs_c6 = #rob6
+    shuffle(safe6)
+    local c6_tries = math.min(#safe6, pol.survive_c6_tries or #safe6)
+    for i = 1, c6_tries do
+        local c6 = safe6[i]
+        self.board[#self.board + 1] = c6
+        local c7_cands = {}
+        for _, c in ipairs(self.deck:remaining()) do
+            if c ~= c6 then c7_cands[#c7_cands + 1] = c end
+        end
+        if self.outcomes[3] == false then
+            -- Robbed at c7. This is also the Act-3-locked path (an R2 win
+            -- with Act 3 closed rolls outcomes[3] = false): contract kept.
+            local _, rob7 = self:_classifyRunnerCards(c7_cands, rob_band[2])
+            if rob7 and #rob7 >= rob_band[1] then
+                self._outs_c7 = #rob7
+                local c7 = rob7[love.math.random(#rob7)]
+                self.board[#self.board + 1] = c7
                 self.deck:removeCard(c6)
+                self.deck:removeCard(c7)
                 return true
             end
-            local c7_candidates = {}
-            for _, c in ipairs(self.deck:remaining()) do
-                if c ~= c6 then table.insert(c7_candidates, c) end
-            end
-            shuffle(c7_candidates)
-            for _, c7 in ipairs(c7_candidates) do
-                table.insert(self.board, c7)
-                if self:_shows(self.outcomes[3]) then
-                    self.deck:removeCard(c6)
-                    self.deck:removeCard(c7)
-                    return true
-                end
-                table.remove(self.board)
+        else
+            -- Full win: c7 safe too.
+            local safe7, rob7 = self:_classifyRunnerCards(c7_cands, max_sweat)
+            if safe7 and #safe7 > 0 then
+                self._outs_c7 = #rob7
+                local c7 = safe7[love.math.random(#safe7)]
+                self.board[#self.board + 1] = c7
+                self.deck:removeCard(c6)
+                self.deck:removeCard(c7)
+                return true
             end
         end
-        table.remove(self.board)
+        self.board[#self.board] = nil    -- pop c6, try the next safe card
     end
     return false
 end
 
 function Gauntlet:_constructJointly()
     local cap = Constants.GAUNTLET.REJECTION_RETRY_CAP
-    for _ = 1, cap do
+    local pol = self.realism
+    local strict_until = (pol and pol.strict_attempts) or 0
+    for attempt = 1, cap do
+        local relax = attempt > strict_until
         self.deck = Deck:new()
         self.player_hole = { self.deck:draw(), self.deck:draw() }
         self.dealer_hole = { self.deck:draw(), self.deck:draw() }
@@ -190,17 +284,18 @@ function Gauntlet:_constructJointly()
             self.deck:draw(), self.deck:draw(),
         }
 
-        if self:_shows(self.outcomes[1]) then
-            if self:_findCheatCards() then
-                self.natural[1] = true
-                if self.outcomes[1] then self.natural[2] = true end
-                if self.outcomes[2] then self.natural[3] = true end
-                return
-            end
+        if self:_shows(self.outcomes[1])
+           and self:_r1Plausible(relax)
+           and self:_planCheatCards(relax) then
+            self.natural[1] = true
+            if self.outcomes[1] then self.natural[2] = true end
+            if self.outcomes[2] then self.natural[3] = true end
+            return
         end
     end
 
     -- Cap exhausted. Use the last deal as-is and override outcomes.
+    self._outs_c6, self._outs_c7 = nil, nil    -- stale from failed attempts
     self.outcomes[1] = self:_currentlyWinning()
     self.natural[1]  = false
     if not self.outcomes[1] then
@@ -270,6 +365,14 @@ function Gauntlet:_buildResult()
         board       = self.board,
         evals       = self.evals,
         rates       = self.rates,
+        -- Debug/analytics only (formatResult prints these; no view reads
+        -- them): the House's live out-count when each runner was planned.
+        outs        = {
+            c6       = self._outs_c6,
+            c7       = self._outs_c7,
+            c6_total = 43,
+            c7_total = 42,
+        },
     }
 end
 
@@ -324,6 +427,10 @@ function Gauntlet.formatResult(result, attempt_n)
         lines[#lines + 1] = string.format("  R2 [+1]: %s", tostring(result.board[6]))
         lines[#lines + 1] = string.format("    player: %s", rankStr(r2.player_rank))
         lines[#lines + 1] = string.format("    dealer: %s", rankStr(r2.dealer_rank))
+        if result.outs and result.outs.c6 then
+            lines[#lines + 1] = string.format("    house outs at c6: %d/%d",
+                result.outs.c6, result.outs.c6_total)
+        end
         lines[#lines + 1] = string.format("    → %s%s",
             result.outcomes[2] and "WIN" or "LOSS",
             result.natural[2] == false and " (forced — no satisfying card in deck)" or " (natural)")
@@ -334,6 +441,10 @@ function Gauntlet.formatResult(result, attempt_n)
         lines[#lines + 1] = string.format("  R3 [+1]: %s", tostring(result.board[7]))
         lines[#lines + 1] = string.format("    player: %s", rankStr(r3.player_rank))
         lines[#lines + 1] = string.format("    dealer: %s", rankStr(r3.dealer_rank))
+        if result.outs and result.outs.c7 then
+            lines[#lines + 1] = string.format("    house outs at c7: %d/%d",
+                result.outs.c7, result.outs.c7_total)
+        end
         lines[#lines + 1] = string.format("    → %s%s",
             result.outcomes[3] and "WIN" or "LOSS",
             result.natural[3] == false and " (forced — no satisfying card in deck)" or " (natural)")

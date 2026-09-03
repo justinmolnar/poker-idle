@@ -38,6 +38,7 @@ local IconText     = require("views.IconText")
 local Format       = require("utils.format")
 local Decal        = require("services.Decal")
 local TooltipSvc     = require("services.Tooltip")
+local HoverSvc       = require("services.HoverService")
 local ShaderRegistry = require("services.ShaderRegistry")
 local CatalogReceipt = require("views.CatalogReceipt")
 
@@ -1752,7 +1753,8 @@ function CatalogModal:draw()
     self._prev_rect = nil
     if idx > 0 then
         local sz  = fl(28 * s)
-        local hov = mx >= book_l and mx <= book_l + fl(48 * s) and my >= book_b - fl(48 * s) and my <= book_b
+        local hov = HoverSvc.rest("button", "catalog_prev",
+            mx >= book_l and mx <= book_l + fl(48 * s) and my >= book_b - fl(48 * s) and my <= book_b, 0)
         if hov then sz = fl(38 * s) end
         Theme.setColor({ 0.88, 0.84, 0.77 })
         love.graphics.polygon("fill", book_l + sz, book_b, book_l + sz, book_b - sz, book_l, book_b - sz)
@@ -1768,7 +1770,8 @@ function CatalogModal:draw()
     self._next_rect = nil
     if idx < max_spread then
         local sz  = fl(28 * s)
-        local hov = mx >= book_r - fl(48 * s) and mx <= book_r and my >= book_b - fl(48 * s) and my <= book_b
+        local hov = HoverSvc.rest("button", "catalog_next",
+            mx >= book_r - fl(48 * s) and mx <= book_r and my >= book_b - fl(48 * s) and my <= book_b, 0)
         if hov then sz = fl(38 * s) end
         Theme.setColor({ 0.88, 0.84, 0.77 })
         love.graphics.polygon("fill", book_r - sz, book_b, book_r - sz, book_b - sz, book_r, book_b - sz)
@@ -1791,7 +1794,8 @@ function CatalogModal:draw()
         local cz   = fl(20 * s)
         local cxr  = book_r - cz
         local cyr  = math.max(fl(6 * s), top - cz - fl(6 * s))
-        local hovx = mx >= cxr and mx < cxr + cz and my >= cyr and my < cyr + cz
+        local hovx = HoverSvc.rest("button", "catalog_close",
+            mx >= cxr and mx < cxr + cz and my >= cyr and my < cyr + cz, 0)
         Theme.setColor({ 0.15, 0.15, 0.12, hovx and 0.85 or 0.40 })
         love.graphics.setLineWidth(fl(2 * s))
         local xp = fl(5 * s)

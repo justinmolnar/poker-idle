@@ -75,11 +75,11 @@
 -- 24 {chip} per run; a T1-T6 sweep banks up to 84.
 --
 --   A — Act 1 early, T1-T2.        12 items ·  47 {chip} · shove 0.12
---   B — Act 1 late, T2-T3.         21 items · 190 {chip} · shove 0.21
+--   B — Act 1 late, T2-T3.         21 items · 176 {chip} · shove 0.21
 --   C — Act 2, deck era, T4-T6.    23 items · 330 {chip} · shove 0.23
 --   D — Act 2 late.                11 items · 233 {chip} · shove 0.11
 --                                            ─────────────────────────────
---                                            800 {chip} · shove 0.67
+--                                            786 {chip} · shove 0.67
 --
 -- Shove is a flat 1% per item (data/balance.lua K_SHOVE_PER_ITEM), so a
 -- band's shove is its item count. A+B alone carry 0.33 ≥ the 0.250 the
@@ -196,9 +196,15 @@ local items = {
         },
     },
     {
+        -- THE ZOOM ITEM, and the first heater the player ever sees. A
+        -- global hand counter: Zoom deals 250 hands in minutes where a
+        -- 6-max takes an hour, so owning this is the lesson that Zoom is
+        -- volume and volume feeds the rest of the board. Heat itself is
+        -- taught by the House the first time any table catches it (story:
+        -- first_heat). Tuned by the proc's `every`, nothing else.
         id          = "energy_drink",
         name        = "Energy Drink",
-        effect_text = "Hands resolve 25% faster.",
+        effect_text = "Every 250 hands, a table catches a heater.",
         description = "Tastes terrible. Works fine.",
         sprite      = "energy_drink",
         phase       = "demo",
@@ -206,14 +212,14 @@ local items = {
         position    = { x = 200, y = 220 },
         effects     = {
             { kind = "shove_rate_add",  value = 0.008 },
-            { kind = "hand_pace_mult",  value = 1.25 },
+            { kind = "proc", proc = "caffeine" },
         },
         corrupt = {
             cost_achip = 2,
             effects = {
-                { kind = "hand_pace_mult", value = 4.0 },
+                { kind = "proc", proc = "caffeine_corrupt" },
             },
-            effect_text = "Hands resolve 4× faster.",
+            effect_text = "Every 100 hands, a table catches a heater.",
         },
     },
     {
@@ -358,7 +364,7 @@ local items = {
         },
         unlock = {
             kind      = "total_stack_losses",
-            threshold = 10,
+            threshold = 110,
             text      = "{l:stack} losses taken",
         },
         corrupt = {
@@ -404,7 +410,7 @@ local items = {
         },
         unlock = {
             kind      = "total_busts",
-            threshold = 10,
+            threshold = 100,
             text      = "tables busted",
         },
         corrupt = {
@@ -482,7 +488,7 @@ local items = {
         position    = { x = 180, y = 200 },
         unlock = {
             kind      = "total_upgrade_levels",
-            threshold = 50,
+            threshold = 130,
             text      = "upgrade levels bought",
         },
         effects     = {
@@ -511,7 +517,7 @@ local items = {
         },
         unlock = {
             kind      = "total_upgrade_levels",
-            threshold = 25,
+            threshold = 90,
             text      = "upgrade levels bought",
         },
         corrupt = {
@@ -533,7 +539,7 @@ local items = {
         position    = { x = 280, y = 200 },
         unlock = {
             kind      = "total_stack_losses",
-            threshold = 10,
+            threshold = 225,
             text      = "{l:stack} losses taken",
         },
         effects     = {
@@ -563,7 +569,7 @@ local items = {
         },
         unlock = {
             kind      = "total_chips_banked",
-            threshold = 60,
+            threshold = 150,
             text      = "{chip} banked",
         },
         corrupt = {
@@ -575,17 +581,13 @@ local items = {
         },
     },
     {
-        -- THE KEY TO 6-MAX, and the root of the tank chain. Owning it
-        -- latches state.six_max_unlocked (the ultra_unlocked pattern) —
-        -- the mode is a purchase, and the purchase EXPLAINS the mode: a
-        -- thing grown slow on purpose, whose payoff is the rare enormous
-        -- pot. The tier-climb effect is the identity in miniature (and a
-        -- foreshadowing of Blackout Curtains' sharp, deeper in the chain).
-        -- Gated on the first shove so the long game arrives after the
-        -- loop is understood.
+        -- THE KEY TO 6-MAX. Owning it latches state.six_max_unlocked (the
+        -- ultra_unlocked pattern): the mode is a purchase, and the door is
+        -- the whole reward. No rider on purpose — the room's identity is
+        -- the slow, deep table itself, and what other items land on it.
         id          = "bonsai",
         name        = "Bonsai",
-        effect_text = "Opens the 6-Max tables, the deep game. Its large wins grow into {stack}s 15% more often.",
+        effect_text = "Opens the 6-Max tables, the deep game.",
         description = "Grown slow on purpose. Worth the wait.",
         sprite      = "bonsai",
         phase       = "mid",
@@ -593,8 +595,6 @@ local items = {
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "six_max_unlocked" },
-            { kind = "win_tier_shift", from = "large", to = "jackpot",
-              chance = 0.15, gtype = "six_max" },
         },
         unlock = {
             -- A whole game type is a mid-act MILESTONE, not a day-one key:
@@ -610,10 +610,8 @@ local items = {
             cost_achip = 5,
             effects = {
                 { kind = "six_max_unlocked" },
-                { kind = "win_tier_shift", from = "large", to = "jackpot",
-                  chance = 0.50, gtype = "six_max" },
             },
-            effect_text = "Opens the 6-Max tables. Half its large wins grow into {stack}s.",
+            effect_text = "Opens the 6-Max tables.",
         },
     },
     {
@@ -648,7 +646,7 @@ local items = {
         position    = { x = 330, y = 200 },
         unlock = {
             kind      = "total_upgrade_levels",
-            threshold = 30,
+            threshold = 70,
             text      = "upgrade levels bought",
         },
         effects     = {
@@ -677,7 +675,7 @@ local items = {
         },
         unlock = {
             kind      = "total_rebuys",
-            threshold = 50,
+            threshold = 300,
             text      = "rebuys",
         },
         corrupt = {
@@ -698,7 +696,7 @@ local items = {
         cost_chip     = 10,
         unlock = {
             kind      = "total_hands_overwhelmed",
-            threshold = 500,
+            threshold = 25,
             text      = "hands past focus",
         },
         position    = { x = 150, y = 400 },
@@ -722,7 +720,7 @@ local items = {
         description = "Foam mic cover. Someone else's earwax.",
         sprite      = "headset",
         phase       = "mid",
-        cost_chip   = 10,
+        cost_chip   = 6,
         effects     = {
             { kind = "shove_rate_add",   value = 0.010 },
             { kind = "win_chance_shift", amount = 0.06, gtype = "zoom" },
@@ -730,7 +728,7 @@ local items = {
         unlock = {
             kind      = "total_hands_at_gtype",
             gtype     = "zoom",
-            threshold = 2000,
+            threshold = 2600,
             text      = "Zoom hands",
         },
         corrupt = {
@@ -743,6 +741,10 @@ local items = {
     },
     {
         id          = "prize_vase",
+        -- Tournaments open with Act 2 (C.GTYPE_GATE.mtt = shove_r1_won);
+        -- act = 2 keeps this out of the Act 1 book instead of sitting there
+        -- as a "???" the demo can never open.
+        act         = 2,
         name        = "Prize Vase",
         effect_text = "Winning a tournament lifts every table 1% for the run.",
         description = "Came with a ribbon. The ribbon didn't last.",
@@ -784,7 +786,7 @@ local items = {
         },
         unlock = {
             kind      = "total_stack_losses",
-            threshold = 25,
+            threshold = 450,
             text      = "{l:stack} losses taken",
         },
         corrupt = {
@@ -805,7 +807,7 @@ local items = {
         cost_chip   = 12,
         unlock = {
             kind      = "total_hands_played",
-            threshold = 5000,
+            threshold = 7000,
             text      = "hands played",
         },
         effects     = {
@@ -825,19 +827,26 @@ local items = {
     {
         id          = "house_cat",
         name        = "House Cat",
-        effect_text = "Every 50 hands won it finds a table to sit at. That table's next pot runs a tier bigger.",
-        description = "Sits where it pleases.",
+        effect_text = "Every 50 hands won, a table's next win reads a tier higher.",
+        description = "Someone's cat. It has opinions.",
         sprite      = "house_cat",
         phase       = "mid",
         cost_chip   = 8,
         unlock = {
             kind      = "total_hands_won",
-            threshold = 1500,
+            threshold = 2900,
             text      = "hands won",
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "proc", proc = "cat_nap" },
+        },
+        corrupt = {
+            cost_achip = 4,
+            effects = {
+                { kind = "proc", proc = "cat_nap_corrupt" },
+            },
+            effect_text = "Every 25 hands won, a table's next win reads a tier higher.",
         },
     },
     {
@@ -848,12 +857,12 @@ local items = {
         sprite      = "candle",
         phase       = "mid",
         cost_chip   = 7,
-        -- Jackpots land on ~12% of hands (measured from a real save: 114
-        -- jackpots in ~960 hands over two shoves), so jackpot thresholds
-        -- are hands÷8, not "rare event" counts. 120 ≈ a thousand hands.
+        -- Jackpots land ~155 per shove (measured from a real save at
+        -- shove five: 775 jackpots), so jackpot thresholds are per-shove
+        -- rates, not "rare event" counts. 600 ≈ shove four.
         unlock = {
             kind      = "total_jackpots",
-            threshold = 120,
+            threshold = 600,
             text      = "jackpots won",
         },
         effects     = {
@@ -868,11 +877,11 @@ local items = {
         description = "Two controllers. Built for one-on-one.",
         sprite      = "nes_console",
         phase       = "mid",
-        cost_chip   = 10,
+        cost_chip   = 5,
         unlock = {
             kind      = "total_hands_at_gtype",
             gtype     = "hu",
-            threshold = 500,
+            threshold = 1000,
             text      = "Heads-Up hands",
         },
         effects     = {
@@ -887,11 +896,11 @@ local items = {
         description = "Fits in a pocket. Fast games between fast games.",
         sprite      = "gameboy",
         phase       = "mid",
-        cost_chip   = 10,
+        cost_chip   = 5,
         unlock = {
             kind      = "total_hands_at_gtype",
             gtype     = "zoom",
-            threshold = 1000,
+            threshold = 1200,
             text      = "Zoom hands",
         },
         effects     = {
@@ -909,7 +918,7 @@ local items = {
         cost_chip   = 8,
         unlock = {
             kind      = "total_hands_played",
-            threshold = 2500,
+            threshold = 6500,
             text      = "hands played",
         },
         effects     = {
@@ -927,7 +936,7 @@ local items = {
         cost_chip   = 12,
         unlock = {
             kind      = "total_tilts",
-            threshold = 5,
+            threshold = 90,
             text      = "tables tilted",
             -- "???" until tilt exists in this player's game
             mystery   = { kind = "total_tilts", threshold = 1 },
@@ -951,7 +960,7 @@ local items = {
         position    = { x = 600, y = 300 },
         unlock = {
             kind      = "total_busts",
-            threshold = 40,
+            threshold = 275,
             text      = "tables busted",
         },
         effects     = {
@@ -981,7 +990,7 @@ local items = {
         },
         unlock = {
             kind      = "total_hands_at_4plus",
-            threshold = 1000,
+            threshold = 4000,
             text      = "hands at 4+ tables",
         },
         corrupt = {
@@ -1050,7 +1059,7 @@ local items = {
         position    = { x = 100, y = 500 },
         unlock = {
             kind      = "total_hands_at_4plus",
-            threshold = 2500,
+            threshold = 5000,
             text      = "hands at 4+ tables",
         },
         effects     = {
@@ -1158,7 +1167,7 @@ local items = {
         },
         unlock = {
             kind      = "total_busts",
-            threshold = 100,
+            threshold = 300,
             text      = "tables busted",
         },
         corrupt = {
@@ -1184,7 +1193,7 @@ local items = {
         },
         unlock = {
             kind      = "total_jackpots",
-            threshold = 250,
+            threshold = 1600,
             text      = "Jackpots hit",
         },
         corrupt = {
@@ -1206,7 +1215,7 @@ local items = {
         cost_chip   = 16,
         unlock = {
             kind      = "total_rebuys",
-            threshold = 250,
+            threshold = 230,
             text      = "rebuys",
         },
         effects     = {
@@ -1237,7 +1246,7 @@ local items = {
         },
         unlock = {
             kind      = "total_upgrade_levels",
-            threshold = 150,
+            threshold = 180,
             text      = "upgrade levels bought",
         },
         corrupt = {
@@ -1257,11 +1266,11 @@ local items = {
         sprite      = "receipt_printer",
         phase       = "mid",
         cost_chip   = 19,
-        -- Late-Act-1 machine at a late-Act-1 price: 300 jackpots ≈ 2,500
-        -- hands (see the Candle's rate note) — around shove five, not two.
+        -- Late-Act-1 machine at a late-Act-1 price: 1,100 jackpots ≈
+        -- shove seven at the measured ~155/shove (see the Candle's note).
         unlock = {
             kind      = "total_jackpots",
-            threshold = 300,
+            threshold = 1100,
             text      = "jackpots won",
         },
         position    = { x = 330, y = 400 },
@@ -1344,7 +1353,7 @@ local items = {
         },
         unlock = {
             kind      = "decks_unlocked_count",
-            threshold = 3,
+            threshold = 5,
             text      = "decks unlocked",
             -- "???" until decks exist (Act 2)
             mystery   = { kind = "shove_r1_won" },
@@ -1393,7 +1402,7 @@ local items = {
         cost_chip   = 10,
         unlock = {
             kind      = "total_chips_banked",
-            threshold = 120,
+            threshold = 160,
             text      = "{chip} banked",
         },
         effects     = {
@@ -1527,7 +1536,7 @@ local items = {
         requires      = "high_roller_pass",
         unlock = {
             kind      = "total_tilts",
-            threshold = 25,
+            threshold = 200,
             text      = "tables tilted",
             -- "???" until tilt exists in this player's game
             mystery   = { kind = "total_tilts", threshold = 1 },
@@ -1560,7 +1569,7 @@ local items = {
         },
         unlock = {
             kind      = "total_upgrade_levels",
-            threshold = 300,
+            threshold = 240,
             text      = "upgrade levels bought",
         },
         corrupt = {

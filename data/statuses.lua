@@ -27,6 +27,12 @@
 --   "run"      never expires on its own. No timer, no charges; it is
 --              cleared when the run is. For the things a table EARNS over a
 --              run rather than catches for a moment.
+--   "punch"    lives until its punch is SPENT: an interrupt-carrying
+--              status stays lit from landing until the forced hand
+--              finishes (Table:_finalizeHand), however long the table
+--              waits to deal. No timer — the visual and the mechanic are
+--              one thing, so the fire can neither burn out with the
+--              punch still armed nor die before the hand it decides.
 --
 -- `silent = true` stops a status announcing itself. Anything that reacts to
 -- statuses arriving would otherwise react to its own output and feed itself
@@ -64,8 +70,13 @@ return {
     --
     -- The empty effects list is therefore THE POINT, not an omission.
     -- `magnitude` is inert for these two (tilt still reads it for the
-    -- lean, `rotate` below); `t` is how long the glow/wash lingers and how
-    -- long a re-application counts as a refresh, nothing more.
+    -- lean, `rotate` below); a source's `t` is ignored — "punch" lifetime
+    -- means the status lasts exactly as long as the punch does.
+    --
+    -- On TOURNAMENTS (chip-stack KO and legacy) the punch defers whole:
+    -- no mid-hand rewrite of a scripted multiway hand — the NEXT hand's
+    -- planned outcome is overridden instead (Table:deal), and the plan's
+    -- bust steering re-reconciles on the hand after.
     --
     -- Consequence for authors: a CONTINUOUS heater/tilt source is a
     -- design error. Applied with interrupts, it decides every hand
@@ -75,9 +86,11 @@ return {
     heater = {
         name     = "HEATER",
         blurb    = "Running hot: this hand wins, and the next.",
-        lifetime = "seconds",
-        -- Landing mid-hand ENDS that hand as a win, and the next hand wins
-        -- too. See Table:interrupt (once per hand). A status without this
+        lifetime = "punch",
+        -- Landing mid-hand on a cash table ENDS that hand as a win, and
+        -- the next hand wins too; anywhere it can't honestly end a hand
+        -- (idle, tournaments, spent scripts) the whole punch lands on the
+        -- next hand instead. See Table:interrupt. A status without this
         -- key never interrupts, which is what keeps the silent engine
         -- statuses out of the path: a result must not end a hand.
         interrupt = "win",
@@ -96,7 +109,7 @@ return {
     tilt = {
         name     = "TILT",
         blurb    = "Steaming: this hand is lost, and the next.",
-        lifetime = "seconds",
+        lifetime = "punch",
         interrupt = "lose",
         polarity = "bad",
         icon     = "tilt",

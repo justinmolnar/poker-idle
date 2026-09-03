@@ -27,6 +27,7 @@ local Theme       = require("views.Theme")
 local Modal       = require("views.widgets.Modal")
 local LabelButton = require("views.widgets.LabelButton")
 local Decks       = require("models.Decks")
+local HoverSvc    = require("services.HoverService")
 
 local DeckSelectModal = {}
 DeckSelectModal.__index = DeckSelectModal
@@ -585,8 +586,9 @@ function DeckSelectModal:draw()
     self._continue_rect = { x = btn_x, y = btn_y, w = btn_w, h = btn_h }
     Anchors.set("deck:continue", btn_x, btn_y, btn_w, btn_h)
 
-    local hov = mx >= btn_x and mx < btn_x + btn_w
-                and my >= btn_y and my < btn_y + btn_h
+    local hov = HoverSvc.rest("button", "deck_continue",
+                    mx >= btn_x and mx < btn_x + btn_w
+                    and my >= btn_y and my < btn_y + btn_h, 0)
     LabelButton.draw{
         x = btn_x, y = btn_y, w = btn_w, h = btn_h,
         text         = "Continue",

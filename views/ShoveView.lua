@@ -2121,7 +2121,9 @@ function ShoveView:draw()
         local r = self:_continueRect()
         AnchorRegistry.set("btn:continue", r.x, r.y, r.w, r.h)
         local mx, my = love.mouse.getPosition()
-        local hov = mx >= r.x and mx < r.x + r.w and my >= r.y and my < r.y + r.h
+        local hov = require("services.HoverService").rest("button",
+            "shove_continue",
+            mx >= r.x and mx < r.x + r.w and my >= r.y and my < r.y + r.h, 0)
         -- The grind's SHOVE button uses Theme.status.error, and so did
         -- this one, but the same token is a different colour under each
         -- palette: the grind's is the room palette's soft pink, this

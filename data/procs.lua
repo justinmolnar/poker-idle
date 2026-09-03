@@ -9,7 +9,7 @@
 --   trigger  one of the keys GrindController fires:
 --              on_jackpot_win, on_stack_loss, on_ko,
 --              on_tournament_win, on_tournament_miss
---   target   { kind = "none" | "self" | "gtype" | "order_near" | "any_other",
+--   target   { kind = "none" | "self" | "gtype" | "board_near" | "any_other",
 --              radius, gtype, exclude_self, where, pick = "random", max }
 --   payload  { kind = "apply_status" | "resolve_now" | "refund_buyin" | "ratchet", ... }
 --   ghost    catalog item id whose sprite + sound plays when it fires
@@ -18,8 +18,10 @@
 --            something to another. Set it false where the fiction is not
 --            violence and you want only the ghost.
 --
--- "Nearby" is distance in table order, which is reading order of the board
--- and is what the player rearranges by dragging. See models/table_procs.
+-- "Nearby" is the BOARD's geometry: Manhattan cell distance, so adjacent
+-- means SHARING A SIDE — never diagonal, never "next in reading order
+-- across a row break". The player aims these by dragging tables into
+-- place. See models/table_procs (board_near).
 --
 -- ─── WHAT A HEATER OR A TILT IS ─────────────────────────────────────────
 -- A punch, not a buff: the hand it lands in ends its way, and the next
@@ -67,7 +69,7 @@ return {
     ko_heater = {
         trigger = "on_ko",
         chance  = 0.20,
-        target  = { kind = "order_near", radius = 2, pick = "random",
+        target  = { kind = "board_near", radius = 2, pick = "random",
                     exclude_self = true },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6,
@@ -84,7 +86,7 @@ return {
     ko_bump = {
         trigger = "on_ko",
         chance  = 0.15,
-        target  = { kind = "order_near", radius = 2, pick = "random",
+        target  = { kind = "board_near", radius = 2, pick = "random",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "apply_status", status = "marked",
                     magnitude = 1, charges = 1 },
@@ -95,7 +97,7 @@ return {
     ko_refund = {
         trigger = "on_ko",
         chance  = 0.12,
-        target  = { kind = "order_near", radius = 1, pick = "random",
+        target  = { kind = "board_near", radius = 1, pick = "random",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "refund_buyin", chance = 1.0 },
         ghost   = "shredder",
@@ -144,7 +146,7 @@ return {
     stack_spread = {
         trigger = "on_jackpot_win",
         chance  = 0.30,
-        target  = { kind = "order_near", radius = 1, pick = "random",
+        target  = { kind = "board_near", radius = 1, pick = "random",
                     exclude_self = true },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 8 },
@@ -200,14 +202,46 @@ return {
     -- conversions. These teach "items fire on moments" and "moments can
     -- land on OTHER tables" before any engine item builds on that.
 
-    -- House Cat. Wanders the board; where it sits, the next pot runs a
-    -- tier bigger. The gentlest possible cross-table proc.
+    -- Energy Drink. THE ZOOM ITEM and the first heater in the game: every
+    -- 250 hands dealt anywhere, a table catches a heater. A global
+    -- counter (event.count = state.total_hands_played, lifetime, like
+    -- century), so Zoom's volume is what makes it fire. `every` is the
+    -- only tuning knob. (Heat itself is taught by story first_heat, which
+    -- fires on the first heater from any source.)
+    caffeine = {
+        trigger = "on_hand_played",
+        every   = 250,
+        target  = { kind = "any_other", pick = "random" },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 8 },
+        ghost   = "energy_drink",
+    },
+    caffeine_corrupt = {
+        trigger = "on_hand_played",
+        every   = 100,
+        target  = { kind = "any_other", pick = "random" },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 8 },
+        ghost   = "energy_drink",
+    },
+
+    -- House Cat. Every 50 hands won, a table's NEXT WIN reads a tier
+    -- higher. Wins only: a plain one-shot flag on the table
+    -- (Table._next_win_tier_up), consumed by its next winning hand — not
+    -- a status, nothing to name. The gentlest possible cross-table proc.
     cat_nap = {
         trigger = "on_hand_won",
         every   = 50,
         target  = { kind = "any_other", pick = "random" },
-        payload = { kind = "apply_status", status = "marked",
-                    magnitude = 1, charges = 1 },
+        payload = { kind = "next_win_tier_up" },
+        ghost   = "house_cat",
+        impact  = false,
+    },
+    cat_nap_corrupt = {
+        trigger = "on_hand_won",
+        every   = 25,
+        target  = { kind = "any_other", pick = "random" },
+        payload = { kind = "next_win_tier_up" },
         ghost   = "house_cat",
         impact  = false,
     },
@@ -338,7 +372,7 @@ return {
     ko_heater_corrupt = {
         trigger = "on_ko",
         chance  = 0.30,
-        target  = { kind = "order_near", radius = 2, exclude_self = true },
+        target  = { kind = "board_near", radius = 2, exclude_self = true },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6,
                     escalate = { field = "busted_total", per = 0.12 } },
@@ -348,7 +382,7 @@ return {
     ko_bump_corrupt = {
         trigger = "on_ko",
         chance  = 0.25,
-        target  = { kind = "order_near", radius = 2, exclude_self = true,
+        target  = { kind = "board_near", radius = 2, exclude_self = true,
                     where = { chip_stack_table = false } },
         payload = { kind = "apply_status", status = "marked",
                     magnitude = 1, charges = 1 },
@@ -366,7 +400,7 @@ return {
     ko_refund_corrupt = {
         trigger = "on_ko",
         chance  = 0.25,
-        target  = { kind = "order_near", radius = 1, pick = "random",
+        target  = { kind = "board_near", radius = 1, pick = "random",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "refund_buyin", chance = 1.0 },
         ghost   = "shredder",
@@ -381,7 +415,7 @@ return {
     -- catches it.
     miss_tilt = {
         trigger = "on_tournament_miss",
-        target  = { kind = "order_near", radius = 1, exclude_self = true },
+        target  = { kind = "board_near", radius = 1, exclude_self = true },
         payload = { kind = "apply_status", status = "tilt",
                     magnitude = 0.35, t = 5 },
         ghost   = nil,
@@ -398,7 +432,7 @@ return {
     cooler_tilt = {
         trigger = "on_stack_loss",
         source  = { gtype = "six_max" },
-        target  = { kind = "order_near", radius = 1, pick = "random",
+        target  = { kind = "board_near", radius = 1, pick = "random",
                     exclude_self = true },
         payload = { kind = "apply_status", status = "tilt",
                     magnitude = 0.35, t = 5 },

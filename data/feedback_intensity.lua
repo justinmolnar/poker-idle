@@ -30,6 +30,11 @@ return {
             arc_y       = -64,
             lifetime    = 1.6,
             color_token = "amber",          -- gold so it pops on green felt
+            -- Real font the settled number rests in. Text is never left at
+            -- a fractional scale — the pop is transient, the rest state is
+            -- always one of the rasterized sizes. Same font on EVERY tier:
+            -- the tier speaks through the pop; parked numbers are uniform.
+            settle_font = "sm",
         },
     },
     medium = {
@@ -43,6 +48,7 @@ return {
             arc_y       = -72,
             lifetime    = 1.8,
             color_token = "amber",
+            settle_font = "sm",
         },
     },
     large = {
@@ -56,6 +62,7 @@ return {
             arc_y       = -96,
             lifetime    = 2.0,
             color_token = "amber",
+            settle_font = "sm",
         },
         -- No chip burst at Large — the detonating pot is reserved for
         -- Jackpot so the player never mistakes a Large win for the big one.
@@ -73,6 +80,7 @@ return {
             arc_y       = -120,
             lifetime    = 2.5,
             color_token = "amber",
+            settle_font = "sm",
         },
         -- The pot detonates — the pile itself comes apart, each chip
         -- leaving from where it sat. No count here on purpose: the number

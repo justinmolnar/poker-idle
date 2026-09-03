@@ -15,12 +15,17 @@ Balance.ACT2_HOURS             = 4
 Balance.ACT3_HOURS             = 1
 
 Balance.RUN_MINUTES            = 20
-Balance.ACT1_RUNS_TO_CLEAR     = 3
-Balance.ACT1_COMPLETION_AT_WIN = 0.70     -- fraction of Act 1 catalog owned at win (~18 of 25)
-Balance.ACT1_SHOVE_TARGET      = 0.80     -- win chance at expected winning shove (Shove 3)
+-- Act 1 is won across repeated shoves, not on one big one: the real
+-- cadence is 4-5 runs, arriving at ~40% on the big hand and having had
+-- several tries at it by then. (Was 3 runs / 0.80, which nothing ever hit.)
+Balance.ACT1_RUNS_TO_CLEAR     = 5
+Balance.ACT1_COMPLETION_AT_WIN = 0.40     -- fraction of the Act 1 catalog owned by then (~13 of 33)
+Balance.ACT1_SHOVE_TARGET      = 0.40     -- win chance on the big hand around run 4-5
 Balance.T3_MULT                = 3
 
-Balance.ACT1_ITEM_COUNT        = 67
+-- Act 1's catalog is bands A+B (data/catalog.lua header), not the whole
+-- book; the sims measure Act 1 completion against this.
+Balance.ACT1_ITEM_COUNT        = 33
 
 -- ─── Derived Math ────────────────────────────────────────────────────────────
 -- Target catalog R1 contribution for Act 1 (raw1 = (catalog + deck) * mult)

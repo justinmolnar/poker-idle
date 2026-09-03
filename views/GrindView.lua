@@ -1705,9 +1705,10 @@ function GrindView:_drawCashOutButton()
     local n       = self.controller.pool:count()
     local enabled = n > 0
     local mx, my  = love.mouse.getPosition()
-    local hovered = enabled
-                    and mx >= rect.x and mx < rect.x + rect.w
-                    and my >= rect.y and my < rect.y + rect.h
+    local hovered = self.game.hover.rest("button", "cash_out",
+                        enabled
+                        and mx >= rect.x and mx < rect.x + rect.w
+                        and my >= rect.y and my < rect.y + rect.h, 0)
     LabelButton.draw{
         x = rect.x, y = rect.y, w = rect.w, h = rect.h,
         text         = "CASH OUT",
@@ -1751,8 +1752,9 @@ function GrindView:_drawCatalogButton()
         x = rect.x, y = rect.y, w = rect.w, h = rect.h,
         text        = "CATALOG",
         fonts       = self.game.fonts,
-        hovered     = mx >= rect.x and mx < rect.x + rect.w
-                      and my >= rect.y and my < rect.y + rect.h,
+        hovered     = self.game.hover.rest("button", "catalog_btn",
+                          mx >= rect.x and mx < rect.x + rect.w
+                          and my >= rect.y and my < rect.y + rect.h, 0),
         press_alpha = ClickFlash.alpha("catalog_btn", "catalog_btn"),
     }
 end
@@ -1781,8 +1783,9 @@ function GrindView:_drawRoomButton()
         x = rect.x, y = rect.y, w = rect.w, h = rect.h,
         text        = btn_text,
         fonts       = self.game.fonts,
-        hovered     = mx >= rect.x and mx < rect.x + rect.w
-                      and my >= rect.y and my < rect.y + rect.h,
+        hovered     = self.game.hover.rest("button", "room_btn",
+                          mx >= rect.x and mx < rect.x + rect.w
+                          and my >= rect.y and my < rect.y + rect.h, 0),
         press_alpha = ClickFlash.alpha("room_btn", "room_btn"),
     }
 end
@@ -1807,8 +1810,9 @@ function GrindView:_drawSettingsButton()
         x = rect.x, y = rect.y, w = rect.w, h = rect.h,
         text        = "SETTINGS",
         fonts       = self.game.fonts,
-        hovered     = mx >= rect.x and mx < rect.x + rect.w
-                      and my >= rect.y and my < rect.y + rect.h,
+        hovered     = self.game.hover.rest("button", "settings_btn",
+                          mx >= rect.x and mx < rect.x + rect.w
+                          and my >= rect.y and my < rect.y + rect.h, 0),
         press_alpha = ClickFlash.alpha("settings_btn", "settings_btn"),
     }
 end
@@ -2177,8 +2181,9 @@ function GrindView:_drawHouse()
         local hb = self:_houseHelpBtnRect()
         AnchorRegistry.set("btn:help", hb.x, hb.y, hb.w, hb.h)
         local mx, my = love.mouse.getPosition()
-        local hov = mx >= hb.x and mx < hb.x + hb.w
-                and my >= hb.y and my < hb.y + hb.h
+        local hov = self.game.hover.rest("button", "help_btn",
+                        mx >= hb.x and mx < hb.x + hb.w
+                        and my >= hb.y and my < hb.y + hb.h, 0)
         LabelButton.draw{
             x = hb.x, y = hb.y, w = hb.w, h = hb.h,
             text        = "?",
@@ -2209,8 +2214,9 @@ function GrindView:_drawShoveButton()
         local qr     = self:_quickResetButtonRect()
         AnchorRegistry.set("btn:quick_reset", qr.x, qr.y, qr.w, qr.h)
         local mx, my = love.mouse.getPosition()
-        local hov    = mx >= qr.x and mx < qr.x + qr.w
-                   and my >= qr.y and my < qr.y + qr.h
+        local hov    = self.game.hover.rest("button", "quick_reset",
+                           mx >= qr.x and mx < qr.x + qr.w
+                           and my >= qr.y and my < qr.y + qr.h, 0)
         LabelButton.draw{
             x = qr.x, y = qr.y, w = qr.w, h = qr.h,
             text = "Quick reset",
@@ -2236,8 +2242,9 @@ function GrindView:_drawShoveFace(sb)
     local pending_chips = state.chips_this_run or 0
 
     local mx, my = love.mouse.getPosition()
-    local hovered = can_shove and mx >= sb.x and mx < sb.x + sb.w
-                                and my >= sb.y and my < sb.y + sb.h
+    local hovered = self.game.hover.rest("button", "shove",
+                        can_shove and mx >= sb.x and mx < sb.x + sb.w
+                                  and my >= sb.y and my < sb.y + sb.h, 0)
     local press   = ClickFlash.alpha("shove", "shove")
 
     Button.draw(sb.x, sb.y, sb.w, sb.h, {
@@ -2373,6 +2380,29 @@ function GrindView:_drawFloatingText()
                 end
             end
         end
+        -- Spawn pop — the same one-shot grow-and-ease the showdown cards
+        -- use: snaps in oversized, rests at the celebration size within a
+        -- quarter second. Transient by construction (Pop.fromTimer hits 0
+        -- and stays there), so the resting size is never scaled text.
+        if not t.has_persisted then
+            local age = (t.lifetime or 0) - (t.timer or 0)
+            scale = scale * Pop.scale(Pop.fromTimer(age, 0.25), 1, 0.22)
+        end
+        -- A floater resting on an idle table (the last-hand residue) is
+        -- pinned to its panel, not to the screen: adding or closing other
+        -- tables repacks the grid, and a frozen "+$X" left at its spawn
+        -- coords would sit over whatever panel moved in. Record the offset
+        -- from the table's center anchor at rest and follow it.
+        if t.has_persisted and t.table and not t.settle_anchor then
+            local c = AnchorRegistry.get(TableModel.anchorKey(t.table, "center"))
+            if c then
+                if t.rest_dx == nil then
+                    t.rest_dx, t.rest_dy = t.x - c[1], t.y - c[2]
+                end
+                t.x, t.y = c[1] + t.rest_dx, c[2] + t.rest_dy
+            end
+        end
+
         local line_h = font:getHeight()
         local step   = math.floor(line_h * 0.78)   -- tighter stack so the lines read as one group
         love.graphics.setFont(font)
@@ -2388,6 +2418,29 @@ function GrindView:_drawFloatingText()
         love.graphics.translate(t.x, t.y)
         if scale ~= 1 then love.graphics.scale(scale, scale) end
         local ly = -((n_lines - 1) * step + line_h) * 0.5
+        -- Parked floats sit on the felt indefinitely, over whatever color
+        -- happens to be there — plate them like the hand-name pill so the
+        -- number is readable on any ground (red on green was not).
+        if t.has_persisted then
+            local widest = 0
+            for line in (t.text .. "\n"):gmatch("(.-)\n") do
+                if line ~= "" then
+                    local tw = line:find("{", 1, true)
+                               and IconText.measure(line, font)
+                               or font:getWidth(line)
+                    if tw > widest then widest = tw end
+                end
+            end
+            if widest > 0 then
+                local block_h = (n_lines - 1) * step + line_h
+                Theme.setColor(Theme.bg.window, 0.9 * alpha)
+                love.graphics.rectangle("fill", -widest * 0.5 - 6, ly - 3,
+                    widest + 12, block_h + 6, Theme.space.radius)
+                Theme.setColor(Theme.border.soft, alpha)
+                love.graphics.rectangle("line", -widest * 0.5 - 6, ly - 3,
+                    widest + 12, block_h + 6, Theme.space.radius)
+            end
+        end
         for line in (t.text .. "\n"):gmatch("(.-)\n") do
             if line:find("{", 1, true) then
                 -- Inline icons (e.g. "+1 {chip}") — IconText, no stroke ring.

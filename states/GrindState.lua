@@ -271,6 +271,9 @@ function GrindState:fullReset()
     FlightSystem.clear()
     ChipPile.clearAll()
     ClickFlash.clear()
+    -- Resting result floaters reference tables the wipe destroys; without
+    -- this a persisted "+$X" from the old game survives onto the fresh one.
+    self.game.floating_text.clear()
     Ghosts.clear()
     RollingValue.clear()
     ItemGhosts.clear()
