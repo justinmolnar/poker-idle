@@ -25,18 +25,19 @@ const OUT_DIR = path.join(__dirname, "balance", "out");
 const REPORT = path.join(REPO, "docs", "balance-sweep.md");
 const QUICK = process.argv.includes("--quick");
 const REFRESH_PACE = process.argv.includes("--refresh-pace");
+const ACT2 = process.argv.includes("--act2");   // Act 2 ladder model only, writes docs/balance-act2.md
 
 /* ═══════════════════════ ASSUMPTIONS (echoed in the report) ═══════════════════════ */
 const A = {
   // Script-only seconds per hand, from sim/gtype_ev.lua runs (±20% by tier mix).
-  SEC_PER_HAND: { six_max: 17.0, hu: 6.2, zoom: 2.2, mtt: 18.4 },
+  SEC_PER_HAND: { six_max: 17.0, hu: 6.2, zoom: 2.2, ko: 18.4 },
   // P(a random cash table has a live, interruptible hand) = (script s)/(total s) × this.
   PHI_LIVE_SCALE: 0.8,
   // Seconds between knockouts per running tournament (data/procs.lua:35-52 says 30-60 s).
   KO_INTERVAL_S: 45,
   // Fraction of a run still ahead when a run-long payload lands (sharp / ratchet).
   RUN_REMAINING_FRACTION: 0.5,
-  // Fraction of tilts that land on an already-tilted table (tank_compress's was_refresh gate).
+  // Fraction of tilts that land on an already-tilted table (fire_extinguisher_compress's was_refresh gate).
   TILT_REFRESH_FRACTION: 0.15,
   // For AOE (no `pick`) targets: fraction of the other tables inside the radius on a real board.
   AOE_FRACTION: { 1: 0.5, 2: 0.8 },
@@ -48,19 +49,20 @@ const A = {
             tables: [["s001", "zoom"], ["s001", "hu"], ["s002", "six_max"]] },
     act2: { fill: "mid",    overhead: 0.5, bankroll: 5000,
             tables: [["s004", "six_max"], ["s004", "six_max"], ["s004", "hu"],
-                     ["s005", "zoom"], ["s005", "six_max"], ["s004", "mtt"]] },
+                     ["s005", "zoom"], ["s005", "six_max"], ["s004", "ko"]] },
     late: { fill: "capped", overhead: 0.5, bankroll: 500000,
             tables: [["s006", "six_max"], ["s006", "hu"], ["s007", "six_max"], ["s007", "zoom"],
-                     ["s006", "zoom"], ["s007", "hu"], ["s006", "mtt"], ["s007", "mtt"]] },
+                     ["s006", "zoom"], ["s007", "hu"], ["s006", "ko"], ["s007", "ko"]] },
   },
 };
 
 /* ═══════════════════════ engine boot (same as the Sim tab) ═══════════════════════ */
 const LUA_SEEDS = ["models.poker_effects", "models.outcome_math", "models.shove_rate",
   "services.EffectsRegistry", "utils.lookups", "data.stakes", "data.game_types",
-  "data.pot_tiers", "data.bankroll_tiers", "data.constants", "data.mtt_finish_dist",
-  "data.mtt_payouts", "data.mtt_hand_count", "data.run_upgrades", "data.effects",
-  "data.catalog", "data.catalog_pages", "data.procs", "data.routers", "data.balance"];
+  "data.pot_tiers", "data.bankroll_tiers", "data.constants", "data.ko_finish_dist",
+  "data.ko_payouts", "data.ko_hand_count", "data.run_upgrades", "data.effects",
+  "data.catalog", "data.catalog_pages", "data.procs", "data.routers", "data.balance",
+  "models.Decks", "data.decks", "models.UpgradePricing"];
 
 function bootEngine() {
   const sources = new Map(); const queue = [...LUA_SEEDS];
@@ -146,7 +148,7 @@ if (REFRESH_PACE) {
     const txt = execSync("lua sim/gtype_ev.lua 12345 live capped s001 20000", { cwd: REPO, encoding: "utf8" });
     for (const g of Object.keys(A.SEC_PER_HAND)) {
       const m = txt.match(new RegExp("^\\s*" + g + "\\s+\\S+\\s+([\\d.]+)", "m"));
-      if (m) A.SEC_PER_HAND[g] = Number(m[1]) - (g === "mtt" ? 0 : 0.5); // strip the sim's cursor overhead
+      if (m) A.SEC_PER_HAND[g] = Number(m[1]) - (g === "ko" ? 0 : 0.5); // strip the sim's cursor overhead
     }
     console.log("refreshed SEC_PER_HAND:", JSON.stringify(A.SEC_PER_HAND));
   } catch (e) { console.warn("--refresh-pace failed, using constants: " + e.message); }
@@ -170,7 +172,7 @@ function mkReq(stakeId, gtypeId, opts) {
   };
 }
 function secPerHand(gtypeId, pace, overhead) {
-  return A.SEC_PER_HAND[gtypeId] / (pace || 1) + (gtypeId === "mtt" ? 0 : (overhead || 0));
+  return A.SEC_PER_HAND[gtypeId] / (pace || 1) + (gtypeId === "ko" ? 0 : (overhead || 0));
 }
 function perHour(r, gtypeId, overhead) {
   return r.ev_per_hand * 3600 / secPerHand(gtypeId, r.hand_pace_mult, overhead);
@@ -182,11 +184,11 @@ function perHourBB(r, gtypeId, overhead) {
 }
 function fmtBB(v, d) { return (v >= 0 ? "+" : "") + v.toFixed(d != null ? d : Math.abs(v) < 1 ? 3 : 1) + "bb"; }
 const MODELED_KINDS = new Set(["win_chance_shift", "wc_mult", "earnings_mult", "loss_mult",
-  "win_dist_shift", "loss_dist_shift", "win_tier_shift", "loss_tier_shift", "jackpot_mult",
+  "win_dist_shift", "loss_dist_shift", "win_tier_shift", "loss_tier_shift", "stack_mult",
   "tier_bump_chance", "payout_double_chance", "earnings_per_tier", "earnings_scale_by_bankroll",
   "win_tier_floor", "loss_tier_ceiling", "auto_win_chance", "win_chance_fill", "win_dist_fill",
   "loss_dist_fill", "fill_window_widen", "fill_cascade", "run_upgrade_strength_mult",
-  "run_upgrade_bonus_levels", "mtt_payout_boost", "focus_capacity_add",
+  "run_upgrade_bonus_levels", "ko_payout_boost", "focus_capacity_add",
   "focus_penalty_reduce_mult", "focus_penalty_immune", "solo_table_bonus", "corner_win_chance"]);
 const THROUGHPUT_KINDS = new Set(["hand_pace_mult", "solo_table_pace"]);
 function coverage(effects) {
@@ -236,6 +238,79 @@ function median(a) { const s = a.slice().sort((x, y) => x - y); const n = s.leng
 function stddev(a) { const m = a.reduce((x, y) => x + y, 0) / (a.length || 1); return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / (a.length || 1)); }
 const t0 = Date.now();
 const log = (...a) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s]`, ...a);
+
+/* ═══════════════════════ --act2: ladder model (stake break × window pricing × deck waves) ═══════════════════════ */
+// Prints the numbers data/run_upgrades.lua levels 12-29 are priced from.
+// Design (2026-09-03): Act 1 steps ×10 (T1-T3), Act 2 steps ×100 (T4-T6),
+// Act 3 steps ×1000 (T7-T9). Deck XP is bb-weighted, so the decks a
+// player holds when buying a window are roughly known: none at T3,
+// Standard + Hustler maxed from T4 on, the money decks maxed from T6 on
+// (data/decks.lua sizes the curves to that). A stake's
+// three new levels per upgrade (its window past the previous stake's)
+// together cost H hours of the 9-table capped board at the stake below
+// with those decks — Pot Control 2× Sharper Reads, levels 1:2:4.
+if (ACT2) {
+  const A2 = {
+    TABLES: 9, GTYPE: "six_max", H: 1.0,
+    WINDOW: { s004: [12, 13, 14], s005: [15, 16, 17], s006: [18, 19, 20], s007: [21, 22, 23], s008: [24, 25, 26], s009: [27, 28, 29] },
+    HOLDING: {   // decks in hand when the window is bought (= at the stake below)
+      s004: {},
+      s005: { standard: 5, hustler: 5 },
+      s006: { standard: 5, hustler: 5 },
+      s007: { standard: 5, hustler: 5, nit: 5, bank: 5, maniac: 5, investor: 5 },
+      s008: { standard: 5, hustler: 5, nit: 5, bank: 5, maniac: 5, investor: 5 },
+      s009: { standard: 5, hustler: 5, nit: 5, bank: 5, maniac: 5, investor: 5 },
+    },
+  };
+  // The ladder is read from data/stakes.lua (the bridge's stake_override
+  // exists for what-ifs: set LADDER to { s004: { bb, buy_in }, ... } to price
+  // a ladder before committing it to data).
+  const LADDER = undefined;
+  const order = ["s001", "s002", "s003", "s004", "s005", "s006", "s007", "s008", "s009"];
+  const below = s => order[order.indexOf(s) - 1];
+  function income(stakeId, fill, decks) {
+    const r = evalOne(Object.assign(mkReq(stakeId, A2.GTYPE, { upgrades: fillLevels(stakeId, fill), tables: A2.TABLES }),
+      { decks, stake_override: LADDER }));
+    return { hr: perHour(r, A2.GTYPE, 0.5) * A2.TABLES, one: perHour(r, A2.GTYPE, 0.5), ev_bb: r.ev_bb, bb: r.bb, buy_in: r.buy_in };
+  }
+  const sig2 = v => { if (v === 0) return 0; const e = Math.floor(Math.log10(Math.abs(v))); const m = Math.pow(10, e - 1); return Math.round(v / m) * m; };
+  const R = [];
+  R.push(`# Act 2 ladder model`);
+  R.push(`> Generated by \`tools/balance_sweep.js --act2\` on ${new Date().toISOString().slice(0, 16).replace("T", " ")}. Every $ figure is the game's own outcome math via tools/sim_bridge.lua; decks go through the game's Decks.applyEffects (L5 = four stacks + capstone). Board: ${A2.TABLES} × ${A2.GTYPE}, cursor overhead 0.5 s, no focus penalty, no catalog items, bankroll 0 (The Bank's capstone reads as nothing, so T7+ is undervalued).\n`);
+  R.push(`Ladder: ×10 through Act 1, ×100 through Act 2, ×1000 through Act 3. Window rule (data/run_upgrades.lua): a stake's three owned levels cost 2.5 / 6 / 15 buy-ins for Sharper Reads and double that for Pot Control, so the first upgrade at any stake costs more than a seat there. The hours columns price that against the board one stake below, deck-less and holding the decks you will likely have (none at T3; Standard + Hustler from T4; the money decks from T6).\n`);
+  const rows = [];
+  const inc = {};
+  for (const s of ["s003", "s004", "s005", "s006", "s007", "s008", "s009"]) {
+    const n = income(s, "naked", {}), c0 = income(s, "capped", {});
+    const hold = A2.HOLDING[order[order.indexOf(s) + 1]] || A2.HOLDING.s009;
+    const ch = income(s, "capped", hold);
+    inc[s] = { n, c0, ch, hold };
+    rows.push([s, "$" + n.bb.toLocaleString(), "$" + n.buy_in.toLocaleString(), fmtBB(n.ev_bb, 1), money(n.one, 0), money(c0.hr, 0), money(ch.hr, 0), Object.entries(hold).map(([d, l]) => `${d} L${l}`).join(", ") || "none"]);
+  }
+  R.push(mdTable(["stake", "bb", "buy-in", "naked bb/hand", "naked $/hr (1 table)", "capped, no decks (board)", "capped, holding", "holding"], rows));
+  R.push(`\n## Window prices (derived in data/run_upgrades.lua: Sharper Reads 2.5 / 6 / 15 buy-ins, Pot Control 2×)\n`);
+  const UP = Object.fromEntries(INFO.upgrades.map(u => [u.id, u]));
+  const prow = [];
+  for (const [s, levels] of Object.entries(A2.WINDOW)) {
+    const b = below(s);
+    const sr = levels.map(Lv => UP.sharper_reads.costs[Lv - 1]), pc = levels.map(Lv => UP.pot_control.costs[Lv - 1]);
+    const W = sr.reduce((x, y) => x + y, 0) + pc.reduce((x, y) => x + y, 0);
+    const hrs = inc => inc > 0 ? (W / inc).toFixed(1) + "h" : "never";
+    prow.push([`${s} (L${levels[0]}-${levels[2]})`, money(inc[s].n.buy_in, 0), sr.map(v => money(v, 0)).join(" / "), pc.map(v => money(v, 0)).join(" / "), money(W, 0),
+      hrs(inc[b].c0.hr), hrs(inc[b].ch.hr), `${(-inc[s].n.one / Math.max(1, inc[b].ch.hr)).toFixed(2)}×`]);
+  }
+  R.push(mdTable(["window", "buy-in", "Sharper Reads L×3", "Pot Control L×3", "window total", "hours on the board below, no decks", "…holding", "one naked table bleeds × that board"], prow));
+
+  R.push(`\n**First Act 2 run** (${A2.TABLES} × NL100 capped, no decks): ${money(inc.s003.c0.hr, 0)}/hr, so T4's window is ${(A2.H * inc.s003.ch.hr / inc.s003.c0.hr).toFixed(1)}h of the T3 board and the T4 buy-in is ${(inc.s004.n.buy_in / inc.s003.c0.hr * 60).toFixed(1)} min of it. A naked T4 table bleeds ${money(-inc.s004.n.one, 0)}/hr, ${(-inc.s004.n.one / inc.s003.c0.hr).toFixed(1)}× the whole T3 board.\n`);
+  R.push(`\n**Deck XP scale** (hands/hr on this board, for the count-based curves): ${["s004", "s005", "s006"].map(s => { const r = evalOne(Object.assign(mkReq(s, A2.GTYPE, { upgrades: fillLevels(s, "capped"), tables: A2.TABLES }), { decks: inc[s].hold, stake_override: LADDER })); const hph = 3600 / secPerHand(A2.GTYPE, r.hand_pace_mult, 0.5) * A2.TABLES; return `${s}: ${hph.toFixed(0)} hands/hr, ${(hph * r.wc).toFixed(0)} won/hr`; }).join(" · ")}.\n`);
+  const w0 = evalOne(mkReq("s001", "six_max", { upgrades: {} })), w4 = evalOne(Object.assign(mkReq("s001", "six_max", { upgrades: {} }), { decks: { standard: 4 } }));
+  R.push(`\n_Deck plumbing check: Standard L4 multiplies E[$|win] by ${(w4.w_cash / w0.w_cash).toFixed(2)} (expected 1.5⁴ = 5.06)._\n`);
+  const out = path.join(REPO, "docs", "balance-act2.md");
+  fs.writeFileSync(out, R.join("\n"));
+  console.log(R.join("\n"));
+  log("wrote", out);
+  process.exit(0);
+}
 
 /* ═══════════════════════ Layer 1 — solo sweep (exact) ═══════════════════════ */
 log("Layer 1: solo sweep over", SWEEP_STAKES.length, "stakes ×", GTYPES.length, "gtypes ×", FILLS.length, "fills");
@@ -309,8 +384,8 @@ function boardStats(boardName, equipped, corrupted) {
     const [s, g] = B.tables[i];
     const sec = secPerHand(g, r.hand_pace_mult, B.overhead);
     const script_sec = A.SEC_PER_HAND[g] / (r.hand_pace_mult || 1);
-    return Object.assign({ stake: s, gtype: g, isMtt: g === "mtt", sec, hands_hr: 3600 / sec,
-      phi: g === "mtt" ? 0 : (script_sec / sec) * A.PHI_LIVE_SCALE,
+    return Object.assign({ stake: s, gtype: g, isKo: g === "ko", sec, hands_hr: 3600 / sec,
+      phi: g === "ko" ? 0 : (script_sec / sec) * A.PHI_LIVE_SCALE,
       dollars_hr: r.ev_per_hand * 3600 / sec }, r);
   });
   return { name: boardName, n, tables, focus_mult: res[0] && res[0].focus_mult != null ? res[0].focus_mult : 1,
@@ -409,32 +484,32 @@ log("Layer 4 done,", evalCount, "evals");
 /* ═══════════════════════ Layer 5 — proc-driven items (estimated) ═══════════════════════ */
 log("Layer 5: proc estimates");
 function boardRates(bs) {
-  const cash = bs.tables.filter(t => !t.isMtt);
-  const mtts = bs.tables.filter(t => t.isMtt);
+  const cash = bs.tables.filter(t => !t.isKo);
+  const ko_tables = bs.tables.filter(t => t.isKo);
   const hands_won = bs.tables.reduce((a, t) => a + t.hands_hr * t.wc, 0);
   const hands_played = bs.tables.reduce((a, t) => a + t.hands_hr, 0);
-  const jackpot_wins = cash.reduce((a, t) => a + t.hands_hr * t.wc * (t.wd.jackpot || 0), 0);
-  const stack_losses = cash.reduce((a, t) => a + t.hands_hr * (1 - t.wc) * (t.ld.jackpot || 0), 0);
+  const stack_wins = cash.reduce((a, t) => a + t.hands_hr * t.wc * (t.wd.stack || 0), 0);
+  const stack_losses = cash.reduce((a, t) => a + t.hands_hr * (1 - t.wc) * (t.ld.stack || 0), 0);
   const stack_losses_six = cash.filter(t => t.gtype === "six_max")
-    .reduce((a, t) => a + t.hands_hr * (1 - t.wc) * (t.ld.jackpot || 0), 0);
-  const ko = mtts.length * 3600 / A.KO_INTERVAL_S;
+    .reduce((a, t) => a + t.hands_hr * (1 - t.wc) * (t.ld.stack || 0), 0);
+  const ko = ko_tables.length * 3600 / A.KO_INTERVAL_S;
   let tourney_wins = 0, tourney_misses = 0, tournaments = 0;
-  for (const t of mtts) {
-    const per_hr = 3600 / (t.mtt.exp_hands * t.sec);
+  for (const t of ko_tables) {
+    const per_hr = 3600 / (t.ko.exp_hands * t.sec);
     tournaments += per_hr;
-    const pp = t.mtt.pos_probs || [];
+    const pp = t.ko.pos_probs || [];
     tourney_wins += per_hr * (pp[0] || 0);
     tourney_misses += per_hr * pp.slice(3).reduce((a, b) => a + b, 0);
   }
-  // the_tilt (granted at start): tilt arrivals from cooler_tilt (six_max stack loss → r1 neighbor)
-  // and miss_tilt (tournament miss → AOE r1). Landing on a random other table.
+  // tilt (granted at start): tilt arrivals from tilt_cooler (six_max stack loss → r1 neighbor)
+  // and tilt_miss (tournament miss → AOE r1). Landing on a random other table.
   const tilt_arrivals = stack_losses_six + tourney_misses * A.AOE_FRACTION[1] * Math.max(0, bs.n - 1);
   const six_share = cash.filter(t => t.gtype === "six_max").length / Math.max(1, bs.n - 1);
-  return { hands_won, hands_played, jackpot_wins, stack_losses, stack_losses_six, ko, tournaments, tourney_wins, tourney_misses,
-    tilt_arrivals, tilts_on_six: tilt_arrivals * six_share, n_cash: cash.length, n_mtt: mtts.length, six_share };
+  return { hands_won, hands_played, stack_wins, stack_losses, stack_losses_six, ko, tournaments, tourney_wins, tourney_misses,
+    tilt_arrivals, tilts_on_six: tilt_arrivals * six_share, n_cash: cash.length, n_ko: ko_tables.length, six_share };
 }
-function heaterValue(t) { return t.isMtt ? 0 : (1 - t.wc) * (t.w_cash + t.l_cash) + t.phi * (1 - t.wc) * t.w_cash; }
-function tiltValue(t)   { return t.isMtt ? 0 : -((t.wc) * (t.w_cash + t.l_cash) + t.phi * t.wc * t.w_cash); }
+function heaterValue(t) { return t.isKo ? 0 : (1 - t.wc) * (t.w_cash + t.l_cash) + t.phi * (1 - t.wc) * t.w_cash; }
+function tiltValue(t)   { return t.isKo ? 0 : -((t.wc) * (t.w_cash + t.l_cash) + t.phi * t.wc * t.w_cash); }
 function avgOver(tables, fn) { const v = tables.map(fn); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0; }
 function extraDelta(bs, table, extra) {
   const B = A.BOARDS[bs.name];
@@ -446,7 +521,7 @@ function payloadValue(proc, bs, rates) {
   // returns { per_fire, note }
   const p = proc.payload || {};
   const tgt = proc.target || {};
-  const cash = bs.tables.filter(t => !t.isMtt);
+  const cash = bs.tables.filter(t => !t.isKo);
   const others = bs.tables;
   let targets;
   if (tgt.kind === "self") targets = null;
@@ -459,7 +534,11 @@ function payloadValue(proc, bs, rates) {
     case "apply_status": {
       if (p.status === "heater") {
         if (targets === null) return { per_fire: avgOver(cash, heaterValue), note: "heater on self (avg cash table)" };
-        if (tgt.kind === "gtype") return { per_fire: targets.reduce((a, t) => a + heaterValue(t), 0), note: `heater on every ${tgt.gtype}` };
+        if (tgt.kind === "gtype") {
+          if (!targets.length) return { per_fire: 0, note: `heater on a ${tgt.gtype} table (none on this board: fizzles)` };
+          if (tgt.pick) return { per_fire: avgOver(targets, heaterValue), note: `heater on a random ${tgt.gtype} table` };
+          return { per_fire: targets.reduce((a, t) => a + heaterValue(t), 0), note: `heater on every ${tgt.gtype}` };
+        }
         return { per_fire: avgT(heaterValue), note: aoeMult > 1 ? `heater AOE ≈${aoeMult.toFixed(1)} tables` : "heater on a random table" };
       }
       if (p.status === "tilt") {
@@ -467,16 +546,16 @@ function payloadValue(proc, bs, rates) {
         return { per_fire: avgT(tiltValue), note: aoeMult > 1 ? `tilt AOE ≈${aoeMult.toFixed(1)} tables` : "tilt on a random table" };
       }
       if (p.status === "marked" || p.status === "stacked_mark") {
-        const fn = t => t.isMtt ? 0 : extraDelta(bs, t, [{ kind: "tier_bump_chance", value: 1 }]);
+        const fn = t => t.isKo ? 0 : extraDelta(bs, t, [{ kind: "tier_bump_chance", value: 1 }]);
         const v = targets === null ? avgOver(cash, fn) : avgT(fn);
         return { per_fire: v, note: "one pot bumped a tier (both sides; via engine)" };
       }
       if (p.status === "sharp") {
         const mag = p.magnitude || 0.005;
-        const extra = [["small", "medium"], ["medium", "large"], ["large", "jackpot"]]
+        const extra = [["small", "medium"], ["medium", "large"], ["large", "stack"]]
           .map(([f, to]) => ({ kind: "win_tier_shift", from: f, to, chance: mag }));
         const hands_left = t => t.hands_hr * (RUN_MINUTES / 60) * A.RUN_REMAINING_FRACTION;
-        const fn = t => t.isMtt ? 0 : extraDelta(bs, t, extra) * hands_left(t);
+        const fn = t => t.isKo ? 0 : extraDelta(bs, t, extra) * hands_left(t);
         const v = targets === null ? avgOver(cash.filter(t => t.gtype === "six_max"), fn)
           : targets.reduce((a, t) => a + fn(t), 0);
         return { per_fire: v, note: `sharp +${mag} for the rest of the run (${A.RUN_REMAINING_FRACTION} run left)` };
@@ -486,7 +565,7 @@ function payloadValue(proc, bs, rates) {
     case "ratchet": {
       const eff = Object.assign({}, p.effect || { kind: "win_chance_shift" });
       eff[eff.mag_field || "amount"] = p.magnitude; delete eff.mag_field;
-      const v = bs.tables.reduce((a, t) => a + (t.isMtt ? 0 : extraDelta(bs, t, [eff]) * t.hands_hr * (RUN_MINUTES / 60) * A.RUN_REMAINING_FRACTION), 0);
+      const v = bs.tables.reduce((a, t) => a + (t.isKo ? 0 : extraDelta(bs, t, [eff]) * t.hands_hr * (RUN_MINUTES / 60) * A.RUN_REMAINING_FRACTION), 0);
       return { per_fire: v, note: `+${p.magnitude} ${eff.kind} on every table for the rest of the run` };
     }
     case "refund_buyin": {
@@ -510,7 +589,7 @@ function fireRate(proc, rates) {
   switch (proc.trigger) {
     case "on_hand_won": return proc.every ? rates.hands_won / proc.every * c : rates.hands_won * c;
     case "on_hand_played": return proc.every ? rates.hands_played / proc.every * c : rates.hands_played * c;
-    case "on_jackpot_win": return rates.jackpot_wins * c;
+    case "on_stack_win": return rates.stack_wins * c;
     case "on_stack_loss": return (proc.source && proc.source.gtype === "six_max" ? rates.stack_losses_six : rates.stack_losses) * c;
     case "on_ko": return rates.ko * c;
     case "on_tournament_win": return rates.tourney_wins * c;
@@ -697,7 +776,7 @@ for (const fill of FILLS) {
   R.push(`**${fill}**\n`);
   R.push(mdTable(["stake", ...GTYPES.map(g => g.id)], SWEEP_STAKES.map(st => [st, ...GTYPES.map(g => {
     const b = baselineCache[`${st}/${g.id}/${fill}`]; if (!b) return "—";
-    return g.id === "mtt" ? `${fmtBB(b.ev_bb, 2)} · ROI ${b.mtt.roi_pct.toFixed(0)}%` : `${fmtBB(b.ev_bb, 2)} · wc ${pct(b.wc, 0)}`;
+    return g.id === "ko" ? `${fmtBB(b.ev_bb, 2)} · ROI ${b.ko.roi_pct.toFixed(0)}%` : `${fmtBB(b.ev_bb, 2)} · wc ${pct(b.wc, 0)}`;
   })])));
 }
 R.push(`Units note: the leaderboards below use **bb/hour per chip** so stakes are comparable (a big blind is 1000× larger at s006 than s001; raw $ deltas are in the CSVs).\n`);
@@ -711,8 +790,8 @@ else {
   R.push(mdTable(["flag", "item", "evidence"], flags.map(f => [f.kind, `**${f.item}** (${CAT_BY[f.item].name})`, f.evidence])));
 }
 R.push(`\n### Code findings (from the exploration that preceded this sweep — not changed by the script)\n`);
-R.push(`- \`data/statuses.lua\`: heater and tilt have \`effects = {}\`; their \`magnitude\` and \`t\` are inert everywhere except tilt's visual lean. So \`ko_heater.escalate\` (busted_total × 0.12) and every authored \`t = 4/5/6/8\` do nothing.`);
-R.push(`- \`controllers/GrindController.lua\` gates bounty / cascade / jackpot counters on \`not r.flipped\`: a heater-manufactured jackpot never pays a {chip} and never triggers on_jackpot_win procs.`);
+R.push(`- \`data/statuses.lua\`: heater and tilt have \`effects = {}\`; their \`magnitude\` and \`t\` are inert everywhere except tilt's visual lean. So \`curved_monitor_heater.escalate\` (busted_total × 0.12) and every authored \`t = 4/5/6/8\` do nothing.`);
+R.push(`- \`controllers/GrindController.lua\` gates bounty / cascade / stack counters on \`not r.flipped\`: a heater-manufactured stack never pays a {chip} and never triggers on_stack_win procs.`);
 R.push(`- \`data/balance.lua\`: \`ACT1_ITEM_COUNT = 67\` is the whole catalog, but it feeds \`ITEMS_AT_WIN\` and sim/run.lua's Act-1 completion % (Act 1 = bands A+B = 33 items). \`catalog_loader.chipsPerRun\` defaults \`act1_spend = 111\` vs the 237 the header sums.`);
 R.push(`- \`data/run_upgrades.lua\` header says the full lineup costs "$38M cumulative"; the arrays now sum to ~$85B for Pot Control alone.`);
 R.push(`- \`every = N\` procs count lifetime wins across all tables and never reset on prestige (ProcRegistry:123 reads \`state.total_hands_won\`).\n`);

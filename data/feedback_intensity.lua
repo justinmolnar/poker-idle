@@ -6,14 +6,14 @@
 --
 -- Triggers in controllers/GrindController.lua read this table by tier
 -- name and write the values to per-table FX state in models/Table.lua.
--- No `if tier == "jackpot"` branches anywhere — adding a new tier or
+-- No `if tier == "stack"` branches anywhere — adding a new tier or
 -- rebalancing intensities is a one-data-file edit.
 --
 -- Tier ladder (from data/pot_tiers.lua):
 --   small    — modal outcome on most hands. Should be barely there.
 --   medium   — noticeable but not loud.
 --   large  — clearly felt; meaningful pot.
---   jackpot — every juice trick on. The rare moment.
+--   stack — every juice trick on. The rare moment.
 --
 -- All values 0..1 unless noted; per-system code maps them to actual
 -- pixels / alpha / decibels.
@@ -65,11 +65,11 @@ return {
             settle_font = "sm",
         },
         -- No chip burst at Large — the detonating pot is reserved for
-        -- Jackpot so the player never mistakes a Large win for the big one.
+        -- Stack so the player never mistakes a Large win for the big one.
         -- Large still carries full shake/vignette/border-pulse and a large
         -- floater.
     },
-    jackpot = {
+    stack = {
         shake        = 1.00,
         vignette     = 1.00,
         border_pulse = 1.00,
@@ -85,7 +85,7 @@ return {
         -- The pot detonates — the pile itself comes apart, each chip
         -- leaving from where it sat. No count here on purpose: the number
         -- of chips in the air IS the number of chips that were in the pot.
-        -- To make the explosion thicker, raise tier_chip_target.jackpot in
+        -- To make the explosion thicker, raise tier_chip_target.stack in
         -- data/chips.lua, which makes the PILE thicker too — they can't
         -- disagree, which is the point.
         chip_burst = true,

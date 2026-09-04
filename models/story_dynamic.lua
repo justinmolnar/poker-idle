@@ -16,7 +16,7 @@ local Lookups     = require("utils.lookups")
 local StoryDynamic = {}
 
 -- The stack-band odds the EV readout under a table displays, for the
--- player's current stake at `gtype_id`: win_chance × jackpot band share,
+-- player's current stake at `gtype_id`: win_chance × stack band share,
 -- formatted exactly like views/TablePanelStats does ("%.1f%%").
 local function stackOdds(game, gtype_id)
     local stake = Lookups.findById(Stakes,
@@ -24,7 +24,7 @@ local function stackOdds(game, gtype_id)
     local gtype = Lookups.findById(GameTypes, gtype_id)
     local s = OutcomeMath.evStats(game.grind and game.grind.ctx, gtype, stake)
     local pct = (s.pool.win_chance or 0)
-              * ((s.pool.win_dist and s.pool.win_dist.jackpot) or 0) * 100
+              * ((s.pool.win_dist and s.pool.win_dist.stack) or 0) * 100
     return string.format("%.1f%%", pct)
 end
 

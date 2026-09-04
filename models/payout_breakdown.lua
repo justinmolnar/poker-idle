@@ -58,7 +58,7 @@ local PayoutBreakdown = {}
 local TIER_KEYS = OutcomeMath.TIER_KEYS
 
 -- A ratio only means something when there's something to divide by. Below
--- this, expected dollars from a tier are rounding noise (a jackpot cell
+-- this, expected dollars from a tier are rounding noise (a stack cell
 -- pinned at zero, a tier the player structurally can't roll) and the
 -- ratio would be an artifact.
 local EPS = 1e-9
@@ -119,11 +119,11 @@ local function profile(ctx, gtype, stake, opts)
     local p  = { win = {}, loss = {}, win_total = 0, loss_total = 0 }
     -- Per-gtype bands + the seats-rule caps, mirroring evStats: the
     -- attribution must profile the same dollars the table can pay.
-    local stack_bb = (bb > 0) and (((stake and stake.buy_in) or 0) / bb) or 0
+    local buyin_bb = (bb > 0) and (((stake and stake.buy_in) or 0) / bb) or 0
     local win_cap, loss_cap
-    if gtype and not gtype.chip_stack_table and stack_bb > 0 then
-        win_cap  = OutcomeMath.maxWinBB(gtype, stack_bb)
-        loss_cap = stack_bb
+    if gtype and not gtype.chip_stack_table and buyin_bb > 0 then
+        win_cap  = OutcomeMath.maxWinBB(gtype, buyin_bb)
+        loss_cap = buyin_bb
     end
     for _, t in ipairs(TIER_KEYS) do
         local w = wc * (wd[t] or 0) * OutcomeMath.tierAvgBB(t, gtype, true, win_cap) * bb

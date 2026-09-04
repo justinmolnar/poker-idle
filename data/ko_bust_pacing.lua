@@ -1,8 +1,8 @@
--- data/mtt_bust_pacing.lua
+-- data/ko_bust_pacing.lua
 --
 -- Per-finish-position pacing weights for distributing pre-player
 -- opponent busts across the tournament's hands. Used by
--- models/MttSession:planRun once finish_position and n_hands are known.
+-- models/KoSession:planRun once finish_position and n_hands are known.
 --
 -- Each entry is a 3-bucket weight {front, mid, back}. The available
 -- hand range (1 .. n_hands-1 if the player busts on the final hand,

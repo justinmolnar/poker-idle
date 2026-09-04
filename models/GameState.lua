@@ -120,24 +120,25 @@ function GameState:new(saved)
     -- read it modulo N, so it has to be a running total that survives a
     -- reload rather than a per-run tally.
     instance.total_hands_won     = 0
-    instance.total_big_outcomes  = 0   -- resolutions with a large/jackpot tier (wins AND losses)
-    instance.total_denied_stacks = 0   -- jackpot wins whose {chip} bounty was already banked this run
+    instance.total_big_outcomes  = 0   -- resolutions with a large/stack tier (wins AND losses)
+    instance.total_denied_stacks = 0   -- stack wins whose {chip} bounty was already banked this run
     -- The rest of the ungated family. Catalog unlock gates read THESE, never
     -- the lifetime_* fields below: lifetime_* only start accruing once decks
     -- unlock (post-R1-win), so an Act 1 item gated on one would stay a
     -- silhouette until Act 2. Several deliberately mirror a lifetime_*
     -- counter — same event, no deck gate.
     instance.total_busts             = 0   -- cash tables busted (stack hit 0)
-    instance.total_stack_losses      = 0   -- jackpot-tier LOSSES taken
-    instance.total_jackpots          = 0   -- jackpot-tier WINS hit
+    instance.total_stack_losses      = 0   -- stack-tier LOSSES taken
+    instance.total_stacks          = 0   -- stack-tier WINS hit
     instance.total_rebuys            = 0
     instance.total_upgrade_levels    = 0   -- run-upgrade levels bought, ever
     instance.total_hands_overwhelmed = 0   -- hands played over the focus cap
     instance.total_hands_at_4plus    = 0
     instance.total_chips_banked      = 0   -- sum of bounty AWARDS (lifetime_chips_banked counts events)
-    instance.total_mtt_wins          = 0   -- tournaments finished 1st
+    instance.total_ko_wins          = 0   -- tournaments finished 1st
     instance.total_tilts             = 0   -- fresh tilt statuses suffered, lifetime
     instance.total_heaters           = 0   -- fresh heaters caught, lifetime (story: first_heat)
+    instance.total_cursor_deals      = 0   -- DEAL clicks made by cursors, lifetime (cursor item gates)
     instance.total_hands_by_gtype    = {}  -- game_type_id → hands resolved there
     instance.highest_stake_idx       = 0   -- highest 1-based stake index ever played
 
@@ -146,14 +147,18 @@ function GameState:new(saved)
     -- via the UnlockRegistry threshold-check kinds.
     instance.lifetime_money_won             = 0
     instance.lifetime_money_lost            = 0
-    instance.lifetime_jackpot_count         = 0
-    instance.lifetime_mtt_hands_won         = 0
+    instance.lifetime_stack_count         = 0
+    instance.lifetime_ko_hands_won         = 0
     instance.lifetime_hands_played          = 0
     instance.lifetime_hands_at_4plus_tables = 0
     instance.lifetime_rebuys                = 0
     instance.lifetime_upgrades_bought       = 0
     instance.lifetime_hands_overwhelmed     = 0   -- hands played over the focus cap (Multitasker unlock)
     instance.lifetime_chips_banked          = 0   -- {chip} bounties banked, ever (Dogs Playing Poker unlock)
+    -- One-shot save migration flag for the 2026-09-03 stake break. A fresh
+    -- game needs none, so it starts true; applySaved decides from the RAW
+    -- save whether an old one has to run (see there).
+    instance.stake_break_migrated           = true
 
     -- Run-side defaults (wiped on prestige).
     instance.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
@@ -176,17 +181,17 @@ function GameState:new(saved)
     -- perk `cursor_rebuy_unlocked` is owned.
     instance.active_table_rebuy_mutes  = {}
     -- Parallel arrays to active_table_specs — per-tournament-table state
-    -- so a save mid-MTT-sequence resumes at the right hand on reload.
+    -- so a save mid-KO-sequence resumes at the right hand on reload.
     -- Both are runtime-resilient: cash-game tables write 0 / nil and
     -- ignore them on read.
-    instance.active_table_mtt_hands_won = {}
+    instance.active_table_ko_hands_won = {}
     -- Tournaments each table has completed (any finish). High Roller Pass
     -- derives its per-stake backing from these while the table stays open.
-    instance.active_table_mtt_finishes  = {}
+    instance.active_table_ko_finishes  = {}
     -- Most recent finish position per table (nil mid-run / cash) — keeps
     -- the FINISH readout on a settled tournament across a reload.
     instance.active_table_last_finish   = {}
-    instance.active_table_mtt_state     = {}
+    instance.active_table_ko_state     = {}
     -- Chip-stack tournament arrays (8-max KO). Each entry is per-seat
     -- (array indexed by script seat 1..n_seats) or a scalar. Cash tables
     -- store nil.
@@ -195,11 +200,11 @@ function GameState:new(saved)
     instance.active_table_player_seat   = {}
     instance.active_table_button_seat   = {}
     instance.active_table_bust_order    = {}
-    -- Tournament plan (models/MttSession): the full pre-rolled
+    -- Tournament plan (models/KoSession): the full pre-rolled
     -- finish_position + n_hands + bust schedule + per-hand outcome list.
     -- Persisted so a mid-tournament reload resumes at next_hand_idx and
     -- delivers the same finish position the plan committed to.
-    instance.active_table_mtt_plans     = {}
+    instance.active_table_ko_plans     = {}
     -- Per-table stack value, so a chip-stack table's current $-stack
     -- (which can grow beyond 100bb as chips are won) survives reload.
     -- Cash tables write their stack here too; on reload they restore
@@ -275,16 +280,16 @@ function GameState:resetRun()
     end
     self.active_table_mutes        = {}
     self.active_table_rebuy_mutes  = {}
-    self.active_table_mtt_hands_won = {}
-    self.active_table_mtt_finishes  = {}
+    self.active_table_ko_hands_won = {}
+    self.active_table_ko_finishes  = {}
     self.active_table_last_finish   = {}
-    self.active_table_mtt_state     = {}
+    self.active_table_ko_state     = {}
     self.active_table_seat_stacks   = {}
     self.active_table_seat_busted   = {}
     self.active_table_player_seat   = {}
     self.active_table_button_seat   = {}
     self.active_table_bust_order    = {}
-    self.active_table_mtt_plans     = {}
+    self.active_table_ko_plans     = {}
     self.active_table_stack         = {}
     self.active_table_slot          = {}
     self.active_table_statuses      = {}
@@ -350,8 +355,8 @@ function GameState:wipeAll()
     self.total_denied_stacks            = 0
     self.lifetime_money_won             = 0
     self.lifetime_money_lost            = 0
-    self.lifetime_jackpot_count         = 0
-    self.lifetime_mtt_hands_won         = 0
+    self.lifetime_stack_count         = 0
+    self.lifetime_ko_hands_won         = 0
     self.lifetime_hands_played          = 0
     self.lifetime_hands_at_4plus_tables = 0
     self.lifetime_rebuys                = 0
@@ -361,15 +366,16 @@ function GameState:wipeAll()
     -- The ungated family the catalog gates read.
     self.total_busts             = 0
     self.total_stack_losses      = 0
-    self.total_jackpots          = 0
+    self.total_stacks          = 0
     self.total_rebuys            = 0
     self.total_upgrade_levels    = 0
     self.total_hands_overwhelmed = 0
     self.total_hands_at_4plus    = 0
     self.total_chips_banked      = 0
-    self.total_mtt_wins          = 0
+    self.total_ko_wins          = 0
     self.total_tilts             = 0
     self.total_heaters           = 0
+    self.total_cursor_deals      = 0
     self.total_hands_by_gtype    = {}
     self.highest_stake_idx       = 0
     self.last_run_money_lost     = 0
@@ -404,16 +410,132 @@ function GameState:applySaved(saved)
     if saved.run then
         AutoSerializer.apply(self, saved.run, GameState.REFS, function() return nil end)
     end
-    -- Catalog ids renamed after saves went public (data/catalog_id_migrations).
+    -- Identifiers renamed after saves went public: catalog item ids
+    -- (data/catalog_id_migrations) and every other namespace
+    -- (data/id_migrations: gtype, run_upgrade, deck, tier, field). Runs on
+    -- every load and must stay idempotent. Ordering matters: this sits
+    -- after AutoSerializer.apply (the raw keys are on self) and BEFORE the
+    -- `or 0` backfills and the deck prune below, so a renamed key or id is
+    -- carried across instead of being zeroed or dropped.
     do
-        local Migrations = require("data.catalog_id_migrations")
-        for _, key in ipairs{ "owned_items", "corrupted_items" } do
-            local list = self[key]
-            if type(list) == "table" then
-                for i, id in ipairs(list) do
-                    if Migrations[id] then list[i] = Migrations[id] end
+        local Migrations   = require("data.catalog_id_migrations")
+        local IdMigrations = require("data.id_migrations")
+
+        -- An old id that is LIVE again in its data file must not be
+        -- remapped: whiteboard and copy_machine were retired, mapped, and
+        -- later reused for new items. The map keeps its lines (never
+        -- remove one); the live check makes them inert.
+        local function liveIds(list)
+            local s = {}
+            for _, e in ipairs(list) do s[e.id] = true end
+            return s
+        end
+        local function remapListValues(list, map, live)
+            if type(list) ~= "table" then return end
+            for i, id in ipairs(list) do
+                local new = map[id]
+                if new and not live[id] then list[i] = new end
+            end
+        end
+        local function remapKeys(tbl, map, live)
+            if type(tbl) ~= "table" then return end
+            for old, new in pairs(map) do
+                if tbl[old] ~= nil and not live[old] then
+                    if tbl[new] == nil then
+                        tbl[new] = tbl[old]
+                    elseif type(tbl[new]) == "number" and type(tbl[old]) == "number" then
+                        tbl[new] = math.max(tbl[new], tbl[old])
+                    end
+                    tbl[old] = nil
                 end
             end
+        end
+
+        -- Catalog items: owned, corrupted, and peeled (the sticker state
+        -- was missed by the original loop, so a rename re-covered the card).
+        local item_live = liveIds(require("data.catalog"))
+        for _, key in ipairs{ "owned_items", "corrupted_items", "peeled_items" } do
+            remapListValues(self[key], Migrations, item_live)
+        end
+
+        -- Serialized field names (meta or run): move the value, drop the
+        -- old key. Same shape as the pp → chips block below. Whether the
+        -- NEW key already holds a real value is decided from the raw save
+        -- (the constructor defaults every field, so `self[new] == nil`
+        -- would never be true and the old value would be dropped).
+        local raw_meta, raw_run = saved.meta or {}, saved.run or {}
+        for old, new in pairs(IdMigrations.field or {}) do
+            if self[old] ~= nil then
+                local raw_has_new = raw_meta[new] ~= nil or raw_run[new] ~= nil
+                if not raw_has_new then self[new] = self[old] end
+                self[old] = nil
+            end
+        end
+
+        -- Game-type ids live inside "<stake>:<gtype>" composites (table
+        -- specs and bounty keys) and as keys of two counters.
+        local gmap = IdMigrations.gtype or {}
+        if next(gmap) then
+            local glive = liveIds(GameTypesData)
+            local function remapSpec(spec)
+                local stake_id, g = tostring(spec):match("^([^:]+):(.+)$")
+                if stake_id and g and gmap[g] and not glive[g] then
+                    return stake_id .. ":" .. gmap[g]
+                end
+                return spec
+            end
+            if type(self.active_table_specs) == "table" then
+                for i, spec in ipairs(self.active_table_specs) do
+                    self.active_table_specs[i] = remapSpec(spec)
+                end
+            end
+            for _, key in ipairs{ "stakes_won_this_run", "anti_stakes_won_this_run" } do
+                local t = self[key]
+                if type(t) == "table" then
+                    local moved = {}
+                    for k, v in pairs(t) do
+                        local nk = remapSpec(k)
+                        if nk ~= k then moved[nk] = v; t[k] = nil end
+                    end
+                    for k, v in pairs(moved) do
+                        if t[k] == nil then t[k] = v end
+                    end
+                end
+            end
+            remapKeys(self.total_hands_by_gtype, gmap, glive)
+            remapKeys(self.gtype_announced,      gmap, glive)
+        end
+
+        -- Run-upgrade ids key the level table.
+        local umap = IdMigrations.run_upgrade or {}
+        if next(umap) then
+            remapKeys(self.run_upgrade_levels, umap, liveIds(require("data.run_upgrades")))
+        end
+
+        -- Deck ids: the unlock list, the two progress tables, the active
+        -- pointer. Must precede _migrateDeckState, which prunes unknowns.
+        local dmap = IdMigrations.deck or {}
+        if next(dmap) then
+            local dlive = liveIds(DeckSpecs)
+            remapListValues(self.unlocked_decks, dmap, dlive)
+            remapKeys(self.deck_levels, dmap, dlive)
+            remapKeys(self.deck_xp,     dmap, dlive)
+            local a = self.active_deck_id
+            if a and dmap[a] and not dlive[a] then self.active_deck_id = dmap[a] end
+        end
+
+        -- Outcome-tier keys ride inside saved tournament plans (per-hand
+        -- outcomes) and pending shove outcomes as `tier` strings.
+        local tmap = IdMigrations.tier or {}
+        if next(tmap) then
+            local function walk(v, depth)
+                if type(v) ~= "table" or depth > 8 then return end
+                if type(v.tier) == "string" and tmap[v.tier] then v.tier = tmap[v.tier] end
+                for _, child in pairs(v) do walk(child, depth + 1) end
+            end
+            -- (the field map above has already moved any legacy-named plans here)
+            walk(self.active_table_ko_plans, 0)
+            walk(self.shove_pending, 0)
         end
     end
     self.effects_cache = nil
@@ -448,14 +570,44 @@ function GameState:applySaved(saved)
     -- well-defined zero baseline.
     self.lifetime_money_won             = self.lifetime_money_won             or 0
     self.lifetime_money_lost            = self.lifetime_money_lost            or 0
-    self.lifetime_jackpot_count         = self.lifetime_jackpot_count         or 0
-    self.lifetime_mtt_hands_won         = self.lifetime_mtt_hands_won         or 0
+    self.lifetime_stack_count         = self.lifetime_stack_count         or 0
+    self.lifetime_ko_hands_won         = self.lifetime_ko_hands_won         or 0
     self.lifetime_hands_played          = self.lifetime_hands_played          or 0
     self.lifetime_hands_at_4plus_tables = self.lifetime_hands_at_4plus_tables or 0
     self.lifetime_rebuys                = self.lifetime_rebuys or 0
     self.lifetime_upgrades_bought       = self.lifetime_upgrades_bought or 0
     self.lifetime_hands_overwhelmed     = self.lifetime_hands_overwhelmed or 0
     self.lifetime_chips_banked          = self.lifetime_chips_banked or 0
+
+    -- One-shot (2026-09-03 stake break): T4+ blinds and buy-ins moved
+    -- (×100 per Act 2 stake, ×1000 per Act 3 stake) and the deck XP
+    -- curves were re-denominated. Decided from the raw save: a save
+    -- written before the flag existed has to migrate, a fresh game never
+    -- does (constructor starts it true).
+    --   • An open T4+ table saved at the old money can't be rebuilt at the
+    --     new: its spec is retagged with a dead stake id so TablePool's
+    --     unknown-stake path refunds the persisted stack and drops it.
+    --   • Deck levels are kept; XP snaps to the current level's threshold
+    --     in the new units so nobody is mid-bar on a curve that no longer
+    --     exists.
+    if not ((saved.meta or {}).stake_break_migrated) then
+        local StakesData = require("data.stakes")
+        local Lookups    = require("utils.lookups")
+        for i, spec in ipairs(self.active_table_specs or {}) do
+            local stake_id = type(spec) == "string" and spec:match("^([^:]+):") or nil
+            local idx = stake_id and Lookups.indexById(StakesData, stake_id) or nil
+            if idx and idx >= 4 then
+                self.active_table_specs[i] = "retired_" .. spec
+            end
+        end
+        for _, spec in ipairs(DeckSpecs) do
+            local lvl = self.deck_levels and self.deck_levels[spec.id]
+            if lvl and self.deck_xp then
+                self.deck_xp[spec.id] = (lvl > 0 and spec.xp_curve[math.min(lvl, #spec.xp_curve)]) or 0
+            end
+        end
+        self.stake_break_migrated = true
+    end
     -- total_hands_played postdates the (gated) deck counters. Old saves
     -- accrued lifetime_hands_played ungated, so it's the best backfill.
     self.total_hands_played             = self.total_hands_played
@@ -472,15 +624,16 @@ function GameState:applySaved(saved)
     -- ticking before the deck gate opens, where lifetime_* does not).
     self.total_busts             = self.total_busts             or 0
     self.total_stack_losses      = self.total_stack_losses      or 0
-    self.total_jackpots          = self.total_jackpots          or self.lifetime_jackpot_count or 0
+    self.total_stacks          = self.total_stacks          or self.lifetime_stack_count or 0
     self.total_rebuys            = self.total_rebuys            or self.lifetime_rebuys or 0
     self.total_upgrade_levels    = self.total_upgrade_levels    or self.lifetime_upgrades_bought or 0
     self.total_hands_overwhelmed = self.total_hands_overwhelmed or self.lifetime_hands_overwhelmed or 0
     self.total_hands_at_4plus    = self.total_hands_at_4plus    or self.lifetime_hands_at_4plus_tables or 0
     self.total_chips_banked      = self.total_chips_banked      or 0
-    self.total_mtt_wins          = self.total_mtt_wins          or 0
+    self.total_ko_wins          = self.total_ko_wins          or 0
     self.total_tilts             = self.total_tilts             or 0
     self.total_heaters           = self.total_heaters           or 0   -- backfill: key added 2026-09
+    self.total_cursor_deals      = self.total_cursor_deals      or 0   -- backfill: key added 2026-09
     self.total_hands_by_gtype    = self.total_hands_by_gtype    or {}
     self.highest_stake_idx       = self.highest_stake_idx       or 0
     self.run_money_lost          = self.run_money_lost          or 0
@@ -644,29 +797,31 @@ function GameState:serializeMeta()
         active_deck_id                  = self.active_deck_id,
         lifetime_money_won              = self.lifetime_money_won,
         lifetime_money_lost             = self.lifetime_money_lost,
-        lifetime_jackpot_count          = self.lifetime_jackpot_count,
-        lifetime_mtt_hands_won          = self.lifetime_mtt_hands_won,
+        lifetime_stack_count          = self.lifetime_stack_count,
+        lifetime_ko_hands_won          = self.lifetime_ko_hands_won,
         lifetime_hands_played           = self.lifetime_hands_played,
         lifetime_hands_at_4plus_tables  = self.lifetime_hands_at_4plus_tables,
         lifetime_rebuys                 = self.lifetime_rebuys,
         lifetime_upgrades_bought        = self.lifetime_upgrades_bought,
         lifetime_hands_overwhelmed      = self.lifetime_hands_overwhelmed,
         lifetime_chips_banked           = self.lifetime_chips_banked,
+        stake_break_migrated            = self.stake_break_migrated,
         total_hands_played              = self.total_hands_played,
         total_hands_won                 = self.total_hands_won,
         total_big_outcomes              = self.total_big_outcomes,
         total_denied_stacks             = self.total_denied_stacks,
         total_busts                     = self.total_busts,
         total_stack_losses              = self.total_stack_losses,
-        total_jackpots                  = self.total_jackpots,
+        total_stacks                  = self.total_stacks,
         total_rebuys                    = self.total_rebuys,
         total_upgrade_levels            = self.total_upgrade_levels,
         total_hands_overwhelmed         = self.total_hands_overwhelmed,
         total_hands_at_4plus            = self.total_hands_at_4plus,
         total_chips_banked              = self.total_chips_banked,
-        total_mtt_wins                  = self.total_mtt_wins,
+        total_ko_wins                  = self.total_ko_wins,
         total_tilts                     = self.total_tilts,
         total_heaters                   = self.total_heaters,
+        total_cursor_deals              = self.total_cursor_deals,
         total_hands_by_gtype            = self.total_hands_by_gtype,
         -- Persisted as the stake ID, not the positional index: inserting a
         -- stake mid-ladder must not silently re-gate every existing save.
@@ -687,16 +842,16 @@ function GameState:serializeRun()
         active_table_specs         = self.active_table_specs,
         active_table_mutes         = self.active_table_mutes,
         active_table_rebuy_mutes   = self.active_table_rebuy_mutes,
-        active_table_mtt_hands_won = self.active_table_mtt_hands_won,
-        active_table_mtt_finishes  = self.active_table_mtt_finishes,
+        active_table_ko_hands_won = self.active_table_ko_hands_won,
+        active_table_ko_finishes  = self.active_table_ko_finishes,
         active_table_last_finish   = self.active_table_last_finish,
-        active_table_mtt_state     = self.active_table_mtt_state,
+        active_table_ko_state     = self.active_table_ko_state,
         active_table_seat_stacks   = self.active_table_seat_stacks,
         active_table_seat_busted   = self.active_table_seat_busted,
         active_table_player_seat   = self.active_table_player_seat,
         active_table_button_seat   = self.active_table_button_seat,
         active_table_bust_order    = self.active_table_bust_order,
-        active_table_mtt_plans     = self.active_table_mtt_plans,
+        active_table_ko_plans     = self.active_table_ko_plans,
         active_table_stack         = self.active_table_stack,
         active_table_slot          = self.active_table_slot,
         active_table_statuses      = self.active_table_statuses,
@@ -758,9 +913,9 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
 
     -- Pass 2: apply effects. `removed_by` is enforced HERE, uniformly —
     -- it doesn't matter whether the entry got into owned_set via owned_items
-    -- or via granted_at_start. The handicap's removed_by="poker_poster"
-    -- always wins as soon as the Poster is owned. (Engine-neutral mechanism
-    -- — handicaps / debuffs / anti-perks / lift to a service unchanged.)
+    -- or via granted_at_start. (The retired handicap used removed_by to
+    -- switch itself off the moment its cure was owned.) Engine-neutral
+    -- mechanism — handicaps / debuffs / anti-perks lift to a service unchanged.
     -- ctx.sources[kind] = { item_id, ... }: which owned items put each
     -- effect kind on the ctx. Read when an effect fires in play, so the
     -- item can be heard (and later seen) doing its job. Data only.

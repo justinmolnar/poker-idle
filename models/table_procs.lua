@@ -283,7 +283,7 @@ function TableProcs.registerAll(reg)
     -- With the Copy Machine owned (ctx.cascade_deals_empty), a table the
     -- sweep finds EMPTY is put back to work instead of skipped: the sweep
     -- deals it. That is the cascade's one upgrade — more live hands for
-    -- the next jackpot to find.
+    -- the next stack to find.
     reg:registerPayload("resolve_now", function(_spec, target, event)
         if not (target and event.out) then return false end
         local r = target:forceResolve(event.ctx)
@@ -389,7 +389,7 @@ function TableProcs.registerAll(reg)
         if not (pool and target and d.status) then return end
         local tr, tc = TableGrid.unpack(target.slot or 0)
         for _, t in ipairs(pool.tables) do
-            if t ~= target and t.mtt and t.mtt:isPlaying() then
+            if t ~= target and t.ko and t.ko:isPlaying() then
                 local r, c = TableGrid.unpack(t.slot or 0)
                 local map = (r == tr and spec.row)
                          or (c == tc and spec.col)

@@ -27,8 +27,8 @@ local DeckUnlockRules = {}
 local COUNTER_KINDS = {
     "lifetime_money_won",
     "lifetime_money_lost",
-    "lifetime_jackpot_count",
-    "lifetime_mtt_hands_won",
+    "lifetime_stack_count",
+    "lifetime_ko_hands_won",
     "lifetime_hands_played",
     "lifetime_hands_at_4plus_tables",
     "lifetime_rebuys",

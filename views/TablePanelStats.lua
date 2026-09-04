@@ -15,7 +15,7 @@
 
 local Theme       = require("views.Theme")
 local Stakes      = require("data.stakes")
-local MttPayouts  = require("data.mtt_payouts")
+local KoPayouts  = require("data.ko_payouts")
 local Lookups     = require("utils.lookups")
 local TierGlyph   = require("views.TierGlyph")
 local OutcomeMath = require("models.outcome_math")
@@ -25,7 +25,7 @@ local Anchors     = require("services.AnchorRegistry")
 local RollingValue = require("services.RollingValue")
 
 -- Canonical tier order (internal keys). Rendered as glyphs via TierGlyph.
-local TIER_ORDER  = { "small", "medium", "large", "jackpot" }
+local TIER_ORDER  = { "small", "medium", "large", "stack" }
 
 local TablePanelStats = {}
 
@@ -38,7 +38,7 @@ local DEBUG_TIP_LINE_H = 14
 
 -- ─── Pool-breakdown line list (shared by EV tooltip + debug overlay) ──
 
--- Binomial coefficient for small n. Used by the MTT expected-payout
+-- Binomial coefficient for small n. Used by the KO expected-payout
 -- math (n = 8 hands per session).
 local function binomCoeff(n, k)
     if k < 0 or k > n then return 0 end
@@ -120,7 +120,7 @@ local function buildCashOverviewRenderRow(header, bb, ev_dollars, ev_bb, win_cha
     end
 
     local loss_chance = 1.0 - (win_chance or 0)
-    local TIER_COUNT = { small = 1, medium = 2, large = 3, jackpot = 4, stack = 4 }
+    local TIER_COUNT = { small = 1, medium = 2, large = 3, stack = 4 }
 
     local function mixWidth(present, fonts)
         local f_sm = fonts.sm
@@ -289,7 +289,7 @@ end
 
 -- Chip-stack tournament breakdown (8-max KO): per-hand win rate, buy-in,
 -- expected cash return per run, ROI %, per-hand EV, and finish-position odds.
-local function buildMttLines(tbl, controller, stats)
+local function buildKoLines(tbl, controller, stats)
     local p       = stats.pool.win_chance or 0
     local gtype   = stats.gtype
     local stake   = stats.stake
@@ -297,8 +297,8 @@ local function buildMttLines(tbl, controller, stats)
 
     local ctx   = controller and controller.ctx
     local game  = controller and controller.game
-    local boost = (ctx and ctx.mtt_payout_boost) or 0
-    local payouts = MttPayouts[boost] or MttPayouts[0]
+    local boost = (ctx and ctx.ko_payout_boost) or 0
+    local payouts = KoPayouts[boost] or KoPayouts[0]
     local buy_in  = (stake and stake.buy_in) or 0
     local bb      = (stake and stake.bb) or 1
     if bb <= 0 then bb = 1 end
@@ -326,7 +326,7 @@ local function buildMttLines(tbl, controller, stats)
         stake.display_name or stake.id or "?",
         gtype.short        or gtype.id or "?")
 
-    local stack_pct = ((stats.pool.win_chance or 0) * ((stats.pool.win_dist and stats.pool.win_dist.jackpot) or 0)) * 100
+    local stack_pct = ((stats.pool.win_chance or 0) * ((stats.pool.win_dist and stats.pool.win_dist.stack) or 0)) * 100
 
     local lines = {
         row(header, "md"),
@@ -372,13 +372,13 @@ end
 -- payout ladder (6/7/8 → 3×/6×/20× × buy-in). The cash breakdown (avg win/loss,
 -- bb/h) is meaningless here -- the binary outcome forces delta=0 and the payout
 -- is keyed by win streak, not per-hand $ -- so this is its own shape.
-local function buildLegacyMttLines(tbl, controller, stats)
+local function buildLegacyKoLines(tbl, controller, stats)
     local p       = stats.pool.win_chance or 0
     local gtype   = stats.gtype
     local ctx     = controller and controller.ctx
     local game    = controller and controller.game
-    local boost   = (ctx and ctx.mtt_payout_boost) or 0
-    local payouts = MttPayouts[boost] or MttPayouts[0]
+    local boost   = (ctx and ctx.ko_payout_boost) or 0
+    local payouts = KoPayouts[boost] or KoPayouts[0]
     local buy_in  = (stats.stake and stats.stake.buy_in) or 0
     local cap     = gtype.hand_count or 8
 
@@ -928,9 +928,9 @@ local function breakdownFromStats(controller, stats)
     local gt = stats.gtype
     local lines
     if gt and gt.chip_stack_table then
-        lines = buildMttLines(nil, controller, stats)        -- 8-max KO
+        lines = buildKoLines(nil, controller, stats)        -- 8-max KO
     elseif gt and gt.hand_count then
-        lines = buildLegacyMttLines(nil, controller, stats)  -- legacy binary MTT
+        lines = buildLegacyKoLines(nil, controller, stats)  -- legacy binary KO
     else
         lines = buildCashLines(nil, controller, stats)
     end
@@ -995,7 +995,7 @@ local function evMetrics(tbl, controller, font)
                                        stats.ev_per_hand or 0)
     local stack_pct = RollingValue.get("table_stackpct:" .. id,
                           ((stats.win_chance or 0)
-                           * ((stats.win_dist and stats.win_dist.jackpot) or 0))
+                           * ((stats.win_dist and stats.win_dist.stack) or 0))
                            * 100)
     local ev_bb       = ev / bb
     local label       = TablePanelStats.evLabel(ev)
@@ -1019,7 +1019,7 @@ local function evMetrics(tbl, controller, font)
     if show_loss then
         loss_pct = RollingValue.get("table_losspct:" .. id,
                       ((1.0 - (stats.win_chance or 0))
-                       * ((stats.loss_dist and stats.loss_dist.jackpot) or 0))
+                       * ((stats.loss_dist and stats.loss_dist.stack) or 0))
                        * 100)
         loss_label = string.format("%.1f%%", loss_pct)
         total_w = total_w + gap + r * 2 + glyph_pad + font:getWidth(loss_label)
@@ -1073,7 +1073,7 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
     -- Stack-win chance: gold tier glyph + pct, sharing the EV color.
     local sx = tx + m.bb_w + m.gap
     if not money_only then
-        TierGlyph.draw(sx + m.r, ty + m.text_h - m.r, "jackpot", m.r, "win")
+        TierGlyph.draw(sx + m.r, ty + m.text_h - m.r, "stack", m.r, "win")
         Theme.setColor(m.color)
         love.graphics.print(m.stack_label, sx + m.r * 2 + m.glyph_pad, ty)
     end
@@ -1081,10 +1081,10 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
     -- Stack-loss chance: purple tier glyph + pct
     if m.show_loss and not money_only then
         local lx = sx + m.r * 2 + m.glyph_pad + font:getWidth(m.stack_label) + m.gap
-        local old_color = Theme.tier.loss.jackpot
-        Theme.tier.loss.jackpot = { 0.55, 0.25, 0.85 }
-        TierGlyph.draw(lx + m.r, ty + m.text_h - m.r, "jackpot", m.r, "loss")
-        Theme.tier.loss.jackpot = old_color
+        local old_color = Theme.tier.loss.stack
+        Theme.tier.loss.stack = { 0.55, 0.25, 0.85 }
+        TierGlyph.draw(lx + m.r, ty + m.text_h - m.r, "stack", m.r, "loss")
+        Theme.tier.loss.stack = old_color
         
         Theme.setColor({ 0.55, 0.25, 0.85 })
         love.graphics.print(m.loss_label, lx + m.r * 2 + m.glyph_pad, ty)

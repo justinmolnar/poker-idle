@@ -1,6 +1,6 @@
--- data/mtt_payouts.lua
+-- data/ko_payouts.lua
 --
--- MTT payout multiplier table. Indexed by ctx.mtt_payout_boost (0/1/2,
+-- KO payout multiplier table. Indexed by ctx.ko_payout_boost (0/1/2,
 -- driven by the Plastic Trophy / Engraved Plaque catalog perks via
 -- max-stacking — see models/poker_effects.lua) and by finish position
 -- mapped to a key (1st = 8, 2nd = 7, 3rd = 6; 4th and below = no

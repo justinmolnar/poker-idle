@@ -1,71 +1,71 @@
 id,name,variant,band,cost,coverage,best_stake,best_gtype,best_fill,best_d_hr,best_d_hr_per_chip,best_d_bbhr,best_d_bbhr_per_chip,home_median_bbhr_per_chip,home_gtype,home_allgtype_median,home_best_bbhr_per_chip,home_median_d_hr_per_chip,proc_hr_act1,proc_hr_act2,proc_hr_late
 wall_hanger,Wall Hanger,base,A,2,modeled,s001,six_max,capped,117.92000000000007,58.960000000000036,5896,2948,1544.9279999999999,six_max,301.5454545454462,2948,6.030909090910628,0,0,0
 wall_hanger,Wall Hanger,corrupt,A,2,modeled,s001,six_max,capped,2358.4,1179.2,117920.00000000003,58960.000000000015,30898.560000000005,six_max,6030.909090909188,58960.000000000015,120.61818181818154,0,0,0
-mirror,Mirror,base,A,3,modeled,s006,hu,capped,6298750,2099583.3333333335,6298.75,2099.5833333333335,1493.0583333333332,hu,0,1590.6871212119986,0,0,0,0
-mirror,Mirror,corrupt,A,2,modeled,s006,hu,capped,22045625,11022812.5,22045.625,11022.8125,7158.092045454498,hu,0,7838.55625,0,0,0,0
-fight_night,Fight Night Poster,base,A,4,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-fight_night,Fight Night Poster,corrupt,A,3,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-energy_drink,Energy Drink,base,A,3,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,17.93747653306728,27892.382066229806,2135548.265220548
-energy_drink,Energy Drink,corrupt,A,2,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,44.8436913326682,69730.9551655745,5338870.6630513705
-corkboard,Corkboard,base,A,4,modeled,s006,zoom,naked,3190335.1293105036,797583.7823276259,3190.335129310508,797.583782327627,559.8968749999995,hu,390.77177487554945,645.2337499999994,7.815435497510979,0,0,0
-corkboard,Corkboard,corrupt,A,2,modeled,s006,zoom,naked,12761340.517242007,6380670.2586210035,12761.34051724201,6380.670258621005,4479.174999999997,hu,2592.7497865666837,5161.870000000003,51.854995731334476,0,0,0
+mirror,Mirror,base,A,3,modeled,s006,hu,capped,6298750000,2099583333.3333333,6298.75,2099.5833333333335,1493.0583333333332,hu,0,1590.6871212119986,0,0,0,0
+mirror,Mirror,corrupt,A,2,modeled,s006,hu,capped,22045625000,11022812500,22045.625,11022.8125,7158.092045454498,hu,0,7838.55625,0,0,0,0
+fight_night_poster,Fight Night Poster,base,A,4,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+fight_night_poster,Fight Night Poster,corrupt,A,3,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+energy_drink,Energy Drink,base,A,3,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,10.385026244721688,18954785.547538567,730227434360.5029
+energy_drink,Energy Drink,corrupt,A,2,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,25.96256561180422,47386963.86884642,1825568585901.257
+corkboard,Corkboard,base,A,4,modeled,s006,zoom,naked,3190335129.3104935,797583782.3276234,3190.335129310508,797.583782327627,559.8968749999995,hu,390.77177487554945,645.2337499999994,7.815435497510979,0,0,0
+corkboard,Corkboard,corrupt,A,2,modeled,s006,zoom,naked,12761340517.241997,6380670258.620998,12761.34051724201,6380.670258621005,4479.174999999997,hu,2592.7497865666837,5161.870000000003,51.854995731334476,0,0,0
 stack_of_books,Stack of Books,base,A,4,modeled,s001,zoom,capped,14.361702127661204,3.590425531915301,718.085106382503,179.52127659562575,166.44886363634032,zoom,23.448750000000928,179.52127659562575,0.46897500000000747,0,0,0
 stack_of_books,Stack of Books,corrupt,A,3,modeled,s001,zoom,capped,25.851063829781253,8.617021276593752,1292.5531914896237,430.8510638298746,399.4772727272618,zoom,56.27700000000125,430.8510638298746,1.12554000000002,0,0,0
-throw_pillow,Throw Pillow,base,A,4,modeled,s004,zoom,naked,19017.421875,4754.35546875,1901.7421875000036,475.4355468750009,40.21171874999936,hu,2.5552783305470257,68.12812499999995,0.05110556661094279,0,0,0
-throw_pillow,Throw Pillow,corrupt,A,2,modeled,s001,zoom,capped,0,0,0,0,0,mtt,-24.150351477609092,0,-0.48300702955217645,0,0,0
-gift_box,Starter Gift Box,base,A,4,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-gift_box,Starter Gift Box,corrupt,A,3,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+throw_pillow,Throw Pillow,base,A,4,modeled,s004,zoom,naked,201360.9375,50340.234375,2013.609375,503.40234375,40.21171874999936,hu,2.5552783305470257,68.12812499999995,0.05110556661094279,0,0,0
+throw_pillow,Throw Pillow,corrupt,A,2,modeled,s001,zoom,capped,0,0,0,0,0,ko,-24.150351477609092,0,-0.48300702955217645,0,0,0
+starter_gift_box,Starter Gift Box,base,A,4,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+starter_gift_box,Starter Gift Box,corrupt,A,3,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 lava_lamp,Lava Lamp,base,A,5,modeled,s001,zoom,mid,21.04343181817876,4.208686363635752,1052.1715909090472,210.43431818180943,198.19148936175043,zoom,59.85224999999987,210.43431818180943,1.197045,0,0,0
 lava_lamp,Lava Lamp,corrupt,A,3,modeled,s001,zoom,mid,63.13029545454751,21.0434318181825,3156.5147727272615,1052.1715909090872,990.957446808375,zoom,299.2612500000007,1052.1715909090872,5.98522500000002,0,0,0
-comfort_bed,Comfort Bed,base,A,4,modeled,s006,zoom,naked,4556819.53125,1139204.8828125,4556.819531250003,1139.2048828125007,80.90296874999922,hu,0.07858124999984284,107.8706249999999,0.0015716249999968568,0,0,0
+comfort_bed,Comfort Bed,base,A,4,modeled,s006,zoom,naked,4556819531.25,1139204882.8125,4556.819531250003,1139.2048828125007,80.90296874999922,hu,0.07858124999984284,107.8706249999999,0.0015716249999968568,0,0,0
 comfort_bed,Comfort Bed,corrupt,A,2,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-sticky_notes,Yellow Sticky Note,base,A,5,modeled,s001,six_max,capped,170.96725000000004,34.193450000000006,8548.362500000003,1709.6725000000006,978.399300000001,six_max,501.8823863636762,1709.6725000000006,10.037647727272622,0,0,0
-sticky_notes,Yellow Sticky Note,corrupt,A,4,modeled,s001,six_max,capped,2051.6070000000004,512.9017500000001,102580.35,25645.0875,14675.9895,six_max,7528.235795454595,25645.0875,150.56471590909078,0,0,0
+yellow_sticky_note,Yellow Sticky Note,base,A,5,modeled,s001,six_max,capped,170.96725000000004,34.193450000000006,8548.362500000003,1709.6725000000006,978.399300000001,six_max,501.8823863636762,1709.6725000000006,10.037647727272622,0,0,0
+yellow_sticky_note,Yellow Sticky Note,corrupt,A,4,modeled,s001,six_max,capped,2051.6070000000004,512.9017500000001,102580.35,25645.0875,14675.9895,six_max,7528.235795454595,25645.0875,150.56471590909078,0,0,0
 rubber_duck,Rubber Duck,base,A,5,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-rubber_duck,Rubber Duck,corrupt,A,2,modeled,s001,mtt,naked,0,0,0,0,0,mtt,-1686.0900000000008,0,-33.7218,0,0,0
+rubber_duck,Rubber Duck,corrupt,A,2,modeled,s001,ko,naked,0,0,0,0,0,ko,-1686.0900000000008,0,-33.7218,0,0,0
 stash_box,Stash Box,base,B,6,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 stash_box,Stash Box,corrupt,B,3,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-dogs_playing_poker,Dogs Playing Poker,base,B,6,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,23.206313498758146,-344.2245327918936,-3612214.2421210706
-dogs_playing_poker,Dogs Playing Poker,corrupt,B,3,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,40.31482505900637,96083.01896781514,6240062.592010483
-calculator,Calculator,base,B,7,modeled,s006,zoom,mid,7879885.513961632,1125697.9305659474,7879.885513961621,1125.6979305659459,434.3467821428577,six_max,141.29438931644927,913.5090535714293,2.825887786329864,0,0,0
+dogs_playing_poker,Dogs Playing Poker,base,B,6,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,28.79630361357598,1146477.222657394,407877525068.012
+dogs_playing_poker,Dogs Playing Poker,corrupt,B,3,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,40.31482505900637,1605068.1117203513,571028535095.2168
+calculator,Calculator,base,B,7,modeled,s006,zoom,mid,7879885513.961628,1125697930.5659468,7879.885513961621,1125.6979305659459,434.3467821428577,six_max,141.29438931644927,913.5090535714293,2.825887786329864,0,0,0
 calculator,Calculator,corrupt,B,4,modeled,s001,zoom,capped,2222.92566138546,555.731415346365,111146.28306927299,27786.570767318248,8795.894162220999,six_max,2397.318122387293,27786.570767318248,47.94636244774837,0,0,0
 ring_binder,Ring Binder,base,B,7,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 ring_binder,Ring Binder,corrupt,B,4,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-space_heater,Space Heater,base,B,8,modeled,s006,zoom,naked,11238294.375,1404786.796875,11238.294375000005,1404.7867968750006,116.09156249999955,hu,15.330726869156507,168.51375000000002,0.3066145373831217,0,0,0
-space_heater,Space Heater,corrupt,B,8,modeled,s001,mtt,naked,0,0,0,0,0,mtt,-153.30726869163283,0,-3.0661453738319566,0,0,0
+space_heater,Space Heater,base,B,8,modeled,s006,zoom,naked,11238294375,1404786796.875,11238.294375000005,1404.7867968750006,116.09156249999955,hu,15.330726869156507,168.51375000000002,0.3066145373831217,0,0,0
+space_heater,Space Heater,corrupt,B,8,modeled,s001,ko,naked,0,0,0,0,0,ko,-153.30726869163283,0,-3.0661453738319566,0,0,0
 pencil_holder,Pencil Holder,base,B,8,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 pencil_holder,Pencil Holder,corrupt,B,4,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 bonsai,Bonsai,base,B,10,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 bonsai,Bonsai,corrupt,B,5,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 desk_plant,Desk Plant,base,B,8,modeled,s001,six_max,capped,61.94244000000003,7.742805000000004,3097.122000000003,387.1402500000004,263.68125000000055,six_max,0,387.1402500000004,0,0,0,0
-desk_plant,Desk Plant,corrupt,B,5,modeled,s004,six_max,capped,171958.49999999994,34391.69999999999,17195.85,3439.1699999999996,2461.0250000000015,six_max,0,2890.647200000001,0,0,0,0
+desk_plant,Desk Plant,corrupt,B,5,modeled,s006,six_max,capped,15734250000.000002,3146850000.0000005,15734.25,3146.85,2461.0250000000015,six_max,0,2890.647200000001,0,0,0,0
 desk,Desk,base,B,9,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 desk,Desk,corrupt,B,5,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-rebuy_note,Rebuy Sticky Note,base,B,10,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-rebuy_note,Rebuy Sticky Note,corrupt,B,5,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-gaming_chair,Gaming Chair,base,B,10,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,34.55556433629118,68630.72783415367,4011468.8091495964
-gaming_chair,Gaming Chair,corrupt,B,5,partial,s001,mtt,naked,0,0,0,0,0,mtt,-49.058325981299774,0,-0.9811665196260038,34.55556433629118,68630.72783415367,4011468.8091495964
-headset,Headset,base,B,6,modeled,s006,zoom,naked,3828402.155172378,638067.0258620629,3828.402155172378,638.067025862063,183.59122540948132,zoom,0,351.0407138595001,0,0,0,0
-headset,Headset,corrupt,B,5,modeled,s006,zoom,naked,22332345.905172378,4466469.181034476,22332.345905172384,4466.469181034477,1053.1221415787252,zoom,0,1060.7643278277524,0,0,0,0
-prize_vase,Prize Vase,base,C,12,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,15559.438195815734,1251752.633378146
-prize_vase,Prize Vase,corrupt,C,6,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,46678.31458744714,3755257.900134645
-fridge,Compact Fridge,base,B,12,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-fridge,Compact Fridge,corrupt,B,6,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-wall_clock,Wall Clock,base,B,12,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,20.979500663810413,17470.3294409065,1192970.1821013193
-wall_clock,Wall Clock,corrupt,B,7,partial,s001,mtt,naked,0,0,0,0,0,mtt,-43.80207676901783,0,-0.8760415353803584,20.979500663810413,17470.3294409065,1192970.1821013193
+rebuy_sticky_note,Rebuy Sticky Note,base,B,10,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+rebuy_sticky_note,Rebuy Sticky Note,corrupt,B,5,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+gaming_chair,Gaming Chair,base,B,10,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,34.55556433629118,1146477.2226573937,367089772561.2109
+gaming_chair,Gaming Chair,corrupt,B,5,partial,s001,ko,naked,0,0,0,0,0,ko,-49.058325981299774,0,-0.9811665196260038,34.55556433629118,1146477.2226573937,367089772561.2109
+headset,Headset,base,B,6,modeled,s006,zoom,naked,3828402155.1723633,638067025.8620605,3828.402155172378,638.067025862063,183.59122540948132,zoom,0,351.0407138595001,0,0,0,0
+headset,Headset,corrupt,B,5,modeled,s006,zoom,naked,22332345905.172367,4466469181.034473,22332.345905172384,4466.469181034477,1053.1221415787252,zoom,0,1060.7643278277524,0,0,0,0
+prize_vase,Prize Vase,base,C,12,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,735580.3837119867,114028560326.04865
+prize_vase,Prize Vase,corrupt,C,6,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,2206741.151139687,342085680978.16644
+compact_fridge,Compact Fridge,base,B,12,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+compact_fridge,Compact Fridge,corrupt,B,6,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+wall_clock,Wall Clock,base,B,12,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,20.979500663810413,631304.299329001,109168779231.44493
+wall_clock,Wall Clock,corrupt,B,7,partial,s001,ko,naked,0,0,0,0,0,ko,-43.80207676901783,0,-0.8760415353803584,20.979500663810413,631304.299329001,109168779231.44493
 house_cat,House Cat,base,B,8,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 house_cat,House Cat,corrupt,B,4,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-candle,Candle,base,B,7,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,40.31482505900637,80069.18247317929,4680046.944007862
-nes_console,Dusty Console,base,B,5,modeled,s006,hu,capped,1889625,377925,1889.625,377.925,268.75049999999936,hu,0,286.32368181819913,0,0,0,0
-gameboy,Handheld,base,B,5,modeled,s006,zoom,naked,1914201.0775867626,382840.2155173525,1914.2010775867602,382.840215517352,110.15473524567714,zoom,0,210.62442831570078,0,0,0,0
+candle,Candle,base,B,7,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,28.79630361357598,955397.685547828,305908143801.00903
+dusty_console,Dusty Console,base,B,5,modeled,s006,hu,capped,1889625000,377925000,1889.625,377.925,268.75049999999936,hu,0,286.32368181819913,0,0,0,0
+handheld,Handheld,base,B,5,modeled,s006,zoom,naked,1914201077.5867538,382840215.5173508,1914.2010775867602,382.840215517352,110.15473524567714,zoom,0,210.62442831570078,0,0,0,0
 red_rug,Red Rug,base,B,8,modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 dish_soap,Dish Soap,base,B,12,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-vouchers,Rolled Vouchers,base,C,9,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-vouchers,Rolled Vouchers,corrupt,C,5,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+rolled_vouchers,Rolled Vouchers,base,C,9,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+rolled_vouchers,Rolled Vouchers,corrupt,C,5,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 second_monitor,Second Monitor,base,C,10,modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 second_monitor,Second Monitor,corrupt,C,6,modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-laptop,Laptop Terminal,base,D,12,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-laptop,Laptop Terminal,corrupt,D,6,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+laptop_terminal,Laptop Terminal,base,D,12,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+laptop_terminal,Laptop Terminal,corrupt,D,6,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 gaming_keyboard,Gaming Keyboard,base,D,12,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 gaming_keyboard,Gaming Keyboard,corrupt,D,6,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 box_of_mice,Box of Mice,base,D,13,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
@@ -76,48 +76,48 @@ desk_lamp,Desk Lamp,base,D,10,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0
 desk_lamp,Desk Lamp,corrupt,D,6,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 telephone,Telephone,base,D,12,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 glass_partition,Glass Partition,base,D,12,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-kettle,Electric Kettle,base,D,11,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-kettle,Electric Kettle,corrupt,D,8,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-toaster,Chrome Toaster,base,D,14,modeled,s001,zoom,capped,121.5907695366862,8.685054966906156,6079.53847683375,434.25274834526783,13.86458334652512,zoom,-5.950514285714299,177.2541328600446,-107.2035714285714,0,0,0
-toaster,Chrome Toaster,corrupt,D,8,modeled,s001,zoom,capped,531.9596167230038,66.49495209037548,26597.98083614962,3324.7476045187027,106.15071624678973,zoom,-45.55862500000012,1357.1019547096778,-820.7773437499998,0,0,0
-first_aid_kit,First Aid Kit,base,D,16,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,56000,6400000
-first_aid_kit,First Aid Kit,corrupt,D,8,partial,s001,mtt,naked,0,0,0,0,0,mtt,-53.364954241101486,0,-2154.39644246836,0,56000,6400000
-nightstand,Nightstand,base,D,13,modeled,s006,zoom,mid,2480136.8669842556,190779.7589987889,2480.1368669842486,190.77975899878837,0,six_max,0,190.77975899878837,0,0,0,0
-nightstand,Nightstand,corrupt,D,8,modeled,s001,six_max,naked,0,0,0,0,-22.646294132491782,mtt,-102.71906635802512,0,-1982.6899444356086,0,0,0
-receipt_printer,Receipt Printer,base,C,19,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0.5414477955885794,-23877.715880444037,-1345786.2351748915
-receipt_printer,Receipt Printer,corrupt,C,9,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0.5414477955885794,-23877.715880444037,-1345786.2351748915
-microwave,Microwave Oven,base,D,18,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,5.203462328902728,114462.9065293211,4887558.653295415
-microwave,Microwave Oven,corrupt,D,10,partial,s001,mtt,naked,0,0,0,0,0,mtt,-492.59507500000007,0,-7342.498750000171,5.203462328902728,114462.9065293211,4887558.653295415
-diploma,Framed Diploma,base,D,18,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0.3984700183482126,489.86972064840216,31985.28424721241
-diploma,Framed Diploma,corrupt,D,9,partial,s001,mtt,naked,0,0,0,0,0,mtt,-47.4355148809791,0,-1915.0190599718758,0.3984700183482126,489.86972064840216,31985.28424721241
-blueprint,Laminated Blueprint,base,D,19,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-blueprint,Laminated Blueprint,corrupt,D,10,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-console_tv,Console Television,base,D,26,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-console_tv,Console Television,corrupt,D,13,partial,s001,mtt,naked,0,0,0,0,0,mtt,-54.73328640112973,0,-2209.6373768906396,0,0,0
-desk_speakers,Desk Speakers,base,C,10,modeled,s001,mtt,naked,27.41941259413042,2.741941259413042,1370.9706297065204,137.09706297065205,55.656402069088976,mtt,0,108.68970201178699,0,0,0,0
-desk_speakers,Desk Speakers,corrupt,C,6,modeled,s001,mtt,naked,144.49461439642826,24.082435732738045,7224.730719821999,1204.1217866369998,787.4868974278354,mtt,0,1075.7257228090436,0,0,0,0
-curved_monitor,Curved Monitor,base,C,13,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,41577.02558717434,3759746.186287105
-curved_monitor,Curved Monitor,corrupt,C,7,partial,s001,mtt,naked,0,0,0,0,0,mtt,-703.7072500000002,0,-10489.283928571673,0,249462.15352304606,31581867.96481169
-pc_tower,Tower Upgrade,base,C,14,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,-965.1763069003439,-82917.29246753313
-pc_tower,Tower Upgrade,corrupt,C,5,partial,s001,mtt,naked,0,0,0,0,0,mtt,-57.85691130435098,0,-1266.9322916664992,0,-6434.508712668959,-773894.729696976
+electric_kettle,Electric Kettle,base,D,11,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+electric_kettle,Electric Kettle,corrupt,D,8,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+chrome_toaster,Chrome Toaster,base,D,14,modeled,s001,zoom,capped,121.5907695366862,8.685054966906156,6079.53847683375,434.25274834526783,0,ko,-13.355380913781314,67.27601974556248,-2567.629519949559,0,0,0
+chrome_toaster,Chrome Toaster,corrupt,D,8,modeled,s001,zoom,capped,531.9596167230038,66.49495209037548,26597.98083614962,3324.7476045187027,0,ko,-102.25213512116443,515.0820261770157,-19658.41351211643,0,0,0
+first_aid_kit,First Aid Kit,base,D,16,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,5600000,640000000000
+first_aid_kit,First Aid Kit,corrupt,D,8,partial,s001,ko,naked,0,0,0,0,0,ko,-44.644948660734144,0,-8757.468069089064,0,5600000,640000000000
+nightstand,Nightstand,base,D,13,modeled,s006,zoom,mid,2480136866.984249,190779758.9987884,2480.1368669842486,190.77975899878837,0,six_max,0,190.77975899878837,0,0,0,0
+nightstand,Nightstand,corrupt,D,8,modeled,s001,six_max,naked,0,0,0,0,-14.18872232481487,ko,-76.05988041493734,0,-11074.403453756346,0,0,0
+receipt_printer,Receipt Printer,base,C,19,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0.5414477955885794,-961373.9232286814,-124301928382.5823
+receipt_printer,Receipt Printer,corrupt,C,9,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0.5414477955885794,-961373.9232286814,-124301928382.5823
+microwave_oven,Microwave Oven,base,D,18,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,5.203462328902728,8719914.92329418,447260811382.98676
+microwave_oven,Microwave Oven,corrupt,D,10,partial,s001,ko,naked,0,0,0,0,0,ko,-667.5156249999943,0,-101889.28124999999,5.203462328902728,8719914.92329418,447260811382.98676
+framed_diploma,Framed Diploma,base,D,18,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0.3984700183482126,18222.882491545268,2859255945.3847027
+framed_diploma,Framed Diploma,corrupt,D,9,partial,s001,ko,naked,0,0,0,0,0,ko,-39.68439880954146,0,-7784.416061412501,0.3984700183482126,18222.882491545268,2859255945.3847027
+laminated_blueprint,Laminated Blueprint,base,D,19,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+laminated_blueprint,Laminated Blueprint,corrupt,D,10,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+console_television,Console Television,base,D,26,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
+console_television,Console Television,corrupt,D,13,partial,s001,ko,naked,0,0,0,0,0,ko,-45.78969093407208,0,-8982.018532397602,0,0,0
+desk_speakers,Desk Speakers,base,C,10,modeled,s001,ko,naked,27.41941259413042,2.741941259413042,1370.9706297065204,137.09706297065205,55.656402069088976,ko,0,93.52375897860001,0,0,0,0
+desk_speakers,Desk Speakers,corrupt,C,6,modeled,s001,ko,naked,144.49461439642826,24.082435732738045,7224.730719821999,1204.1217866369998,751.8184495393934,ko,0,1047.143893614163,0,0,0,0
+curved_monitor,Curved Monitor,base,C,13,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,2476253.0259742453,344054618912.66675
+curved_monitor,Curved Monitor,corrupt,C,7,partial,s001,ko,naked,0,0,0,0,0,ko,-953.593749999992,0,-145556.11607142855,0,14857518.15584547,2890058798866.4004
+tower_upgrade,Tower Upgrade,base,C,14,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,-284058.18232937047,-8429594817.365546
+tower_upgrade,Tower Upgrade,corrupt,C,5,partial,s001,ko,naked,0,0,0,0,0,ko,-70.3423913043509,0,-18171.97916666502,0,-1893721.2155291366,-78676218295.41177
 copy_machine,Copy Machine,base,C,19,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 whiteboard,Whiteboard,base,D,17,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 high_roller_pass,High Roller Pass,base,D,19,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-high_roller_pass,High Roller Pass,corrupt,D,9,partial,s001,mtt,naked,0,0,0,0,0,mtt,-547.3278611111112,0,-8158.331944444634,0,0,0
+high_roller_pass,High Roller Pass,corrupt,D,9,partial,s001,ko,naked,0,0,0,0,0,ko,-741.6840277777715,0,-113210.31249999999,0,0,0
 window,Window,base,D,20,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-window,Window,corrupt,D,10,partial,s001,mtt,naked,0,0,0,0,0,mtt,-492.59507500000007,0,-7342.498750000171,0,0,0
+window,Window,corrupt,D,10,partial,s001,ko,naked,0,0,0,0,0,ko,-667.5156249999943,0,-101889.28124999999,0,0,0
 bookshelf,Bookshelf,base,D,22,modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 bookshelf,Bookshelf,corrupt,D,11,modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 cereal_shelf,Cereal Shelf,base,D,24,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 cereal_shelf,Cereal Shelf,corrupt,D,12,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-fire_extinguisher,Fire Extinguisher,base,D,24,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0.0732617762384406,-1062.8647320565349,-43116.00945676936
-fire_extinguisher,Fire Extinguisher,corrupt,D,12,partial,s001,mtt,naked,0,0,0,0,0,mtt,-29.64719680063551,0,-1196.8869124824535,0.0732617762384406,-1062.8647320565349,-43116.00945676936
-blackout_curtains,Blackout Curtains,base,D,24,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,1.3216659889700433,4268.819589636461,145018.4600268212
-blackout_curtains,Blackout Curtains,corrupt,D,12,partial,s001,mtt,naked,0,0,0,0,0,mtt,-492.59507500000007,0,-7342.4987500001425,1.3216659889700433,4268.819589636461,145018.4600268212
+fire_extinguisher,Fire Extinguisher,base,D,24,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0.0732617762384406,-400114.7148043438,-4383289408.594456
+fire_extinguisher,Fire Extinguisher,corrupt,D,12,partial,s001,ko,naked,0,0,0,0,0,ko,-24.802749255979204,0,-4865.260038379696,0.0732617762384406,-400114.7148043438,-4383289408.594456
+blackout_curtains,Blackout Curtains,base,D,24,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,1.3216659889700433,175421.34388610144,12720341855.053383
+blackout_curtains,Blackout Curtains,corrupt,D,12,partial,s001,ko,naked,0,0,0,0,0,ko,-667.5156249999952,0,-101889.28125000003,1.3216659889700433,175421.34388610144,12720341855.053383
 tip_jar,Tip Jar,base,D,24,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
 tip_jar,Tip Jar,corrupt,D,12,not modeled,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0
-shredder,Shredder,base,D,18,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,30911.999999999996,4224000
-shredder,Shredder,corrupt,D,9,partial,s001,mtt,naked,0,0,0,0,0,mtt,-47.4355148809791,0,-1915.0190599718758,0,64399.99999999999,8800000
-cool_towel,Cool Towel,base,D,16,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,2.7879240464532926,3937.810552744344,183992.528954011
-waste_basket,Waste Basket,base,D,18,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,20.813849315610913,457851.6261172844,45617214.09742388
+shredder,Shredder,base,D,18,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,2728320,384384000000
+shredder,Shredder,corrupt,D,9,partial,s001,ko,naked,0,0,0,0,0,ko,-39.68439880954146,0,-7784.416061412501,0,5684000,800800000000
+cool_towel,Cool Towel,base,D,16,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,2.7879240464532926,34417.51791826526,16205269226.83591
+waste_basket,Waste Basket,base,D,18,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,20.813849315610913,34879659.693176724,4174434239574.543
 cleaning_robot,Cleaning Robot,base,D,24,proc,s001,six_max,naked,0,0,0,0,0,six_max,0,0,0,0,0,0

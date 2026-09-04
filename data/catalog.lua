@@ -103,7 +103,7 @@ local items = {
     -- one catalog entry with that id and no effects of its own suppresses
     -- every tilt in the game.
     {
-        id               = "the_tilt",
+        id               = "tilt",
         name             = "Tilt",
         effect_text      = "Bad beats rattle the tables around them.",
         description      = "Happens at every table sooner or later.",
@@ -112,8 +112,8 @@ local items = {
         phase            = "system",
         cost_chip        = 0,
         effects = {
-            { kind = "proc", proc = "miss_tilt"   },
-            { kind = "proc", proc = "cooler_tilt" },
+            { kind = "proc", proc = "tilt_miss"   },
+            { kind = "proc", proc = "tilt_cooler" },
         },
     },
 
@@ -130,13 +130,13 @@ local items = {
         position    = { x = 120, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.012 },
-            { kind = "jackpot_mult",   value = 1.20 },
+            { kind = "stack_mult",   value = 1.20 },
         },
         corrupt = {
             cost_achip = 2,
             effects = {
                 { kind = "shove_rate_add", value = 0.15 },
-                { kind = "jackpot_mult",   value = 5.00 },
+                { kind = "stack_mult",   value = 5.00 },
             },
             effect_text = "{stack} pays 5.0×.",
         },
@@ -171,11 +171,11 @@ local items = {
         -- The {chip} economy's signpost: appears the moment the first
         -- bounty banks, and says out loud what the numbers already made
         -- true — Heads-Up is the chip mode.
-        id          = "fight_night",
+        id          = "fight_night_poster",
         name        = "Fight Night Poster",
         effect_text = "Heads-Up bounties pay double {chip}.",
         description = "A duel draws a crowd. The crowd pays.",
-        sprite      = "fight_night",
+        sprite      = "fight_night_poster",
         phase       = "demo",
         cost_chip   = 4,
         unlock = {
@@ -197,14 +197,14 @@ local items = {
     },
     {
         -- THE ZOOM ITEM, and the first heater the player ever sees. A
-        -- global hand counter: Zoom deals 250 hands in minutes where a
-        -- 6-max takes an hour, so owning this is the lesson that Zoom is
+        -- global hand counter that lands its heater on a Zoom table: Zoom deals
+        -- 25 hands in a minute where a 6-max takes ten, so the lesson is that Zoom is
         -- volume and volume feeds the rest of the board. Heat itself is
         -- taught by the House the first time any table catches it (story:
         -- first_heat). Tuned by the proc's `every`, nothing else.
         id          = "energy_drink",
         name        = "Energy Drink",
-        effect_text = "Every 250 hands, a table catches a heater.",
+        effect_text = "Every 25 hands, a Zoom table catches a heater.",
         description = "Tastes terrible. Works fine.",
         sprite      = "energy_drink",
         phase       = "demo",
@@ -212,14 +212,14 @@ local items = {
         position    = { x = 200, y = 220 },
         effects     = {
             { kind = "shove_rate_add",  value = 0.008 },
-            { kind = "proc", proc = "caffeine" },
+            { kind = "proc", proc = "energy_drink_caffeine" },
         },
         corrupt = {
             cost_achip = 2,
             effects = {
-                { kind = "proc", proc = "caffeine_corrupt" },
+                { kind = "proc", proc = "energy_drink_caffeine_corrupt" },
             },
-            effect_text = "Every 100 hands, a table catches a heater.",
+            effect_text = "Every 10 hands, a Zoom table catches a heater.",
         },
     },
     {
@@ -292,17 +292,17 @@ local items = {
         corrupt = {
             cost_achip = 2,
             effects = {
-                { kind = "loss_tier_shift", from = "large", to = "jackpot", chance = 0.4 },
+                { kind = "loss_tier_shift", from = "large", to = "stack", chance = 0.4 },
             },
             effect_text = "40% chance {l:large} {arrow} {l:stack}.",
         },
     },
     {
-        id          = "gift_box",
+        id          = "starter_gift_box",
         name        = "Starter Gift Box",
         effect_text = "+50% starting bankroll.",
         description = "A wrapped gift box for starting fresh.",
-        sprite      = "gift_box",
+        sprite      = "starter_gift_box",
         phase       = "demo",
         cost_chip   = 4,
         position    = { x = 360, y = 220 },
@@ -354,13 +354,13 @@ local items = {
         cost_chip     = 4,
         position    = { x = 440, y = 220 },
         -- 4-tier note: spec called this "15% Big loss → Medium". The code's
-        -- outcome model has 4 tiers (small/medium/large/jackpot — no Big).
-        -- Repointed to Jackpot loss → Large so the catastrophic-loss-
+        -- outcome model has 4 tiers (small/medium/large/stack — no Big).
+        -- Repointed to Stack loss → Large so the catastrophic-loss-
         -- insurance reading is preserved. Pairs with Stress Ball's
         -- large-loss cushion.
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "loss_tier_shift", from = "jackpot", to = "large", chance = 0.15 },
+            { kind = "loss_tier_shift", from = "stack", to = "large", chance = 0.15 },
         },
         unlock = {
             kind      = "total_stack_losses",
@@ -376,11 +376,11 @@ local items = {
         },
     },
     {
-        id          = "sticky_notes",
+        id          = "yellow_sticky_note",
         name        = "Yellow Sticky Note",
         effect_text = "Wins pay 25% more.",
         description = "A pad of yellow notes. Sticks to anything.",
-        sprite      = "sticky_notes",
+        sprite      = "yellow_sticky_note",
         phase       = "demo",
         cost_chip   = 5,
         effects     = {
@@ -416,7 +416,7 @@ local items = {
         corrupt = {
             cost_achip = 2,
             effects = {
-                { kind = "loss_tier_shift", from = "small", to = "jackpot", chance = 0.35 },
+                { kind = "loss_tier_shift", from = "small", to = "stack", chance = 0.35 },
             },
             effect_text = "35% chance {l:small} {arrow} {l:stack}.",
         },
@@ -453,7 +453,7 @@ local items = {
     {
         id          = "dogs_playing_poker",
         name        = "Dogs Playing Poker",
-        effect_text = "Winning a {stack} may heat that table. Losing one may tilt it.",
+        effect_text = "Winning a {stack}: 25% chance that table catches a heater.",
         description = "The one with the bulldog. It winks.",
         sprite      = "dogs_playing_poker",
         phase       = "mid",
@@ -466,15 +466,14 @@ local items = {
         position    = { x = 390, y = 400 },
         effects     = {
             { kind = "shove_rate_add", value = 0.006 },
-            { kind = "proc", proc = "stack_high" },
-            { kind = "proc", proc = "stack_low" },
+            { kind = "proc", proc = "dogs_playing_poker_high" },
         },
         corrupt = {
             cost_achip = 3,
             effects = {
-                { kind = "proc", proc = "stack_high" },
+                { kind = "proc", proc = "dogs_playing_poker_high_corrupt" },
             },
-            effect_text = "Winning a {stack} may heat that table. No tilt.",
+            effect_text = "Winning a {stack}: 35% chance that table catches a heater.",
         },
     },
     {
@@ -565,7 +564,7 @@ local items = {
         position    = { x = 230, y = 200 },
         effects     = {
             { kind = "shove_rate_add",   value = 0.006 },
-            { kind = "jackpot_chip_add", value = 1 },
+            { kind = "stack_chip_add", value = 1 },
         },
         unlock = {
             kind      = "total_chips_banked",
@@ -575,7 +574,7 @@ local items = {
         corrupt = {
             cost_achip = 4,
             effects = {
-                { kind = "jackpot_chip_add", value = 4 },
+                { kind = "stack_chip_add", value = 4 },
             },
             effect_text = "+4 {chip} on every bounty.",
         },
@@ -662,11 +661,11 @@ local items = {
         },
     },
     {
-        id          = "rebuy_note",
+        id          = "rebuy_sticky_note",
         name        = "Rebuy Sticky Note",
         effect_text = "Rebuys cost 25% less.",
         description = "Discount coupon pad. Sticks where you'll see it.",
-        sprite      = "rebuy_note",
+        sprite      = "rebuy_sticky_note",
         phase       = "mid",
         cost_chip   = 10,
         effects     = {
@@ -689,7 +688,7 @@ local items = {
     {
         id          = "gaming_chair",
         name        = "Gaming Chair",
-        effect_text = "Winning a {stack} may heat a nearby table.",
+        effect_text = "Winning a {stack}: 30% chance a nearby table catches a heater.",
         description = "Ergonomic. Overload hurts less.",
         sprite      = "gaming_chair",
         phase       = "mid",
@@ -702,15 +701,15 @@ local items = {
         position    = { x = 150, y = 400 },
         effects     = {
             { kind = "shove_rate_add", value = 0.012 },
-            { kind = "proc", proc = "stack_spread" },
+            { kind = "proc", proc = "gaming_chair_spread" },
         },
         corrupt = {
             cost_achip = 5,
             effects = {
-                { kind = "proc",      proc = "stack_spread" },
+                { kind = "proc",      proc = "gaming_chair_spread" },
                 { kind = "loss_mult", value = 1.4 },
             },
-            effect_text = "Winning a {stack} may heat a nearby table. Losses 40% heavier.",
+            effect_text = "Winning a {stack}: 30% chance a nearby table catches a heater. Losses 40% heavier.",
         },
     },
     {
@@ -741,7 +740,7 @@ local items = {
     },
     {
         id          = "prize_vase",
-        -- Tournaments open with Act 2 (C.GTYPE_GATE.mtt = shove_r1_won);
+        -- Tournaments open with Act 2 (C.GTYPE_GATE.ko = shove_r1_won);
         -- act = 2 keeps this out of the Act 1 book instead of sitting there
         -- as a "???" the demo can never open.
         act         = 2,
@@ -752,31 +751,31 @@ local items = {
         phase       = "mid",
         cost_chip     = 12,
         unlock = {
-            kind      = "total_mtt_wins",
+            kind      = "total_ko_wins",
             threshold = 1,
             text      = "tournament wins",
             -- "???" until they've actually sat in a tournament
-            mystery   = { kind = "total_hands_at_gtype", gtype = "mtt", threshold = 1 },
+            mystery   = { kind = "total_hands_at_gtype", gtype = "ko", threshold = 1 },
         },
         position    = { x = 350, y = 300 },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "proc", proc = "tourney_ratchet" },
+            { kind = "proc", proc = "prize_vase_ratchet" },
         },
         corrupt = {
             cost_achip = 6,
             effects = {
-                { kind = "proc", proc = "tourney_ratchet_corrupt" },
+                { kind = "proc", proc = "prize_vase_ratchet_corrupt" },
             },
             effect_text = "Winning a tournament lifts every table 3% for the run.",
         },
     },
     {
-        id          = "fridge",
+        id          = "compact_fridge",
         name        = "Compact Fridge",
         effect_text = "Your run's first {l:stack} is voided.",
         description = "The cooler. Eats the worst beat.",
-        sprite      = "fridge",
+        sprite      = "compact_fridge",
         phase       = "mid",
         cost_chip     = 12,
         position    = { x = 270, y = 400 },
@@ -812,12 +811,12 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.013 },
-            { kind = "proc", proc = "century" },
+            { kind = "proc", proc = "wall_clock_century" },
         },
         corrupt = {
             cost_achip = 7,
             effects = {
-                { kind = "proc",      proc = "century" },
+                { kind = "proc",      proc = "wall_clock_century" },
                 { kind = "loss_mult", value = 1.5 },
             },
             effect_text = "Every 100 hands won, a random table catches a heater. Losses 50% heavier.",
@@ -839,12 +838,12 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "proc", proc = "cat_nap" },
+            { kind = "proc", proc = "house_cat_nap" },
         },
         corrupt = {
             cost_achip = 4,
             effects = {
-                { kind = "proc", proc = "cat_nap_corrupt" },
+                { kind = "proc", proc = "house_cat_nap_corrupt" },
             },
             effect_text = "Every 25 hands won, a table's next win reads a tier higher.",
         },
@@ -852,18 +851,18 @@ local items = {
     {
         id          = "candle",
         name        = "Candle",
-        effect_text = "Winning a {stack} may spread the warmth: a random table catches a heater.",
+        effect_text = "Winning a {stack}: 25% chance a random table catches a heater.",
         description = "One wick. Surprising reach.",
         sprite      = "candle",
         phase       = "mid",
         cost_chip   = 7,
-        -- Jackpots land ~155 per shove (measured from a real save at
-        -- shove five: 775 jackpots), so jackpot thresholds are per-shove
+        -- Stacks land ~155 per shove (measured from a real save at
+        -- shove five: 775 stacks), so stack thresholds are per-shove
         -- rates, not "rare event" counts. 600 ≈ shove four.
         unlock = {
-            kind      = "total_jackpots",
+            kind      = "total_stacks",
             threshold = 600,
-            text      = "jackpots won",
+            text      = "{stack} wins",
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
@@ -871,11 +870,11 @@ local items = {
         },
     },
     {
-        id          = "nes_console",
+        id          = "dusty_console",
         name        = "Dusty Console",
         effect_text = "+3% win chance at Heads-Up tables.",
         description = "Two controllers. Built for one-on-one.",
-        sprite      = "nes_console",
+        sprite      = "dusty_console",
         phase       = "mid",
         cost_chip   = 5,
         unlock = {
@@ -890,11 +889,11 @@ local items = {
         },
     },
     {
-        id          = "gameboy",
+        id          = "handheld",
         name        = "Handheld",
         effect_text = "+3% win chance at Zoom tables.",
         description = "Fits in a pocket. Fast games between fast games.",
-        sprite      = "gameboy",
+        sprite      = "handheld",
         phase       = "mid",
         cost_chip   = 5,
         unlock = {
@@ -949,12 +948,12 @@ local items = {
     -- ═══ BAND C — Act 2, deck era (T4-T6) · 23 items · 330 {chip} ═══════
 
     {
-        id          = "vouchers",
+        id          = "rolled_vouchers",
         act         = 2,
         name        = "Rolled Vouchers",
         effect_text = "Buy-ins cost 15% less.",
         description = "Tightly rolled entry coupons.",
-        sprite      = "vouchers",
+        sprite      = "rolled_vouchers",
         phase       = "mid",
         cost_chip     = 9,
         position    = { x = 600, y = 300 },
@@ -1002,15 +1001,15 @@ local items = {
         },
     },
     {
-        id            = "laptop",
+        id            = "laptop_terminal",
         act         = 2,
         name          = "Laptop Terminal",
         effect_text   = "+1 cursor.",
         description   = "Open laptop terminal running extra clicker scripts.",
-        sprite        = "laptop",
+        sprite        = "laptop_terminal",
         phase         = "late",
         cost_chip     = 12,
-        requires      = "box_of_mice",
+        requires    = "box_of_mice",
         position      = { x = 200, y = 500 },
         effects       = {
             { kind = "shove_rate_add",   value = 0.010 },
@@ -1033,7 +1032,12 @@ local items = {
         sprite        = "gaming_keyboard",
         phase         = "late",
         cost_chip     = 12,
-        requires      = "laptop",
+        requires    = "box_of_mice",
+        unlock = {
+            kind      = "total_cursor_deals",
+            threshold = 1000,
+            text      = "hands dealt by cursors",
+        },
         effects       = {
             { kind = "shove_rate_add",    value = 0.010 },
             { kind = "cursor_speed_mult", value = 1.30 },
@@ -1059,7 +1063,7 @@ local items = {
         position    = { x = 100, y = 500 },
         unlock = {
             kind      = "total_hands_at_4plus",
-            threshold = 5000,
+            threshold = 2000,   -- was 5000: idling has to arrive early in Act 2, not deep into it
             text      = "hands at 4+ tables",
         },
         effects     = {
@@ -1084,7 +1088,12 @@ local items = {
         sprite        = "wacom_tablet",
         phase         = "late",
         cost_chip       = 13,
-        requires      = "gaming_keyboard",
+        requires    = "box_of_mice",
+        unlock = {
+            kind      = "total_rebuys",
+            threshold = 100,
+            text      = "rebuys",
+        },
         position      = { x = 300, y = 500 },
         effects       = {
             { kind = "shove_rate_add",       value = 0.012 },
@@ -1108,7 +1117,12 @@ local items = {
         sprite        = "desk_lamp",
         phase         = "late",
         cost_chip     = 10,
-        requires      = "wacom_tablet",
+        requires    = "box_of_mice",
+        unlock = {
+            kind      = "total_cursor_deals",
+            threshold = 3000,
+            text      = "hands dealt by cursors",
+        },
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "cursor_optical_sensor" },
@@ -1131,7 +1145,12 @@ local items = {
         sprite        = "telephone",
         phase         = "late",
         cost_chip     = 12,
-        requires      = "desk_lamp",
+        requires    = "laptop_terminal",
+        unlock = {
+            kind      = "total_cursor_deals",
+            threshold = 6000,
+            text      = "hands dealt by cursors",
+        },
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "cursor_sync_unlocked" },
@@ -1146,19 +1165,19 @@ local items = {
         sprite        = "glass_partition",
         phase         = "late",
         cost_chip     = 12,
-        requires      = "telephone",
+        requires    = "laptop_terminal",
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
             { kind = "cursor_collision_phasing" },
         },
     },
     {
-        id          = "kettle",
+        id          = "electric_kettle",
         act         = 2,
         name        = "Electric Kettle",
         effect_text = "Busted tables refund 30% of the buy-in.",
         description = "Boils fast. Whistles louder.",
-        sprite      = "kettle",
+        sprite      = "electric_kettle",
         phase       = "late",
         cost_chip   = 11,
         effects     = {
@@ -1179,12 +1198,12 @@ local items = {
         },
     },
     {
-        id          = "toaster",
+        id          = "chrome_toaster",
         act         = 2,
         name        = "Chrome Toaster",
         effect_text = "8% chance a pot bumps one tier.",
         description = "Two slots. One setting. Pops without warning.",
-        sprite      = "toaster",
+        sprite      = "chrome_toaster",
         phase       = "late",
         cost_chip   = 14,
         effects     = {
@@ -1192,9 +1211,9 @@ local items = {
             { kind = "tier_bump_chance", value = 0.08 },
         },
         unlock = {
-            kind      = "total_jackpots",
+            kind      = "total_stacks",
             threshold = 1600,
-            text      = "Jackpots hit",
+            text      = "{stack} wins",
         },
         corrupt = {
             cost_achip = 8,
@@ -1220,12 +1239,12 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.012 },
-            { kind = "proc", proc = "ko_biggest" },
+            { kind = "proc", proc = "first_aid_kit_biggest" },
         },
         corrupt = {
             cost_achip = 8,
             effects = {
-                { kind = "proc",          proc = "ko_biggest" },
+                { kind = "proc",          proc = "first_aid_kit_biggest" },
                 { kind = "earnings_mult", value = 0.70 },
             },
             effect_text = "Knockouts have a 10% chance to pay out your biggest buy-in. Wins pay 30% less.",
@@ -1266,33 +1285,33 @@ local items = {
         sprite      = "receipt_printer",
         phase       = "mid",
         cost_chip   = 19,
-        -- Late-Act-1 machine at a late-Act-1 price: 1,100 jackpots ≈
+        -- Late-Act-1 machine at a late-Act-1 price: 1,100 stacks ≈
         -- shove seven at the measured ~155/shove (see the Candle's note).
         unlock = {
-            kind      = "total_jackpots",
+            kind      = "total_stacks",
             threshold = 1100,
-            text      = "jackpots won",
+            text      = "{stack} wins",
         },
         position    = { x = 330, y = 400 },
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "proc", proc = "zoom_cascade" },
+            { kind = "proc", proc = "receipt_printer_cascade" },
         },
         corrupt = {
             cost_achip = 9,
             effects = {
-                { kind = "proc", proc = "zoom_cascade" },
+                { kind = "proc", proc = "receipt_printer_cascade" },
             },
             effect_text = "Win a {stack} and every Zoom table settles at once.",
         },
     },
     {
-        id          = "microwave",
+        id          = "microwave_oven",
         act         = 2,
         name        = "Microwave Oven",
-        effect_text = "When a 6-max is tilted, another table may catch a heater.",
+        effect_text = "When a 6-max is tilted: 50% chance another table catches a heater.",
         description = "Turntable squeaks. Clock blinks 12:00.",
-        sprite      = "microwave",
+        sprite      = "microwave_oven",
         phase       = "late",
         cost_chip   = 18,
         -- Second link of the tank chain: the Bonsai opens the room, this
@@ -1300,24 +1319,24 @@ local items = {
         requires    = "bonsai",
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "proc", proc = "tank_vent" },
+            { kind = "proc", proc = "microwave_oven_vent" },
         },
         corrupt = {
             cost_achip = 10,
             effects = {
-                { kind = "proc",      proc = "tank_vent" },
+                { kind = "proc",      proc = "microwave_oven_vent" },
                 { kind = "loss_mult", value = 1.5 },
             },
-            effect_text = "When a 6-max is tilted, another table may catch a heater. Losses 50% heavier.",
+            effect_text = "When a 6-max is tilted: 50% chance another table catches a heater. Losses 50% heavier.",
         },
     },
     {
-        id          = "diploma",
+        id          = "framed_diploma",
         act         = 2,
         name        = "Framed Diploma",
         effect_text = "Every 1000 hands won, Zoom tables read a tier sharper for the run.",
         description = "Wall-mounted certificate. Handsome on the wall.",
-        sprite      = "diploma",
+        sprite      = "framed_diploma",
         phase       = "late",
         cost_chip     = 18,
         -- Millennium IS century, bigger — lesson two of the counter items.
@@ -1325,26 +1344,26 @@ local items = {
         position    = { x = 450, y = 400 },
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "proc", proc = "millennium" },
-            { kind = "proc", proc = "millennium_bank" },
+            { kind = "proc", proc = "framed_diploma_millennium" },
+            { kind = "proc", proc = "framed_diploma_millennium_bank" },
         },
         corrupt = {
             cost_achip = 9,
             effects = {
-                { kind = "proc",          proc = "millennium" },
-                { kind = "proc",          proc = "millennium_bank" },
+                { kind = "proc",          proc = "framed_diploma_millennium" },
+                { kind = "proc",          proc = "framed_diploma_millennium_bank" },
                 { kind = "earnings_mult", value = 0.70 },
             },
             effect_text = "Every 1000 hands won, Zoom tables read a tier sharper for the run. Wins pay 30% less.",
         },
     },
     {
-        id          = "blueprint",
+        id          = "laminated_blueprint",
         act         = 2,
         name        = "Laminated Blueprint",
         effect_text = "Active deck earns 50% more XP.",
         description = "Wall blueprint chart for systematic study.",
-        sprite      = "blueprint",
+        sprite      = "laminated_blueprint",
         phase       = "late",
         cost_chip   = 19,
         effects     = {
@@ -1367,24 +1386,24 @@ local items = {
         },
     },
     {
-        id          = "console_tv",
+        id          = "console_television",
         act         = 2,
         name        = "Console Television",
         effect_text = "A 6-max may take a status aimed at the table beside it.",
         description = "Always on. You stop noticing the sound.",
-        sprite      = "console_tv",
+        sprite      = "console_television",
         phase       = "late",
         cost_chip   = 26,
         -- The router caps the tank chain.
         requires      = "blackout_curtains",
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "router", router = "tank_intercept" },
+            { kind = "router", router = "console_television_intercept" },
         },
         corrupt = {
             cost_achip = 13,
             effects = {
-                { kind = "router",        router = "tank_intercept" },
+                { kind = "router",        router = "console_television_intercept" },
                 { kind = "earnings_mult", value = 0.5 },
             },
             effect_text = "A 6-max may take a status aimed at the table beside it. Wins pay 50% less.",
@@ -1407,12 +1426,12 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add",   value = 0.010 },
-            { kind = "win_chance_shift", amount = 0.05, gtype = "mtt" },
+            { kind = "win_chance_shift", amount = 0.05, gtype = "ko" },
         },
         corrupt = {
             cost_achip = 6,
             effects = {
-                { kind = "win_chance_shift", amount = 0.30, gtype = "mtt" },
+                { kind = "win_chance_shift", amount = 0.30, gtype = "ko" },
                 { kind = "win_chance_shift", amount = -0.10, gtype = "six_max" },
             },
             effect_text = "+30% win chance at tournaments. -10% at 6-max.",
@@ -1431,35 +1450,35 @@ local items = {
         requires    = "prize_vase",
         effects     = {
             { kind = "shove_rate_add", value = 0.012 },
-            { kind = "proc", proc = "ko_heater" },
+            { kind = "proc", proc = "curved_monitor_heater" },
         },
         corrupt = {
             cost_achip = 7,
             effects = {
-                { kind = "proc",      proc = "ko_heater_corrupt" },
+                { kind = "proc",      proc = "curved_monitor_heater_corrupt" },
                 { kind = "loss_mult", value = 1.5 },
             },
             effect_text = "Knockouts have a 30% chance to heat every nearby table. Losses 50% heavier.",
         },
     },
     {
-        id          = "pc_tower",
+        id          = "tower_upgrade",
         act         = 2,
         name        = "Tower Upgrade",
         effect_text = "Knockouts have a 15% chance to mark a nearby table's next pot for a tier bump.",
         description = "Fans you can hear from the bed. Boots in seconds.",
-        sprite      = "pc_tower",
+        sprite      = "tower_upgrade",
         phase       = "mid",
         cost_chip   = 14,
         requires      = "curved_monitor",
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "proc", proc = "ko_bump" },
+            { kind = "proc", proc = "tower_upgrade_bump" },
         },
         corrupt = {
             cost_achip = 5,
             effects = {
-                { kind = "proc", proc = "ko_bump_corrupt" },
+                { kind = "proc", proc = "tower_upgrade_bump_corrupt" },
                 -- It bumps pot tiers, so corruption bumps loss tiers back.
                 { kind = "loss_tier_shift", from = "medium", to = "large",
                   chance = 0.35 },
@@ -1543,12 +1562,12 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.016 },
-            { kind = "router", router = "polarity_bend" },
+            { kind = "router", router = "window_bend" },
         },
         corrupt = {
             cost_achip = 10,
             effects = {
-                { kind = "router",    router = "polarity_bend" },
+                { kind = "router",    router = "window_bend" },
                 { kind = "loss_mult", value = 1.5 },
             },
             effect_text = "While a tournament runs, tilts along its row arrive as heaters, heaters down its column as tilts. Losses 50% heavier.",
@@ -1615,15 +1634,15 @@ local items = {
         phase       = "late",
         cost_chip   = 24,
         -- Tilt-on-tilted only means something once tilts are farmable.
-        requires    = "microwave",
+        requires    = "microwave_oven",
         effects     = {
             { kind = "shove_rate_add", value = 0.018 },
-            { kind = "proc", proc = "tank_compress" },
+            { kind = "proc", proc = "fire_extinguisher_compress" },
         },
         corrupt = {
             cost_achip = 12,
             effects = {
-                { kind = "proc",          proc = "tank_compress" },
+                { kind = "proc",          proc = "fire_extinguisher_compress" },
                 { kind = "earnings_mult", value = 0.75 },
             },
             effect_text = "A tilt landing on an already tilted 6-max marks its next pot. Wins pay 25% less.",
@@ -1641,12 +1660,12 @@ local items = {
         requires      = "fire_extinguisher",
         effects     = {
             { kind = "shove_rate_add", value = 0.018 },
-            { kind = "proc", proc = "tank_read" },
+            { kind = "proc", proc = "blackout_curtains_read" },
         },
         corrupt = {
             cost_achip = 12,
             effects = {
-                { kind = "proc",      proc = "tank_read" },
+                { kind = "proc",      proc = "blackout_curtains_read" },
                 { kind = "loss_mult", value = 1.6 },
             },
             effect_text = "Every status landing on a 6-max makes its wins reach a tier higher, for the run. Losses 60% heavier.",
@@ -1688,15 +1707,15 @@ local items = {
         sprite      = "shredder",
         phase       = "late",
         cost_chip   = 18,
-        requires      = "pc_tower",
+        requires      = "tower_upgrade",
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "proc", proc = "ko_refund" },
+            { kind = "proc", proc = "shredder_refund" },
         },
         corrupt = {
             cost_achip = 9,
             effects = {
-                { kind = "proc",          proc = "ko_refund_corrupt" },
+                { kind = "proc",          proc = "shredder_refund_corrupt" },
                 { kind = "earnings_mult", value = 0.70 },
             },
             effect_text = "Knockouts have a 25% chance to refund a nearby buy-in. Wins pay 30% less.",
@@ -1714,7 +1733,7 @@ local items = {
         requires    = "dish_soap",
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "proc", proc = "towel_cleanse" },
+            { kind = "proc", proc = "cool_towel_cleanse" },
         },
     },
     {
@@ -1729,7 +1748,7 @@ local items = {
         requires    = "dish_soap",
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "proc", proc = "tilt_burnout" },
+            { kind = "proc", proc = "waste_basket_burnout" },
         },
     },
     {
@@ -1741,10 +1760,15 @@ local items = {
         sprite        = "cleaning_robot",
         phase         = "late",
         cost_chip     = 24,
-        requires      = "glass_partition",
+        requires    = "gaming_keyboard",
+        unlock = {
+            kind      = "total_stacks",
+            threshold = 500,
+            text      = "{stack} wins",
+        },
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "proc", proc = "robot_overdrive" },
+            { kind = "proc", proc = "cleaning_robot_overdrive" },
         },
     },
     -- ═══ Act 3 — anti-{chip} corruption ═════════════════════════════════
@@ -1755,12 +1779,12 @@ local items = {
 
     -- ── Engine upgrades ──────────────────────────────────────────────────
     {
-        id          = "unlock_ultra",
+        id          = "ultra_stake",
         act         = 2,
         name        = "Ultra Stake",
         effect_text = "Unlock the T10 ULTRA stake.",
         description = "The top table. House limit: none.",
-        sprite      = "unlock_ultra",
+        sprite      = "ultra_stake",
         phase       = "late",
         cost_chip     = 0,
         requires_act3 = true,

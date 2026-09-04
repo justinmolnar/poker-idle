@@ -2,11 +2,11 @@
 --
 -- Per-tier visual height for the history-bar mini-graph rendered in each
 -- table-panel header. Each bar's height is `height_frac × graph_zone_height`,
--- letting jackpots tower over tinies at a glance.
+-- letting stacks tower over tinies at a glance.
 --
 -- Single source of truth — adding a new tier or rebalancing the visual
 -- weight is a one-data-file edit. Views read this table by tier name; no
--- `if tier == "jackpot"` branches.
+-- `if tier == "stack"` branches.
 
 return {
     -- Visual layout knobs. Live here (not view-side constants) so the bar
@@ -22,11 +22,11 @@ return {
     },
 
     -- Tier → height fraction (0..1 of graph_h). Tinies stay short so the
-    -- common case is a quiet baseline; jackpots punch up to full height.
+    -- common case is a quiet baseline; stacks punch up to full height.
     height = {
         small    = 0.30,
         medium   = 0.55,
         large  = 0.80,
-        jackpot = 1.00,
+        stack = 1.00,
     },
 }

@@ -286,11 +286,12 @@ function GrindController:_fireProcs(trigger, source_tbl, extra)
         }
         local touched, hit = reg:fire(entry.def, event)
         if touched > 0 then
-            -- Only procs that read as a BLOW get the fist or the shove.
-            -- Not everything that reaches another table is violence: the
-            -- printer chatters and those hands settle, and animating that
-            -- as an assault says something the mechanic does not mean.
-            if entry.def.impact ~= false then
+            -- Only procs that declare themselves a BLOW (impact = true)
+            -- get the fist or the shove. Most procs are not violence: the
+            -- printer chatters, a counter ticks, a heater lands; animating
+            -- those as an assault says something the mechanic does not
+            -- mean, so the default is quiet and a blow opts in.
+            if entry.def.impact == true then
                 self:_bumpTargets(source_tbl, hit)
             end
             if entry.def.ghost then self:procFired(entry.def.ghost, source_tbl) end
@@ -509,7 +510,7 @@ function GrindController:invalidateEffects()
     if per and per > 0 and self.pool then
         local by_stake
         for _, t in ipairs(self.pool.tables) do
-            local n = (t.mtt and t.mtt.finish_count) or 0
+            local n = (t.ko and t.ko.finish_count) or 0
             if n > 0 then
                 by_stake = by_stake or {}
                 by_stake[t.stake_id] = (by_stake[t.stake_id] or 0) + n
@@ -578,7 +579,7 @@ function GrindController:_tickTournamentAuras(dt)
     if self._tourney_t < TOURNEY_TICK then return end
     self._tourney_t = 0
     for _, t in ipairs(self.pool.tables) do
-        if t.mtt and t.mtt:isPlaying() then
+        if t.ko and t.ko:isPlaying() then
             self:_announce("on_tournament_tick", { table = t })
         end
     end
@@ -616,43 +617,43 @@ function GrindController:update(dt)
     for i = #self.pool.tables, 1, -1 do
         local t = self.pool.tables[i]
         if t and t.pending_close and t.state == "idle"
-           and not (t.mtt and t.mtt.pending_payout ~= nil) then
+           and not (t.ko and t.ko.pending_payout ~= nil) then
             self:_finalizeRemove(i)
         end
     end
 
-    -- Tournament payout drain. MttSession.settle stashes a $ amount on the
+    -- Tournament payout drain. KoSession.settle stashes a $ amount on the
     -- table; we apply it to bankroll, emit a chip burst, and reset the
     -- per-tournament counter so the player can rebuy for another run.
     for _, t in ipairs(self.pool.tables) do
-        local payout = t.mtt and t.mtt:drainPayout()
+        local payout = t.ko and t.ko:drainPayout()
         if payout ~= nil then
             -- A finished tournament just raised this table's finish count;
             -- re-derive the High Roller Pass backing (invalidateEffects
             -- reads the counts from the pool).
             self:invalidateEffects()
-            local hands_cleared = t.mtt.hands_won
+            local hands_cleared = t.ko.hands_won
             -- Win detection: chip-stack KO, finish 1st.
             local gtype = Lookups.findById(GameTypes, t.game_type_id)
-            local is_win = t.mtt and t.mtt.last_finish == 1
+            local is_win = t.ko and t.ko.last_finish == 1
                            and gtype and gtype.chip_stack_table or false
             local center = AnchorRegistry.get(TableModel.anchorKey(t, "center"))
                            or { 0, 0 }
 
             if payout > 0 then
                 self.game.state.bankroll = self.game.state.bankroll + payout
-                self:_emitMttPayoutChips(t, payout)
+                self:_emitKoPayoutChips(t, payout)
             end
             if Constants.DEBUG.HAND_ANALYTICS then
-                local mtt_stake = Lookups.findById(Stakes, t.stake_id)
+                local ko_stake = Lookups.findById(Stakes, t.stake_id)
                 HandAnalytics.recordHand({
                     t_start      = love.timer.getTime(),
                     duration     = 0,
                     won          = is_win,
                     delta        = payout,
-                    tier         = "mtt_payout",
+                    tier         = "ko_payout",
                     stake_id     = t.stake_id,
-                    stake_bb     = mtt_stake and mtt_stake.bb or nil,
+                    stake_bb     = ko_stake and ko_stake.bb or nil,
                     game_type_id = t.game_type_id,
                     demo         = Constants.DEMO,
                     hands_played = hands_cleared,
@@ -660,12 +661,12 @@ function GrindController:update(dt)
             end
 
             if is_win then
-                -- Chip bounty: first jackpot-equivalent per (stake, gtype) per
-                -- run. Tournaments only "jackpot" once — on the win — so it's
+                -- Chip bounty: first stack-equivalent per (stake, gtype) per
+                -- run. Tournaments only "stack" once — on the win — so it's
                 -- banked here, not on the per-hand cash path. Rides into the
                 -- celebration block below.
                 local state = self.game.state
-                state.total_mtt_wins = (state.total_mtt_wins or 0) + 1
+                state.total_ko_wins = (state.total_ko_wins or 0) + 1
                 local cap = 1
                 local key = bountyKey(t.stake_id, t.game_type_id)
                 local cur = state.stakes_won_this_run[key]
@@ -679,7 +680,7 @@ function GrindController:update(dt)
                 if count < cap then
                     state.stakes_won_this_run[key] = count + 1
                     state.hands_since_last_bank = 0
-                    -- Same award math as the cash jackpot path (incl.
+                    -- Same award math as the cash stack path (incl.
                     -- chip_award_mult AND Pen's flat bonus — this used to
                     -- hand-roll the formula and dropped the Pen add).
                     award = self:bountyAward(t.stake_id, t.game_type_id)
@@ -690,7 +691,7 @@ function GrindController:update(dt)
                             award = award + ((self.ctx and self.ctx.first_bounty_bonus) or 0)
                             if (self.ctx and self.ctx.first_bounty_bonus or 0) > 0 then self:itemFired("first_bounty_bonus", t) end
                         end
-                        self:itemFired("jackpot_chip_add", t)
+                        self:itemFired("stack_chip_add", t)
                         self:itemFired("chip_award_mult", t)
                         state.chips_this_run = state.chips_this_run + award
                         state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
@@ -715,16 +716,16 @@ function GrindController:update(dt)
                     end
                 end
 
-                -- Jackpot-grade table FX + the payout detonating — the MTT is
+                -- Stack-grade table FX + the payout detonating — the KO is
                 -- the top of the ladder, so the win gets the full spectacle.
                 -- 1.5× the standard chip count for the same reason.
-                local jp = FeedbackIntensity.jackpot
-                t.shake_trauma       = math.max(t.shake_trauma or 0, jp.shake)
+                local fx = FeedbackIntensity.stack
+                t.shake_trauma       = math.max(t.shake_trauma or 0, fx.shake)
                 t.vignette_kind      = "good"
-                t.vignette_alpha     = math.max(t.vignette_alpha or 0, jp.vignette)
+                t.vignette_alpha     = math.max(t.vignette_alpha or 0, fx.vignette)
                 t.border_pulse_t     = 1.0
                 t.border_pulse_color = "good"
-                t.glow_t             = math.max(t.glow_t or 0, jp.glow or 1.0)
+                t.glow_t             = math.max(t.glow_t or 0, fx.glow or 1.0)
                 self:_emitAmountExplosion(center, payout, t.stake_id)
 
                 -- ONE multi-line celebration float anchored at the table center.
@@ -756,7 +757,7 @@ function GrindController:update(dt)
                 self:_announce("on_tournament_win", { table = t, n = 1 })
             end
 
-            t.mtt.hands_won = 0
+            t.ko.hands_won = 0
         end
     end
 
@@ -785,13 +786,13 @@ function GrindController:update(dt)
             r.delta = r.delta * ShoveRate.bankrollMultiplier(self.game.state.bankroll)
         end
 
-        -- Once-per-run loss voids: The Fridge (first jackpot-tier stack loss)
+        -- Once-per-run loss voids: The Fridge (first stack-tier stack loss)
         -- then Rubber Duck (first loss of any size). Zero the delta before it
         -- lands on stack/bankroll, so the beat simply didn't happen. Cash
-        -- tables only — an MTT r.delta is informational (the bust is already
+        -- tables only — an KO r.delta is informational (the bust is already
         -- in tbl.stack), so voiding it there just wastes the once-per-run use.
         if r.delta < 0 and not r.chip_stack_table and self.ctx then
-            if self.ctx.void_first_stack_loss and r.tier == "jackpot"
+            if self.ctx.void_first_stack_loss and r.tier == "stack"
                and not state.first_stack_loss_voided_this_run then
                 state.first_stack_loss_voided_this_run = true
                 r.delta = 0
@@ -821,7 +822,7 @@ function GrindController:update(dt)
         if tbl and r.chip_stack_table then
             -- No-op: stack already reconciled. r.delta is informational.
         elseif tbl and state.shove_r2_won and stake and stake.band == "ultra"
-               and r.delta < 0 and r.tier == "jackpot" then
+               and r.delta < 0 and r.tier == "stack" then
             -- A STACK loss at Ultra is the underflow. It is not a number you
             -- creep under; losing that much at once breaks the count. The
             -- seat empties and the bankroll lands below the threshold
@@ -878,7 +879,7 @@ function GrindController:update(dt)
         -- Analytics: record hand timing and outcome. The start timestamp was
         -- stamped by dealHand() or by the auto-deal re-stamp below. After
         -- recording, we check whether the table already re-entered dealing
-        -- (auto-deal MTT path fires inside Table:update before we get here)
+        -- (auto-deal KO path fires inside Table:update before we get here)
         -- and re-stamp so the next resolution has a valid duration.
         if Constants.DEBUG.HAND_ANALYTICS and tbl then
             if tbl._hand_start_t then
@@ -904,7 +905,7 @@ function GrindController:update(dt)
 
         -- Floater label & color. Two flavors:
         --   • cash hand               → "+/-$X.XX"
-        --   • chip-stack MTT hand     → "+/-Nbb" (no cash until placement)
+        --   • chip-stack KO hand     → "+/-Nbb" (no cash until placement)
         -- Tournament cash payout fires its own "+$X.XX" floater from the
         -- drainPayout block above when the tournament ends.
         local label
@@ -912,12 +913,10 @@ function GrindController:update(dt)
         -- Wins carry their tier GLYPH inline, beside the amount on the
         -- same line — {w:small} .. {w:stack} via IconText (the floater
         -- renderer routes any {…} line through it), NEVER the tier
-        -- words; jackpot's player-facing name is the Stack. Losses stay
-        -- a bare number.
+        -- words. The tier key is the token. Losses stay a bare number.
         local tier_glyph = ""
         if r.tier then
-            tier_glyph = " {w:"
-                .. (r.tier == "jackpot" and "stack" or r.tier) .. "}"
+            tier_glyph = " {w:" .. r.tier .. "}"
         end
         if r.chip_stack_table then
             local stake = tbl and Lookups.findById(Stakes, tbl.stake_id)
@@ -940,12 +939,12 @@ function GrindController:update(dt)
             floater_opts_override = { color_token = "error" }
         end
 
-        local mtt_final = false
+        local ko_final = false
 
         -- Tier-scaled floater opts from data. Small = small + compact;
-        -- jackpot = huge + arcing. The data layer paints wins amber
+        -- stack = huge + arcing. The data layer paints wins amber
         -- (it pops on green felt); the per-emit overrides above route
-        -- losses to red (cash and MTT both).
+        -- losses to red (cash and KO both).
         local intensity_for_floater = FeedbackIntensity[r.tier] or FeedbackIntensity.small
         local floater_opts = intensity_for_floater.floater
         if floater_opts_override then
@@ -962,7 +961,7 @@ function GrindController:update(dt)
         local fy    = cxy and cxy[2] or (r.y or 0)
         -- Skip the winning hand's per-hand float — the TOURNAMENT WON banner
         -- from the payout-drain block stands in for it (avoids the pile-up).
-        if not mtt_final then
+        if not ko_final then
             local opts_copy = {}
             for k, v in pairs(floater_opts) do opts_copy[k] = v end
             opts_copy.table = tbl
@@ -1003,8 +1002,8 @@ function GrindController:update(dt)
 
         -- Tier-scaled resolution FX. Every settle now produces feedback;
         -- magnitude per tier comes from data/feedback_intensity.lua so
-        -- there's no `if tier == "jackpot"` branch here. Small resolutions
-        -- get a faint border pulse + small slam dip; jackpots get full
+        -- there's no `if tier == "stack"` branch here. Small resolutions
+        -- get a faint border pulse + small slam dip; stacks get full
         -- shake + vignette + bright border + biggest slam.
         if tbl then
             local intensity = FeedbackIntensity[r.tier] or FeedbackIntensity.small
@@ -1018,14 +1017,14 @@ function GrindController:update(dt)
             tbl.border_pulse_color = is_win and "good" or "bad"
             -- Border-pulse SFX marker — short ding tied to the colored
             -- border flash. Volume scales with the same border_pulse
-            -- intensity so Small resolutions barely register and Jackpots
+            -- intensity so Small resolutions barely register and Stacks
             -- ring out. Stacks with the existing pot_won_/pot_lost_ tier
             -- sound that fires from the state-transition handler.
             local pulse_sound = is_win and "border_pulse_win" or "border_pulse_loss"
             self:_playNamed(pulse_sound, { volume_mult = intensity.border_pulse })
-            -- Spectacle layer: jackpot wins only. Radial-glow shader on
+            -- Spectacle layer: stack wins only. Radial-glow shader on
             -- the panel + the pot detonating out of its own pile. Both
-            -- gated on intensity fields existing (only jackpot defines
+            -- gated on intensity fields existing (only stack defines
             -- them in data/feedback_intensity.lua) so future tiers can
             -- opt in by adding the same fields.
             if is_win and intensity.glow and intensity.glow > 0 then
@@ -1041,22 +1040,22 @@ function GrindController:update(dt)
             end
         end
 
-        -- Chip-bounty: first jackpot-tier win at this (stake, game_type)
+        -- Chip-bounty: first stack-tier win at this (stake, game_type)
         -- combo this run awards the stake's chip_award. Locked in until
-        -- prestige clears it. Non-jackpot wins, losing hands, and
-        -- subsequent jackpot wins at the same combo do nothing.
+        -- prestige clears it. Non-stack wins, losing hands, and
+        -- subsequent stack wins at the same combo do nothing.
         --
-        -- The Pen catalog item (jackpot_chip_add) adds a flat +N to the
+        -- The Pen catalog item (stack_chip_add) adds a flat +N to the
         -- bounty award — i.e. each tier's payout becomes worth +1 chip
         -- more when Pen is owned. So a tier whose chip_award is 2 pays
         -- 3 with Pen; a tier whose award is 5 pays 6. The bonus rides
         -- the bounty so it fires exactly when the bounty fires (once
-        -- per (stake, gtype) per run), never on subsequent jackpots.
+        -- per (stake, gtype) per run), never on subsequent stacks.
         --
         -- Chip-stack tournaments skip this path — their bounty fires
         -- once per run on a 1st-place tournament win, gated in the
-        -- drainPayout block above. Without this skip, a jackpot pot
-        -- mid-tournament would bank the (stake, mtt) bounty before
+        -- drainPayout block above. Without this skip, a stack pot
+        -- mid-tournament would bank the (stake, ko) bounty before
         -- the player has actually won the tournament.
         -- Runs before the bounty check so a banking hand's reset (below)
         -- leaves this at 0, not 1. Drives the tutorial's shove-stall hint.
@@ -1070,7 +1069,7 @@ function GrindController:update(dt)
         -- itself a {stack} appends the next wave the same way, which is
         -- how cascades chain.
         --
-        -- WINS only: a jackpot LOSS setting off your engine would read as
+        -- WINS only: a stack LOSS setting off your engine would read as
         -- being rewarded for getting stacked. Flip the `r.delta > 0` here
         -- if that ever seems worth trying.
         -- Knockouts. Fired ONCE per hand carrying the seat count, not once
@@ -1096,18 +1095,18 @@ function GrindController:update(dt)
         end
         -- `not r.flipped` throughout: a hand whose side a heater or tilt
         -- FLIPPED keeps its tier for the felt (the cards played out), but a
-        -- manufactured jackpot is not the chip event — the dists never
-        -- rolled it. Without this gate a heater converts every jackpot-tier
+        -- manufactured stack is not the chip event — the dists never
+        -- rolled it. Without this gate a heater converts every stack-tier
         -- cooler into a bounty + cascade, and a tilt-flipped "cooler" feeds
         -- the tilt procs that caused it.
-        if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table and not r.flipped then
-            self:_announce("on_jackpot_win", { table = r.table, out = resolutions })
+        if r.delta > 0 and r.tier == "stack" and not r.chip_stack_table and not r.flipped then
+            self:_announce("on_stack_win", { table = r.table, out = resolutions })
         end
-        if r.delta < 0 and r.tier == "jackpot" and not r.chip_stack_table and not r.flipped then
+        if r.delta < 0 and r.tier == "stack" and not r.chip_stack_table and not r.flipped then
             self:_announce("on_stack_loss", { table = r.table, out = resolutions })
         end
 
-        if r.delta > 0 and r.tier == "jackpot" and not r.chip_stack_table and not r.flipped then
+        if r.delta > 0 and r.tier == "stack" and not r.chip_stack_table and not r.flipped then
             local tbl = r.table
             if tbl then
                 local cap = 1
@@ -1130,7 +1129,7 @@ function GrindController:update(dt)
                             award = award + ((self.ctx and self.ctx.first_bounty_bonus) or 0)
                             if (self.ctx and self.ctx.first_bounty_bonus or 0) > 0 then self:itemFired("first_bounty_bonus", tbl) end
                         end
-                        self:itemFired("jackpot_chip_add", tbl)
+                        self:itemFired("stack_chip_add", tbl)
                         self:itemFired("chip_award_mult", tbl)
                         -- Pending chips — commit to state.chips at SHOVE
                         -- time. The float is the satisfying "you locked a
@@ -1175,12 +1174,12 @@ function GrindController:update(dt)
             end
         end
 
-        -- Anti-chip award: a stack loss (r.delta < 0 and r.tier == "jackpot")
+        -- Anti-chip award: a stack loss (r.delta < 0 and r.tier == "stack")
         -- at ANY stake during Act 3, once per stake x game type per run,
         -- alongside the {chip} for winning one. The award ladder is inverse
         -- (antiBountyAward, from ladder position): T1 pays most because a maxed
         -- build almost never loses a stack there.
-        if r.delta < 0 and r.tier == "jackpot" and not r.chip_stack_table then
+        if r.delta < 0 and r.tier == "stack" and not r.chip_stack_table then
             local tbl = r.table
             if tbl then
                 local stake = Lookups.findById(Stakes, tbl.stake_id)
@@ -1242,14 +1241,14 @@ function GrindController:update(dt)
                 table = tbl, count = state.total_hands_won, out = resolutions,
             })
         end
-        if r.tier == "large" or r.tier == "jackpot" then
+        if r.tier == "large" or r.tier == "stack" then
             -- Big outcomes, win or loss — the tutorial's tier hint fires
             -- on the first one.
             state.total_big_outcomes = (state.total_big_outcomes or 0) + 1
         end
-        if r.won and r.tier == "jackpot" then
-            state.total_jackpots = (state.total_jackpots or 0) + 1
-        elseif (not r.won) and r.tier == "jackpot" then
+        if r.won and r.tier == "stack" then
+            state.total_stacks = (state.total_stacks or 0) + 1
+        elseif (not r.won) and r.tier == "stack" then
             state.total_stack_losses = (state.total_stack_losses or 0) + 1
         end
         if r.delta < 0 then
@@ -1294,11 +1293,11 @@ function GrindController:update(dt)
             elseif r.delta < 0 then
                 state.lifetime_money_lost = (state.lifetime_money_lost or 0) + (-r.delta)
             end
-            if r.won and r.tier == "jackpot" and not r.flipped then
-                state.lifetime_jackpot_count = (state.lifetime_jackpot_count or 0) + 1
+            if r.won and r.tier == "stack" and not r.flipped then
+                state.lifetime_stack_count = (state.lifetime_stack_count or 0) + 1
             end
-            if r.won and gtype_id == "mtt" then
-                state.lifetime_mtt_hands_won = (state.lifetime_mtt_hands_won or 0) + 1
+            if r.won and gtype_id == "ko" then
+                state.lifetime_ko_hands_won = (state.lifetime_ko_hands_won or 0) + 1
             end
             if n_tables >= 4 then
                 state.lifetime_hands_at_4plus_tables = (state.lifetime_hands_at_4plus_tables or 0) + 1
@@ -1319,6 +1318,7 @@ function GrindController:update(dt)
                 delta          = r.delta,
                 tier           = r.tier,
                 bb_delta       = bb and (r.delta / bb) or 0,
+                stake_buy_in   = stake and stake.buy_in or 0,
                 gtype          = gtype_id,
                 stake_tier_idx = stake_tier_idx,
                 n_tables       = n_tables,
@@ -1341,8 +1341,8 @@ function GrindController:update(dt)
         end
     end
 
-    -- Resolutions just mutated per-table state (incl. MttSession fields
-    -- on tournament tables). Resync so a save mid-MTT-run
+    -- Resolutions just mutated per-table state (incl. KoSession fields
+    -- on tournament tables). Resync so a save mid-KO-run
     -- captures the latest hand counter. Cheap (4 array writes per
     -- table; bounded by MAX_TABLES).
     self.pool:_syncStateList()
@@ -1429,8 +1429,8 @@ function GrindController:antiBountyBanked(stake_id, game_type_id)
 end
 
 -- THE bounty math — base stake.chip_award scaled by ctx.chip_award_mult,
--- then any flat ctx.jackpot_chip_add (Pen) added on top. Every award
--- site (cash jackpot, tournament win) and every display (sidebar "+N"
+-- then any flat ctx.stack_chip_add (Pen) added on top. Every award
+-- site (cash stack, tournament win) and every display (sidebar "+N"
 -- badge) calls this, so payouts can never drift from what's advertised.
 -- An effect kind just did something: tell whoever listens which items
 -- put it there (ctx.sources, from computeEffects). Sound and any future
@@ -1460,7 +1460,7 @@ function GrindController:bountyAward(stake_id, gtype_id)
     if gtype_id and gmults and gmults[gtype_id] then
         mult = mult * gmults[gtype_id]
     end
-    local bonus = (self.ctx and self.ctx.jackpot_chip_add) or 0
+    local bonus = (self.ctx and self.ctx.stack_chip_add) or 0
     return math.floor((stake.chip_award or 0) * mult + 0.5) + bonus
 end
 
@@ -1802,7 +1802,7 @@ function GrindController:addTable(stake_id, game_type_id)
         -- tables opened after the firings (data/procs.lua millennium_bank).
         local banked = self.game.state.zoom_sharp_banked or 0
         if banked > 0 and new_tbl.game_type_id == "zoom" then
-            new_tbl:applyStatus("sharp", { magnitude = banked, source = "diploma" })
+            new_tbl:applyStatus("sharp", { magnitude = banked, source = "framed_diploma" })
             -- The save arrays hold per-table status references; re-sync so
             -- a save landing before the next tick doesn't miss it.
             self.pool:_syncStateList()
@@ -1847,7 +1847,7 @@ end
 -- Chip-stack tournaments: closing mid-tournament forfeits the buy-in.
 -- Chips on the table are tournament chips — they don't convert to cash
 -- until the finish-position payout settles. A brand-new tournament
--- table (no hand dealt yet → mtt not yet playing) still refunds the
+-- table (no hand dealt yet → ko not yet playing) still refunds the
 -- buy-in so accidental adds aren't punitive; a busted or post-settle
 -- table has stack = 0 already.
 function GrindController:_finalizeRemove(idx, quiet)
@@ -1855,7 +1855,7 @@ function GrindController:_finalizeRemove(idx, quiet)
     if not t then return false end
     local gtype = Lookups.findById(GameTypes, t.game_type_id)
     local refund
-    if gtype and gtype.chip_stack_table and t.mtt and t.mtt:isPlaying() then
+    if gtype and gtype.chip_stack_table and t.ko and t.ko:isPlaying() then
         refund = 0
     else
         refund = t.stack or 0
@@ -1892,7 +1892,7 @@ function GrindController:_forceRemove(idx)
     if not t then return false end
     local gtype = Lookups.findById(GameTypes, t.game_type_id)
     if gtype and gtype.chip_stack_table then
-        if t.mtt and t.mtt:isPlaying() then
+        if t.ko and t.ko:isPlaying() then
             local n_seats = (gtype.seats or 0) + 1
             local alive_opps = 0
             for s = 1, n_seats do
@@ -1903,10 +1903,10 @@ function GrindController:_forceRemove(idx)
             end
             t:_endTournament(alive_opps + 1, n_seats)
         end
-        local payout = t.mtt and t.mtt:drainPayout()
+        local payout = t.ko and t.ko:drainPayout()
         if payout and payout > 0 then
             self.game.state.bankroll = self.game.state.bankroll + payout
-            self:_emitMttPayoutChips(t, payout)
+            self:_emitKoPayoutChips(t, payout)
             local center = AnchorRegistry.get(TableModel.anchorKey(t, "center"))
                            or { 0, 0 }
             self.game.floating_text.emit(string.format("+$%.2f", payout),
@@ -1931,7 +1931,7 @@ function GrindController:removeTable(idx)
     -- The update loop scans for pending_close + idle each frame. A settled
     -- tournament whose payout has not been drained yet defers the same
     -- way, so the X never eats a cash.
-    if t.state ~= "idle" or (t.mtt and t.mtt.pending_payout ~= nil) then
+    if t.state ~= "idle" or (t.ko and t.ko.pending_payout ~= nil) then
         -- Already queued → the player is insisting. Leave NOW and forfeit
         -- the hand (see _forceRemove).
         if t.pending_close then
@@ -1956,8 +1956,8 @@ function GrindController:cashOutAll(force)
     for i = #self.pool.tables, 1, -1 do
         if force then
             local t = self.pool.tables[i]
-            if t and t.mtt and t.mtt.pending_payout ~= nil then
-                local payout = t.mtt:drainPayout()
+            if t and t.ko and t.ko.pending_payout ~= nil then
+                local payout = t.ko:drainPayout()
                 if payout and payout > 0 then
                     self.game.state.bankroll = self.game.state.bankroll + payout
                 end
@@ -2216,7 +2216,7 @@ end
 -- Tournament cash-out: pot/center → bankroll pile. Same shape as cash-out
 -- but anchored to the table's pot center (the chip pile from the final
 -- hand) so the burst visually originates from where the action ended.
-function GrindController:_emitMttPayoutChips(t, amount)
+function GrindController:_emitKoPayoutChips(t, amount)
     if not t or amount <= 0 then return end
     local bank_xy = AnchorRegistry.get("bankroll")
     if not bank_xy then return end
@@ -2291,7 +2291,7 @@ end
 -- instead of chips. Forms a pile out of the amount at `origin` and blows it
 -- apart in the same motion.
 --
--- The cash-table jackpot does NOT come through here: that pile is real and
+-- The cash-table stack does NOT come through here: that pile is real and
 -- already drawn, so it detonates in place via the pot_explode_pending flag
 -- (see the resolution FX block above).
 --
@@ -2354,11 +2354,14 @@ function GrindController:rebuyTable(idx)
     -- per-tournament counter so the next DEAL starts a fresh 8-hand run.
     -- Sync the parallel save arrays so the next autosave tick captures
     -- the post-rebuy state cleanly.
-    if t.mtt then t.mtt:reset() end
+    if t.ko then t.ko:reset() end
     self.pool:_syncStateList()
-    -- Grant deck XP for rebuy
+    -- Grant deck XP for rebuy. Carries the table's buy-in: the Short
+    -- Stack rule earns 10 × buy-in per rebuy.
     self:_grantDeckXp({
-        type = "table_rebuy",
+        type           = "table_rebuy",
+        stake_tier_idx = Lookups.indexById(Stakes, t.stake_id),
+        stake_buy_in   = buy_in,
     })
     -- Ungated mirror — catalog gates (Night Table, Medical Kit) read this
     -- one, so it has to tick in Act 1 too.
@@ -2394,7 +2397,7 @@ function GrindController:_playStateTransitionSound(_prev, new_state, t)
     elseif new_state == "showdown" then
         sounds.playNamed("hole_card_flip")
     elseif new_state == "settling" then
-        -- Tier-keyed pot sound: a small win clicks like one chip; a jackpot
+        -- Tier-keyed pot sound: a small win clicks like one chip; a stack
         -- lands like a stack with coins layered. data/sounds.lua defines all
         -- 8 entries (4 tiers × win/loss).
         local tier = t.outcome_tier or "medium"

@@ -32,14 +32,14 @@ return {
             small   = 0.00,
             medium  = 0.50,
             large   = 0.85,
-            jackpot = 1.00,
+            stack = 1.00,
         },
         foldout_end_street_weights = {
             -- weights match { preflop, flop, turn, river }
             small   = { 80, 17, 2, 1 },
             medium  = { 5, 35, 45, 15 },
             large   = { 0, 10, 35, 55 },
-            jackpot = { 0, 5, 25, 70 },
+            stack = { 0, 5, 25, 70 },
         },
     },
 

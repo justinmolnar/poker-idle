@@ -202,7 +202,7 @@ local function tokenColor(token)
     return t and t[key] or nil
 end
 
--- Warm halo for a heater. Reuses the jackpot glow's shader with a
+-- Warm halo for a heater. Reuses the stack glow's shader with a
 -- different colour — no new shader, no new compile. Absent (not shrunk)
 -- on small panels: below the gate the border carries the signal instead,
 -- because an 80px additive pad around a 137px panel is 5x the panel's own
@@ -461,7 +461,7 @@ function Effects.rotatePoint(px, py, cx, cy, angle)
     return cx + ox * c - oy * s, cy + ox * s + oy * c
 end
 
--- Win/loss flash over the felt. Fires only on `large` and `jackpot`
+-- Win/loss flash over the felt. Fires only on `large` and `stack`
 -- resolutions (controllers/GrindController sets vignette_alpha from
 -- data/feedback_intensity) and decays in Table:update.
 --

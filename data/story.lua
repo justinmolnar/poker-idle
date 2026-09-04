@@ -285,10 +285,10 @@ return {
         {
             id      = "first_tournament",
             screen  = "grind",
-            trigger = { kind = "gtype_table_open", gtype = "mtt" },
+            trigger = { kind = "gtype_table_open", gtype = "ko" },
             lines = {
                 { text = "A tournament. One buy-in, no rebuy, eight seats, ten blinds each, and it deals itself. Top three cash. Win it outright for the {chip}. Great business, tournaments.",
-                  anchor = "gtype:mtt" },
+                  anchor = "gtype:ko" },
             },
         },
         {
@@ -297,7 +297,7 @@ return {
             trigger = { kind = "owns_item", id = "box_of_mice" },
             lines = {
                 { text = "Look at you, management. The cursors deal for you now. More of them, and faster, in the sidebar. The D on a table stops them dealing there.",
-                  anchor = { "buy_runup_box_of_mice", "buy_runup_cursor_speed" } },
+                  anchor = { "buy_runup_cursor", "buy_runup_cursor_speed" } },
             },
         },
 
@@ -376,7 +376,7 @@ return {
                 -- opens with this very beat.
                 { text = "The big tables are open now. Bring money.", anchor = "add_table:s004:zoom" },
                 { text = "And the tournament room. Eight seats, one winner. It pays the tables around it more than it pays you.",
-                  anchor = "gtype:mtt" },
+                  anchor = "gtype:ko" },
             },
         },
 

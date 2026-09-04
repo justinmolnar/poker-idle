@@ -139,7 +139,7 @@ function FeltLayout.compute(p)
 
     local usable_h = fh - botp                              -- leave the border clear
 
-    local bottom_min = math.max(sm_h, p.bottom_extra or 0)  -- cash row OR MTT ladder
+    local bottom_min = math.max(sm_h, p.bottom_extra or 0)  -- cash row OR KO ladder
     local opp_name_h = xs_h                                 -- all seat names are xs (incl. HU)
 
     -- ── Opponent names: a WIDTH decision, made before the height solve ────

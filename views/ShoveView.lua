@@ -358,7 +358,7 @@ function ShoveView:beginBuildup(rates)
 
     local breakdown = DenominationBreakdown.breakdown(
         bankroll, ChipData.denominations, ChipData.full_palette,
-        ChipData.tier_chip_target, "jackpot")
+        ChipData.tier_chip_target, "stack")
     -- Truncate / pad to n_target. The breakdown returns largest-first;
     -- we keep the front so the showcase + primary chunks survive even
     -- when the trailing small-denom tail gets cut.

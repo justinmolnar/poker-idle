@@ -659,7 +659,7 @@ function ChipPile.take(key, amount)
 end
 
 -- Everything VISIBLE, for a pile that is coming apart rather than paying
--- out (the jackpot detonation). Same return shape as take.
+-- out (the stack detonation). Same return shape as take.
 --
 -- Airborne chips are left out: a chip still being carried here by its own
 -- flight would otherwise be drawn twice at once, once by that flight and

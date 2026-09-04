@@ -1,4 +1,4 @@
--- models/MttSession.lua
+-- models/KoSession.lua
 --
 -- Per-table tournament state. Composed onto Table for any game type with
 -- `chip_stack_table = true` (the 8-max KO mode). Cash tables instantiate
@@ -7,7 +7,7 @@
 -- ─── Two-level outcome model ──────────────────────────────────────────
 --
 -- Per-hand WC for cash tables is symmetric — the player's WC is the
--- only thing being rolled. In MTT mode that breaks down: the player's
+-- only thing being rolled. In KO mode that breaks down: the player's
 -- ~50% WC means opps share the *other* 50% across 7 seats, so each opp
 -- only has a ~7-17% effective per-hand WC and the player structurally
 -- outlasts the field. Tournaments dragged 30-50+ hands.
@@ -30,7 +30,7 @@
 -- ─── Lifecycle ────────────────────────────────────────────────────────
 --
 --   • :begin()            — flag the session as live (first deal of a
---                            new MTT run from Table:deal).
+--                            new KO run from Table:deal).
 --   • :planRun(...)       — roll finish_position + n_hands + bust
 --                            schedule + per-hand outcome list. One-shot
 --                            per tournament.
@@ -53,14 +53,14 @@
 -- benefits land next run.
 
 local OutcomeMath   = require("models.outcome_math")
-local MttFinishDist = require("data.mtt_finish_dist")
-local MttHandCount  = require("data.mtt_hand_count")
-local MttBustPacing = require("data.mtt_bust_pacing")
+local KoFinishDist = require("data.ko_finish_dist")
+local KoHandCount  = require("data.ko_hand_count")
+local KoBustPacing = require("data.ko_bust_pacing")
 
-local MttSession = {}
-MttSession.__index = MttSession
+local KoSession = {}
+KoSession.__index = KoSession
 
-function MttSession:new()
+function KoSession:new()
     return setmetatable({
         hands_won      = 0,
         state          = nil,    -- nil | "playing"
@@ -68,18 +68,18 @@ function MttSession:new()
         last_finish    = nil,    -- finish position from most recent settle,
                                  -- read by controller for bounty gating
         plan           = nil,    -- tournament plan (see :planRun)
-    }, MttSession)
+    }, KoSession)
 end
 
-function MttSession:begin()
+function KoSession:begin()
     if self.state == nil then self.state = "playing" end
 end
 
-function MttSession:isPlaying()
+function KoSession:isPlaying()
     return self.state == "playing"
 end
 
-function MttSession:winHand()
+function KoSession:winHand()
     self.hands_won = self.hands_won + 1
 end
 
@@ -147,13 +147,13 @@ end
 
 -- Roll the full tournament plan. Called once on the first deal of a
 -- fresh run from Table:deal (after :begin). The caller passes
--- player_seat + n_seats so MttSession doesn't have to know about the
+-- player_seat + n_seats so KoSession doesn't have to know about the
 -- table's seat layout (engine-agnostic). The plan is the source of
 -- truth for what the player experiences; actual chip flow drifts and
 -- is patched by :reconcile.
-function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
+function KoSession:planRun(ctx, gtype, stake, player_seat, n_seats)
     -- 1. Build the 3-distribution outcome the same way cash tables do.
-    --    Fold ctx.auto_win_chances (MTT Pro) into the effective WC —
+    --    Fold ctx.auto_win_chances (KO Pro) into the effective WC —
     --    this is the ONE place those perks apply for tournaments, so
     --    the per-hand path can safely skip the auto-win check.
     local wc, win_dist, loss_dist = OutcomeMath.buildOutcome(ctx, gtype, stake)
@@ -170,20 +170,20 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
     elseif eff_wc > OutcomeMath.WC_ABSOLUTE_CAP then eff_wc = OutcomeMath.WC_ABSOLUTE_CAP end
 
     -- 2. Blend finish_dist by the player's EFFECTIVE win chance measured
-    --    against THIS stake's bar (OutcomeMath.mttFinishFill, data/
-    --    mtt_finish_dist.lua wc_ref): the stake's difficulty rides in
+    --    against THIS stake's bar (OutcomeMath.koFinishFill, data/
+    --    ko_finish_dist.lua wc_ref): the stake's difficulty rides in
     --    through `wc` and through the bar, so a T6 tournament stays hard
     --    at a win chance that makes T1 a favourite. The fill is NOT
     --    clamped at 1 — out-power the bar and the title share keeps
     --    climbing; weights that extrapolate below zero are floored.
-    --    auto_win_total pushes the fill up directly, so MTT Pro biases
+    --    auto_win_total pushes the fill up directly, so KO Pro biases
     --    toward top finishes. (Mirrored in OutcomeMath.evStats.)
-    local eff_fill    = OutcomeMath.mttFinishFill(wc, stake) + auto_win_total
+    local eff_fill    = OutcomeMath.koFinishFill(wc, stake) + auto_win_total
 
     local finish_weights = {}
     for pos = 1, n_seats do
-        local naked  = MttFinishDist.naked[pos]  or 0
-        local capped = MttFinishDist.capped[pos] or naked
+        local naked  = KoFinishDist.naked[pos]  or 0
+        local capped = KoFinishDist.capped[pos] or naked
         local w = naked + (capped - naked) * eff_fill
         if w < 0 then w = 0 end
         finish_weights[pos] = w
@@ -191,7 +191,7 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
     local finish_position = OutcomeMath.sampleDist(finish_weights) or n_seats
 
     -- 3. Sample n_hands from the finish-keyed range.
-    local hc      = MttHandCount[finish_position] or MttHandCount[#MttHandCount]
+    local hc      = KoHandCount[finish_position] or KoHandCount[#KoHandCount]
     local n_hands = love.math.random(hc.lo, hc.hi)
 
     -- 4. Build bust schedule. K = finish, N = n_seats.
@@ -218,7 +218,7 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
     -- Distribute their bust hands across the available window.
     local pre_bust_window = player_busts_on_final and (n_hands - 1) or n_hands
     if pre_bust_window < 1 then pre_bust_window = 1 end
-    local pacing = MttBustPacing[K] or MttBustPacing[#MttBustPacing]
+    local pacing = KoBustPacing[K] or KoBustPacing[#KoBustPacing]
     local pre_bust_hands = _placeBusts(pre_bust_seats, pre_bust_window, pacing)
 
     local bust_schedule = {}
@@ -232,7 +232,7 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
 
     -- 5. Build per-hand outcome list. Group bust_schedule by hand so a
     --    single hand that's supposed to bust two opps generates one
-    --    jackpot pot (the writer's per-seat caps drain both organically).
+    --    stack pot (the writer's per-seat caps drain both organically).
     local busts_by_hand = {}
     for _, b in ipairs(bust_schedule) do
         busts_by_hand[b.hand] = busts_by_hand[b.hand] or {}
@@ -256,55 +256,55 @@ function MttSession:planRun(ctx, gtype, stake, player_seat, n_seats)
                 if s == player_seat then player_in_busts = true; break end
             end
             if player_in_busts then
-                -- Player-bust hand. Jackpot loss to a survivor; the
+                -- Player-bust hand. Stack loss to a survivor; the
                 -- player is the bust target (HandScript keeps targets in
                 -- through showdown so their whole stack goes in).
                 entry = {
                     won           = false,
-                    tier          = "jackpot",
+                    tier          = "stack",
                     bust_seats    = { player_seat },
                     forced_winner = _pickSurvivor(
                         { bust_schedule = bust_schedule }, nil, n_seats, player_seat),
                 }
                 proj_player_bb = 0
             else
-                -- Opp-bust hand. Player wins jackpot pot; the scheduled
+                -- Opp-bust hand. Player wins stack pot; the scheduled
                 -- target(s) are handed to HandScript as bust_seats so
                 -- they stay in the pot and get drained by capChips.
                 entry = {
                     won           = true,
-                    tier          = "jackpot",
+                    tier          = "stack",
                     bust_seats    = busts_this_hand,
                     forced_winner = player_seat,
                 }
-                proj_player_bb = proj_player_bb + OutcomeMath.tierAvgBB("jackpot", "mtt", true) * 0.7
+                proj_player_bb = proj_player_bb + OutcomeMath.tierAvgBB("stack", "ko", true) * 0.7
             end
         else
             -- Filler hand. Roll won from eff_wc, tier from the actual
             -- win/loss dist — preserves the cash-table "feel" of the
             -- per-hand pipeline. Tiers clamp at medium: on turbo stacks a
-            -- large/jackpot filler pot busts deep-staying seats the plan
+            -- large/stack filler pot busts deep-staying seats the plan
             -- never scheduled, skewing the finish distribution. Big pots
             -- are reserved for the scheduled bust hands.
             local won = love.math.random() < eff_wc
             local tier = OutcomeMath.sampleDist(won and win_dist or loss_dist) or "small"
-            if tier == "jackpot" or tier == "large" then tier = "medium" end
+            if tier == "stack" or tier == "large" then tier = "medium" end
             local forced_winner
             if won then
                 forced_winner = player_seat
-                proj_player_bb = proj_player_bb + OutcomeMath.tierAvgBB(tier, "mtt", true) * 0.7
+                proj_player_bb = proj_player_bb + OutcomeMath.tierAvgBB(tier, "ko", true) * 0.7
             else
                 -- Downgrade loss tier if the projected stack would dip
                 -- under SAFETY_BB before the planned bust hand.
-                -- Explicit "mtt": these projections are serialized inside
-                -- saved tournament plans — they must read mtt's FROZEN
+                -- Explicit "ko": these projections are serialized inside
+                -- saved tournament plans — they must read ko's FROZEN
                 -- bands (see data/pot_tiers.lua), never a cash override.
-                local proposed_loss = OutcomeMath.tierAvgBB(tier, "mtt", false)
+                local proposed_loss = OutcomeMath.tierAvgBB(tier, "ko", false)
                 while proj_player_bb - proposed_loss < SAFETY_BB and tier ~= "small" do
-                    if     tier == "jackpot" then tier = "large"
+                    if     tier == "stack" then tier = "large"
                     elseif tier == "large"   then tier = "medium"
                     elseif tier == "medium"  then tier = "small" end
-                    proposed_loss = OutcomeMath.tierAvgBB(tier, "mtt", false)
+                    proposed_loss = OutcomeMath.tierAvgBB(tier, "ko", false)
                 end
                 proj_player_bb = proj_player_bb - proposed_loss
                 -- Route the win to a planned survivor — the bust targets
@@ -337,7 +337,7 @@ end
 -- Read the outcome entry for the hand about to be dealt. nil if the
 -- plan is exhausted (caller should fall back to the live :sampleOutcome
 -- path or treat as "tournament over").
-function MttSession:currentHand()
+function KoSession:currentHand()
     local p = self.plan
     if not p then return nil end
     return p.hands[p.next_hand_idx]
@@ -345,7 +345,7 @@ end
 
 -- Bump the plan cursor. Called from Table:_finalizeHand after a hand
 -- resolves, before the bust/auto-deal branch.
-function MttSession:advanceHand()
+function KoSession:advanceHand()
     local p = self.plan
     if p then p.next_hand_idx = p.next_hand_idx + 1 end
 end
@@ -355,7 +355,7 @@ end
 -- (caller diffs Table.bust_order from its pre-hand snapshot). The
 -- plan's `last_bust_count` field tracks the same cumulative count and
 -- is used as a fallback when callers don't pass new_busts.
-function MttSession:reconcile(new_busts, seat_busted, n_seats, player_seat)
+function KoSession:reconcile(new_busts, seat_busted, n_seats, player_seat)
     local plan = self.plan
     if not plan then return end
     local just_completed = plan.next_hand_idx - 1
@@ -391,14 +391,14 @@ function MttSession:reconcile(new_busts, seat_busted, n_seats, player_seat)
                 if seat == player_seat then
                     plan.hands[next_hand] = {
                         won           = false,
-                        tier          = "jackpot",
+                        tier          = "stack",
                         bust_seats    = { seat },
                         forced_winner = _pickSurvivor(plan, seat_busted, n_seats, player_seat),
                     }
                 else
                     plan.hands[next_hand] = {
                         won           = true,
-                        tier          = "jackpot",
+                        tier          = "stack",
                         bust_seats    = { seat },
                         forced_winner = player_seat,
                     }
@@ -423,11 +423,11 @@ end
 -- ─── Settle / drain / reset ───────────────────────────────────────────
 
 -- Resolve the payout for the given finish position (1 = won, 2 = 2nd
--- place, etc.). The mtt_payouts ladder is keyed by (n_seats - finish + 1)
+-- place, etc.). The ko_payouts ladder is keyed by (n_seats - finish + 1)
 -- so finish positions outside the top-3 yield no payout. Stashes
 -- pending_payout for the controller to drain and clears state so the
 -- next :begin starts a fresh run.
-function MttSession:settle(buy_in, payouts_for_boost, finish_position, n_seats, ctx)
+function KoSession:settle(buy_in, payouts_for_boost, finish_position, n_seats, ctx)
     local key  = (n_seats or 0) - (finish_position or 0) + 1
     local mult = (payouts_for_boost and payouts_for_boost[key]) or 0
     local payout = mult * (buy_in or 0)
@@ -440,13 +440,13 @@ end
 -- Pop the pending payout (or nil if none). Caller is the controller; it
 -- applies the payout to bankroll, fires the chip burst, and resets the
 -- per-tournament hand counter via :reset.
-function MttSession:drainPayout()
+function KoSession:drainPayout()
     local p = self.pending_payout
     self.pending_payout = nil
     return p
 end
 
-function MttSession:reset()
+function KoSession:reset()
     self.hands_won      = 0
     self.state          = nil
     self.pending_payout = nil
@@ -454,4 +454,4 @@ function MttSession:reset()
     self.plan           = nil
 end
 
-return MttSession
+return KoSession

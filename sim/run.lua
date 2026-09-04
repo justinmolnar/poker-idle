@@ -53,7 +53,7 @@ local function simulateAct1()
         elapsed_minutes = elapsed_minutes + run_duration
         -- Two flat lanes (zoom + 6-max) and an HU lane the Fight Night
         -- poster doubles.
-        local hu_lane = owned_set["fight_night"] and 2 or 1
+        local hu_lane = owned_set["fight_night_poster"] and 2 or 1
         local chips_per_run = act1_award * (2 + hu_lane)
         chips_banked = chips_banked + chips_per_run
 
@@ -68,13 +68,13 @@ local function simulateAct1()
                 -- Honest shelf: stat-gated items open when an Act 1 save
                 -- plausibly reaches their counter. Thresholds live in the
                 -- counter's own units, so reachability is per KIND (500
-                -- Heads-Up hands is run two; 500 jackpots is Act 2), not
+                -- Heads-Up hands is run two; 500 stacks is Act 2), not
                 -- one magic number. A requires-chain link is only buyable
                 -- once its base is owned — same rules the game enforces.
                 -- Calibrated 2026-08 from a REAL save at shove five (the
                 -- per-shove rates), times the 8 shoves Act 1 runs:
                 -- hands 800/shove, won 480, gtype ~370, 4plus 720,
-                -- jackpots 155, chips 27 (act-1 lighter: use 20),
+                -- stacks 155, chips 27 (act-1 lighter: use 20),
                 -- SL 75, busts 50, rebuys 38, upgrades 23, tilts 17.
                 local ACT1_REACH = {
                     total_hands_played     = 6500,
@@ -82,7 +82,7 @@ local function simulateAct1()
                     total_hands_at_gtype   = 3000,
                     total_hands_at_4plus   = 5800,
                     total_hands_overwhelmed = 30,
-                    total_jackpots         = 1250,
+                    total_stacks         = 1250,
                     total_chips_banked     = 160,
                     lifetime_chips_banked  = 160,
                     total_stack_losses     = 600,

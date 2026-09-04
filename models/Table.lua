@@ -14,9 +14,9 @@
 -- Each hand resolves through three independent dimensions:
 --
 --   • win_chance — single probability ∈ [0, 1] that the hand is a Win
---   • win_dist   — { small, medium, large, jackpot } sums to 1; sampled
+--   • win_dist   — { small, medium, large, stack } sums to 1; sampled
 --                  when winning
---   • loss_dist  — { small, medium, large, jackpot } sums to 1; sampled
+--   • loss_dist  — { small, medium, large, stack } sums to 1; sampled
 --                  when losing
 --
 -- Each stake declares both naked AND run-capped values for these three.
@@ -50,11 +50,11 @@ local RNG           = require("utils.rng")
 local Opponent      = require("models.Opponent")
 local HandEval      = require("models.HandEval")
 local HandRealism   = require("models.HandRealism")
-local MttSession    = require("models.MttSession")
+local KoSession    = require("models.KoSession")
 local StakesData    = require("data.stakes")
 local GameTypesData = require("data.game_types")
 local NameData      = require("data.opponent_names")
-local MttPayouts    = require("data.mtt_payouts")
+local KoPayouts    = require("data.ko_payouts")
 local Lookups       = require("utils.lookups")
 local StatusData    = require("data.statuses")
 local Constants     = require("data.constants")
@@ -104,7 +104,7 @@ end
 --
 -- The 3-distribution outcome pipeline (buildOutcome, sampleOutcome,
 -- applyTierShift, rollTierMagnitude, TIER_KEYS, WC_ABSOLUTE_CAP, the dist
--- and fill helpers) lives in models/outcome_math.lua so MttSession can
+-- and fill helpers) lives in models/outcome_math.lua so KoSession can
 -- reuse it for tournament-level outcome rolls. Per-hand call sites below
 -- go through OutcomeMath.
 
@@ -164,11 +164,11 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
         community           = nil,
         outcome_won         = nil,
         outcome_delta       = nil,
-        outcome_tier        = nil,    -- "small" / "medium" / "large" / "jackpot"
+        outcome_tier        = nil,    -- "small" / "medium" / "large" / "stack"
         natural_outcome     = true,
         -- True when :interrupt flipped this hand's side after the deal. A
         -- flipped hand keeps its tier for the felt but is NOT the chip
-        -- event: jackpot-keyed triggers gate on it (GrindController).
+        -- event: stack-keyed triggers gate on it (GrindController).
         outcome_flipped     = false,
 
         -- When true, the autonomous cursor swarm (services/CursorPool)
@@ -199,7 +199,7 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
         --                            eases back to 0 when state == idle
         -- slam_t           0..1   — brief down-spike triggered on settle
         -- glow_t           0..1   — radial-glow shader intensity, fired
-        --                            on jackpot wins
+        --                            on stack wins
         --
         shake_trauma       = 0,
         vignette_kind      = nil,
@@ -256,9 +256,9 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
         -- Tournament bookkeeping. Composed in always; cash tables leave it
         -- at hands_won=0/state=nil so the chip-stack branches in
         -- :_finalizeHand and the controller no-op. Only meaningful when
-        -- the gtype carries chip_stack_table=true. See models/MttSession
+        -- the gtype carries chip_stack_table=true. See models/KoSession
         -- for the lifecycle.
-        mtt = MttSession:new(),
+        ko = KoSession:new(),
     }, Table)
     self:fillOpponents(ctx)
     return self
@@ -299,7 +299,7 @@ end
 -- For chip_stack_table gtypes (8-max KO): every seat sits down with
 -- starting_stack_bb chips, hands play with real chip flow, seats bust
 -- at 0, tournament ends when the player busts or wins it all. Payout
--- comes from data/mtt_payouts.lua keyed by finish position.
+-- comes from data/ko_payouts.lua keyed by finish position.
 
 function Table:_clearChipStackState()
     self.seat_stacks       = nil
@@ -312,9 +312,9 @@ end
 
 -- Called from Table:deal when the gtype is chip_stack_table. Initializes
 -- per-seat state on the first deal of a fresh tournament; no-op when
--- mid-run (mtt:isPlaying() returns true).
+-- mid-run (ko:isPlaying() returns true).
 function Table:_initChipStackIfNeeded(stake, gtype)
-    if self.mtt:isPlaying() then return end
+    if self.ko:isPlaying() then return end
     local n_seats     = (gtype.seats or 0) + 1
     local start_chips = (gtype.starting_stack_bb or 100) * ((stake and stake.bb) or 0)
     self.seat_stacks  = {}
@@ -416,16 +416,16 @@ function Table:deal(ctx)
     if not self.opponents[self.opponent_idx] then return false end
 
     -- Chip-stack tournaments: initialize seat stacks + bust state on
-    -- the first deal of a fresh MTT run, then roll the tournament plan.
+    -- the first deal of a fresh KO run, then roll the tournament plan.
     -- Subsequent deals reuse the per-seat state and pull the next hand's
-    -- pre-rolled outcome from the plan. See models/MttSession.
+    -- pre-rolled outcome from the plan. See models/KoSession.
     local forced_winner_seat = nil
     if gtype.chip_stack_table then
         self:_initChipStackIfNeeded(stake, gtype)
-        if not self.mtt:isPlaying() then
-            self.mtt:begin()
+        if not self.ko:isPlaying() then
+            self.ko:begin()
             local n_seats = (gtype.seats or 0) + 1
-            self.mtt:planRun(ctx, gtype, stake, self.player_seat_fixed, n_seats)
+            self.ko:planRun(ctx, gtype, stake, self.player_seat_fixed, n_seats)
         end
         -- Snapshot bust count BEFORE this hand so :reconcile in
         -- _finalizeHand can identify new busts this hand only.
@@ -438,8 +438,8 @@ function Table:deal(ctx)
     -- HandScript.write.
     local won, tier
     local forced_bust_seats = nil
-    if gtype.chip_stack_table and self.mtt:isPlaying() then
-        local entry = self.mtt:currentHand()
+    if gtype.chip_stack_table and self.ko:isPlaying() then
+        local entry = self.ko:currentHand()
         if entry then
             won                 = entry.won
             tier                = entry.tier
@@ -449,7 +449,7 @@ function Table:deal(ctx)
             -- whole thing to this hand on tournaments) overrides the
             -- plan's side for THIS hand only. On a flip the plan's winner
             -- and scheduled busts belonged to the other direction — drop
-            -- them; HandScript's alive-guard and MttSession:reconcile
+            -- them; HandScript's alive-guard and KoSession:reconcile
             -- re-steer the schedule from the next hand. The tier stays
             -- the plan's: the punch decides who, not how big.
             if self._forced_next_won ~= nil then
@@ -531,7 +531,7 @@ function Table:deal(ctx)
     -- Everything below prices the hand, so it reads THIS table's ctx —
     -- the global rollup plus whatever statuses are riding on this table.
     -- Identical to `ctx` (same object) whenever nothing is active.
-    -- Deliberately after the MTT branch above: a tournament's outcomes
+    -- Deliberately after the KO branch above: a tournament's outcomes
     -- come from a plan rolled once at the start, so a transient status
     -- must not be baked into it.
     local ectx = self:effectiveCtx(ctx)
@@ -566,10 +566,10 @@ function Table:deal(ctx)
         earnings_mult = earnings_mult * (1.0 + ectx.earnings_per_tier * tier_idx)
     end
     local loss_mult     = ectx.loss_mult     or 1
-    -- jackpot_mult (Branded Hat) stacks on top of earnings_mult — only
-    -- jackpot-tier WINS get the extra boost.
-    local jackpot_mult  = (won and tier == "jackpot")
-                          and (ectx.jackpot_mult or 1) or 1
+    -- stack_mult (Branded Hat) stacks on top of earnings_mult — only
+    -- stack-tier WINS get the extra boost.
+    local stack_mult  = (won and tier == "stack")
+                          and (ectx.stack_mult or 1) or 1
     if won then
         local raw_win = magnitude_bb * stake.bb
         -- The seats rule: the most a hand can pay is one stack from each
@@ -577,11 +577,11 @@ function Table:deal(ctx)
         -- one stack; 6-max: five). Shares its definition with the
         -- theater's magnitude clamp (OutcomeMath.maxWinBB) so the
         -- cinematic and the payout can never disagree. Also keeps
-        -- low-stack jackpots from being free money: a short stack caps
+        -- low-stack stacks from being free money: a short stack caps
         -- proportionally.
         local capped_win = math.min(raw_win,
             OutcomeMath.maxWinBB(gtype, self.stack or 0))
-        self.outcome_delta = capped_win * earnings_mult * jackpot_mult * payout_double
+        self.outcome_delta = capped_win * earnings_mult * stack_mult * payout_double
     else
         -- Loss side already capped downstream: GrindController clamps
         -- stack at 0 in its resolution loop.
@@ -598,7 +598,7 @@ function Table:deal(ctx)
     -- Point of no return: the new hand is real, so the previous hand's
     -- residue leaves the felt. Cleared HERE and not at the top of :deal
     -- so a failed deal attempt (missing gtype, no opponents, exhausted
-    -- MTT plan) leaves the last result visible instead of blanking it.
+    -- KO plan) leaves the last result visible instead of blanking it.
     self.last_hand       = nil
     self.player_hole     = p_hole
     self.opponent_hole   = o_hole
@@ -1153,7 +1153,7 @@ function Table:applyStatus(kind, spec)
             if not spec.silent_refresh then
                 self:_announceStatus(kind, e.magnitude, spec.source, true)
             end
-            self:_maybeInterrupt(def, spec)
+            self:_maybeInterrupt(def, spec, kind)
             return true, true
         end
     end
@@ -1175,7 +1175,7 @@ function Table:applyStatus(kind, spec)
     }
     self._status_rev = self._status_rev + 1
     self:_announceStatus(kind, mag, spec.source, false)
-    self:_maybeInterrupt(def, spec)
+    self:_maybeInterrupt(def, spec, kind)
     return true, false
 end
 
@@ -1193,11 +1193,11 @@ end
 -- would otherwise cut every hand short. No live source sets it today
 -- (heat/tilt sources are all punches now); it stays as the guard a future
 -- ambient application must reach for.
-function Table:_maybeInterrupt(def, spec)
+function Table:_maybeInterrupt(def, spec, kind)
     local want = def and def.interrupt
     if not want then return end
     if spec and spec.no_interrupt then return end
-    self:interrupt(want == "win")
+    self:interrupt(want == "win", nil, kind)
 end
 
 -- Something landed here. The tank items are built on this: a table that
@@ -1364,13 +1364,41 @@ end
 -- registry, so the pot fills to the size it was always going to reach and
 -- the hand pays what it was worth. It ends where it was going to end, just
 -- immediately.
-function Table:interrupt(want_win, ctx)
+function Table:interrupt(want_win, ctx, landed_kind)
     -- THE PUNCH ALWAYS LANDS. At minimum the NEXT hand goes this way —
     -- that latch is set first, unconditionally, so no path below can
     -- leave a lit status with nothing owed behind it. Everything after
     -- this line is the bonus half: ending the CURRENT hand too, taken
     -- only where a live cash hand can honestly be ended.
     self._forced_next_won = want_win
+
+    -- A punch landing on a hand that is ITSELF a punch's forced hand
+    -- (`_punch_live`, set at :deal) belongs to the NEXT hand, not this
+    -- one. Left alone, _finalizeHand would expire every punch status when
+    -- this hand ends — the fresh one included — and then auto-deal the
+    -- latched hand with no fire on it: heat that "already ended" still
+    -- dealing. So the finishing hand spends only the punches it carried:
+    -- any punch of another kind is over now (its hand is ending), the
+    -- one that just landed lives on to its own hand, and the latch is
+    -- handed to it.
+    if self._punch_live then
+        if self.statuses then
+            for i = #self.statuses, 1, -1 do
+                local e   = self.statuses[i]
+                local def = StatusData[e.kind]
+                if def and def.lifetime == "punch" and e.kind ~= landed_kind then
+                    if (def.rotate or 0) > 0 then
+                        self.untilt_t   = 1
+                        self.untilt_mag = e.magnitude or 0
+                    end
+                    table.remove(self.statuses, i)
+                    self._status_rev = self._status_rev + 1
+                end
+            end
+            if #self.statuses == 0 then self.statuses = nil end
+        end
+        self._punch_live = nil
+    end
 
     -- No live hand — there is only the next, already latched.
     if self.state == "idle" or self.state == "settling" then return true end
@@ -1400,7 +1428,7 @@ function Table:interrupt(want_win, ctx)
         -- fast-forward and must leave outcome_delta exactly alone: the
         -- deal-time payout and the script's pot are two independent
         -- computations of the same hand (dollars against big blinds, and
-        -- the payout carries earnings/jackpot multipliers the script never
+        -- the payout carries earnings/stack multipliers the script never
         -- sees), so recomputing one from the other would quietly change
         -- what a hand pays just because a status touched it.
         --
@@ -1423,7 +1451,7 @@ function Table:interrupt(want_win, ctx)
 
         self.outcome_won = want_win
         -- The tier stays for the felt, but a flipped hand is not the chip
-        -- event: jackpot-keyed triggers (bounty, cascade, lifetime count)
+        -- event: stack-keyed triggers (bounty, cascade, lifetime count)
         -- gate on this in the controller's resolution loop.
         self.outcome_flipped = true
         local o_hole = HandRealism.redealOpponent(
@@ -1562,7 +1590,7 @@ function Table:_finalizeHand()
     self.lift_t        = 0
 
     -- Tournament auto-advance for chip-stack tables. On each hand:
-    --   * Bump mtt.hands_won (lifetime deck-XP / stat tracking).
+    --   * Bump ko.hands_won (lifetime deck-XP / stat tracking).
     --   * Reconcile the plan against actual chip flow.
     --   * Advance the plan cursor.
     --   * Detect end conditions:
@@ -1573,9 +1601,9 @@ function Table:_finalizeHand()
     -- We re-use the latest ctx stashed on :update / :deal so the new
     -- hand samples WC against the player's current effects rollup.
     local gtype = Lookups.findById(GameTypesData,self.game_type_id)
-    if gtype and gtype.chip_stack_table and self.mtt:isPlaying() then
+    if gtype and gtype.chip_stack_table and self.ko:isPlaying() then
         if self.outcome_won then
-            self.mtt:winHand()
+            self.ko:winHand()
         end
         local n_seats = (gtype.seats or 0) + 1
         local player_seat = self.player_seat_fixed
@@ -1596,10 +1624,10 @@ function Table:_finalizeHand()
         --     (used to decide which scheduled busts were expected).
         --   * "next_hand_idx" identifies the upcoming hand (used to
         --     overwrite the re-attack outcome).
-        self.mtt:advanceHand()
+        self.ko:advanceHand()
         -- Patch the plan: drop seats that busted incidentally; re-attack
         -- planned busts that didn't materialize (extends up to +3 hands).
-        self.mtt:reconcile(new_busts, self.seat_busted, n_seats, player_seat)
+        self.ko:reconcile(new_busts, self.seat_busted, n_seats, player_seat)
 
         local player_busted = self.seat_busted and self.seat_busted[player_seat] == true
         local alive_opps = 0
@@ -1629,24 +1657,24 @@ function Table:_finalizeHand()
     end
 end
 
--- Settle the tournament: stash the payout on self.mtt for the controller to
+-- Settle the tournament: stash the payout on self.ko for the controller to
 -- drain, clear chip-stack state, and zero the stack so the panel renders
--- REBUY. Payout is read from data/mtt_payouts.lua keyed by
+-- REBUY. Payout is read from data/ko_payouts.lua keyed by
 -- (n_seats - finish_position + 1) — so 1st=8, 2nd=7, 3rd=6, 4th+ gets no
 -- entry and pays nothing. The Plastic Trophy / Engraved Plaque perks
--- still raise the floor at lower finishes via ctx.mtt_payout_boost.
+-- still raise the floor at lower finishes via ctx.ko_payout_boost.
 function Table:_endTournament(finish_position, n_seats)
     local stake   = Lookups.findById(StakesData,self.stake_id)
-    local boost   = (self._last_ctx and self._last_ctx.mtt_payout_boost) or 0
-    local payouts = MttPayouts[boost] or MttPayouts[0]
+    local boost   = (self._last_ctx and self._last_ctx.ko_payout_boost) or 0
+    local payouts = KoPayouts[boost] or KoPayouts[0]
     local buy_in  = (stake and stake.buy_in) or 0
     self.last_finish = finish_position
     -- Lifetime tournaments THIS TABLE has completed, any finish position.
     -- High Roller Pass derives its stake backing from these counts across
     -- the open tournament tables (GrindController:invalidateEffects), so
     -- closing the table is what retires its contribution.
-    self.mtt.finish_count = (self.mtt.finish_count or 0) + 1
-    self.mtt:settle(buy_in, payouts, finish_position, n_seats, self._last_ctx)
+    self.ko.finish_count = (self.ko.finish_count or 0) + 1
+    self.ko:settle(buy_in, payouts, finish_position, n_seats, self._last_ctx)
     -- Per-seat state (seat_stacks / seat_busted / player_seat_fixed /
     -- button_seat / bust_order) is left in place — the post-tournament
     -- panel renders the final bust pattern until the player rebuys.

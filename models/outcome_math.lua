@@ -2,15 +2,15 @@
 --
 -- Pure outcome math for the 3-distribution model. Lifted out of
 -- models/Table.lua so both Table (per-hand outcome roll on cash games)
--- and MttSession (tournament-plan generation) can call the same pipeline.
+-- and KoSession (tournament-plan generation) can call the same pipeline.
 --
 -- ─── 3-distribution model ─────────────────────────────────────────────
 -- Each hand resolves through three independent dimensions:
 --
 --   • win_chance — single probability ∈ [0, 1] that the hand is a Win
---   • win_dist   — { small, medium, large, jackpot } sums to 1; sampled
+--   • win_dist   — { small, medium, large, stack } sums to 1; sampled
 --                  when winning
---   • loss_dist  — { small, medium, large, jackpot } sums to 1; sampled
+--   • loss_dist  — { small, medium, large, stack } sums to 1; sampled
 --                  when losing
 --
 -- Each stake declares both naked AND run-capped values for these three.
@@ -39,21 +39,21 @@ local Lookups       = require("utils.lookups")
 local ShoveRate = require("models.shove_rate")
 local StakesData    = require("data.stakes")
 local PotTiers      = require("data.pot_tiers")
-local MttFinishDist = require("data.mtt_finish_dist")
-local MttPayouts    = require("data.mtt_payouts")
-local MttHandCount  = require("data.mtt_hand_count")
+local KoFinishDist = require("data.ko_finish_dist")
+local KoPayouts    = require("data.ko_payouts")
+local KoHandCount  = require("data.ko_hand_count")
 
 local OutcomeMath = {}
 
 -- ─── Shared constants ──────────────────────────────────────────────────
 
-local TIER_KEYS = { "small", "medium", "large", "jackpot" }
+local TIER_KEYS = { "small", "medium", "large", "stack" }
 OutcomeMath.TIER_KEYS = TIER_KEYS
 
 -- Name → 1-based rank. Shared source of truth for tier ordering so
 -- effect applicators (poker_effects tier floors/ceilings) and the
 -- sampler agree. TIER_KEYS is the inverse (rank → name).
-local TIER_INDEX = { small = 1, medium = 2, large = 3, jackpot = 4 }
+local TIER_INDEX = { small = 1, medium = 2, large = 3, stack = 4 }
 OutcomeMath.TIER_INDEX = TIER_INDEX
 
 -- Raise `tier` to at least `floor_idx` (a rank). Used by deck capstones
@@ -66,7 +66,7 @@ function OutcomeMath.clampTierFloor(tier, floor_idx)
 end
 
 -- Lower `tier` to at most `ceil_idx` (a rank). Used by the Nit capstone
--- ("stack loss cannot happen" — caps the loss tier below jackpot).
+-- ("stack loss cannot happen" — caps the loss tier below stack).
 function OutcomeMath.clampTierCeiling(tier, ceil_idx)
     if not ceil_idx then return tier end
     local idx = TIER_INDEX[tier] or 1
@@ -80,7 +80,7 @@ OutcomeMath.WC_ABSOLUTE_CAP = WC_ABSOLUTE_CAP
 -- ─── Sampling helpers ──────────────────────────────────────────────────
 
 -- Deterministic iteration order for a dist's keys. Tier dists walk the
--- canonical TIER_KEYS order; anything else (MTT finish positions keyed
+-- canonical TIER_KEYS order; anything else (KO finish positions keyed
 -- 1..N) sorts its keys. `pairs` order is hash order, which made sampling
 -- unreplayable even under a fixed seed — the sim and any future replay
 -- need the same roll to land on the same key every run.
@@ -151,7 +151,7 @@ local function distClampAndNormalize(d)
     local s = 0
     for _, t in ipairs(TIER_KEYS) do s = s + (d[t] or 0) end
     if s <= 0 then
-        d.small, d.medium, d.large, d.jackpot = 1, 0, 0, 0
+        d.small, d.medium, d.large, d.stack = 1, 0, 0, 0
         return
     end
     for _, t in ipairs(TIER_KEYS) do d[t] = d[t] / s end
@@ -255,25 +255,25 @@ local function fillRatio(units, window, ctx)
 end
 OutcomeMath.fillRatio = fillRatio
 
--- How far a tournament's finish odds sit between MttFinishDist.naked and
+-- How far a tournament's finish odds sit between KoFinishDist.naked and
 -- .capped: the player's effective per-hand win chance over THIS STAKE's
--- bar (data/mtt_finish_dist wc_ref, one per stake), raised to the
+-- bar (data/ko_finish_dist wc_ref, one per stake), raised to the
 -- curve exponent. Deliberately NOT clamped at 1: the bar rises with the
 -- tier, and a player who out-powers it keeps gaining (the caller floors
 -- any weight the extrapolation drives below zero). The stake's difficulty
 -- rides in twice — through eff_wc and through the bar.
-function OutcomeMath.mttFinishFill(eff_wc, stake)
-    local refs = MttFinishDist.wc_ref
+function OutcomeMath.koFinishFill(eff_wc, stake)
+    local refs = KoFinishDist.wc_ref
     local ref
     if type(refs) == "table" then
         local idx = stake and Lookups.indexById(StakesData, stake.id)
-        ref = (idx and refs[idx]) or MttFinishDist.wc_ref_default or refs[#refs] or 1
+        ref = (idx and refs[idx]) or KoFinishDist.wc_ref_default or refs[#refs] or 1
     else
         ref = refs or 0.75
     end
     local f = (eff_wc or 0) / ref
     if f < 0 then f = 0 end
-    return f ^ (MttFinishDist.curve or 1)
+    return f ^ (KoFinishDist.curve or 1)
 end
 
 -- Linear interpolation between two distributions (per-tier).
@@ -385,25 +385,25 @@ function OutcomeMath.buildOutcome(ctx, gtype, stake)
         win_chance = win_chance * ctx.wc_mult
     end
 
-    -- 7. Per-gtype delayed jackpot emergence (Zoom). A flat negative jackpot
+    -- 7. Per-gtype delayed stack emergence (Zoom). A flat negative stack
     --    shift otherwise keeps the cell pinned at 0 until the lerp overtakes it
     --    near full fill — so the entire Stack-rate gain lands in the last
-    --    Pot Control level. Instead, ramp the jackpot cell from `jackpot_emerge`
-    --    fill up to its target (the stake's capped jackpot plus that shift), so
+    --    Pot Control level. Instead, ramp the stack cell from `stack_emerge`
+    --    fill up to its target (the stake's capped stack plus that shift), so
     --    the Stack rate climbs gradually over the upgrade's top levels and ends
-    --    at the same value. Overwrites the jackpot cell computed above; catalog
-    --    jackpot shifts on this gtype don't compound — this IS the rule here.
-    if gtype and gtype.jackpot_emerge then
-        -- The target is a FRACTION of the stake's capped jackpot share
-        -- (gtype.jackpot_scale), scaled by the strength multiplier like
+    --    at the same value. Overwrites the stack cell computed above; catalog
+    --    stack shifts on this gtype don't compound — this IS the rule here.
+    if gtype and gtype.stack_emerge then
+        -- The target is a FRACTION of the stake's capped stack share
+        -- (gtype.stack_scale), scaled by the strength multiplier like
         -- every other gain. A flat `capped + shift` fell to zero at T5.
-        local capped = (stake and stake.win_dist_capped and stake.win_dist_capped.jackpot) or 0
-        local target = capped * (gtype.jackpot_scale or 1) * gain_mult
+        local capped = (stake and stake.win_dist_capped and stake.win_dist_capped.stack) or 0
+        local target = capped * (gtype.stack_scale or 1) * gain_mult
         if target < 0 then target = 0 end
-        local thr  = gtype.jackpot_emerge
+        local thr  = gtype.stack_emerge
         local ramp = (wd_fill - thr) / math.max(1e-6, 1 - thr)
         if ramp < 0 then ramp = 0 elseif ramp > 1 then ramp = 1 end
-        win_dist.jackpot = target * ramp
+        win_dist.stack = target * ramp
     end
 
     -- 8. Final clamps. Absolute WC ceiling (no 100% wins).
@@ -420,7 +420,7 @@ end
 -- Auto-win check fires BEFORE the WC roll: for each ctx.auto_win_chances
 -- entry whose gtype filter passes, sum the `amount` and roll once against
 -- the total. A successful roll forces won=true regardless of the natural
--- win_chance — used by MTT Pro to flat-bump cash rate without touching
+-- win_chance — used by KO Pro to flat-bump cash rate without touching
 -- the fill / distribution pipeline.
 function OutcomeMath.sampleOutcome(win_chance, win_dist, loss_dist, ctx, gtype, forced_won)
     local won = false
@@ -449,8 +449,8 @@ function OutcomeMath.sampleOutcome(win_chance, win_dist, loss_dist, ctx, gtype, 
     local tier = sampleDist(won and win_dist or loss_dist) or "small"
 
     -- Deck-capstone tier rules clamp the sampled tier. Win side: floor
-    -- (Standard "no Small wins"). Loss side: ceiling (the Nit bans jackpot
-    -- "stack" losses by capping below jackpot).
+    -- (Standard "no Small wins"). Loss side: ceiling (the Nit bans stack
+    -- "stack" losses by capping below stack).
     if ctx then
         if won then
             tier = OutcomeMath.clampTierFloor(tier, ctx.win_tier_floor)
@@ -544,7 +544,7 @@ function OutcomeMath.distTierShift(d, shifts, gtype)
 end
 
 -- Mirrors the tier_bump_chance block in Table:deal — one non-chaining
--- step up the ladder, jackpot staying put.
+-- step up the ladder, stack staying put.
 function OutcomeMath.distTierBump(d, chance)
     if not chance or chance <= 0 then return d end
     local out = distCopy(nil)
@@ -597,7 +597,7 @@ function OutcomeMath.payoutMult(ctx, stake, tier, won, opts)
             local idx = stake and Lookups.indexById(StakesData, stake.id) or 0
             mult = mult * (1 + ctx.earnings_per_tier * idx)
         end
-        if tier == "jackpot" then mult = mult * (ctx.jackpot_mult or 1) end
+        if tier == "stack" then mult = mult * (ctx.stack_mult or 1) end
     else
         mult = mult * (ctx.loss_mult or 1)
     end
@@ -662,7 +662,7 @@ end
 -- Full per-hand EV stats for a (ctx, gtype, stake) — pure, no Table needed.
 -- THE one place the EV math lives: Table:debugStats / :estimateStats and the
 -- stake-add buttons all call this so nothing reimplements it. Shape matches
--- what TablePanelStats.buildCashLines / buildMttLines consume.
+-- what TablePanelStats.buildCashLines / buildKoLines consume.
 -- `opts` is passed through to payoutMult (focus_mult, bankroll) so a
 -- caller can ask for the raw per-table number or the one the bankroll
 -- actually sees.
@@ -680,7 +680,7 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
     local bb = stake.bb or 1
 
     -- Per-tier expected magnitude in $, multiplier included. The
-    -- multiplier is inside the sum because it varies BY tier: jackpot_mult
+    -- multiplier is inside the sum because it varies BY tier: stack_mult
     -- lands on one cell only.
     local win_avg, loss_avg = 0, 0     -- bb, multiplier-free (display)
     local win_cash, loss_cash = 0, 0   -- $, fully multiplied
@@ -688,13 +688,13 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
     -- Cash tables enforce the seats-rule caps at deal time (win ≤ seats ×
     -- stack, loss ≤ stack; stack = buy_in = 100bb) — the estimate has to
     -- model them or it over-reports whenever a band's top can clip.
-    -- Chip-stack tables (mtt) settle through the payout table, not these
+    -- Chip-stack tables (ko) settle through the payout table, not these
     -- magnitudes; their per_tier stays uncapped like today.
-    local stack_bb = (bb > 0) and ((stake.buy_in or 0) / bb) or 0
+    local buyin_bb = (bb > 0) and ((stake.buy_in or 0) / bb) or 0
     local win_cap, loss_cap
-    if not gtype.chip_stack_table and stack_bb > 0 then
-        win_cap  = OutcomeMath.maxWinBB(gtype, stack_bb)
-        loss_cap = stack_bb
+    if not gtype.chip_stack_table and buyin_bb > 0 then
+        win_cap  = OutcomeMath.maxWinBB(gtype, buyin_bb)
+        loss_cap = buyin_bb
     end
     for _, t in ipairs(TIER_KEYS) do
         local wavg = OutcomeMath.tierAvgBB(t, gtype, true,  win_cap)
@@ -717,8 +717,8 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
         local n_seats = (gtype.seats or 0) + 1  -- 7 opps + player = 8
 
         -- Finish odds follow the effective win chance (mirror of
-        -- MttSession:planRun), so this readout and the plan agree.
-        local mtt_wc = OutcomeMath.buildOutcome(ctx, gtype, stake)
+        -- KoSession:planRun), so this readout and the plan agree.
+        local ko_wc = OutcomeMath.buildOutcome(ctx, gtype, stake)
         local auto_win_total = 0
         if ctx.auto_win_chances then
             for _, e in ipairs(ctx.auto_win_chances) do
@@ -727,22 +727,22 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
                 end
             end
         end
-        -- Unclamped on purpose (see mttFinishFill); weights floor at 0.
-        local eff_fill = OutcomeMath.mttFinishFill(mtt_wc, stake) + auto_win_total
+        -- Unclamped on purpose (see koFinishFill); weights floor at 0.
+        local eff_fill = OutcomeMath.koFinishFill(ko_wc, stake) + auto_win_total
 
         local raw_weights = {}
         local total_weight = 0
         for pos = 1, n_seats do
-            local naked  = MttFinishDist.naked[pos]  or 0
-            local capped = MttFinishDist.capped[pos] or naked
+            local naked  = KoFinishDist.naked[pos]  or 0
+            local capped = KoFinishDist.capped[pos] or naked
             local w = naked + (capped - naked) * eff_fill
             if w < 0 then w = 0 end
             raw_weights[pos] = w
             total_weight = total_weight + w
         end
 
-        local boost = ctx.mtt_payout_boost or 0
-        local payouts = MttPayouts[boost] or MttPayouts[0]
+        local boost = ctx.ko_payout_boost or 0
+        local payouts = KoPayouts[boost] or KoPayouts[0]
 
         local exp_payout = 0
         local exp_hands  = 0
@@ -753,7 +753,7 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
             local key = n_seats - pos + 1
             local mult = payouts[key] or 0
             exp_payout = exp_payout + prob * mult * buy_in
-            local hc = MttHandCount[pos]
+            local hc = KoHandCount[pos]
             local avg_h = hc and ((hc.lo + hc.hi) * 0.5) or 8
             exp_hands = exp_hands + prob * avg_h
         end
@@ -784,8 +784,8 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
     elseif gtype.hand_count and not gtype.chip_stack_table then
         local buy_in = stake.buy_in or 0
         local cap = gtype.hand_count or 8
-        local boost = ctx.mtt_payout_boost or 0
-        local payouts = MttPayouts[boost] or MttPayouts[0]
+        local boost = ctx.ko_payout_boost or 0
+        local payouts = KoPayouts[boost] or KoPayouts[0]
 
         local function finishOdds(k)
             return (k >= cap) and (wc ^ k) or (wc ^ k) * (1 - wc)

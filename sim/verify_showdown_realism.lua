@@ -220,7 +220,7 @@ end
 
 -- ═══ Cash half ══════════════════════════════════════════════════════════
 
-local TIERS  = { "small", "medium", "large", "jackpot" }
+local TIERS  = { "small", "medium", "large", "stack" }
 local GTYPES = { nil, "zoom", "six_max" }
 
 -- The union of a tier's bands, for conformance scoring.
@@ -249,7 +249,7 @@ local function hasDuplicates(p_hole, o_hole, board)
     return false
 end
 
-print("═══ cash / MTT table construction ═══")
+print("═══ cash / KO table construction ═══")
 print("")
 
 local total_construct_ms, total_construct_n = 0, 0
@@ -370,7 +370,7 @@ end
 -- obeying it produces a hand a poker player would believe. Read them.
 
 print("═══ sample showdowns ═══")
-for _, tier in ipairs({ "medium", "large", "jackpot" }) do
+for _, tier in ipairs({ "medium", "large", "stack" }) do
     for _, won in ipairs({ true, false }) do
         print(string.format("── %s, player %s", tier, won and "WINS" or "LOSES"))
         for _ = 1, 4 do

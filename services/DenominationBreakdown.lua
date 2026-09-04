@@ -42,19 +42,19 @@ local _dw = PotTiers.default.win
 function DenominationBreakdown.tierFromUnit(magnitude)
     if magnitude < _dw.medium.lo  then return "small"  end
     if magnitude < _dw.large.lo   then return "medium" end
-    if magnitude < _dw.jackpot.lo then return "large"  end
-    return "jackpot"
+    if magnitude < _dw.stack.lo then return "large"  end
+    return "stack"
 end
 
 -- For surfaces without a unit context, bucket by log10(amount) so medium
--- numbers read "small" and very large ones read "jackpot".
+-- numbers read "small" and very large ones read "stack".
 function DenominationBreakdown.tierFromAmount(amount)
     if amount <= 0 then return "small" end
     local mag = math.log10(amount)
     if mag < 1 then return "small"    end   -- < 10
     if mag < 3 then return "medium"   end   -- < 1k
     if mag < 5 then return "large"  end   -- < 100k
-    return "jackpot"
+    return "stack"
 end
 
 -- ── Palette choice for an amount ─────────────────────────────────────
@@ -86,7 +86,7 @@ end
 -- ── Breakdown: amount → ordered denomination-index list ──────────────
 -- `denominations` is a list of `{ value = number, ... }` entries; only
 -- `.value` is read. `palette_indices` is a list of indices into it.
--- `tier_chip_target` is a `{ small = N, medium = N, large = N, jackpot = N }`
+-- `tier_chip_target` is a `{ small = N, medium = N, large = N, stack = N }`
 -- table that drives target token count. `tier_hint` ∈ those keys biases
 -- the result toward visual heft. Optional — falls back to "medium".
 function DenominationBreakdown.breakdown(amount, denominations, palette_indices, tier_chip_target, tier_hint)
@@ -128,9 +128,9 @@ function DenominationBreakdown.breakdown(amount, denominations, palette_indices,
     local tokens  = {}
     local remaining = amount
 
-    -- Showcase token (large / jackpot only) — one token of the next-larger
+    -- Showcase token (large / stack only) — one token of the next-larger
     -- denomination on top of the pile, signalling "this is a big one."
-    if (tier_hint == "large" or tier_hint == "jackpot") and primary_idx > 1 then
+    if (tier_hint == "large" or tier_hint == "stack") and primary_idx > 1 then
         local showcase = denoms[primary_idx - 1]
         if showcase.value <= remaining + 1e-9 then
             tokens[#tokens + 1] = showcase.idx

@@ -3,7 +3,7 @@
 -- Routers: "when something is about to land, send it somewhere else, or
 -- make it arrive as something else". Pure data, the same shape bargain as
 -- data/procs.lua — an item points at one of these by id
--- (`{ kind = "router", router = "tank_intercept" }`) and the dispatch does
+-- (`{ kind = "router", router = "console_television_intercept" }`) and the dispatch does
 -- the rest, so adding a router is an edit to this file and the catalog.
 --
 -- ─── HOW THIS DIFFERS FROM A PROC ───────────────────────────────────────
@@ -36,12 +36,12 @@ return {
     -- Deliberately takes the good and the bad alike: a table that eats
     -- everything aimed near it is a real decision about where to sit it,
     -- not a free filter.
-    tank_intercept = {
+    console_television_intercept = {
         kind   = "steal_nearby",
         chance = 0.50,
         gtype  = "six_max",
         radius = 1,
-        ghost  = "console_tv",
+        ghost  = "console_television",
     },
 
     -- Window. A running tournament bends what arrives around it: along its
@@ -53,7 +53,7 @@ return {
     -- Only while a tournament is actually running, so it comes and goes
     -- with the tournament rather than being a permanent property of a
     -- column.
-    polarity_bend = {
+    window_bend = {
         kind    = "tournament_lines",
         row     = { tilt = "heater" },
         col     = { heater = "tilt" },

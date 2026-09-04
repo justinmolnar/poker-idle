@@ -167,6 +167,13 @@ function GrindState:enter()
     -- tables (e.g. start_table_count from Free Sit) pick up Cold Read's
     -- pre-revealed attributes.
     self.controller:invalidateEffects()
+    -- The rebuild discards every Table object. A resting result floater
+    -- parked on one of them would wait forever: its removal needs the
+    -- table to leave "idle" or play another hand, and a discarded table
+    -- does neither (the "stuck payout" bug). Queued chip bursts anchor to
+    -- those tables too. Drop both before the objects go away.
+    self.game.floating_text.clear()
+    self.controller.pending_bursts = {}
     self.controller.pool:rebuildFromState(self.controller.ctx)
 
     HandAnalytics.startRun(self.game.state)
@@ -211,8 +218,17 @@ function GrindState:update(dt)
     -- valid for the pool it was built against. The identity check in
     -- _handleHitBox covers whatever this ordering can't.
     local cursor_view = self.view
+    local state = self.game.state
     CursorPool.update(dt, cursor_view.hit_boxes, self.controller.ctx,
-        function(hb) cursor_view:_handleHitBox(hb) end)
+        function(hb)
+            -- Lifetime count of DEAL clicks the swarm makes: the cursor
+            -- catalog items gate on it (Gaming Keyboard, Desk Lamp,
+            -- Telephone), so idling itself is what opens more idling.
+            if hb and hb.action == "deal" then
+                state.total_cursor_deals = (state.total_cursor_deals or 0) + 1
+            end
+            cursor_view:_handleHitBox(hb)
+        end)
 
     self.controller:update(dt)
     self.view:update(dt)

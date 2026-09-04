@@ -341,10 +341,10 @@ td.delta-pos { color: var(--good); } td.delta-neg { color: var(--err); }
 const COLORS = {
   chip:      "#EDBF4D", chipRing:  "#856624",   // Theme.currency lines 224-227
   achip:     "#A659F2", achipRing: "#59268C",
-  tierWin:  { small: "#619157", medium: "#75B86B", large: "#8FDB7A", jackpot: "#F5C74D" },
-  tierLoss: { small: "#85544F", medium: "#B3665E", large: "#DB7066", jackpot: "#F25285" },
+  tierWin:  { small: "#619157", medium: "#75B86B", large: "#8FDB7A", stack: "#F5C74D" },
+  tierLoss: { small: "#85544F", medium: "#B3665E", large: "#DB7066", stack: "#F25285" },
 };
-const TIER_COUNT = { small: 1, medium: 2, large: 3, jackpot: 4, stack: 4 }; // views/TierGlyph.lua
+const TIER_COUNT = { small: 1, medium: 2, large: 3, stack: 4 }; // views/TierGlyph.lua
 const TAG_PALETTE = ["#F25285","#F2B333","#73D973","#73A6D9","#BF73F2","#EDBF4D",
                      "#5ED9C3","#F2825E","#9CB35E","#D973B8"];
 const LS_EDITS = "catalog_designer_edits_v1";
@@ -1119,7 +1119,7 @@ function chipSvg(size, body, ring) {
 // Tier glyph: stack of 1..4 discs, r = 0.30×size, step 0.55r, bottom-anchored.
 function tierSvg(size, tierName, outcome) {
   const count = TIER_COUNT[tierName];
-  const color = (outcome === "loss" ? COLORS.tierLoss : COLORS.tierWin)[tierName === "stack" ? "jackpot" : tierName];
+  const color = (outcome === "loss" ? COLORS.tierLoss : COLORS.tierWin)[tierName];
   const r = Math.max(2, Math.floor(size * 0.30));
   const step = Math.max(1, Math.floor(r * 0.55));
   const w = r * 2 + 2, h = size;
@@ -2280,11 +2280,12 @@ const ENGINE = { ok: false, err: null, booting: false };
 // (the bridge is loaded separately, so its own requires aren't auto-scanned).
 const LUA_SEEDS = ["models.poker_effects", "models.outcome_math", "models.shove_rate",
   "services.EffectsRegistry", "utils.lookups", "data.stakes", "data.game_types",
-  "data.pot_tiers", "data.bankroll_tiers", "data.constants", "data.mtt_finish_dist",
-  "data.mtt_payouts", "data.mtt_hand_count", "data.run_upgrades", "data.effects",
-  "data.catalog", "data.catalog_pages", "data.procs", "data.routers", "data.balance"];
+  "data.pot_tiers", "data.bankroll_tiers", "data.constants", "data.ko_finish_dist",
+  "data.ko_payouts", "data.ko_hand_count", "data.run_upgrades", "data.effects",
+  "data.catalog", "data.catalog_pages", "data.procs", "data.routers", "data.balance",
+  "models.Decks", "data.decks", "models.UpgradePricing"];
 // Script-only seconds per hand from sim/gtype_ev.lua runs (±20% by tier mix).
-const SEC_PER_HAND = { six_max: 17.0, hu: 6.2, zoom: 2.2, mtt: 18.4 };
+const SEC_PER_HAND = { six_max: 17.0, hu: 6.2, zoom: 2.2, ko: 18.4 };
 
 async function collectLuaSources() {
   const map = new Map(); const queue = [...LUA_SEEDS];
@@ -2361,11 +2362,11 @@ function callBridge(fn, arg) {
 
 /* ── coverage classification (which effects the analytic EV sees) ── */
 const MODELED_KINDS = new Set(["win_chance_shift", "wc_mult", "earnings_mult", "loss_mult",
-  "win_dist_shift", "loss_dist_shift", "win_tier_shift", "loss_tier_shift", "jackpot_mult",
+  "win_dist_shift", "loss_dist_shift", "win_tier_shift", "loss_tier_shift", "stack_mult",
   "tier_bump_chance", "payout_double_chance", "earnings_per_tier", "earnings_scale_by_bankroll",
   "win_tier_floor", "loss_tier_ceiling", "auto_win_chance", "win_chance_fill", "win_dist_fill",
   "loss_dist_fill", "fill_window_widen", "fill_cascade", "run_upgrade_strength_mult",
-  "run_upgrade_bonus_levels", "mtt_payout_boost", "focus_capacity_add",
+  "run_upgrade_bonus_levels", "ko_payout_boost", "focus_capacity_add",
   "focus_penalty_reduce_mult", "focus_penalty_immune", "solo_table_bonus", "corner_win_chance"]);
 const THROUGHPUT_KINDS = new Set(["hand_pace_mult", "solo_table_pace"]);
 function simCoverage(it, corrupted) {
@@ -2404,7 +2405,7 @@ function baselineRequest() {
 }
 function dollarsPerHour(ev, gtypeId, paceMult) {
   const base = SEC_PER_HAND[gtypeId] || 10;
-  const overhead = gtypeId === "mtt" ? 0 : (Number(S.ui.sim.overhead) || 0);
+  const overhead = gtypeId === "ko" ? 0 : (Number(S.ui.sim.overhead) || 0);
   const sec = base / (paceMult || 1) + overhead;
   return ev * 3600 / sec;
 }
@@ -2570,12 +2571,12 @@ function viewSim(root) {
   }
 
   const gtypeId = s.gtype_id;
-  const isMtt = !!cur.mtt;
+  const isKo = !!cur.ko;
   const fmt = (v, d) => v == null ? "—" : Number(v).toFixed(d == null ? 4 : d);
   const pct = v => v == null ? "—" : (v * 100).toFixed(2) + "%";
   const money = v => (v < 0 ? "-$" : "$") + Math.abs(v).toFixed(Math.abs(v) < 10 ? 4 : 2);
   const distBar = (d, ramp) => {
-    const keys = ["small", "medium", "large", "jackpot"];
+    const keys = ["small", "medium", "large", "stack"];
     return `<span class="distbar">` + keys.map(k =>
       `<span style="width:${(d[k] || 0) * 100}%;background:${ramp[k]}" title="${k} ${(d[k] * 100 || 0).toFixed(1)}%"></span>`).join("") + `</span>`;
   };
@@ -2601,7 +2602,7 @@ function viewSim(root) {
     `<td>${distBar(cur.ld, COLORS.tierLoss)}</td><td></td></tr>`;
   rows += dRow("stack odds / hand", base.stack_pct, cur.stack_pct, v => fmt(v, 3) + "%", true);
   rows += dRow("loss-stack odds", base.loss_stack_pct, cur.loss_stack_pct, v => fmt(v, 3) + "%", false);
-  if (!isMtt) {
+  if (!isKo) {
     rows += dRow("avg win (bb)", base.win_avg_bb, cur.win_avg_bb, v => fmt(v, 2), true);
     rows += dRow("avg loss (bb)", base.loss_avg_bb, cur.loss_avg_bb, v => fmt(v, 2), false);
   }
@@ -2609,10 +2610,10 @@ function viewSim(root) {
   rows += dRow("ev (bb)", base.ev_bb, cur.ev_bb, v => fmt(v, 3), true);
   rows += dRow("$ / hour ≈", dollarsPerHour(base.ev_per_hand, gtypeId, base.hand_pace_mult),
     dollarsPerHour(cur.ev_per_hand, gtypeId, cur.hand_pace_mult), money, true);
-  if (isMtt) {
-    rows += dRow("ROI %", base.mtt && base.mtt.roi_pct, cur.mtt.roi_pct, v => fmt(v, 1) + "%", true);
-    rows += dRow("net $ / tournament", base.mtt && base.mtt.net_ev_run, cur.mtt.net_ev_run, money, true);
-    rows += dRow("hands / tournament", base.mtt && base.mtt.exp_hands, cur.mtt.exp_hands, v => fmt(v, 1), false);
+  if (isKo) {
+    rows += dRow("ROI %", base.ko && base.ko.roi_pct, cur.ko.roi_pct, v => fmt(v, 1) + "%", true);
+    rows += dRow("net $ / tournament", base.ko && base.ko.net_ev_run, cur.ko.net_ev_run, money, true);
+    rows += dRow("hands / tournament", base.ko && base.ko.exp_hands, cur.ko.exp_hands, v => fmt(v, 1), false);
   }
   const shovePctOf = req => (shoveR1(req.equipped.length, Number(s.bankroll) || 0) * 100).toFixed(1) + "%";
   rows += `<tr><td>shove % (flat 1%/item)</td><td>${shovePctOf(baselineRequest())}</td>` +
@@ -2676,7 +2677,7 @@ function viewSim(root) {
 
   /* ── chip sweep estimator ── */
   const sw = el("div", { class: "statblock" });
-  sw.appendChild(el("h3", {}, "Chip sweep — bounty per lane (assumes each lane hits its jackpot)"));
+  sw.appendChild(el("h3", {}, "Chip sweep — bounty per lane (assumes each lane hits its stack)"));
   s.lanes = s.lanes || {};
   const grid = el("table", { class: "stat" });
   let hdr = "<tr><th></th>";
@@ -2704,16 +2705,16 @@ function viewSim(root) {
       let total = 0, lines = "";
       for (const l of bres.lanes) {
         total += l.award;
-        const secs = l.hands_to_jp != null
-          ? l.hands_to_jp * (SEC_PER_HAND[l.gtype_id] || 10) : null;
+        const secs = l.hands_to_stack != null
+          ? l.hands_to_stack * (SEC_PER_HAND[l.gtype_id] || 10) : null;
         lines += `<tr><td>${esc(l.stake_id)}/${esc(l.gtype_id)}</td>` +
           `<td class="num">${l.award}</td>` +
-          `<td class="num">${l.hands_to_jp ? l.hands_to_jp.toFixed(0) : "∞"}</td>` +
+          `<td class="num">${l.hands_to_stack ? l.hands_to_stack.toFixed(0) : "∞"}</td>` +
           `<td class="num">${secs != null ? (secs / 60).toFixed(1) + " min" : "—"}</td></tr>`;
       }
       total += bres.first_bounty_bonus || 0;
       sw.appendChild(el("table", { class: "stat", style: "margin-top:8px" },
-        `<tr><th>lane</th><th class="num">bounty</th><th class="num">hands to jackpot</th><th class="num">≈time</th></tr>` +
+        `<tr><th>lane</th><th class="num">bounty</th><th class="num">hands to stack</th><th class="num">≈time</th></tr>` +
         lines + `<tr style="font-weight:600"><td>TOTAL</td><td class="num">${total} ${chipSvg(11, COLORS.chip, COLORS.chipRing)}</td>` +
         `<td colspan="2" class="faint">${bres.first_bounty_bonus ? "+" + bres.first_bounty_bonus + " first-bounty bonus included" : ""}</td></tr>`));
     } catch (e) {

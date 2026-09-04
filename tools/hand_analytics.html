@@ -123,17 +123,23 @@ tr:hover td { background: #1a2a4e; }
 const TYPE_COLORS = {
   six_max: '#f80',
   hu:      '#f44',
-  mtt:     '#84f',
+  ko:      '#84f',
   zoom:    '#0ff',
 };
 const TIER_COLORS = {
   small:   '#4a4',
   medium:  '#ff0',
   large:   '#f80',
-  jackpot: '#f44',
+  stack:   '#f44',
 };
-const TYPE_LABELS = { six_max: '6-Max', hu: 'HU', mtt: 'MTT', zoom: 'Zoom' };
-const TIER_ORDER  = ['small', 'medium', 'large', 'jackpot', 'mtt_payout'];
+const TYPE_LABELS = { six_max: '6-Max', hu: 'HU', ko: 'KO', zoom: 'Zoom' };
+const TIER_ORDER  = ['small', 'medium', 'large', 'stack', 'ko_payout'];
+// Historical records (local JSON and the cloud DB) predate the code renames
+// jackpot → stack and mtt → ko and can't be rewritten; fold on read.
+const TIER_LEGACY = { jackpot: 'stack', mtt_payout: 'ko_payout' };
+const TYPE_LEGACY = { mtt: 'ko' };
+const normTier = t => TIER_LEGACY[t] || t;
+const normType = t => TYPE_LEGACY[t] || t;
 const SHOVE_COLORS = ['#0ff','#f80','#0f0','#f44','#84f','#ff0','#f0f','#08f','#fa0','#0f8'];
 
 const COHORT_LETTERS = ['A', 'B', 'C', 'D'];
@@ -531,7 +537,7 @@ function activeHands() {
     for (const shove of save.shoves) {
       if (!shoveOn[shoveKey(save.save_id, shove.shove_count)]) continue;
       for (const h of (shove.hands || [])) {
-        hands.push({ ...h, _save_id: save.save_id, _shove_count: shove.shove_count });
+        hands.push({ ...h, tier: normTier(h.tier), game_type_id: normType(h.game_type_id), _save_id: save.save_id, _shove_count: shove.shove_count });
       }
     }
   });
@@ -579,8 +585,8 @@ function sum(arr, fn) { return arr.reduce((s, x) => s + fn(x), 0); }
 
 function splitPayouts(hands) {
   return {
-    hands:   hands.filter(h => h.tier !== 'mtt_payout'),
-    payouts: hands.filter(h => h.tier === 'mtt_payout'),
+    hands:   hands.filter(h => h.tier !== 'ko_payout'),
+    payouts: hands.filter(h => h.tier === 'ko_payout'),
   };
 }
 
@@ -793,7 +799,7 @@ function makeSlotTable(bySlot) {
     const { hands: hs } = splitPayouts(slot.hands);
     const hpm  = st.window_s > 0 ? hs.length / (st.window_s / 60) : 0;
     const bbpm = st.avg_bb != null ? st.avg_bb * hpm : null;
-    const payouts = sum(slot.hands.filter(h => h.tier === 'mtt_payout'), h => h.delta);
+    const payouts = sum(slot.hands.filter(h => h.tier === 'ko_payout'), h => h.delta);
     return {
       _type: slot.game_type_id, _stake: slot.stake_id,
       _bb_sz: slot.stake_bb || (hs[0] && hs[0].stake_bb) || null,
@@ -1041,7 +1047,7 @@ function renderTimeline(el) {
     tl.appendChild(shoveHdr);
 
     // Merge hands + events into a single chronological stream
-    const hands  = (shove.hands  || []).filter(h => h.tier !== 'mtt_payout');
+    const hands  = (shove.hands  || []).filter(h => h.tier !== 'ko_payout');
     const events = (shove.events || []);
     const items  = [
       ...hands.map(h  => ({ _t: h.t_start,  _kind: 'hand',  d: h  })),
@@ -1211,7 +1217,7 @@ function renderByTier(el) {
   el.appendChild(grid);
 
   charts.tierWin = makeTierBarChart(grid, byTier, 'Win Rate %',   t => (byTier[t]||[]).filter(h=>h.won).length / Math.max(1,(byTier[t]||[]).length) * 100, v => v.toFixed(1)+'%');
-  charts.tierBb  = makeTierBarChart(grid, byTier, 'Avg bb/hand',  t => { const hs=(byTier[t]||[]).filter(h=>h.stake_bb>0&&h.tier!=='mtt_payout'); return hs.length?avg(hs,h=>h.delta/h.stake_bb):0; }, v => (v>=0?'+':'')+v.toFixed(2)+'bb');
+  charts.tierBb  = makeTierBarChart(grid, byTier, 'Avg bb/hand',  t => { const hs=(byTier[t]||[]).filter(h=>h.stake_bb>0&&h.tier!=='ko_payout'); return hs.length?avg(hs,h=>h.delta/h.stake_bb):0; }, v => (v>=0?'+':'')+v.toFixed(2)+'bb');
 
   el.appendChild(document.createElement('br'));
   el.appendChild(makeTierTypeTable(hands));
@@ -1351,7 +1357,7 @@ function renderHandTable(wrap, hands) {
     { key: 'stake', label: 'Stake',    get: r => r.stake_id },
     { key: 'tier',  label: 'Tier',     get: r => r.tier, fmt: v => `<span style="color:${tierColor(v)}">${v}</span>` },
     { key: 'won',   label: 'Result',   get: r => r.won, fmt: v => v ? '<span class="c-win">WIN</span>' : '<span class="c-loss">LOSS</span>' },
-    { key: 'bb',    label: 'bb net',   get: r => r.stake_bb > 0 && r.tier !== 'mtt_payout' ? r.delta / r.stake_bb : null,
+    { key: 'bb',    label: 'bb net',   get: r => r.stake_bb > 0 && r.tier !== 'ko_payout' ? r.delta / r.stake_bb : null,
       num: true, fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(1) + 'bb' : '—', cls: v => v == null ? '' : deltaClass(v) },
     { key: 'delta', label: '$ Net',    get: r => r.delta, num: true, fmt: v => fmtDelta(v), cls: deltaClass },
     { key: 'dur',   label: 'Duration', get: r => r.duration, num: true, fmt: v => v > 0 ? v.toFixed(3)+'s' : '—' },

@@ -2,21 +2,22 @@
 --
 -- Every proc in the game: WHEN it fires, WHERE it lands, WHAT it does.
 -- Pure data. A catalog item points at one of these by id
--- (`{ kind = "proc", proc = "ko_heater" }`) and the dispatch in
+-- (`{ kind = "proc", proc = "curved_monitor_heater" }`) and the dispatch in
 -- services/ProcRegistry does the rest, so adding a proc is an edit to
 -- this file and the catalog — no controller code.
 --
 --   trigger  one of the keys GrindController fires:
---              on_jackpot_win, on_stack_loss, on_ko,
+--              on_stack_win, on_stack_loss, on_ko,
 --              on_tournament_win, on_tournament_miss
 --   target   { kind = "none" | "self" | "gtype" | "board_near" | "any_other",
 --              radius, gtype, exclude_self, where, pick = "random", max }
 --   payload  { kind = "apply_status" | "resolve_now" | "refund_buyin" | "ratchet", ... }
 --   ghost    catalog item id whose sprite + sound plays when it fires
---   impact   false if this is not a blow. Procs land with the fist or the
---            shove by default, because most of them ARE one table doing
---            something to another. Set it false where the fiction is not
---            violence and you want only the ghost.
+--   impact   true if this is a BLOW: the source table shoves its one
+--            target, or drives a fist into the felt when it hits several
+--            (controllers/GrindController _bumpTargets). Off by default —
+--            a proc landing is just its ghost and the status it leaves.
+--            Only the handful written as violence opt in.
 --
 -- "Nearby" is the BOARD's geometry: Manhattan cell distance, so adjacent
 -- means SHARING A SIDE — never diagonal, never "next in reading order
@@ -47,7 +48,7 @@
 -- Two tournaments overlapping shorten the gap but do not stack power
 -- (statuses refresh, they don't add).
 --
--- These rates were set when MTT ran ~3.4s a hand. It now runs ~18.3s.
+-- These rates were set when KO ran ~3.4s a hand. It now runs ~18.3s.
 -- Raise them here if the support kit needs to be felt more often; that is
 -- one number per proc and nothing else.
 
@@ -55,18 +56,17 @@ return {
 
     -- Chunk 2's cascade, now expressed as data. A {stack} anywhere makes
     -- every Zoom table settle on the spot.
-    zoom_cascade = {
-        trigger = "on_jackpot_win",
+    receipt_printer_cascade = {
+        trigger = "on_stack_win",
         target  = { kind = "gtype", gtype = "zoom", exclude_self = true },
         payload = { kind = "resolve_now" },
         ghost   = "receipt_printer",
         -- Nobody is being hit. The printer runs and those hands finish;
         -- what you should see is the ghost and the tables settling.
-        impact  = false,
     },
 
     -- The aura. A knockout heats a neighbouring table.
-    ko_heater = {
+    curved_monitor_heater = {
         trigger = "on_ko",
         chance  = 0.20,
         target  = { kind = "board_near", radius = 2, pick = "random",
@@ -83,18 +83,18 @@ return {
     -- Tournaments are excluded: their hands come from a pre-rolled plan
     -- that deliberately caps filler pots, and bumping one busts seats the
     -- plan never scheduled.
-    ko_bump = {
+    tower_upgrade_bump = {
         trigger = "on_ko",
         chance  = 0.15,
         target  = { kind = "board_near", radius = 2, pick = "random",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "apply_status", status = "marked",
                     magnitude = 1, charges = 1 },
-        ghost   = "pc_tower",
+        ghost   = "tower_upgrade",
     },
 
     -- The healer. A knockout sometimes buys back a neighbour's buy-in.
-    ko_refund = {
+    shredder_refund = {
         trigger = "on_ko",
         chance  = 0.12,
         target  = { kind = "board_near", radius = 1, pick = "random",
@@ -106,7 +106,7 @@ return {
     -- The ratchet. Winning a tournament lifts every table for the rest of
     -- the run. Self-limiting: a tournament takes a while and costs a
     -- buy-in, so this needs no cap.
-    tourney_ratchet = {
+    prize_vase_ratchet = {
         trigger = "on_tournament_win",
         target  = { kind = "none" },
         payload = { kind = "ratchet", magnitude = 0.01,
@@ -116,35 +116,34 @@ return {
 
     -- ─── HU: the stacks ────────────────────────────────────────────────
     -- Nothing here says "Heads Up". It does not have to: a {stack} is a
-    -- jackpot-tier hit, and HU reaches that tier several times more often
+    -- stack-tier hit, and HU reaches that tier several times more often
     -- than anything else, so an item that procs on stacks IS an HU item
     -- without ever naming one. Hang it on a 6-max and it is a lottery
     -- ticket; that is a real choice rather than a mistake.
 
-    -- Dogs Playing Poker. Running hot after a big one, steaming after a
-    -- cooler. Both halves are the same item because the swing is the point.
-    stack_high = {
-        trigger = "on_jackpot_win",
+    -- Dogs Playing Poker. Running hot after a big one: a {stack} win may
+    -- heat the table that hit it. (The losing half is gone — losing already
+    -- tilts where it should, through the 6-max cooler and the KO bust.)
+    dogs_playing_poker_high = {
+        trigger = "on_stack_win",
+        chance  = 0.25,
+        target  = { kind = "self" },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 8 },
+        ghost   = "dogs_playing_poker",
+    },
+    dogs_playing_poker_high_corrupt = {
+        trigger = "on_stack_win",
         chance  = 0.35,
         target  = { kind = "self" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 8 },
         ghost   = "dogs_playing_poker",
-        impact  = false,   -- it happens TO this table; nothing is thrown
-    },
-    stack_low = {
-        trigger = "on_stack_loss",
-        chance  = 0.35,
-        target  = { kind = "self" },
-        payload = { kind = "apply_status", status = "tilt",
-                    magnitude = 0.35, t = 6 },
-        ghost   = "dogs_playing_poker",
-        impact  = false,
     },
 
     -- Gaming Chair. The good run spreads to the table beside it.
-    stack_spread = {
-        trigger = "on_jackpot_win",
+    gaming_chair_spread = {
+        trigger = "on_stack_win",
         chance  = 0.30,
         target  = { kind = "board_near", radius = 1, pick = "random",
                     exclude_self = true },
@@ -160,7 +159,7 @@ return {
     -- these survive a reload without storing a tally.
 
     -- Wall Clock.
-    century = {
+    wall_clock_century = {
         trigger = "on_hand_won",
         every   = 100,
         target  = { kind = "any_other", pick = "random" },
@@ -172,14 +171,13 @@ return {
     -- Framed Diploma. A thousand hands is a long haul, so it pays into the
     -- run rather than into a moment: the shift is permanent until reset,
     -- and it stacks with every thousand after it.
-    millennium = {
+    framed_diploma_millennium = {
         trigger = "on_hand_won",
         every   = 1000,
         target  = { kind = "gtype", gtype = "zoom" },
         payload = { kind = "apply_status", status = "sharp",
                     magnitude = 0.005 },
-        ghost   = "diploma",
-        impact  = false,
+        ghost   = "framed_diploma",
     },
 
     -- The Diploma's other half. "For the run" has to include zoom tables
@@ -187,14 +185,13 @@ return {
     -- run level; GrindController:addTable pays the bank out to every zoom
     -- table opened later. Same trigger and `every`, both counted off the
     -- event's own running total, so the two halves cannot drift apart.
-    millennium_bank = {
+    framed_diploma_millennium_bank = {
         trigger = "on_hand_won",
         every   = 1000,
         target  = { kind = "none" },
         payload = { kind = "bank", field = "zoom_sharp_banked",
                     magnitude = 0.005 },
         ghost   = nil,     -- the visible half already pops the sprite
-        impact  = false,
     },
 
     -- ─── Rung one: the first procs a player meets ───────────────────────
@@ -208,18 +205,22 @@ return {
     -- century), so Zoom's volume is what makes it fire. `every` is the
     -- only tuning knob. (Heat itself is taught by story first_heat, which
     -- fires on the first heater from any source.)
-    caffeine = {
+    -- Fires OFTEN on purpose (every 25 hands): it is the first heater in
+    -- the game and the player has to tie the fire to the drink. Landing
+    -- only on Zoom keeps that cheap — a Zoom heater is the weakest kind
+    -- (short hands, small pots) — and fizzles when no Zoom table is open.
+    energy_drink_caffeine = {
         trigger = "on_hand_played",
-        every   = 250,
-        target  = { kind = "any_other", pick = "random" },
+        every   = 25,
+        target  = { kind = "gtype", gtype = "zoom", pick = "random" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 8 },
         ghost   = "energy_drink",
     },
-    caffeine_corrupt = {
+    energy_drink_caffeine_corrupt = {
         trigger = "on_hand_played",
-        every   = 100,
-        target  = { kind = "any_other", pick = "random" },
+        every   = 10,
+        target  = { kind = "gtype", gtype = "zoom", pick = "random" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 8 },
         ghost   = "energy_drink",
@@ -229,28 +230,26 @@ return {
     -- higher. Wins only: a plain one-shot flag on the table
     -- (Table._next_win_tier_up), consumed by its next winning hand — not
     -- a status, nothing to name. The gentlest possible cross-table proc.
-    cat_nap = {
+    house_cat_nap = {
         trigger = "on_hand_won",
         every   = 50,
         target  = { kind = "any_other", pick = "random" },
         payload = { kind = "next_win_tier_up" },
         ghost   = "house_cat",
-        impact  = false,
     },
-    cat_nap_corrupt = {
+    house_cat_nap_corrupt = {
         trigger = "on_hand_won",
         every   = 25,
         target  = { kind = "any_other", pick = "random" },
         payload = { kind = "next_win_tier_up" },
         ghost   = "house_cat",
-        impact  = false,
     },
 
     -- Candle. A {stack} anywhere spreads the warmth: sometimes a random
-    -- table catches a heater. First taste of "jackpots ripple outward".
+    -- table catches a heater. First taste of "stacks ripple outward".
     candle_flame = {
-        trigger = "on_jackpot_win",
-        chance  = 0.35,
+        trigger = "on_stack_win",
+        chance  = 0.25,
         target  = { kind = "any_other", pick = "random" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6 },
@@ -262,12 +261,11 @@ return {
     -- Cool Towel. A {stack} settles the nerves: every tilt on the board
     -- wipes off. The active half of the tilt counterplay (Dish Soap's
     -- tilt_resist_chance is the passive half, and its prerequisite).
-    towel_cleanse = {
-        trigger = "on_jackpot_win",
+    cool_towel_cleanse = {
+        trigger = "on_stack_win",
         target  = { kind = "none" },
         payload = { kind = "cleanse" },
         ghost   = "cool_towel",
-        impact  = false,
     },
 
     -- Waste Basket. Take the beat, throw it away: when a tilt's forced
@@ -275,13 +273,12 @@ return {
     -- the table heats — anger into focus. The conversion build's first
     -- rung, and the decision that makes owning the Cool Towel interesting:
     -- cleansing a tilt early forfeits this payoff.
-    tilt_burnout = {
+    waste_basket_burnout = {
         trigger = "on_tilt_spent",
         target  = { kind = "self" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 4 },
         ghost   = "waste_basket",
-        impact  = false,
     },
 
     -- ─── Automation crossover ───────────────────────────────────────────
@@ -289,21 +286,20 @@ return {
     -- Cleaning Robot. A {stack} anywhere and the swarm goes into
     -- overdrive: cursors travel double speed for a while. Nobody knows
     -- why it speeds up. It knows.
-    robot_overdrive = {
-        trigger = "on_jackpot_win",
+    cleaning_robot_overdrive = {
+        trigger = "on_stack_win",
         target  = { kind = "none" },
         payload = { kind = "timed_buff", buff = "cursor_speed_mult",
                     value = 2.0, t = 10 },
         ghost   = "cleaning_robot",
-        impact  = false,
     },
 
-    -- ─── MTT: the sustain ──────────────────────────────────────────────
+    -- ─── KO: the sustain ──────────────────────────────────────────────
 
     -- First Aid Kit. A knockout occasionally hands back the price of the
     -- most expensive seat you are sitting in, which makes the tournament
     -- quietly pay for the rest of the board.
-    ko_biggest = {
+    first_aid_kit_biggest = {
         trigger = "on_ko",
         chance  = 0.10,
         target  = { kind = "none" },
@@ -323,7 +319,7 @@ return {
     -- trigger on on_status_applied and gate the source to six_max.
 
     -- Microwave. It takes the hit and something else runs hot for it.
-    tank_vent = {
+    microwave_oven_vent = {
         trigger = "on_status_applied",
         when    = { status = "tilt" },
         source  = { gtype = "six_max" },
@@ -331,14 +327,14 @@ return {
         target  = { kind = "any_other", pick = "random" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 8 },
-        ghost   = "microwave",
+        ghost   = "microwave_oven",
     },
 
     -- Fire Extinguisher. A tilt landing on a table that was ALREADY tilted
     -- marks a pot. `was_refresh` is exactly that fact and nothing else in
     -- the game knows it. Repeatable on purpose: the marks are charges, so
     -- ten of them means the next ten pots, and that is the engine.
-    tank_compress = {
+    fire_extinguisher_compress = {
         trigger = "on_status_applied",
         when    = { status = "tilt", was_refresh = true },
         source  = { gtype = "six_max" },
@@ -346,20 +342,18 @@ return {
         payload = { kind = "apply_status", status = "stacked_mark",
                     magnitude = 1, charges = 1 },
         ghost   = "fire_extinguisher",
-        impact  = false,
     },
 
     -- Blackout Curtains. Everything that lands teaches it something. Not
     -- win chance: this widens what a win is worth, which is the only way
     -- 6-max's enormous bands ever get reached.
-    tank_read = {
+    blackout_curtains_read = {
         trigger = "on_status_applied",
         source  = { gtype = "six_max" },
         target  = { kind = "self" },
         payload = { kind = "apply_status", status = "sharp",
                     magnitude = 0.005 },
         ghost   = "blackout_curtains",
-        impact  = false,
     },
 
     -- ─── Corrupted variants (Act 3) ────────────────────────────────────
@@ -369,7 +363,7 @@ return {
     -- bump becomes the AOE slam, the coin flip becomes a certainty. The
     -- cost rides on the catalog entry beside the proc.
 
-    ko_heater_corrupt = {
+    curved_monitor_heater_corrupt = {
         trigger = "on_ko",
         chance  = 0.30,
         target  = { kind = "board_near", radius = 2, exclude_self = true },
@@ -377,19 +371,21 @@ return {
                     magnitude = 0.35, t = 6,
                     escalate = { field = "busted_total", per = 0.12 } },
         ghost   = "curved_monitor",
+        impact  = true,    -- a blow: the source shoves / slams (see header)
     },
 
-    ko_bump_corrupt = {
+    tower_upgrade_bump_corrupt = {
         trigger = "on_ko",
         chance  = 0.25,
         target  = { kind = "board_near", radius = 2, exclude_self = true,
                     where = { chip_stack_table = false } },
         payload = { kind = "apply_status", status = "marked",
                     magnitude = 1, charges = 1 },
-        ghost   = "pc_tower",
+        ghost   = "tower_upgrade",
+        impact  = true,    -- a blow: the source shoves / slams (see header)
     },
 
-    tourney_ratchet_corrupt = {
+    prize_vase_ratchet_corrupt = {
         trigger = "on_tournament_win",
         target  = { kind = "none" },
         payload = { kind = "ratchet", magnitude = 0.03,
@@ -397,7 +393,7 @@ return {
         ghost   = "prize_vase",
     },
 
-    ko_refund_corrupt = {
+    shredder_refund_corrupt = {
         trigger = "on_ko",
         chance  = 0.25,
         target  = { kind = "board_near", radius = 1, pick = "random",
@@ -408,17 +404,18 @@ return {
 
     -- ─── Tilt: the diegetic bad beats ──────────────────────────────────
     -- These belong to nobody. They are granted at run start (see the
-    -- hidden `the_tilt` catalog entry) so the mental game is part of the
+    -- hidden `tilt` catalog entry) so the mental game is part of the
     -- felt rather than something you buy into.
 
     -- Busting out of a tournament: the AOE slam. Every table in range
     -- catches it.
-    miss_tilt = {
+    tilt_miss = {
         trigger = "on_tournament_miss",
         target  = { kind = "board_near", radius = 1, exclude_self = true },
         payload = { kind = "apply_status", status = "tilt",
                     magnitude = 0.35, t = 5 },
         ghost   = nil,
+        impact  = true,    -- a blow: the source shoves / slams (see header)
     },
 
     -- SIX MAX ONLY. Losing a multiway cooler is the tank slot's own cost:
@@ -429,7 +426,7 @@ return {
     -- Single target, so it plays as the bump: this table shoves that
     -- table. The tournament bust above is the AOE slam; keeping the two
     -- distinct is the point.
-    cooler_tilt = {
+    tilt_cooler = {
         trigger = "on_stack_loss",
         source  = { gtype = "six_max" },
         target  = { kind = "board_near", radius = 1, pick = "random",
@@ -437,5 +434,6 @@ return {
         payload = { kind = "apply_status", status = "tilt",
                     magnitude = 0.35, t = 5 },
         ghost   = nil,
+        impact  = true,    -- a blow: the source shoves / slams (see header)
     },
 }

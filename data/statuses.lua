@@ -185,7 +185,7 @@ return {
         effects  = {
             { kind = "win_tier_shift", from = "small",  to = "medium",  mag_field = "chance" },
             { kind = "win_tier_shift", from = "medium", to = "large",   mag_field = "chance" },
-            { kind = "win_tier_shift", from = "large",  to = "jackpot", mag_field = "chance" },
+            { kind = "win_tier_shift", from = "large",  to = "stack", mag_field = "chance" },
         },
         glow_token = "status_fx.heater",
         wash_token = nil,

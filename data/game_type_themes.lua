@@ -22,5 +22,5 @@ return {
     six_max = { chrome_color = { 0.29, 0.24, 0.18 } },   -- worn oak: the standard table
     hu      = { chrome_color = { 0.26, 0.15, 0.15 } },   -- oxblood leather: the duel
     zoom    = { chrome_color = { 0.18, 0.20, 0.25 } },   -- slate lacquer: fast and cool
-    mtt     = { chrome_color = { 0.15, 0.24, 0.24 } },   -- teal lacquer: the tournament room
+    ko     = { chrome_color = { 0.15, 0.24, 0.24 } },   -- teal lacquer: the tournament room
 }

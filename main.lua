@@ -256,6 +256,9 @@ local function buildGame()
 
     g.effects = EffectsRegistry:new()
     PokerEffects.registerAll(g.effects)
+    -- Fill-scaled upgrade prices are derived from the ladder + outcome
+    -- model, once, before anything reads a cost.
+    require("models.UpgradePricing").apply(RunUpgrades, g.effects)
 
     -- Proc dispatch: "when X happens, do Y to Z". Same split as above —
     -- engine-agnostic registry (services/ProcRegistry), poker-specific

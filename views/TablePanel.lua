@@ -24,7 +24,7 @@ local Decks         = require("models.Decks")
 local PokerEventAnims = require("views.PokerEventAnims")
 local Stakes        = require("data.stakes")
 local GameTypes     = require("data.game_types")
-local MttPayouts    = require("data.mtt_payouts")
+local KoPayouts    = require("data.ko_payouts")
 local Chips         = require("views.Chips")
 local ChipFlight    = require("views.ChipFlight")
 local ChipPile      = require("views.ChipPile")
@@ -355,7 +355,7 @@ local function drawHistoryBars(tbl, zone_x, zone_y, zone_w, zone_h, s)
             local bx   = x0 + i * (bar_w + gap)
             local by   = baseline_y - bh
 
-            -- Color by tier so a Stack (jackpot) result pops at a glance,
+            -- Color by tier so a Stack (stack) result pops at a glance,
             -- while win/loss stays legible (green ramp vs red ramp). Keyed
             -- lookup — no tier branches; flat win/loss color is the fallback.
             local ramp  = entry.won and Theme.tier.win or Theme.tier.loss
@@ -903,7 +903,7 @@ local function drawPotLabel(tbl, pot, fonts)
     -- would skip exactly the frames where potval first reads zero. Only
     -- the text at the bottom of this function is suppressed.
 
-    -- Chip pile when room permits — uses outcome_tier so jackpot pots
+    -- Chip pile when room permits — uses outcome_tier so stack pots
     -- visibly dwarf small ones. Text-only once the chip would be a dot.
     --
     -- The pile is a COLLECTION owned by views/ChipPile, not a breakdown of
@@ -920,7 +920,7 @@ local function drawPotLabel(tbl, pot, fonts)
         --
         -- outcome_tier is decided at deal, and it drives the pile's chip
         -- COUNT (data/chips.lua tier_chip_target: 4 for small, 50 for
-        -- jackpot). Composing the running pot against it means a $2 pot
+        -- stack). Composing the running pot against it means a $2 pot
         -- that is about to become a Stack sits there as fifty chips from
         -- the first blind — the pile announces the tier before a single
         -- card is dealt. The pot is worth what's been bet and should look
@@ -958,7 +958,7 @@ local function drawPotLabel(tbl, pot, fonts)
             ChipPile.clear(pot_key)
         end
 
-        -- Jackpot detonation: the pile comes apart INSTEAD of being drawn.
+        -- Stack detonation: the pile comes apart INSTEAD of being drawn.
         -- The controller raises pot_explode_pending on a stack win; we
         -- consume it here and hand ChipFlight the pile's own chips, so the
         -- debris IS the collection that was sitting there — not a
@@ -1037,8 +1037,8 @@ local function drawTournamentLadder(tbl, gtype, ctx, band, fonts)
     local n_seats     = (gtype.seats or 0) + 1
     local total_units = n_seats - 1
     if total_units <= 0 then return end
-    local boost        = (ctx and ctx.mtt_payout_boost) or 0
-    local payout_table = MttPayouts[boost] or MttPayouts[0]
+    local boost        = (ctx and ctx.ko_payout_boost) or 0
+    local payout_table = KoPayouts[boost] or KoPayouts[0]
     -- Paying finishes, worst place first (3rd, 2nd, 1st).
     local finishes = {}
     for k, mult in pairs(payout_table) do
@@ -1072,7 +1072,7 @@ local function drawTournamentLadder(tbl, gtype, ctx, band, fonts)
     local over   = tbl.last_finish ~= nil
     local paid   = over and tbl.last_finish <= finishes[1].finish
     local target = math.min(kos, total_units) * unit_w
-    local fill_w = RollingValue.get("mtt_ko:" .. tostring(tbl._id or 0), target, 6)
+    local fill_w = RollingValue.get("ko_knockouts:" .. tostring(tbl._id or 0), target, 6)
     if fill_w > 0.5 then
         if over and not paid then
             Theme.setColor(Theme.fg.disabled, 0.9)
@@ -1229,8 +1229,8 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
         -- the thing a tournament player is actually watching for.
         local pays = 0
         do
-            local payout_table = MttPayouts[(ctx and ctx.mtt_payout_boost) or 0]
-                                 or MttPayouts[0]
+            local payout_table = KoPayouts[(ctx and ctx.ko_payout_boost) or 0]
+                                 or KoPayouts[0]
             for _ in pairs(payout_table) do pays = pays + 1 end
         end
         local kos = n_seats - alive
@@ -2108,12 +2108,12 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     if L.pot then drawPotLabel(tbl, L.pot, fonts) end
     desatOff()
 
-    -- Legacy MTT: the binary-outcome pot is always empty, so the felt-center
+    -- Legacy KO: the binary-outcome pot is always empty, so the felt-center
     -- pot slot shows the HAND x/x tournament counter instead (the payout ladder
     -- spans the full bottom band below).
     if L.pot and tbl.state ~= "idle"
        and gtype and gtype.hand_count and not gtype.chip_stack_table then
-        local hands_won = (tbl.mtt and tbl.mtt.hands_won) or 0
+        local hands_won = (tbl.ko and tbl.ko.hands_won) or 0
         local fh  = fonts.sm:getHeight()
         -- Center vertically in the OPEN gap between the community and hole cards
         -- (L.pot.text_y is offset low for the cash pile, which lands on the
@@ -2184,7 +2184,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         end
     end
 
-    -- Jackpot vignette — colored wash over the felt area when a jackpot
+    -- Stack vignette — colored wash over the felt area when a stack
     -- resolution is fading. Drawn AFTER the gauge so the colored tint
     -- sits over everything inside the panel.
     -- Status wash sits under the resolution vignette: a tilt is the
@@ -2195,8 +2195,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     Effects.drawStatusFire(tbl, felt_x, felt_y, felt_w, felt_h)
     Effects.drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
 
-    -- Radial-glow halo (jackpot wins). Additive shader pass over the
-    -- whole panel rect; lasts ~0.7s after a jackpot win.
+    -- Radial-glow halo (stack wins). Additive shader pass over the
+    -- whole panel rect; lasts ~0.7s after a stack win.
     Effects.drawStatusRing(tbl, x, y, w, h)
     Effects.drawStatusGlow(tbl, x, y, w, h)
     Effects.drawGlow(tbl, x, y, w, h)

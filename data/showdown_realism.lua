@@ -98,7 +98,7 @@ return {
                     { lo = 0.600, hi = 0.825, w = 0.8 },  -- big favorite got paid
                     { lo = 0.450, hi = 0.550, w = 0.2 },  -- won a flip
                 },
-                jackpot = {
+                stack = {
                     { lo = 0.500, hi = 0.700, w = 0.7, opp_min_eqvr = 0.55 },  -- cooler paid off
                     { lo = 0.650, hi = 0.850, w = 0.3 },  -- monster got paid anyway
                 },
@@ -112,7 +112,7 @@ return {
                     { lo = 0.550, hi = 0.750, w = 0.5 },                       -- bad beat
                     { lo = 0.350, hi = 0.500, w = 0.5, opp_min_eqvr = 0.55 },  -- cooler
                 },
-                jackpot = {
+                stack = {
                     { lo = 0.600, hi = 0.800, w = 0.7 },                       -- sucked out on
                     { lo = 0.425, hi = 0.550, w = 0.3, opp_min_eqvr = 0.60 },  -- premium cooler
                 },
@@ -124,7 +124,7 @@ return {
             -- Nobody loses a big pot holding nothing: the beaten hand
             -- needs to be something you could talk yourself into.
             large   = { winner = 3, loser = 2 },   -- ≥ two pair / ≥ pair
-            jackpot = { winner = 3, loser = 2 },   -- AA-vs-KK canon: loser shows a pair
+            stack = { winner = 3, loser = 2 },   -- AA-vs-KK canon: loser shows a pair
         },
     },
 

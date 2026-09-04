@@ -63,7 +63,7 @@ C.GTYPE_GATE = {
     zoom    = false,
     hu      = "hu_unlocked",
     six_max = "six_max_unlocked",   -- bought: the Desk Plant catalog item
-    mtt     = "shove_r1_won",
+    ko     = "shove_r1_won",
 }
 
 C.WINDOW = {

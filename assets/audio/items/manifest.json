@@ -60,9 +60,9 @@
     "downloaded": "2026-08-25 11:18"
   },
   {
-    "id": "gift_box",
+    "id": "starter_gift_box",
     "name": "Starter Gift Box",
-    "file": "gift_box.mp3",
+    "file": "starter_gift_box.mp3",
     "original_file": "mrstokes302-opening-a-box-sfx-mrstokes302-430251.mp3",
     "artist": "mrstokes302",
     "title": "opening a box sfx mrstokes302",
@@ -90,9 +90,9 @@
     "downloaded": "2026-08-25 11:47"
   },
   {
-    "id": "sticky_notes",
+    "id": "yellow_sticky_note",
     "name": "Yellow Sticky Note",
-    "file": "sticky_notes.mp3",
+    "file": "yellow_sticky_note.mp3",
     "original_file": "freesound_community-sticky-note-43933.mp3",
     "artist": "freesound_community",
     "title": "sticky note",
@@ -180,9 +180,9 @@
     "downloaded": "2026-08-25 12:03"
   },
   {
-    "id": "rebuy_note",
+    "id": "rebuy_sticky_note",
     "name": "Rebuy Sticky Note",
-    "file": "rebuy_note.mp3",
+    "file": "rebuy_sticky_note.mp3",
     "original_file": "freesound_community-sticky-note-43933 (1).mp3",
     "artist": "freesound_community",
     "title": "sticky note",
@@ -220,9 +220,9 @@
     "downloaded": "2026-08-25 12:08"
   },
   {
-    "id": "fridge",
+    "id": "compact_fridge",
     "name": "Compact Fridge",
-    "file": "fridge.mp3",
+    "file": "compact_fridge.mp3",
     "original_file": "u_1u3ikv3y0r-slamming-fridge-door-441147.mp3",
     "artist": "u_1u3ikv3y0r",
     "title": "slamming fridge door",
@@ -240,9 +240,9 @@
     "downloaded": "2026-08-25 12:10"
   },
   {
-    "id": "vouchers",
+    "id": "rolled_vouchers",
     "name": "Rolled Vouchers",
-    "file": "vouchers.mp3",
+    "file": "rolled_vouchers.mp3",
     "original_file": "tanweraman-paper-rip-fast-252617.mp3",
     "artist": "tanweraman",
     "title": "paper rip fast",
@@ -260,9 +260,9 @@
     "downloaded": "2026-08-25 12:11"
   },
   {
-    "id": "laptop",
+    "id": "laptop_terminal",
     "name": "Laptop Terminal",
-    "file": "laptop.mp3",
+    "file": "laptop_terminal.mp3",
     "original_file": "dragon-studio-mouse-click-346047.mp3",
     "artist": "dragon-studio",
     "title": "mouse click",
@@ -300,9 +300,9 @@
     "downloaded": "2026-08-25 12:15"
   },
   {
-    "id": "kettle",
+    "id": "electric_kettle",
     "name": "Electric Kettle",
-    "file": "kettle.mp3",
+    "file": "electric_kettle.mp3",
     "original_file": "mohammedalobaidi-electric-kettle-sound-effect-162642.mp3",
     "artist": "mohammedalobaidi",
     "title": "electric kettle sound effect",
@@ -310,12 +310,12 @@
     "downloaded": "2026-08-25 12:16"
   },
   {
-    "id": "toaster",
+    "id": "chrome_toaster",
     "name": "Chrome Toaster",
-    "file": "toaster.mp3",
+    "file": "chrome_toaster.mp3",
     "original_file": "freesound_community-toaster-37635.mp3",
     "artist": "freesound_community",
-    "title": "toaster",
+    "title": "chrome_toaster",
     "pixabay_id": "37635",
     "downloaded": "2026-08-25 12:16"
   },
@@ -350,9 +350,9 @@
     "downloaded": "2026-08-25 12:19"
   },
   {
-    "id": "microwave",
+    "id": "microwave_oven",
     "name": "Microwave Oven",
-    "file": "microwave.mp3",
+    "file": "microwave_oven.mp3",
     "original_file": "freesound_community-microwave-button-82493.mp3",
     "artist": "freesound_community",
     "title": "microwave button",
@@ -360,9 +360,9 @@
     "downloaded": "2026-08-25 12:20"
   },
   {
-    "id": "diploma",
+    "id": "framed_diploma",
     "name": "Framed Diploma",
-    "file": "diploma.mp3",
+    "file": "framed_diploma.mp3",
     "original_file": "freesound_community-tapping-on-glass-31920 (1).mp3",
     "artist": "freesound_community",
     "title": "tapping on glass",
@@ -370,9 +370,9 @@
     "downloaded": "2026-08-25 12:20"
   },
   {
-    "id": "blueprint",
+    "id": "laminated_blueprint",
     "name": "Laminated Blueprint",
-    "file": "blueprint.mp3",
+    "file": "laminated_blueprint.mp3",
     "original_file": "freesound_community-flexing-a-piece-of-resonating-copper-sheet-metal-29593.mp3",
     "artist": "freesound_community",
     "title": "flexing a piece of resonating copper sheet metal",
@@ -380,9 +380,9 @@
     "downloaded": "2026-08-25 12:22"
   },
   {
-    "id": "console_tv",
+    "id": "console_television",
     "name": "Console Television",
-    "file": "console_tv.mp3",
+    "file": "console_television.mp3",
     "original_file": "freesound_community-old-desktop-pc-booting-24280.mp3",
     "artist": "freesound_community",
     "title": "old desktop pc booting",
@@ -460,9 +460,9 @@
     "downloaded": "2026-08-25 12:30"
   },
   {
-    "id": "pc_tower",
+    "id": "tower_upgrade",
     "name": "Tower Upgrade",
-    "file": "pc_tower.mp3",
+    "file": "tower_upgrade.mp3",
     "original_file": "freesound_community-8bit-computer-startup-66972.mp3",
     "artist": "freesound_community",
     "title": "8bit computer startup",
@@ -500,9 +500,9 @@
     "downloaded": "2026-08-25 12:36"
   },
   {
-    "id": "unlock_ultra",
+    "id": "ultra_stake",
     "name": "Ultra Stake",
-    "file": "unlock_ultra.mp3",
+    "file": "ultra_stake.mp3",
     "original_file": "oxidvideos-placing-poker-chips-522515.mp3",
     "artist": "oxidvideos",
     "title": "placing poker chips",

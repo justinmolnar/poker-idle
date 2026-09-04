@@ -257,10 +257,10 @@ local PokerEventAnims = {
 
         -- Chip-stack tournament: the felt pot flies to whoever won it, as
         -- tournament chips. ev.amount ONLY — outcome_delta fabrication is
-        -- the cash path's payout trick, and an MTT r.delta is
+        -- the cash path's payout trick, and an KO r.delta is
         -- informational (GrindController skips it). No detonation either:
-        -- a scheduled bust hand is tier "jackpot" for the planner, not a
-        -- money jackpot — the KO moment is the seat's, not the pot's.
+        -- a scheduled bust hand is tier "stack" for the planner, not a
+        -- money stack — the KO moment is the seat's, not the pot's.
         if tbl.seat_stacks then
             ChipFlight.transfer(pot_pos, target_pos, {
                 chips         = tournamentChips(tbl, ev.amount),
@@ -271,7 +271,7 @@ local PokerEventAnims = {
             return
         end
 
-        -- Jackpot win: the pot doesn't get carried over, it DETONATES —
+        -- Stack win: the pot doesn't get carried over, it DETONATES —
         -- and then the debris regroups into your stack, so the spectacle
         -- and the payout are the same chips. Decided here rather than from
         -- the controller's pot_explode_pending flag because that flag

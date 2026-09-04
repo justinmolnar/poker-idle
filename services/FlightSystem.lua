@@ -31,7 +31,7 @@ local _scheduled_sounds = {}
 
 -- ── Tunables ────────────────────────────────────────────────────────
 local MAX_IN_FLIGHT       = 800     -- soft cap; drop-oldest beyond.
-                                    -- Bumped to accommodate jackpot confetti
+                                    -- Bumped to accommodate stack confetti
                                     -- fountains (120+ pieces) overlapping
                                     -- with chip bursts.
 local MAX_PER_EVENT       = 7       -- a burst shows ≤ 7 entities, never hundreds
@@ -112,7 +112,7 @@ end
 -- Convenience: emit a list of render callbacks as a staggered burst.
 -- Caps total entities at options.max_per_event (default MAX_PER_EVENT) —
 -- a burst of ANY input size renders as ≤ cap entities so spammy callers
--- don't fountain 1000+ at once. Jackpot bursts override the cap upward
+-- don't fountain 1000+ at once. Stack bursts override the cap upward
 -- for the fountain feel; everything else uses the default 7.
 --
 -- options.arrival_sound (string, optional) — semantic name dispatched

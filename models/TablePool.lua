@@ -69,10 +69,10 @@ function TablePool:rebuildFromState(ctx)
     self.tables = {}
     local mutes        = self.state.active_table_mutes or {}
     local rebuy_mutes  = self.state.active_table_rebuy_mutes or {}
-    local hands        = self.state.active_table_mtt_hands_won or {}
-    local finishes     = self.state.active_table_mtt_finishes or {}
+    local hands        = self.state.active_table_ko_hands_won or {}
+    local finishes     = self.state.active_table_ko_finishes or {}
     local last_fins    = self.state.active_table_last_finish or {}
-    local mstate       = self.state.active_table_mtt_state or {}
+    local mstate       = self.state.active_table_ko_state or {}
     -- Chip-stack tournament continuity: parallel arrays carry per-seat
     -- state across save / reload. Cash tables leave them nil.
     local seat_stacks  = self.state.active_table_seat_stacks or {}
@@ -80,7 +80,7 @@ function TablePool:rebuildFromState(ctx)
     local p_seats      = self.state.active_table_player_seat or {}
     local b_seats      = self.state.active_table_button_seat or {}
     local b_orders     = self.state.active_table_bust_order  or {}
-    local mtt_plans    = self.state.active_table_mtt_plans   or {}
+    local ko_plans    = self.state.active_table_ko_plans   or {}
     local stack_vals   = self.state.active_table_stack       or {}
     -- Board cells. A save written before slots existed (or one whose spec
     -- list grew behind the pool's back — applyStartingPerks appends specs
@@ -117,21 +117,21 @@ function TablePool:rebuildFromState(ctx)
             -- Tournament continuity: reload-mid-run drops the player back
             -- at "table idle, click DEAL to fire the next hand of N".
             -- Cash tables ignore these.
-            t.mtt.hands_won    = hands[i] or 0
-            t.mtt.finish_count = finishes[i] or 0
-            t.mtt.state        = mstate[i]
-            t.mtt.plan         = mtt_plans[i]
+            t.ko.hands_won    = hands[i] or 0
+            t.ko.finish_count = finishes[i] or 0
+            t.ko.state        = mstate[i]
+            t.ko.plan         = ko_plans[i]
             -- The FINISH readout on a settled tournament survives reload.
             t.last_finish      = last_fins[i]
             -- A tournament marked mid-run without its per-seat state is a
-            -- cross-build save (the old binary-MTT prototype wrote
+            -- cross-build save (the old binary-KO prototype wrote
             -- state="playing" but never seat_stacks/plans). Restoring it
             -- as "playing" nil-indexes seat_busted on the first deal —
             -- restart the tournament cleanly instead.
-            if t.mtt.state == "playing" and not (seat_stacks[i] and mtt_plans[i]) then
-                t.mtt.hands_won = 0
-                t.mtt.state     = nil
-                t.mtt.plan      = nil
+            if t.ko.state == "playing" and not (seat_stacks[i] and ko_plans[i]) then
+                t.ko.hands_won = 0
+                t.ko.state     = nil
+                t.ko.plan      = nil
             end
             if seat_stacks[i] then
                 t.seat_stacks       = seat_stacks[i]
@@ -189,7 +189,7 @@ end
 
 function TablePool:_syncStateList()
     local specs, mutes, rebuy_mutes = {}, {}, {}
-    local hands, finishes, last_fins, mstate, mtt_plans = {}, {}, {}, {}, {}
+    local hands, finishes, last_fins, mstate, ko_plans = {}, {}, {}, {}, {}
     local seat_stacks, seat_busted = {}, {}
     local p_seats, b_seats, b_orders, stack_vals = {}, {}, {}, {}
     local slots, statuses = {}, {}
@@ -202,11 +202,11 @@ function TablePool:_syncStateList()
         specs[i]        = packSpec(t.stake_id, t.game_type_id)
         mutes[i]        = t.cursor_muted == true
         rebuy_mutes[i]  = t.cursor_rebuy_muted == true
-        hands[i]        = (t.mtt and t.mtt.hands_won) or 0
-        finishes[i]     = (t.mtt and t.mtt.finish_count) or 0
+        hands[i]        = (t.ko and t.ko.hands_won) or 0
+        finishes[i]     = (t.ko and t.ko.finish_count) or 0
         last_fins[i]    = t.last_finish              -- nil mid-run / cash
-        mstate[i]       = t.mtt and t.mtt.state
-        mtt_plans[i]    = t.mtt and t.mtt.plan       -- nil for cash tables
+        mstate[i]       = t.ko and t.ko.state
+        ko_plans[i]    = t.ko and t.ko.plan       -- nil for cash tables
         seat_stacks[i]  = t.seat_stacks              -- may be nil for cash tables
         seat_busted[i]  = t.seat_busted
         p_seats[i]      = t.player_seat_fixed
@@ -217,11 +217,11 @@ function TablePool:_syncStateList()
     self.state.active_table_specs         = specs
     self.state.active_table_mutes         = mutes
     self.state.active_table_rebuy_mutes   = rebuy_mutes
-    self.state.active_table_mtt_hands_won = hands
-    self.state.active_table_mtt_finishes  = finishes
+    self.state.active_table_ko_hands_won = hands
+    self.state.active_table_ko_finishes  = finishes
     self.state.active_table_last_finish   = last_fins
-    self.state.active_table_mtt_state     = mstate
-    self.state.active_table_mtt_plans     = mtt_plans
+    self.state.active_table_ko_state     = mstate
+    self.state.active_table_ko_plans     = ko_plans
     self.state.active_table_seat_stacks   = seat_stacks
     self.state.active_table_seat_busted   = seat_busted
     self.state.active_table_player_seat   = p_seats

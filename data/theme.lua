@@ -98,7 +98,7 @@ Theme.palettes = {
         -- Table statuses (data/statuses.lua). Deliberately NOT the
         -- status.good/error pair above: those mean "a hand just won or
         -- lost", and a heater has to read as a lasting condition rather
-        -- than a result. Hot orange stays clear of the jackpot gold.
+        -- than a result. Hot orange stays clear of the stack gold.
         --
         -- `tilt` is used as a MULTIPLY target, not as a tint: it is what
         -- the felt gets multiplied DOWN toward. So it is dark and nearly
@@ -112,20 +112,20 @@ Theme.palettes = {
         },
         tier = {
             -- Outcome-tier color ramps for the per-table history bars.
-            -- Keyed by the internal tier id (small/medium/large/jackpot);
-            -- jackpot is the "Stack" tier and pops gold (win) / hot pink
+            -- Keyed by the internal tier id (small/medium/large/stack);
+            -- stack is the "Stack" tier and pops gold (win) / hot pink
             -- (loss) so the big result reads at a glance.
             win = {
                 small   = { 0.38, 0.56, 0.34 },
                 medium  = { 0.46, 0.72, 0.42 },
                 large   = { 0.56, 0.86, 0.48 },
-                jackpot = { 0.96, 0.78, 0.30 },
+                stack = { 0.96, 0.78, 0.30 },
             },
             loss = {
                 small   = { 0.52, 0.33, 0.31 },
                 medium  = { 0.70, 0.40, 0.37 },
                 large   = { 0.86, 0.44, 0.40 },
-                jackpot = { 0.95, 0.32, 0.52 },
+                stack = { 0.95, 0.32, 0.52 },
             },
         },
         tint = {
@@ -181,13 +181,13 @@ Theme.palettes = {
                 small   = { 0.34, 0.62, 0.34 },
                 medium  = { 0.42, 0.78, 0.42 },
                 large   = { 0.52, 0.92, 0.50 },
-                jackpot = { 1.00, 0.82, 0.28 },
+                stack = { 1.00, 0.82, 0.28 },
             },
             loss = {
                 small   = { 0.62, 0.26, 0.26 },
                 medium  = { 0.80, 0.30, 0.30 },
                 large   = { 0.95, 0.34, 0.34 },
-                jackpot = { 1.00, 0.28, 0.55 },
+                stack = { 1.00, 0.28, 0.55 },
             },
         },
         tint = {

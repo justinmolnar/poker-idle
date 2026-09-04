@@ -1,6 +1,6 @@
 // shaders/radial_glow.frag
 //
-// Two-zone radial-glow halo for jackpot wins. Used by views/TablePanel.lua.
+// Two-zone radial-glow halo for stack wins. Used by views/TablePanel.lua.
 //
 // Inner zone: tight bright core that pushes the color toward white-hot
 //             so the center reads as a "flash" rather than a tint.

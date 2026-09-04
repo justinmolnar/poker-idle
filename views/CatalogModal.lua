@@ -661,7 +661,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- sits there being peelable until someone peels it, so the reveal is an
     -- act rather than something that quietly happened between sessions.
     -- TWO kinds of gate, ONE sticker. `unlock` is the earned-condition
-    -- gate (counted, e.g. "100 jackpots won"); `requires` is the
+    -- gate (counted, e.g. "100 stacks won"); `requires` is the
     -- item-prerequisite gate ("after No. 038, the Bonsai"). Either (or
     -- both) puts the COMING SOON sticker on the card, with a row per
     -- gate; when everything is satisfied it flips to PEEL TO OPEN.
@@ -694,8 +694,6 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         affordable = (not is_owned) and (not locked) and state.chips >= (item.cost_chip or 0)
         buyable    = affordable and not self.read_only
     end
-
-    local is_tutorial_target = forcing_tutorial and item.id == "poker_poster"
 
     local s = self.game.ui_scale or 1
     local fl = math.floor
@@ -1187,10 +1185,6 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         stamp = { label = "ORDERED", color = { 0.75, 0.20, 0.20, 0.85 },
                   font = fonts.md, lw = 3,
                   hw = 55, hh = 14, r = 4 }
-    elseif forcing_tutorial and item.id ~= "poker_poster" then
-        stamp = { label = "WAIT POSTER", color = { 0.55, 0.55, 0.55, 0.60 },
-                  font = fonts.sm, lw = 1.5,
-                  hw = 55, hh = 12, r = 3 }
     end
 
     -- Watched EVERY frame, stamped or not: Pop.onChange ignores first sight, so

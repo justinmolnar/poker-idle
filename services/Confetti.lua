@@ -3,7 +3,7 @@
 -- Thin wrapper around services/FlightSystem.emitScatter that fires a spread
 -- of small rotating colored quads outward from a point.
 --
--- NOT CURRENTLY CALLED. The jackpot win it used to decorate now detonates
+-- NOT CURRENTLY CALLED. The stack win it used to decorate now detonates
 -- the pot's own chips instead (views/ChipFlight.explode), which reads as
 -- "that pile just went off" rather than generic celebration. Kept because
 -- the quads are a distinct, genuinely reusable look for a non-chip

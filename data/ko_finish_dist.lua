@@ -1,8 +1,8 @@
--- data/mtt_finish_dist.lua
+-- data/ko_finish_dist.lua
 --
 -- Per-tournament finish-position distribution for 8-max KO mode.
 --
--- Used by models/MttSession:planRun (the pre-roll) and mirrored by
+-- Used by models/KoSession:planRun (the pre-roll) and mirrored by
 -- OutcomeMath.evStats (the readout). At the click-DEAL moment of a fresh
 -- tournament, the player's EFFECTIVE PER-HAND WIN CHANCE at that stake
 -- (everything the cash table uses: the stake, the game type, upgrades,

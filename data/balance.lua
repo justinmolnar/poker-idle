@@ -41,6 +41,40 @@ Balance.ITEMS_AT_WIN           = Balance.ACT1_ITEM_COUNT * Balance.ACT1_COMPLETI
 Balance.K_SHOVE_PER_ITEM_DERIVED = Balance.CATALOG_TARGET_ACT1 / Balance.ITEMS_AT_WIN
 Balance.K_SHOVE_PER_ITEM         = 0.01
 
+-- ─── Run-upgrade pricing (models/UpgradePricing.lua) ─────────────────────────
+-- Sharper Reads / Pot Control are priced in HANDS of the board the player
+-- has at that point, from the game's own outcome math at boot:
+--   cost(L) = EV$/hand(best table at fill L-1, reference board)
+--             × tables × HANDS(L) × cost_mult
+--   HANDS(L) = UPGRADE_HANDS_FIRST × UPGRADE_HANDS_GROWTH ^ (L-1)
+-- Two knobs. FIRST is the opening: half a round of the best table at
+-- fill 0 (six-max NL2 on paper; the zoom-only opener earns it in ~3
+-- hands). GROWTH is the ramp: 1.26 makes each level ~26% more rounds
+-- than the last — L11 is ~10× L1, L18 ~50×, L29 ~600× — so the game
+-- starts fast and slows down, and every Act 2 stake's first level lands
+-- above its seat price (NL10K ~3.5 buy-ins, NL1M ~1.3, NL100M ~1.05).
+Balance.UPGRADE_HANDS_FIRST  = 0.5
+Balance.UPGRADE_HANDS_GROWTH = 1.26
+-- The raw prices step hardest where the best table changes (a stake's
+-- ×100 arrives in one level). Sigma, in levels, of the Gaussian that
+-- smooths the per-level ratios into a ramp; the total climb is kept.
+Balance.UPGRADE_RAMP_SMOOTHING = 2.5
+
+-- The reference board per stake band (data/stakes.lua `band`): the
+-- item-less player with that band's expected tables and decks. Items are
+-- the real player's edge over this; decks are the Act 2+ accelerator and
+-- the high stakes are −EV without them even capped, so they are in.
+-- `tables_ramp` = one table at L1 growing to `tables` (the focus base cap).
+-- `gtypes` = a list, or "cash" for every non-tournament mode.
+Balance.UPGRADE_REFERENCE = {
+    low  = { tables = 4,  tables_ramp = true, decks = {}, gtypes = "cash" },
+    mid  = { tables = 9,  decks = { standard = 5, hustler = 5 }, gtypes = "cash" },
+    -- Act 3's money decks (Nit / Maniac / The Bank / Investor) multiply EV
+    -- ~1000× stacked and Act 3 is unbalanced; until that pass the high
+    -- board holds the same two decks as mid, or T7+ prices come out absurd.
+    high = { tables = 12, decks = { standard = 5, hustler = 5 }, gtypes = "cash" },
+}
+
 -- The arithmetic that used to live here moved to
 -- models/catalog_loader.lua. data/ is tables: these are the authored taste
 -- inputs and the constants derived straight from them, nothing else.

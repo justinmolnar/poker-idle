@@ -247,7 +247,7 @@ end
 -- Look up a semantic name in data/sounds.lua and play it. Optional opts:
 --   opts.volume_mult — multiplier on the data-table's `volume` field.
 --                      Used for tier-scaled feedback (quiet on Small,
---                      louder on Jackpot) without duplicating sound
+--                      louder on Stack) without duplicating sound
 --                      entries per tier.
 --   opts.pitch       — playback pitch (1 = as recorded); presets and
 --                      discovered files alike. See rampPitch.

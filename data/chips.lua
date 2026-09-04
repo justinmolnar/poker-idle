@@ -29,7 +29,7 @@
 --   stake_palettes = {
 --     [stake_id] = { idx, idx, idx, idx },   -- four denomination indices
 --   }
---   tier_chip_target = { small = N, medium = N, large = N, jackpot = N }
+--   tier_chip_target = { small = N, medium = N, large = N, stack = N }
 --
 -- ── On `spot` / `spots` ────────────────────────────────────────────────
 -- The edge markings: contrasting blocks set into a chip's rim, the way a
@@ -108,6 +108,11 @@ return {
         { value = 25e15,      color = { 0.95, 0.68, 0.14 }, label = "25Q",  spot = INK,  spots = 4  },
         { value = 100e15,     color = { 0.28, 0.36, 0.46 }, label = "100Q", spot = PALE, spots = 6  },
         { value = 500e15,     color = { 0.90, 0.90, 0.84 }, label = "500Q", spot = INK,  spots = 3  },
+        -- Ultra's window ($10Qi blinds, a $1,000Qi seat).
+        { value = 1e18,       color = { 0.12, 0.10, 0.16 }, label = "1Qi",  spot = PALE, spots = 6  },
+        { value = 5e18,       color = { 0.86, 0.22, 0.30 }, label = "5Qi",  spot = INK,  spots = 4  },
+        { value = 25e18,      color = { 0.20, 0.60, 0.86 }, label = "25Qi", spot = INK,  spots = 8  },
+        { value = 100e18,     color = { 0.98, 0.84, 0.30 }, label = "100Qi",spot = INK,  spots = 5  },
     },
 
     -- ── Per-stake palettes (4 denominations each) ──────────────────────
@@ -126,6 +131,10 @@ return {
     --   T1  ($0.02 bb): $0.01 - $1
     --   T2  ($0.10 bb): $0.01 - $1 (same micro-stake ladder as T1)
     --   T3  ($1    bb): $0.25 - $25
+    --   (T4+ ladder shifted 2026-09-03: T4 $100 bb, T5 $10k, T6 $1M,
+    --   T7 $1B, T8 $1T, T9 $1Q, Ultra $10Qi. The palettes below predate
+    --   it and read as hue choices, not denominations — repick when the
+    --   Act 2/3 felt pass comes round.)
     --   T4  ($10   bb): $1    - $100
     --   T5  ($100  bb): $25   - $1k
     --   T6  ($1k   bb): $500  - $25k
@@ -140,13 +149,16 @@ return {
         s001 = { 1, 2, 3, 4 },
         s002 = { 1, 2, 3, 4 },
         s003 = { 3, 4, 5, 6 },
-        s004 = { 4, 5, 6, 7 },
-        s005 = { 6, 7, 8, 9 },
-        s006 = { 8, 9, 10, 11 },
-        s007 = { 10, 11, 12, 13 },
-        s008 = { 11, 12, 13, 14 },
-        s009 = { 13, 14, 15, 16 },
-        s010 = { 15, 18, 20, 22 },
+        -- 2026-09-03 ladder: T4 $10k, T5 $1M, T6 $100M, T7 $100B, T8 $100T,
+        -- T9 $100Q, Ultra $1,000Qi. Smallest rung posts the small blind,
+        -- largest makes a buy-in 4-10 chips.
+        s004 = { 6, 7, 8, 9 },       -- $25 .. 1K   (sb $50, buy-in $10k)
+        s005 = { 10, 11, 12, 13 },   -- 5K .. 500K  (sb $5k, buy-in $1M)
+        s006 = { 13, 14, 15, 16 },   -- 500K .. 25M (sb $500k, buy-in $100M)
+        s007 = { 18, 19, 20, 21 },   -- 500M .. 25B (sb $500M, buy-in $100B)
+        s008 = { 23, 24, 25, 26 },   -- 500B .. 25T
+        s009 = { 28, 29, 30, 31 },   -- 500T .. 25Q
+        s010 = { 34, 35, 36, 37 },   -- 1Qi .. 100Qi
     },
 
     -- The full ladder — used by the bankroll pile (no per-stake constraint).
@@ -155,6 +167,7 @@ return {
     full_palette = {
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
         15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
+        34, 35, 36, 37,
     },
 
     -- A payout composed through a stake's four-chip window degrades to
@@ -167,17 +180,17 @@ return {
     -- Used by DenominationBreakdown.breakdown to pick the primary
     -- denomination — the goal isn't fewest-tokens, it's a pile whose token
     -- count signals magnitude at a glance. Small wins look like 3-4 chips;
-    -- jackpots look like a pile of 30+.
+    -- stacks look like a pile of 30+.
     tier_chip_target = {
         small    = 4,
         medium   = 12,
         large  = 28,
-        jackpot = 50,
+        stack = 50,
     },
 
     -- Per-tier cap on the chip-burst fountain (services/FlightSystem.lua).
     -- Default MAX_PER_EVENT (7) bottlenecks high tiers — bump it for
-    -- large and jackpot so the fountain actually shows the magnitude.
+    -- large and stack so the fountain actually shows the magnitude.
     -- Passed as options.max_per_event on emitBurst.
     --
     -- Applies to LOOSE bursts only. Pile-to-pile transfers
@@ -188,6 +201,6 @@ return {
         small    = 7,
         medium   = 8,
         large  = 12,
-        jackpot = 18,
+        stack = 18,
     },
 }

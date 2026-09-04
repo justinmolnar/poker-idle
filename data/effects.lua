@@ -116,7 +116,7 @@ Effects.kinds = {
     -- ── Outcome-model effects ────────────────────────────────────────────
     -- The outcome model has three independent dimensions per hand:
     --   • win_chance — single probability ∈ [0, 1] that the hand is a Win
-    --   • win_dist   — { small, medium, large, jackpot }, sums to 1, sampled
+    --   • win_dist   — { small, medium, large, stack }, sums to 1, sampled
     --                  when winning
     --   • loss_dist  — same shape, sampled when losing
     --
@@ -180,17 +180,17 @@ Effects.kinds = {
     -- no-poster handicap to skew Run-0 losses toward Medium+.
     loss_dist_shift = {
         description = "Pushes a loss_dist additive-shape descriptor onto ctx.loss_dist_shifts.",
-        value_shape = "{ shift = { small=±X, medium=±X, large=±X, jackpot=±X }, gtype? }",
+        value_shape = "{ shift = { small=±X, medium=±X, large=±X, stack=±X }, gtype? }",
         affects     = "ctx.loss_dist_shifts (ordered list)",
     },
 
     -- Win-side mirror. Optional `tier_min` / `tier_max` (1-based stake
     -- index) bound the shift to specific tiers — used by deck specs that
     -- only reshape outcomes at certain stakes (e.g. Low Stakes Hero
-    -- shifts mass toward jackpot at T1-T3 only).
+    -- shifts mass toward stack at T1-T3 only).
     win_dist_shift = {
         description = "Pushes a win_dist additive-shape descriptor onto ctx.win_dist_shifts.",
-        value_shape = "{ shift = { small=±X, medium=±X, large=±X, jackpot=±X }, gtype?, tier_min?, tier_max? }",
+        value_shape = "{ shift = { small=±X, medium=±X, large=±X, stack=±X }, gtype?, tier_min?, tier_max? }",
         affects     = "ctx.win_dist_shifts (ordered list)",
     },
 
@@ -198,7 +198,7 @@ Effects.kinds = {
     -- a per-hand auto-win probability filtered by gtype. sampleOutcome
     -- rolls once before the natural WC roll; success forces won=true.
     -- Top-of-pipeline — bypasses fill_window / distribution shifts.
-    -- Used by MTT Pro to flat-bump MTT cash rate at every tier.
+    -- Used by KO Pro to flat-bump KO cash rate at every tier.
     auto_win_chance = {
         description = "Pushes an auto-win-probability descriptor onto ctx.auto_win_chances.",
         value_shape = "{ amount = 0..1, gtype? }",
@@ -215,23 +215,23 @@ Effects.kinds = {
 
     win_tier_shift = {
         description = "Push a post-sample win-tier upgrade descriptor onto ctx.win_tier_shifts.",
-        value_shape = "{ from = 'small'|'medium'|'large', to = 'medium'|'large'|'jackpot', chance = 0..1, gtype? }",
+        value_shape = "{ from = 'small'|'medium'|'large', to = 'medium'|'large'|'stack', chance = 0..1, gtype? }",
         affects     = "ctx.win_tier_shifts (ordered list)",
     },
 
     loss_tier_shift = {
         description = "Push a post-sample loss-tier downgrade descriptor onto ctx.loss_tier_shifts.",
-        value_shape = "{ from = 'medium'|'large'|'jackpot', to = 'small'|'medium'|'large', chance = 0..1, gtype? }",
+        value_shape = "{ from = 'medium'|'large'|'stack', to = 'small'|'medium'|'large', chance = 0..1, gtype? }",
         affects     = "ctx.loss_tier_shifts (ordered list)",
     },
 
-    -- Multiplies jackpot-tier WIN magnitudes (Branded Hat). Magnitude-only;
+    -- Multiplies stack-tier WIN magnitudes (Branded Hat). Magnitude-only;
     -- doesn't reshape the dist. Pairs with earnings_mult — earnings_mult
-    -- scales every win, jackpot_mult scales only jackpots.
-    jackpot_mult = {
-        description = "Multiplies the magnitude of jackpot-tier wins.",
-        value_shape = "number, e.g. 1.20 for +20% jackpot payouts",
-        affects     = "ctx.jackpot_mult (multiplicative)",
+    -- scales every win, stack_mult scales only stacks.
+    stack_mult = {
+        description = "Multiplies the magnitude of stack-tier wins.",
+        value_shape = "number, e.g. 1.20 for +20% stack payouts",
+        affects     = "ctx.stack_mult (multiplicative)",
     },
 
     -- Additive percentage on starting bankroll (Lucky Coin = +50%). Sits
@@ -273,12 +273,12 @@ Effects.kinds = {
         affects     = "ctx.chip_award_mult",
     },
 
-    -- Flat chips granted on every jackpot-tier WIN (Pen). Independent of the
+    -- Flat chips granted on every stack-tier WIN (Pen). Independent of the
     -- per-(stake, gtype) bounty system — fires every time, not just first.
-    jackpot_chip_add = {
-        description = "Flat chips added to chips_this_run on every jackpot-tier win.",
-        value_shape = "integer, e.g. 1 for +1 chip per jackpot",
-        affects     = "ctx.jackpot_chip_add",
+    stack_chip_add = {
+        description = "Flat chips added to chips_this_run on every stack-tier win.",
+        value_shape = "integer, e.g. 1 for +1 chip per stack",
+        affects     = "ctx.stack_chip_add",
     },
 
     -- ── Slows rep / burn meter rise during a run. (Held over.)
@@ -351,12 +351,12 @@ Effects.kinds = {
     },
 
     -- ── Tournament payouts ──────────────────────────────────────────────
-    -- Integer-level boost into data/mtt_payouts.lua. Max-stacks (the
+    -- Integer-level boost into data/ko_payouts.lua. Max-stacks (the
     -- higher-tier perk wins outright; doesn't compound on the lower one).
-    mtt_payout_boost = {
-        description = "Bumps MTT cash-tier multipliers (max-stacking, not multiplicative).",
-        value_shape = "integer 1 or 2 — selects the tier in data/mtt_payouts.lua",
-        affects     = "ctx.mtt_payout_boost",
+    ko_payout_boost = {
+        description = "Bumps KO cash-tier multipliers (max-stacking, not multiplicative).",
+        value_shape = "integer 1 or 2 — selects the tier in data/ko_payouts.lua",
+        affects     = "ctx.ko_payout_boost",
     },
 
     -- ── Deck capability kinds ───────────────────────────────────────────
@@ -368,12 +368,12 @@ Effects.kinds = {
 
     win_tier_floor = {
         description = "Wins can't roll below this tier (Standard capstone: medium).",
-        value_shape = "{ tier = 'small'|'medium'|'large'|'jackpot' }",
+        value_shape = "{ tier = 'small'|'medium'|'large'|'stack' }",
         affects     = "ctx.win_tier_floor (rank, max-combined)",
     },
     loss_tier_ceiling = {
-        description = "Losses can't roll above this tier (Nit capstone: large — bans jackpot 'stack' losses).",
-        value_shape = "{ tier = 'small'|'medium'|'large'|'jackpot' }",
+        description = "Losses can't roll above this tier (Nit capstone: large — bans stack 'stack' losses).",
+        value_shape = "{ tier = 'small'|'medium'|'large'|'stack' }",
         affects     = "ctx.loss_tier_ceiling (rank, min-combined)",
     },
     tier_bump_chance = {
@@ -471,7 +471,7 @@ Effects.kinds = {
         affects     = "ctx.void_first_loss",
     },
     void_first_stack_loss = {
-        description = "Flag — voids the first jackpot-tier (stack) loss each run (The Fridge).",
+        description = "Flag — voids the first stack-tier (stack) loss each run (The Fridge).",
         value_shape = "no field (presence sets ctx.void_first_stack_loss = true)",
         affects     = "ctx.void_first_stack_loss",
     },

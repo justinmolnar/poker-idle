@@ -8,8 +8,8 @@
 -- Inputs:
 --   outcome    = { won, magnitude_bb, tier, gtype_id, stake_bb,
 --                  forced_winner_seat?, forced_bust_seats? }
---     forced_winner_seat — MTT plan: this alive seat wins the pot.
---     forced_bust_seats  — MTT plan: these alive seats stay in through a
+--     forced_winner_seat — KO plan: this alive seat wins the pot.
+--     forced_bust_seats  — KO plan: these alive seats stay in through a
 --       forced showdown so stack caps drain them (their bust is the
 --       point of the hand). Dead/winner seats are ignored.
 --   table_ctx  = { n_seats, player_seat, button_seat,
@@ -247,7 +247,7 @@ local function plan(outcome, table_ctx, structure_data)
     local player_contrib = player_cap and math.min(target, player_cap) or target
     local pot_total      = target + player_contrib
 
-    -- alive_seats: default all seats alive (cash game / first MTT hand).
+    -- alive_seats: default all seats alive (cash game / first KO hand).
     local alive_seats = {}
     if table_ctx.alive_seats then
         for s, v in pairs(table_ctx.alive_seats) do
@@ -274,12 +274,12 @@ local function plan(outcome, table_ctx, structure_data)
                                     "showdown_chance_by_tier")[tier] or 0.5
     local showdown = love.math.random() < showdown_p
 
-    -- Pick the winner seat. outcome.forced_winner_seat (set by MTT plan
-    -- generation in models/MttSession) overrides the random pick when
+    -- Pick the winner seat. outcome.forced_winner_seat (set by KO plan
+    -- generation in models/KoSession) overrides the random pick when
     -- the seat is alive; otherwise we fall back to player-on-win /
     -- random-alive-on-loss. The alive guard makes plan drift safe — if
     -- the plan named a seat that has since busted, the writer recovers
-    -- cleanly and MttSession:reconcile patches the schedule on the next
+    -- cleanly and KoSession:reconcile patches the schedule on the next
     -- hand.
     local winner_seat
     if outcome.forced_winner_seat and alive_seats[outcome.forced_winner_seat] then
@@ -298,14 +298,14 @@ local function plan(outcome, table_ctx, structure_data)
         end
     end
 
-    -- Scheduled bust targets (MTT plan, outcome.forced_bust_seats).
+    -- Scheduled bust targets (KO plan, outcome.forced_bust_seats).
     -- Filtered to alive non-winner seats — same drift-safety as the
     -- forced-winner guard above. A hand with targets is forced to
     -- SHOWDOWN so they stay in through the later (biggest) streets: their
     -- calls hit capChips → genuine all_in events → per_seat_total drains
     -- their whole stack → Table:_reconcileChipFlow busts them on
     -- schedule. (With 2+ targets the even pot split can leave a target
-    -- short — MttSession:reconcile re-attacks it next hand.)
+    -- short — KoSession:reconcile re-attacks it next hand.)
     local bust_targets = {}
     if outcome.forced_bust_seats then
         for _, s in ipairs(outcome.forced_bust_seats) do

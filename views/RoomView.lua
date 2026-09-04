@@ -215,6 +215,33 @@ function RoomView:new(game)
 
     -- Load all layout positions: the autosaved draft, else room_layout
     local Layout = loadDraft() or Layout
+    -- Catalog ids renamed after a layout was drafted (data/catalog_id_
+    -- migrations, same guard as GameState:applySaved: an old id that is
+    -- live again is left alone). A stale key would otherwise stop being
+    -- a catalog item — treated as flavor, always shown, sprite missing —
+    -- and draw as a placeholder box. Numbered copies keep their suffix.
+    do
+        local Migrations = require("data.catalog_id_migrations")
+        local function remap(id)
+            if type(id) ~= "string" then return id end
+            local base, n = id:match("^(.-)_(%d+)$")
+            base = base or id
+            local new_base = (Migrations[base] and not catalog_by_id[base]) and Migrations[base] or base
+            if new_base == base then return id end
+            return n and (new_base .. "_" .. n) or new_base
+        end
+        local migrated = {}
+        for id, info in pairs(Layout) do
+            if id == "__meta" then
+                migrated[id] = info
+            else
+                local new_id = remap(id)
+                if type(info) == "table" and info.sprite then info.sprite = remap(info.sprite) end
+                if migrated[new_id] == nil then migrated[new_id] = info end
+            end
+        end
+        Layout = migrated
+    end
     loadLightsDraft()
     local _migrate_dx = true
     local placed = {}
@@ -2678,7 +2705,15 @@ loadLightsDraft = function()
     if ok2 and type(t) == "table" and t.fixture and t.emitters then
         for k, v in pairs(t.fixture) do RoomLights.fixture[k] = v end
         for k in pairs(RoomLights.emitters) do RoomLights.emitters[k] = nil end
-        for k, v in pairs(t.emitters) do RoomLights.emitters[k] = v end
+        -- Emitters are keyed by catalog id; a draft written before an id
+        -- rename follows the same map the layout does (live ids untouched).
+        local Migrations = require("data.catalog_id_migrations")
+        local live = {}
+        for _, it in ipairs(Catalog) do live[it.id] = true end
+        for k, v in pairs(t.emitters) do
+            local nk = (Migrations[k] and not live[k]) and Migrations[k] or k
+            if RoomLights.emitters[nk] == nil then RoomLights.emitters[nk] = v end
+        end
         print("[room-editor] Loaded lights draft from the save directory")
     end
 end

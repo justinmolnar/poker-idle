@@ -2,12 +2,12 @@
 --
 -- Game-type identity sim (chunk 1 of docs/gametype-identity-redesign.md).
 -- Rolls real outcomes (OutcomeMath.resolvedOutcome — the live pipeline,
--- zoom's jackpot_emerge overwrite included) and real HandScript scripts
+-- zoom's stack_emerge overwrite included) and real HandScript scripts
 -- (the live duration model) per (stake × gtype × scenario × candidate),
 -- and prints the identity axes side by side:
 --
---   $/hand (seats-capped), s/hand, $/hr, jackpot hits/hr, expected hands
---   to first jackpot, {stack}%, per-hand $ stddev, p95 max drawdown over
+--   $/hand (seats-capped), s/hand, $/hr, stack hits/hr, expected hands
+--   to first stack, {stack}%, per-hand $ stddev, p95 max drawdown over
 --   30-minute walks, and the capped-vs-uncapped EV gap.
 --
 -- Run headless from the repo root:
@@ -25,7 +25,7 @@
 -- transitions to settling the moment the final event fires (pot_push's
 -- beat is never awaited) and the 0.4s settling window is pace-scaled
 -- (models/Table.lua). Cash hands add the scenario's cursor_overhead_s
--- (deal click cadence); MTT auto-deals and adds nothing.
+-- (deal click cadence); KO auto-deals and adds nothing.
 
 io.stdout:setvbuf("no")
 
@@ -62,7 +62,7 @@ local CANDIDATES = {
 
     -- Phase-E starting point from the plan: six_max slow tank with the
     -- seats-rule bands, zoom fast drip with the same ceiling, HU testing
-    -- the 70-100 jackpot variant against its 100bb cap.
+    -- the 70-100 stack variant against its 100bb cap.
     c1 = {
         bands = {
             by_gtype = {
@@ -70,21 +70,21 @@ local CANDIDATES = {
                     small   = { 2, 5 },
                     medium  = { 10, 30 },
                     large   = { 60, 150 },
-                    jackpot = { 380, 500 },
+                    stack = { 380, 500 },
                 } },
                 zoom = { win = {
                     small   = { 1, 4 },
                     medium  = { 8, 24 },
                     large   = { 60, 150 },
-                    jackpot = { 380, 500 },
+                    stack = { 380, 500 },
                 } },
-                hu = { win = { jackpot = { 70, 100 } },
-                       loss = { jackpot = { 70, 100 } } },
+                hu = { win = { stack = { 70, 100 } },
+                       loss = { stack = { 70, 100 } } },
             },
         },
         gtype = {
             six_max = { pace_mult = 0.35 },
-            zoom    = { pace_mult = 2.2, jackpot_scale = 0.10 },
+            zoom    = { pace_mult = 2.2, stack_scale = 0.10 },
         },
         timings = {
             zoom = { deal_flop = 0.20, deal_turn = 0.15, deal_river = 0.15,
@@ -103,27 +103,27 @@ local CANDIDATES = {
                     small   = { 2, 6 },
                     medium  = { 12, 35 },
                     large   = { 70, 180 },
-                    jackpot = { 380, 500 },
+                    stack = { 380, 500 },
                 } },
                 zoom = { win = {
                     small   = { 1, 3 },
                     medium  = { 4, 12 },
                     large   = { 25, 60 },
-                    jackpot = { 300, 500 },
+                    stack = { 300, 500 },
                 } },
-                -- HU tops out at ONE stack, so its jackpot band sits just
+                -- HU tops out at ONE stack, so its stack band sits just
                 -- under the cap instead of being clipped by it.
                 hu = { win = {
                     small   = { 3, 8 },
                     medium  = { 15, 40 },
                     large   = { 45, 85 },
-                    jackpot = { 70, 100 },
+                    stack = { 70, 100 },
                 } },
             },
         },
         gtype = {
             six_max = { pace_mult = 0.35, win_chance_shift = -0.08 },
-            zoom    = { pace_mult = 2.2, jackpot_scale = 0.08, win_chance_shift = 0.05 },
+            zoom    = { pace_mult = 2.2, stack_scale = 0.08, win_chance_shift = 0.05 },
         },
         timings = {
             zoom = { deal_flop = 0.18, deal_turn = 0.14, deal_river = 0.14,
@@ -213,7 +213,7 @@ end
 
 -- Mean script wall-seconds per (gtype, tier, won), memoized over K rolls.
 -- `magFor(tier, won)` supplies each roll's magnitude; without one, hands
--- roll at a flat 50bb (kept for MTT, whose chip hands aren't band-priced).
+-- roll at a flat 50bb (kept for KO, whose chip hands aren't band-priced).
 local DUR_ROLLS = 300
 local function durationModel(gtype, timings, magFor)
     local memo = {}
@@ -258,9 +258,9 @@ local function simCash(cand, stake, gtype_live, scen, n_hands)
     local timings = mergedTimings(cand, gtype.id)
     local ctx     = ctxForFill(stake, scen.fill)
     -- The writer's event count scales with the contribution target: a
-    -- 500bb six-max jackpot plays as a long multiway all-in, not a 50bb
+    -- 500bb six-max stack plays as a long multiway all-in, not a 50bb
     -- hand. Roll each duration sample at a magnitude drawn from the same
-    -- band the money roll uses, or jackpot-heavy fills read faster than
+    -- band the money roll uses, or stack-heavy fills read faster than
     -- they actually play.
     local durOf   = durationModel(gtype, timings, function(tier, won)
         local lo, hi = bandFor(cand, gtype.id, won, tier)
@@ -270,10 +270,10 @@ local function simCash(cand, stake, gtype_live, scen, n_hands)
     local bb      = stake.bb
 
     local wc, wd, ld = OutcomeMath.resolvedOutcome(ctx, gtype, stake)
-    local stack_pct  = wc * (wd.jackpot or 0) * 100
+    local stack_pct  = wc * (wd.stack or 0) * 100
 
     local sum, sum2, sum_unc, dur_sum = 0, 0, 0, 0
-    local jackpots, first_jp_hand, jp_dollars = 0, nil, 0
+    local stacks, first_stack_hand, stack_dollars = 0, nil, 0
     local deltas = {}
     for i = 1, n_hands do
         local won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ctx, gtype)
@@ -284,10 +284,10 @@ local function simCash(cand, stake, gtype_live, scen, n_hands)
         if won then
             delta_unc = mag * bb * mult
             delta     = math.min(mag, seats * STACK_BB) * bb * mult
-            if tier == "jackpot" then
-                jackpots = jackpots + 1
-                jp_dollars = jp_dollars + delta   -- Maniac's XP rule
-                if not first_jp_hand then first_jp_hand = i end
+            if tier == "stack" then
+                stacks = stacks + 1
+                stack_dollars = stack_dollars + delta   -- Maniac's XP rule
+                if not first_stack_hand then first_stack_hand = i end
             end
         else
             delta_unc = -mag * bb * mult
@@ -325,39 +325,39 @@ local function simCash(cand, stake, gtype_live, scen, n_hands)
     return {
         ev_hand = ev_hand, s_hand = s_hand, per_hr = ev_hand * hands_hr,
         hands_hr = hands_hr,
-        jp_hr = jackpots / n_hands * hands_hr,
-        -- Dollars won in jackpot-tier pots per hour: what
-        -- models/deck_xp_rules `jackpot_dollars` (the Maniac deck)
+        stack_hr = stacks / n_hands * hands_hr,
+        -- Dollars won in stack-tier pots per hour: what
+        -- models/deck_xp_rules `stack_dollars` (the Maniac deck)
         -- actually accrues. Rate, not per-pot size.
-        jp_cash_hr = jp_dollars / n_hands * hands_hr,
-        ttf_jp = (jackpots > 0) and (n_hands / jackpots) or math.huge,
+        stack_cash_hr = stack_dollars / n_hands * hands_hr,
+        ttf_stack = (stacks > 0) and (n_hands / stacks) or math.huge,
         stack_pct = stack_pct, sd = sd,
         p95_dd = pctl(drawdowns, 0.95),
         cap_gap = (ev_unc ~= 0) and ((ev_unc - ev_hand) / math.abs(ev_unc) * 100) or 0,
     }
 end
 
--- ── MTT (analytic EV + rolled durations; approximates the planner) ─────
+-- ── KO (analytic EV + rolled durations; approximates the planner) ─────
 
-local function simMtt(cand, stake, gtype_live, scen)
+local function simKo(cand, stake, gtype_live, scen)
     local gtype   = mergedGtype(cand, gtype_live)
     local timings = mergedTimings(cand, gtype.id)
     local ctx     = ctxForFill(stake, scen.fill)
     local stats   = OutcomeMath.evStats(ctx, gtype, stake)
     if not stats then return nil end
     local durOf = durationModel(gtype, timings)
-    -- Filler mix ≈ the planner: mostly small/medium hands, jackpots on
+    -- Filler mix ≈ the planner: mostly small/medium hands, stacks on
     -- the scheduled bust hands.
     local s_hand = 0.70 * durOf("small", false)
                  + 0.25 * durOf("medium", true)
-                 + 0.05 * durOf("jackpot", true)
+                 + 0.05 * durOf("stack", true)
     local pool = stats.pool
     local hands_hr = 3600 / s_hand   -- auto-deal: zero overhead
     return {
         ev_hand = pool.ev_per_hand, s_hand = s_hand,
         per_hr = pool.ev_per_hand * hands_hr, hands_hr = hands_hr,
-        jp_hr = 0, jp_cash_hr = 0, ttf_jp = math.huge,
-        stack_pct = pool.win_chance * ((pool.win_dist and pool.win_dist.jackpot) or 0) * 100,
+        stack_hr = 0, stack_cash_hr = 0, ttf_stack = math.huge,
+        stack_pct = pool.win_chance * ((pool.win_dist and pool.win_dist.stack) or 0) * 100,
         sd = 0, p95_dd = 0, cap_gap = 0,
         roi = pool.roi_pct, exp_hands = pool.exp_hands,
     }
@@ -399,30 +399,30 @@ for _, scen_name in ipairs(scen_list) do
             string.rep("─", 20)))
         print(string.format(HDR,
             "gtype", "$/hand", "s/hand", "$/hr", "hands/hr",
-            "jp/hr", "ttf(jp)", "{stack}%", "jp$/hr",
+            "stack/hr", "ttf(stk)", "{stack}%", "stack$/hr",
             "sd($)", "p95dd($)", "capgap"))
-        local best = { per_hr = -math.huge, jp = -math.huge, hands = -math.huge }
+        local best = { per_hr = -math.huge, stack = -math.huge, hands = -math.huge }
         local rows = {}
         for _, g in ipairs(GameTypes) do
             local r
             if g.chip_stack_table then
-                r = simMtt(cand, stake, g, scen)
+                r = simKo(cand, stake, g, scen)
             else
                 r = simCash(cand, stake, g, scen, n_hands)
             end
             if r then
                 rows[#rows + 1] = { id = g.id, r = r }
                 if r.per_hr > best.per_hr then best.per_hr, best.money = r.per_hr, g.id end
-                if r.jp_hr > best.jp then best.jp, best.chips = r.jp_hr, g.id end
+                if r.stack_hr > best.stack then best.stack, best.chips = r.stack_hr, g.id end
                 if r.hands_hr > best.hands then best.hands, best.volume = r.hands_hr, g.id end
                 print(string.format(ROW, g.id,
                     r.ev_hand, r.s_hand, r.per_hr, r.hands_hr,
-                    r.jp_hr, (r.ttf_jp == math.huge) and -1 or r.ttf_jp,
-                    r.stack_pct, r.jp_cash_hr, r.sd, r.p95_dd, r.cap_gap))
+                    r.stack_hr, (r.ttf_stack == math.huge) and -1 or r.ttf_stack,
+                    r.stack_pct, r.stack_cash_hr, r.sd, r.p95_dd, r.cap_gap))
             end
         end
         print(string.format(
-            "   best $/hr: %s · best jackpot rate: %s · most hands/hr: %s",
+            "   best $/hr: %s · best stack rate: %s · most hands/hr: %s",
             best.money or "?", best.chips or "?", best.volume or "?"))
     end
 end

@@ -11,7 +11,7 @@
 --   * Showdown tiers (medium and up). The opponent's cards will be turned
 --     over, so the MATCHUP has to read right. We sample a preflop matchup
 --     whose equity fits the outcome — a big pot you lost was a hand you
---     were winning (a beat), a jackpot you won was a cooler that paid —
+--     were winning (a beat), a stack you won was a cooler that paid —
 --     then deal boards until one lands on the scripted winner.
 --
 --   * Small tier. Never reaches showdown (data/hand_structure.lua), so the

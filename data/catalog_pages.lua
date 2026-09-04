@@ -34,7 +34,7 @@ return {
     { title = "Value Buys",
       items = {
           "wall_hanger", "mirror", "energy_drink", "corkboard",
-          "stack_of_books", "gift_box", "lava_lamp", "sticky_notes",
+          "stack_of_books", "starter_gift_box", "lava_lamp", "yellow_sticky_note",
       } },
 
     -- Early scars, in the order they happen: the first lost stack, the
@@ -48,7 +48,7 @@ return {
     -- The per-game-type toys, laddered by exposure.
     { title = "Game Room",
       items = {
-          "fight_night", "nes_console", "gameboy", "headset",
+          "fight_night_poster", "dusty_console", "handheld", "headset",
           "dogs_playing_poker", "candle", "gaming_chair", "house_cat",
       } },
 
@@ -56,29 +56,29 @@ return {
     { title = "Desk & Stationery",
       items = {
           "desk", "ring_binder", "calculator", "pencil_holder",
-          "second_monitor", "nightstand", "bookshelf", "blueprint",
+          "second_monitor", "nightstand", "bookshelf", "laminated_blueprint",
       } },
 
     -- Machines that fire on their own, laddered by the events that earn
     -- them; both mini-chains adjacent (printer→copier, clock→diploma).
     { title = "Kitchen & Appliances",
       items = {
-          "fridge", "kettle", "receipt_printer", "copy_machine",
-          "wall_clock", "diploma", "toaster", "cereal_shelf",
+          "compact_fridge", "electric_kettle", "receipt_printer", "copy_machine",
+          "wall_clock", "framed_diploma", "chrome_toaster", "cereal_shelf",
       } },
 
     -- The 6-Max tank chain, root first (bonsai opens the room and goes
     -- green at the first post-shove catalog), plus the den furnishings.
     { title = "Den & Houseplants",
       items = {
-          "bonsai", "desk_plant", "microwave", "fire_extinguisher",
-          "blackout_curtains", "console_tv", "red_rug", "desk_speakers",
+          "bonsai", "desk_plant", "microwave_oven", "fire_extinguisher",
+          "blackout_curtains", "console_television", "red_rug", "desk_speakers",
       } },
 
     -- The cursor swarm, root first: one spread holds the whole crew.
     { title = "Computer Accessories",
       items = {
-          "box_of_mice", "laptop", "gaming_keyboard", "wacom_tablet",
+          "box_of_mice", "laptop_terminal", "gaming_keyboard", "wacom_tablet",
           "desk_lamp", "telephone", "glass_partition", "cleaning_robot",
       } },
 
@@ -86,13 +86,13 @@ return {
     -- that chains off it, plus the bounty jar.
     { title = "Awards & Trophy Wall",
       items = {
-          "prize_vase", "curved_monitor", "pc_tower", "shredder",
+          "prize_vase", "curved_monitor", "tower_upgrade", "shredder",
           "whiteboard", "high_roller_pass", "window", "tip_jar",
       } },
 
     -- The back page. Paperwork, and the last thing in the book.
     { title = "Memberships & Vouchers",
       items = {
-          "stash_box", "vouchers", "rebuy_note", "unlock_ultra",
+          "stash_box", "rolled_vouchers", "rebuy_sticky_note", "ultra_stake",
       } },
 }

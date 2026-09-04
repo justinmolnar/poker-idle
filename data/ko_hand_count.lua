@@ -1,7 +1,7 @@
--- data/mtt_hand_count.lua
+-- data/ko_hand_count.lua
 --
 -- Per-finish-position hand-count ranges for 8-max KO tournaments.
--- Used by models/MttSession:planRun to pick total tournament length
+-- Used by models/KoSession:planRun to pick total tournament length
 -- after rolling finish_position. Uniform integer in [lo, hi].
 --
 -- Shape: top finishes run long (you survived deep, lots of dramatic

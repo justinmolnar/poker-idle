@@ -119,7 +119,7 @@ function PokerEffects.registerAll(reg)
     -- Win-side mirror of loss_dist_shift — additive shape on the win
     -- distribution. Optional `tier_min` / `tier_max` bounds (1-based stake
     -- index) let scope-targeted decks reshape the win-tier dist only at
-    -- certain stakes (e.g. Low Stakes Hero shifts win_dist toward jackpot
+    -- certain stakes (e.g. Low Stakes Hero shifts win_dist toward stack
     -- but only at T1-T3). Renormalized by buildOutcome at the end of the
     -- dist pipeline.
     reg:register("win_dist_shift", function(e, ctx)
@@ -174,7 +174,7 @@ function PokerEffects.registerAll(reg)
     -- probability; sampleOutcome rolls once against the summed total per
     -- gtype filter. Doesn't reshape distributions or fills — it's a
     -- top-of-pipeline override that turns "would have lost" hands into
-    -- forced wins at the configured rate. Used by MTT Pro to cash MTT
+    -- forced wins at the configured rate. Used by KO Pro to cash KO
     -- hands more often without depending on per-stake fill_window math.
     reg:register("auto_win_chance", function(e, ctx)
         ctx.auto_win_chances = ctx.auto_win_chances or {}
@@ -210,10 +210,10 @@ function PokerEffects.registerAll(reg)
         }
     end)
 
-    -- Jackpot-only payout multiplier (Branded Hat). Stacks with
-    -- earnings_mult — that scales every win; this scales only jackpots.
-    reg:register("jackpot_mult", function(e, ctx)
-        ctx.jackpot_mult = (ctx.jackpot_mult or 1) * (e.value or 1)
+    -- Stack-only payout multiplier (Branded Hat). Stacks with
+    -- earnings_mult — that scales every win; this scales only stacks.
+    reg:register("stack_mult", function(e, ctx)
+        ctx.stack_mult = (ctx.stack_mult or 1) * (e.value or 1)
     end)
 
     -- Percentage bonus on starting bankroll seed (Lucky Coin). Sits next
@@ -252,8 +252,8 @@ function PokerEffects.registerAll(reg)
     reg:register("chip_award_mult", function(e, ctx)
         ctx.chip_award_mult = (ctx.chip_award_mult or 1) * e.value
     end)
-    reg:register("jackpot_chip_add", function(e, ctx)
-        ctx.jackpot_chip_add = (ctx.jackpot_chip_add or 0) + (e.value or 0)
+    reg:register("stack_chip_add", function(e, ctx)
+        ctx.stack_chip_add = (ctx.stack_chip_add or 0) + (e.value or 0)
     end)
 
     -- ── Cursor swarm (autonomous DEAL-clickers) ────────────────────────
@@ -297,9 +297,9 @@ function PokerEffects.registerAll(reg)
     -- ── Tournament payout boost ─────────────────────────────────────────
     -- Integer level; max-stacks rather than compounding so a perk pair
     -- (Plastic Trophy lvl=1, Engraved Plaque lvl=2) selects the highest
-    -- tier in data/mtt_payouts.lua, not their sum.
-    reg:register("mtt_payout_boost", function(e, ctx)
-        ctx.mtt_payout_boost = math.max(ctx.mtt_payout_boost or 0, e.value or 0)
+    -- tier in data/ko_payouts.lua, not their sum.
+    reg:register("ko_payout_boost", function(e, ctx)
+        ctx.ko_payout_boost = math.max(ctx.ko_payout_boost or 0, e.value or 0)
     end)
 
     -- ── Deck effect kinds (generic capabilities) ───────────────────────
@@ -316,7 +316,7 @@ function PokerEffects.registerAll(reg)
         if idx then ctx.win_tier_floor = math.max(ctx.win_tier_floor or 0, idx) end
     end)
     -- Losses can't roll ABOVE this tier (Nit capstone: large — bans the
-    -- jackpot "stack" loss entirely).
+    -- stack "stack" loss entirely).
     reg:register("loss_tier_ceiling", function(e, ctx)
         local idx = OutcomeMath.TIER_INDEX[e.tier]
         if idx then ctx.loss_tier_ceiling = math.min(ctx.loss_tier_ceiling or math.huge, idx) end
@@ -427,7 +427,7 @@ function PokerEffects.registerAll(reg)
     reg:register("void_first_loss", function(_e, ctx)
         ctx.void_first_loss = true
     end)
-    -- The Fridge: void the first jackpot-tier (stack) loss each run.
+    -- The Fridge: void the first stack-tier (stack) loss each run.
     reg:register("void_first_stack_loss", function(_e, ctx)
         ctx.void_first_stack_loss = true
     end)

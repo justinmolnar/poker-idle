@@ -6,7 +6,7 @@
 -- emit(text, x, y, opts) — opts is optional, all fields default to the
 -- legacy behavior so old call sites work unchanged. New fields:
 --
---   scale    — text size multiplier (1.0 default; jackpots use ~1.8)
+--   scale    — text size multiplier (1.0 default; stacks use ~1.8)
 --   color    — RGB override; nil → auto-detect from text prefix
 --   color_token — string key (e.g. "amber", "violet") resolved through
 --                 Theme tokens by the renderer; lower priority than `color`

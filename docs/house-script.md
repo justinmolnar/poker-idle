@@ -179,7 +179,7 @@ action itself advances the line. `show: <cond>` delays the line until true.
 | A tournament. One buy-in, no rebuy, eight seats, ten blinds each, and it deals itself. Top three cash. Win it outright for the {chip}. Great business, tournaments. | `gtype:mtt` | click |
 
 ### `first_cursors` — grind. Trigger: owns box_of_mice.
-| Look at you, management. The cursors deal for you now. More of them, and faster, in the sidebar. The D on a table stops them dealing there. | `buy_runup_box_of_mice`, `buy_runup_cursor_speed` | click |
+| Look at you, management. The cursors deal for you now. More of them, and faster, in the sidebar. The D on a table stops them dealing there. | `buy_runup_cursor`, `buy_runup_cursor_speed` | click |
 
 ## Reactive lessons (first time the situation exists)
 

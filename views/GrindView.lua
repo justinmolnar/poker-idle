@@ -367,7 +367,7 @@ function GrindView:_makeGameTypeStrip()
         six_max  = "6-Max. The long game: five opponents, slow hands, the fattest pots in the room.",
         hu       = "Heads-Up. One opponent, whole stacks, both ways. You win less often and it goes deeper.",
         zoom     = "Zoom. A new table every hand. More wins, smaller ones, and it never holds you up.",
-        mtt      = "A tournament. Eight seats, ten blinds each, no rebuy, and it deals itself. Top three cash.",
+        ko      = "A tournament. Eight seats, ten blinds each, no rebuy, and it deals itself. Top three cash.",
     }
     -- Locked tabs (Constants.GTYPE_GATE) draw dark and inert rather than
     -- disappearing: the strip's width math, the hint anchors, and the
@@ -773,7 +773,7 @@ local function _stackRateRows(view, ctx, nextctx)
                 local _, cd = OutcomeMath.buildOutcome(ctx,     gt, stake)
                 local _, nd = OutcomeMath.buildOutcome(nextctx, gt, stake)
                 cells[i] = _cell(_capped(ctx, "win_dist_fills", gt, stake),
-                                 (nd.jackpot or 0) - (cd.jackpot or 0))
+                                 (nd.stack or 0) - (cd.stack or 0))
             end
             data[#data + 1] = { name = stake.display_name or stake.id, cells = cells }
             name_w = math.max(name_w, f:getWidth(stake.display_name or stake.id))

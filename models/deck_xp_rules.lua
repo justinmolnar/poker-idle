@@ -17,21 +17,34 @@
 --   {
 --     won            = bool,
 --     delta          = number,                 -- raw $ (positive on win)
---     tier           = "small"|"medium"|"large"|"jackpot",
+--     tier           = "small"|"medium"|"large"|"stack",
 --     bb_delta       = number,                 -- delta / stake.bb
---     gtype          = "six_max"|"hu"|"zoom"|"mtt",
---     stake_tier_idx = 1..6,                   -- T1-T6 stake position
+--     gtype          = "six_max"|"hu"|"zoom"|"ko",
+--     stake_tier_idx = 1..10,                  -- 1-based stake position
+--     stake_buy_in   = number,                 -- the table's buy-in in $
 --     n_tables       = integer,                -- concurrent open tables
 --   }
 --
--- The parameterized rules (money_won / hands_played / hands_won) accept
--- optional filter knobs on the spec's xp_rule. Each rule is one
+-- Count-shaped rules earn the table's BUY-IN IN DOLLARS per event: a hand
+-- at NL10K is worth a hundred NL100 hands, so the ladder's own steps pace
+-- the decks and nothing needs a stake gate
+-- (data/decks.lua sizes the curves to that). Money-shaped rules are
+-- already in dollars. The parameterized rules accept optional filter
+-- knobs on the spec's xp_rule (money_won: tier_min / tier_max;
+-- hands_played: min_tables; hands_won: gtype). Each rule is one
 -- registered function; filter checks live inline. NO if/elseif chain on
 -- rule.kind anywhere.
 
 local DeckXpRules = {}
 
--- Helper: tier-bounds check for money_won rule.
+-- Helper: what one counted event is worth — the table's BUY-IN in
+-- dollars. NL2 pays 2, NL10 pays 10, NL10K pays 10,000. No floor, no
+-- special case; the ladder is the whole rule.
+local function buyInWeight(event)
+    return (event and event.stake_buy_in) or 0
+end
+
+-- Helper: tier-bounds check for the money_won rule's tier filters.
 local function tierBoundsOk(rule, event)
     local idx = event and event.stake_tier_idx
     if rule.tier_min and (not idx or idx < rule.tier_min) then return false end
@@ -55,64 +68,65 @@ function DeckXpRules.registerAll(reg)
         return d < 0 and -d or 0
     end)
 
-    -- Jackpot dollars. Only jackpot-tier wins contribute their delta.
-    reg:register("jackpot_dollars", function(_rule, event)
+    -- Stack dollars. Only stack-tier wins contribute their delta.
+    reg:register("stack_dollars", function(_rule, event)
         if not event or not event.won then return 0 end
-        if event.tier ~= "jackpot" then return 0 end
+        if event.tier ~= "stack" then return 0 end
         return math.max(0, event.delta or 0)
     end)
 
-    -- +1 per resolved hand. Optional `min_tables` filter (Multi-Tabler
-    -- only counts hands played while at >= N tables open).
+    -- The big blind, per resolved hand. Optional `min_tables` filter
+    -- (only counts hands played while at >= N tables open).
     reg:register("hands_played", function(rule, event)
         if not event then return 0 end
         if rule.min_tables and (event.n_tables or 0) < rule.min_tables then
             return 0
         end
-        return 1
+        return buyInWeight(event)
     end)
 
-    -- +1 per resolved win. Optional `gtype` filter for game-type-scoped
-    -- decks (Tournament Pro counts MTT wins only).
+    -- The big blind, per resolved win. Optional `gtype` filter for
+    -- game-type-scoped decks.
     reg:register("hands_won", function(rule, event)
         if not event or not event.won then return 0 end
         if rule.gtype and event.gtype ~= rule.gtype then return 0 end
-        return 1
+        return buyInWeight(event)
     end)
 
-    -- Specialist XP rule: won hand on a single table
-    reg:register("hands_won_single_table", function(rule, event)
+    -- Specialist XP rule: won hand on a single table, 2 × the big blind
+    reg:register("hands_won_single_table", function(_rule, event)
         if not event or not event.won then return 0 end
         if event.n_tables ~= 1 then return 0 end
-        return 2
+        return 2 * buyInWeight(event)
     end)
 
-    -- Multitasker XP rule: won hand while overwhelmed
-    reg:register("hands_won_overwhelmed", function(rule, event)
+    -- Multitasker XP rule: won hand while overwhelmed, the big blind per
+    -- table over the cap
+    reg:register("hands_won_overwhelmed", function(_rule, event)
         if not event or not event.won then return 0 end
         local cap = event.focus_capacity or 3
         local extra = event.n_tables - cap
         if extra <= 0 then return 0 end
-        return extra
+        return extra * buyInWeight(event)
     end)
 
-    -- Investor XP rule: purchased a run upgrade
-    reg:register("upgrades_bought", function(rule, event)
+    -- Investor XP rule: dollars spent on a run upgrade
+    reg:register("upgrades_bought", function(_rule, event)
         if not event or event.type ~= "run_upgrade" then return 0 end
-        return 15
+        return math.max(0, event.cost_dollars or 0)
     end)
 
-    -- Tier Manipulator XP rule: won hand at T2+
-    reg:register("hands_won_above_t1", function(rule, event)
+    -- Tier Manipulator XP rule: won hand at T2+, the big blind
+    reg:register("hands_won_above_t1", function(_rule, event)
         if not event or not event.won then return 0 end
         if (event.stake_tier_idx or 1) <= 1 then return 0 end
-        return 1
+        return buyInWeight(event)
     end)
 
-    -- Short Stack XP rule: rebought a table stack
-    reg:register("table_rebuys", function(rule, event)
+    -- Short Stack XP rule: rebought a table stack, 10 × the big blind
+    reg:register("table_rebuys", function(_rule, event)
         if not event or event.type ~= "table_rebuy" then return 0 end
-        return 10
+        return 10 * buyInWeight(event)
     end)
 end
 

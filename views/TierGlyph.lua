@@ -8,7 +8,7 @@
 -- EV tooltip (views/TablePanelStats) and inline in prose (views/IconText)
 -- both call this; nothing reimplements it.
 --
--- Accepts either the internal tier key ("jackpot") or the display token
+-- Accepts either the internal tier key ("stack") or the display token
 -- ("stack") — both resolve to the same glyph.
 
 local Chips = require("views.Chips")
@@ -16,12 +16,10 @@ local Theme = require("views.Theme")
 
 local TierGlyph = {}
 
-local COUNT = { small = 1, medium = 2, large = 3, jackpot = 4 }
-local ALIAS = { stack = "jackpot" }          -- display token → internal key
+-- The tier key IS the display token: small / medium / large / stack.
+local COUNT = { small = 1, medium = 2, large = 3, stack = 4 }
 
-local function norm(tier) return ALIAS[tier] or tier end
-
-function TierGlyph.has(tier) return COUNT[norm(tier)] ~= nil end
+function TierGlyph.has(tier) return COUNT[tier] ~= nil end
 
 -- Radius for a glyph that fits a `size`-tall box (the 4-stack just fits).
 function TierGlyph.radius(size) return math.max(2, math.floor(size * 0.30)) end
@@ -31,13 +29,13 @@ function TierGlyph.radius(size) return math.max(2, math.floor(size * 0.30)) end
 -- everywhere it appears.
 function TierGlyph.color(tier, outcome)
     local ramp = Theme.tier and Theme.tier[outcome or "win"]
-    return (ramp and ramp[norm(tier)]) or Theme.currency.chip
+    return (ramp and ramp[tier]) or Theme.currency.chip
 end
 
 -- Draw the tier as a chip-stack, bottom chip centered at (cx, baseline_y),
 -- radius r, colored by the win/loss ramp. Returns the drawn width.
 function TierGlyph.draw(cx, baseline_y, tier, r, outcome, alpha)
-    local count = COUNT[norm(tier)] or 1
+    local count = COUNT[tier] or 1
     Chips.drawGlyphStack(cx, baseline_y, count, r, TierGlyph.color(tier, outcome), alpha)
     return r * 2
 end

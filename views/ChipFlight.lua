@@ -446,7 +446,7 @@ end
 -- fires (see views/TablePanel:drawPotLabel), or the pile and its own
 -- debris are on screen together.
 --
--- Reusable for any "flip the table" moment: the jackpot pot, a shove
+-- Reusable for any "flip the table" moment: the stack pot, a shove
 -- win, a bankroll milestone.
 --
 -- Arguments mirror Chips.drawStack so a caller can hand over exactly

@@ -35,14 +35,15 @@ local COUNTER_KINDS = {
     "lifetime_chips_banked",
     "total_busts",
     "total_stack_losses",
-    "total_jackpots",
+    "total_stacks",
     "total_rebuys",
     "total_upgrade_levels",
     "total_hands_overwhelmed",
     "total_hands_at_4plus",
     "total_chips_banked",
-    "total_mtt_wins",
+    "total_ko_wins",
     "total_tilts",
+    "total_cursor_deals",
     "highest_stake_idx",
 }
 

@@ -22,7 +22,7 @@
 --                          to reach it (the Receipt Printer cascade can
 --                          only settle a LIVE hand, and so it whiffed
 --                          nearly every time). Old values: six_max 0.35,
---                          hu 1.0, zoom 2.2, mtt 1.0.
+--                          hu 1.0, zoom 2.2, ko 1.0.
 --                          Hand length follows the felt: 8-max and 6-max
 --                          are the long ones, the duel is quicker, and Zoom
 --                          is the only fast mode at ~3s. Re-run
@@ -47,8 +47,8 @@
 --
 -- Pure data — no logic.
 
-local mtt_entry = {
-        id   = "mtt",
+local ko_entry = {
+        id   = "ko",
         name = "Tournament",
         short = "8-MAX KO",
         seats = 7,              -- 7 opponents + player = 8 seated total
@@ -60,7 +60,7 @@ local mtt_entry = {
         -- table init. Hands play normally (no binary_outcome), with real
         -- chip flow into the pot. Seats bust at 0 chips. Tournament ends
         -- when the player busts OR is the last seat standing. Payout
-        -- read from data/mtt_payouts.lua keyed by finish position
+        -- read from data/ko_payouts.lua keyed by finish position
         -- (1st=8, 2nd=7, 3rd=6, 4th-8th=0).
         chip_stack_table    = true,
         -- Turbo stacks: shallow enough that any big pot a seat stays deep
@@ -71,8 +71,8 @@ local mtt_entry = {
         starting_stack_bb   = 10,
         auto_deal           = true,
         -- No per-gtype dist_shifts: tournament difficulty + length is
-        -- driven by the two-level outcome model in models/MttSession
-        -- (data/mtt_finish_dist.lua + data/mtt_hand_count.lua). The
+        -- driven by the two-level outcome model in models/KoSession
+        -- (data/ko_finish_dist.lua + data/ko_hand_count.lua). The
         -- planner picks finish_position + n_hands once per tournament
         -- and pre-rolls per-hand outcomes; per-hand tier mass doesn't
         -- need a separate crush on top.
@@ -90,7 +90,7 @@ return {
         -- 6-max is where the money is, and it pays for that with time and
         -- variance rather than with a better win rate: five opponents
         -- means five stacks can go into one pot (data/pot_tiers.lua gives
-        -- it a 380-500bb jackpot against everyone else's ~100), so the WC
+        -- it a 380-500bb stack against everyone else's ~100), so the WC
         -- comes down to keep the mode honest. You win less often; when you
         -- win big, it is enormous.
         win_chance_shift = -0.08,
@@ -107,15 +107,15 @@ return {
                                 -- act), so it needs no help being fast.
         -- HU = the duel, and THE {chip} ENGINE. One opponent means one
         -- stack, so its pots are the smallest ceiling in the game — but
-        -- both dists skew hard toward large/jackpot, so it reaches that
-        -- ceiling constantly. Since a {stack} is a jackpot-tier hit, not
+        -- both dists skew hard toward large/stack, so it reaches that
+        -- ceiling constantly. Since a {stack} is a stack-tier hit, not
         -- a dollar amount, banking chips here is far faster than anywhere
         -- else while the money stays modest. Identity: "small pots, but
         -- you hit the top tier over and over."
         win_chance_shift = -0.10,
         dist_shifts = {
-            win_dist  = { small = -0.20, medium = -0.10, large = 0.10, jackpot = 0.20 },
-            loss_dist = { small = -0.20, medium = -0.05, large = 0.10, jackpot = 0.15 },
+            win_dist  = { small = -0.20, medium = -0.10, large = 0.10, stack = 0.20 },
+            loss_dist = { small = -0.20, medium = -0.05, large = 0.10, stack = 0.15 },
         },
         rerolls_opponents = false,
     },
@@ -132,30 +132,30 @@ return {
                                 -- faster: ~6x 6-max's hands per hour.
         -- Zoom = fold-spam firehose. High WC (+0.05) — most hands are
         -- preflop spats you're ahead in. Low pot sizes — heavy small
-        -- mass. Jackpots are reachable but rare: `jackpot_scale` sets the
-        -- target Stack rate as a FRACTION of the stake's capped jackpot
+        -- mass. Stacks are reachable but rare: `stack_scale` sets the
+        -- target Stack rate as a FRACTION of the stake's capped stack
         -- share (0.20 → ~10% at T1-T3, 9% T4, 8% T5, 7% T6+), so every
         -- stake can bank a {chip} and the strength multiplier lifts it like
         -- the rest. It used to be a flat -0.40 shift, which crossed zero at
         -- T5 and left the top half of the ladder with no Stack chance at
-        -- all. `jackpot_emerge` ramps the target in gradually from the
+        -- all. `stack_emerge` ramps the target in gradually from the
         -- halfway fill point instead of dumping it all into the final Pot
         -- Control level (see OutcomeMath step 7).
         win_chance_shift = 0.05,
-        jackpot_emerge = 0.5,
+        stack_emerge = 0.5,
         -- Lowered with the band rework: zoom shares 6-max's five-seat
-        -- jackpot ceiling, so a zoom Stack is now a genuinely huge pot.
+        -- stack ceiling, so a zoom Stack is now a genuinely huge pot.
         -- It should stay a once-a-session event, not an income stream —
         -- zoom earns through volume, and HU is the chip engine.
-        jackpot_scale  = 0.08,
+        stack_scale  = 0.08,
         dist_shifts = {
-            win_dist  = { small = 0.40, medium =  0.05, large = -0.05, jackpot = -0.40 },
-            loss_dist = { small = 0.10, medium = -0.02, large = -0.03, jackpot = -0.05 },
+            win_dist  = { small = 0.40, medium =  0.05, large = -0.05, stack = -0.40 },
+            loss_dist = { small = 0.10, medium = -0.02, large = -0.03, stack = -0.05 },
         },
         -- Shows real opponent names that reroll every deal (rerolls_opponents),
         -- rather than anonymous "Seat N" placeholders.
         rerolls_opponents = true,
     },
-    mtt_entry,
+    ko_entry,
 
 }
