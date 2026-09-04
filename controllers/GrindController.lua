@@ -33,6 +33,7 @@ local StakeThemes    = require("data.stake_themes")
 local Lookups        = require("utils.lookups")
 local HandAnalytics  = require("services.HandAnalytics")
 local Format         = require("utils.format")
+local UpgradePricing = require("models.UpgradePricing")
 local CursorPool     = require("services.CursorPool")
 
 
@@ -773,7 +774,7 @@ function GrindController:update(dt)
                 -- per-float offsets to collide or drift off the top of view.
                 local lg_h = self.game.fonts.lg:getHeight()
                 local msg  = "TOURNAMENT WON"
-                if payout > 0 then msg = msg .. string.format("\n+$%.2f", payout) end
+                if payout > 0 then msg = msg .. "\n" .. Format.moneySigned(payout) end
                 if award  > 0 then msg = msg .. string.format("\n+%d {chip}", award) end
                 self.game.floating_text.emit(msg, center[1], center[2],
                     { scale = 1.4, font = "lg", color_token = "amber",
@@ -781,7 +782,7 @@ function GrindController:update(dt)
                       fit_table = t })
             elseif payout > 0 then
                 -- Partial payout (busted before the win) — a plain cash float.
-                self.game.floating_text.emit(string.format("+$%.2f", payout),
+                self.game.floating_text.emit(Format.moneySigned(payout),
                     center[1], center[2], { fit_table = t })
             else
                 -- Out of the money. The most common way a tournament ends
@@ -975,9 +976,9 @@ function GrindController:update(dt)
                 floater_opts_override = { color_token = "error" }
             end
         elseif r.delta >= 0 then
-            label = string.format("+$%.2f", r.delta) .. tier_glyph
+            label = Format.moneySigned(r.delta) .. tier_glyph
         else
-            label = string.format("-$%.2f", -r.delta)
+            label = Format.moneySigned(r.delta)
             -- Loss: override the data-file's amber default with red so
             -- losses read correctly. Without this every tier picks up
             -- color_token="amber" and "-$X.XX" floaters render in gold
@@ -1398,8 +1399,11 @@ function GrindController:update(dt)
             local newly = Decks.checkPendingUnlocks(state, self.game.unlock_rules)
             if #newly > 0 then
                 self:invalidateEffects()
+                state.decks_unseen = state.decks_unseen or {}
                 for _, id in ipairs(newly) do
                     local spec = Decks.specById(id)
+                    -- The cell keeps pulsing until the roster is opened.
+                    state.decks_unseen[#state.decks_unseen + 1] = id
                     self:_announceOnDeckCell(
                         "NEW DECK: " .. ((spec and spec.name) or id))
                 end
@@ -1451,9 +1455,14 @@ function GrindController:_grantDeckXp(event)
     if leveled then
         self:invalidateEffects()
         local state = self.game.state
-        local lvl   = state.deck_levels and state.active_deck_id
-                      and state.deck_levels[state.active_deck_id]
-        self:_announceOnDeckCell(lvl and ("DECK L" .. lvl) or "DECK LEVEL UP")
+        local id    = state.active_deck_id
+        local spec  = id and Decks.specById(id)
+        local lvl   = state.deck_levels and id and state.deck_levels[id]
+        local name  = (spec and spec.name) or "DECK"
+        self:_announceOnDeckCell(lvl and (name .. " L" .. lvl) or (name .. " LEVEL UP"))
+        -- The deck is the thing dealing: every face-down back on the felt
+        -- flashes for a beat (views/TablePanel reads this timestamp).
+        state._deck_levelup_t = love.timer.getTime()
     end
 end
 
@@ -1560,17 +1569,7 @@ function GrindController:buyRunUpgrade(upgrade_id)
     local max_lvl = self:getRunUpgradeMaxLevel(upgrade)
     if current >= max_lvl then return false end
 
-    local cost_mult = (self.ctx and self.ctx.run_upgrade_cost_mult) or 1
-    local cost = 0
-    if upgrade.costs then
-        if current + 1 <= #upgrade.costs then
-            cost = upgrade.costs[current + 1]
-        else
-            local last_cost = upgrade.costs[#upgrade.costs] or 0
-            cost = last_cost * 3.0
-        end
-    end
-    cost = cost * cost_mult
+    local cost = self:getRunUpgradeNextCost(upgrade) or 0
     if state.bankroll < cost then return false end
 
     state.bankroll = state.bankroll - cost
@@ -1642,6 +1641,11 @@ function GrindController:getRunUpgradeMaxLevel(upgrade)
     return max_lvl
 end
 
+-- The price of the next level: the derived ladder price, times the catalog
+-- discount (ctx.run_upgrade_cost_mult), then rounded to the game's price
+-- precision (UpgradePricing.roundPrice) — the rounding is LAST so a 15%
+-- discount can't turn $1.40 back into $1.19. The buy path charges exactly
+-- this number. nil at max level.
 function GrindController:getRunUpgradeNextCost(upgrade)
     if not upgrade then return nil end
     local current = self.game.state.run_upgrade_levels[upgrade.id] or 0
@@ -1656,7 +1660,8 @@ function GrindController:getRunUpgradeNextCost(upgrade)
             cost = last_cost * 3.0
         end
     end
-    return cost * ((self.ctx and self.ctx.run_upgrade_cost_mult) or 1)
+    cost = cost * ((self.ctx and self.ctx.run_upgrade_cost_mult) or 1)
+    return UpgradePricing.roundPrice(cost)
 end
 
 -- Strand check: would spending `cost` leave the player unable to play any
@@ -1974,7 +1979,7 @@ function GrindController:_forceRemove(idx)
             self:_emitKoPayoutChips(t, payout)
             local center = AnchorRegistry.get(TableModel.anchorKey(t, "center"))
                            or { 0, 0 }
-            self.game.floating_text.emit(string.format("+$%.2f", payout),
+            self.game.floating_text.emit(Format.moneySigned(payout),
                 center[1], center[2], { fit_table = t })
         end
         -- t.stack is 0 after _endTournament (and after a prior settle),

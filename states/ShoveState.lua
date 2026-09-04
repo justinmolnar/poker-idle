@@ -401,6 +401,7 @@ function ShoveState:_dismissCatalogAndReturn()
 
     if Decks.systemUnlocked(state) then
         self.deck_select_modal = DeckSelectModal:new(self.game)
+        state.decks_unseen = {}
         return
     end
 

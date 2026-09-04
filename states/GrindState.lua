@@ -99,6 +99,7 @@ function GrindState:openDeckRoster()
     if not self.deck_roster_modal then
         self.deck_roster_modal = DeckSelectModal:new(self.game,
                                                      { read_only = true })
+        self.game.state.decks_unseen = {}
     end
 end
 

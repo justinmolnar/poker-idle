@@ -60,6 +60,13 @@ Balance.UPGRADE_HANDS_GROWTH = 1.26
 -- smooths the per-level ratios into a ramp; the total climb is kept.
 Balance.UPGRADE_RAMP_SMOOTHING = 2.5
 
+-- Every derived upgrade price is rounded to this many significant figures
+-- (2: $535,323,234 -> $540M, $1,834 -> $1,800, $2.34 -> $2.30) so the price
+-- shown is the price paid and never a nine-digit number with cents.
+-- Rounding is monotone, so the ramp keeps its order; a step under ~5%
+-- can land two neighbouring levels on the same price, which is fine.
+Balance.UPGRADE_PRICE_SIG_FIGS = 2
+
 -- The reference board per stake band (data/stakes.lua `band`): the
 -- item-less player with that band's expected tables and decks. Items are
 -- the real player's edge over this; decks are the Act 2+ accelerator and

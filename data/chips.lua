@@ -87,7 +87,7 @@ return {
         -- emits one token per unit of its primary denomination, so the
         -- table it built was the size of the bankroll divided by a million.
         -- Every rung added here is a rung the pile never has to count to.
-        -- Suffixes match utils/format.formatBig (K / M / B / T / Q) so a
+        -- Suffixes match utils/format.formatBig (K / M / B / T / Q / Qi) so a
         -- chip's face and the readout above it agree.
         { value = 5e6,        color = { 0.40, 0.82, 0.52 }, label = "5M",   spot = INK,  spots = 3  },
         { value = 25e6,       color = { 0.24, 0.30, 0.68 }, label = "25M",  spot = PALE, spots = 8  },

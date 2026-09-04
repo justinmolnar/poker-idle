@@ -241,4 +241,39 @@ function Decks.gainXp(state, xp_registry, event, xp_mult)
     return delta, false
 end
 
+-- ── Player-facing text (data/decks.lua describes the field shapes) ──────
+
+local function fmtN(n) return string.format("%g", n) end
+
+-- The bonus in play at `level`: {n} × level (levels 1-4 stack; the cap
+-- applies the numeric block four times, so L5 reads as L4). At level 0
+-- nothing is in play yet, so the per-level line is shown instead.
+function Decks.bonusTextAt(spec, level)
+    local b = spec and spec.bonus
+    if not b then return "" end
+    if not b.per_level then return b.text or "" end
+    level = level or 0
+    if level <= 0 then return Decks.bonusTextPerLevel(spec) end
+    local n = b.per_level * math.min(level, 4)
+    return (b.text:gsub("{n}", fmtN(n)))
+end
+
+function Decks.bonusTextPerLevel(spec)
+    local b = spec and spec.bonus
+    if not b then return "" end
+    if not b.per_level then return b.text or "" end
+    return (b.text:gsub("{n}", fmtN(b.per_level))) .. " per level"
+end
+
+function Decks.levelsOnText(spec)
+    return "Levels on " .. ((spec and spec.levels_on) or "")
+end
+
+-- Progress toward a locked deck's unlock: frac (0..1), current, target,
+-- from the unlock registry's own progress query. nil for the starter.
+function Decks.unlockProgress(state, spec, unlock_registry)
+    if not (spec and spec.unlock and unlock_registry) then return nil end
+    return unlock_registry:progress(spec.unlock, state)
+end
+
 return Decks

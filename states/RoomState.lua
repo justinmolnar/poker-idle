@@ -11,10 +11,7 @@ local LabelButton   = require("views.widgets.LabelButton")
 local ClickFlash    = require("services.ClickFlash")
 local Format        = require("utils.format")
 
-local function moneyText(n)
-    if math.abs(n or 0) < 1000 then return Format.moneyExact(n) end
-    return Format.money(n)
-end
+local function moneyText(n) return Format.money(n) end
 
 local RoomState = {}
 RoomState.__index = RoomState

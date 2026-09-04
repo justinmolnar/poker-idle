@@ -14,6 +14,7 @@
 --   • TablePanelStats.flushDebugOverlay(game)
 
 local Theme       = require("views.Theme")
+local Format = require("utils.format")
 local Stakes      = require("data.stakes")
 local KoPayouts  = require("data.ko_payouts")
 local Lookups     = require("utils.lookups")
@@ -52,6 +53,7 @@ end
 
 local function fmtMoney(n)
     n = n or 0
+    if math.abs(n) >= 1000 then return Format.money(n) end
     if math.abs(n) >= 100 then return string.format("$%.0f",  n) end
     if math.abs(n) >= 10  then return string.format("$%.1f",  n) end
     return string.format("$%.2f", n)
@@ -86,6 +88,8 @@ local function row(text, style, color)
     return { text = text, style = style or "sm", color_token = color }
 end
 
+-- Exported (TablePanelStats.iconRow) so other tooltips — the top-bar deck
+-- cell's — render {chip} / {w:stack} markers the same way.
 local function iconRow(game, str, style, color)
     local fstyle = style or "sm"
     return {
@@ -459,7 +463,9 @@ local function fmtRatio(r, dollar_val)
     if r == nil then
         if dollar_val and math.abs(dollar_val) >= 1e-6 then
             local abs_v = math.abs(dollar_val)
-            if abs_v >= 10 then
+            if abs_v >= 1000 then
+                return Format.moneySigned(dollar_val)
+            elseif abs_v >= 10 then
                 return string.format("+$%.0f", dollar_val)
             elseif abs_v >= 1 then
                 return string.format("+$%.1f", dollar_val)
@@ -1192,5 +1198,7 @@ function TablePanelStats.flushDebugOverlay(game)
         renderDebugTooltip(p.tbl, p.mx, p.my, game, p.controller)
     end
 end
+
+TablePanelStats.iconRow = iconRow
 
 return TablePanelStats

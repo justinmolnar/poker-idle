@@ -23,6 +23,7 @@
 -- R3 chip. SPACE during animation calls :skip() to fast-forward.
 
 local Theme                  = require("views.Theme")
+local Format = require("utils.format")
 local Easing                 = require("utils.easing")
 local HandEval               = require("models.HandEval")
 local Constants              = require("data.constants")
@@ -1447,7 +1448,7 @@ function ShoveView:_drawBuildup(W, H)
         -- What the pile is: the bankroll, ticking up as it lands.
         local bank_now = (rates.bankroll or 0) * p_eased
         if in_lock then bank_now = rates.bankroll or 0 end
-        local label = "$" .. ShoveRate._formatMoney(bank_now)
+        local label = Format.money(bank_now)
         love.graphics.setFont(fonts.sm)
         Theme.setColor(Theme.fg.muted)
         -- Above the pile, where BANK lifts off from.

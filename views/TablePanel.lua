@@ -243,9 +243,20 @@ local CARD_BACK = Constants.GAUNTLET and Constants.GAUNTLET.CARD_BACK_SPRITE
 
 -- Backs take no `plate` argument: the deck's art is drawn at every size (see
 -- views/CardSprites), so there is no decision to force.
+-- Deck level-up flash: GrindController stamps state._deck_levelup_t and
+-- every face-down back brightens for LEVELUP_FLASH_SECS after it. Set per
+-- frame in TablePanel.draw, read here so the call sites stay untouched.
+local LEVELUP_FLASH_SECS = 0.6
+local _back_pulse = 0
+
 local function drawCardBack(sl, back, x, y, w, h, alpha, shadow)
     CardSprites.shadow(x, y, w, h, alpha, shadow)
     CardSprites.back(sl, back or CARD_BACK, x, y, w, h, alpha)
+    if _back_pulse > 0 then
+        local gold = Theme.currency and Theme.currency.chip or Theme.fg.heading
+        Theme.setColor(gold, _back_pulse * 0.55 * (alpha or 1))
+        love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
+    end
 end
 
 -- Fronts take the layout's FORCED small-card decision, not a per-call size
@@ -1014,7 +1025,7 @@ local function drawPotLabel(tbl, pot, fonts)
                                       math.floor(rolled_pot / bb + 0.5))
             end
         end
-        label = label or ("Pot: " .. Format.moneyExact(rolled_pot))
+        label = label or ("Pot: " .. Format.money(rolled_pot))
         love.graphics.printf(label, pot.text_x, pot.text_y, pot.text_w, "center")
     end
 end
@@ -1159,7 +1170,7 @@ end
 -- advances by ~0 and returns the value the first one measured.
 local function tiedText(tbl, parts)
     local rolled = RollingValue.get("table_tied:" .. (tbl._id or 0), displayStack(tbl))
-    local money  = Format.moneyExact(rolled)
+    local money  = Format.money(rolled)
     if parts == "short" then return money end
     return "Tied up  " .. money
 end
@@ -1830,6 +1841,14 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- the spec is missing → drawCardBack falls back to CARD_BACK.
     local back_sprite = (Decks.systemUnlocked(state) and Decks.activeSprite(state))
                         or CARD_BACK
+    local lt = state._deck_levelup_t
+    _back_pulse = 0
+    if lt then
+        local age = love.timer.getTime() - lt
+        if age >= 0 and age < LEVELUP_FLASH_SECS then
+            _back_pulse = 1 - age / LEVELUP_FLASH_SECS
+        end
+    end
 
     -- Panel chrome — fill stays Theme.bg.widget for chrome contrast.
     -- The border is the ONE default line on every table at every stake:
@@ -2069,11 +2088,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             -- word that keeps it from reading like a busted cash table.
             local verb  = (gtype and gtype.chip_stack_table) and "RE-ENTER"
                           or "REBUY"
-            -- Exact price when it fits, the compact price when it doesn't,
-            -- the bare verb as the last resort — never scaled text.
+            -- The price when it fits, the bare verb as the last resort —
+            -- never scaled text.
             local label = {
-                string.format("%s %s", verb, Format.moneyExact(cost)),
-                string.format("%s %s", verb, Format.money(cost)),
+                string.format("%s %s", verb, Format.price(cost)),
                 verb,
             }
             drawFeltButton(felt_x, felt_y, felt_w, felt_h,

@@ -278,15 +278,4 @@ function ShoveRate.formatBreakdown(rates)
     return lines
 end
 
--- Compact money formatter for the tooltip — keeps the breakdown line
--- readable for both $24 and $1,200,000. Mirrors the convention of
--- utils/format but avoids a require on the engine layer.
-function ShoveRate._formatMoney(n)
-    n = n or 0
-    if n >= 1000000 then return string.format("%.1fM", n / 1000000) end
-    if n >= 10000   then return string.format("%.0fk", n / 1000)    end
-    if n >= 1000    then return string.format("%.1fk", n / 1000)    end
-    return string.format("%.2f", n)
-end
-
 return ShoveRate

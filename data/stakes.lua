@@ -270,8 +270,8 @@ return {
         -- ×10,000 over T9. Not a table you grind: you sit once, and a
         -- single stack loss (80-120 bb) is the underflow (GrindController,
         -- the Ultra branch of the resolution loop). Past ~$9e15 doubles
-        -- stop being cent-exact and Format.formatBig tops out at "Q" —
-        -- both are Act 3 work.
+        -- stop being cent-exact — Act 3 work. (Format.formatBig reads to
+        -- "Sp", 1e24, so the readouts are fine.)
         sb           = 5e18,
         bb           = 1e19,
         buy_in       = 1e21,

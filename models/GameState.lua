@@ -110,6 +110,10 @@ function GameState:new(saved)
         instance.deck_xp[starter.id]     = 0
     end
     instance.active_deck_id = starter and starter.id or nil
+    -- Decks that opened and have not been looked at in the roster yet: the
+    -- top-bar cell pulses while this is non-empty. Cleared when the roster
+    -- opens. Persisted so a restart doesn't lose the nudge.
+    instance.decks_unseen   = {}
 
     -- Hands resolved over the save's whole life, unconditional. The
     -- lifetime_* counters below only accrue once decks unlock; these
@@ -358,6 +362,7 @@ function GameState:wipeAll()
         self.deck_xp[starter.id]     = 0
     end
     self.active_deck_id = starter and starter.id or nil
+    self.decks_unseen   = {}
 
     -- Lifetime counters reset too — the unlock conditions need a fresh
     -- start when the player wipes their game.
@@ -422,6 +427,8 @@ function GameState:applySaved(saved)
     if saved.meta then
         AutoSerializer.apply(self, saved.meta, GameState.REFS, function() return nil end)
     end
+    -- Backfill for saves from before the unseen-deck nudge (2026-09).
+    if type(self.decks_unseen) ~= "table" then self.decks_unseen = {} end
     if saved.run then
         AutoSerializer.apply(self, saved.run, GameState.REFS, function() return nil end)
     end
@@ -847,6 +854,7 @@ function GameState:serializeMeta()
         deck_levels                     = self.deck_levels,
         deck_xp                         = self.deck_xp,
         active_deck_id                  = self.active_deck_id,
+        decks_unseen                    = self.decks_unseen,
         lifetime_money_won              = self.lifetime_money_won,
         lifetime_money_lost             = self.lifetime_money_lost,
         lifetime_stack_count          = self.lifetime_stack_count,

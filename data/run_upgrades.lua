@@ -82,7 +82,7 @@ local RunUpgrades = {
     {
         id          = "pot_control",
         name        = "Pot Control",
-        description = "More {w:stack}, fewer {l:stack}. Where {chip} come from.",
+        description = "More {w:stack}, fewer {l:stack}.",
         tooltip_blurb = {
             "Raises chance of smaller losses and bigger wins.",
             "Graph shows {w:stack}% increase, used to earn {chip}.",

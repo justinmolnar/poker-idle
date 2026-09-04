@@ -52,6 +52,7 @@ local Constants      = require("data.constants")
 local ShoveRate      = require("models.shove_rate")
 local GlyphMorph     = require("services.GlyphMorph")
 local Decks          = require("models.Decks")
+local DeckArt        = require("views.DeckArt")
 local OutcomeMath    = require("models.outcome_math")
 local Lookups        = require("utils.lookups")
 
@@ -219,11 +220,11 @@ local function recomputeLayout(W, H, fonts, state)
     CELL_W.achip  = math.floor(TOP_BAR_H * 0.6) + math.floor(6 * s)
                     + math.ceil(fonts.md:getWidth("9999")) + cell_pad
     CELL_W.shove  = cellW("SHOVE",   "999%")
-    -- Deck cell is a sprite chip, not a text value — size it from the
-    -- label width plus a fixed icon footprint (~36px scaled). Only takes
-    -- bar space when FEATURES.DECKS is on; the cluster collapses
-    -- otherwise (the cells_total sum below excludes it).
-    CELL_W.deck   = math.max(cellW("DECK", "L9"), math.floor(36 * s) + math.floor(8 * s))
+    -- Deck cell is a wide crop of the deck's back (pips and the level bar
+    -- ride inside it), not a text value. Only takes bar space when
+    -- FEATURES.DECKS is on; the cluster collapses otherwise (the
+    -- cells_total sum below excludes it).
+    CELL_W.deck   = math.max(cellW("DECK", "L9"), math.floor(96 * s))
     -- Act 3 bleed meter: label plus a bar, so it sizes off the label and a
     -- minimum bar width rather than a value string.
     CELL_W.tables = cellW("TABLES",  "99 / 99")
@@ -542,7 +543,7 @@ function GrindView:_buildTablesTabComponents()
             if full then
                 sub_left, sub_right = "tables full (max " .. cap .. ")", ""
             else
-                sub_right = string.format("buy-in $%.2f", stake.buy_in or 0)
+                sub_right = "buy-in " .. Format.price(stake.buy_in or 0)
                 if affordable then
                     local ev = TablePanelStats.evPerHand(self.controller, stake, gtype_obj)
                     if ev then
@@ -932,7 +933,7 @@ function GrindView:_buildUpgradesTabComponents()
                 cost_text  = ""
             else
                 level_text = string.format("Lv %d/%d", level, max_lvl)
-                cost_text  = string.format("$%.2f", next_cost or 0)
+                cost_text  = Format.price(next_cost or 0)
             end
             if would_strand then
                 desc_text = "open or rebuy a table first — buying now ends the run"
@@ -1157,10 +1158,9 @@ function GrindView:update(dt)
         TooltipSvc.set(ShoveRate.formatBreakdown(rates), mx, my)
     end
 
-    -- Top-bar DECK chip hover tooltip — name + level + bonus + how to
-    -- gain XP + progress + a footer note that all banked decks stack and
-    -- a click hint pointing at the roster modal. Only fires when
-    -- the deck system has unlocked (the cell rect is nil otherwise).
+    -- Top-bar DECK cell hover tooltip: the deck in play, in five lines.
+    -- Progress is the bar under the cell; the roster has the rest. Only
+    -- fires once the deck system has unlocked (the cell rect is nil otherwise).
     local dr = self._deck_cell_rect
     if dr and mx >= dr.x and mx < dr.x + dr.w and my >= dr.y and my < dr.y + dr.h then
         local state = self.game.state
@@ -1168,30 +1168,26 @@ function GrindView:update(dt)
         local spec = active_id and Decks.specById(active_id)
         if spec then
             local level = (state.deck_levels and state.deck_levels[active_id]) or 0
-            local xp    = (state.deck_xp and state.deck_xp[active_id]) or 0
-            local into, span = Decks.progressInLevel(spec, level, xp)
+            local maxed = level >= (spec.max_level or 5)
+            local row   = TablePanelStats.iconRow
             local lines = {
-                spec.name or active_id,
-                string.format("L%d / %d  ·  %s",
-                    level, spec.max_level, spec.bonus_text or ""),
+                { text = string.format("%s   %s", spec.name or active_id,
+                    maxed and "maxed" or string.format("level %d of %d", level, spec.max_level or 5)),
+                  style = "sm", color_token = "heading" },
             }
-            if spec.capstone and spec.capstone.text then
-                lines[#lines + 1] = "Capstone: " .. spec.capstone.text
-            end
-            lines[#lines + 1] = spec.xp_action_text or ""
-            if span then
-                lines[#lines + 1] = string.format("%d / %d XP to L%d",
-                    math.floor(into), math.floor(span), level + 1)
+            if level > 0 and spec.bonus and spec.bonus.per_level then
+                lines[#lines + 1] = row(self.game, Decks.bonusTextAt(spec, level), "sm", "heading")
+                lines[#lines + 1] = row(self.game, "(" .. Decks.bonusTextPerLevel(spec) .. ")", "sm", "muted")
             else
-                lines[#lines + 1] = "MAXED"
+                lines[#lines + 1] = row(self.game, Decks.bonusTextPerLevel(spec), "sm", "primary")
             end
-            lines[#lines + 1] = ""
-            lines[#lines + 1] = "Only the active deck earns XP."
-            lines[#lines + 1] = "All unlocked decks' bonuses still apply,"
-            lines[#lines + 1] = "active or not. Swap at shove to train"
-            lines[#lines + 1] = "a different one."
-            lines[#lines + 1] = ""
-            lines[#lines + 1] = "Click to view your full roster."
+            lines[#lines + 1] = row(self.game, Decks.levelsOnText(spec), "sm", "muted")
+            if spec.capstone and spec.capstone.text then
+                lines[#lines + 1] = row(self.game,
+                    (maxed and "Capstone, earned: " or "Capstone, at level 5: ") .. spec.capstone.text,
+                    "sm", maxed and "heading" or "muted")
+            end
+            lines[#lines + 1] = { text = "Click to see your decks", style = "sm", color_token = "faint" }
             TooltipSvc.set(lines, mx, my)
         end
     end
@@ -1293,14 +1289,9 @@ end
 
 -- ─── Top bar ───────────────────────────────────────────────────────────
 
--- Hybrid: precise to two decimals under $1k (so the readout never
--- overstates what's purchasable), abbreviated K/M/B at $1k+ (so the
--- top-bar cluster stays narrow). TablePanel uses Format.moneyExact
--- directly because per-table readouts want the precise integer instead.
-local function moneyText(n)
-    if math.abs(n or 0) < 1000 then return Format.moneyExact(n) end
-    return Format.money(n)
-end
+-- Cents under $1k (floored, so the readout never overstates what's
+-- purchasable), compact K/M/B above (so the top-bar cluster stays narrow).
+local function moneyText(n) return Format.money(n) end
 
 local function chipsText(n)
     if not n or n < 1 then return "0" end
@@ -1346,9 +1337,11 @@ local function drawStatCell(x, w, label, value, value_color, fonts, icon_fn, val
     end
 end
 
--- Draws the active-deck card-back chip at the given x, in a `w`-wide
--- column. Returns the cell hit rect for hover-tooltip dispatch in
--- update(). Caller should only invoke this once the deck system unlocked.
+-- The deck in play, in the top bar: its art with level pips (views/DeckArt),
+-- a progress bar to the next level along the cell's bottom edge, and a gold
+-- pulse while a newly-opened deck hasn't been looked at. Returns the cell
+-- hit rect for the hover tooltip. Caller invokes this only once the deck
+-- system has unlocked.
 function GrindView:_drawDeckCell(x, w, fonts)
     local state = self.game.state
     local active_id = state.active_deck_id
@@ -1356,87 +1349,44 @@ function GrindView:_drawDeckCell(x, w, fonts)
     local cell_rect = { x = x, y = 0, w = w, h = TOP_BAR_H }
     if not spec then return cell_rect end
 
-    local s = self.game.ui_scale or 1
-    local sprite = self.game.sprite_loader:getSprite(spec.sprite)
-
-    -- Icon sized to fit the bar height with a small inset. Maintains a
-    -- 2.5:3.5 card-shaped aspect ratio so it reads as a card back even
-    -- when the texture below is missing.
-    local inset = math.floor(4 * s)
-    local icon_h = TOP_BAR_H - inset * 2
-    local icon_w = math.floor(icon_h * 2.5 / 3.5)
-    local icon_x = x + math.floor((w - icon_w) / 2)
-    local icon_y = inset
-
+    local s  = self.game.ui_scale or 1
+    local fl = math.floor
     local level = (state.deck_levels and state.deck_levels[active_id]) or 0
+    local gold  = Theme.currency and Theme.currency.chip or Theme.fg.heading
 
-    if sprite then
-        local sx = icon_w / sprite:getWidth()
-        local sy = icon_h / sprite:getHeight()
+    -- A wide window onto the back: the art keeps its height and is cropped
+    -- top and bottom (DeckArt cover-scales to the wider rect).
+    local inset  = fl(4 * s)
+    local art_x, art_y = x + inset, inset
+    local art_w, art_h = w - inset * 2, TOP_BAR_H - inset * 2
+    DeckArt.draw(self.game, spec, art_x, art_y, art_w, art_h, { level = level, scale = s })
 
-        -- Shaders for level progression
-        local ShaderRegistry = require("services.ShaderRegistry")
-        local active_shader = nil
-        if level == 0 then
-            active_shader = ShaderRegistry.get("dirty")
-        elseif level == 5 then
-            active_shader = ShaderRegistry.get("foil")
-            if active_shader then
-                active_shader:send("u_time", self.game.time.total_time)
-            end
-        end
+    -- The level bar, inside the art's bottom edge on a dark band so it reads
+    -- at a glance; gold and full at max.
+    local xp = (state.deck_xp and state.deck_xp[active_id]) or 0
+    local into, span = Decks.progressInLevel(spec, level, xp)
+    local frac  = span and math.max(0, math.min(1, into / span)) or 1
+    local bar_h = math.max(3, fl(4 * s))
+    local pad   = fl(5 * s)
+    local band_h = bar_h + pad * 2
+    local band_y = art_y + art_h - band_h
+    Theme.setColor(Theme.bg.window, 0.7)
+    love.graphics.rectangle("fill", art_x, band_y, art_w, band_h)
+    local bar_x, bar_y, bar_w = art_x + pad, band_y + pad, art_w - pad * 2
+    Theme.setColor(Theme.bg.sunken)
+    love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 1)
+    Theme.setColor(span and Theme.fg.heading or gold)
+    love.graphics.rectangle("fill", bar_x, bar_y, fl(bar_w * frac), bar_h, 1)
+    Theme.setColor(Theme.border.soft)
+    love.graphics.rectangle("line", bar_x, bar_y, bar_w, bar_h, 1)
 
-        if active_shader then
-            love.graphics.setShader(active_shader)
-        end
-
-        Theme.setColor(Theme.fg.heading)
-        love.graphics.draw(sprite, icon_x, icon_y, 0, sx, sy)
-
-        if active_shader then
-            love.graphics.setShader()
-        end
-    else
-        -- Fallback rect with a "?" marker if the asset failed to load.
-        Theme.setColor(Theme.bg.sunken)
-        love.graphics.rectangle("fill", icon_x, icon_y, icon_w, icon_h, 2)
-        Theme.setColor(Theme.fg.faint)
-        love.graphics.setFont(fonts.sm)
-        love.graphics.printf("?", icon_x,
-            icon_y + math.floor((icon_h - fonts.sm:getHeight()) / 2),
-            icon_w, "center")
+    -- A deck opened and hasn't been seen: re-fire the award pulse every
+    -- 1.2 s (a steady glow would read as a state, not a nudge).
+    if state.decks_unseen and #state.decks_unseen > 0
+       and (love.timer.getTime() % 1.2) < 0.05 then
+        AwardGlow.flash("cell:deck")
     end
-
-    -- Draw border for level 2, 3, 4 active deck
-    if level >= 2 and level <= 4 then
-        local border_colors = {
-            [2] = { 0.72, 0.45, 0.20, 1.0 }, -- Bronze
-            [3] = { 0.80, 0.80, 0.85, 1.0 }, -- Silver
-            [4] = { 0.98, 0.82, 0.12, 1.0 }, -- Gold
-        }
-        local bc = border_colors[level]
-        local bw = math.max(2, math.floor(4 * s))
-        local inset = math.floor(bw / 2)
-        love.graphics.setLineWidth(bw)
-        Theme.setColor(bc)
-        love.graphics.rectangle("line", icon_x + inset, icon_y + inset, icon_w - inset * 2, icon_h - inset * 2, 2)
-        love.graphics.setLineWidth(1)
-    end
-
-    -- Level badge overlay (bottom-right of the icon). Compact "L3" tag
-    -- so the active level reads at a glance without the tooltip.
-    local level = (state.deck_levels and state.deck_levels[active_id]) or 0
-    local lvl_text = "L" .. tostring(level)
-    love.graphics.setFont(fonts.sm)
-    local lvl_w = fonts.sm:getWidth(lvl_text) + math.floor(6 * s)
-    local lvl_h = fonts.sm:getHeight() + math.floor(2 * s)
-    local lvl_x = icon_x + icon_w - lvl_w + math.floor(2 * s)
-    local lvl_y = icon_y + icon_h - lvl_h + math.floor(2 * s)
-    Theme.setColor(Theme.bg.window, 0.85)
-    love.graphics.rectangle("fill", lvl_x, lvl_y, lvl_w, lvl_h, 2)
-    Theme.setColor(Theme.fg.heading)
-    love.graphics.print(lvl_text, lvl_x + math.floor(3 * s),
-                        lvl_y + math.floor(1 * s))
+    AwardGlow.draw("cell:deck", x + 1, 1, w - 2, TOP_BAR_H - 2)
 
     return cell_rect
 end

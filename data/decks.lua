@@ -30,9 +30,26 @@
 --   • effects   = numeric perk list applied once per level (capped at 4)
 --   • capstone  = single perk list applied once at L5 (may grant a proc
 --                 or router: data/procs.lua, data/routers.lua)
---   • bonus_text= L1-4 UI text description
---   • flavor_text= deck description text
 --   • unlock    = unlock criteria (models/deck_unlock_rules.lua kinds)
+--
+-- Player-facing copy, one shape per field (views read them through
+-- models/Decks: bonusTextAt / bonusTextPerLevel / levelsOnText). Numbers
+-- are NEVER shown as XP; the UI shows bars, and these words:
+--   • bonus      = { text, per_level }. `text` is the effect with {n} where
+--                  the number goes, under eight words; `per_level` is the
+--                  number for ONE level. The tooltip shows {n} × level (the
+--                  bonus in play now), the roster shows {n} + " per level".
+--                  A bonus with no number (a router, the Master) has no {n}
+--                  and no per_level.
+--   • levels_on  = what fills the bar, a noun phrase short enough for a
+--                  tile: "money won on Zoom". Shown as "Levels on <x>" in
+--                  the column and tooltip, bare on the tile.
+--   • capstone.text = one sentence, its number in it.
+--   • unlock.text   = "<verb> <n> <thing>", no "to unlock" (the sticker's
+--                  title says that); the counter next to it comes from the
+--                  unlock registry's progress, never from this text.
+--   • flavor_text = one line of voice.
+-- IconText markers ({chip}, {w:stack}, {l:stack}) are fine in all of them.
 --
 -- The first entry is the starter (GameState seeds it; the Act 2 story
 -- beats anchor on its tile). Re-run `node tools/balance_sweep.js --act2`
@@ -49,7 +66,7 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 2e3, 2e4, 2e5, 2e6, 6e6 },
         xp_rule   = { kind = "money_won" },
-        xp_action_text = "+1 XP per dollar won",
+        levels_on = "money won",
         effects   = {
             { kind = "earnings_mult", value = 1.5 },
         },
@@ -57,7 +74,7 @@ local Decks = {
             text    = "{w:stack} wins pay double.",
             effects = { { kind = "stack_mult", value = 2.0 } },
         },
-        bonus_text  = "+50% cash winnings per level",
+        bonus       = { text = "+{n}% cash winnings", per_level = 50 },
         flavor_text = "The classic back. Solid, reliable, honest.",
     },
 
@@ -70,7 +87,7 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 1e4, 1e5, 1e6, 1e7, 5e7 },
         xp_rule   = { kind = "money_won", gtype = "zoom" },
-        xp_action_text = "+1 XP per dollar won on Zoom",
+        levels_on = "money won on Zoom",
         effects   = {
             { kind = "hand_pace_mult", value = 1.15, gtype = "zoom" },
         },
@@ -78,13 +95,13 @@ local Decks = {
             text    = "A Zoom {w:stack} resolves every other Zoom table on the spot.",
             effects = { { kind = "proc", proc = "firehose_cascade" } },
         },
-        bonus_text  = "Zoom tables deal 15% faster per level",
+        bonus       = { text = "Zoom tables deal {n}% faster", per_level = 15 },
         flavor_text = "Hands are hands. Open the valve.",
         unlock = {
             kind      = "hands_at_gtype",
             gtype     = "zoom",
             threshold = 3000,
-            text      = "Play 3,000 Zoom hands to unlock",
+            text      = "Play 3,000 Zoom hands",
         },
     },
 
@@ -97,21 +114,21 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 1e4, 1e5, 1e6, 1e7, 5e7 },
         xp_rule   = { kind = "money_won", gtype = "hu" },
-        xp_action_text = "+1 XP per dollar won Heads-Up",
+        levels_on = "money won Heads-Up",
         effects   = {
             { kind = "win_chance_shift", amount = 0.03, gtype = "hu" },
         },
         capstone  = {
-            text    = "Heads-Up {l:stack} losses have a 50% chance to read one tier smaller.",
+            text    = "Heads-Up {l:stack} losses read one tier smaller half the time.",
             effects = { { kind = "loss_tier_shift", from = "stack", to = "large", chance = 0.5, gtype = "hu" } },
         },
-        bonus_text  = "+3% win chance Heads-Up per level",
+        bonus       = { text = "+{n}% win chance Heads-Up", per_level = 3 },
         flavor_text = "One opponent. One stack. Take it.",
         unlock = {
             kind      = "hands_at_gtype",
             gtype     = "hu",
             threshold = 3000,
-            text      = "Play 3,000 Heads-Up hands to unlock",
+            text      = "Play 3,000 Heads-Up hands",
         },
     },
 
@@ -124,7 +141,7 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 10, 40, 100, 200, 400 },
         xp_rule   = { kind = "chips_banked" },
-        xp_action_text = "+1 XP per {chip} banked",
+        levels_on = "{chip} banked",
         effects   = {
             { kind = "unbanked_stack_shift", value = 0.05 },
         },
@@ -132,12 +149,12 @@ local Decks = {
             text    = "+1 {chip} on every bounty.",
             effects = { { kind = "stack_chip_add", value = 1 } },
         },
-        bonus_text  = "+5% {w:stack} chance per level at tables whose {chip} you haven't banked yet",
+        bonus       = { text = "+{n}% {w:stack} chance at unbanked tables", per_level = 5 },
         flavor_text = "Every lane has a price on it. Collect.",
         unlock = {
             kind      = "total_chips_banked",
             threshold = 30,
-            text      = "Bank 30 {chip} to unlock",
+            text      = "Bank 30 {chip}",
         },
     },
 
@@ -150,20 +167,20 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 1e4, 1e5, 1e6, 1e7, 5e7 },
         xp_rule   = { kind = "money_won", pure_only = true },
-        xp_action_text = "+1 XP per dollar won while every table is the same game",
+        levels_on = "money won on a one-game board",
         effects   = {
             { kind = "pure_board_bonus", earnings_mult = 1.2 },
         },
         capstone  = {
-            text    = "A pure board deals 25% faster.",
+            text    = "A one-game board deals 25% faster.",
             effects = { { kind = "pure_board_pace", value = 1.25 } },
         },
-        bonus_text  = "+20% cash winnings per level while every open table is the same game",
+        bonus       = { text = "+{n}% cash winnings when every table is one game", per_level = 20 },
         flavor_text = "One game. Every table. Perfect execution.",
         unlock = {
             kind      = "total_hands_at_4plus",
             threshold = 3000,
-            text      = "Play 3,000 hands at 4+ tables to unlock",
+            text      = "Play 3,000 hands at 4+ tables",
         },
     },
 
@@ -176,20 +193,20 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 5, 20, 60, 150, 300 },
         xp_rule   = { kind = "heaters_caught" },
-        xp_action_text = "+1 XP per heater caught",
+        levels_on = "heaters caught",
         effects   = {
             { kind = "heater_win_mult", value = 1.25 },
         },
         capstone  = {
-            text    = "When a heater burns out, 25% chance it jumps to a neighbouring table.",
+            text    = "A burnt-out heater jumps to a neighbouring table 25% of the time.",
             effects = { { kind = "proc", proc = "hot_hand_spread" } },
         },
-        bonus_text  = "A heater's hand pays 25% more per level",
+        bonus       = { text = "A heater's hand pays {n}% more", per_level = 25 },
         flavor_text = "Run good. Then run gooder.",
         unlock = {
             kind      = "total_heaters",
             threshold = 50,
-            text      = "Catch 50 heaters to unlock",
+            text      = "Catch 50 heaters",
         },
     },
 
@@ -202,24 +219,24 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 5e5, 5e6, 5e7, 5e8, 5e9 },
         xp_rule   = { kind = "stack_dollars" },
-        xp_action_text = "+1 XP per dollar won in {w:stack} pots",
+        levels_on = "money won in {w:stack} pots",
         effects   = {
             { kind = "win_dist_shift",
               shift = { small = -0.10, medium = -0.10, large = 0.10, stack = 0.10 } },
         },
         capstone  = {
-            text    = "Wins: 50% chance to read a tier bigger, 50% chance to pay double.",
+            text    = "Half your wins read a tier bigger, the other half pay double.",
             effects = {
                 { kind = "win_tier_bump_chance",     value = 0.5 },
                 { kind = "win_payout_double_chance", value = 0.5 },
             },
         },
-        bonus_text  = "Wins lean Large and {w:stack}, +10% each per level",
+        bonus       = { text = "Wins lean Large and {w:stack}, +{n}% each", per_level = 10 },
         flavor_text = "Put the pedal to the floor. Wild swings, huge pots.",
         unlock = {
             kind      = "lifetime_stack_count",
             threshold = 5000,
-            text      = "Hit 5,000 {w:stack} to unlock",
+            text      = "Hit 5,000 {w:stack}",
         },
     },
 
@@ -232,26 +249,29 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 1e6, 1e7, 1e8, 1e9, 1e10 },
         xp_rule   = { kind = "money_lost" },
-        xp_action_text = "+1 XP per dollar lost",
+        levels_on = "money lost",
         effects   = {
             { kind = "loss_dist_shift",
               shift = { small = 0.18, medium = -0.06, large = -0.06, stack = -0.06 } },
         },
         capstone  = {
-            text    = "{l:stack} losses have a 50% chance to read one tier smaller.",
+            text    = "{l:stack} losses read one tier smaller half the time.",
             effects = { { kind = "loss_tier_shift", from = "stack", to = "large", chance = 0.5 } },
         },
-        bonus_text  = "Losses lean Small, +18% per level",
+        bonus       = { text = "Losses lean Small, +{n}%", per_level = 18 },
         flavor_text = "Tight is right. Play safe, live to grind another day.",
         unlock = {
             kind      = "lifetime_money_lost",
             threshold = 1e7,
-            text      = "Lose $10M to unlock",
+            text      = "Lose $10M",
         },
     },
 
     -- ── 9. Anchor — six-max, the tank ──────────────────────────────────────
     -- Opens: 25 tilts taken. Maxes: NL100M.
+    -- The taunt router (tilts aimed beside a 6-max land on it) is what makes
+    -- the levels_on line true; it has no number, so the bonus line is the
+    -- loss reduction and the taunt reads from how the deck levels.
     {
         id        = "anchor",
         name      = "Anchor",
@@ -259,7 +279,7 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 5, 15, 40, 80, 150 },
         xp_rule   = { kind = "tilts_absorbed" },
-        xp_action_text = "+1 XP per tilt a 6-max table takes for a neighbour",
+        levels_on = "tilts a 6-max takes for a neighbour",
         effects   = {
             { kind = "router", router = "anchor_taunt" },
             { kind = "tilted_loss_mult", value = 0.8, gtype = "six_max" },
@@ -268,12 +288,12 @@ local Decks = {
             text    = "A tilt spent on a 6-max table heats a neighbour.",
             effects = { { kind = "proc", proc = "anchor_convert" } },
         },
-        bonus_text  = "Tilts aimed beside a 6-max table land on it instead; its tilted hands lose 20% less per level",
+        bonus       = { text = "Tilted 6-max hands lose {n}% less", per_level = 20 },
         flavor_text = "Somebody has to take the hit. Sit them at the big table.",
         unlock = {
             kind      = "total_tilts",
             threshold = 25,
-            text      = "Take 25 tilts to unlock",
+            text      = "Take 25 tilts",
         },
     },
 
@@ -286,7 +306,7 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 20, 80, 250, 600, 1200 },
         xp_rule   = { kind = "knockouts" },
-        xp_action_text = "+1 XP per knockout",
+        levels_on = "knockouts",
         effects   = {
             { kind = "ko_targets_add", value = 1 },
         },
@@ -294,12 +314,12 @@ local Decks = {
             text    = "First place heats every table.",
             effects = { { kind = "proc", proc = "circuit_pro_final" } },
         },
-        bonus_text  = "Each knockout's effect lands on one more table per level",
+        bonus       = { text = "Each knockout's effect lands on {n} more table", per_level = 1 },
         flavor_text = "The tournament pays the room.",
         unlock = {
             kind      = "total_ko_wins",
             threshold = 3,
-            text      = "Win 3 tournaments to unlock",
+            text      = "Win 3 tournaments",
         },
     },
 
@@ -312,20 +332,20 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 1e5, 1e6, 1e7, 1e8, 1e9 },
         xp_rule   = { kind = "bankroll_peak", absolute = true },
-        xp_action_text = "XP is your highest bankroll",
+        levels_on = "your highest bankroll",
         effects   = {
             { kind = "earnings_per_tier", value = 0.075 },
         },
         capstone  = {
-            text    = "Wins are multiplied by your BANK multiplier, up to 3x.",
+            text    = "Wins scale with your BANK multiplier, up to 3x.",
             effects = { { kind = "earnings_scale_by_bankroll", wins_only = true, cap = 3 } },
         },
-        bonus_text  = "+7.5% cash winnings per table tier per level",
+        bonus       = { text = "+{n}% cash winnings per table tier", per_level = 7.5 },
         flavor_text = "Earnings grow with stakes. Watch the capital accumulate.",
         unlock = {
             kind      = "lifetime_money_won",
             threshold = 1e10,
-            text      = "Earn $10B to unlock",
+            text      = "Earn $10B",
         },
     },
 
@@ -342,20 +362,20 @@ local Decks = {
         max_level = 5,
         xp_curve  = { 1e9, 1e10, 5e10, 2e11, 5e11 },
         xp_rule   = { kind = "money_won", tier_min = 6 },
-        xp_action_text = "+1 XP per dollar won at NL100M or above",
+        levels_on = "money won at NL100M and up",
         effects   = {
             { kind = "shove_base_per_deck_level", value = 0.01 },
         },
         capstone  = {
-            text    = "Doubles the base it restores, and it may exceed the things you own",
+            text    = "Doubles the base it restores at the shove, past the things you own.",
             effects = { { kind = "shove_base_double" } },
         },
-        bonus_text  = "+1 to your ITEMS per total deck level, never more than the things you own",
+        bonus       = { text = "+1 to your base at the shove per deck level you hold, never past the things you own" },
         flavor_text = "Every deck you've mastered, in one hand.",
         unlock = {
             kind      = "decks_maxed",
             threshold = 5,
-            text      = "Max 5 decks to unlock",
+            text      = "Max 5 decks",
         },
     },
 

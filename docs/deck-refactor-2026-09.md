@@ -70,3 +70,12 @@ Covered by `sim/verify_save_migration.lua`.
 - `Constants.CARD_BACK_SPRITE` is now Standard's back (`04-patterns`).
 - Pricing reference boards (`data/balance.lua`): mid Standard L5, high
   Standard + Nit L5.
+
+## UI fields (2026-09-04 deck UI pass)
+
+`bonus_text` → `bonus = { text, per_level }` ({n} substituted by
+`Decks.bonusTextAt` / `bonusTextPerLevel`); `xp_action_text` → `levels_on`
+(rendered "Levels on <x>"); `unlock.text` lost its " to unlock". Nothing in
+`sim/` or `tools/` reads these. The roster, top-bar cell and tooltip draw the
+art through `views/DeckArt`; locked decks show the unlock count from
+`UnlockRegistry:progress` under the catalog's COMING SOON sticker.

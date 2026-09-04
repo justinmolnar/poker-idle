@@ -109,4 +109,22 @@ function IconText.measure(str, font)
     return walk(nil, str, 0, 0, font, nil, 1, false)
 end
 
+-- Greedy word wrap to `max_w`, measured through IconText so an inline icon
+-- counts at its drawn width. Markers never contain spaces, so splitting on
+-- them never splits a {token}. Returns a list of lines (at least one).
+function IconText.wrap(str, font, max_w)
+    local lines, cur = {}, nil
+    for word in tostring(str or ""):gmatch("%S+") do
+        local try = cur and (cur .. " " .. word) or word
+        if cur and IconText.measure(try, font) > max_w then
+            lines[#lines + 1] = cur
+            cur = word
+        else
+            cur = try
+        end
+    end
+    lines[#lines + 1] = cur or ""
+    return lines
+end
+
 return IconText

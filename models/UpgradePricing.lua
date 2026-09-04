@@ -170,11 +170,17 @@ function UpgradePricing.apply(run_upgrades, registry)
         for L = 2, max_level do base[L] = base[L - 1] * math.exp(smooth[L] * scale) end
     end
 
+    -- Rounded here so the sweep and the workbench see clean numbers; the
+    -- price the player sees and pays is rounded again AFTER discounts by
+    -- GrindController (UpgradePricing.roundPrice), which is the one that
+    -- matters — a 15% discount on a round number is not a round number.
+    local roundSig = UpgradePricing.roundPrice
+
     for _, u in ipairs(run_upgrades) do
         if u.fill_scaled then
             local mult = u.cost_mult or 1
             u.costs = {}
-            for L = 1, max_level do u.costs[L] = base[L] * mult end
+            for L = 1, max_level do u.costs[L] = roundSig(base[L] * mult) end
             u.max_level = max_level
         elseif u.maxes_at then
             -- A fixed-length upgrade that should max at `maxes_at`: its M
@@ -199,11 +205,24 @@ function UpgradePricing.apply(run_upgrades, registry)
                     local f = pos - lo
                     c = math.exp(math.log(base[lo]) * (1 - f) + math.log(base[hi]) * f)
                 end
-                u.costs[k] = c * mult
+                u.costs[k] = roundSig(c * mult)
             end
         end
     end
     return base
+end
+
+-- Round a price to Balance.UPGRADE_PRICE_SIG_FIGS significant figures
+-- (2: 535,323,234.44 → 540,000,000; 1.19 → 1.2; 0.136 → 0.14). Applied to
+-- every derived price and again to the final discounted price, so what the
+-- sidebar shows is exactly what is charged. Monotone, so a ramp keeps its
+-- order.
+function UpgradePricing.roundPrice(x)
+    if not (x and x > 0) then return x end
+    local sig = Balance.UPGRADE_PRICE_SIG_FIGS or 2
+    local e = math.floor(math.log(x) / math.log(10) + 1e-9) - (sig - 1)
+    local m = 10 ^ e
+    return math.floor(x / m + 0.5) * m
 end
 
 return UpgradePricing
