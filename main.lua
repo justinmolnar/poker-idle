@@ -68,6 +68,7 @@ local StoryView        = require("views.StoryView")
 local HintMarks        = require("views.HintMarks")
 local RadioVoice       = require("services.RadioVoice")
 local MusicDirector    = require("services.MusicDirector")
+local AudioDevice      = require("services.AudioDevice")
 local Story            = require("data.story")
 local PokerActionApply = require("models.poker_action_apply")
 local GrindState   = require("states.GrindState")
@@ -478,10 +479,13 @@ function love.load()
         Game.state_machine:switch("title")
     end
 
+    do local M, m, r = love.getVersion(); print(("[main] LÖVE %d.%d.%d, audio device switching %s"):format(M, m, r, (love.audio and love.audio.setPlaybackDevice) and "ON" or "OFF (needs LÖVE 12)")) end
     print("[main] Poker Idle booted. Active state: " .. tostring(Game.state_machine:current()))
 end
 
 function love.update(dt)
+    -- Follow Windows' default audio output (LÖVE 12; inert on 11).
+    AudioDevice.tick(dt)
     -- Reset per-frame hover + tooltip state before any hit-tests run. Things
     -- that own hoverable regions (Panel:updateHover, ComponentRenderer.hitTest,
     -- GrindView's hit_box walk) write to these during this update; draws
@@ -747,6 +751,19 @@ function love.quit()
     pcall(flushSave)
 end
 
+-- LÖVE 12 only (11 never fires it): the audio device went away — the
+-- headphones died, the default output changed. Returning false lets the
+-- default handler run, which reopens the default device in place; every
+-- Source keeps its state, and MusicDirector's next update refills its
+-- queue if the gap drained it. Logged so a silent room can be traced.
+function love.audiodisconnected(sources)
+    pcall(print, "[audio] device disconnected (" .. tostring(sources and #sources or 0) .. " sources)")
+    -- Reopen ourselves (same call the default handler makes) so the
+    -- poller's hold-off starts now, then let the default handler run too.
+    AudioDevice.reopen("disconnected")
+    return false
+end
+
 -- A crash must not cost the run. Flush the save, then show a minimal
 -- error screen in place of LOVE's default blue screen (which saves
 -- nothing). Every step is pcall-guarded: whatever just broke must not
@@ -762,7 +779,7 @@ function love.errorhandler(msg)
     pcall(function()
         love.graphics.reset()
         love.graphics.origin()
-        love.graphics.setNewFont(15)
+        love.graphics.setFont(love.graphics.newFont(15))
     end)
     if love.mouse then
         pcall(function() love.mouse.setVisible(true) end)

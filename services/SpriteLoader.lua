@@ -99,7 +99,12 @@ local function resample(image, w, h)
     love.graphics.setCanvas(prev_canvas)
     love.graphics.pop()
 
-    local snap_ok, data = pcall(function() return canvas:newImageData() end)
+    -- Canvas → ImageData: love.graphics.readbackTexture on 12, the
+    -- Canvas method on 11 (12 deprecates it).
+    local snap_ok, data = pcall(function()
+        if love.graphics.readbackTexture then return love.graphics.readbackTexture(canvas) end
+        return canvas:newImageData()
+    end)
     if not snap_ok or not data then return nil end
     local img_ok, img = pcall(love.graphics.newImage, data)
     if not img_ok or not img then return nil end

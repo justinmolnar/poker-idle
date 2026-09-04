@@ -1349,40 +1349,48 @@ end
 -- The variant is decided in :draw based on tbl.stack; this just renders.
 local DEAL_BTN_DEPTH = 4
 
--- Pick the felt-button font + horizontal scale that fit `label` inside
--- the button face (`fw` × `fh`). Returns (font, sx, text_x, text_y).
--- Shared between the live render and the press-then-vanish ghost so
--- the ghost can't suddenly switch to a larger font on a label that the
--- live button had to scale-blit down.
+-- Pick the felt-button font and text that fit inside the button face
+-- (`fw` × `fh`). `label` is a string or a list of progressively shorter
+-- strings (REBUY passes the exact price, the compact price, then the bare
+-- verb). Tries every label at every real font size, largest first, and
+-- takes the first fit. Text is NEVER scaled: a held size is always a
+-- rasterized font (xs/sm/md), never a blit of a bigger one. Returns
+-- (font, text, text_x, text_y). Shared between the live render and the
+-- press-then-vanish ghost so both pick identically.
 local function _pickFeltButtonFont(label, fonts, fx, fy, fw, fh)
     local pad   = 8
     local avail = math.max(1, fw - pad)
-    local font  = fonts.sm
-    if fh >= 32 and fonts.md:getWidth(label) <= avail then
-        font = fonts.md
+    local labels = (type(label) == "table") and label or { label }
+    local ladder = {}
+    if fh >= 32 and fonts.md then ladder[#ladder + 1] = fonts.md end
+    ladder[#ladder + 1] = fonts.sm
+    if fonts.xs then ladder[#ladder + 1] = fonts.xs end
+    local pick_font, pick_text
+    for _, text in ipairs(labels) do
+        for _, font in ipairs(ladder) do
+            if font:getWidth(text) <= avail then
+                pick_font, pick_text = font, text
+                break
+            end
+        end
+        if pick_font then break end
     end
-    local tw   = font:getWidth(label)
-    local fh_t = font:getHeight()
-    local sx   = (tw > avail) and (avail / tw) or 1
-    local draw_w = tw * sx
-    local text_x = fx + math.floor((fw - draw_w) / 2)
-    local text_y = fy + math.floor((fh - fh_t * sx) * 0.5)
-    return font, sx, text_x, text_y
+    if not pick_font then
+        -- Nothing fits even shortened: smallest font, shortest text,
+        -- centred and overflowing rather than shrunk.
+        pick_font, pick_text = ladder[#ladder], labels[#labels]
+    end
+    local tw, th = pick_font:getWidth(pick_text), pick_font:getHeight()
+    local text_x = fx + math.floor((fw - tw) / 2)
+    local text_y = fy + math.floor((fh - th) * 0.5)
+    return pick_font, pick_text, text_x, text_y
 end
 
 local function _drawFeltButtonLabel(label, fonts, fx, fy, fw, fh, enabled)
-    local font, sx, text_x, text_y = _pickFeltButtonFont(label, fonts, fx, fy, fw, fh)
+    local font, text, text_x, text_y = _pickFeltButtonFont(label, fonts, fx, fy, fw, fh)
     love.graphics.setFont(font)
     Theme.setColor(enabled and Theme.bg.window or Theme.fg.disabled)
-    if sx < 1 then
-        love.graphics.push()
-        love.graphics.translate(text_x, text_y)
-        love.graphics.scale(sx, sx)
-        love.graphics.print(label, 0, 0)
-        love.graphics.pop()
-    else
-        love.graphics.print(label, text_x, text_y)
-    end
+    love.graphics.print(text, text_x, text_y)
 end
 
 -- Render the chunky DEAL/REBUY button at (bx, by, btn_w, btn_h). Used both
@@ -2061,7 +2069,13 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             -- word that keeps it from reading like a busted cash table.
             local verb  = (gtype and gtype.chip_stack_table) and "RE-ENTER"
                           or "REBUY"
-            local label = string.format("%s %s", verb, Format.moneyExact(cost))
+            -- Exact price when it fits, the compact price when it doesn't,
+            -- the bare verb as the last resort — never scaled text.
+            local label = {
+                string.format("%s %s", verb, Format.moneyExact(cost)),
+                string.format("%s %s", verb, Format.money(cost)),
+                verb,
+            }
             drawFeltButton(felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, label, "rebuy",
                 Theme.status.error, can_rebuy, tbl._id, residue_opts)

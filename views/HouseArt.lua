@@ -504,7 +504,9 @@ function HouseArt.bake(sprite_loader)
         love.graphics.setCanvas(prev)
         love.graphics.pop()
 
-        local data = final:newImageData()
+        local data = love.graphics.readbackTexture
+            and love.graphics.readbackTexture(final)    -- 12
+            or final:newImageData()                      -- 11
         local img = love.graphics.newImage(data)
         img:setFilter("nearest", "nearest")
         sprite_loader:setSprite("house_poster_wall", img)

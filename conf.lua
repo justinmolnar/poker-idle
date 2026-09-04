@@ -9,12 +9,21 @@
 -- call below toggles the per-process DPI awareness flag at runtime,
 -- which is the same thing a manifest in love.exe would do.
 -- love.js (browser) ships no FFI. Failed pcall(require, "ffi") = web build.
+-- Dual-target (2026-09): the code stays LÖVE 11-compatible because the
+-- itch web build runs on love.js 11.4.1, while the desktop build runs a
+-- LÖVE 12 nightly (docs/build-win64.md) for one reason: 12 reopens the
+-- audio device when Windows' default output changes (headphones die or
+-- come back), 11 cannot. Everything version-specific lives in this file.
+local ON_12 = (love._version_major or 11) >= 12
+
 local IS_WEB = false
 do
     local ok, ffi = pcall(require, "ffi")
     if not ok then
         IS_WEB = true
-    elseif ffi.os == "Windows" then
+    elseif ffi.os == "Windows" and not ON_12 then
+        -- 11 on Windows is not DPI-aware unless told; 12 runs on SDL3,
+        -- which owns DPI awareness itself and must not be fought here.
         pcall(function()
             ffi.cdef[[ int SetProcessDPIAware(); ]]
             ffi.load("user32").SetProcessDPIAware()
@@ -24,7 +33,7 @@ end
 
 function love.conf(t)
     t.identity = "poker-idle"
-    t.version  = "11.4"
+    t.version  = ON_12 and "12.0" or "11.4"
     t.console  = true
 
     t.window.title      = "Poker Idle"
@@ -50,7 +59,11 @@ function love.conf(t)
     -- (2560×1440) — main.lua's web HiDPI layer lays the game out in that full
     -- device-pixel space so web matches the native window. (Required on: with
     -- highdpi off, pixel == CSS and that layer has nothing to scale.)
-    t.window.highdpi    = true
+    if ON_12 then
+        t.highdpi        = true     -- 12's flag
+    else
+        t.window.highdpi = true     -- 11's flag
+    end
 
     t.modules.physics  = false
     t.modules.joystick = false

@@ -2,13 +2,24 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Run Love2D",
+      "label": "Run Love2D (12 nightly)",
       "type": "shell",
-      "command": "& 'C:\\Program Files\\LOVE\\lovec.exe' .",
+      "command": "& 'C:\\love12\\engine\\love-12.0-win64\\lovec.exe' .",
       "group": {
         "kind": "build",
         "isDefault": true
       },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Run Love2D (11.5)",
+      "type": "shell",
+      "command": "& 'C:\\Program Files\\LOVE\\lovec.exe' .",
+      "group": "build",
       "presentation": {
         "reveal": "always",
         "panel": "shared",

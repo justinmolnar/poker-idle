@@ -1,6 +1,6 @@
 # Building the web (HTML5) build for itch.io
 
-The game is a LÖVE 11.4 project. The web build is produced by transpiling a
+The game is written for LÖVE 11.4 and runs on it for the web build; the desktop build runs a LÖVE 12 nightly (`docs/build-win64.md`), and `conf.lua` is where the two diverge. When the web target moves to 12, the candidate toolchain is `rozenmad/love-web-builder` (LÖVE 12, experimental SDL3 port, has a no-pthreads `compat` variant for itch). The web build is produced by transpiling a
 `.love` package with [love.js](https://github.com/Davidobot/love.js) (the
 Emscripten port of LÖVE) and dropping in a custom HTML shell.
 
