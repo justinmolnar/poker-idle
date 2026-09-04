@@ -259,6 +259,11 @@ function GameState:new(saved)
     -- run's bankroll (see applyStartingPerks).
     instance.run_money_lost      = 0
     instance.last_run_money_lost = 0
+    -- The Cereal Shelf seeds last run's biggest pot (first stake, or any).
+    instance.run_biggest_pot_t1      = 0
+    instance.run_biggest_pot         = 0
+    instance.last_run_biggest_pot_t1 = 0
+    instance.last_run_biggest_pot    = 0
 
     -- Transient stat cache, recomputed lazily.
     instance.effects_cache = nil
@@ -313,6 +318,10 @@ function GameState:resetRun()
     -- the frozen figure at the next applyStartingPerks.
     self.last_run_money_lost = self.run_money_lost or 0
     self.run_money_lost      = 0
+    self.last_run_biggest_pot_t1 = self.run_biggest_pot_t1 or 0
+    self.last_run_biggest_pot    = self.run_biggest_pot or 0
+    self.run_biggest_pot_t1      = 0
+    self.run_biggest_pot         = 0
     self.effects_cache       = nil
     self.shove_count         = (self.shove_count or 0) + 1
 end
@@ -383,6 +392,8 @@ function GameState:wipeAll()
     self.total_hands_by_gtype    = {}
     self.highest_stake_idx       = 0
     self.last_run_money_lost     = 0
+    self.last_run_biggest_pot_t1 = 0
+    self.last_run_biggest_pot    = 0
 
     -- New save identity — fresh game, fresh analytics file.
     self.save_id    = genSaveId()
@@ -675,6 +686,10 @@ function GameState:applySaved(saved)
     self.highest_stake_idx       = self.highest_stake_idx       or 0
     self.run_money_lost          = self.run_money_lost          or 0
     self.last_run_money_lost     = self.last_run_money_lost     or 0
+    self.run_biggest_pot_t1      = self.run_biggest_pot_t1      or 0
+    self.run_biggest_pot         = self.run_biggest_pot         or 0
+    self.last_run_biggest_pot_t1 = self.last_run_biggest_pot_t1 or 0
+    self.last_run_biggest_pot    = self.last_run_biggest_pot    or 0
     self.hands_since_last_bank          = self.hands_since_last_bank or 0
     -- Analytics identity — backfill for saves predating this field.
     self.save_id    = self.save_id    or genSaveId()
@@ -869,6 +884,8 @@ function GameState:serializeMeta()
                                           and StakesData[self.highest_stake_idx].id
                                           or nil,
         last_run_money_lost             = self.last_run_money_lost,
+        last_run_biggest_pot_t1         = self.last_run_biggest_pot_t1,
+        last_run_biggest_pot            = self.last_run_biggest_pot,
     }
 end
 
@@ -908,6 +925,8 @@ function GameState:serializeRun()
         zoom_sharp_banked                = self.zoom_sharp_banked,
         hands_since_last_bank      = self.hands_since_last_bank,
         run_money_lost             = self.run_money_lost,
+        run_biggest_pot_t1         = self.run_biggest_pot_t1,
+        run_biggest_pot            = self.run_biggest_pot,
     }
 end
 
@@ -1146,6 +1165,16 @@ function GameState:applyStartingPerks(ctx)
         self.bankroll = self.bankroll
                         + (self.last_run_money_lost or 0) * ctx.loss_recycle_pct
         fired[#fired + 1] = "loss_recycle_pct"
+    end
+    -- Cereal Shelf: last run's biggest pot, at the first stake ("t1") or
+    -- at any stake ("any", the corrupt read).
+    if ctx.start_biggest_pot then
+        local seed = (ctx.start_biggest_pot == "any") and (self.last_run_biggest_pot or 0)
+                     or (self.last_run_biggest_pot_t1 or 0)
+        if seed > 0 then
+            self.bankroll = self.bankroll + seed
+            fired[#fired + 1] = "start_biggest_pot"
+        end
     end
     -- Each free table is a random T1 CASH game — the Desk seats you
     -- somewhere, it doesn't always deal you 6-max. Tournaments excluded:

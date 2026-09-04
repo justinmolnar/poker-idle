@@ -928,7 +928,7 @@ local items = {
     {
         id          = "dish_soap",
         name        = "Dish Soap",
-        effect_text = "Tilts have a 40% chance to just not stick.",
+        effect_text = "A tilt has a 25% chance to land on the table beside its target instead.",
         description = "Cuts through anything.",
         sprite      = "dish_soap",
         phase       = "mid",
@@ -942,7 +942,7 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "tilt_resist_chance", value = 0.40 },
+            { kind = "router", router = "dish_soap_deflect" },
         },
     },
     -- ═══ BAND C — Act 2, deck era (T4-T6) · 23 items · 330 {chip} ═══════
@@ -951,7 +951,7 @@ local items = {
         id          = "rolled_vouchers",
         act         = 2,
         name        = "Rolled Vouchers",
-        effect_text = "Buy-ins cost 15% less.",
+        effect_text = "The first table you open at a stake catches heat.",
         description = "Tightly rolled entry coupons.",
         sprite      = "rolled_vouchers",
         phase       = "mid",
@@ -964,28 +964,28 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "buy_in_mult",    value = 0.85 },
+            { kind = "proc", proc = "rolled_vouchers_arrival" },
         },
         corrupt = {
             cost_achip = 5,
             effects = {
-                { kind = "buy_in_mult", value = 0.3 },
+                { kind = "proc", proc = "rolled_vouchers_arrival_corrupt" },
             },
-            effect_text = "Buy-ins 70% cheaper.",
+            effect_text = "Every table you open catches heat.",
         },
     },
     {
         id          = "second_monitor",
         act         = 2,
         name        = "Second Monitor",
-        effect_text = "+1 focus capacity.",
+        effect_text = "+2 focus capacity.",
         description = "Mismatched stand. You stop turning your head.",
         sprite      = "second_monitor",
         phase       = "mid",
         cost_chip   = 10,
         effects     = {
             { kind = "shove_rate_add",     value = 0.012 },
-            { kind = "focus_capacity_add", value = 1 },
+            { kind = "focus_capacity_add", value = 2 },
         },
         unlock = {
             kind      = "total_hands_at_4plus",
@@ -995,9 +995,9 @@ local items = {
         corrupt = {
             cost_achip = 6,
             effects = {
-                { kind = "focus_capacity_add", value = 4 },
+                { kind = "focus_capacity_add", value = 6 },
             },
-            effect_text = "+4 focus capacity.",
+            effect_text = "+6 focus capacity.",
         },
     },
     {
@@ -1201,14 +1201,14 @@ local items = {
         id          = "chrome_toaster",
         act         = 2,
         name        = "Chrome Toaster",
-        effect_text = "8% chance a pot bumps one tier.",
+        effect_text = "8% chance a win bumps one tier.",
         description = "Two slots. One setting. Pops without warning.",
         sprite      = "chrome_toaster",
         phase       = "late",
         cost_chip   = 14,
         effects     = {
-            { kind = "shove_rate_add",   value = 0.014 },
-            { kind = "tier_bump_chance", value = 0.08 },
+            { kind = "shove_rate_add",       value = 0.014 },
+            { kind = "win_tier_bump_chance", value = 0.08 },
         },
         unlock = {
             kind      = "total_stacks",
@@ -1218,9 +1218,9 @@ local items = {
         corrupt = {
             cost_achip = 8,
             effects = {
-                { kind = "tier_bump_chance", value = 0.35 },
+                { kind = "win_tier_bump_chance", value = 0.35 },
             },
-            effect_text = "35% chance a pot bumps one tier.",
+            effect_text = "35% chance a win bumps one tier.",
         },
     },
     {
@@ -1254,26 +1254,26 @@ local items = {
         id          = "nightstand",
         act         = 2,
         name        = "Nightstand",
-        effect_text = "Upgrades reach one level further.",
+        effect_text = "A rebuy has a 50% chance to heat that table.",
         description = "One drawer. Lock included.",
         sprite      = "nightstand",
         phase       = "late",
         cost_chip   = 13,
         effects     = {
-            { kind = "shove_rate_add",    value = 0.014 },
-            { kind = "fill_window_widen", value = 1 },
+            { kind = "shove_rate_add", value = 0.014 },
+            { kind = "proc", proc = "nightstand_rested" },
         },
         unlock = {
-            kind      = "total_upgrade_levels",
-            threshold = 180,
-            text      = "upgrade levels bought",
+            kind      = "total_rebuys",
+            threshold = 150,
+            text      = "rebuys",
         },
         corrupt = {
             cost_achip = 8,
             effects = {
-                { kind = "fill_window_widen", value = 4 },
+                { kind = "proc", proc = "nightstand_rested_corrupt" },
             },
-            effect_text = "Upgrades reach 4 levels further.",
+            effect_text = "Every rebuy heats that table.",
         },
     },
     {
@@ -1334,7 +1334,7 @@ local items = {
         id          = "framed_diploma",
         act         = 2,
         name        = "Framed Diploma",
-        effect_text = "Every 1000 hands won, Zoom tables read a tier sharper for the run.",
+        effect_text = "Every 100 hands won, every table rolls: a third catch heat, a third tilt, a third nothing.",
         description = "Wall-mounted certificate. Handsome on the wall.",
         sprite      = "framed_diploma",
         phase       = "late",
@@ -1344,17 +1344,15 @@ local items = {
         position    = { x = 450, y = 400 },
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "proc", proc = "framed_diploma_millennium" },
-            { kind = "proc", proc = "framed_diploma_millennium_bank" },
+            { kind = "proc", proc = "framed_diploma_century" },
         },
         corrupt = {
             cost_achip = 9,
             effects = {
-                { kind = "proc",          proc = "framed_diploma_millennium" },
-                { kind = "proc",          proc = "framed_diploma_millennium_bank" },
+                { kind = "proc",          proc = "framed_diploma_century" },
                 { kind = "earnings_mult", value = 0.70 },
             },
-            effect_text = "Every 1000 hands won, Zoom tables read a tier sharper for the run. Wins pay 30% less.",
+            effect_text = "Every 100 hands won, every table rolls: a third catch heat, a third tilt, a third nothing. Wins pay 30% less.",
         },
     },
     {
@@ -1465,7 +1463,7 @@ local items = {
         id          = "tower_upgrade",
         act         = 2,
         name        = "Tower Upgrade",
-        effect_text = "Knockouts have a 15% chance to mark a nearby table's next pot for a tier bump.",
+        effect_text = "Knockouts have a 15% chance to make a nearby table's next win read a tier higher.",
         description = "Fans you can hear from the bed. Boots in seconds.",
         sprite      = "tower_upgrade",
         phase       = "mid",
@@ -1483,7 +1481,7 @@ local items = {
                 { kind = "loss_tier_shift", from = "medium", to = "large",
                   chance = 0.35 },
             },
-            effect_text = "Knockouts have a 25% chance to mark every nearby table. Losses run a tier bigger.",
+            effect_text = "Knockouts have a 25% chance to make every nearby table's next win read a tier higher. Losses run a tier bigger.",
         },
     },
     {
@@ -1546,7 +1544,7 @@ local items = {
         id          = "window",
         act         = 2,
         name        = "Window",
-        effect_text = "While a tournament runs, tilts along its row arrive as heaters, heaters down its column as tilts.",
+        effect_text = "While a tournament runs, tilts aimed at its stake have a 35% chance to arrive as heat.",
         description = "Mounts flat on any wall. View may vary.",
         sprite      = "window",
         phase       = "late",
@@ -1555,7 +1553,7 @@ local items = {
         requires      = "high_roller_pass",
         unlock = {
             kind      = "total_tilts",
-            threshold = 200,
+            threshold = 40,
             text      = "tables tilted",
             -- "???" until tilt exists in this player's game
             mystery   = { kind = "total_tilts", threshold = 1 },
@@ -1570,7 +1568,7 @@ local items = {
                 { kind = "router",    router = "window_bend" },
                 { kind = "loss_mult", value = 1.5 },
             },
-            effect_text = "While a tournament runs, tilts along its row arrive as heaters, heaters down its column as tilts. Losses 50% heavier.",
+            effect_text = "While a tournament runs, tilts aimed at its stake have a 35% chance to arrive as heat. Losses 50% heavier.",
         },
     },
     {
@@ -1588,7 +1586,7 @@ local items = {
         },
         unlock = {
             kind      = "total_upgrade_levels",
-            threshold = 240,
+            threshold = 150,
             text      = "upgrade levels bought",
         },
         corrupt = {
@@ -1603,14 +1601,14 @@ local items = {
         id          = "cereal_shelf",
         act         = 2,
         name        = "Cereal Shelf",
-        effect_text = "Start each run with 10% of last run's losses.",
+        effect_text = "Start each run with your biggest NL2 pot from last run.",
         description = "Restocked from somewhere. Never the same brand.",
         sprite      = "cereal_shelf",
         phase       = "late",
         cost_chip   = 24,
         effects     = {
-            { kind = "shove_rate_add",   value = 0.016 },
-            { kind = "loss_recycle_pct", value = 0.10 },
+            { kind = "shove_rate_add",    value = 0.016 },
+            { kind = "start_biggest_pot", scope = "t1" },
         },
         unlock = {
             kind = "shove_r1_won",
@@ -1619,16 +1617,16 @@ local items = {
         corrupt = {
             cost_achip = 12,
             effects = {
-                { kind = "loss_recycle_pct", value = 0.75 },
+                { kind = "start_biggest_pot", scope = "any" },
             },
-            effect_text = "Start with 75% of last run's losses.",
+            effect_text = "Start each run with your biggest pot from last run, any stake.",
         },
     },
     {
         id          = "fire_extinguisher",
         act         = 2,
         name        = "Fire Extinguisher",
-        effect_text = "A tilt landing on an already tilted 6-max marks its next pot.",
+        effect_text = "A tilt landing on an already tilted 6-max heats the table beside it.",
         description = "Inspection tag expired a long time ago.",
         sprite      = "fire_extinguisher",
         phase       = "late",
@@ -1645,14 +1643,14 @@ local items = {
                 { kind = "proc",          proc = "fire_extinguisher_compress" },
                 { kind = "earnings_mult", value = 0.75 },
             },
-            effect_text = "A tilt landing on an already tilted 6-max marks its next pot. Wins pay 25% less.",
+            effect_text = "A tilt landing on an already tilted 6-max heats the table beside it. Wins pay 25% less.",
         },
     },
     {
         id          = "blackout_curtains",
         act         = 2,
         name        = "Blackout Curtains",
-        effect_text = "Every status landing on a 6-max makes its wins reach a tier higher, for the run.",
+        effect_text = "When a 6-max catches heat, 50% chance the table beside it catches it too.",
         description = "No window behind them. Still helps.",
         sprite      = "blackout_curtains",
         phase       = "late",
@@ -1668,7 +1666,7 @@ local items = {
                 { kind = "proc",      proc = "blackout_curtains_read" },
                 { kind = "loss_mult", value = 1.6 },
             },
-            effect_text = "Every status landing on a 6-max makes its wins reach a tier higher, for the run. Losses 60% heavier.",
+            effect_text = "When a 6-max catches heat, 50% chance the table beside it catches it too. Losses 60% heavier.",
         },
     },
     {
@@ -1686,7 +1684,7 @@ local items = {
         },
         unlock = {
             kind      = "total_chips_banked",
-            threshold = 500,
+            threshold = 200,
             text      = "{chip} banked",
         },
         corrupt = {
@@ -1725,7 +1723,7 @@ local items = {
         id          = "cool_towel",
         act         = 2,
         name        = "Cool Towel",
-        effect_text = "Winning a {stack} settles the nerves: every table due to lose its next hand shakes it off.",
+        effect_text = "After a tilt runs its course, 25% chance the table heats up.",
         description = "Kept folded. Kept cold.",
         sprite      = "cool_towel",
         phase       = "late",
@@ -1733,14 +1731,14 @@ local items = {
         requires    = "dish_soap",
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "proc", proc = "cool_towel_cleanse" },
+            { kind = "proc", proc = "cool_towel_burnout" },
         },
     },
     {
         id          = "waste_basket",
         act         = 2,
         name        = "Waste Basket",
-        effect_text = "After a tilt runs its course, the table heats up.",
+        effect_text = "The corner is the basket: a tilt aimed anywhere has a 35% chance to land on the corner table instead.",
         description = "Ride it out, throw it away.",
         sprite      = "waste_basket",
         phase       = "late",
@@ -1748,7 +1746,14 @@ local items = {
         requires    = "dish_soap",
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "proc", proc = "waste_basket_burnout" },
+            { kind = "router", router = "basket_corner" },
+        },
+        corrupt = {
+            cost_achip = 9,
+            effects = {
+                { kind = "router", router = "basket_corner_corrupt" },
+            },
+            effect_text = "The corner is the basket: a tilt aimed anywhere has a 70% chance to land on the corner table instead.",
         },
     },
     {

@@ -88,8 +88,7 @@ return {
         chance  = 0.15,
         target  = { kind = "board_near", radius = 2, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true, where = { chip_stack_table = false } },
-        payload = { kind = "apply_status", status = "marked",
-                    magnitude = 1, charges = 1 },
+        payload = { kind = "next_win_tier_up" },
         ghost   = "tower_upgrade",
     },
 
@@ -171,12 +170,16 @@ return {
     -- Framed Diploma. A thousand hands is a long haul, so it pays into the
     -- run rather than into a moment: the shift is permanent until reset,
     -- and it stacks with every thousand after it.
-    framed_diploma_millennium = {
+    -- The 33/33/33: every 100 hands won, every table on the board rolls
+    -- once — heat, tilt, or nothing. Parked tables included, both ways.
+    framed_diploma_century = {
         trigger = "on_hand_won",
-        every   = 1000,
-        target  = { kind = "gtype", gtype = "zoom" },
-        payload = { kind = "apply_status", status = "sharp",
-                    magnitude = 0.005 },
+        every   = 100,
+        target  = { kind = "all" },
+        payload = { kind = "roll_status",
+                    outcomes = { { status = "heater", weight = 1, magnitude = 0.35, t = 6 },
+                                 { status = "tilt",   weight = 1, magnitude = 0.35, t = 5 },
+                                 { weight = 1 } } },
         ghost   = "framed_diploma",
     },
 
@@ -185,14 +188,6 @@ return {
     -- run level; GrindController:addTable pays the bank out to every zoom
     -- table opened later. Same trigger and `every`, both counted off the
     -- event's own running total, so the two halves cannot drift apart.
-    framed_diploma_millennium_bank = {
-        trigger = "on_hand_won",
-        every   = 1000,
-        target  = { kind = "none" },
-        payload = { kind = "bank", field = "zoom_sharp_banked",
-                    magnitude = 0.005 },
-        ghost   = nil,     -- the visible half already pops the sprite
-    },
 
     -- ─── Rung one: the first procs a player meets ───────────────────────
     -- Deliberately small vocabulary: one trigger, one landing, no
@@ -261,10 +256,13 @@ return {
     -- Cool Towel. A {stack} settles the nerves: every tilt on the board
     -- wipes off. The active half of the tilt counterplay (Dish Soap's
     -- tilt_resist_chance is the passive half, and its prerequisite).
-    cool_towel_cleanse = {
-        trigger = "on_stack_win",
-        target  = { kind = "none" },
-        payload = { kind = "cleanse" },
+    -- Burnout: after a tilt runs its course, 25% the table heats.
+    cool_towel_burnout = {
+        trigger = "on_tilt_spent",
+        chance  = 0.25,
+        target  = { kind = "self" },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 4 },
         ghost   = "cool_towel",
     },
 
@@ -273,13 +271,6 @@ return {
     -- the table heats — anger into focus. The conversion build's first
     -- rung, and the decision that makes owning the Cool Towel interesting:
     -- cleansing a tilt early forfeits this payoff.
-    waste_basket_burnout = {
-        trigger = "on_tilt_spent",
-        target  = { kind = "self" },
-        payload = { kind = "apply_status", status = "heater",
-                    magnitude = 0.35, t = 4 },
-        ghost   = "waste_basket",
-    },
 
     -- ─── Automation crossover ───────────────────────────────────────────
 
@@ -334,25 +325,32 @@ return {
     -- marks a pot. `was_refresh` is exactly that fact and nothing else in
     -- the game knows it. Repeatable on purpose: the marks are charges, so
     -- ten of them means the next ten pots, and that is the engine.
+    -- A second tilt on an already tilted six-max vents outward: the table
+    -- beside it catches heat.
     fire_extinguisher_compress = {
         trigger = "on_status_applied",
         when    = { status = "tilt", was_refresh = true },
         source  = { gtype = "six_max" },
-        target  = { kind = "self" },
-        payload = { kind = "apply_status", status = "stacked_mark",
-                    magnitude = 1, charges = 1 },
+        target  = { kind = "board_near", radius = 1, pick = "random",
+                    exclude_self = true },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 6 },
         ghost   = "fire_extinguisher",
     },
 
     -- Blackout Curtains. Everything that lands teaches it something. Not
     -- win chance: this widens what a win is worth, which is the only way
     -- 6-max's enormous bands ever get reached.
+    -- Heat on a six-max spreads: 50% the table beside it catches it too.
     blackout_curtains_read = {
         trigger = "on_status_applied",
+        when    = { status = "heater", was_refresh = false },
         source  = { gtype = "six_max" },
-        target  = { kind = "self" },
-        payload = { kind = "apply_status", status = "sharp",
-                    magnitude = 0.005 },
+        chance  = 0.50,
+        target  = { kind = "board_near", radius = 1, pick = "random",
+                    exclude_self = true },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 6 },
         ghost   = "blackout_curtains",
     },
 
@@ -379,8 +377,7 @@ return {
         chance  = 0.25,
         target  = { kind = "board_near", radius = 2, exclude_self = true,
                     where = { chip_stack_table = false } },
-        payload = { kind = "apply_status", status = "marked",
-                    magnitude = 1, charges = 1 },
+        payload = { kind = "next_win_tier_up" },
         ghost   = "tower_upgrade",
         impact  = true,    -- a blow: the source shoves / slams (see header)
     },
@@ -476,5 +473,40 @@ return {
         target  = { kind = "any_other" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6 },
+    },
+
+    -- Nightstand: a rebuy heats that table (50%; corrupt every time).
+    nightstand_rested = {
+        trigger = "on_rebuy",
+        chance  = 0.50,
+        target  = { kind = "self" },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 6 },
+        ghost   = "nightstand",
+    },
+    nightstand_rested_corrupt = {
+        trigger = "on_rebuy",
+        target  = { kind = "self" },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 6 },
+        ghost   = "nightstand",
+    },
+
+    -- Rolled Vouchers: the first table opened at a stake catches heat
+    -- (corrupt: every table opened).
+    rolled_vouchers_arrival = {
+        trigger = "on_table_open",
+        when    = { first_at_stake = true },
+        target  = { kind = "self" },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 6 },
+        ghost   = "rolled_vouchers",
+    },
+    rolled_vouchers_arrival_corrupt = {
+        trigger = "on_table_open",
+        target  = { kind = "self" },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 6 },
+        ghost   = "rolled_vouchers",
     },
 }

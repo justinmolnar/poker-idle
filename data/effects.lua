@@ -540,6 +540,12 @@ Effects.kinds = {
         affects     = "ctx.copy_denied_chance (max)",
     },
 
+    start_biggest_pot = {
+        description = "Next run starts with last run's biggest pot: scope \"t1\" (the first stake's) or \"any\" (any stake's). Cereal Shelf. Read by GameState:applyStartingPerks.",
+        value_shape = "{ scope = \"t1\" | \"any\" }",
+        affects     = "ctx.start_biggest_pot",
+    },
+
     -- ── Deck kinds (2026-09 roster, models/UpgradePricing-era) ────────────
     -- hand_pace_mult also accepts `gtype`: scoped pace lands in
     -- ctx.hand_pace_mult_by_gtype[gtype] and Table:update multiplies it in

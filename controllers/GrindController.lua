@@ -295,6 +295,7 @@ function GrindController:_fireProcs(trigger, source_tbl, extra)
             status      = extra and extra.status,
             was_refresh = extra and extra.was_refresh,
             magnitude   = extra and extra.magnitude,
+            first_at_stake = extra and extra.first_at_stake,
         }
         local touched, hit = reg:fire(entry.def, event)
         if touched > 0 then
@@ -1311,6 +1312,13 @@ function GrindController:update(dt)
             -- Fuels the Dishwasher's next-run seed (GameState:resetRun
             -- freezes this into last_run_money_lost).
             state.run_money_lost = (state.run_money_lost or 0) + (-r.delta)
+        elseif r.delta > 0 then
+            -- The Cereal Shelf's seed: the run's biggest pot, at the first
+            -- stake and at any stake (frozen into last_run_* at reset).
+            if r.delta > (state.run_biggest_pot or 0) then state.run_biggest_pot = r.delta end
+            if stake and stake.id == Stakes[1].id and r.delta > (state.run_biggest_pot_t1 or 0) then
+                state.run_biggest_pot_t1 = r.delta
+            end
         end
         if n_tables >= 4 then
             state.total_hands_at_4plus = (state.total_hands_at_4plus or 0) + 1
@@ -1842,8 +1850,16 @@ function GrindController:addTable(stake_id, game_type_id)
     -- Take the newcomer from addTable's return: the pool sorts by cell, so
     -- a table filling an interior hole is NOT last in the array, and
     -- tables[#tables] would hand back somebody else.
+    -- Is this the first open table at its stake? (Rolled Vouchers.)
+    local first_at_stake = true
+    for _, t in ipairs(self.pool.tables) do
+        if t.stake_id == stake_id then first_at_stake = false; break end
+    end
     local new_tbl = self.pool:addTable(stake_id, game_type_id or "six_max", self.ctx)
     self:invalidateEffects()
+    if new_tbl then
+        self:_announce("on_table_open", { table = new_tbl, first_at_stake = first_at_stake })
+    end
     -- Adding into a hole renumbers pool order the same way a drag does;
     -- cursor claims are index-keyed, so release them (see moveTableToSlot).
     CursorPool.releaseAllTargets()
@@ -1856,15 +1872,6 @@ function GrindController:addTable(stake_id, game_type_id)
         -- Stash a pending bankroll → YOU chip burst on the just-added table;
         -- :update emits it once the view has populated panel positions.
         new_tbl._pending_buyin = cost
-        -- The Diploma's run bank: "sharper for the run" includes zoom
-        -- tables opened after the firings (data/procs.lua millennium_bank).
-        local banked = self.game.state.zoom_sharp_banked or 0
-        if banked > 0 and new_tbl.game_type_id == "zoom" then
-            new_tbl:applyStatus("sharp", { magnitude = banked, source = "framed_diploma" })
-            -- The save arrays hold per-table status references; re-sync so
-            -- a save landing before the next tick doesn't miss it.
-            self.pool:_syncStateList()
-        end
     end
     self:_playNamed("table_added")
     return true
@@ -2417,13 +2424,14 @@ function GrindController:rebuyTable(idx)
     -- the post-rebuy state cleanly.
     if t.ko then t.ko:reset() end
     self.pool:_syncStateList()
-    -- Grant deck XP for rebuy. Carries the table's buy-in: the Short
-    -- Stack rule earns 10 × buy-in per rebuy.
+    -- Grant deck XP for rebuy (carries the table's buy-in for count rules).
     self:_grantDeckXp({
         type           = "table_rebuy",
         stake_tier_idx = Lookups.indexById(Stakes, t.stake_id),
         stake_buy_in   = buy_in,
     })
+    -- Procs that ride a rebuy (Nightstand's heat).
+    self:_announce("on_rebuy", { table = t })
     -- Ungated mirror — catalog gates (Night Table, Medical Kit) read this
     -- one, so it has to tick in Act 1 too.
     state.total_rebuys = (state.total_rebuys or 0) + 1

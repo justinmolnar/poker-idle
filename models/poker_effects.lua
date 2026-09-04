@@ -54,6 +54,13 @@ function PokerEffects.registerAll(reg)
         end
     end)
 
+    -- Cereal Shelf: seed next run with last run's biggest pot. Scope
+    -- "t1" (first stake) or "any"; "any" wins if both are present.
+    reg:register("start_biggest_pot", function(e, ctx)
+        local scope = e.scope or "t1"
+        if ctx.start_biggest_pot ~= "any" then ctx.start_biggest_pot = scope end
+    end)
+
     -- Deck kinds (2026-09 roster), all read in Table:deal / :update or
     -- the controller's rollup. Documented in data/effects.lua.
     -- Wins-only twins of tier_bump_chance / payout_double_chance

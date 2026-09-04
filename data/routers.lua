@@ -60,10 +60,32 @@ return {
         radius = 1,
         ghost  = nil,
     },
+    -- Window: while a tournament runs, tilts aimed at its stake have a
+    -- 35% chance to arrive as heat.
     window_bend = {
-        kind    = "tournament_lines",
-        row     = { tilt = "heater" },
-        col     = { heater = "tilt" },
-        ghost   = nil,   -- weather, not an event
+        kind   = "tournament_stake",
+        chance = 0.35,
+        map    = { tilt = "heater" },
+        ghost  = nil,   -- weather, not an event
+    },
+    -- Waste Basket: the corner slot is the basket. A tilt aimed anywhere
+    -- (not at a six-max) lands on the corner table instead, 35% of the
+    -- time; corrupt 70%. Anchor's taunt takes precedence when owned.
+    basket_corner = {
+        kind   = "basket_corner",
+        chance = 0.35,
+        ghost  = "waste_basket",
+    },
+    basket_corner_corrupt = {
+        kind   = "basket_corner",
+        chance = 0.70,
+        ghost  = "waste_basket",
+    },
+    -- Dish Soap: a tilt lands on the table beside its target instead, 25%.
+    dish_soap_deflect = {
+        kind   = "tilt_deflect",
+        chance = 0.25,
+        radius = 1,
+        ghost  = "dish_soap",
     },
 }

@@ -26,9 +26,10 @@
 -- knobs in data/balance.lua (UPGRADE_HANDS_FIRST / _GROWTH /
 -- _REFERENCE). Nothing in this file knows how many levels there are. An
 -- upgrade's `cost_mult` scales its whole curve (Pot Control 2×).
--- Cursor / Cursor Speed / Focus below are still hand-typed against the
--- pre-2026-09 ladder (tops ~$30-40M, which is now mid-NL1M money) and
--- want the same treatment in a later pass.
+-- Cursor / Cursor Speed / Focus are derived too: an upgrade with
+-- `maxes_at = <stake id>` prices level k of M at the Sharper Reads level
+-- that sits (k-1)/(M-1) of the way to that stake's last owned level
+-- (log-interpolated), × its `cost_mult`. Two knobs each, no numbers.
 --
 -- Outcome-model contribution: each level of Sharper Reads pushes a WC
 -- fill descriptor (strength=1, universal); each level of Pot Control
@@ -131,13 +132,13 @@ local RunUpgrades = {
         -- master switch. Authored rather than matched on id in the view.
         cursor_master_controls = true,
         max_level     = 12,
-        -- Steepened so cursor investment spans the game (tops ~$40M ≈ T6),
-        -- not a first-hour dump. Placeholder.
-        costs       = {
-            3, 12, 45, 170, 650,
-            2500, 10000, 45000, 220000, 1200000,
-            8000000, 40000000,
-        },
+        -- Derived (models/UpgradePricing): level k of 12 is priced at the
+        -- Sharper Reads level that sits k/12 of the way to NL1M's last
+        -- owned level, × cost_mult. Maxes at NL1M without thinking, not
+        -- before. The two fields are the knobs.
+        maxes_at    = "s005",
+        cost_mult   = 4.0,
+        costs       = nil,   -- derived
         effects     = { { kind = "cursor_count_add", value = 1 } },
     },
 
@@ -154,11 +155,10 @@ local RunUpgrades = {
         requires      = "box_of_mice",
         requires_hide = true,
         max_level     = 8,
-        -- Steepened (8 levels, tops ~$30M). Placeholder.
-        costs       = {
-            5, 40, 350, 3000, 25000,
-            220000, 2000000, 30000000,
-        },
+        -- Derived like Cursor (see there); the lesser cursor upgrade.
+        maxes_at    = "s005",
+        cost_mult   = 2.0,
+        costs       = nil,   -- derived
         effects     = { { kind = "cursor_speed_mult", value = 1.25 } },
     },
 
@@ -174,11 +174,11 @@ local RunUpgrades = {
         },
         icon        = "focus",
         max_level   = 10,
-        -- Steepened (10 levels, tops ~$30M ≈ T6). Placeholder.
-        costs       = {
-            5, 25, 130, 650, 3300,
-            16000, 85000, 450000, 3000000, 30000000,
-        },
+        -- Derived like Cursor (see there). L5, the level that takes a board
+        -- from four tables to nine, lands under $1k: end-of-Act-1 money.
+        maxes_at    = "s005",
+        cost_mult   = 4.0,
+        costs       = nil,   -- derived
         effects     = { { kind = "focus_capacity_add", value = 1 } },
     },
 

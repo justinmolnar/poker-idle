@@ -5,6 +5,9 @@
 -- how many levels or stakes exist; add a stake, move a buy-in, retune a
 -- stake's win numbers, and the prices follow.
 --
+-- Fixed-length upgrades (Cursor, Cursor Speed, Focus) declare `maxes_at`
+-- and ride the same curve: see the loop at the bottom.
+--
 -- The rule, for level L of a fill-scaled upgrade:
 --
 --   cost(L) = EV$/hand(best table at fill L-1, reference board)
@@ -173,6 +176,31 @@ function UpgradePricing.apply(run_upgrades, registry)
             u.costs = {}
             for L = 1, max_level do u.costs[L] = base[L] * mult end
             u.max_level = max_level
+        elseif u.maxes_at then
+            -- A fixed-length upgrade that should max at `maxes_at`: its M
+            -- levels span the fill curve from L1 to that stake's last
+            -- owned level, log-interpolated, × cost_mult. Follows the
+            -- ladder and the outcome model like everything above.
+            local top
+            for _, s in ipairs(Stakes) do
+                if s.id == u.maxes_at and s.fill_window then top = s.fill_window.complete end
+            end
+            assert(top and top <= max_level,
+                ("UpgradePricing: %s maxes_at %s has no priced window"):format(u.id, tostring(u.maxes_at)))
+            local M = u.max_level or 1
+            local mult = u.cost_mult or 1
+            u.costs = {}
+            for k = 1, M do
+                local pos = (M > 1) and (1 + (k - 1) / (M - 1) * (top - 1)) or top
+                local lo, hi = math.floor(pos), math.ceil(pos)
+                local c
+                if lo == hi then c = base[lo]
+                else
+                    local f = pos - lo
+                    c = math.exp(math.log(base[lo]) * (1 - f) + math.log(base[hi]) * f)
+                end
+                u.costs[k] = c * mult
+            end
         end
     end
     return base

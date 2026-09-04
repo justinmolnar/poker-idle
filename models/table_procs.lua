@@ -196,6 +196,15 @@ function TableProcs.registerAll(reg)
         return narrow(out, spec, reg.rng, event)
     end)
 
+    -- Every table on the board, the source included (the Diploma sweep).
+    reg:registerSelector("all", function(spec, event)
+        local out = {}
+        for _, t in ipairs(event.pool.tables) do
+            if matches(t, spec.where) then out[#out + 1] = t end
+        end
+        return narrow(out, spec, reg.rng, event)
+    end)
+
     reg:registerSelector("any_other", function(spec, event)
         local out = {}
         for _, t in ipairs(event.pool.tables) do
@@ -214,6 +223,26 @@ function TableProcs.registerAll(reg)
         if not target then return false end
         target._next_win_tier_up = true
         return true
+    end)
+
+    -- One weighted roll per target among `outcomes`; an outcome with a
+    -- status applies it through apply_status (so busted-table retargeting
+    -- and interrupts behave as they always do), one without is nothing.
+    reg:registerPayload("roll_status", function(spec, target, event)
+        if not target then return false end
+        local total = 0
+        for _, o in ipairs(spec.outcomes or {}) do total = total + (o.weight or 1) end
+        if total <= 0 then return false end
+        local r = reg.rng() * total
+        local pick
+        for _, o in ipairs(spec.outcomes) do
+            r = r - (o.weight or 1)
+            if r < 0 then pick = o; break end
+        end
+        if not pick or not pick.status then return false end
+        local sub = { kind = "apply_status", status = pick.status,
+                      magnitude = pick.magnitude, t = pick.t, charges = pick.charges }
+        return reg.payloads.apply_status(sub, target, event)
     end)
 
     -- Put a status on the target. `escalate` scales the magnitude by
@@ -429,6 +458,71 @@ function TableProcs.registerAll(reg)
             end
             return best
         end
+    end)
+
+    -- Window: a live tournament at the target's stake bends what arrives
+    -- there (spec.map, e.g. { tilt = "heater" }). Chance is the router's
+    -- own field, rolled by the controller.
+    reg:registerRouter("tournament_stake", function(spec, d)
+        local pool = d.event and d.event.pool
+        local target = d.to
+        if not (pool and target and d.status) then return end
+        local to = spec.map and spec.map[d.status]
+        if not to then return end
+        for _, t in ipairs(pool.tables) do
+            if t ~= target and t.ko and t.ko:isPlaying() and t.stake_id == target.stake_id then
+                d.status = to
+                return
+            end
+        end
+    end)
+
+    -- Waste Basket: the corner slot is the basket. A tilt aimed at a table
+    -- that is not a six-max lands on the corner table instead. Yields to
+    -- Anchor's taunt: when that router is owned and a live six-max sits
+    -- beside the target, the tank takes it and the basket never rolls.
+    reg:registerRouter("basket_corner", function(spec, d)
+        local pool = d.event and d.event.pool
+        local target = d.to
+        if not (pool and target and d.status == "tilt") then return end
+        if target.game_type_id == "six_max" then return end
+        local owned = (d.event.ctx and d.event.ctx.routers) or {}
+        local anchor = false
+        for _, id in ipairs(owned) do if id == "anchor_taunt" then anchor = true end end
+        if anchor then
+            local tr, tc = TableGrid.unpack(target.slot or 0)
+            for _, t in ipairs(pool.tables) do
+                if t ~= target and t.game_type_id == "six_max" and (t.stack or 0) > 0 then
+                    local r, c = TableGrid.unpack(t.slot or 0)
+                    if math.abs(r - tr) + math.abs(c - tc) <= 1 then return end
+                end
+            end
+        end
+        for _, t in ipairs(pool.tables) do
+            if (t.slot or -1) == 0 and t ~= target and (t.stack or 0) > 0 then
+                d.to = t
+                return t
+            end
+        end
+    end)
+
+    -- Dish Soap: a tilt lands on a random live table beside its target.
+    reg:registerRouter("tilt_deflect", function(spec, d)
+        local pool = d.event and d.event.pool
+        local target = d.to
+        if not (pool and target and d.status == "tilt") then return end
+        local tr, tc = TableGrid.unpack(target.slot or 0)
+        local radius = spec.radius or 1
+        local near = {}
+        for _, t in ipairs(pool.tables) do
+            if t ~= target and (t.stack or 0) > 0 then
+                local r, c = TableGrid.unpack(t.slot or 0)
+                if math.abs(r - tr) + math.abs(c - tc) <= radius then near[#near + 1] = t end
+            end
+        end
+        if #near == 0 then return end
+        d.to = near[math.floor(reg.rng() * #near) + 1]
+        return d.to
     end)
 
     reg:registerRouter("tournament_lines", function(spec, d)

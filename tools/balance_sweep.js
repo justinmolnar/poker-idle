@@ -47,9 +47,9 @@ const A = {
   BOARDS: {
     act1: { fill: "naked",  overhead: 1.5, bankroll: 20,
             tables: [["s001", "zoom"], ["s001", "hu"], ["s002", "six_max"]] },
-    act2: { fill: "mid",    overhead: 0.5, bankroll: 5000,
-            tables: [["s004", "six_max"], ["s004", "six_max"], ["s004", "hu"],
-                     ["s005", "zoom"], ["s005", "six_max"], ["s004", "ko"]] },
+    act2: { fill: "capped", overhead: 0.5, bankroll: 200000, decks: { standard: 5 },
+            tables: [["s004", "six_max"], ["s004", "six_max"], ["s004", "six_max"], ["s004", "six_max"],
+                     ["s004", "six_max"], ["s004", "hu"], ["s004", "hu"], ["s004", "zoom"], ["s004", "ko"]] },
     late: { fill: "capped", overhead: 0.5, bankroll: 500000,
             tables: [["s006", "six_max"], ["s006", "hu"], ["s007", "six_max"], ["s007", "zoom"],
                      ["s006", "zoom"], ["s007", "hu"], ["s006", "ko"], ["s007", "ko"]] },
@@ -377,8 +377,8 @@ log("Layer 2 done:", pairRows.length, "rows,", evalCount, "evals");
 function boardStats(boardName, equipped, corrupted) {
   const B = A.BOARDS[boardName];
   const n = B.tables.length;
-  const reqs = B.tables.map(([s, g]) => mkReq(s, g, { equipped, corrupted, upgrades: fillLevels(s, B.fill),
-    tables: n, focus: true, bankroll: B.bankroll }));
+  const reqs = B.tables.map(([s, g]) => Object.assign(mkReq(s, g, { equipped, corrupted, upgrades: fillLevels(s, B.fill),
+    tables: n, focus: true, bankroll: B.bankroll }), { decks: B.decks }));
   const res = evalBatch(reqs);
   const tables = res.map((r, i) => {
     const [s, g] = B.tables[i];
