@@ -21,7 +21,7 @@ local Ghosts          = require("services.Ghosts")
 local RollingValue    = require("services.RollingValue")
 local ItemGhosts      = require("views.ItemGhosts")
 local CatalogModal    = require("views.CatalogModal")
-local DeckSelectModal = require("views.DeckSelectModal")
+local DeckFlyer       = require("views.DeckFlyer")
 local SettingsModal   = require("views.SettingsModal")
 local GlossaryPanel          = require("views.GlossaryPanel")
 local AnalyticsConsentModal  = require("views.AnalyticsConsentModal")
@@ -97,8 +97,7 @@ end
 function GrindState:openDeckRoster()
     if not Decks.systemUnlocked(self.game.state) then return end
     if not self.deck_roster_modal then
-        self.deck_roster_modal = DeckSelectModal:new(self.game,
-                                                     { read_only = true })
+        self.deck_roster_modal = DeckFlyer:new(self.game, { read_only = true })
         self.game.state.decks_unseen = {}
     end
 end

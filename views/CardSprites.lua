@@ -198,11 +198,23 @@ end
 -- Sprite-by-name with optional horizontal squash (for flip animations).
 -- `scale_x ∈ [0, 1]` shrinks horizontally; the squashed sprite is
 -- recentered on the original slot's center so the flip stays anchored.
-function CardSprites.sprite(atlas, sprite_name, x, y, w, h, scale_x, alpha)
+-- `rot` (radians, optional) turns the card about its centre — a dealt card
+-- settling square.
+function CardSprites.sprite(atlas, sprite_name, x, y, w, h, scale_x, alpha, rot)
     scale_x = scale_x or 1
     alpha   = alpha   or 1
     local effective_w = w * scale_x
     local actual_x    = x + (w - effective_w) / 2
+    if rot and rot ~= 0 then
+        local cx, cy = x + w / 2, y + h / 2
+        love.graphics.push()
+        love.graphics.translate(cx, cy)
+        love.graphics.rotate(rot)
+        love.graphics.translate(-cx, -cy)
+        SpriteRenderer.draw(atlas, sprite_name, actual_x, y, effective_w, h, { 1, 1, 1, alpha })
+        love.graphics.pop()
+        return
+    end
     SpriteRenderer.draw(atlas, sprite_name, actual_x, y, effective_w, h, { 1, 1, 1, alpha })
 end
 

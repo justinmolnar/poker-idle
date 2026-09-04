@@ -629,6 +629,8 @@ function Table:deal(ctx)
     -- residue leaves the felt. Cleared HERE and not at the top of :deal
     -- so a failed deal attempt (missing gtype, no opponents, exhausted
     -- KO plan) leaves the last result visible instead of blanking it.
+    -- The view mucks what is being swept: a one-shot it nils after use.
+    self.swept_hand      = self.last_hand
     self.last_hand       = nil
     self.player_hole     = p_hole
     self.opponent_hole   = o_hole
@@ -1620,6 +1622,8 @@ function Table:_finalizeHand()
     self.script_timer     = 0
     self.script_total     = nil
     self.view_event_cursor   = 0
+    self._deal_fx            = nil   -- the view's deal gates (views/PokerEventAnims)
+    self.swept_hand          = nil
     self.playback_state   = nil
     self.player_hole   = nil
     self.opponent_hole = nil

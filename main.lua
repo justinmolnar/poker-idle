@@ -605,7 +605,7 @@ function love.update(dt)
         local s   = sm.current_state
         local idle_modal = s and (s.catalog_modal
                                   or s.demo_end_modal
-                                  or s.deck_select_modal)
+                                  or s.deck_flyer)
         if (cur == "grind" or cur == "shove") and not idle_modal then
             autosave_timer = autosave_timer + dt
             if autosave_timer >= AUTOSAVE_INTERVAL then

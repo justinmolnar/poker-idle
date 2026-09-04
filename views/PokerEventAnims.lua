@@ -35,6 +35,8 @@ local Stakes      = require("data.stakes")
 local Lookups     = require("utils.lookups")
 
 local Theme       = require("views.Theme")
+local Tumble      = require("services.Tumble")
+local AnimsData   = require("data.animations")
 
 -- Card render size for the muck-fold animation. Matches the typical
 -- opponent hole-card draw size in TablePanel; tunable.
@@ -339,5 +341,180 @@ local PokerEventAnims = {
     -- community cards reveal at the right counts via TablePanel's
     -- draw, hole cards flip on opp_revealed. No per-event flight here.
 }
+
+-- ─── The deal ───────────────────────────────────────────────────────────
+-- The felt's deal: the previous hand slides off, then the dealer button
+-- seat throws backs to every seat in turn, two each, opponents first, the
+-- player last; the player's two turn face-up on landing. Board cards fly
+-- the same way on each street and turn on landing. views/TablePanel keeps a
+-- card's slot empty until its flight lands and draws the turn (tbl._deal_fx,
+-- written here), so a card is never in two places.
+--
+-- Slots are read from the card anchors TablePanel registers per draw
+-- ("cards_<seat>_<n>" and "board_<i>"), so the flights land exactly where
+-- the cards will draw. Everything is budgeted against timeToNextEvent, as
+-- the chip flights are, so a zoom table deals fast and a 6-max deals slow.
+local GD = AnimsData.grind_deal or {}
+
+local function visualKey(tbl, seat)
+    local ps = tbl.playback_state
+    if not (ps and ps.player_seat and seat) then return nil end
+    if seat == ps.player_seat then return "you" end
+    return "opp_" .. ((seat < ps.player_seat) and seat or (seat - 1))
+end
+
+local function scriptSeat(tbl, opp_idx)
+    local ps = tbl.playback_state
+    if not (ps and ps.player_seat) then return nil end
+    return (opp_idx < ps.player_seat) and opp_idx or (opp_idx + 1)
+end
+
+local function cardRect(tbl, key, n)
+    return Anchors.get(Table.anchorKey(tbl, "cards_" .. key .. "_" .. n))
+end
+
+local function backSprite(game)
+    local back
+    if Decks.systemUnlocked(game.state) then back = Decks.activeSprite(game.state) end
+    return back or (Constants.GAUNTLET and Constants.GAUNTLET.CARD_BACK_SPRITE)
+end
+
+-- Where the cards come from: the dealer button's seat, else the centre.
+local function dealOrigin(tbl)
+    local ps  = tbl.playback_state
+    local btn = ps and ps.button_visual_seat
+    local key
+    if btn and btn == (#tbl.opponents + 1) then key = "you"
+    elseif btn then key = "opp_" .. btn end
+    local a = key and Anchors.get(Table.anchorKey(tbl, key))
+    if not a then a = Anchors.get(Table.anchorKey(tbl, "center")) end
+    return a and { a[1], a[2] } or nil
+end
+
+-- Card flight and stagger for n cards, compressed to fit before the next
+-- scripted event, never shorter than the floor.
+local function dealBudget(tbl, n)
+    local card, stag = GD.card or 0.30, GD.stagger or 0.06
+    local total = card + stag * math.max(0, n - 1)
+    local left  = timeToNextEvent(tbl)
+    if left and left < total then
+        local k = math.max(left / total, (GD.floor or 0.08) / card)
+        card, stag = card * k, stag * k
+    end
+    return card, stag
+end
+
+local function flyBack(sl, back, from, rect, delay, dur)
+    local w, h = rect[3] or MUCK_CARD_W, rect[4] or MUCK_CARD_H
+    local render = Tumble.wrap(function(x, y)
+        CardSprites.back(sl, back, x - w / 2, y - h / 2, w, h, 1)
+    end, Tumble.PRESETS.toss)
+    FlightSystem.emit(from, { rect[1] + w / 2, rect[2] + h / 2 }, render, {
+        delay = delay, duration = dur, arc_height = GD.arc or 40,
+    })
+end
+
+-- The previous hand leaves: every card that was on the felt slides down
+-- and fades, faces where they were showing, backs elsewhere.
+local function muckResidue(tbl, swept, sl, back)
+    local dur = GD.muck or 0.25
+    local function slide(rect, sprite_name, is_back)
+        if not rect then return end
+        local w, h = rect[3] or MUCK_CARD_W, rect[4] or MUCK_CARD_H
+        local from = { rect[1] + w / 2, rect[2] + h / 2 }
+        local render = function(x, y, t)
+            local a = 1 - (t or 0)
+            if is_back then CardSprites.back(sl, back, x - w / 2, y - h / 2, w, h, a)
+            else CardSprites.sprite(sl, sprite_name, x - w / 2, y - h / 2, w, h, 1, a) end
+        end
+        FlightSystem.emit(from, { from[1], from[2] + 60 }, render, { duration = dur, arc_height = 0 })
+    end
+    local ps_seat = swept.player_seat
+    for i = 1, #tbl.opponents do
+        local script = ps_seat and ((i < ps_seat) and i or (i + 1))
+        local was_in = not swept.in_seats or not script or swept.in_seats[script]
+        if was_in then
+            local revealed = swept.opp_revealed and swept.opponent_idx == i and swept.opponent_hole
+            for n = 1, 2 do
+                local c = revealed and swept.opponent_hole[n]
+                slide(cardRect(tbl, "opp_" .. i, n), c and c:spriteName(), not c)
+            end
+        end
+    end
+    for n = 1, 2 do
+        local c = swept.player_hole and swept.player_hole[n]
+        slide(cardRect(tbl, "you", n), c and c:spriteName(), not c)
+    end
+    for i = 1, (swept.community_count or 0) do
+        local c = swept.community and swept.community[i]
+        if c then slide(Anchors.get(Table.anchorKey(tbl, "board_" .. i)), c:spriteName(), false) end
+    end
+end
+
+PokerEventAnims.deal_hole = function(_ev, tbl, game)
+    local sl = game and game.sprite_loader
+    local ps = tbl.playback_state
+    if not (sl and ps) then return end
+    local now  = love.timer.getTime()
+    local fx   = tbl._deal_fx or { arrive = {}, flip = {} }
+    fx.arrive, fx.flip = {}, {}
+    tbl._deal_fx = fx
+    local back = backSprite(game)
+
+    local muck_d = 0
+    if tbl.swept_hand then
+        muckResidue(tbl, tbl.swept_hand, sl, back)
+        tbl.swept_hand = nil
+        muck_d = GD.muck or 0.25
+    end
+
+    -- Opponents in the hand, in ring order, then you.
+    local order = {}
+    for i = 1, #tbl.opponents do
+        local script = scriptSeat(tbl, i)
+        if script and (not ps.in_seats or ps.in_seats[script]) then
+            order[#order + 1] = "opp_" .. i
+        end
+    end
+    order[#order + 1] = "you"
+
+    local card, stag = dealBudget(tbl, #order * 2)
+    local from = dealOrigin(tbl)
+    local k = 0
+    for _, key in ipairs(order) do
+        for n = 1, 2 do
+            local rect = cardRect(tbl, key, n)
+            if from and rect then flyBack(sl, back, from, rect, muck_d + k * stag, card) end
+            k = k + 1
+        end
+        local land = muck_d + (k - 1) * stag + card
+        fx.arrive[key] = now + land
+        fx.flip[key]   = (key == "you")
+        FlightSystem.scheduleSound("card_dealt", land)
+    end
+end
+
+local function dealBoard(tbl, game, first, last)
+    local sl = game and game.sprite_loader
+    if not sl then return end
+    local now  = love.timer.getTime()
+    local fx   = tbl._deal_fx or { arrive = {}, flip = {} }
+    tbl._deal_fx = fx
+    local back = backSprite(game)
+    local card, stag = dealBudget(tbl, last - first + 1)
+    local from = dealOrigin(tbl)
+    for i = first, last do
+        local k    = i - first
+        local rect = Anchors.get(Table.anchorKey(tbl, "board_" .. i))
+        if from and rect then flyBack(sl, back, from, rect, k * stag, card) end
+        fx.arrive["board_" .. i] = now + k * stag + card
+        fx.flip["board_" .. i]   = true
+    end
+    FlightSystem.scheduleSound("card_dealt", (last - first) * stag + card)
+end
+
+PokerEventAnims.deal_flop  = function(_ev, tbl, game) dealBoard(tbl, game, 1, 3) end
+PokerEventAnims.deal_turn  = function(_ev, tbl, game) dealBoard(tbl, game, 4, 4) end
+PokerEventAnims.deal_river = function(_ev, tbl, game) dealBoard(tbl, game, 5, 5) end
 
 return PokerEventAnims

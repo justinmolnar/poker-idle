@@ -21,7 +21,9 @@ local ShoveView          = require("views.ShoveView")
 local Overlay            = require("views.ShoveDebugOverlay")
 local DemoEndModal       = require("views.DemoEndModal")
 local CatalogModal       = require("views.CatalogModal")
-local DeckSelectModal    = require("views.DeckSelectModal")
+local DeckFlyer          = require("views.DeckFlyer")
+local ConfirmDialog      = require("views.widgets.ConfirmDialog")
+local SoundService       = require("services.SoundService")
 local SettingsModal      = require("views.SettingsModal")
 local Gauntlet           = require("models.Gauntlet")
 local Decks              = require("models.Decks")
@@ -52,7 +54,9 @@ function ShoveState:new(game)
         shove_rates     = nil,    -- locked at :enter; struct from ShoveRate.compute
         gauntlet        = nil,
         catalog_modal        = nil,    -- bust step 2: post-run chip shop
-        deck_select_modal    = nil,    -- bust step 3: choose active deck for next run (post-first-clear)
+        deck_flyer           = nil,    -- the deck flyer thrown beside the catalog (decks unlocked)
+        _confirm             = nil,    -- the maxed-deck warning on CONTINUE
+        _deck_warned         = false,  -- warned once this shove
         settings_modal       = nil,    -- ESC overlay (volume, display, save, quit)
         demo_end_modal       = nil,    -- the demo build's end-of-content screen
         _ended_handled       = false,  -- guard so _onGauntletEnded fires once per gauntlet
@@ -78,7 +82,9 @@ end
 function ShoveState:fullReset()
     self.gauntlet            = nil
     self.catalog_modal       = nil
-    self.deck_select_modal   = nil
+    self.deck_flyer          = nil
+    self._confirm            = nil
+    self._deck_warned        = false
     self.demo_end_modal = nil
     self.settings_modal      = nil
     self._ended_handled      = false
@@ -87,7 +93,7 @@ function ShoveState:fullReset()
 end
 
 function ShoveState:enter()
-    Theme.setActive("shove")
+    Theme.setActive("room")   -- one palette everywhere; the shove palette is retired
     local state = self.game.state
 
     -- All-in cash-out: every table's current stack returns to bankroll
@@ -303,6 +309,7 @@ function ShoveState:_onGauntletEnded()
         -- that advanced the hold means "leave". If the throw never fired
         -- (skipped past), build it now so the shop is never missed.
         if not self.catalog_modal then self:throwCatalog() end
+        if not self.deck_flyer then self:throwFlyer() end
         self:_dismissCatalogAndReturn()
     end
 end
@@ -365,6 +372,21 @@ function ShoveState:throwCatalog()
           throw_key = "catalog:" .. tostring(self:_nextThrowId()) })
 end
 
+-- The dealer throws the deck flyer after the book, once decks exist. It
+-- lands clear of the book (the book's resting rect is known ahead of its
+-- landing) and starts folded. Only the felt's CONTINUE leaves.
+function ShoveState:throwFlyer()
+    if self.deck_flyer then return end
+    if not Decks.systemUnlocked(self.game.state) then return end
+    local W, H = love.graphics.getDimensions()
+    self.deck_flyer = DeckFlyer:new(self.game, {
+        on_felt   = true, scrim = false,
+        throw_key = "flyer:" .. tostring(self:_nextThrowId()),
+        avoid     = self.catalog_modal and self.catalog_modal:feltRect(W, H) or nil,
+    })
+    SoundService.playNamed("hole_card_flip")
+end
+
 -- A different key every throw, persisted so it keeps varying across
 -- sessions. Lives in the free-form hints_seen map like the House's
 -- once-lines do, so it needs no new serialized field.
@@ -398,32 +420,19 @@ function ShoveState:_dismissCatalogAndReturn()
         self.game.effects, self.game.catalog, self.game.run_upgrades)
     state:applyStartingPerks(meta_ctx)   -- silent: between screens
     self.catalog_modal = nil
-
-    if Decks.systemUnlocked(state) then
-        self.deck_select_modal = DeckSelectModal:new(self.game)
-        state.decks_unseen = {}
-        return
-    end
-
     self:_finalizePostBustReturn()
 end
 
--- Step 3 of the post-bust flow (DECKS only): deck-select modal closes,
--- control returns to grind. State is already reset + perks applied at
--- this point — this only finalises bookkeeping and switches.
-function ShoveState:_dismissDeckSelectAndReturn()
-    self.deck_select_modal = nil
-    self:_finalizePostBustReturn()
-end
-
--- Shared tail of the post-bust flow. Called from either the catalog
--- dismiss (when DECKS is off) or the deck-select dismiss. Resets the
--- per-shove transient state and switches back to grind.
+-- Shared tail of the post-bust flow: the deck pick happened on the flyer
+-- while the felt was still up, so there is no step after the book. Resets
+-- the per-shove transient state and switches back to grind.
 function ShoveState:_finalizePostBustReturn()
     FlightSystem.clear()
     self.gauntlet       = nil
     self.catalog_modal  = nil
-    self.deck_select_modal = nil
+    self.deck_flyer     = nil
+    self._confirm       = nil
+    self._deck_warned   = false
     self._ended_handled = false
     self.view:resetTimeline()
     self.game.state_machine:switch("grind")
@@ -447,7 +456,6 @@ function ShoveState:update(dt)
        and self.gauntlet.state == "finished"
        and not self.view:isAnimating()
        and not self._ended_handled
-       and not self.deck_select_modal
        and not self.demo_end_modal then
         self:_onGauntletEnded()
     end
@@ -458,14 +466,70 @@ function ShoveState:draw()
     self.overlay:draw()
     if self.demo_end_modal then
         self.demo_end_modal:draw()
-    elseif self.catalog_modal then
-        self.catalog_modal:draw()
-    elseif self.deck_select_modal then
-        self.deck_select_modal:draw()
+    elseif self.catalog_modal or self.deck_flyer then
+        -- Whatever is folded/closed sits on the felt; the open one draws
+        -- last, on top of everything.
+        local open_obj
+        if self.catalog_modal then
+            if self.catalog_modal:isOpen() then open_obj = self.catalog_modal
+            else self.catalog_modal:draw() end
+        end
+        if self.deck_flyer then
+            if self.deck_flyer:isOpen() then open_obj = self.deck_flyer
+            else self.deck_flyer:draw() end
+        end
+        if open_obj then open_obj:draw() end
+    end
+    if self._confirm then
+        self._confirm:draw(self.game.fonts)
+        if self._confirm:resolved() then self._confirm = nil end
     end
     if self.settings_modal then
         self.settings_modal:draw()
     end
+end
+
+-- The object that is open on the felt, if any (only one ever is).
+function ShoveState:_openObject()
+    if self.deck_flyer and self.deck_flyer:isOpen() then return self.deck_flyer end
+    if self.catalog_modal and self.catalog_modal:isOpen() then return self.catalog_modal end
+    return nil
+end
+
+-- CONTINUE from the result hold. If the deck in play is maxed and another
+-- deck could be levelling instead, ask once before leaving; "Change deck"
+-- opens the flyer, "Leave anyway" goes.
+function ShoveState:_continueFromHold()
+    local state = self.game.state
+    if not self._deck_warned and self.deck_flyer and Decks.systemUnlocked(state) then
+        local active = Decks.specById(state.active_deck_id)
+        local lvl    = active and state.deck_levels and state.deck_levels[active.id] or 0
+        local maxed  = active and lvl >= (active.max_level or 5)
+        local other  = false
+        if maxed then
+            for _, id in ipairs(state.unlocked_decks or {}) do
+                local sp = Decks.specById(id)
+                if sp and id ~= active.id and ((state.deck_levels and state.deck_levels[id]) or 0) < (sp.max_level or 5) then
+                    other = true; break
+                end
+            end
+        end
+        if maxed and other then
+            self._deck_warned = true
+            self._confirm = ConfirmDialog:new{
+                prompt        = active.name .. " is maxed and won't level again. Put another deck in play?",
+                confirm_label = "Change deck",
+                cancel_label  = "Leave anyway",
+                on_confirm    = function()
+                    if self.catalog_modal then self.catalog_modal:closeToFelt() end
+                    self.deck_flyer:openFromFelt()
+                end,
+                on_cancel     = function() self.view:advance() end,
+            }
+            return
+        end
+    end
+    self.view:advance()
 end
 
 function ShoveState:keypressed(key)
@@ -485,21 +549,24 @@ function ShoveState:keypressed(key)
         if r then self:_resolveDemoEnd(r) end
         return
     end
-    if self.catalog_modal then
-        if self.catalog_modal:consumeKey(key) then return end
+    if self._confirm then
+        self._confirm:consumeKey(key)
+        if self._confirm:resolved() then self._confirm = nil end
+        return
+    end
+    if self.catalog_modal or self.deck_flyer then
+        local obj = self:_openObject() or self.catalog_modal
+        if obj and obj:consumeKey(key) then
+            if obj.resolved and obj:resolved() then self:_dismissCatalogAndReturn() end
+            return
+        end
         if key == "space" or key == "return" or key == "kpenter" then
-            if self.view:isHolding() then self.view:advance()
+            if self.view:isHolding() then self:_continueFromHold()
             else self:_dismissCatalogAndReturn() end
         end
         -- Swallow everything else: without this, ESC fell through and
         -- stacked Settings over the post-bust catalog, and dev keys reset
         -- the gauntlet underneath it.
-        return
-    end
-    if self.deck_select_modal and self.deck_select_modal:consumeKey(key) then
-        if self.deck_select_modal:resolved() then
-            self:_dismissDeckSelectAndReturn()
-        end
         return
     end
     -- ESC with no modal up: open the settings modal (no stacked quit confirm —
@@ -578,29 +645,33 @@ function ShoveState:mousepressed(mx, my, button)
     -- Catalog modal owns mouse input while open — clicks land on item
     -- cards, not on the underlying shove view. The Continue button at
     -- the bottom resolves the modal so the host can advance.
-    if self.catalog_modal then
-        -- CONTINUE works whether the book is open or closed, so it is
-        -- tested before the book gets the click.
-        if self.view:hitContinue(mx, my) then
-            ClickFlash.flash("continue_btn", "continue_btn")
-            self.view:advance()
-            return
-        end
-        if self.catalog_modal:consumeMouse(mx, my, button) then return end
-        if self.catalog_modal:resolved() then
-            self:_dismissCatalogAndReturn()
-            return
-        end
-        -- A stray click on the felt does nothing.
+    if self._confirm then
+        self._confirm:consumeMouse(mx, my, button)
+        if self._confirm:resolved() then self._confirm = nil end
         return
     end
-    -- Deck-select modal: post-catalog. Tile clicks dispatch through
-    -- state:setActiveDeck; Continue resolves the modal.
-    if self.deck_select_modal then
-        self.deck_select_modal:consumeMouse(mx, my, button)
-        if self.deck_select_modal:resolved() then
-            self:_dismissDeckSelectAndReturn()
+    if self.catalog_modal or self.deck_flyer then
+        -- CONTINUE works whether the paper is open or closed, so it is
+        -- tested before anything on the felt gets the click.
+        if self.view:hitContinue(mx, my) then
+            ClickFlash.flash("continue_btn", "continue_btn")
+            self:_continueFromHold()
+            return
         end
+        -- The open one owns the click (dead space folds it back).
+        local obj = self:_openObject()
+        if obj then
+            if obj:consumeMouse(mx, my, button) then return end
+            if obj.resolved and obj:resolved() then self:_dismissCatalogAndReturn() end
+            return
+        end
+        -- Both folded: the flyer landed last, so it is on top.
+        if self.deck_flyer and self.deck_flyer:consumeMouse(mx, my, button) then return end
+        if self.catalog_modal and self.catalog_modal:consumeMouse(mx, my, button) then return end
+        if self.catalog_modal and self.catalog_modal:resolved() then
+            self:_dismissCatalogAndReturn()
+        end
+        -- A stray click on the felt does nothing.
         return
     end
     -- No modal. On a hold only the CONTINUE button advances; a stray click

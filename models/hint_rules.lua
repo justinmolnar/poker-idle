@@ -254,8 +254,13 @@ function HintRules.registerAll(reg)
         return ctx.catalog_open == true
     end)
 
-    reg:register("deck_select_open", function(_cond, ctx)
-        return ctx.deck_select_open == true
+    reg:register("deck_flyer_open", function(_cond, ctx)
+        return ctx.deck_flyer_open == true
+    end)
+
+    -- The flyer has landed, folded, on the felt (the beat that points at it).
+    reg:register("deck_flyer_landed", function(_cond, ctx)
+        return ctx.deck_flyer_landed == true
     end)
 
     -- (screen_visits and hint_seen were kinds here. Both let a popup know

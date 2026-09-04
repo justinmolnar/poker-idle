@@ -660,7 +660,10 @@ function HandScript.write(outcome, table_ctx, registry, _weights, _sizing,
     local ws     = newWriterState(plan_)
     local events = {}
 
-    -- Preflop: blinds first, then street action.
+    -- The deal, then the blinds, then street action. deal_hole changes no
+    -- state (a no-op applicator); it is the beat the view throws the hole
+    -- cards on, and its duration is the room the blinds give it.
+    emit(events, ws, "deal_hole", {}, registry, timings_data)
     emitBlinds(events, ws, plan_, registry, timings_data)
     runStreet(events, ws, plan_, 1, plan_.street_pots[1] or 0, registry, timings_data)
 

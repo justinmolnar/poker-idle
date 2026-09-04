@@ -79,3 +79,9 @@ Covered by `sim/verify_save_migration.lua`.
 `sim/` or `tools/` reads these. The roster, top-bar cell and tooltip draw the
 art through `views/DeckArt`; locked decks show the unlock count from
 `UnlockRegistry:progress` under the catalog's COMING SOON sticker.
+
+The roster is the deck FLYER (`views/DeckFlyer`, 2026-09-04): a folded sheet
+the dealer throws beside the catalog (`services/Throw` carries the arc both
+use), unfolding into the tiles and column; CONTINUE warns once when the
+deck in play is maxed. `views/DeckSelectModal` is gone; the story triggers
+are `deck_flyer_landed` / `deck_flyer_open`.

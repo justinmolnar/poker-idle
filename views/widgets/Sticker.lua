@@ -69,9 +69,12 @@ local function LINE_GAP(s) return math.max(1, math.floor(2 * s)) end
 -- applied label actually prints. Everything downstream (heightFor, widthFor,
 -- the draw itself) measures off these two, so changing either is a one-line
 -- change here.
+-- `title_style = "sm"` prints the headline at the detail size too, for a
+-- sticker on something too narrow for the big word (a deck tile).
 local function fonts(opts)
     local f = opts and opts.fonts
     if not (f and f.md and f.sm) then return nil, nil end
+    if opts.title_style == "sm" then return f.sm, f.sm end
     return f.md, f.sm
 end
 
@@ -368,8 +371,8 @@ end
 -- it was given is mostly blank paper, and a fill bar across mostly-blank paper
 -- reads as nothing — size it to the text and the fill becomes legible.
 -- Callers should clamp the result to the space available.
-function Sticker.widthFor(font_set, scale, title, line, counter, line2)
-    local f_title, f_line = fonts({ fonts = font_set })
+function Sticker.widthFor(font_set, scale, title, line, counter, line2, title_style)
+    local f_title, f_line = fonts({ fonts = font_set, title_style = title_style })
     if not f_title then return 0 end
     local s   = scale or 1
     local gap = math.max(2, math.floor(4 * s))
@@ -387,8 +390,8 @@ end
 
 -- Height needed for a title line plus optional detail lines, so a caller can
 -- size the rect before drawing.
-function Sticker.heightFor(font_set, scale, has_line, has_line2)
-    local f_title, f_line = fonts({ fonts = font_set })
+function Sticker.heightFor(font_set, scale, has_line, has_line2, title_style)
+    local f_title, f_line = fonts({ fonts = font_set, title_style = title_style })
     if not f_title then return 0 end
     local s = scale or 1
     local inner = f_title:getHeight()

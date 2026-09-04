@@ -59,20 +59,39 @@ return {
     -- normal pace for the flop / turn / river. cheat_card_dealt is the
     -- slow, weighty pace used for the 6th and 7th board cards — the
     -- dealer's cheat. The duration delta IS the visual emphasis.
+    -- PROGRESS, not fade: views/ShoveView dealPos reads getProgress to
+    -- move the card from the dealer's hands to its seat (a fade object has
+    -- no progress, and for a long time the cards just faded in on the
+    -- spot). Alpha comes off the same progress in the view.
     card_deal_slide = {
-        type     = "fade",
-        -- Progress drives the card's TRAVEL from the dealer to its seat
-        -- (views/ShoveView dealPos), not just its alpha; 0.25 was a blink.
-        duration = 0.42,
-        from     = 0,
-        to       = 1,
+        type      = "progress",
+        duration  = 0.42,
+        direction = 1,
+        initial   = 0,
     },
 
     cheat_card_dealt = {
-        type     = "fade",
-        duration = 0.7,
-        from     = 0,
-        to       = 1,
+        type      = "progress",
+        duration  = 0.7,
+        direction = 1,
+        initial   = 0,
+    },
+
+    -- ── The grind deal (views/PokerEventAnims, views/TablePanel) ─────
+    -- Plain numbers, not presets: the felt deals through FlightSystem.
+    --   card    seconds a card is in the air, dealer button to seat
+    --   stagger seconds between one card and the next
+    --   flip    seconds a landed card takes to turn face-up
+    --   muck    seconds the previous hand takes to slide off
+    --   arc     px of arc on the throw
+    --   floor   the shortest a card flight compresses to on a fast table
+    grind_deal = {
+        card    = 0.30,
+        stagger = 0.06,
+        flip    = 0.22,
+        muck    = 0.25,
+        arc     = 40,
+        floor   = 0.08,
     },
 
     -- Hole-card face-down → face-up. Progress-curve drives a horizontal

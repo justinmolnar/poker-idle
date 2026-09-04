@@ -35,6 +35,10 @@ local function commit(state, seat, amount)
 end
 
 function PokerActionApply.registerAll(reg)
+    -- The deal itself: a beat with no state change. The view flies the
+    -- hole cards on it (views/PokerEventAnims.deal_hole).
+    reg:register("deal_hole", function(_e, _s) end)
+
     -- Blind posting (SB / BB at hand start). Pushes the blind amount
     -- into the pot and updates current_bet to the highest blind so
     -- preflop callers know what to call.

@@ -38,7 +38,7 @@ function CreditsState:enter(opts)
     end
     -- The shove palette is the right backdrop here — sparse, dramatic,
     -- already what the player just won out of.
-    Theme.setActive("shove")
+    Theme.setActive("room")   -- one palette everywhere; the shove palette is retired
 end
 
 function CreditsState:exit() end

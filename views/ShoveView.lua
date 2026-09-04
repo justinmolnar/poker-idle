@@ -538,6 +538,13 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
             if self.ss and self.ss.throwCatalog then self.ss:throwCatalog() end
         end, "catalog_thud")
     end
+    -- The deck flyer follows the book (a no-op before decks exist; the
+    -- state plays its own landing sound only when it actually throws).
+    local function throwFlyer(at)
+        add(at, function()
+            if self.ss and self.ss.throwFlyer then self.ss:throwFlyer() end
+        end)
+    end
 
     -- Pick the right resolution sound for runout i: gauntlet-final win/loss
     -- supersedes the per-runout chime so the moment lands.
@@ -697,8 +704,9 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     end
     summary(t + 2.6)
     throwCatalog(t + 3.4)
-    hold(t + 3.6, "result")
-    self.total_duration = t + 3.6
+    throwFlyer(t + 3.55)
+    hold(t + 3.75, "result")
+    self.total_duration = t + 3.75
 end
 
 -- ─── The ending ───────────────────────────────────────────────────────
@@ -1105,9 +1113,12 @@ end
 -- Where a dealing card is right now: it leaves the slot under the House
 -- poster and eases to its seat over the deal anim's progress. With the
 -- House disabled (the golden harness) the card just sits at its target.
+-- Where a dealt card is right now, its settling turn, and the raw deal
+-- progress (the caller fades it in off that). Returns the slot itself once
+-- the deal anim is done or missing.
 local function dealPos(anim, target_x, target_y, slot_cx)
     local house = Style.house
-    if not anim or not anim.getProgress then return target_x, target_y end
+    if not anim or not anim.getProgress then return target_x, target_y, 0, 1 end
     local p = anim:getProgress() or 1
     local e = 1 - (1 - p) ^ (house.deal_ease or 3)
     local from_x = slot_cx - CARD_W / 2
@@ -1115,14 +1126,21 @@ local function dealPos(anim, target_x, target_y, slot_cx)
     -- above the felt, where the dealer's hands would be.
     local from_y = house.enabled and (Y_SLOT - CARD_H + SLOT_H)
                    or (house.deal_from_y or -CARD_H)
-    return from_x + (target_x - from_x) * e, from_y + (target_y - from_y) * e
+    local rot = (house.deal_settle_rad or 0) * (1 - e)
+    return from_x + (target_x - from_x) * e, from_y + (target_y - from_y) * e, rot, p
+end
+
+-- Opaque after the first third of the slide: seen leaving the dealer's
+-- hands, not materialising at the seat.
+local function dealAlpha(p)
+    return math.min(1, (p or 1) * 3)
 end
 
 -- `verdict` is nil (no result yet), "win" or "lose" for this card. A
 -- winning card rises and gets a warm halo; a losing card sinks a little and
 -- is drawn at the loser alpha the caller already applied. This is the whole
 -- of how the felt says who won. There is no label that does it.
-local function drawCardSprite(sl, sprite_name, x, y, w, h, scale_x, alpha, verdict, lift_p)
+local function drawCardSprite(sl, sprite_name, x, y, w, h, scale_x, alpha, verdict, lift_p, rot)
     local ew  = w * (scale_x or 1)
     local cfg = Style.cards
     local dy  = 0
@@ -1142,7 +1160,7 @@ local function drawCardSprite(sl, sprite_name, x, y, w, h, scale_x, alpha, verdi
         dy = math.floor((cfg.lift_px or 0) * 0.4 * (lift_p or 0))
     end
     CardSprites.shadow(x + (w - ew) / 2, y + dy, ew, h, alpha, ShoveDecor.shadowOffset())
-    CardSprites.sprite(sl, sprite_name, x, y + dy, w, h, scale_x, alpha)
+    CardSprites.sprite(sl, sprite_name, x, y + dy, w, h, scale_x, alpha, rot)
 end
 
 local function visibleBoardCount(g)
@@ -1756,26 +1774,26 @@ function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key, side)
 
     if not deal_anim then return end
 
-    local deal_alpha = (deal_anim.getAlpha and deal_anim:getAlpha() or 1)
-                       * self:_sideAlpha(side)
-    slot_x, slot_y = dealPos(deal_anim, slot_x, slot_y,
-                             tableCenterX(love.graphics.getWidth()))
+    local rot, dp
+    slot_x, slot_y, rot, dp = dealPos(deal_anim, slot_x, slot_y,
+                                      tableCenterX(love.graphics.getWidth()))
+    local deal_alpha = dealAlpha(dp) * self:_sideAlpha(side)
 
     if not flip_anim then
-        drawCardSprite(sl, back, slot_x, slot_y, CARD_W, CARD_H, 1, deal_alpha)
+        drawCardSprite(sl, back, slot_x, slot_y, CARD_W, CARD_H, 1, deal_alpha, nil, nil, rot)
         return
     end
 
     local p = flip_anim.getProgress and flip_anim:getProgress() or 0
     if p < 0.5 then
         local sx = 1 - 2 * p
-        drawCardSprite(sl, back, slot_x, slot_y, CARD_W, CARD_H, sx, deal_alpha)
+        drawCardSprite(sl, back, slot_x, slot_y, CARD_W, CARD_H, sx, deal_alpha, nil, nil, rot)
     else
         local sx = 2 * p - 1
         local result = self.ss.gauntlet and self.ss.gauntlet.result
         local eval = result and result.evals[self:_revealedRunoutIdx()]
         drawCardSprite(sl, front, slot_x, slot_y, CARD_W, CARD_H, sx, deal_alpha,
-                       self:_verdictFor(card, eval), self:_liftP())
+                       self:_verdictFor(card, eval), self:_liftP(), rot)
     end
 end
 
@@ -1790,12 +1808,13 @@ function ShoveView:_drawBoardCard(i, x, y)
     local anim = self.card_anims["board_" .. i]
     if not anim then return end
 
-    local alpha = anim.getAlpha and anim:getAlpha() or 1
-    x, y = dealPos(anim, x, y, tableCenterX(love.graphics.getWidth()))
+    local rot, dp
+    x, y, rot, dp = dealPos(anim, x, y, tableCenterX(love.graphics.getWidth()))
+    local alpha = dealAlpha(dp)
     local eval = result.evals[self:_revealedRunoutIdx()]
     local v = self:_verdictFor(card, eval)
     if v == "lose" then alpha = alpha * (Style.cards.loser_alpha or 1) end
-    drawCardSprite(sl, card:spriteName(), x, y, CARD_W, CARD_H, 1, alpha, v, self:_liftP())
+    drawCardSprite(sl, card:spriteName(), x, y, CARD_W, CARD_H, 1, alpha, v, self:_liftP(), rot)
 end
 
 -- The ONE line in the band above the table. Set by the beats (the

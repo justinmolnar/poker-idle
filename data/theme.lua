@@ -26,8 +26,10 @@
 --   shove  — sparse, high-contrast, dramatic. Black/red. The terminal
 --            ritual. Active only during the all-in gauntlet.
 --
--- The palette IS the mode shift. ShoveState calls Theme.setActive("shove")
--- on enter; GrindState calls Theme.setActive("room"). No per-component
+-- One palette on every screen (2026-09): every state calls
+-- Theme.setActive("room"). The "shove" palette below is retired and kept
+-- only so nothing that names it breaks; a tool that looked different on
+-- the shove screen than on the grind was a bug, not a mode. No per-component
 -- "if state == shove" branches anywhere else.
 --
 -- ─── Token namespaces ───────────────────────────────────────────────

@@ -189,6 +189,9 @@ return {
         -- Cards leave the slot and travel to their seat over the deal anim's
         -- own progress, eased out so they arrive rather than stop.
         deal_ease   = 3,
+        -- A dealt card arrives a little turned and squares up as it
+        -- settles (radians at the start of the slide, 0 on landing).
+        deal_settle_rad = 0.12,
     },
 
     -- The drain bar under the readout. Fill is the live ALL-IN chance,

@@ -380,14 +380,24 @@ return {
             },
         },
 
-        -- Act 2, in the deck-select modal. A separate beat: the modal
-        -- opens on the shove screen, before act2 can play on the grind.
+        -- Act 2, on the shove felt: the flyer lands beside the book. A
+        -- separate beat, before act2 can play on the grind.
+        {
+            id      = "flyer_lands",
+            screen  = "shove",
+            trigger = { kind = "deck_flyer_landed" },
+            lines = {
+                { text = "New terms, new paper. That one's the decks. Open it before you go.",
+                  anchor = "deck:flyer" },
+            },
+        },
+        -- Act 2, the flyer open.
         {
             id      = "act2_decks",
             screen  = "shove",
-            trigger = { kind = "deck_select_open" },
+            trigger = { kind = "deck_flyer_open" },
             lines = {
-                { text = "Pick one. It plays the next run. The locked ones tell you what opens them.",
+                { text = "Pick one. It plays the next run. The stickered ones say what opens them.",
                   anchor = "deck:tile:1" },
                 { text = "The bar on each fills as the deck plays. Full bar, next level, better bonus.",
                   anchor = "deck:xp" },

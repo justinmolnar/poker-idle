@@ -28,7 +28,10 @@ function HintCtx.build(deps)
         shove_hold       = is_shove and sv and sv.hold_id or nil,
         shove_cheats     = is_shove and sv and sv.cheatsDealt and sv:cheatsDealt() or 0,
         catalog_open     = cur and (cur.catalog_modal ~= nil) or false,
-        deck_select_open = cur and ((cur.deck_select_modal or cur.deck_roster_modal) ~= nil) or false,
+        -- The deck flyer: open (either screen), or landed folded on the felt.
+        deck_flyer_open   = cur and ((cur.deck_flyer and cur.deck_flyer:isOpen())
+                                  or (cur.deck_roster_modal and cur.deck_roster_modal:isOpen())) or false,
+        deck_flyer_landed = cur and cur.deck_flyer ~= nil and cur.deck_flyer:isLanded() or false,
         anchor_fresh     = deps.anchor_fresh,
     }
 end

@@ -9,8 +9,9 @@
 --   • Art: cover-scaled into the rect, cropped by scissor.
 --   • Level: five PIPS along the top edge, filled to the level. The fifth
 --     pip is the capstone — a diamond, gold when earned. At the cap the art
---     itself draws through the foil shader. Nothing else changes with level:
---     no borders, no colour tables, no dirty overlay.
+--     itself draws through the foil shader (shaders/foil.frag, the loud
+--     polychrome) inside a border whose colour runs round the spectrum.
+--     Nothing else changes with level: no colour tables, no dirty overlay.
 --   • Locked: the art is grey and dim above a FILL LINE and full colour
 --     below it, filling bottom-up with progress toward the unlock (the
 --     desaturate shader, two scissored passes). The line is a readout and
@@ -36,6 +37,16 @@ local PIP_INSET_BASE = 6     -- from the top edge
 -- coloured part below reads as the earned part, not merely the brighter one.
 local LOCKED_DIM     = 0.45
 local FILL_LINE_BASE = 1
+local FOIL_EDGE_BASE = 3     -- the prismatic border at the cap
+
+local function hsv(h, sv, v)
+    local i = math.floor(h * 6) % 6
+    local f = h * 6 - math.floor(h * 6)
+    local p, q, t = v * (1 - sv), v * (1 - f * sv), v * (1 - (1 - f) * sv)
+    if i == 0 then return v, t, p elseif i == 1 then return q, v, p
+    elseif i == 2 then return p, v, t elseif i == 3 then return p, q, v
+    elseif i == 4 then return t, p, v else return v, p, q end
+end
 
 local function coverRect(sprite, x, y, w, h)
     local sw, sh = sprite:getWidth(), sprite:getHeight()
@@ -127,13 +138,26 @@ function DeckArt.draw(game, spec, x, y, w, h, opts)
             end
         else
             local shader = nil
+            local now = (game and game.time and game.time.total_time) or 0
             if level >= max_level then
                 shader = ShaderRegistry.get("foil")
-                if shader and game and game.time then
-                    shader:send("u_time", game.time.total_time or 0)
-                end
+                if shader then shader:send("u_time", now) end
             end
             drawBand(sprite, x, y, w, h, y, h, shader, 1, 1, 1, alpha)
+            if level >= max_level then
+                -- The prismatic border: four edges, each a different point
+                -- on the spectrum, all of it turning.
+                local lw = math.max(2, math.floor(FOIL_EDGE_BASE * s))
+                local edges = {
+                    { x, y, w, lw }, { x, y + h - lw, w, lw },
+                    { x, y, lw, h }, { x + w - lw, y, lw, h },
+                }
+                for i, e in ipairs(edges) do
+                    local r, g, b = hsv((now * 0.35 + (i - 1) * 0.25) % 1, 0.9, 1)
+                    love.graphics.setColor(r, g, b, alpha)
+                    love.graphics.rectangle("fill", e[1], e[2], e[3], e[4])
+                end
+            end
         end
     else
         local fonts = game and game.fonts

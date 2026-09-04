@@ -217,8 +217,11 @@ the voice doc's treason section); all he does is notice.
 | The big tables are open now. Bring money. | `add_table:s004:zoom` | click |
 | And the tournament room. Eight seats, one winner. It pays the tables around it more than it pays you. | `gtype:mtt` | click |
 
-### `act2_decks` — shove. Trigger: deck select open. (Mid-recovery; bare procedure IS the characterization.)
-| Pick one. It plays the next run. The locked ones tell you what opens them. | `deck:tile:1` | click |
+### `flyer_lands` — shove. Trigger: the deck flyer has landed on the felt.
+| New terms, new paper. That one's the decks. Open it before you go. | `deck:flyer` | click |
+
+### `act2_decks` — shove. Trigger: the deck flyer open. (Mid-recovery; bare procedure IS the characterization.)
+| Pick one. It plays the next run. The stickered ones say what opens them. | `deck:tile:1` | click |
 | The bar on each fills as the deck plays. Full bar, next level, better bonus. | `deck:xp` | click |
 
 ### `act3` — grind. Trigger: both shove hands won.

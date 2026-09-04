@@ -30,6 +30,7 @@
 
 return {
     default = {
+        deal_hole        = 0.55,
         post_blind       = 0.05,
         fold             = 0.08,
         check            = 0.10,
@@ -51,6 +52,7 @@ return {
         -- With its pace_mult this lands around 6x the hands-per-hour of
         -- 6-max — run sim/gtype_ev.lua for the current figure.
         zoom = {
+            deal_hole       = 0.30,
             fold            = 0.05,
             check           = 0.07,
             call            = 0.10,

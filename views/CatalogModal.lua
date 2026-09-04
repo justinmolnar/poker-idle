@@ -30,6 +30,7 @@ local CatalogPages = require("data.catalog_pages")
 local LabelButton  = require("views.widgets.LabelButton")
 local Sticker      = require("views.widgets.Sticker")
 local Stamp        = require("views.widgets.Stamp")
+local Throw        = require("services.Throw")
 local Pop          = require("services.Pop")
 local Icons        = require("views.Icons")
 local GlyphMorph   = require("services.GlyphMorph")
@@ -454,23 +455,34 @@ end
 -- Point-in-rotated-rect: rotate the point back about the book's centre by
 -- its angle, then test the unrotated rect.
 function CatalogModal:_hitsFeltBook(r, mx, my)
-    local cx, cy = r.x + r.w * 0.5, r.y + r.h * 0.5
-    local c, sn  = math.cos(-(r.angle or 0)), math.sin(-(r.angle or 0))
-    local dx, dy = mx - cx, my - cy
-    local lx, ly = dx * c - dy * sn, dx * sn + dy * c
-    return math.abs(lx) <= r.w * 0.5 and math.abs(ly) <= r.h * 0.5
+    return Throw.hitsRotated(r, mx, my)
 end
 
 function CatalogModal:_feltSpot(W, H, cw, ch)
-    local fl  = math.floor
-    local cfg = CLOSED
-    local dx, dy, angle = Decal.place(self._throw_key, {
-        dx = cfg.jitter_x, dy = cfg.jitter_y,
-        angle = cfg.jitter_angle, base_angle = cfg.base_angle,
-    })
-    local x = fl(W * cfg.rest_x) + dx
-    local y = fl(H * cfg.rest_y) + dy
-    return x, y, angle
+    return Throw.spot(self._throw_key, CLOSED, W, H)
+end
+
+-- Page geometry, shared by :draw and :feltRect so the resting book's size
+-- is known before it has drawn once (the flyer lands clear of it).
+local function pageSize(fonts, s)
+    local fl = math.floor
+    local card_h = fonts.md:getHeight() + 3 * fonts.sm:getHeight() + fl(16 * s) + 8
+    local page_w = fl(MODAL_W_BASE * s * 0.5)
+    local head_h = fonts.md:getHeight() + fl(16 * s)
+    local page_h = fl(head_h + fl(8 * s) + LEAF_SLOTS * card_h
+                      + (LEAF_SLOTS - 1) * fl(10 * s) + fonts.sm:getHeight() + fl(22 * s))
+    return page_w, page_h, card_h
+end
+
+-- Where the closed book rests (or will rest) on the felt, as a rect with
+-- its angle. Something thrown after the book asks for this to land elsewhere.
+function CatalogModal:feltRect(W, H)
+    if self._felt_rect then return self._felt_rect end
+    local s = self.game.ui_scale or 1
+    local page_w, page_h = pageSize(self.game.fonts, s)
+    local cw, ch = math.floor(page_w * CLOSED.scale), math.floor(page_h * CLOSED.scale)
+    local x, y, angle = self:_feltSpot(W, H, cw, ch)
+    return { x = x, y = y, w = cw, h = ch, angle = angle }
 end
 
 -- The closed book as an object on the table. Arcs in from off-screen over
@@ -485,15 +497,9 @@ function CatalogModal:_drawClosedOnFelt(W, H, page_w, page_h, fonts, s)
 
     -- The throw: from above and to the left, arcing down. Ease-out on the
     -- travel, a quick squash on impact.
-    local t  = self._throw_t
-    local e  = 1 - (1 - t) ^ 3
-    local fx = rx - fl(cfg.throw_dx * s)
-    local fy = -ch
-    local x  = fx + (rx - fx) * e
-    local y  = fy + (ry - fy) * e - math.sin(math.pi * t) * fl(cfg.throw_arc * s)
-    local spin = angle + (1 - e) * cfg.throw_spin
-    local impact = (t >= 1) and 0 or math.max(0, 1 - math.abs(t - 0.92) / 0.08)
-    local sq = 1 + 0.08 * impact
+    local t = self._throw_t
+    local x, y, spin_left, sq, height = Throw.pose(t, cfg, s, rx, ry, ch)
+    local spin = angle + spin_left
 
     -- Shadow, then the cover, drawn through the same front-cover routine at
     -- the small scale so it is unmistakably the same book.
@@ -503,7 +509,6 @@ function CatalogModal:_drawClosedOnFelt(W, H, page_w, page_h, fonts, s)
     -- object reads as the object floating.
     -- A shadow only while it is in the AIR. A book lying on a table has no
     -- offset shadow; drawing one, however small, said it was floating.
-    local height = math.sin(math.pi * t)                       -- 0 at rest
     love.graphics.push()
     love.graphics.translate(x + cw * 0.5, y + ch * 0.5)
     love.graphics.rotate(spin)
@@ -522,6 +527,13 @@ function CatalogModal:_drawClosedOnFelt(W, H, page_w, page_h, fonts, s)
     -- centre landed on the rect's edge and most clicks missed.
     drawFrontCover(self, 0, 0, page_w, page_h, fonts, s)
     love.graphics.pop()
+    -- The invitation at its real size, rotated with the book but not
+    -- shrunk with it: the cover's own copy would be a thumbnail of text.
+    if t >= 1 then
+        love.graphics.setFont(fonts.md)
+        Theme.setColor({ 0.75, 0.20, 0.20 })
+        love.graphics.printf("CLICK TO OPEN", -cw * 0.5, ch * 0.5 - fonts.md:getHeight() - fl(10 * s), cw, "center")
+    end
     love.graphics.pop()
 
     -- Hit shape: the book's rect WITH its angle. The axis-aligned box
@@ -1403,7 +1415,7 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
     if self.intro_callout and self.on_felt and page_num == 1 then
         Theme.setColor({ 0.15, 0.15, 0.12, 0.70 })
         love.graphics.setFont(fonts.sm)
-        love.graphics.printf("Make your cell a home. Everything here is permanent.",
+        love.graphics.printf("Make your room a home. Everything here is permanent.",
                              x + pad, y + head_h + fl(4 * s), w - pad * 2, "center")
     end
 
@@ -1469,14 +1481,18 @@ drawFrontCover = function(self, x, y, w, h, fonts, s)
 
     Theme.setColor({ 0.15, 0.15, 0.12 })
     love.graphics.setFont(fonts.lg)
-    love.graphics.printf("CELL FURNISHINGS", x, y + h * 0.66, w, "center")
+    love.graphics.printf("HOME FURNISHINGS", x, y + h * 0.66, w, "center")
     love.graphics.setFont(fonts.md)
     love.graphics.printf("CATALOG & ORDER BOOK", x, y + h * 0.74, w, "center")
 
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor({ 0.75, 0.20, 0.20 })
-    love.graphics.printf(self.on_felt and "CLICK TO OPEN" or "GRAB CORNER TO OPEN",
-                         x, y + h * 0.88, w, "center")
+    -- On the felt the cover is a thumbnail, so the invitation is printed
+    -- at its real size by _drawClosedOnFelt instead (text never rests
+    -- scaled).
+    if not self.on_felt then
+        love.graphics.setFont(fonts.sm)
+        Theme.setColor({ 0.75, 0.20, 0.20 })
+        love.graphics.printf("GRAB CORNER TO OPEN", x, y + h * 0.88, w, "center")
+    end
 
     -- First-visit lede. The flag has been plumbed from ShoveState since the
     -- callout was specced and nothing ever read it, so the band never drew.
@@ -1493,7 +1509,7 @@ drawFrontCover = function(self, x, y, w, h, fonts, s)
                                 w - fl(36 * s), band_h, Theme.space.radius)
         Theme.setColor({ 0.15, 0.15, 0.12 })
         love.graphics.setFont(fonts.sm)
-        love.graphics.printf("Make your cell a home. Everything here is permanent.",
+        love.graphics.printf("Make your room a home. Everything here is permanent.",
                              x + fl(18 * s),
                              by + fl((band_h - fonts.sm:getHeight()) * 0.5),
                              w - fl(36 * s), "center")
@@ -1591,12 +1607,8 @@ function CatalogModal:draw()
 
     -- Page + book geometry. One page = half the base modal width; an open
     -- spread is two of them, centered on the spine at screen center.
-    CARD_H = fonts.md:getHeight() + 3 * fonts.sm:getHeight() + fl(16 * s) + 8
-    local card_h = CARD_H
-    local page_w = fl(MODAL_W_BASE * s * 0.5)
-    local head_h = fonts.md:getHeight() + fl(16 * s)
-    local page_h = fl(head_h + fl(8 * s) + LEAF_SLOTS * card_h
-                      + (LEAF_SLOTS - 1) * fl(10 * s) + fonts.sm:getHeight() + fl(22 * s))
+    local page_w, page_h, card_h = pageSize(fonts, s)
+    CARD_H = card_h
     local cx     = W * 0.5
     local top    = fl((H - page_h) * 0.5)
     -- The slide: ease-out cubic from below the screen to the resting `top`.

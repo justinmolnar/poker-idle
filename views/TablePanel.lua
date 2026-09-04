@@ -22,6 +22,7 @@ local Theme         = require("views.Theme")
 local Constants     = require("data.constants")
 local Decks         = require("models.Decks")
 local PokerEventAnims = require("views.PokerEventAnims")
+local AnimsData       = require("data.animations")
 local Stakes        = require("data.stakes")
 local GameTypes     = require("data.game_types")
 local KoPayouts    = require("data.ko_payouts")
@@ -217,6 +218,42 @@ end
 
 local function holeVisible(tbl)
     return tbl.state ~= "idle" or residueOf(tbl) ~= nil
+end
+
+-- ─── The deal gates ──────────────────────────────────────────────────
+-- views/PokerEventAnims writes tbl._deal_fx when it throws cards: for each
+-- card key ("you", "opp_N", "board_N") the wall-clock time the flight lands
+-- and whether the card turns face-up on landing. Until it lands the slot
+-- draws empty; while it turns, the back squashes to edge-on and the face
+-- opens out (the shove's flip). Live hands only — residue never gates.
+-- Returns nil (draw normally), "hidden", or "flip", p.
+local _deal_back = nil   -- this frame's back sprite, for the turn's first half
+local function dealGate(tbl, key)
+    local fx = tbl._deal_fx
+    if not fx or tbl.state == "idle" then return nil end
+    local at = fx.arrive and fx.arrive[key]
+    if not at then return nil end
+    local now = love.timer.getTime()
+    if now < at then return "hidden" end
+    if fx.flip and fx.flip[key] then
+        local d = (AnimsData.grind_deal and AnimsData.grind_deal.flip) or 0.22
+        if now < at + d then return "flip", (now - at) / d end
+    end
+    return nil
+end
+
+-- A card turning face-up in its slot: back squashing to edge-on, then the
+-- face opening out. Same squash the shove uses.
+local function drawCardTurn(sl, card, x, y, w, h, p, shadow)
+    if p < 0.5 then
+        local sx = 1 - 2 * p
+        CardSprites.shadow(x + (w - w * sx) / 2, y, w * sx, h, 1, shadow)
+        if _deal_back then CardSprites.sprite(sl, _deal_back, x, y, w, h, sx, 1) end
+    else
+        local sx = 2 * p - 1
+        CardSprites.shadow(x + (w - w * sx) / 2, y, w * sx, h, 1, shadow)
+        if card then CardSprites.sprite(sl, card:spriteName(), x, y, w, h, sx, 1) end
+    end
 end
 
 local function opponentFaceUp(tbl)
@@ -740,6 +777,10 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     -- (theater-mode only) that opp is still in_seats. Without the in-seats
     -- guard a folded opp could flip face-up if opponent_idx pointed at them.
     local hd = handData(tbl)
+    -- Card slots, for the deal's flights to land on.
+    Anchors.set(Table.anchorKey(tbl, "cards_opp_" .. opp_idx .. "_1"), cards_x, cards_y, card_w, card_h)
+    Anchors.set(Table.anchorKey(tbl, "cards_opp_" .. opp_idx .. "_2"), cards_x + card_w + card_gap, cards_y, card_w, card_h)
+    local gate = dealGate(tbl, "opp_" .. opp_idx)
     local face_up = opponentFaceUp(tbl) and hd.opponent_idx == opp_idx
     if face_up and ss_fold and ss_fold.player_seat and ss_fold.in_seats then
         local ps = ss_fold.player_seat
@@ -748,7 +789,11 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
             face_up = false
         end
     end
-    if face_up and hd.opponent_hole then
+    if gate == "hidden" then
+        -- In the air: the slots wait.
+        drawCardSlot(cards_x, cards_y, card_w, card_h)
+        drawCardSlot(cards_x + card_w + card_gap, cards_y, card_w, card_h)
+    elseif face_up and hd.opponent_hole then
         drawCardFront(sl, hd.opponent_hole[1], cards_x, cards_y, card_w, card_h, seat_alpha,
                       plate, shadow)
         drawCardFront(sl, hd.opponent_hole[2], cards_x + card_w + card_gap, cards_y, card_w, card_h,
@@ -824,9 +869,15 @@ local function drawCommunity(tbl, comm, sl, plate)
 
     for i = 1, 5 do
         local cx = row_x + (i - 1) * (comm.card_w + comm.gap)
-        if i <= count and hd.community and hd.community[i] then
-            drawCardFront(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h, 1,
-                          plate, comm.shadow)
+        Anchors.set(Table.anchorKey(tbl, "board_" .. i), cx, comm.y, comm.card_w, comm.card_h)
+        local gate, gp = dealGate(tbl, "board_" .. i)
+        if i <= count and hd.community and hd.community[i] and gate ~= "hidden" then
+            if gate == "flip" then
+                drawCardTurn(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h, gp, comm.shadow)
+            else
+                drawCardFront(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h, 1,
+                              plate, comm.shadow)
+            end
         else
             drawCardSlot(cx, comm.y, comm.card_w, comm.card_h)
         end
@@ -1189,7 +1240,16 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
     local cards_y = hole.y
 
     local hd = handData(tbl)
-    if holeVisible(tbl) and hd.player_hole then
+    Anchors.set(Table.anchorKey(tbl, "cards_you_1"), cards_x, cards_y, card_w, card_h)
+    Anchors.set(Table.anchorKey(tbl, "cards_you_2"), cards_x + card_w + hole.gap, cards_y, card_w, card_h)
+    local gate, gp = dealGate(tbl, "you")
+    if gate == "hidden" then
+        drawCardSlot(cards_x, cards_y, card_w, card_h)
+        drawCardSlot(cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1)
+    elseif gate == "flip" and hd.player_hole then
+        drawCardTurn(sl, hd.player_hole[1], cards_x, cards_y, card_w, card_h, gp, hole.shadow)
+        drawCardTurn(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, gp, hole.shadow)
+    elseif holeVisible(tbl) and hd.player_hole then
         drawCardFront(sl, hd.player_hole[1], cards_x, cards_y, card_w, card_h, 1,
                       hole.plate, hole.shadow)
         drawCardFront(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1,
@@ -1841,6 +1901,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- the spec is missing → drawCardBack falls back to CARD_BACK.
     local back_sprite = (Decks.systemUnlocked(state) and Decks.activeSprite(state))
                         or CARD_BACK
+    _deal_back = back_sprite
     local lt = state._deck_levelup_t
     _back_pulse = 0
     if lt then
