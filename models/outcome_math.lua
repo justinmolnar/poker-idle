@@ -353,6 +353,15 @@ function OutcomeMath.buildOutcome(ctx, gtype, stake)
             end
         end
     end
+    -- 4d. Bounty Hunter: Stack share up (Small down) at a lane whose
+    --     {chip} bounty is still unbanked this run. ctx.unbanked is a
+    --     transient set of "stake:gtype" the controller seeds; a ctx
+    --     without it (pricing, the tool) reads as "nothing unbanked".
+    if ctx and ctx.unbanked_stack_shift and ctx.unbanked and stake and gtype
+       and ctx.unbanked[stake.id .. ":" .. gtype.id] then
+        distAddInPlace(win_dist, { small = -ctx.unbanked_stack_shift,
+                                   stack =  ctx.unbanked_stack_shift })
+    end
 
     -- 5. Catalog ctx.win_chance_shifts — flat additive ON TOP of the lerp.
     --    The only mechanism for crossing run-capped toward the absolute cap.
@@ -572,8 +581,22 @@ function OutcomeMath.resolvedOutcome(ctx, gtype, stake)
     OutcomeMath.distTierShift(ld, ctx.loss_tier_shifts, gtype)
     OutcomeMath.distTierBump(wd, ctx.tier_bump_chance)
     OutcomeMath.distTierBump(ld, ctx.tier_bump_chance)
+    -- Wins-only bump (Maniac capstone) touches the win dist alone.
+    OutcomeMath.distTierBump(wd, ctx.win_tier_bump_chance)
 
     return wc, wd, ld
+end
+
+-- Anchor's tilted-hand loss multiplier for a table of game type
+-- `gtype_id`: every matching { value, gtype } entry multiplied. Read by
+-- Table on the tilt's forced hands; not part of the expectation (a punch
+-- is a moment, not a rate), so payoutMult ignores it.
+function OutcomeMath.tiltedLossMult(ctx, gtype_id)
+    local m = 1
+    for _, e in ipairs((ctx and ctx.tilted_loss_mults) or {}) do
+        if not e.gtype or e.gtype == gtype_id then m = m * (e.value or 1) end
+    end
+    return m
 end
 
 -- ─── Payout multiplier ─────────────────────────────────────────────────
@@ -592,6 +615,12 @@ function OutcomeMath.payoutMult(ctx, stake, tier, won, opts)
     local mult = 1 + (ctx.payout_double_chance or 0)
 
     if won then
+        -- Wins-only double (Maniac capstone): a 2× flip on wins alone.
+        -- Both kinds present would be a 2× on a 2×; Table takes the
+        -- two-sided one first, so mirror that as the larger of the two.
+        if ctx.win_payout_double_chance then
+            mult = 1 + math.max(ctx.payout_double_chance or 0, ctx.win_payout_double_chance)
+        end
         mult = mult * (ctx.earnings_mult or 1)
         if ctx.earnings_per_tier then
             local idx = stake and Lookups.indexById(StakesData, stake.id) or 0
@@ -603,9 +632,17 @@ function OutcomeMath.payoutMult(ctx, stake, tier, won, opts)
     end
 
     if opts.focus_mult then mult = mult * opts.focus_mult end
-    if ctx.earnings_scale_by_bankroll and opts.bankroll then
-        -- The Bank capstone: literally the BANK multiplier.
-        mult = mult * ShoveRate.bankrollMultiplier(opts.bankroll)
+    local sc = ctx.earnings_scale_by_bankroll
+    if sc and opts.bankroll then
+        -- The Bank capstone: literally the BANK multiplier. `wins_only`
+        -- and `cap` come from the effect entry (a bare `true` is the old
+        -- both-sides, uncapped read).
+        local m = ShoveRate.bankrollMultiplier(opts.bankroll)
+        if type(sc) == "table" then
+            if sc.cap then m = math.min(m, sc.cap) end
+            if sc.wins_only and not won then m = 1 end
+        end
+        mult = mult * m
     end
     return mult
 end

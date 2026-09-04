@@ -1,3 +1,5 @@
+> **Legacy (moved 2026-09-04).** This was the 11-deck roster before the 2026-09 refactor. Hustler, Short Stack, Swarm, Tier Manipulator, Investor and Multitasker were retired and MTT Pro never shipped; the live roster is `data/decks.lua` and the change record is `docs/deck-refactor-2026-09.md`.
+
 # New Deck Roster Design
 
 This document details the updated 11-deck roster, defining exactly one scaling mechanic for Levels 1–4, one Capstone mechanic for Level 5, and the XP leveling rule for each deck.

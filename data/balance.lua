@@ -68,11 +68,10 @@ Balance.UPGRADE_RAMP_SMOOTHING = 2.5
 -- `gtypes` = a list, or "cash" for every non-tournament mode.
 Balance.UPGRADE_REFERENCE = {
     low  = { tables = 4,  tables_ramp = true, decks = {}, gtypes = "cash" },
-    mid  = { tables = 9,  decks = { standard = 5, hustler = 5 }, gtypes = "cash" },
-    -- Act 3's money decks (Nit / Maniac / The Bank / Investor) multiply EV
-    -- ~1000× stacked and Act 3 is unbalanced; until that pass the high
-    -- board holds the same two decks as mid, or T7+ prices come out absurd.
-    high = { tables = 12, decks = { standard = 5, hustler = 5 }, gtypes = "cash" },
+    mid  = { tables = 9,  decks = { standard = 5 }, gtypes = "cash" },
+    -- Act 3 is unbalanced; the high board holds Standard and Nit (the two
+    -- decks that make T6+ playable) until that pass.
+    high = { tables = 12, decks = { standard = 5, nit = 5 }, gtypes = "cash" },
 }
 
 -- The arithmetic that used to live here moved to

@@ -224,6 +224,12 @@ function Decks.gainXp(state, xp_registry, event, xp_mult)
 
     state.deck_xp = state.deck_xp or {}
     local cur_xp = state.deck_xp[active_id] or 0
+    -- An `absolute` rule reports a level (The Bank's bankroll peak): the
+    -- deck's XP is the highest value seen, never a sum.
+    if spec.xp_rule and spec.xp_rule.absolute then
+        if delta <= cur_xp then return 0, false end
+        delta = delta - cur_xp
+    end
     local new_xp = cur_xp + delta
     state.deck_xp[active_id] = new_xp
 

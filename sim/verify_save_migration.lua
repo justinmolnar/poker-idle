@@ -82,8 +82,11 @@ for old in pairs(IdMap.run_upgrade or {}) do run.run_upgrade_levels[old] = 4 end
 for old in pairs(IdMap.deck or {}) do
     meta.unlocked_decks[#meta.unlocked_decks + 1] = old
     meta.deck_levels[old] = 3; meta.deck_xp[old] = 77
-    meta.active_deck_id = old
 end
+-- 2026-09 roster: a retired deck (no successor) as the ACTIVE deck
+meta.unlocked_decks[#meta.unlocked_decks + 1] = "hustler"
+meta.deck_levels.hustler = 4; meta.deck_xp.hustler = 999
+meta.active_deck_id = "hustler"
 for old in pairs(IdMap.tier or {}) do
     run.active_table_mtt_plans[#run.active_table_mtt_plans + 1] =
         { finish_position = 3, hands = { { won = true, tier = old }, { won = false, tier = "small" } } }
@@ -136,13 +139,23 @@ ok(gs.run_upgrade_levels.sharper_reads == 3, "untouched run upgrade survives")
 
 -- ── decks ──────────────────────────────────────────────────────────────
 for old, new in pairs(IdMap.deck or {}) do
-    ok(has(gs.unlocked_decks, new) and not has(gs.unlocked_decks, old), ("unlocked_decks %s → %s"):format(old, new))
+    ok(not has(gs.unlocked_decks, old), ("unlocked_decks: old id %s gone"):format(old))
     local curve
     for _, d in ipairs(DeckSpecs) do if d.id == new then curve = d.xp_curve end end
-    ok(gs.deck_levels[new] == 3 and gs.deck_xp[new] == curve[3],
-       ("deck progress carried for %s (level kept, xp snapped to the new curve)"):format(new))
-    ok(gs.active_deck_id == new, ("active_deck_id %s → %s"):format(old, new))
+    if curve then
+        ok(has(gs.unlocked_decks, new), ("unlocked_decks %s → %s"):format(old, new))
+        ok(gs.deck_levels[new] == 3 and gs.deck_xp[new] == curve[3],
+           ("deck progress carried for %s (level kept, xp snapped to the new curve)"):format(new))
+    else
+        -- the successor was itself retired by the 2026-09 roster: pruned
+        ok(not has(gs.unlocked_decks, new) and gs.deck_levels[new] == nil and gs.deck_xp[new] == nil,
+           ("retired successor %s pruned"):format(new))
+    end
 end
+ok(not has(gs.unlocked_decks, "hustler") and gs.deck_levels.hustler == nil and gs.deck_xp.hustler == nil,
+   "deck roster: retired hustler pruned from unlocked/levels/xp")
+ok(gs.active_deck_id == "standard", "deck roster: retired active deck repaired to the starter")
+ok(gs.deck_roster_migrated == true, "deck roster: flag set")
 ok(gs.deck_levels.standard == 2, "untouched deck progress survives")
 
 -- ── 2026-09-03 stake break (one-shot) ──────────────────────────────────
@@ -156,6 +169,7 @@ do  -- a save written by this build must NOT migrate again
     local gs2 = GameState:new()
     local meta2 = {}; for k, v in pairs(meta) do meta2[k] = v end
     meta2.stake_break_migrated = true
+    meta2.deck_roster_migrated = true
     meta2.deck_xp = { standard = 55 }
     local run2 = { bankroll = 1, active_table_specs = { "s005:six_max" } }
     gs2:applySaved({ meta = meta2, run = run2 })

@@ -100,6 +100,10 @@ function GrindController:new(game)
                 st.total_tilts = (st.total_tilts or 0) + 1
             elseif e.status == "heater" then
                 st.total_heaters = (st.total_heaters or 0) + 1
+                -- Hot Hand levels on heaters caught.
+                if Decks.systemUnlocked(st) then
+                    self:_grantDeckXp({ type = "heater", n = 1 })
+                end
             end
         end)
     end
@@ -161,9 +165,13 @@ end
 -- name, and no code in this controller changes at all.
 function GrindController:_rebuildProcIndex()
     local index = {}
+    -- Each id once: a deck grants its proc per level (applyN), and an
+    -- indexed duplicate would fire once per level.
+    local seen = {}
     for _, id in ipairs((self.ctx and self.ctx.procs) or {}) do
         local proc = ProcData[id]
-        if proc and proc.trigger then
+        if proc and proc.trigger and not seen[id] then
+            seen[id] = true
             local list = index[proc.trigger]
             if not list then list = {}; index[proc.trigger] = list end
             -- Carry the id so feedback can name the item that fired.
@@ -177,9 +185,13 @@ function GrindController:_rebuildProcIndex()
     -- many are owned, so a board with none pays nothing (ProcRegistry skips
     -- the whole negotiation when nobody is listening on "deliver").
     local routers = {}
+    local seen_r = {}
     for _, id in ipairs((self.ctx and self.ctx.routers) or {}) do
         local def = RouterData[id]
-        if def then routers[#routers + 1] = { id = id, def = def } end
+        if def and not seen_r[id] then
+            seen_r[id] = true
+            routers[#routers + 1] = { id = id, def = def }
+        end
     end
     self.router_list = routers
 
@@ -483,7 +495,27 @@ end
 
 function GrindController:invalidateEffects()
     local n_tables = self.pool and self.pool:count() or 0
-    self.ctx = self.game.state:computeEffects(self.game.effects, Catalog, RunUpgrades, { active_tables_count = n_tables })
+    -- Board transients the deck kinds read: a pure board (every open
+    -- table one game type, else nil) and the lanes whose {chip} bounty
+    -- is still unbanked this run.
+    local pure
+    for _, t in ipairs((self.pool and self.pool.tables) or {}) do
+        if pure == nil then pure = t.game_type_id
+        elseif pure ~= t.game_type_id then pure = false end
+    end
+    local unbanked = {}
+    local won = self.game.state.stakes_won_this_run or {}
+    for _, stake in ipairs(Stakes) do
+        for _, gt in ipairs(GameTypes) do
+            local key = bountyKey(stake.id, gt.id)
+            if not won[key] then unbanked[key] = true end
+        end
+    end
+    self.ctx = self.game.state:computeEffects(self.game.effects, Catalog, RunUpgrades, {
+        active_tables_count = n_tables,
+        board_pure_gtype    = pure or nil,
+        unbanked            = unbanked,
+    })
     -- Timed buffs multiply onto the fresh rollup (Cleaning Robot's cursor
     -- overdrive). Multiplicative-only for now; the entry's kind names the
     -- ctx field it scales.
@@ -695,6 +727,13 @@ function GrindController:update(dt)
                         self:itemFired("chip_award_mult", t)
                         state.chips_this_run = state.chips_this_run + award
                         state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
+                        -- Bounty Hunter levels on chips banked; its Stack
+                        -- shift keys on which lanes are still unbanked,
+                        -- so the rollup has to see this bank now.
+                        if Decks.systemUnlocked(state) then
+                            self:_grantDeckXp({ type = "bounty", n = award })
+                        end
+                        self:invalidateEffects()
                         state.total_chips_banked = (state.total_chips_banked or 0) + award
                     end
                 else
@@ -782,8 +821,14 @@ function GrindController:update(dt)
         -- bankroll multiplier (the BANK number), read live here so the
         -- effects cache never has to carry live bankroll. The card says
         -- "multiplied by your bankroll multiplier" and means it.
-        if self.ctx and self.ctx.earnings_scale_by_bankroll then
-            r.delta = r.delta * ShoveRate.bankrollMultiplier(self.game.state.bankroll)
+        local sc = self.ctx and self.ctx.earnings_scale_by_bankroll
+        if sc then
+            local m = ShoveRate.bankrollMultiplier(self.game.state.bankroll)
+            if type(sc) == "table" then
+                if sc.cap then m = math.min(m, sc.cap) end
+                if sc.wins_only and r.delta < 0 then m = 1 end
+            end
+            r.delta = r.delta * m
         end
 
         -- Once-per-run loss voids: The Fridge (first stack-tier stack loss)
@@ -1092,6 +1137,10 @@ function GrindController:update(dt)
                 busted_total = r.busted_total,
                 seats = r.busted_seats,
             })
+            -- Circuit Pro levels on knockouts.
+            if Decks.systemUnlocked(state) then
+                self:_grantDeckXp({ type = "ko", n = #r.busted_seats })
+            end
         end
         -- `not r.flipped` throughout: a hand whose side a heater or tilt
         -- FLIPPED keeps its tier for the felt (the cards played out), but a
@@ -1137,6 +1186,13 @@ function GrindController:update(dt)
                         -- static until shove pulls the trigger on banking.
                         state.chips_this_run = state.chips_this_run + award
                         state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
+                        -- Bounty Hunter levels on chips banked; its Stack
+                        -- shift keys on which lanes are still unbanked,
+                        -- so the rollup has to see this bank now.
+                        if Decks.systemUnlocked(state) then
+                            self:_grantDeckXp({ type = "bounty", n = award })
+                        end
+                        self:invalidateEffects()
                         state.total_chips_banked = (state.total_chips_banked or 0) + award
                         self.game.floating_text.emit(
                             string.format("+%d {chip}", award),
@@ -1321,6 +1377,8 @@ function GrindController:update(dt)
                 stake_buy_in   = stake and stake.buy_in or 0,
                 gtype          = gtype_id,
                 stake_tier_idx = stake_tier_idx,
+                bankroll       = state.bankroll,
+                board_pure     = (self.ctx and self.ctx.board_pure_gtype) ~= nil,
                 n_tables       = n_tables,
                 focus_capacity = focus_cap,
             })
@@ -2325,8 +2383,11 @@ function GrindController:rebuyCostFor(idx)
     if not t then return 0 end
     local stake  = Lookups.findById(Stakes, t.stake_id)
     local buy_in = (stake and stake.buy_in) or 0
+    -- Discounts are additive across sources (Short Stack, Rebuy Sticky
+    -- Note, Wacom Tablet) and can sum past 100%; a rebuy is free at that
+    -- point, never a payout.
     local discount = (self.ctx and self.ctx.rebuy_discount) or 0
-    return buy_in * (1.0 - discount)
+    return buy_in * math.max(0, 1.0 - discount)
 end
 
 -- Refill a busted table's stack to a fresh 100bb buy-in by spending from

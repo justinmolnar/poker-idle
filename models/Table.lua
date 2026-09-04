@@ -503,6 +503,11 @@ function Table:deal(ctx)
         -- the hand finishes (on_tilt_spent — the Waste Basket's moment).
         if self._forced_next_won == false then
             self._tilt_spent_pending = true
+        elseif self._forced_next_won == true then
+            -- The heater's forced hand, mirror of the tilt latch: pays
+            -- Hot Hand's mult below and announces on_heat_spent when the
+            -- hand finishes.
+            self._heat_hand = true
         end
         -- This hand spends the punch: the status that latched it expires
         -- when this hand finalizes, so the fire lives exactly as long as
@@ -550,6 +555,20 @@ function Table:deal(ctx)
         if ectx.payout_double_chance and love.math.random() < ectx.payout_double_chance then
             payout_double = 2.0
         end
+        -- Wins-only twins (Maniac): a bigger tier or a doubled pot, never
+        -- a bigger loss.
+        if won then
+            if ectx.win_tier_bump_chance and love.math.random() < ectx.win_tier_bump_chance then
+                local rank = OutcomeMath.TIER_INDEX[tier]
+                if rank then
+                    tier = OutcomeMath.TIER_KEYS[math.min(#OutcomeMath.TIER_KEYS, rank + 1)]
+                end
+            end
+            if payout_double == 1.0 and ectx.win_payout_double_chance
+               and love.math.random() < ectx.win_payout_double_chance then
+                payout_double = 2.0
+            end
+        end
     end
 
     local magnitude_bb = OutcomeMath.rollTierMagnitude(tier, gtype, won)
@@ -566,6 +585,17 @@ function Table:deal(ctx)
         earnings_mult = earnings_mult * (1.0 + ectx.earnings_per_tier * tier_idx)
     end
     local loss_mult     = ectx.loss_mult     or 1
+    -- Anchor: the tilt's forced hand on a table of the deck's game type
+    -- loses less. `_tilt_spent_pending` was latched above when this deal
+    -- consumed a forced loss.
+    if self._tilt_spent_pending then
+        loss_mult = loss_mult * OutcomeMath.tiltedLossMult(ectx, self.game_type_id)
+    end
+    -- Hot Hand: the heater's forced hand pays more. `_heat_hand` was
+    -- latched above when this deal consumed a forced win.
+    if self._heat_hand and ectx.heater_win_mult then
+        earnings_mult = earnings_mult * ectx.heater_win_mult
+    end
     -- stack_mult (Branded Hat) stacks on top of earnings_mult — only
     -- stack-tier WINS get the extra boost.
     local stack_mult  = (won and tier == "stack")
@@ -961,6 +991,9 @@ function Table:_update(dt, ctx)
     -- shorten itself by doing so.
     local pace_ctx = self:effectiveCtx(self._last_ctx)
     local ctx_pace = (pace_ctx and pace_ctx.hand_pace_mult) or 1
+    -- Game-type scoped pace (Firehose): this table's own entry.
+    local by_g = pace_ctx and pace_ctx.hand_pace_mult_by_gtype
+    if by_g and by_g[self.game_type_id] then ctx_pace = ctx_pace * by_g[self.game_type_id] end
     local effective_dt = (dt or 0) * pace_mult * ctx_pace
     -- Script time runs at this multiple of wall time. Published so the
     -- view can convert a gap between script events into the real seconds
@@ -1479,6 +1512,12 @@ function Table:interrupt(want_win, ctx, landed_kind)
         -- the payout cannot disagree -- and it caps a flipped loss at the
         -- player's own stack for free, because that is all they ever put in.
         self.outcome_delta = want_win and (pot - mine) or -mine
+        -- Anchor: the tilt's landing hand is a tilted hand too.
+        if not want_win then
+            local ectx = self:effectiveCtx(ctx or self._last_ctx)
+            self.outcome_delta = self.outcome_delta
+                * OutcomeMath.tiltedLossMult(ectx, self.game_type_id)
+        end
         last.amount = pot
     end
 
@@ -1527,6 +1566,14 @@ function Table:_finalizeHand()
         self._tilt_spent_pending = nil
         if self.bus then
             self.bus:publish("on_tilt_spent", { table = self })
+        end
+    end
+    -- The heater's forced hand has run its course (Hot Hand's capstone
+    -- listens: the moment the fire goes out is when it can jump).
+    if self._heat_hand then
+        self._heat_hand = nil
+        if self.bus then
+            self.bus:publish("on_heat_spent", { table = self, won = self.outcome_won })
         end
     end
     -- The hand that just finished was the punch's forced hand (latched

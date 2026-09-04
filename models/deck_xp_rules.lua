@@ -57,7 +57,34 @@ function DeckXpRules.registerAll(reg)
     reg:register("money_won", function(rule, event)
         if not event or not event.won then return 0 end
         if not tierBoundsOk(rule, event) then return 0 end
+        if rule.gtype and event.gtype ~= rule.gtype then return 0 end
+        if rule.pure_only and not event.board_pure then return 0 end
         return math.max(0, event.delta or 0)
+    end)
+
+    -- The Bank: XP is the highest bankroll ever seen. `absolute = true` on
+    -- the rule tells Decks.gainXp the return is a level, not a delta.
+    reg:register("bankroll_peak", function(_rule, event)
+        return (event and event.bankroll) or 0
+    end)
+
+    -- Event-shaped rules: one counted moment each, emitted by the
+    -- controller with `type` and `n`.
+    reg:register("knockouts", function(_rule, event)
+        if not event or event.type ~= "ko" then return 0 end
+        return event.n or 1
+    end)
+    reg:register("heaters_caught", function(_rule, event)
+        if not event or event.type ~= "heater" then return 0 end
+        return event.n or 1
+    end)
+    reg:register("tilts_absorbed", function(_rule, event)
+        if not event or event.type ~= "tilt_absorbed" then return 0 end
+        return event.n or 1
+    end)
+    reg:register("chips_banked", function(_rule, event)
+        if not event or event.type ~= "bounty" then return 0 end
+        return event.n or 0
     end)
 
     -- Money lost. Counts the absolute magnitude of losing-resolution

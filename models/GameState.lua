@@ -139,6 +139,7 @@ function GameState:new(saved)
     instance.total_tilts             = 0   -- fresh tilt statuses suffered, lifetime
     instance.total_heaters           = 0   -- fresh heaters caught, lifetime (story: first_heat)
     instance.total_cursor_deals      = 0   -- DEAL clicks made by cursors, lifetime (cursor item gates)
+    instance.total_tilts_absorbed    = 0   -- tilts a six-max took for a neighbour (Anchor deck)
     instance.total_hands_by_gtype    = {}  -- game_type_id → hands resolved there
     instance.highest_stake_idx       = 0   -- highest 1-based stake index ever played
 
@@ -159,6 +160,8 @@ function GameState:new(saved)
     -- game needs none, so it starts true; applySaved decides from the RAW
     -- save whether an old one has to run (see there).
     instance.stake_break_migrated           = true
+    -- Same shape for the 2026-09 deck roster swap (retired ids pruned).
+    instance.deck_roster_migrated           = true
 
     -- Run-side defaults (wiped on prestige).
     instance.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
@@ -376,6 +379,7 @@ function GameState:wipeAll()
     self.total_tilts             = 0
     self.total_heaters           = 0
     self.total_cursor_deals      = 0
+    self.total_tilts_absorbed    = 0
     self.total_hands_by_gtype    = {}
     self.highest_stake_idx       = 0
     self.last_run_money_lost     = 0
@@ -608,6 +612,38 @@ function GameState:applySaved(saved)
         end
         self.stake_break_migrated = true
     end
+
+    -- One-shot (2026-09 deck roster): six decks retired, six new. The
+    -- original pruner (_migrateDeckState) is already consumed on every
+    -- save, so retired ids would linger — inert for effects, but a retired
+    -- ACTIVE deck would silently stop all XP. Prune, repair the active
+    -- pointer, snap surviving XP to the current curve. Decided from the
+    -- raw save; a fresh game starts the flag true.
+    if not ((saved.meta or {}).deck_roster_migrated) then
+        local known = {}
+        for _, spec in ipairs(DeckSpecs) do known[spec.id] = true end
+        local kept = {}
+        for _, id in ipairs(self.unlocked_decks or {}) do
+            if known[id] then kept[#kept + 1] = id end
+        end
+        self.unlocked_decks = kept
+        for id in pairs(self.deck_levels or {}) do
+            if not known[id] then self.deck_levels[id] = nil end
+        end
+        for id in pairs(self.deck_xp or {}) do
+            if not known[id] then self.deck_xp[id] = nil end
+        end
+        if not (self.active_deck_id and known[self.active_deck_id]) then
+            self.active_deck_id = self.unlocked_decks[1] or (DeckSpecs[1] and DeckSpecs[1].id) or nil
+        end
+        for _, spec in ipairs(DeckSpecs) do
+            local lvl = self.deck_levels and self.deck_levels[spec.id]
+            if lvl and self.deck_xp then
+                self.deck_xp[spec.id] = (lvl > 0 and spec.xp_curve[math.min(lvl, #spec.xp_curve)]) or 0
+            end
+        end
+        self.deck_roster_migrated = true
+    end
     -- total_hands_played postdates the (gated) deck counters. Old saves
     -- accrued lifetime_hands_played ungated, so it's the best backfill.
     self.total_hands_played             = self.total_hands_played
@@ -634,6 +670,7 @@ function GameState:applySaved(saved)
     self.total_tilts             = self.total_tilts             or 0
     self.total_heaters           = self.total_heaters           or 0   -- backfill: key added 2026-09
     self.total_cursor_deals      = self.total_cursor_deals      or 0   -- backfill: key added 2026-09
+    self.total_tilts_absorbed    = self.total_tilts_absorbed    or 0   -- backfill: key added 2026-09
     self.total_hands_by_gtype    = self.total_hands_by_gtype    or {}
     self.highest_stake_idx       = self.highest_stake_idx       or 0
     self.run_money_lost          = self.run_money_lost          or 0
@@ -806,6 +843,7 @@ function GameState:serializeMeta()
         lifetime_hands_overwhelmed      = self.lifetime_hands_overwhelmed,
         lifetime_chips_banked           = self.lifetime_chips_banked,
         stake_break_migrated            = self.stake_break_migrated,
+        deck_roster_migrated            = self.deck_roster_migrated,
         total_hands_played              = self.total_hands_played,
         total_hands_won                 = self.total_hands_won,
         total_big_outcomes              = self.total_big_outcomes,
@@ -822,6 +860,7 @@ function GameState:serializeMeta()
         total_tilts                     = self.total_tilts,
         total_heaters                   = self.total_heaters,
         total_cursor_deals              = self.total_cursor_deals,
+        total_tilts_absorbed            = self.total_tilts_absorbed,
         total_hands_by_gtype            = self.total_hands_by_gtype,
         -- Persisted as the stake ID, not the positional index: inserting a
         -- stake mid-ladder must not silently re-gate every existing save.

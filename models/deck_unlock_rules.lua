@@ -34,6 +34,13 @@ local COUNTER_KINDS = {
     "lifetime_rebuys",
     "lifetime_upgrades_bought",
     "lifetime_hands_overwhelmed",
+    -- Ungated totals the 2026-09 roster gates on (they tick in Act 1 too,
+    -- which is fine: a deck opening the moment decks exist is a feature).
+    "total_tilts",
+    "total_heaters",
+    "total_ko_wins",
+    "total_chips_banked",
+    "total_hands_at_4plus",
 }
 
 function DeckUnlockRules.registerAll(reg)
@@ -46,6 +53,16 @@ function DeckUnlockRules.registerAll(reg)
                 return (state and state[field] or 0), (cond.threshold or 0)
             end)
     end
+
+    -- Hands at one game type (total_hands_by_gtype), the catalog rule's
+    -- twin: { kind = "hands_at_gtype", gtype = "zoom", threshold = N }.
+    local function handsAt(cond, state)
+        local by = state and state.total_hands_by_gtype
+        return (by and cond.gtype and by[cond.gtype]) or 0
+    end
+    reg:register("hands_at_gtype",
+        function(cond, state) return handsAt(cond, state) >= (cond.threshold or 0) end,
+        function(cond, state) return handsAt(cond, state), (cond.threshold or 0) end)
 
     -- Number of decks at max level. Gates the master deck (threshold 5).
     -- Not a state field — computed from deck_levels vs each spec's cap.

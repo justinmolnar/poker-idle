@@ -69,7 +69,10 @@ end
 -- pot, a sharp stack, a ratchet) through the same registry.
 local function buildCtx(req, exclude)
     local ctx = {}
-    ctx.active_tables_count = (req.transient and req.transient.active_tables_count) or 1
+    -- Every transient the controller would seed (active_tables_count,
+    -- board_pure_gtype, unbanked…) comes straight from the request.
+    for k, v in pairs(req.transient or {}) do ctx[k] = v end
+    ctx.active_tables_count = ctx.active_tables_count or 1
 
     local owned = toSet(req.equipped)
     for _, item in ipairs(Catalog) do
@@ -249,7 +252,8 @@ local function evalOne(req, exclude)
         w_cash = w_cash, l_cash = l_cash,
         stack_pct      = p.win_chance * (p.win_dist.stack or 0) * 100,
         loss_stack_pct = (1 - p.win_chance) * (p.loss_dist.stack or 0) * 100,
-        hand_pace_mult = ctx.hand_pace_mult or 1,
+        hand_pace_mult = (ctx.hand_pace_mult or 1)
+                         * ((ctx.hand_pace_mult_by_gtype or {})[gtype.id] or 1),
         focus_mult     = opts.focus_mult,
         corner_add     = corner,
         bb = stake.bb, buy_in = stake.buy_in,

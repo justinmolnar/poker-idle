@@ -53,6 +53,13 @@ return {
     -- Only while a tournament is actually running, so it comes and goes
     -- with the tournament rather than being a permanent property of a
     -- column.
+    -- Anchor deck (levels 1-4): tilts aimed beside a six-max land on it.
+    anchor_taunt = {
+        kind   = "taunt_tilt",
+        gtype  = "six_max",
+        radius = 1,
+        ghost  = nil,
+    },
     window_bend = {
         kind    = "tournament_lines",
         row     = { tilt = "heater" },

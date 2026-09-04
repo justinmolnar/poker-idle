@@ -75,10 +75,25 @@ end
 -- Trim a candidate list by `pick` and `max`. `rng` is the registry's
 -- injected 0..1 roll — never love.math directly, so a seeded sim or test
 -- harness stays deterministic.
-local function narrow(list, spec, rng)
+local function narrow(list, spec, rng, event)
     if spec.pick == "random" and #list > 0 then
-        local one = list[math.floor(rng() * #list) + 1]
-        return { one }
+        -- `pick_n_field` names a ctx field that adds targets to the one
+        -- random pick (Circuit Pro's ko_targets_add): sample that many
+        -- distinct tables.
+        local n = 1
+        local field = spec.pick_n_field
+        if field and event and event.ctx then n = n + (event.ctx[field] or 0) end
+        if n <= 1 then
+            return { list[math.floor(rng() * #list) + 1] }
+        end
+        local pool = {}
+        for i, t in ipairs(list) do pool[i] = t end
+        local out = {}
+        while #out < n and #pool > 0 do
+            local i = math.floor(rng() * #pool) + 1
+            out[#out + 1] = table.remove(pool, i)
+        end
+        return out
     end
     local cap = spec.max
     if cap and #list > cap then
@@ -116,7 +131,7 @@ function TableProcs.registerAll(reg)
                 out[#out + 1] = t
             end
         end
-        return narrow(out, spec, reg.rng)
+        return narrow(out, spec, reg.rng, event)
     end)
 
     -- Tables within `radius` cells of the source ON THE BOARD, by
@@ -139,7 +154,7 @@ function TableProcs.registerAll(reg)
                 out[#out + 1] = t
             end
         end
-        return narrow(out, spec, reg.rng)
+        return narrow(out, spec, reg.rng, event)
     end)
 
     -- Any other table, ignoring position.
@@ -158,7 +173,7 @@ function TableProcs.registerAll(reg)
                 out[#out + 1] = t
             end
         end
-        return narrow(out, spec, reg.rng)
+        return narrow(out, spec, reg.rng, event)
     end)
 
     -- The source's row or column on the board. `axis = "col"` for the
@@ -178,7 +193,7 @@ function TableProcs.registerAll(reg)
                 out[#out + 1] = t
             end
         end
-        return narrow(out, spec, reg.rng)
+        return narrow(out, spec, reg.rng, event)
     end)
 
     reg:registerSelector("any_other", function(spec, event)
@@ -186,7 +201,7 @@ function TableProcs.registerAll(reg)
         for _, t in ipairs(event.pool.tables) do
             if t ~= event.source and matches(t, spec.where) then out[#out + 1] = t end
         end
-        return narrow(out, spec, reg.rng)
+        return narrow(out, spec, reg.rng, event)
     end)
 
     -- ── Payloads ───────────────────────────────────────────────────────
@@ -383,6 +398,39 @@ function TableProcs.registerAll(reg)
     -- things land warmer, down its column colder. Checked against live
     -- tournaments rather than a cached flag, because a tournament ending
     -- has to stop bending immediately.
+    -- The tank takes the tilt aimed beside it (Anchor). A tilt headed for
+    -- a table that is not a six-max lands on the nearest live six-max
+    -- within `radius` instead, and that absorption is what the deck
+    -- levels on. Tilts only: heat is welcome where it lands.
+    reg:registerRouter("taunt_tilt", function(spec, d)
+        local pool = d.event and d.event.pool
+        local target = d.to
+        if not (pool and target and d.status == "tilt") then return end
+        if target.game_type_id == spec.gtype then return end
+        local tr, tc = TableGrid.unpack(target.slot or 0)
+        local radius = spec.radius or 1
+        local best, best_dist
+        for _, t in ipairs(pool.tables) do
+            if t ~= target and t.game_type_id == spec.gtype and (t.stack or 0) > 0 then
+                local r, c = TableGrid.unpack(t.slot or 0)
+                local dist = math.abs(r - tr) + math.abs(c - tc)
+                if dist <= radius and (not best_dist or dist < best_dist) then
+                    best, best_dist = t, dist
+                end
+            end
+        end
+        if best then
+            d.to = best
+            local st = d.event.state
+            if st then st.total_tilts_absorbed = (st.total_tilts_absorbed or 0) + 1 end
+            local ctrl = d.event.ctrl
+            if ctrl and ctrl._grantDeckXp then
+                ctrl:_grantDeckXp({ type = "tilt_absorbed", n = 1 })
+            end
+            return best
+        end
+    end)
+
     reg:registerRouter("tournament_lines", function(spec, d)
         local pool = d.event and d.event.pool
         local target = d.to

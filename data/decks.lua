@@ -1,345 +1,331 @@
 -- data/decks.lua
 --
--- The roster of 11 decks (+ the Master).
+-- The roster of 12 decks (2026-09 refactor; the retcon reference for what
+-- each replaced is docs/deck-refactor-2026-09.md).
 --
 -- Decks are Act 2 progression (Decks.systemUnlocked: first shove win).
 -- XP only accrues to the ACTIVE deck; effects of EVERY unlocked deck
--- stack. Nothing is gated by stake: every count-shaped rule earns the
--- table's BUY-IN IN DOLLARS per event (models/deck_xp_rules.lua) — a win
--- at NL2 is 2 XP, at NL100 100, at NL10K 10,000 — so the ladder's own
--- steps are the pacing and the rule is the same everywhere. Each
--- curve is front-loaded: the first levels land while you are still
--- climbing toward the deck's stake (you use the deck TO get over the
--- wall — L1-L3 are about 1 / 3 / 10 min on the 9-table board one stake
--- below), the last levels need that stake, and a strong 9-table board
--- there maxes it in 30-45 min. Money-shaped rules (Nit, Maniac, The Bank,
--- Investor) are already in dollars and pace the same way on their own.
+-- stack. Each deck levels on its own plain unit (dollars won, heaters
+-- caught, knockouts…) and opens on its own counter; nothing is gated by
+-- stake. Act 2 is six or seven runs and each run maxes one deck: play,
+-- max, shove, pick the next, until five are maxed, the Master opens, and
+-- a good NL100M run maxes it for R2.
 --
--- Rough targets (2026-09-03, docs/balance-act2.md): Standard maxes at
--- NL10K; Hustler / Swarm / Short Stack at NL10K-NL1M; Specialist /
--- Multitasker / Tier Manipulator at NL1M; Nit / Maniac / The Bank /
--- Investor at NL100M; Master on a good NL100M run. Act 2 is six shoves,
--- about one maxed deck each, Master last.
---
--- Unlocks are each deck's OWN lifetime counter (models/deck_unlock_rules),
--- thresholds staged so the cheap ones open during the first NL10K play
--- and the money ones around NL1M / NL100M. Tune from play.
+-- Built on the game's identities (docs/gametype-identity-redesign.md):
+-- zoom is the sustain (Firehose), heads-up the burst (Closer), six-max
+-- the tank (Anchor), tournaments the support (Circuit Pro), heat and
+-- chips their own systems (Hot Hand, Bounty Hunter). Rules kept: a
+-- status is a punch and no deck lengthens one; chip awards are immutable
+-- (Bounty Hunter changes odds, not size); every "never" is a percentage.
 --
 -- Defines:
 --   • id        = unique identifier string
 --   • name      = player-facing display name
---   • sprite    = card-back texture path (reused across the roster)
+--   • sprite    = card-back texture path (art not final; reuse is fine)
 --   • max_level = always 5
 --   • xp_curve  = PER-DECK cumulative thresholds for levels 1..5, in the
---                 UNITS of that deck's xp_rule (buy-in dollars, or dollars)
---   • xp_rule   = parameter block passed to the deck-XP registry (the
---                 level-up condition — each deck's is its own identity)
+--                 UNITS of that deck's xp_rule (plain: $, counts)
+--   • xp_rule   = parameter block passed to the deck-XP registry
+--                 (models/deck_xp_rules.lua) — each deck's own signal
 --   • effects   = numeric perk list applied once per level (capped at 4)
---   • capstone  = single perk list applied once at L5
+--   • capstone  = single perk list applied once at L5 (may grant a proc
+--                 or router: data/procs.lua, data/routers.lua)
 --   • bonus_text= L1-4 UI text description
 --   • flavor_text= deck description text
---   • unlock    = unlock criteria (distinct per deck)
+--   • unlock    = unlock criteria (models/deck_unlock_rules.lua kinds)
 --
--- Re-run `node tools/balance_sweep.js --act2` after touching a deck that
--- moves EV (Standard, Hustler, Nit, Maniac, The Bank, Investor): the
--- upgrade window prices are derived holding them.
+-- The first entry is the starter (GameState seeds it; the Act 2 story
+-- beats anchor on its tile). Re-run `node tools/balance_sweep.js --act2`
+-- after touching a deck that moves EV.
 
 local Decks = {
 
-    -- ── 1. Standard ────────────────────────────────────────────────────────
-    -- Starter. The climb to NL100 is seconds, so L1-L3 are priced on the
-    -- 9-table NL100 board (~140k XP/hr): 1 / 3 / 10 min. L4-L5 at NL10K
-    -- (200 / 800 wins there, ~35 min on a strong board).
+    -- ── 1. Standard — cash ─────────────────────────────────────────────────
+    -- Opens: start. Maxes: NL10K (a 9-table session's winnings).
     {
         id        = "standard",
         name      = "Standard",
-        sprite    = "cards/backs/06-nature",
+        sprite    = "cards/backs/04-patterns",
         max_level = 5,
-        xp_curve  = { 2.5e3, 8e3, 2.5e4, 2e6, 8e6 },
-        xp_rule   = { kind = "hands_won" },
-        xp_action_text = "XP per hand won: the table's buy-in in $",
+        xp_curve  = { 2e3, 2e4, 2e5, 2e6, 6e6 },
+        xp_rule   = { kind = "money_won" },
+        xp_action_text = "+1 XP per dollar won",
         effects   = {
             { kind = "earnings_mult", value = 1.5 },
         },
         capstone  = {
-            text    = "Wins never roll Small. Every win is Medium or bigger.",
-            effects = { { kind = "win_tier_floor", tier = "medium" } },
+            text    = "{w:stack} wins pay double.",
+            effects = { { kind = "stack_mult", value = 2.0 } },
         },
         bonus_text  = "+50% cash winnings per level",
         flavor_text = "The classic back. Solid, reliable, honest.",
     },
 
-    -- ── 2. Hustler ─────────────────────────────────────────────────────────
-    -- Maxes at NL10K (1,400 hands there).
+    -- ── 2. Firehose — zoom, the sustain ────────────────────────────────────
+    -- Opens: 3,000 zoom hands. Maxes: NL1M on a zoom-heavy board.
     {
-        id        = "hustler",
-        name      = "Hustler",
-        sprite    = "cards/backs/05-patterns",
+        id        = "firehose",
+        name      = "Firehose",
+        sprite    = "cards/backs/02-fish",
         max_level = 5,
-        xp_curve  = { 3e3, 1e4, 3e4, 3e6, 1.4e7 },
-        xp_rule   = { kind = "hands_played" },
-        xp_action_text = "XP per hand played: the table's buy-in in $",
+        xp_curve  = { 1e4, 1e5, 1e6, 1e7, 5e7 },
+        xp_rule   = { kind = "money_won", gtype = "zoom" },
+        xp_action_text = "+1 XP per dollar won on Zoom",
         effects   = {
-            { kind = "hand_pace_mult", value = 1.4 },
+            { kind = "hand_pace_mult", value = 1.15, gtype = "zoom" },
         },
         capstone  = {
-            text    = "Double the hand speed of everything (2x speed)",
-            effects = { { kind = "hand_pace_mult", value = 2.0 } },
+            text    = "A Zoom {w:stack} resolves every other Zoom table on the spot.",
+            effects = { { kind = "proc", proc = "firehose_cascade" } },
         },
-        bonus_text  = "+40% hand pace per level",
-        flavor_text = "Fast cards, fast deals, fast money.",
+        bonus_text  = "Zoom tables deal 15% faster per level",
+        flavor_text = "Hands are hands. Open the valve.",
         unlock = {
-            kind      = "lifetime_hands_played",
-            threshold = 2000,
-            text      = "Play 2,000 hands to unlock",
+            kind      = "hands_at_gtype",
+            gtype     = "zoom",
+            threshold = 3000,
+            text      = "Play 3,000 Zoom hands to unlock",
         },
     },
 
-    -- ── 3. Nit ─────────────────────────────────────────────────────────────
-    -- Maxes at NL100M.
+    -- ── 3. Closer — heads-up, the burst ────────────────────────────────────
+    -- Opens: 3,000 HU hands. Maxes: NL1M.
+    {
+        id        = "closer",
+        name      = "Closer",
+        sprite    = "cards/backs/01-robot",
+        max_level = 5,
+        xp_curve  = { 1e4, 1e5, 1e6, 1e7, 5e7 },
+        xp_rule   = { kind = "money_won", gtype = "hu" },
+        xp_action_text = "+1 XP per dollar won Heads-Up",
+        effects   = {
+            { kind = "win_chance_shift", amount = 0.03, gtype = "hu" },
+        },
+        capstone  = {
+            text    = "Heads-Up {l:stack} losses have a 50% chance to read one tier smaller.",
+            effects = { { kind = "loss_tier_shift", from = "stack", to = "large", chance = 0.5, gtype = "hu" } },
+        },
+        bonus_text  = "+3% win chance Heads-Up per level",
+        flavor_text = "One opponent. One stack. Take it.",
+        unlock = {
+            kind      = "hands_at_gtype",
+            gtype     = "hu",
+            threshold = 3000,
+            text      = "Play 3,000 Heads-Up hands to unlock",
+        },
+    },
+
+    -- ── 4. Bounty Hunter — chips ───────────────────────────────────────────
+    -- Opens: 30 {chip} banked. Maxes: NL100M (the lanes run out there).
+    {
+        id        = "bounty_hunter",
+        name      = "Bounty Hunter",
+        sprite    = "cards/backs/04-acorns",
+        max_level = 5,
+        xp_curve  = { 10, 40, 100, 200, 400 },
+        xp_rule   = { kind = "chips_banked" },
+        xp_action_text = "+1 XP per {chip} banked",
+        effects   = {
+            { kind = "unbanked_stack_shift", value = 0.05 },
+        },
+        capstone  = {
+            text    = "+1 {chip} on every bounty.",
+            effects = { { kind = "stack_chip_add", value = 1 } },
+        },
+        bonus_text  = "+5% {w:stack} chance per level at tables whose {chip} you haven't banked yet",
+        flavor_text = "Every lane has a price on it. Collect.",
+        unlock = {
+            kind      = "total_chips_banked",
+            threshold = 30,
+            text      = "Bank 30 {chip} to unlock",
+        },
+    },
+
+    -- ── 5. Specialist — the pure board ─────────────────────────────────────
+    -- Opens: 3,000 hands at 4+ tables. Maxes: NL1M.
+    {
+        id        = "specialist",
+        name      = "Specialist",
+        sprite    = "cards/backs/05-patterns",
+        max_level = 5,
+        xp_curve  = { 1e4, 1e5, 1e6, 1e7, 5e7 },
+        xp_rule   = { kind = "money_won", pure_only = true },
+        xp_action_text = "+1 XP per dollar won while every table is the same game",
+        effects   = {
+            { kind = "pure_board_bonus", earnings_mult = 1.2 },
+        },
+        capstone  = {
+            text    = "A pure board deals 25% faster.",
+            effects = { { kind = "pure_board_pace", value = 1.25 } },
+        },
+        bonus_text  = "+20% cash winnings per level while every open table is the same game",
+        flavor_text = "One game. Every table. Perfect execution.",
+        unlock = {
+            kind      = "total_hands_at_4plus",
+            threshold = 3000,
+            text      = "Play 3,000 hands at 4+ tables to unlock",
+        },
+    },
+
+    -- ── 6. Hot Hand — heat ─────────────────────────────────────────────────
+    -- Opens: 50 heaters caught. Maxes: NL1M (heat sources are Act 2 items).
+    {
+        id        = "hot_hand",
+        name      = "Hot Hand",
+        sprite    = "cards/backs/05-nature",
+        max_level = 5,
+        xp_curve  = { 5, 20, 60, 150, 300 },
+        xp_rule   = { kind = "heaters_caught" },
+        xp_action_text = "+1 XP per heater caught",
+        effects   = {
+            { kind = "heater_win_mult", value = 1.25 },
+        },
+        capstone  = {
+            text    = "When a heater burns out, 25% chance it jumps to a neighbouring table.",
+            effects = { { kind = "proc", proc = "hot_hand_spread" } },
+        },
+        bonus_text  = "A heater's hand pays 25% more per level",
+        flavor_text = "Run good. Then run gooder.",
+        unlock = {
+            kind      = "total_heaters",
+            threshold = 50,
+            text      = "Catch 50 heaters to unlock",
+        },
+    },
+
+    -- ── 7. Maniac — variance ───────────────────────────────────────────────
+    -- Opens: 5,000 {w:stack}. Maxes: NL100M.
+    {
+        id        = "maniac",
+        name      = "Maniac",
+        sprite    = "cards/backs/07-beach",
+        max_level = 5,
+        xp_curve  = { 5e5, 5e6, 5e7, 5e8, 5e9 },
+        xp_rule   = { kind = "stack_dollars" },
+        xp_action_text = "+1 XP per dollar won in {w:stack} pots",
+        effects   = {
+            { kind = "win_dist_shift",
+              shift = { small = -0.10, medium = -0.10, large = 0.10, stack = 0.10 } },
+        },
+        capstone  = {
+            text    = "Wins: 50% chance to read a tier bigger, 50% chance to pay double.",
+            effects = {
+                { kind = "win_tier_bump_chance",     value = 0.5 },
+                { kind = "win_payout_double_chance", value = 0.5 },
+            },
+        },
+        bonus_text  = "Wins lean Large and {w:stack}, +10% each per level",
+        flavor_text = "Put the pedal to the floor. Wild swings, huge pots.",
+        unlock = {
+            kind      = "lifetime_stack_count",
+            threshold = 5000,
+            text      = "Hit 5,000 {w:stack} to unlock",
+        },
+    },
+
+    -- ── 8. Nit — loss shape ────────────────────────────────────────────────
+    -- Opens: $10M lost. Maxes: NL100M.
     {
         id        = "nit",
         name      = "Nit",
-        sprite    = "cards/backs/05-nature",
+        sprite    = "cards/backs/03-fish",
         max_level = 5,
-        xp_curve  = { 1e7, 5e7, 3e8, 5e9, 1.8e10 },  -- $ lost
+        xp_curve  = { 1e6, 1e7, 1e8, 1e9, 1e10 },
         xp_rule   = { kind = "money_lost" },
         xp_action_text = "+1 XP per dollar lost",
         effects   = {
             { kind = "loss_dist_shift",
-              shift = { small = 0.15, medium = -0.05, large = -0.07, stack = -0.03 } },
+              shift = { small = 0.18, medium = -0.06, large = -0.06, stack = -0.06 } },
         },
         capstone  = {
-            text    = "Losses never roll a Stack.",
-            effects = { { kind = "loss_tier_ceiling", tier = "large" } },
+            text    = "{l:stack} losses have a 50% chance to read one tier smaller.",
+            effects = { { kind = "loss_tier_shift", from = "stack", to = "large", chance = 0.5 } },
         },
-        bonus_text  = "Shifts loss distribution towards Small losses",
+        bonus_text  = "Losses lean Small, +18% per level",
         flavor_text = "Tight is right. Play safe, live to grind another day.",
         unlock = {
             kind      = "lifetime_money_lost",
-            threshold = 3e9,
-            text      = "Lose $3B to unlock",
+            threshold = 1e7,
+            text      = "Lose $10M to unlock",
         },
     },
 
-    -- ── 4. Maniac ──────────────────────────────────────────────────────────
-    -- Maxes at NL100M.
+    -- ── 9. Anchor — six-max, the tank ──────────────────────────────────────
+    -- Opens: 25 tilts taken. Maxes: NL100M.
     {
-        id        = "maniac",
-        name      = "Maniac",
-        sprite    = "cards/backs/05-acorns",
+        id        = "anchor",
+        name      = "Anchor",
+        sprite    = "cards/backs/04-hand",
         max_level = 5,
-        xp_curve  = { 1e8, 5e8, 3e9, 5e11, 2.4e12 },  -- $ won in stacks
-        xp_rule   = { kind = "stack_dollars" },
-        xp_action_text = "+1 XP per dollar won in Stack pots",
+        xp_curve  = { 5, 15, 40, 80, 150 },
+        xp_rule   = { kind = "tilts_absorbed" },
+        xp_action_text = "+1 XP per tilt a 6-max table takes for a neighbour",
         effects   = {
-            { kind = "win_dist_shift",
-              shift = { small = -0.15, medium = -0.15, large = 0.20, stack = 0.10 } },
-            { kind = "loss_dist_shift",
-              shift = { small = -0.15, medium = -0.15, large = 0.20, stack = 0.10 } },
+            { kind = "router", router = "anchor_taunt" },
+            { kind = "tilted_loss_mult", value = 0.8, gtype = "six_max" },
         },
         capstone  = {
-            text    = "50% chance for a tier upgrade, 50% chance to double the payout",
-            effects = {
-                { kind = "tier_bump_chance",     value = 0.5 },
-                { kind = "payout_double_chance", value = 0.5 },
-            },
+            text    = "A tilt spent on a 6-max table heats a neighbour.",
+            effects = { { kind = "proc", proc = "anchor_convert" } },
         },
-        bonus_text  = "Shifts win and loss distributions heavily toward Large/Stack",
-        flavor_text = "Put the pedal to the floor. Wild swings, huge pots.",
+        bonus_text  = "Tilts aimed beside a 6-max table land on it instead; its tilted hands lose 20% less per level",
+        flavor_text = "Somebody has to take the hit. Sit them at the big table.",
         unlock = {
-            kind      = "lifetime_stack_count",
-            threshold = 20000,
-            text      = "Hit 20,000 Stacks to unlock",
+            kind      = "total_tilts",
+            threshold = 25,
+            text      = "Take 25 tilts to unlock",
         },
     },
 
-    -- ── 5. Short Stack ──────────────────────────────────────────────────────
-    -- Maxes at NL10K-NL1M (a rebuy earns 10 × the buy-in).
+    -- ── 10. Circuit Pro — tournaments, the support ─────────────────────────
+    -- Opens: 3 tournaments won. Maxes: NL100M.
     {
-        id        = "short_stack",
-        name      = "Short Stack",
-        sprite    = "cards/backs/04-patterns",
+        id        = "circuit_pro",
+        name      = "Circuit Pro",
+        sprite    = "cards/backs/02-castle",
         max_level = 5,
-        xp_curve  = { 2e3, 8e3, 2e4, 8e5, 2.6e6 },
-        xp_rule   = { kind = "table_rebuys" },
-        xp_action_text = "XP per rebuy: 10 x the table's buy-in in $",
+        xp_curve  = { 20, 80, 250, 600, 1200 },
+        xp_rule   = { kind = "knockouts" },
+        xp_action_text = "+1 XP per knockout",
         effects   = {
-            { kind = "rebuy_discount", value = 0.15 },
+            { kind = "ko_targets_add", value = 1 },
         },
         capstone  = {
-            text    = "50% chance for rebuys to be completely free",
-            effects = { { kind = "free_rebuy_chance", value = 0.5 } },
+            text    = "First place heats every table.",
+            effects = { { kind = "proc", proc = "circuit_pro_final" } },
         },
-        bonus_text  = "Rebuys are 15% cheaper per level",
-        flavor_text = "Low buy-in specialist. Keep refilling the stacks.",
+        bonus_text  = "Each knockout's effect lands on one more table per level",
+        flavor_text = "The tournament pays the room.",
         unlock = {
-            kind      = "lifetime_rebuys",
-            threshold = 100,
-            text      = "Rebuy tables 100 times to unlock",
+            kind      = "total_ko_wins",
+            threshold = 3,
+            text      = "Win 3 tournaments to unlock",
         },
     },
 
-    -- ── 6. The Bank ────────────────────────────────────────────────────────
-    -- Maxes at NL100M.
+    -- ── 11. The Bank — scale ───────────────────────────────────────────────
+    -- Opens: $10B won. Maxes: NL100M (a $1B bankroll).
     {
         id        = "bank",
         name      = "The Bank",
-        sprite    = "cards/backs/04-acorns",
+        sprite    = "cards/backs/05-acorns",
         max_level = 5,
-        xp_curve  = { 1e8, 5e8, 3e9, 4e11, 2e12 },  -- $ won
-        xp_rule   = { kind = "money_won" },
-        xp_action_text = "+1 XP per dollar won",
+        xp_curve  = { 1e5, 1e6, 1e7, 1e8, 1e9 },
+        xp_rule   = { kind = "bankroll_peak", absolute = true },
+        xp_action_text = "XP is your highest bankroll",
         effects   = {
-            { kind = "earnings_per_tier", value = 0.15 },
+            { kind = "earnings_per_tier", value = 0.075 },
         },
         capstone  = {
-            text    = "Every hand outcome is multiplied by your bankroll multiplier",
-            effects = { { kind = "earnings_scale_by_bankroll" } },
+            text    = "Wins are multiplied by your BANK multiplier, up to 3x.",
+            effects = { { kind = "earnings_scale_by_bankroll", wins_only = true, cap = 3 } },
         },
-        bonus_text  = "+15% cash winnings per table tier per level",
+        bonus_text  = "+7.5% cash winnings per table tier per level",
         flavor_text = "Earnings grow with stakes. Watch the capital accumulate.",
         unlock = {
             kind      = "lifetime_money_won",
-            threshold = 1e11,
-            text      = "Earn $100B to unlock",
-        },
-    },
-
-    -- ── 7. Swarm (Cursor Deck) ─────────────────────────────────────────────
-    -- Maxes at NL10K-NL1M.
-    {
-        id        = "swarm",
-        name      = "Swarm",
-        sprite    = "cards/backs/02-fish",
-        max_level = 5,
-        xp_curve  = { 4e3, 1.2e4, 4e4, 4e6, 1.6e7 },
-        xp_rule   = { kind = "hands_played" },
-        xp_action_text = "XP per hand played: the table's buy-in in $",
-        effects   = {
-            { kind = "cursor_count_add", value = 1 },
-        },
-        capstone  = {
-            text    = "Cursors move 3x faster and click instantly",
-            effects = {
-                { kind = "cursor_speed_mult", value = 3.0 },
-                { kind = "cursor_instant_click" },
-            },
-        },
-        bonus_text  = "+1 cursor per level",
-        flavor_text = "The swarm grows. Let the clicks deal the cards.",
-        unlock = {
-            kind      = "lifetime_hands_played",
-            threshold = 6000,
-            text      = "Play 6,000 hands to unlock",
-        },
-    },
-
-    -- ── 8. Specialist (Single Table Deck) ──────────────────────────────────
-    -- Maxes at NL1M on one table.
-    {
-        id        = "specialist",
-        name      = "Specialist",
-        sprite    = "cards/backs/03-fish",
-        max_level = 5,
-        xp_curve  = { 5e4, 1.5e5, 4e5, 4e8, 1.5e9 },
-        xp_rule   = { kind = "hands_won_single_table" },
-        xp_action_text = "XP per hand won on a single table: 2 x the buy-in in $",
-        effects   = {
-            { kind = "solo_table_bonus", earnings_mult = 2.0, wc_bonus = 0.10 },
-        },
-        capstone  = {
-            text    = "Single table deals 2x faster (2x pace)",
-            effects = { { kind = "solo_table_pace", value = 2.0 } },
-        },
-        bonus_text  = "+100% earnings and +10% Win Chance on exactly 1 table",
-        flavor_text = "One table. One focus. Perfect execution.",
-        unlock = {
-            kind      = "lifetime_stack_count",
-            threshold = 2000,
-            text      = "Hit 2,000 Stacks to unlock",
-        },
-    },
-
-    -- ── 9. Multitasker (Focus / Overwhelm Deck) ────────────────────────────
-    -- Levels on hands won WHILE OVERWHELMED — the more tables you're running
-    -- over your focus cap, the more XP each win grants. Unique on purpose; do
-    -- not flatten to a plain table-count threshold. Maxes at NL1M.
-    {
-        id        = "multitasker",
-        name      = "Multitasker",
-        sprite    = "cards/backs/05-patterns",
-        max_level = 5,
-        xp_curve  = { 1e6, 3.5e6, 1e7, 1.6e8, 5.5e8 },
-        xp_rule   = { kind = "hands_won_overwhelmed" },
-        xp_action_text = "XP per hand won: the buy-in in $, per table over your cap",
-        effects   = {
-            { kind = "focus_capacity_add", value = 3 },
-        },
-        capstone  = {
-            text    = "Removes Focus penalty entirely",
-            effects = { { kind = "focus_penalty_immune" } },
-        },
-        bonus_text  = "+3 Focus Capacity per level",
-        flavor_text = "Thrive in the swarm. Keep adding tables.",
-        unlock = {
-            kind      = "lifetime_hands_overwhelmed",
-            threshold = 2000,
-            text      = "Play 2,000 hands over your focus cap to unlock",
-        },
-    },
-
-    -- ── 10. Investor (Upgrades Deck) ──────────────────────────────────────
-    -- XP is dollars spent on run upgrades, so the ladder paces it on its
-    -- own (an NL10K window is ~$200k, NL1M ~$500M, NL100M ~$32B). Maxes at
-    -- NL100M.
-    {
-        id        = "investor",
-        name      = "Investor",
-        sprite    = "cards/backs/05-acorns",
-        max_level = 5,
-        xp_curve  = { 2e5, 5e8, 3e9, 1e10, 3e10 },
-        xp_rule   = { kind = "upgrades_bought" },
-        xp_action_text = "+1 XP per dollar spent on run upgrades",
-        effects   = {
-            { kind = "run_upgrade_strength_mult", value = 0.15 },
-        },
-        capstone  = {
-            text    = "Adds a final Super Level to run upgrades in the shop",
-            effects = { { kind = "run_upgrade_bonus_levels", value = 1 } },
-        },
-        bonus_text  = "Sharper Reads and Pot Control are 15% stronger per level",
-        flavor_text = "Invest in upgrades. Compound your poker edge.",
-        unlock = {
-            kind      = "lifetime_upgrades_bought",
-            threshold = 150,
-            text      = "Buy 150 run-upgrade levels to unlock",
-        },
-    },
-
-    -- ── 11. Tier Manipulator (Win% / Tier Deck) ───────────────────────────
-    -- Maxes at NL1M.
-    {
-        id        = "tier_manipulator",
-        name      = "Tier Manipulator",
-        sprite    = "cards/backs/05-nature",
-        max_level = 5,
-        xp_curve  = { 2.5e5, 7e5, 2e6, 8e8, 3e9 },
-        xp_rule   = { kind = "hands_won_above_t1" },
-        xp_action_text = "XP per hand won above NL2: the table's buy-in in $",
-        effects   = {
-            { kind = "fill_window_widen", value = 1 },
-        },
-        capstone  = {
-            text    = "Every level of upgrade you purchase adds +1 to all other tiers automatically",
-            effects = { { kind = "fill_cascade" } },
-        },
-        bonus_text  = "Adds new, purchasable upgrade levels per tier",
-        flavor_text = "Manipulate the stakes. Bend the limits.",
-        unlock = {
-            kind      = "lifetime_money_won",
-            threshold = 1e9,
-            text      = "Earn $1B to unlock",
+            threshold = 1e10,
+            text      = "Earn $10B to unlock",
         },
     },
 
@@ -354,9 +340,9 @@ local Decks = {
         name      = "The Master",
         sprite    = "cards/backs/06-nature",
         max_level = 5,
-        xp_curve  = { 2.5e7, 7e7, 2e8, 1e11, 2.8e11 },
-        xp_rule   = { kind = "hands_won" },
-        xp_action_text = "XP per hand won: the table's buy-in in $",
+        xp_curve  = { 1e9, 1e10, 5e10, 2e11, 5e11 },
+        xp_rule   = { kind = "money_won", tier_min = 6 },
+        xp_action_text = "+1 XP per dollar won at NL100M or above",
         effects   = {
             { kind = "shove_base_per_deck_level", value = 0.01 },
         },

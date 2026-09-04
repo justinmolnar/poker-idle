@@ -119,7 +119,7 @@ C.GAUNTLET = {
     RUNOUT_PAUSE        = 1.2,      -- pause after a runout resolves before the next deals
     CHEAT_REVEAL_PAUSE  = 1.8,      -- extra pause before the cheat card slides in (runouts 2/3)
     REJECTION_RETRY_CAP = 500,      -- max joint-construction retries (deal hole+5-board AND find satisfying c6/c7) before accepting natural outcome
-    CARD_BACK_SPRITE    = "cards/backs/06-nature",  -- shown on hole cards during deal, before runout 1 reveal (02-castle is .gif which LÖVE can't decode)
+    CARD_BACK_SPRITE    = "cards/backs/04-patterns", -- the Standard deck's back: the plain lattice, shown through Act 1 before any deck exists
 }
 
 C.SAVE = {

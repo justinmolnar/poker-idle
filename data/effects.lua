@@ -540,6 +540,51 @@ Effects.kinds = {
         affects     = "ctx.copy_denied_chance (max)",
     },
 
+    -- ── Deck kinds (2026-09 roster, models/UpgradePricing-era) ────────────
+    -- hand_pace_mult also accepts `gtype`: scoped pace lands in
+    -- ctx.hand_pace_mult_by_gtype[gtype] and Table:update multiplies it in
+    -- for that table's type only (Firehose).
+    win_tier_bump_chance = {
+        description = "Per-resolve chance to bump a WIN's tier one step. Wins only — the two-sided tier_bump_chance stays for items (Toaster). Maniac capstone.",
+        value_shape = "{ value = 0..1 }",
+        affects     = "ctx.win_tier_bump_chance (max)",
+    },
+    win_payout_double_chance = {
+        description = "Per-resolve chance to double a WIN's payout. Wins only. Maniac capstone.",
+        value_shape = "{ value = 0..1 }",
+        affects     = "ctx.win_payout_double_chance (max)",
+    },
+    pure_board_bonus = {
+        description = "While every open table is one game type (ctx.board_pure_gtype, a controller transient), multiplies winning $ deltas. Specialist.",
+        value_shape = "{ earnings_mult = number }",
+        affects     = "ctx.earnings_mult (multiplicative, conditional)",
+    },
+    pure_board_pace = {
+        description = "While the board is pure, multiplies hand pace. Specialist capstone.",
+        value_shape = "{ value = number }",
+        affects     = "ctx.hand_pace_mult (multiplicative, conditional)",
+    },
+    tilted_loss_mult = {
+        description = "A tilt's forced hands on a table of this game type lose this much less (both the landing hand and the forced next hand). Anchor.",
+        value_shape = "{ value = number <1, gtype = <gtype_id>? }",
+        affects     = "ctx.tilted_loss_mults (list; OutcomeMath.tiltedLossMult)",
+    },
+    heater_win_mult = {
+        description = "The heater's forced hand pays this much more. Hot Hand.",
+        value_shape = "{ value = number >1 }",
+        affects     = "ctx.heater_win_mult (multiplicative)",
+    },
+    ko_targets_add = {
+        description = "A knockout's proc lands on this many extra tables: selectors with pick_n_field = \"ko_targets_add\" sample 1 + this. Circuit Pro.",
+        value_shape = "{ value = integer }",
+        affects     = "ctx.ko_targets_add (additive)",
+    },
+    unbanked_stack_shift = {
+        description = "Stack share up (Small down) on wins at lanes whose {chip} bounty is unbanked this run (ctx.unbanked, a controller transient). Bounty Hunter.",
+        value_shape = "{ value = 0..1 }",
+        affects     = "ctx.unbanked_stack_shift (additive)",
+    },
+
 }
 
 return Effects

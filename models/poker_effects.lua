@@ -43,7 +43,58 @@ function PokerEffects.registerAll(reg)
     -- Multiplicative pace boost composed into effective_dt at the table
     -- level (Energy Drink). Stacks with gtype.pace_mult.
     reg:register("hand_pace_mult", function(e, ctx)
-        ctx.hand_pace_mult = (ctx.hand_pace_mult or 1) * (e.value or 1)
+        if e.gtype then
+            -- Game-type scoped pace (Firehose: zoom only). Table:update
+            -- multiplies the global term by this table's own entry.
+            ctx.hand_pace_mult_by_gtype = ctx.hand_pace_mult_by_gtype or {}
+            ctx.hand_pace_mult_by_gtype[e.gtype] =
+                (ctx.hand_pace_mult_by_gtype[e.gtype] or 1) * (e.value or 1)
+        else
+            ctx.hand_pace_mult = (ctx.hand_pace_mult or 1) * (e.value or 1)
+        end
+    end)
+
+    -- Deck kinds (2026-09 roster), all read in Table:deal / :update or
+    -- the controller's rollup. Documented in data/effects.lua.
+    -- Wins-only twins of tier_bump_chance / payout_double_chance
+    -- (Maniac capstone): the two-sided kinds stay for the Toaster.
+    reg:register("win_tier_bump_chance", function(e, ctx)
+        ctx.win_tier_bump_chance = math.max(ctx.win_tier_bump_chance or 0, e.value or 0)
+    end)
+    reg:register("win_payout_double_chance", function(e, ctx)
+        ctx.win_payout_double_chance = math.max(ctx.win_payout_double_chance or 0, e.value or 0)
+    end)
+    -- Specialist: a board where every open table is one game type.
+    -- ctx.board_pure_gtype is a transient the controller seeds.
+    reg:register("pure_board_bonus", function(e, ctx)
+        if ctx.board_pure_gtype then
+            ctx.earnings_mult = (ctx.earnings_mult or 1) * (e.earnings_mult or 1)
+        end
+    end)
+    reg:register("pure_board_pace", function(e, ctx)
+        if ctx.board_pure_gtype then
+            ctx.hand_pace_mult = (ctx.hand_pace_mult or 1) * (e.value or 1)
+        end
+    end)
+    -- Anchor: a tilted table of this game type loses less on the tilt's
+    -- forced hands. List of { value, gtype }, multiplied at read.
+    reg:register("tilted_loss_mult", function(e, ctx)
+        ctx.tilted_loss_mults = ctx.tilted_loss_mults or {}
+        ctx.tilted_loss_mults[#ctx.tilted_loss_mults + 1] = { value = e.value or 1, gtype = e.gtype }
+    end)
+    -- Hot Hand: the heater's forced hand pays more.
+    reg:register("heater_win_mult", function(e, ctx)
+        ctx.heater_win_mult = (ctx.heater_win_mult or 1) * (e.value or 1)
+    end)
+    -- Circuit Pro: a knockout's proc lands on this many extra tables
+    -- (selectors with `pick_n_field = "ko_targets_add"`).
+    reg:register("ko_targets_add", function(e, ctx)
+        ctx.ko_targets_add = (ctx.ko_targets_add or 0) + (e.value or 0)
+    end)
+    -- Bounty Hunter: Stack share at lanes whose {chip} bounty is still
+    -- unbanked this run (ctx.unbanked, a transient set of "stake:gtype").
+    reg:register("unbanked_stack_shift", function(e, ctx)
+        ctx.unbanked_stack_shift = (ctx.unbanked_stack_shift or 0) + (e.value or 0)
     end)
 
     reg:register("rep_decay_slow", function(e, ctx)
@@ -350,8 +401,14 @@ function PokerEffects.registerAll(reg)
     -- Scale every hand's magnitude by a bankroll-log multiplier (The Bank
     -- capstone). Magnitude-only flag; applied at resolve time in
     -- GrindController where live bankroll is available.
-    reg:register("earnings_scale_by_bankroll", function(_e, ctx)
-        ctx.earnings_scale_by_bankroll = true
+    -- Optional `wins_only` and `cap` (The Bank's 2026-09 capstone:
+    -- wins × the BANK multiplier, never past cap). A bare flag keeps
+    -- the old both-sides, uncapped read.
+    reg:register("earnings_scale_by_bankroll", function(e, ctx)
+        ctx.earnings_scale_by_bankroll = {
+            wins_only = e.wins_only or false,
+            cap       = e.cap,
+        }
     end)
 
     -- Removes the multi-table focus penalty (Multitasker capstone).

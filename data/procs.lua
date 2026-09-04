@@ -69,7 +69,7 @@ return {
     curved_monitor_heater = {
         trigger = "on_ko",
         chance  = 0.20,
-        target  = { kind = "board_near", radius = 2, pick = "random",
+        target  = { kind = "board_near", radius = 2, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6,
@@ -86,7 +86,7 @@ return {
     tower_upgrade_bump = {
         trigger = "on_ko",
         chance  = 0.15,
-        target  = { kind = "board_near", radius = 2, pick = "random",
+        target  = { kind = "board_near", radius = 2, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "apply_status", status = "marked",
                     magnitude = 1, charges = 1 },
@@ -97,7 +97,7 @@ return {
     shredder_refund = {
         trigger = "on_ko",
         chance  = 0.12,
-        target  = { kind = "board_near", radius = 1, pick = "random",
+        target  = { kind = "board_near", radius = 1, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "refund_buyin", chance = 1.0 },
         ghost   = "shredder",
@@ -435,5 +435,46 @@ return {
                     magnitude = 0.35, t = 5 },
         ghost   = nil,
         impact  = true,    -- a blow: the source shoves / slams (see header)
+    },
+
+    -- ─── Deck capstone procs (data/decks.lua) ──────────────────────────
+    -- Granted from a deck's capstone effects via { kind = "proc" }. No
+    -- ghost: the deck cell is the thing that fired.
+
+    -- Firehose: a zoom Stack resolves every other zoom table now.
+    firehose_cascade = {
+        trigger = "on_stack_win",
+        source  = { gtype = "zoom" },
+        target  = { kind = "gtype", gtype = "zoom", exclude_self = true },
+        payload = { kind = "resolve_now" },
+    },
+
+    -- Hot Hand: when a heater's forced hand finishes, 25% it jumps to a
+    -- neighbour.
+    hot_hand_spread = {
+        trigger = "on_heat_spent",
+        chance  = 0.25,
+        target  = { kind = "board_near", radius = 1, pick = "random",
+                    exclude_self = true },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 6 },
+    },
+
+    -- Anchor: a tilt spent on a six-max heats a neighbour.
+    anchor_convert = {
+        trigger = "on_tilt_spent",
+        source  = { gtype = "six_max" },
+        target  = { kind = "board_near", radius = 1, pick = "random",
+                    exclude_self = true },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 6 },
+    },
+
+    -- Circuit Pro: first place heats every table.
+    circuit_pro_final = {
+        trigger = "on_tournament_win",
+        target  = { kind = "any_other" },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 6 },
     },
 }
