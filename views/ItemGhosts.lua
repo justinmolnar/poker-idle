@@ -58,9 +58,10 @@ function ItemGhosts.spawn(game, item_id, x, y, pw, ph)
         if grid then
             x, y, pw, ph = grid[1], grid[2], grid[3], (grid[4] or 0) * 0.55
         else
-            -- Design space is a fixed 1600x900; this is roughly the middle
-            -- of the table section between the sidebars.
-            x, y, pw, ph = 810, 440, 0, 320
+            -- Roughly the middle of the table section between the sidebars
+            -- (the frame's width follows the window, so derive it).
+            local W, H = love.graphics.getDimensions()
+            x, y, pw, ph = math.floor(W * 0.5), math.floor(H * 0.49), 0, 320
         end
     end
 

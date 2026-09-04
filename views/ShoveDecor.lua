@@ -12,9 +12,10 @@
 -- shouldn't, the bug is in ShoveView, not here.
 --
 -- Unlike views/FeltDecor there are no size gates to make, because there is only
--- one size to make them for: main.lua pins the base resolution at 1600x900 and
--- monkey-patches love.graphics.getDimensions, so ui_scale is always 1.25 and
--- the layout has exactly one answer. See the header of data/shove_style.
+-- one scale to make them for: main.lua pins the base height at 900 and floors
+-- the base width at 1600 (wider windows get a wider frame, never a smaller
+-- scale), so ui_scale is always 1.25 and every rect ShoveView hands over is
+-- the same size on every monitor. See the header of data/shove_style.
 --
 -- ── Draw hygiene ─────────────────────────────────────────────────────
 -- Every function here leaves the transform stack, colour, line width, blend

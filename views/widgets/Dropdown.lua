@@ -18,9 +18,20 @@ local Button = require("views.Button")
 local Dropdown = {}
 Dropdown.__index = Dropdown
 
-local PAD_X       = 14
-local ROW_PAD_Y   = 6   -- top + bottom padding inside an item; item h = font_h + ROW_PAD_Y*2
+local PAD_X_BASE     = 14
+local ROW_PAD_Y_BASE = 6   -- top + bottom padding inside an item; item h = font_h + ROW_PAD_Y*2
 local DEFAULT_MAX_VISIBLE = 8
+
+-- Scaled at draw time against game.ui_scale (main.lua calls setScale on
+-- boot and resize, like the other widgets).
+local PAD_X     = PAD_X_BASE
+local ROW_PAD_Y = ROW_PAD_Y_BASE
+
+function Dropdown.setScale(s)
+    s = s or 1
+    PAD_X     = math.floor(PAD_X_BASE * s)
+    ROW_PAD_Y = math.floor(ROW_PAD_Y_BASE * s)
+end
 
 -- opts:
 --   items          (list of { label = string, value = any })
@@ -71,6 +82,16 @@ end
 
 function Dropdown:toggle()
     if self.is_open then self:close() else self:open() end
+end
+
+-- Close and forget the last frame's hit rects — for a host that draws
+-- something else in the dropdown's place this frame (a disabled row), so a
+-- click there can't reach a header that isn't on screen.
+function Dropdown:reset()
+    self:close()
+    self._header_rect = nil
+    self._item_rects  = {}
+    self._popup_rect  = nil
 end
 
 function Dropdown:_clampScrollToFocus()

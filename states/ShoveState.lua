@@ -53,7 +53,7 @@ function ShoveState:new(game)
         gauntlet        = nil,
         catalog_modal        = nil,    -- bust step 2: post-run chip shop
         deck_select_modal    = nil,    -- bust step 3: choose active deck for next run (post-first-clear)
-        settings_modal       = nil,    -- ESC overlay (volume, resolution, quit)
+        settings_modal       = nil,    -- ESC overlay (volume, display, save, quit)
         demo_end_modal       = nil,    -- the demo build's end-of-content screen
         _ended_handled       = false,  -- guard so _onGauntletEnded fires once per gauntlet
     }, ShoveState)

@@ -61,7 +61,11 @@ function CreditsState:draw()
 
     if self.backdrop then
         love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(self.backdrop, 0, 0)
+        -- The snapshot was taken at the frame size of that moment; the frame's
+        -- width follows the window, so stretch it to the current width rather
+        -- than leave a gutter after a resize mid-credits.
+        local bw, bh = self.backdrop:getDimensions()
+        love.graphics.draw(self.backdrop, 0, 0, 0, W / bw, H / bh)
         local p = math.min(1, (self.t or 0) / FADE_SECS)
         Theme.setColor(Theme.bg.window, p * FADE_ALPHA)
         love.graphics.rectangle("fill", 0, 0, W, H)

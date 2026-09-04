@@ -42,6 +42,7 @@ local HandAnalytics   = require("services.HandAnalytics")
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
+local Display       = require("services.Display")
 
 local StateMachine    = require("controllers.StateMachine")
 local InputController = require("controllers.InputController")
@@ -91,10 +92,40 @@ local Game = nil
 -- getDimensions/getWidth/getHeight report the base size so layout stays in base
 -- space; mouse coords map back through the fit. Scissor needs no override — the
 -- game draws into the base-sized canvas, so clip rects are already base coords.
-local BASE_W, BASE_H = 1600, 900
+--
+-- The base HEIGHT is fixed at 900. The base WIDTH follows the window's aspect
+-- (recomputeBase, below): a window wider than 16:9 gets a wider frame instead
+-- of black bars, and every screen lays out from getWidth so the extra room
+-- goes to the table grid / the centred board. The width never drops below
+-- 1600 — that floor is what keeps FontService.layoutScale at exactly 1.25 for
+-- every window, so nothing ever rescales; a window narrower than 16:9 shows
+-- page-coloured bars top and bottom instead. Capped at 2400 (a 32:9 monitor
+-- gets margins, not a 3200px table grid).
+local BASE_H = 900
+local BASE_W_MIN, BASE_W_MAX = 1600, 2400
+local BASE_W = BASE_W_MIN
 local _realDimensions = love.graphics.getDimensions
 local _realGetPos     = love.mouse.getPosition
 local _frameCanvas, _scaleShader
+
+-- The base width for a window of ww × wh: BASE_H × aspect, rounded to an even
+-- number (keeps the shader's texel centres clean), clamped to [MIN, MAX].
+local function baseWidthFor(ww, wh)
+    if not (ww and wh) or ww <= 0 or wh <= 0 then return BASE_W_MIN end
+    local w = math.floor(BASE_H * ww / wh / 2 + 0.5) * 2
+    return math.max(BASE_W_MIN, math.min(BASE_W_MAX, w))
+end
+
+-- Re-derive BASE_W from the live window. Returns true when it changed; the
+-- frame canvas is dropped so love.draw reallocates it at the new width.
+local function recomputeBase()
+    local w = baseWidthFor(_realDimensions())
+    if w == BASE_W then return false end
+    BASE_W = w
+    _frameCanvas = nil
+    return true
+end
+recomputeBase()
 
 -- Uniform fit scale + centering offset that maps the base frame onto the window.
 local function fitTransform()
@@ -112,6 +143,9 @@ love.mouse.getPosition = function()
     local s, ox, oy = fitTransform()
     return (x - ox) / s, (y - oy) / s
 end
+-- getX/getY go through the same fit (a few views read them directly).
+love.mouse.getX = function() local x = love.mouse.getPosition(); return x end
+love.mouse.getY = function() local _, y = love.mouse.getPosition(); return y end
 
 -- Sharp-bilinear: bilinear sampling confined to a 1-output-pixel band at each
 -- source-texel boundary, flat (hard) everywhere else. The canvas must use a
@@ -159,6 +193,7 @@ local function buildGame()
     require("views.ComponentRenderer").setScale(g.ui_scale)
     require("views.widgets.ConfirmDialog").setScale(g.ui_scale)
     require("views.widgets.Slider").setScale(g.ui_scale)
+    require("views.widgets.Dropdown").setScale(g.ui_scale)
 
     -- Pixel-font sizing affects layout. Configure layout-bearing
     -- modules (Panel header height, ComponentRenderer LINE_H,
@@ -253,7 +288,21 @@ local function buildGame()
         -- here made GrindState's first-run consent ask unreachable, so the
         -- modal never showed and web analytics silently never sent.
         analytics_consent = prefs.analytics_consent,
+        -- Desktop window mode + size (services/Display); absent on web.
+        display_mode      = prefs.display_mode,
+        display_w         = prefs.display_w,
+        display_h         = prefs.display_h,
     }
+    -- Put the window into the saved mode before anything measures it. A
+    -- failed mode falls back to windowed 1600×900 and is persisted as such
+    -- so the next boot doesn't retry it. love.load re-derives the base
+    -- width and re-runs the resize hooks after this returns.
+    if Display.isDesktop() then
+        Display.defaults(g.settings)
+        if not Display.apply(g.settings) then
+            g.save_service:saveSettings(g.settings)
+        end
+    end
 
     g.effects = EffectsRegistry:new()
     PokerEffects.registerAll(g.effects)
@@ -455,6 +504,10 @@ end
 
 function love.load()
     Game = buildGame()
+    -- buildGame may have changed the window (saved display mode); the base
+    -- width follows it. SDL's own resize event lands too, but that is a
+    -- frame away and not guaranteed for a same-size setMode.
+    love.resize()
     Game.sprite_loader:loadAll()
     -- Bake THE HOUSE's wall portrait (procedural, views/HouseArt) into
     -- the sprite pool so the room draws it like any other wall item.
@@ -661,7 +714,11 @@ function love.draw()
     love.graphics.setCanvas()
 
     -- Scale the finished frame to the window via the sharp-bilinear shader.
+    -- Whatever the frame doesn't cover (a window narrower than 16:9, or wider
+    -- than the base-width cap) is the page colour, not black.
     local s, ox, oy = fitTransform()
+    local bg = Theme.bg.window
+    love.graphics.clear(bg[1], bg[2], bg[3], 1)
     _scaleShader:send("u_sourceSize", { BASE_W, BASE_H })
     _scaleShader:send("u_scale",      { s, s })
     love.graphics.setShader(_scaleShader)
@@ -670,7 +727,14 @@ function love.draw()
     love.graphics.setShader()
 end
 
-function love.keypressed(key)    Game.input_dispatcher:dispatch("keypressed",   key)         end
+function love.keypressed(key)
+    -- F11: borderless fullscreen <-> windowed (desktop only; persisted).
+    if key == "f11" and Game.settings and Display.isDesktop() then
+        Display.toggleBorderless(Game.settings, Game.save_service)
+        return
+    end
+    Game.input_dispatcher:dispatch("keypressed", key)
+end
 function love.keyreleased(key)   Game.input_dispatcher:dispatch("keyreleased",  key)         end
 
 function love.mousepressed(x, y, b)    local s, ox, oy = fitTransform(); Game.input_dispatcher:dispatch("mousepressed",  (x-ox)/s, (y-oy)/s, b)          end
@@ -681,8 +745,11 @@ function love.wheelmoved(x, y)   Game.input_dispatcher:dispatch("wheelmoved",   
 
 function love.resize(w, h)
     if not Game then return end
-    -- The game always lays out at the base resolution; the canvas+shader handle
-    -- fitting to the window. Use the (fixed) base dims, ignore the window size.
+    -- The game lays out at the base resolution; the canvas+shader handle
+    -- fitting to the window. The base width follows the window's aspect
+    -- (see recomputeBase), the height is fixed — layout reads the patched
+    -- base dims, never the window size.
+    recomputeBase()
     w, h = love.graphics.getDimensions()
     if Game.viewport then
         Game.viewport.w, Game.viewport.h = w, h
@@ -699,6 +766,7 @@ function love.resize(w, h)
     require("views.ComponentRenderer").setScale(Game.ui_scale)
     require("views.widgets.ConfirmDialog").setScale(Game.ui_scale)
     require("views.widgets.Slider").setScale(Game.ui_scale)
+    require("views.widgets.Dropdown").setScale(Game.ui_scale)
     require("views.Panel").configureFromFonts(Game.fonts)
     require("views.ComponentRenderer").configureFromFonts(Game.fonts)
     require("views.CatalogModal").configureFromFonts(Game.fonts)

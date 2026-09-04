@@ -48,6 +48,11 @@ function RoomLighting.draw(room_view, L, W, H)
     local level = L.fixture or 0
     local view  = room_view._view or { cx = W * 0.5, cy = H * 0.5, zoom = 1, dy = 0 }
 
+    -- Sized to the frame; the frame's width follows the window (main.lua),
+    -- so a stale canvas is rebuilt rather than stretched or cut short.
+    if _canvas and (_canvas:getWidth() ~= W or _canvas:getHeight() ~= H) then
+        _canvas = nil
+    end
     if not _canvas then
         local ok, c = pcall(love.graphics.newCanvas, W, H)
         if ok and c then _canvas = c end

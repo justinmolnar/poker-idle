@@ -11,12 +11,14 @@
 -- ── There are no gates here, unlike data/felt_style ───────────────────
 -- The felt runs from 635x444 down to 139x91 across 32 panels, so every ornament
 -- there carries a MINIMUM measured against the dimension that constrains it.
--- The gauntlet is ONE full-screen view at a fixed base resolution: main.lua
--- pins 1600x900 and monkey-patches love.graphics.getDimensions, so ui_scale is
--- always 1.25 and ShoveView's recomputeLayout produces one answer forever. A
--- threshold here would be a branch that never fires, so these knobs are
--- dimensions and colours only. Copying the felt's shed ladder would be
--- cargo-culting the shape of that work without its reason.
+-- The gauntlet is ONE full-screen view at a fixed base scale: main.lua pins
+-- the base height at 900 and floors the base width at 1600 (a wider window
+-- gets a wider frame, never a smaller scale), so ui_scale is always 1.25 and
+-- every size ShoveView's recomputeLayout produces is the same on every
+-- monitor; only the centring shifts. A threshold here would be a branch that
+-- never fires, so these knobs are dimensions and colours only. Copying the
+-- felt's shed ladder would be cargo-culting the shape of that work without
+-- its reason.
 --
 -- ── `enabled` ─────────────────────────────────────────────────────────
 -- Each ornament added after the ShoveDecor extraction carries one, so the

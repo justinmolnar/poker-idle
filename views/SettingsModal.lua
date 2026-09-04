@@ -5,17 +5,20 @@
 --   • views.widgets.Row           — label-value rows
 --   • views.widgets.Slider        — volume slider
 --   • views.widgets.ConfirmDialog — new-game / quit prompts
+--   • views.widgets.Dropdown      — resolution picker
 --
--- Display mode (windowed / fullscreen) was removed from the prototype
--- build — the web canvas owns its own fit-to-iframe behavior, and
--- native builds default to the conf.lua window size.
+-- Display (windowed / borderless / fullscreen) and Resolution rows show on
+-- desktop only: the web canvas is the iframe and owns its own fit. Both go
+-- through services/Display, which applies and persists them.
 
 local Theme         = require("views.Theme")
 local SoundService  = require("services.SoundService")
+local Display       = require("services.Display")
 local Modal         = require("views.widgets.Modal")
 local Row           = require("views.widgets.Row")
 local ConfirmDialog = require("views.widgets.ConfirmDialog")
 local Slider        = require("views.widgets.Slider")
+local Dropdown      = require("views.widgets.Dropdown")
 local TooltipSvc    = require("services.Tooltip")
 local HoverSvc      = require("services.HoverService")
 
@@ -45,11 +48,6 @@ local function persistSettings(self)
     g.save_service:saveSettings(g.settings)
 end
 
-function SettingsModal.applySaved(payload)
-    -- Volume is applied directly in main.lua; nothing else here.
-    if not payload then return end
-end
-
 -- ─── Construction ─────────────────────────────────────────────────────
 
 function SettingsModal:new(game)
@@ -60,7 +58,26 @@ function SettingsModal:new(game)
         _confirm       = nil,
         _confirm_kind  = nil,
         _sliders       = {},
+        _res_dd        = nil,   -- resolution picker (desktop only)
+        _res_popup     = nil,   -- where the open popup anchors, set in :draw
     }, SettingsModal)
+
+    -- Resolution picker: the primary display's modes (services/Display).
+    -- Picking one applies and persists it through the same path as the
+    -- Display row. Refreshed from the engine whenever the popup opens.
+    if Display.isDesktop() and game.settings then
+        Display.defaults(game.settings)
+        self_inst._res_dd = Dropdown:new{
+            items          = Display.modes(game.settings),
+            selected_value = Display.sizeKey(game.settings.display_w, game.settings.display_h),
+            on_pick        = function(value)
+                local w, h = Display.parseSize(value)
+                if not w then return end
+                Display.commit(game.settings, game.save_service,
+                    { display_w = w, display_h = h })
+            end,
+        }
+    end
 
     -- The three audio channels: Master scales everything; SFX carries
     -- every effect and the intercom voice; Music is the music layer.
@@ -163,6 +180,13 @@ local ACTION_HANDLERS = {
     new_game  = function(self) self:_openConfirm("new_game") end,
     quit      = function(self) self:_openConfirm("quit") end,
     analytics = function(self) toggleAnalytics(self) end,
+    -- Cycles windowed -> borderless -> fullscreen; applied + persisted.
+    display   = function(self)
+        local g = self.game
+        if not (g and g.settings) then return end
+        Display.commit(g.settings, g.save_service,
+            { display_mode = Display.nextMode(g.settings.display_mode) })
+    end,
 }
 
 function SettingsModal:_runAction(action)
@@ -178,6 +202,11 @@ function SettingsModal:consumeKey(key)
         if self._confirm:resolved() then self._confirm = nil; self._confirm_kind = nil end
         return consumed
     end
+    -- An open resolution popup owns the keyboard (ESC closes it, not the modal).
+    if self._res_dd and self._res_dd:wasOpen() then
+        self._res_dd:consumeKey(key)
+        return true
+    end
     if key == "escape" then return false end  -- top-level ESC: caller closes
     return true                                -- swallow other keys
 end
@@ -189,6 +218,18 @@ function SettingsModal:consumeMouse(mx, my, button)
         local consumed = self._confirm:consumeMouse(mx, my, button)
         if self._confirm:resolved() then self._confirm = nil; self._confirm_kind = nil end
         return consumed
+    end
+
+    -- Resolution popup first: it draws over everything else in the modal,
+    -- and a click that closes it must not also fire whatever it covered.
+    if self._res_dd then
+        local was_open = self._res_dd:wasOpen()
+        local hit = self._res_dd:consumeMouse(mx, my, button)
+        if hit == "header" and self._res_dd:wasOpen() then
+            self._res_dd:setItems(Display.modes(self.game.settings),
+                self._res_dd.selected_value)
+        end
+        if hit ~= "outside" or was_open then return true end
     end
 
     -- Volume sliders: clicking on a track jumps that knob and arms a
@@ -227,8 +268,15 @@ function SettingsModal:mousereleased(mx, my, button)
     end
 end
 
--- No wheelmoved — host (GrindState/ShoveState) checks for the method
--- before calling, so an absent method is a clean no-op.
+-- Wheel scrolls the resolution popup while it's open; nothing else here
+-- scrolls. Hosts (GrindState/ShoveState) forward when the method exists.
+function SettingsModal:wheelmoved(x, y)
+    if self._res_dd and self._res_dd:wasOpen() then
+        self._res_dd:wheelmoved(x, y)
+        return true
+    end
+    return false
+end
 
 -- ─── Drawing ───────────────────────────────────────────────────────────
 
@@ -246,7 +294,10 @@ function SettingsModal:draw()
     -- Rebuild the modal frame each draw so its width tracks scale.
     self._modal = Modal:new{ title = "Settings", w = MODAL_W }
 
-    local rows = 8  -- master, sfx, music, analytics, save, load, new game, quit
+    -- master, sfx, music, [display, resolution], analytics, save, load,
+    -- new game, quit — the bracketed two are desktop only.
+    local show_display = self._res_dd ~= nil and self.game.settings ~= nil
+    local rows = show_display and 10 or 8
     local body_h = rows * ROW_H + (rows - 1) * ROW_GAP
 
     local body = self._modal:draw(fonts, body_h)
@@ -294,7 +345,7 @@ function SettingsModal:draw()
         local hov = HoverSvc.rest("button", "settings_row:" .. label,
             mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H, 0)
         Row.draw{ x = row_x, y = y, w = row_w, h = ROW_H,
-                  label = label, fonts = fonts,
+                  label = label, value = opts.value, fonts = fonts,
                   hovered = hov and not opts.disabled, disabled = opts.disabled }
         if opts.disabled then
             -- No hit-rect → unclickable; stash the hover tooltip to draw on top.
@@ -305,6 +356,33 @@ function SettingsModal:draw()
             }
         end
         y = y + ROW_H + ROW_GAP
+    end
+
+    -- Display mode + resolution (desktop only). The mode row cycles on
+    -- click and shows the current mode as its value; the resolution row is
+    -- the dropdown's header, greyed while Borderless (that mode is always
+    -- the desktop size). The popup itself draws after endDraw, on top.
+    self._res_popup = nil
+    if show_display then
+        local st   = self.game.settings
+        local mode = st.display_mode or "windowed"
+        action_row("Display", "display", { value = Display.MODE_LABELS[mode] or mode })
+        if mode == "borderless" then
+            self._res_dd:reset()
+            action_row("Resolution", nil, {
+                disabled = true,
+                value    = string.format("%d x %d", st.display_w, st.display_h),
+                tip      = "Borderless uses the desktop size.",
+            })
+        else
+            self._res_dd.selected_value = Display.sizeKey(st.display_w, st.display_h)
+            if self._res_dd:selectedLabel() == "" then
+                self._res_dd:setItems(Display.modes(st), self._res_dd.selected_value)
+            end
+            self._res_dd:drawHeader(row_x, y, row_w, ROW_H, "Resolution", fonts)
+            self._res_popup = { x = row_x, y = y + ROW_H + math.floor(2 * s), w = row_w }
+            y = y + ROW_H + ROW_GAP
+        end
     end
 
     -- Analytics consent — same checkbox style as the onboarding modal.
@@ -358,6 +436,12 @@ function SettingsModal:draw()
         and { disabled = true, tip = "Disabled for web build." } or nil)
 
     self._modal:endDraw()
+
+    -- The resolution list, over the rows beneath it.
+    if self._res_dd and self._res_popup and self._res_dd:wasOpen() then
+        local p = self._res_popup
+        self._res_dd:drawPopup(p.x, p.y, p.w, fonts)
+    end
 
     if self._confirm then
         self._confirm:draw(fonts)

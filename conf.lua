@@ -37,18 +37,19 @@ function love.conf(t)
     t.console  = true
 
     t.window.title      = "Poker Idle"
-    -- Default opens at 1600×900 — enough horizontal room for the
-    -- chunky pixel font's sidebar buttons (heading + right-aligned
-    -- level fit without colliding). Smaller than this the layout's
-    -- dynamic-percentage sidebars get squeezed.
-    -- 1600x900 on both. Web build uses itch's "click to launch in
-    -- fullscreen" embed mode — the iframe takes the whole viewport
-    -- and the canvas CSS-scales to fit (object-fit: contain in
-    -- index.html). Internal render stays at the layout's design size.
+    -- Default opens at 1600×900, the base frame's size at 16:9. The game
+    -- lays out in a base frame 900 high whose width follows the window's
+    -- aspect (main.lua), blitted to the window at a uniform scale, so any
+    -- window size works; the minimum here is the smallest a saved windowed
+    -- size can be (services/Display offers nothing smaller) — at 1280×720
+    -- the frame shows at 0.8×. Web build uses itch's "click to launch in
+    -- fullscreen" embed mode — the iframe takes the whole viewport and the
+    -- canvas CSS-scales to fit (object-fit: contain in index.html).
+    -- Desktop: the saved display mode is applied in love.load.
     t.window.width      = 1600
     t.window.height     = 900
-    t.window.minwidth   = 1600
-    t.window.minheight  = 900
+    t.window.minwidth   = 1280
+    t.window.minheight  = 720
     t.window.resizable  = true
     t.window.vsync      = 1
     t.window.fullscreen = false
