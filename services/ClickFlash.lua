@@ -13,6 +13,7 @@
 -- assumptions are that ns/id form a stable lookup key and that 0..1 alpha
 -- is a sensible decay value for the renderer.
 
+local Motion = require("services.Motion")
 local ClickFlash = {}
 
 -- { [ns] = { [id] = alpha } }. Empty namespaces get pruned during update.
@@ -35,6 +36,16 @@ function ClickFlash.flash(ns, id, intensity)
 end
 
 function ClickFlash.alpha(ns, id)
+    -- Motion: at Low and None a press shows no decaying flash.
+    if Motion.level("ui") <= Motion.LOW then return 0 end
+    local bucket = _flashes[ns]
+    if not bucket then return 0 end
+    return bucket[id] or 0
+end
+
+-- The flash regardless of motion level, for a renderer that stills it
+-- itself (views/AwardGlow).
+function ClickFlash.raw(ns, id)
     local bucket = _flashes[ns]
     if not bucket then return 0 end
     return bucket[id] or 0

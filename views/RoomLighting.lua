@@ -18,6 +18,7 @@ local Theme      = require("views.Theme")
 local ShoveDecor = require("views.ShoveDecor")
 local Lights     = require("data.room_lights")
 
+local Motion     = require("services.Motion")
 local RoomLighting = {}
 
 local _canvas = nil
@@ -99,7 +100,7 @@ function RoomLighting.draw(room_view, L, W, H)
             local e  = id and Lights.emitters[id]
             if e and (not L.lit or L.lit(id)) then
                 local al = e.alpha
-                if e.pulse then
+                if e.pulse and Motion.at("shine", Motion.HIGH) then
                     al = al * (1 + e.pulse.amount * math.sin(now * 2 * math.pi / e.pulse.secs))
                 end
                 local d  = r.w * e.radius * 2
@@ -117,8 +118,9 @@ function RoomLighting.draw(room_view, L, W, H)
     Theme.setColor({ 1, 1, 1 })        -- no tint: the lightmap as drawn
     love.graphics.draw(_canvas, 0, 0)
 
-    -- The bloom: over-bright while the tube is still settling.
-    if level > 1 then
+    -- The bloom: over-bright while the tube is still settling. Below High
+    -- the tube is simply on.
+    if level > 1 and Motion.at("shine", Motion.HIGH) then
         love.graphics.setBlendMode("add")
         Theme.setColor(F.color, math.min(1, level - 1))
         love.graphics.rectangle("fill", 0, 0, W, H)

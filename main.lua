@@ -43,6 +43,7 @@ local HandAnalytics   = require("services.HandAnalytics")
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
 local Display       = require("services.Display")
+local Motion        = require("services.Motion")
 
 local StateMachine    = require("controllers.StateMachine")
 local InputController = require("controllers.InputController")
@@ -303,6 +304,12 @@ local function buildGame()
             g.save_service:saveSettings(g.settings)
         end
     end
+    -- Motion levels (services/Motion): every animation primitive reads
+    -- these. Absent keys mean Full, so an old settings file changes nothing.
+    for k, v in pairs(prefs) do
+        if type(k) == "string" and k:sub(1, 7) == "motion_" then g.settings[k] = v end
+    end
+    Motion.load(g.settings)
 
     g.effects = EffectsRegistry:new()
     PokerEffects.registerAll(g.effects)

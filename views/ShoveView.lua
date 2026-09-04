@@ -28,6 +28,7 @@ local Easing                 = require("utils.easing")
 local HandEval               = require("models.HandEval")
 local Constants              = require("data.constants")
 local Decks                  = require("models.Decks")
+local Motion                 = require("services.Motion")
 local SpriteRenderer         = require("services.SpriteRenderer")
 local Chips                  = require("views.Chips")
 local Tumble                 = require("services.Tumble")
@@ -408,7 +409,7 @@ function ShoveView:beginBuildup(rates)
                 else
                     Chips.drawChip(px, py, denom, 1.0, false, nil)
                 end
-            end, BUILDUP_TUMBLE),
+            end, BUILDUP_TUMBLE, "chips"),
         }
     end
     self.buildup_arrived_count = 0
@@ -477,7 +478,7 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
 
     local function startAnim(key, preset)
         return function()
-            self.card_anims[key] = anims:create(preset, {})
+            self.card_anims[key] = anims:create(preset, {}, "cards")
             self.card_anims[key]:start()
         end
     end
@@ -823,8 +824,9 @@ function ShoveView:_dealExtra(i)
     end
     -- One full spin and one full flip so the card lands face-up at its
     -- resting angle: at t = 1 the tumble frame is exactly `angle`.
-    local fn = Tumble.wrap(face, { axis = angle, spins = 1, flips = 1, phase = 0, loft = 0.15, spin_dir = 1 })
+    local fn = Tumble.wrap(face, { axis = angle, spins = 1, flips = 1, phase = 0, loft = 0.15, spin_dir = 1 }, "cards")
     FlightSystem.emit(from, to, fn, {
+        motion     = "cards",
         duration   = E.flight_secs or 0.55,
         arc_height = E.flight_arc or 120,
         on_arrive  = land,
@@ -1000,6 +1002,19 @@ function ShoveView:_mirrorTimeline()
 end
 
 function ShoveView:update(dt)
+    -- Motion (cinematics): Medium runs the room count and the buildup
+    -- faster; Low and below skip them — the room shown counted, the pot
+    -- on the felt, the readouts at their values (the existing skip paths).
+    do
+        local clvl = Motion.level("cinematics")
+        if self.phase == "room" or self.phase == "buildup" then
+            if clvl == Motion.MEDIUM then dt = dt / 0.6 end
+            if clvl <= Motion.LOW then
+                if self.phase == "room" and not self.room_locked then self:skip() end
+                if self.phase == "buildup" then self:skip() end
+            end
+        end
+    end
     -- Room phase: tick the count as items' times pass, lock, then hand
     -- off to the buildup (whose fade-in is the cut).
     if self.phase == "room" then
@@ -1319,7 +1334,7 @@ function ShoveView:_drawRoomCount(W, H)
             local sprite = loader:getSprite(o.sprite or o.id,
                 (not still) and now or false, o.fps, o.frame)
             if sprite then
-                local p  = Pop.progress("room_item:" .. id, R.flash_secs)
+                local p  = Motion.pop("cinematics", Pop.progress("room_item:" .. id, R.flash_secs))
                 -- The glow is the item's moment, then it settles: gone
                 -- after glow_secs, so the room ends up lit, not on fire.
                 local age = now - (self.room_lit_at[id] or now)
@@ -1543,8 +1558,8 @@ function ShoveView:_drawStats(base_pct, mult_val, total_pct, covered)
     -- Numbers pop when they change (the same Pop the focus readout uses)
     -- and pop harder the moment a flight lands on them.
     local function bigNumber(id, land_id, value, x, y, w, color)
-        local sc = Pop.changeScale(id, value, 1, 0.3, 0.3)
-        local land = land_id and Pop.progress(land_id, R.land_secs) or 0
+        local sc = Pop.scale(Motion.pop("cinematics", Pop.onChange(id, value, 0.3)), 1, 0.3)
+        local land = land_id and Motion.pop("cinematics", Pop.progress(land_id, R.land_secs)) or 0
         sc = math.max(sc, Pop.scale(land, 1, R.land_bump))
         local tw = fonts.lg:getWidth(value)
         love.graphics.setFont(fonts.lg)
@@ -1738,6 +1753,7 @@ end
 -- Lift progress 0..1 since the winner was lit.
 function ShoveView:_liftP()
     if not self.winner then return 0 end
+    if Motion.level("cards") <= Motion.LOW then return 1 end
     local p = math.min(1, self.winner_t / (Style.cards.lift_secs or 0.5))
     return 1 - (1 - p) ^ 3
 end
@@ -1778,6 +1794,7 @@ function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key, side)
     slot_x, slot_y, rot, dp = dealPos(deal_anim, slot_x, slot_y,
                                       tableCenterX(love.graphics.getWidth()))
     local deal_alpha = dealAlpha(dp) * self:_sideAlpha(side)
+                       * Motion.fade("cards", "shove_deal:" .. tostring(deal_anim))
 
     if not flip_anim then
         drawCardSprite(sl, back, slot_x, slot_y, CARD_W, CARD_H, 1, deal_alpha, nil, nil, rot)
@@ -1790,6 +1807,7 @@ function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key, side)
         drawCardSprite(sl, back, slot_x, slot_y, CARD_W, CARD_H, sx, deal_alpha, nil, nil, rot)
     else
         local sx = 2 * p - 1
+        deal_alpha = deal_alpha * Motion.fade("cards", "shove_turn:" .. tostring(flip_anim) .. deal_key)
         local result = self.ss.gauntlet and self.ss.gauntlet.result
         local eval = result and result.evals[self:_revealedRunoutIdx()]
         drawCardSprite(sl, front, slot_x, slot_y, CARD_W, CARD_H, sx, deal_alpha,
@@ -1810,7 +1828,7 @@ function ShoveView:_drawBoardCard(i, x, y)
 
     local rot, dp
     x, y, rot, dp = dealPos(anim, x, y, tableCenterX(love.graphics.getWidth()))
-    local alpha = dealAlpha(dp)
+    local alpha = dealAlpha(dp) * Motion.fade("cards", "shove_deal:" .. tostring(anim))
     local eval = result.evals[self:_revealedRunoutIdx()]
     local v = self:_verdictFor(card, eval)
     if v == "lose" then alpha = alpha * (Style.cards.loser_alpha or 1) end

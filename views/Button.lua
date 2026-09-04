@@ -16,6 +16,7 @@
 local Theme  = require("views.Theme")
 local Easing = require("utils.easing")
 
+local Motion = require("services.Motion")
 local Button = {}
 
 -- ── Tunables ────────────────────────────────────────────────────────────
@@ -62,7 +63,8 @@ function Button.draw(x, y, w, h, opts, label_fn)
     if face_h < 4 then face_h = math.max(2, h - 2) end
     local press        = pressCurve(press_alpha)
     local press_offset = press * depth
-    local hover_lift   = hovered and LIFT_PX or 0
+    -- Motion: below High the face doesn't lift on hover (colour still says it).
+    local hover_lift   = (hovered and Motion.at("ui", Motion.HIGH)) and LIFT_PX or 0
     local face_y       = y + LIFT_PX - hover_lift + press_offset
     local side_top     = face_y + face_h
     local side_h       = (depth + hover_lift) - press_offset

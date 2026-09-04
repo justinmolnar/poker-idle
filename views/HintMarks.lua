@@ -11,6 +11,7 @@
 local Theme   = require("views.Theme")
 local Anchors = require("services.AnchorRegistry")
 
+local Motion  = require("services.Motion")
 local HintMarks = {}
 
 function HintMarks.freshAnchor(name)
@@ -38,9 +39,10 @@ end
 function HintMarks.draw(game, marks)
     local s  = game.ui_scale or 1
     local fl = math.floor
-    local t   = love.timer.getTime()
+    -- Below High the mark holds still: a steady outline, no breathing.
+    local t   = Motion.time("text", love.timer.getTime())
     local pad = fl(4 * s) + fl(2 * math.sin(t * 4) + 2)
-    local pulse = 0.55 + 0.35 * math.sin(t * 4)
+    local pulse = Motion.at("text", Motion.HIGH) and (0.55 + 0.35 * math.sin(t * 4)) or 0.8
     Theme.setColor(Theme.status.warn, pulse)
     for _, m in ipairs(marks) do
         if m.is_rect then

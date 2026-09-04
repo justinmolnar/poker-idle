@@ -15,6 +15,7 @@
 
 local RollingValue = {}
 
+local Motion = require("services.Motion")
 local RATE = 8
 local SNAP = 0.005
 
@@ -24,14 +25,18 @@ local _v = {}   -- id -> { curr = number, t = last query time }
 
 -- Current eased value for `id`, easing toward `target`. `rate` overrides the
 -- catch-up speed (higher = snappier).
-function RollingValue.get(id, target, rate)
+-- `group` (default "text"): a services/Motion group. Medium rolls twice
+-- as fast; Low and None snap.
+function RollingValue.get(id, target, rate, group)
     target = target or 0
+    local lvl = Motion.level(group or "text")
     local e = _v[id]
     local tnow = now()
-    if not e then
+    if not e or lvl <= Motion.LOW then
         _v[id] = { curr = target, t = tnow }
         return target
     end
+    if lvl == Motion.MEDIUM then rate = (rate or RATE) * 2 end
     local k = math.min(1, (tnow - e.t) * (rate or RATE))
     e.t    = tnow
     e.curr = e.curr + (target - e.curr) * k

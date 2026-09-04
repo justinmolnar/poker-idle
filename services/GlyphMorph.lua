@@ -18,6 +18,7 @@
 -- it runs under LuaJIT and 5.4 alike). Lifts into any idle game that wants
 -- text to look like someone ELSE put it there.
 
+local Motion = require("services.Motion")
 local GlyphMorph = {}
 
 -- Glyphs the game font carries (see the font's character set) that read as
@@ -71,6 +72,12 @@ end
 --   tick      integer; bump it to re-roll the unresolved glyphs
 --   opts.stagger  0..1 how uneven the per-character lock order is (default 0.35)
 function GlyphMorph.text(text, progress, seed, tick, opts)
+    -- Motion: Low and None print the real text; Medium resolves twice as fast.
+    do
+        local lvl = Motion.level("text")
+        if lvl <= Motion.LOW then return text end
+        if lvl == Motion.MEDIUM then progress = math.min(1, (progress or 0) * 2) end
+    end
     opts = opts or {}
     if progress == nil then progress = 1 end
     if progress >= 1 then return text end

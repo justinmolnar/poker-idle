@@ -31,6 +31,7 @@ local IconText    = require("views.IconText")
 local Anchors     = require("services.AnchorRegistry")
 local HintMarks   = require("views.HintMarks")
 
+local Motion  = require("services.Motion")
 local HintView = {}
 HintView.__index = HintView
 
@@ -251,7 +252,7 @@ function HintView:_drawDim(holes, alpha_scale)
     love.graphics.setBlendMode("replace", "premultiplied")
     -- Hole edge breathes with the highlight ring: same sin(t*4) offset
     -- _drawHint adds to its border pad, so gradient and ring move as one.
-    local t        = love.timer.getTime()
+    local t        = Motion.time("text", love.timer.getTime())
     local base_pad = fl(10 * s) + fl(2 * math.sin(t * 4) + 2)
     local band     = math.max(1, fl(FEATHER_PX * s))
     for step = FEATHER_STEPS, 0, -1 do

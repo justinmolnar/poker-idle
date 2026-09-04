@@ -15,6 +15,7 @@ local Theme          = require("views.Theme")
 local AnchorRegistry = require("services.AnchorRegistry")
 local Easing         = require("utils.easing")
 
+local Motion         = require("services.Motion")
 local ItemGhosts = {}
 
 local _ghosts = {}
@@ -50,6 +51,9 @@ end
 -- skips the ghost.
 function ItemGhosts.spawn(game, item_id, x, y, pw, ph)
     if not (game and game.sprite_loader) then return end
+    -- Motion: at None the ghost is not shown at all (the sound still says
+    -- something fired).
+    if Motion.level("text") <= Motion.NONE then return end
     local sprite = game.sprite_loader:getSprite(item_id)
     if not sprite then return end
 
@@ -135,6 +139,11 @@ function ItemGhosts.draw(game)
             sc       = sc * (1 - 0.18 * ease)
             rise     = rise + 26 * ease
         end
+        -- Motion: Medium doesn't bob or breathe; Low holds still entirely
+        -- and only fades in and out.
+        local lvl = Motion.level("text")
+        if lvl <= Motion.MEDIUM then bob = 0 end
+        if lvl <= Motion.LOW then sc, rise = 1, 0 end
 
         local sw, sh = g.sprite:getWidth(), g.sprite:getHeight()
         local scale  = (g.h / math.max(1, sh)) * sc
@@ -142,7 +151,7 @@ function ItemGhosts.draw(game)
 
         -- Spawn burst: a faint expanding ring under the sprite sells the
         -- "something just happened HERE" beat without adding opacity.
-        if g.t < 0.3 then
+        if g.t < 0.3 and lvl >= Motion.HIGH then
             local k = g.t / 0.3
             local rc
             if g.corrupted then

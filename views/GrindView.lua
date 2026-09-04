@@ -25,6 +25,7 @@ local TableModel     = require("models.Table")
 local GameTypeThemes = require("data.game_type_themes")
 local Pop            = require("services.Pop")
 local RollingValue   = require("services.RollingValue")
+local Motion         = require("services.Motion")
 local HouseArt       = require("views.HouseArt")
 local CursorPool     = require("services.CursorPool")
 local Icons          = require("views.Icons")
@@ -397,7 +398,7 @@ function GrindView:_makeGameTypeStrip()
                 -- becomes selected and eases back up when it isn't, on a
                 -- wall-clock lerp — no per-frame state to plumb.
                 local press  = RollingValue.get("gtype_press:" .. gt.id,
-                                                (active or locked) and 1 or 0, 14)
+                                                (active or locked) and 1 or 0, 14, "ui")
                 local label  = gt.short or gt.name
                 -- The tab wears its game type's chrome — the same color
                 -- the table headers wear (data/game_type_themes.lua) —
@@ -2006,8 +2007,8 @@ function GrindView:_drawCenterGrid(W, H)
                 local tbl = tables[i]
                 local target = (tbl._id == swap_id) and held_slot or tbl.slot
                 local tx, ty = cellXY(target)
-                local dx = RollingValue.get("tblx:" .. tbl._id, tx, SLIDE_RATE)
-                local dy = RollingValue.get("tbly:" .. tbl._id, ty, SLIDE_RATE)
+                local dx = RollingValue.get("tblx:" .. tbl._id, tx, SLIDE_RATE, "tables")
+                local dy = RollingValue.get("tbly:" .. tbl._id, ty, SLIDE_RATE, "tables")
                 TablePanel.draw(tbl, i, dx, dy, pw, ph,
                                 self.game, self.controller, self.hit_boxes)
             end
@@ -2020,8 +2021,8 @@ function GrindView:_drawCenterGrid(W, H)
         for i = 1, n do
             local tbl = tables[i]
             local tx, ty = cellXY(tbl.slot or 0)
-            local dx = RollingValue.get("tblx:" .. tbl._id, tx, SLIDE_RATE)
-            local dy = RollingValue.get("tbly:" .. tbl._id, ty, SLIDE_RATE)
+            local dx = RollingValue.get("tblx:" .. tbl._id, tx, SLIDE_RATE, "tables")
+            local dy = RollingValue.get("tbly:" .. tbl._id, ty, SLIDE_RATE, "tables")
             -- Post-drop settle: a tiny scale bump as the panel lands,
             -- recentered so it grows in place.
             local pp = Pop.progress("tbl_settle:" .. tbl._id)
@@ -2509,6 +2510,7 @@ function GrindView:draw(overlay_fn)
     -- The break: for BREAK_SECS after the underflow the whole screen
     -- shakes. Popped before the overlay; the flash goes on after.
     local break_p = self:_breakProgress()
+    if break_p and not Motion.at("tables", Motion.FULL) then break_p = nil end
     if break_p then
         local k = (1 - break_p) * 9
         local t = love.timer.getTime() * 60

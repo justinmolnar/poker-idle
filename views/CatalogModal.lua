@@ -75,8 +75,18 @@ local CLOSED = {
     throw_spin   = 0.9,      -- radians of tumble that settle out
 }
 
+local Motion       = require("services.Motion")
 local CatalogModal = {}
 CatalogModal.__index = CatalogModal
+
+-- Timed motion through services/Motion: paper turns and throws run at
+-- their authored pace at Full and High, shortened at Medium, and finish
+-- on the next frame below that (a swap; the object is already where it
+-- ends up).
+local function paperSecs(secs)
+    return secs * math.max(Motion.scale("paper"), 0.003)
+end
+local function flipSecs() return paperSecs(0.35) end
 
 -- ─── Layout constants ──────────────────────────────────────────────────
 
@@ -411,7 +421,7 @@ function CatalogModal:wheelmoved(_, dy)
     if new_index >= 0 and new_index <= max_spread then
         self.old_spread_index = self.spread_index
         self.spread_index = new_index
-        self.flip_t = 0.35
+        self.flip_t = flipSecs()
         self.flip_dir = step > 0 and "next" or "prev"
         local SoundService = require("services.SoundService")
         SoundService.playNamed("hole_card_flip")
@@ -499,7 +509,8 @@ function CatalogModal:_drawClosedOnFelt(W, H, page_w, page_h, fonts, s)
     -- travel, a quick squash on impact.
     local t = self._throw_t
     local x, y, spin_left, sq, height = Throw.pose(t, cfg, s, rx, ry, ch)
-    local spin = angle + spin_left
+    -- High and below: no tumble on the way in.
+    local spin = angle + (Motion.at("paper", Motion.FULL) and spin_left or 0)
 
     -- Shadow, then the cover, drawn through the same front-cover routine at
     -- the small scale so it is unmistakably the same book.
@@ -590,6 +601,13 @@ function CatalogModal:consumeMouse(mx, my, button)
     -- it is physically on top, and the item is not buyable through it anyway.
     for _, st in ipairs(self._stickers) do
         if mx >= st.x and mx < st.x + st.w and my >= st.y and my < st.y + st.h then
+            -- Low motion: a ready sticker comes off on the click, no drag.
+            if Motion.level("ui") <= Motion.LOW then
+                if self.game.grind and self.game.grind.peelCatalogSticker then
+                    self.game.grind:peelCatalogSticker(st.id)
+                end
+                return true
+            end
             self._peel = { id = st.id, x0 = mx, w = st.w, amount = 0 }
             return true
         end
@@ -610,7 +628,7 @@ function CatalogModal:consumeMouse(mx, my, button)
         if self.spread_index > 0 and not self.flip_t then
             self.old_spread_index = self.spread_index
             self.spread_index = self.spread_index - 1
-            self.flip_t = 0.35
+            self.flip_t = flipSecs()
             self.flip_dir = "prev"
             local SoundService = require("services.SoundService")
             SoundService.playNamed("hole_card_flip")
@@ -627,7 +645,7 @@ function CatalogModal:consumeMouse(mx, my, button)
         if self.spread_index < max_spread and not self.flip_t then
             self.old_spread_index = self.spread_index
             self.spread_index = self.spread_index + 1
-            self.flip_t = 0.35
+            self.flip_t = flipSecs()
             self.flip_dir = "next"
             local SoundService = require("services.SoundService")
             SoundService.playNamed("hole_card_flip")
@@ -1203,8 +1221,8 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- if this only ran while a stamp existed then a freshly-bought item's
     -- ORDERED would be its own first sighting and would never slam. Tracking
     -- "none" while unstamped makes the purchase a real transition.
-    local impact = Pop.onChange("stamp:" .. item.id,
-                                stamp and stamp.label or "none", STAMP_IMPACT_SECS)
+    local impact = Motion.pop("ui", Pop.onChange("stamp:" .. item.id,
+                                stamp and stamp.label or "none", STAMP_IMPACT_SECS))
 
     if stamp then
         -- Hand-stamped: anywhere across the middle of the card, not a fixed
@@ -1236,8 +1254,8 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
 
     -- The second stamp. Watched every frame like the first so the moment of
     -- corruption slams.
-    local c_impact = Pop.onChange("cstamp:" .. item.id,
-                                  is_corrupted and "CORRUPTED" or "none", STAMP_IMPACT_SECS)
+    local c_impact = Motion.pop("ui", Pop.onChange("cstamp:" .. item.id,
+                                  is_corrupted and "CORRUPTED" or "none", STAMP_IMPACT_SECS))
     if is_corrupted then
         local hw, hh = fl(60 * s), fl(14 * s)
         local cx = Decal.lerp("cstamp_x:" .. item.id, 3,
@@ -1256,7 +1274,8 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         if not self._tentacle_t0[item.id] then
             self._tentacle_t0[item.id] = (c_impact > 0) and now or (now - 60)
         end
-        local grow = math.min(1, (now - self._tentacle_t0[item.id]) / TENTACLE_GROW_SECS)
+        local grow = math.min(1, (now - self._tentacle_t0[item.id])
+                                 / (TENTACLE_GROW_SECS * math.max(Motion.scale("ui"), 0.003)))
         local sx, sy, sw, sh = love.graphics.getScissor()
         love.graphics.intersectScissor(x, y, w, h)
         Tentacles.draw{
@@ -1584,10 +1603,10 @@ function CatalogModal:draw()
     -- Page-flip timer.
     local dt = love.timer.getDelta()
     if self._enter_t < 1 then
-        self._enter_t = math.min(1, self._enter_t + dt / SLIDE_IN_SECS)
+        self._enter_t = math.min(1, self._enter_t + dt / paperSecs(SLIDE_IN_SECS))
     end
     if self._throw_t < 1 then
-        self._throw_t = math.min(1, self._throw_t + dt / THROW_SECS)
+        self._throw_t = math.min(1, self._throw_t + dt / paperSecs(THROW_SECS))
     end
     if self.flip_t then
         self.flip_t = self.flip_t - dt

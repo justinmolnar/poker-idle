@@ -23,6 +23,7 @@
 
 local AnimationSystem = {}
 
+local Motion    = require("services.Motion")
 local AnimsData = require("data.animations")
 
 -- ── Curve factories ──────────────────────────────────────────────────────────
@@ -194,7 +195,10 @@ local FACTORIES = {
 
 -- Look up a preset in data/animations.lua and instantiate it. `overrides` is
 -- merged into the preset's config (handy for `on_complete`).
-function AnimationSystem.create(_, preset_name, overrides)
+-- `group` (optional): a services/Motion group. Medium shortens the
+-- animation; Low and None make it complete on its first update, so the
+-- view's own fade (Motion.fade) is the only motion left.
+function AnimationSystem.create(_, preset_name, overrides, group)
     local preset = AnimsData[preset_name]
     if not preset then
         error("AnimationSystem: unknown preset '" .. tostring(preset_name) .. "'")
@@ -203,6 +207,11 @@ function AnimationSystem.create(_, preset_name, overrides)
     for k, v in pairs(preset) do config[k] = v end
     if overrides then
         for k, v in pairs(overrides) do config[k] = v end
+    end
+    if group then
+        local lvl = Motion.level(group)
+        if lvl <= Motion.LOW then config.duration = 0.0001
+        elseif lvl == Motion.MEDIUM then config.duration = (config.duration or 0.3) * 0.6 end
     end
     local factory = FACTORIES[preset.type]
     if not factory then

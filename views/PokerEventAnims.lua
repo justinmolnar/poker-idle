@@ -36,6 +36,7 @@ local Lookups     = require("utils.lookups")
 
 local Theme       = require("views.Theme")
 local Tumble      = require("services.Tumble")
+local Motion      = require("services.Motion")
 local AnimsData   = require("data.animations")
 
 -- Card render size for the muck-fold animation. Matches the typical
@@ -240,6 +241,7 @@ local PokerEventAnims = {
         FlightSystem.emitBurst(seat_pos, muck_dest, { card_render, card_render }, {
             duration   = 0.25,
             arc_height = 0,
+            motion     = "cards",
         })
     end,
 
@@ -408,9 +410,9 @@ local function flyBack(sl, back, from, rect, delay, dur)
     local w, h = rect[3] or MUCK_CARD_W, rect[4] or MUCK_CARD_H
     local render = Tumble.wrap(function(x, y)
         CardSprites.back(sl, back, x - w / 2, y - h / 2, w, h, 1)
-    end, Tumble.PRESETS.toss)
+    end, Tumble.PRESETS.toss, "cards")
     FlightSystem.emit(from, { rect[1] + w / 2, rect[2] + h / 2 }, render, {
-        delay = delay, duration = dur, arc_height = GD.arc or 40,
+        delay = delay, duration = dur, arc_height = GD.arc or 40, motion = "cards",
     })
 end
 
@@ -427,7 +429,8 @@ local function muckResidue(tbl, swept, sl, back)
             if is_back then CardSprites.back(sl, back, x - w / 2, y - h / 2, w, h, a)
             else CardSprites.sprite(sl, sprite_name, x - w / 2, y - h / 2, w, h, 1, a) end
         end
-        FlightSystem.emit(from, { from[1], from[2] + 60 }, render, { duration = dur, arc_height = 0 })
+        FlightSystem.emit(from, { from[1], from[2] + 60 }, render,
+                          { duration = dur, arc_height = 0, motion = "cards" })
     end
     local ps_seat = swept.player_seat
     for i = 1, #tbl.opponents do
@@ -480,16 +483,19 @@ PokerEventAnims.deal_hole = function(_ev, tbl, game)
 
     local card, stag = dealBudget(tbl, #order * 2)
     local from = dealOrigin(tbl)
+    -- Low motion: no flight, no turn; the cards are simply dealt, and the
+    -- panel fades them in where they sit.
+    local still = Motion.level("cards") <= Motion.LOW
     local k = 0
     for _, key in ipairs(order) do
         for n = 1, 2 do
             local rect = cardRect(tbl, key, n)
-            if from and rect then flyBack(sl, back, from, rect, muck_d + k * stag, card) end
+            if from and rect and not still then flyBack(sl, back, from, rect, muck_d + k * stag, card) end
             k = k + 1
         end
-        local land = muck_d + (k - 1) * stag + card
+        local land = still and 0 or (muck_d + (k - 1) * stag + card)
         fx.arrive[key] = now + land
-        fx.flip[key]   = (key == "you")
+        fx.flip[key]   = (key == "you") and not still
         FlightSystem.scheduleSound("card_dealt", land)
     end
 end
@@ -503,12 +509,13 @@ local function dealBoard(tbl, game, first, last)
     local back = backSprite(game)
     local card, stag = dealBudget(tbl, last - first + 1)
     local from = dealOrigin(tbl)
+    local still = Motion.level("cards") <= Motion.LOW
     for i = first, last do
         local k    = i - first
         local rect = Anchors.get(Table.anchorKey(tbl, "board_" .. i))
-        if from and rect then flyBack(sl, back, from, rect, k * stag, card) end
-        fx.arrive["board_" .. i] = now + k * stag + card
-        fx.flip["board_" .. i]   = true
+        if from and rect and not still then flyBack(sl, back, from, rect, k * stag, card) end
+        fx.arrive["board_" .. i] = now + (still and 0 or (k * stag + card))
+        fx.flip["board_" .. i]   = not still
     end
     FlightSystem.scheduleSound("card_dealt", (last - first) * stag + card)
 end

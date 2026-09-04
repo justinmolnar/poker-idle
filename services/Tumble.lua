@@ -45,6 +45,8 @@
 -- Every option is optional; omitted ones are randomised per-wrap so a
 -- burst of them doesn't move as one rigid body.
 
+local Motion = require("services.Motion")
+
 local Tumble = {}
 
 -- Defaults, expressed as full rotations over the whole flight.
@@ -101,8 +103,11 @@ Tumble.PRESETS = {
 --                 so an object leaves and arrives at its true size — a
 --                 chip joining a pile has to be the size of the pile's
 --                 chips at the moment it lands.
-function Tumble.wrap(render_fn, opts)
+-- `group` (default "chips"): the motion group; below Full the callback is
+-- returned untouched and the thing flies flat.
+function Tumble.wrap(render_fn, opts, group)
     if not render_fn then return render_fn end
+    if not Motion.at(group or "chips", Motion.FULL) then return render_fn end
     opts = opts or {}
 
     local spins      = pick(opts.spins, SPINS_MIN, SPINS_MAX)
@@ -150,10 +155,10 @@ end
 
 -- Wrap a whole list in one call. Each entry gets its own randomised
 -- motion unless `opts` pins it.
-function Tumble.wrapAll(render_fns, opts)
+function Tumble.wrapAll(render_fns, opts, group)
     local out = {}
     for i, fn in ipairs(render_fns or {}) do
-        out[i] = Tumble.wrap(fn, opts)
+        out[i] = Tumble.wrap(fn, opts, group)
     end
     return out
 end

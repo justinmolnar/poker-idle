@@ -14,6 +14,7 @@ local TablePanel = require("views.TablePanel")
 local Effects    = require("views.TablePanelEffects")
 local Easing     = require("utils.easing")
 
+local Motion     = require("services.Motion")
 local TablePanelDrag = {}
 
 local LIFT_IN_S      = 0.14     -- pick-up: seconds to full lift
@@ -35,6 +36,11 @@ function TablePanelDrag.update(drag, dt, mx, my)
     drag.tilt = Easing.damp(drag.tilt or 0, want, TILT_DAMP_RATE, dt)
     drag.px, drag.py = px, py
     drag.lift = math.min(1, (drag.lift or 0) + dt / LIFT_IN_S)
+    -- Motion: below High no sway; Low and below no lift either — the
+    -- held table simply follows the mouse at its own size.
+    local lvl = Motion.level("tables")
+    if lvl <= Motion.MEDIUM then drag.tilt, drag.vx = 0, 0 end
+    if lvl <= Motion.LOW then drag.lift = 0 end
 end
 
 -- Render the held panel at the mouse. `held` = { tbl, idx, pw, ph }

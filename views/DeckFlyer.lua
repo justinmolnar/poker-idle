@@ -35,9 +35,18 @@ local CardSprites = require("views.CardSprites")
 local IconText    = require("views.IconText")
 local HoverSvc    = require("services.HoverService")
 local Format      = require("utils.format")
+local Motion      = require("services.Motion")
 
 local DeckFlyer = {}
 DeckFlyer.__index = DeckFlyer
+
+-- Low motion: the pamphlet appears where it rests, faded in over
+-- Motion.FADE_SECS. Every colour set in this file goes through `col`,
+-- which multiplies by the fade.
+local _alpha = 1
+local function col(token, a)
+    Theme.setColor(token, (a or token[4] or 1) * _alpha)
+end
 
 -- ─── Palette (the room's, fixed) ─────────────────────────────────────
 local P = {
@@ -223,13 +232,13 @@ end
 -- A leaf of stock: the book's double rule, in the pamphlet's own palette.
 local function drawLeaf(x, y, w, h, s)
     local fl = math.floor
-    Theme.setColor(P.stock)
+    col(P.stock)
     love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
-    Theme.setColor(P.edge, 0.7)
+    col(P.edge, 0.7)
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
     love.graphics.setLineWidth(1)
-    Theme.setColor(P.rule, 0.5)
+    col(P.rule, 0.5)
     love.graphics.rectangle("line", x + fl(5 * s), y + fl(5 * s), w - fl(10 * s), h - fl(10 * s), Theme.space.radius)
 end
 
@@ -239,15 +248,15 @@ local function drawFold(x, y, h, s)
     local fw = math.max(4, math.floor(FOLD_W_BASE * s))
     for i = 1, fw do
         local t = i / fw
-        Theme.setColor(P.sunken, 0.6 * (1 - t))
+        col(P.sunken, 0.6 * (1 - t))
         love.graphics.rectangle("fill", x - i, y, 1, h)
     end
     for i = 0, math.floor(fw / 2) do
         local t = i / math.max(1, math.floor(fw / 2))
-        Theme.setColor(P.heading, 0.16 * (1 - t))
+        col(P.heading, 0.16 * (1 - t))
         love.graphics.rectangle("fill", x + i, y, 1, h)
     end
-    Theme.setColor(P.sunken, 0.85)
+    col(P.sunken, 0.85)
     love.graphics.rectangle("fill", x - 1, y, 1, h)
 end
 
@@ -276,7 +285,7 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked, mx, my)
     if not unlocked then
         local frac, cur, target = Decks.unlockProgress(state, spec, game.unlock_rules)
         frac = frac or 0
-        DeckArt.draw(game, spec, x, y, w, h, { scale = s, locked_frac = frac, pips = false })
+        DeckArt.draw(game, spec, x, y, w, h, { scale = s, locked_frac = frac, pips = false, alpha = _alpha })
 
         local title   = STICKER_COMING
         local line    = (spec.unlock and spec.unlock.text) or ""
@@ -297,13 +306,13 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked, mx, my)
             vinyl_token = STICKER_PANEL, ink_token = STICKER_INK, edge_token = STICKER_EDGE,
         }
     else
-        DeckArt.draw(game, spec, x, y, w, h, { level = level, scale = s })
+        DeckArt.draw(game, spec, x, y, w, h, { level = level, scale = s, alpha = _alpha })
 
         local panel_h = fl(h * INFO_PANEL_FRAC)
         local panel_y = y + h - panel_h
-        Theme.setColor(P.window, INFO_PANEL_ALPHA)
+        col(P.window, INFO_PANEL_ALPHA)
         love.graphics.rectangle("fill", x, panel_y, w, panel_h, Theme.space.radius)
-        Theme.setColor(P.soft, 0.7)
+        col(P.soft, 0.7)
         love.graphics.rectangle("fill", x + 4, panel_y, w - 8, 1)
 
         local pad       = fl(8 * s)
@@ -314,7 +323,7 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked, mx, my)
         local cy        = panel_y + fl(6 * s)
 
         love.graphics.setFont(fonts.sm)
-        Theme.setColor(P.heading)
+        col(P.heading)
         love.graphics.printf(spec.name or spec.id, content_x, cy, content_w, "center")
         cy = cy + fonts.sm:getHeight() + fl(2 * s)
         for _, ln in ipairs(IconText.wrap(spec.levels_on or "", fonts.sm, content_w)) do
@@ -327,9 +336,9 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked, mx, my)
         local xp = (state.deck_xp and state.deck_xp[spec.id]) or 0
         local into, span = Decks.progressInLevel(spec, level, xp)
         local fill_frac = span and math.max(0, math.min(1, into / span)) or 1
-        Theme.setColor(P.sunken)
+        col(P.sunken)
         love.graphics.rectangle("fill", content_x, bar_y, content_w, bar_h, 2)
-        Theme.setColor(maxed and gold() or P.heading)
+        col(maxed and gold() or P.heading)
         love.graphics.rectangle("fill", content_x, bar_y, fl(content_w * fill_frac), bar_h, 2)
         if #self._tiles == 0 then
             Anchors.set("deck:xp", content_x, bar_y, content_w, bar_h)
@@ -343,16 +352,16 @@ local function drawTile(self, spec, x, y, w, h, fonts, s, unlocked, mx, my)
             local tab_x = x + fl((w - tab_w) / 2)
             local art_top = y + DeckArt.pipRowHeight(s)
             local tab_y = art_top + fl((panel_y - art_top - tab_h) * 0.45)
-            Theme.setColor(P.good)
+            col(P.good)
             love.graphics.rectangle("fill", tab_x, tab_y, tab_w, tab_h, Theme.space.radius)
-            Theme.setColor(P.window)
+            col(P.window)
             love.graphics.printf(tab_text, tab_x, tab_y + fl(4 * s), tab_w, "center")
         end
     end
 
     local shown = (self._detail_id == spec.id)
     local frame = in_play and P.good or (shown and P.heading) or (hov and P.edge or P.soft)
-    Theme.setColor(frame)
+    col(frame)
     love.graphics.setLineWidth((in_play or shown) and (Theme.space.line_strong or 2) or 1)
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
     love.graphics.setLineWidth(1)
@@ -374,7 +383,7 @@ local function drawColumn(self, spec, rx, ry, rw, rh, fonts, s, unlocked)
     local max_level = spec.max_level or 5
     local maxed = unlocked and level >= max_level
 
-    Theme.setColor(P.rule, 0.5)
+    col(P.rule, 0.5)
     love.graphics.rectangle("line", rx, ry, rw, rh, Theme.space.radius)
 
     local pw, ph = fl(PREVIEW_W_BASE * s), fl(PREVIEW_H_BASE * s)
@@ -384,30 +393,30 @@ local function drawColumn(self, spec, rx, ry, rw, rh, fonts, s, unlocked)
         frac, cur, target = Decks.unlockProgress(state, spec, game.unlock_rules)
     end
     DeckArt.draw(game, spec, px, cy, pw, ph, {
-        level = level, scale = s, locked_frac = (not unlocked) and (frac or 0) or nil,
+        level = level, scale = s, locked_frac = (not unlocked) and (frac or 0) or nil, alpha = _alpha,
     })
-    Theme.setColor(P.rule)
+    col(P.rule)
     love.graphics.rectangle("line", px, cy, pw, ph, Theme.space.radius)
     cy = cy + ph + fl(10 * s)
 
     love.graphics.setFont(fonts.md)
-    Theme.setColor(P.heading)
+    col(P.heading)
     love.graphics.printf(spec.name or spec.id, cx, cy, cw, "center")
     cy = cy + fonts.md:getHeight() + fl(2 * s)
     love.graphics.setFont(fonts.sm)
     if not unlocked then
-        Theme.setColor(P.error)
+        col(P.error)
         love.graphics.printf("locked", cx, cy, cw, "center")
     elseif maxed then
-        Theme.setColor(gold())
+        col(gold())
         love.graphics.printf("maxed", cx, cy, cw, "center")
     else
-        Theme.setColor(P.muted)
+        col(P.muted)
         love.graphics.printf(("level %d of %d"):format(level, max_level), cx, cy, cw, "center")
     end
     cy = cy + fonts.sm:getHeight() + fl(10 * s)
 
-    Theme.setColor(P.rule, 0.5)
+    col(P.rule, 0.5)
     love.graphics.rectangle("fill", rx + 8, cy, rw - 16, 1)
     cy = cy + fl(10 * s)
 
@@ -428,7 +437,7 @@ local function drawColumn(self, spec, rx, ry, rw, rh, fonts, s, unlocked)
 
     if spec.capstone and spec.capstone.text then
         love.graphics.setFont(fonts.sm)
-        Theme.setColor(maxed and gold() or P.muted)
+        col(maxed and gold() or P.muted)
         love.graphics.printf(maxed and "Capstone - earned" or "Capstone - at level 5", cx, cy, cw, "center")
         cy = cy + fonts.sm:getHeight()
         cy = iconWrapCentered(game, spec.capstone.text, cx, cy, cw, fonts.sm, maxed and P.heading or P.muted)
@@ -440,14 +449,14 @@ local function drawColumn(self, spec, rx, ry, rw, rh, fonts, s, unlocked)
 
     if spec.flavor_text then
         love.graphics.setFont(fonts.sm)
-        Theme.setColor(P.faint)
+        col(P.faint)
         love.graphics.printf(spec.flavor_text, cx, cy, cw, "center")
     end
 
     -- The terms, small print at the foot.
     local _, tl = fonts.sm:getWrap(TERMS, cw)
     local terms_h = #tl * fonts.sm:getHeight()
-    Theme.setColor(P.faint)
+    col(P.faint)
     love.graphics.setFont(fonts.sm)
     love.graphics.printf(TERMS, cx, ry + rh - pad - terms_h, cw, "center")
 end
@@ -463,10 +472,10 @@ local function drawCover(self, w, h, fonts, s)
     local state = game.state
     drawLeaf(0, 0, w, h, s)
 
-    Theme.setColor(P.muted)
+    col(P.muted)
     love.graphics.setFont(fonts.sm)
     love.graphics.printf(IMPRINT, 0, fl(26 * s), w, "center")
-    Theme.setColor(P.heading)
+    col(P.heading)
     love.graphics.setFont(fonts.lg)
     local hy = fl(26 * s) + fonts.sm:getHeight() + fl(6 * s)
     love.graphics.printf(HEADLINE, fl(12 * s), hy, w - fl(24 * s), "center")
@@ -476,14 +485,14 @@ local function drawCover(self, w, h, fonts, s)
     local ch   = fl(cw * 1.4)
     local cx   = fl((w - cw) / 2)
     local cy   = hy + fonts.lg:getHeight() + fl(24 * s)
-    CardSprites.shadow(cx, cy, cw, ch, 1, fl(4 * s))
-    CardSprites.back(game.sprite_loader, spec and spec.sprite, cx, cy, cw, ch, 1)
-    Theme.setColor(P.edge)
+    CardSprites.shadow(cx, cy, cw, ch, _alpha, fl(4 * s))
+    CardSprites.back(game.sprite_loader, spec and spec.sprite, cx, cy, cw, ch, _alpha)
+    col(P.edge)
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", cx, cy, cw, ch, Theme.space.radius)
     love.graphics.setLineWidth(1)
 
-    Theme.setColor(P.primary)
+    col(P.primary)
     love.graphics.setFont(fonts.md)
     love.graphics.printf(SELL, fl(12 * s), cy + ch + fl(22 * s), w - fl(24 * s), "center")
 end
@@ -508,7 +517,12 @@ function DeckFlyer:_drawClosedOnFelt(W, H, fonts, s)
     local rx, ry, angle = self:_feltSpot(W, H, fw, fh)
 
     local t = self._throw_t
-    local x, y, spin_left, sq, height = Throw.pose(t, CLOSED, s, rx, ry, fh)
+    -- High and below: no tumble, no flutter on the way in.
+    local cfg = CLOSED
+    if not Motion.at("paper", Motion.FULL) then
+        cfg = setmetatable({ flutter = 0, throw_spin = 0 }, { __index = CLOSED })
+    end
+    local x, y, spin_left, sq, height = Throw.pose(t, cfg, s, rx, ry, fh)
     local spin = angle + spin_left
 
     love.graphics.push()
@@ -517,14 +531,14 @@ function DeckFlyer:_drawClosedOnFelt(W, H, fonts, s)
     love.graphics.scale(sq, 1 / sq)
     if height > 0.02 then
         local sh_off = fl(12 * s * height)
-        Theme.setColor(P.sunken, 0.40 * height)
+        col(P.sunken, 0.40 * height)
         love.graphics.rectangle("fill", -fw * 0.5 + sh_off, -fh * 0.5 + sh_off, fw, fh, fl(4 * s))
     end
     -- The two leaves folded behind the cover, peeking out at the edge.
     for i = 2, 1, -1 do
-        Theme.setColor(P.window)
+        col(P.window)
         love.graphics.rectangle("fill", -fw * 0.5 + i * 2, -fh * 0.5 + i * 2, fw, fh, fl(3 * s))
-        Theme.setColor(P.rule, 0.6)
+        col(P.rule, 0.6)
         love.graphics.rectangle("line", -fw * 0.5 + i * 2, -fh * 0.5 + i * 2, fw, fh, fl(3 * s))
     end
     love.graphics.push()
@@ -535,7 +549,7 @@ function DeckFlyer:_drawClosedOnFelt(W, H, fonts, s)
     -- The invitation, at its real size: text never rests scaled.
     if t >= 1 then
         love.graphics.setFont(fonts.md)
-        Theme.setColor(P.warn)
+        col(P.warn)
         love.graphics.printf("CLICK TO OPEN", -fw * 0.5, fh * 0.5 - fonts.md:getHeight() - fl(10 * s), fw, "center")
     end
     love.graphics.pop()
@@ -611,8 +625,12 @@ function DeckFlyer:draw()
     local s     = (self.game.ui_scale) or 1
     local fl    = math.floor
     local dt    = love.timer.getDelta()
-    if self._throw_t < 1 then self._throw_t = math.min(1, self._throw_t + dt / THROW_SECS) end
-    if self._open_t  < 1 then self._open_t  = math.min(1, self._open_t  + dt / OPEN_SECS) end
+    -- Motion: Medium shortens the throw and the opening; Low and below
+    -- finish them on the next frame and fade the sheet in where it rests.
+    local psc = math.max(Motion.scale("paper"), 0.003)
+    if self._throw_t < 1 then self._throw_t = math.min(1, self._throw_t + dt / (THROW_SECS * psc)) end
+    if self._open_t  < 1 then self._open_t  = math.min(1, self._open_t  + dt / (OPEN_SECS * psc)) end
+    _alpha = Motion.fade("paper", "flyer:" .. tostring(self._throw_key) .. ":" .. (self._open and "open" or "closed"))
 
     if self.on_felt and not self._open then
         self:_drawClosedOnFelt(W, H, fonts, s)
@@ -620,7 +638,7 @@ function DeckFlyer:draw()
     end
 
     if self.scrim then
-        Theme.setColor(Theme.debug.hud_bg)
+        col(Theme.debug.hud_bg)
         love.graphics.rectangle("fill", 0, 0, W, H)
     end
 
@@ -673,19 +691,20 @@ function DeckFlyer:draw()
 
         -- Masthead across the spread, in the band the leaves keep clear.
         local cy = sy + pad
-        Theme.setColor(P.muted)
+        col(P.muted)
         love.graphics.setFont(fonts.sm)
         love.graphics.printf(IMPRINT, sx, cy, sw, "center")
         cy = cy + fonts.sm:getHeight()
-        Theme.setColor(P.heading)
+        col(P.heading)
         love.graphics.setFont(fonts.lg)
         love.graphics.printf(HEADLINE, sx, cy, sw, "center")
         cy = cy + fonts.lg:getHeight() + fl(2 * s)
-        Theme.setColor(P.primary)
+        col(P.primary)
         love.graphics.setFont(fonts.sm)
         love.graphics.printf(SELL_OPEN, sx, cy, sw, "center")
     end
     love.graphics.setColor(1, 1, 1, 1)
+    _alpha = 1
 end
 
 return DeckFlyer

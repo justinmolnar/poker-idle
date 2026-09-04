@@ -13,6 +13,7 @@
 // Only views/DeckArt uses this, at the cap. Sends u_time each frame.
 
 extern float u_time;
+extern float u_sparkle;   // 1 = sparkles on (views/DeckArt sends 0 at reduced motion)
 
 vec3 hsv2rgb(vec3 c) {
     vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
@@ -74,7 +75,7 @@ vec4 effect(vec4 color, Image texture, vec2 uv, vec2 screen_coords) {
     vec3  screenB = 1.0 - (1.0 - art) * (1.0 - holo * film);
     vec3  out_rgb = mix(art, screenB, 0.6);
     out_rgb += bar * mix(holo, vec3(1.0), 0.7) * 0.7;
-    out_rgb += spark * 1.2;
+    out_rgb += spark * 1.2 * u_sparkle;
 
     return vec4(out_rgb * color.rgb, tex.a * color.a);
 }

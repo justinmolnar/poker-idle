@@ -20,6 +20,7 @@
 
 local Object = require('lib.class')
 local Constants = require('data.constants')
+local Motion = require("services.Motion")
 local SpriteLoader = Object:extend('SpriteLoader')
 
 local SPRITE_DIR  = "assets/sprites"
@@ -363,6 +364,8 @@ end
 
 function SpriteLoader:getSprite(sprite_name, time, fps, frame)
     if not self.loaded then self:loadAll() end
+    -- Motion: below High, animated art holds its first frame.
+    if time ~= false and Motion.level("shine") <= Motion.MEDIUM then time = false end
     local resolved = _resolve(self, sprite_name)
     local anim = self.animations[resolved] or self.animations[sprite_name]
 

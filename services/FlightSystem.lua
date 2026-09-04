@@ -20,8 +20,18 @@
 
 local SoundService = require("services.SoundService")
 
+local Motion       = require("services.Motion")
 local FlightSystem = {}
 
+-- Every emission carries a motion group (options.motion, default "chips")
+-- and services/Motion decides how far it flies: as authored at Full and
+-- High (High drops the landing scatter), shortened with no stagger at
+-- Medium, and not at all below that — the entity lands the instant it is
+-- emitted (on_arrive fires, the arrival sound still plays) so whatever it
+-- was carrying is where it belongs and the view fades it in.
+local function levelFor(options)
+    return Motion.level((options and options.motion) or "chips")
+end
 local _flying           = {}
 -- Parallel queue of pending arrival-sound playbacks. Each burst can schedule
 -- exactly one entry (see emitBurst); we play it just before the last entity
@@ -82,6 +92,11 @@ end
 function FlightSystem.emit(start_xy, end_xy, render_fn, options)
     options = options or {}
     if not render_fn then return end
+    local lvl = levelFor(options)
+    if lvl <= Motion.LOW then
+        if options.on_arrive then options.on_arrive(end_xy[1], end_xy[2]) end
+        return
+    end
     if #_flying >= MAX_IN_FLIGHT then
         local dropped = table.remove(_flying, 1)
         if dropped and dropped.on_arrive then
@@ -100,8 +115,8 @@ function FlightSystem.emit(start_xy, end_xy, render_fn, options)
         p1        = mid,
         p2        = { end_xy[1],   end_xy[2]   },
         t         = 0,
-        duration  = options.duration or DEFAULT_DURATION,
-        delay     = options.delay    or 0,
+        duration  = (options.duration or DEFAULT_DURATION) * ((lvl == Motion.MEDIUM) and 0.6 or 1),
+        delay     = (lvl == Motion.MEDIUM) and 0 or (options.delay or 0),
         render_fn = render_fn,
         on_arrive = options.on_arrive,
         x         = start_xy[1],
@@ -122,6 +137,11 @@ end
 function FlightSystem.emitBurst(start_xy, end_xy, render_fns, options)
     if not render_fns or #render_fns == 0 then return end
     options = options or {}
+    local lvl = levelFor(options)
+    if lvl <= Motion.LOW then
+        if options.arrival_sound then FlightSystem.scheduleSound(options.arrival_sound, 0) end
+        return
+    end
     local stagger  = options.stagger  or DEFAULT_STAGGER
     local duration = options.duration or DEFAULT_DURATION
     local cap      = options.max_per_event or MAX_PER_EVENT
@@ -130,9 +150,11 @@ function FlightSystem.emitBurst(start_xy, end_xy, render_fns, options)
     -- small disc around the destination and its own flight time, so the
     -- burst arrives as a scatter of separate objects instead of a rigid
     -- formation collapsing onto one pixel. Pass 0 for either to restore
-    -- the old lockstep behaviour.
+    -- the old lockstep behaviour. Gone at High and below.
     local land_spread = options.land_spread or DEFAULT_LAND_SPREAD
     local dur_jitter  = options.duration_jitter or DEFAULT_DUR_JITTER
+    if lvl <= Motion.HIGH then land_spread, dur_jitter = 0, 0 end
+    if lvl == Motion.MEDIUM then stagger = 0 end
 
     -- Sample down to cap, preserving the original order so the showcase
     -- entity (always at index 1 from breakdown) leads.
@@ -160,6 +182,7 @@ function FlightSystem.emitBurst(start_xy, end_xy, render_fns, options)
             delay      = (i - 1) * stagger,
             duration   = dur,
             arc_height = options.arc_height,
+            motion     = options.motion,
         })
     end
 
@@ -230,6 +253,23 @@ end
 function FlightSystem.emitScatterEach(entities, options)
     if not entities or #entities == 0 then return end
     options = options or {}
+    -- A scatter is a spectacle: at High one piece flies, below that none
+    -- (each entity lands where it is, so a gather still completes).
+    local lvl = levelFor(options)
+    if lvl <= Motion.MEDIUM then
+        for _, e in ipairs(entities) do
+            if e.on_arrive then e.on_arrive(e.x, e.y) end
+        end
+        if options.arrival_sound then FlightSystem.scheduleSound(options.arrival_sound, 0) end
+        return
+    end
+    if lvl == Motion.HIGH and #entities > 1 then
+        local first = entities[1]
+        for i = 2, #entities do
+            if entities[i].on_arrive then entities[i].on_arrive(entities[i].x, entities[i].y) end
+        end
+        entities = { first }
+    end
     local min_spread = options.min_spread or 90
     local max_spread = options.max_spread or 300
     local rise       = options.rise       or 90
@@ -252,6 +292,7 @@ function FlightSystem.emitScatterEach(entities, options)
                 arc_height = arc_min + love.math.random() * (arc_max - arc_min),
                 delay      = love.math.random() * stagger,
                 on_arrive  = e.on_arrive,
+                motion     = options.motion,
             })
         end
     end

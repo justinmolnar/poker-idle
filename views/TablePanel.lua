@@ -46,6 +46,7 @@ local HistoryBars   = require("data.history_bars")
 local Lookups       = require("utils.lookups")
 local Format        = require("utils.format")
 local CardSprites   = require("views.CardSprites")
+local Motion        = require("services.Motion")
 local Effects       = require("views.TablePanelEffects")
 local ShaderRegistry = require("services.ShaderRegistry")
 local FeltStyle     = require("data.felt_style")
@@ -220,6 +221,30 @@ local function holeVisible(tbl)
     return tbl.state ~= "idle" or residueOf(tbl) ~= nil
 end
 
+-- ─── Low-motion pile hold ─────────────────────────────────────────────
+-- At chips ≤ Low the pot and the player's stack piles hold their picture
+-- for a whole street: frozen at the street's first frame, thawed (and
+-- re-frozen) when the board grows and when the hand settles. The held
+-- value is what the pot label prints too. Returns the value to show, or
+-- nil when nothing is held (motion on, or the table idle).
+local function holdPile(tbl, key, field, live_value)
+    if Motion.level("chips") > Motion.LOW or tbl.state == "idle" then
+        if tbl[field] then ChipPile.thaw(key); tbl[field] = nil end
+        return nil
+    end
+    local ps       = tbl.playback_state
+    local street   = (ps and ps.community_count) or 0
+    local settling = tbl.state == "settling"
+    local h = tbl[field]
+    if not h or h.street ~= street or h.settling ~= settling then
+        ChipPile.thaw(key)
+        h = { street = street, settling = settling, value = live_value }
+        tbl[field] = h
+        ChipPile.freeze(key)
+    end
+    return h.value
+end
+
 -- ─── The deal gates ──────────────────────────────────────────────────
 -- views/PokerEventAnims writes tbl._deal_fx when it throws cards: for each
 -- card key ("you", "opp_N", "board_N") the wall-clock time the flight lands
@@ -238,6 +263,11 @@ local function dealGate(tbl, key)
     if fx.flip and fx.flip[key] then
         local d = (AnimsData.grind_deal and AnimsData.grind_deal.flip) or 0.22
         if now < at + d then return "flip", (now - at) / d end
+    end
+    -- Low motion: the card is in its slot and fades in.
+    if Motion.level("cards") <= Motion.LOW then
+        local a = Motion.fade("cards", "deal:" .. tostring(tbl._id) .. ":" .. key .. ":" .. tostring(at))
+        if a < 1 then return "fade", a end
     end
     return nil
 end
@@ -672,6 +702,7 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     -- (set by Table:fillOpponents); we map that to alpha 0 → 1 so seats
     -- pulse-fade-in on each new hand.
     local flash_t = tbl.reroll_flash_t or 0
+    if not Motion.at("tables", Motion.FULL) then flash_t = 0 end
     local seat_alpha = (flash_t > 0) and (1 - flash_t / 0.4) or 1
     if seat_alpha < 0.15 then seat_alpha = 0.15 end
 
@@ -717,7 +748,7 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
                 if ko then
                     -- Stamping in: red and oversized on the hit, settling
                     -- into the resting grey.
-                    local pop = 1 + 0.6 * (1 - ko)
+                    local pop = Motion.at("tables", Motion.FULL) and (1 + 0.6 * (1 - ko)) or 1
                     Theme.setColor(Theme.status.error, 0.5 + 0.5 * (1 - ko))
                     love.graphics.push()
                     love.graphics.translate(x + w / 2, ty + f:getHeight() / 2)
@@ -780,7 +811,7 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     -- Card slots, for the deal's flights to land on.
     Anchors.set(Table.anchorKey(tbl, "cards_opp_" .. opp_idx .. "_1"), cards_x, cards_y, card_w, card_h)
     Anchors.set(Table.anchorKey(tbl, "cards_opp_" .. opp_idx .. "_2"), cards_x + card_w + card_gap, cards_y, card_w, card_h)
-    local gate = dealGate(tbl, "opp_" .. opp_idx)
+    local gate, gp_seat = dealGate(tbl, "opp_" .. opp_idx)
     local face_up = opponentFaceUp(tbl) and hd.opponent_idx == opp_idx
     if face_up and ss_fold and ss_fold.player_seat and ss_fold.in_seats then
         local ps = ss_fold.player_seat
@@ -789,6 +820,9 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
             face_up = false
         end
     end
+    local gate_a = 1
+    if gate == "fade" then gate_a = gp_seat or 1 end
+    seat_alpha = seat_alpha * gate_a
     if gate == "hidden" then
         -- In the air: the slots wait.
         drawCardSlot(cards_x, cards_y, card_w, card_h)
@@ -875,8 +909,8 @@ local function drawCommunity(tbl, comm, sl, plate)
             if gate == "flip" then
                 drawCardTurn(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h, gp, comm.shadow)
             else
-                drawCardFront(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h, 1,
-                              plate, comm.shadow)
+                drawCardFront(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h,
+                              (gate == "fade") and gp or 1, plate, comm.shadow)
             end
         else
             drawCardSlot(cx, comm.y, comm.card_w, comm.card_h)
@@ -958,7 +992,8 @@ local function drawPotLabel(tbl, pot, fonts)
     -- both of its branches had converged on potval.)
     local pile_val = potval
 
-    local rolled_pot = RollingValue.get("table_pot:" .. (tbl._id or 0), potval)
+    local held_pot   = tbl._pot_hold and tbl._pot_hold.value
+    local rolled_pot = RollingValue.get("table_pot:" .. (tbl._id or 0), held_pot or potval)
     -- NB: no early-out on a near-zero rolled_pot here. The pile below has
     -- to be told the pot is empty — that's the call that ends its hand —
     -- and the rolling value lags behind the real one, so bailing on it
@@ -1019,6 +1054,8 @@ local function drawPotLabel(tbl, pot, fonts)
         else
             ChipPile.clear(pot_key)
         end
+        -- Low motion: the pile holds its street's picture (see holdPile).
+        holdPile(tbl, pot_key, "_pot_hold", pile_val)
 
         -- Stack detonation: the pile comes apart INSTEAD of being drawn.
         -- The controller raises pot_explode_pending on a stack win; we
@@ -1250,9 +1287,10 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
         drawCardTurn(sl, hd.player_hole[1], cards_x, cards_y, card_w, card_h, gp, hole.shadow)
         drawCardTurn(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, gp, hole.shadow)
     elseif holeVisible(tbl) and hd.player_hole then
-        drawCardFront(sl, hd.player_hole[1], cards_x, cards_y, card_w, card_h, 1,
+        local a = (gate == "fade") and gp or 1
+        drawCardFront(sl, hd.player_hole[1], cards_x, cards_y, card_w, card_h, a,
                       hole.plate, hole.shadow)
-        drawCardFront(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1,
+        drawCardFront(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, a,
                       hole.plate, hole.shadow)
         -- Showdown win emphasis (dim losers / grow winners) is applied later as
         -- a single on-top overlay pass in TablePanel.draw (drawShowdownEmphasis).
@@ -1389,6 +1427,7 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
     })
     -- "medium" target (~12 chips) keeps the pile compact regardless of stake.
     ChipPile.sync(you_key, display_stack, { palette = palette, tier = "medium" })
+    holdPile(tbl, you_key, "_stack_hold", display_stack)
     ChipPile.draw(you_key)
 
     if ChipPile.count(you_key) > 0 then
@@ -1931,6 +1970,21 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- resolution loop. Drawn here so it overlays the panel border
     -- but sits beneath all felt content.
     Effects.drawBorderPulse(tbl, x, y, w, h)
+    -- Low motion stand-ins: a raised edge while a hand is live (no lift),
+    -- and the status colour on the frame while a punch lands (no shove).
+    if Effects.stillLift(tbl) then
+        Theme.setColor(Theme.border.strong, 0.9)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+        love.graphics.setLineWidth(1)
+    end
+    local punch = Effects.punchFlash(tbl)
+    if punch > 0 then
+        Theme.setColor(Theme.status.error, 0.9)
+        love.graphics.setLineWidth(4)
+        love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+        love.graphics.setLineWidth(1)
+    end
 
     -- Header. Removing always allowed now that buy-ins are refundable —
     -- the previous "keep at least one table" gate was a leftover from

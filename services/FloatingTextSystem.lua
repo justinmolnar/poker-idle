@@ -18,6 +18,7 @@
 
 local FloatingTextSystem = {}
 
+local Motion         = require("services.Motion")
 local Constants      = require("data.constants")
 local AnchorRegistry = require("services.AnchorRegistry")
 
@@ -25,10 +26,18 @@ local _texts = {}
 
 function FloatingTextSystem.emit(text, x, y, opts)
     opts = opts or {}
+    -- Motion: None shows nothing; Low fades in place, briefly; Medium
+    -- doesn't drift.
+    local lvl = Motion.level("text")
+    if lvl <= Motion.NONE then return end
+    local arc_x = opts.arc_x or 0
+    local arc_y = opts.arc_y or Constants.FLOATING_TEXT.DRIFT_Y
+    local lifetime = opts.lifetime or Constants.FLOATING_TEXT.DURATION
+    if lvl <= Motion.MEDIUM then arc_x, arc_y = 0, 0 end
+    if lvl <= Motion.LOW then lifetime = math.min(lifetime, 0.9) end
     if #_texts >= Constants.FLOATING_TEXT.MAX_ITEMS then
         table.remove(_texts, 1)
     end
-    local lifetime = opts.lifetime or Constants.FLOATING_TEXT.DURATION
     table.insert(_texts, {
         text     = text,
         x        = x,
@@ -42,8 +51,8 @@ function FloatingTextSystem.emit(text, x, y, opts)
         color       = opts.color,                           -- nil → auto / token
         color_token = opts.color_token,                     -- resolved at draw time
         font        = opts.font or "heading",
-        arc_x       = opts.arc_x or 0,
-        arc_y       = opts.arc_y or Constants.FLOATING_TEXT.DRIFT_Y,
+        arc_x       = arc_x,
+        arc_y       = arc_y,
         table       = opts.table,
         -- Size-clamp only: the renderer fits the text inside this table's
         -- panel, WITHOUT the `table` field's kill-on-next-deal lifecycle.

@@ -32,6 +32,7 @@ local RollingValue = require("services.RollingValue")
 local Decal        = require("services.Decal")
 local TooltipSvc   = require("services.Tooltip")
 
+local Motion       = require("services.Motion")
 local CatalogReceipt = {}
 CatalogReceipt.__index = CatalogReceipt
 
@@ -157,7 +158,7 @@ end
 -- and then popping under.
 function CatalogReceipt:draw(layer, ctx)
     local slide = RollingValue.get("catalog:receipt:slide",
-                                   self.open and 1 or 0, SLIDE_RATE)
+                                   self.open and 1 or 0, SLIDE_RATE, "paper")
     local tucked = slide <= 0.01
     if layer == "behind" then
         if self.open then return end
@@ -182,7 +183,7 @@ function CatalogReceipt:draw(layer, ctx)
 
     -- The printer feed: fires exactly on the ownership transition (first
     -- sighting is swallowed, same contract as the ORDERED stamp).
-    local p = Pop.onChange("catalog:receipt:print", tostring(#rows), PRINT_SECS)
+    local p = Motion.pop("paper", Pop.onChange("catalog:receipt:print", tostring(#rows), PRINT_SECS))
 
     -- ── Geometry ──
     local pw     = fl(PAPER_W_BASE * s)
@@ -214,7 +215,7 @@ function CatalogReceipt:draw(layer, ctx)
     -- empty half of the spread). Eased, so opening the cover carries the
     -- tucked slip across with the page instead of teleporting it.
     local peek     = fl(PEEK_BASE * s)
-    local tuck_l   = fl(RollingValue.get("catalog:receipt:tuckx", ctx.book_l, 10))
+    local tuck_l   = fl(RollingValue.get("catalog:receipt:tuckx", ctx.book_l, 10, "paper"))
     local x_closed = tuck_l - peek
     -- Pulled out, it lays down just left of the book (or as far as the
     -- screen allows on a full spread, overlapping the page edge a little).

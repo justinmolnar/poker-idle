@@ -19,6 +19,7 @@
 
 local FlightSystem = require("services.FlightSystem")
 
+local Motion = require("services.Motion")
 local Confetti = {}
 
 -- Quads vary in size between these in pixels. Big enough to actually
@@ -63,6 +64,8 @@ local DEFAULT_PALETTE = {
 -- detonation) passed as overrides.
 function Confetti.burst(center_xy, count, options)
     if not center_xy or not count or count <= 0 then return end
+    -- Motion: confetti is the first flourish to go (High and below).
+    if not Motion.at("chips", Motion.FULL) then return end
     options = options or {}
     local palette = options.palette or DEFAULT_PALETTE
 

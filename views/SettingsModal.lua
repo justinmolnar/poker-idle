@@ -14,6 +14,7 @@
 local Theme         = require("views.Theme")
 local SoundService  = require("services.SoundService")
 local Display       = require("services.Display")
+local Motion        = require("services.Motion")
 local Modal         = require("views.widgets.Modal")
 local Row           = require("views.widgets.Row")
 local ConfirmDialog = require("views.widgets.ConfirmDialog")
@@ -45,6 +46,7 @@ local function persistSettings(self)
     g.settings.volume       = SoundService.getMasterVolume()
     g.settings.sfx_volume   = SoundService.getSfxVolume()
     g.settings.music_volume = SoundService.getMusicVolume()
+    Motion.save(g.settings)
     g.save_service:saveSettings(g.settings)
 end
 
@@ -60,6 +62,7 @@ function SettingsModal:new(game)
         _sliders       = {},
         _res_dd        = nil,   -- resolution picker (desktop only)
         _res_popup     = nil,   -- where the open popup anchors, set in :draw
+        _page          = "main", -- "main" | "motion"
     }, SettingsModal)
 
     -- Resolution picker: the primary display's modes (services/Display).
@@ -180,6 +183,14 @@ local ACTION_HANDLERS = {
     new_game  = function(self) self:_openConfirm("new_game") end,
     quit      = function(self) self:_openConfirm("quit") end,
     analytics = function(self) toggleAnalytics(self) end,
+    -- The Motion page (services/Motion levels).
+    motion_page = function(self) self._page = "motion" end,
+    motion_back = function(self) self._page = "main" end,
+    motion_all  = function(self)
+        local m = Motion.master()
+        Motion.setAll(Motion.nextLevel(m or Motion.FULL))
+        persistSettings(self)
+    end,
     -- Cycles windowed -> borderless -> fullscreen; applied + persisted.
     display   = function(self)
         local g = self.game
@@ -190,6 +201,12 @@ local ACTION_HANDLERS = {
 }
 
 function SettingsModal:_runAction(action)
+    if type(action) == "string" and action:sub(1, 7) == "motion:" then
+        local id = action:sub(8)
+        Motion.set(id, Motion.nextLevel(Motion.level(id)))
+        persistSettings(self)
+        return
+    end
     local handler = ACTION_HANDLERS[action]
     if handler then handler(self) end
 end
@@ -207,6 +224,8 @@ function SettingsModal:consumeKey(key)
         self._res_dd:consumeKey(key)
         return true
     end
+    -- ESC on the Motion page goes back to the main page, not out.
+    if key == "escape" and self._page == "motion" then self._page = "main"; return true end
     if key == "escape" then return false end  -- top-level ESC: caller closes
     return true                                -- swallow other keys
 end
@@ -220,6 +239,9 @@ function SettingsModal:consumeMouse(mx, my, button)
         return consumed
     end
 
+    -- The frame's own scrollbar, when the body scrolls.
+    if self._modal and self._modal:mousepressed(mx, my, button) then return true end
+
     -- Resolution popup first: it draws over everything else in the modal,
     -- and a click that closes it must not also fire whatever it covered.
     if self._res_dd then
@@ -230,6 +252,13 @@ function SettingsModal:consumeMouse(mx, my, button)
                 self._res_dd.selected_value)
         end
         if hit ~= "outside" or was_open then return true end
+    end
+
+    -- Rows and sliders are laid out through the frame's scroll; a hit
+    -- outside the visible body is on something that isn't on screen.
+    if self._modal and not self._modal:inBody(mx, my) then
+        if self._modal:hitTest(mx, my) == "inside" then return true end
+        return false
     end
 
     -- Volume sliders: clicking on a track jumps that knob and arms a
@@ -257,12 +286,14 @@ function SettingsModal:consumeMouse(mx, my, button)
 end
 
 function SettingsModal:mousemoved(mx, my)
+    if self._modal and self._modal:mousemoved(mx, my) then return end
     for _, entry in ipairs(self._sliders) do
         entry.slider:mousemoved(mx, my)
     end
 end
 
 function SettingsModal:mousereleased(mx, my, button)
+    if self._modal then self._modal:mousereleased() end
     for _, entry in ipairs(self._sliders) do
         entry.slider:mousereleased(mx, my, button)
     end
@@ -275,6 +306,8 @@ function SettingsModal:wheelmoved(x, y)
         self._res_dd:wheelmoved(x, y)
         return true
     end
+    -- Else the frame scrolls its body, when there is more than fits.
+    if self._modal and self._modal:wheelmoved(x, y) then return true end
     return false
 end
 
@@ -291,13 +324,17 @@ function SettingsModal:draw()
     local s = (self.game.ui_scale) or 1
     MODAL_W = math.floor(MODAL_W_BASE * s)
     ROW_GAP = math.floor(ROW_GAP_BASE * s)
-    -- Rebuild the modal frame each draw so its width tracks scale.
-    self._modal = Modal:new{ title = "Settings", w = MODAL_W }
+    -- One frame, kept across draws (its scroll lives on it); width and
+    -- title follow the page and the scale.
+    self._modal.w = MODAL_W
+    self._modal:setTitle((self._page == "motion") and "Motion" or "Settings")
 
-    -- master, sfx, music, [display, resolution], analytics, save, load,
-    -- new game, quit — the bracketed two are desktop only.
+    -- master, sfx, music, [display, resolution], motion, analytics, save,
+    -- load, new game, quit — the bracketed two are desktop only. The
+    -- Motion page: all-motion, one per group, back.
     local show_display = self._res_dd ~= nil and self.game.settings ~= nil
-    local rows = show_display and 10 or 8
+    local rows = show_display and 11 or 9
+    if self._page == "motion" then rows = 2 + #Motion.GROUPS end
     local body_h = rows * ROW_H + (rows - 1) * ROW_GAP
 
     local body = self._modal:draw(fonts, body_h)
@@ -305,6 +342,42 @@ function SettingsModal:draw()
     local row_x = body.x
     local row_w = body.w
     local y     = body.y
+
+    local function action_row(label, action, opts)
+        opts = opts or {}
+        local hov = HoverSvc.rest("button", "settings_row:" .. label,
+            mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H, 0)
+        Row.draw{ x = row_x, y = y, w = row_w, h = ROW_H,
+                  label = label, value = opts.value, fonts = fonts,
+                  hovered = hov and not opts.disabled, disabled = opts.disabled }
+        -- A hover tip, drawn on top after endDraw.
+        if hov and opts.tip then self._quit_tip = { text = opts.tip, x = mx, y = my } end
+        if not opts.disabled then
+            self._row_rects[#self._row_rects + 1] = {
+                x = row_x, y = y, w = row_w, h = ROW_H, action = action,
+            }
+        end
+        y = y + ROW_H + ROW_GAP
+    end
+
+    -- The Motion page: the master level, one row per group, Back. A click
+    -- on a row steps its level down and wraps (Full → High → … → None).
+    if self._page == "motion" then
+        action_row("All motion", "motion_all", {
+            value = Motion.masterLabel(),
+            tip   = "Sets every group below. Full is the game as authored; None is instant.",
+        })
+        for _, g in ipairs(Motion.GROUPS) do
+            action_row(g.label, "motion:" .. g.id, { value = Motion.label(g.id), tip = g.desc })
+        end
+        action_row("Back", "motion_back")
+        self._modal:endDraw()
+        if self._quit_tip then
+            TooltipSvc.set(self._quit_tip.text, self._quit_tip.x, self._quit_tip.y)
+            TooltipSvc.draw(fonts)
+        end
+        return
+    end
 
     -- Volume rows — label on the left (column sized to the widest of the
     -- three), slider track in the middle, live percentage on the right.
@@ -340,23 +413,6 @@ function SettingsModal:draw()
         y = y + ROW_H + ROW_GAP
     end
 
-    local function action_row(label, action, opts)
-        opts = opts or {}
-        local hov = HoverSvc.rest("button", "settings_row:" .. label,
-            mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H, 0)
-        Row.draw{ x = row_x, y = y, w = row_w, h = ROW_H,
-                  label = label, value = opts.value, fonts = fonts,
-                  hovered = hov and not opts.disabled, disabled = opts.disabled }
-        if opts.disabled then
-            -- No hit-rect → unclickable; stash the hover tooltip to draw on top.
-            if hov and opts.tip then self._quit_tip = { text = opts.tip, x = mx, y = my } end
-        else
-            self._row_rects[#self._row_rects + 1] = {
-                x = row_x, y = y, w = row_w, h = ROW_H, action = action,
-            }
-        end
-        y = y + ROW_H + ROW_GAP
-    end
 
     -- Display mode + resolution (desktop only). The mode row cycles on
     -- click and shows the current mode as its value; the resolution row is
@@ -384,6 +440,12 @@ function SettingsModal:draw()
             y = y + ROW_H + ROW_GAP
         end
     end
+
+    -- Motion levels live on their own page (they are nine rows).
+    action_row("Motion", "motion_page", {
+        value = Motion.masterLabel(),
+        tip   = "How much the game moves: chips, cards, tables, and the rest, each with its own level.",
+    })
 
     -- Analytics consent — same checkbox style as the onboarding modal.
     do

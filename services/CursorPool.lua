@@ -18,6 +18,7 @@ local Cursor       = require("models.Cursor")
 local Theme        = require("views.Theme")
 local SoundService = require("services.SoundService")
 
+local Motion       = require("services.Motion")
 local CursorPool = {}
 
 -- Module-private state.
@@ -136,12 +137,12 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
                                 -- Record collision starburst fanfare at mid-point
                                 local mid_x = (c1.x + c2.x) * 0.5
                                 local mid_y = (c1.y + c2.y) * 0.5
-                                _sparks[#_sparks + 1] = {
+                                if Motion.at("cursors", Motion.FULL) then _sparks[#_sparks + 1] = {
                                     x = mid_x,
                                     y = mid_y,
                                     t = love.timer.getTime(),
                                     angle = math.random() * math.pi,
-                                }
+                                } end
                             end
                         end
                     end
@@ -154,7 +155,9 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
         c:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher, ctx)
         if c._just_dispatched then
             c._just_dispatched = nil
-            _ripples[#_ripples + 1] = { x = c.x, y = c.y, t = love.timer.getTime() }
+            if Motion.at("cursors", Motion.FULL) then
+                _ripples[#_ripples + 1] = { x = c.x, y = c.y, t = love.timer.getTime() }
+            end
             SoundService.playNamed("cursor_tap")
         end
     end
@@ -203,6 +206,9 @@ end
 
 function CursorPool.draw(fonts_or_game)
     if #_cursors == 0 and #_ripples == 0 and #_sparks == 0 then return end
+    -- Motion: at None the cursors are not drawn (they still deal).
+    if Motion.level("cursors") <= Motion.NONE then return end
+    local flourish = Motion.at("cursors", Motion.HIGH)
     local tnow = (love.timer and love.timer.getTime()) or 0
     local fonts = (type(fonts_or_game) == "table" and (fonts_or_game.fonts or fonts_or_game)) or nil
 
@@ -219,7 +225,7 @@ function CursorPool.draw(fonts_or_game)
 
         -- Dizzy cartoon stars orbiting stunned flying mice
         for _, c in ipairs(_cursors) do
-            if c.state == "stunned" then
+            if c.state == "stunned" and flourish then
                 local spin_a = tnow * 10.0
                 for s = 1, 3 do
                     local sa = spin_a + (s * math.pi * 2 / 3)
@@ -236,7 +242,7 @@ function CursorPool.draw(fonts_or_game)
 
         -- Trackball cleaning animation & status badge
         for _, c in ipairs(_cursors) do
-            if c.state == "cleaning" then
+            if c.state == "cleaning" and flourish then
                 local dur = 1.4
                 local progress = math.max(0, math.min(1.0, 1.0 - ((c.clean_timer or 0) / dur)))
                 local cx, cy = c.x, c.y

@@ -747,11 +747,40 @@ function ChipPile.accept(key, chip)
 end
 
 -- ── Draw ────────────────────────────────────────────────────────────
+-- ── Freeze ──────────────────────────────────────────────────────────
+-- Low motion: a pile that must not fidget draws a snapshot of its settled
+-- chips while the real collection keeps taking and accepting underneath.
+-- views/TablePanel freezes the pot and the player's stack for a street and
+-- thaws them at the next street and at settle, so the felt's chips change
+-- a few times a hand instead of on every bet.
+function ChipPile.freeze(key)
+    local e = _piles[key]
+    if not e then return end
+    e.frozen = denomList(e, true)
+end
+
+function ChipPile.thaw(key)
+    local e = _piles[key]
+    if e then e.frozen = nil end
+end
+
 function ChipPile.draw(key)
     local e = _piles[key]
     if not e or not e.place then return end
     e.idle = 0
     local place, tint = e.place, e.tint
+
+    if e.frozen then
+        local placed = layoutLocal(e.frozen, place)
+        for _, p in ipairs(placed) do
+            if p.col_base then drawShadowLocal(place, p.x, p.y, 1) end
+        end
+        for _, p in ipairs(placed) do
+            drawChipLocal(place, tint, p.x, p.y, p.idx, 1, p.with_label,
+                          p.shade, p.depth, p.rot)
+        end
+        return
+    end
 
     -- Shadows are their own pass, always. One is wider than the chip it
     -- belongs to and columns sit two pixels apart, so interleaved they

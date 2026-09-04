@@ -15,6 +15,7 @@ local FeltStyle      = require("data.felt_style")
 local StatusData     = require("data.statuses")
 local Pop            = require("services.Pop")
 
+local Motion         = require("services.Motion")
 local Effects = {}
 
 -- ── Tunables ─────────────────────────────────────────────────────────
@@ -70,7 +71,7 @@ local GLOW_RECT_PAD       = 80              -- draw the glow rect this many
 
 function Effects.shakeOffset(tbl)
     local trauma = tbl.shake_trauma or 0
-    if trauma <= 0 then return 0, 0 end
+    if trauma <= 0 or not Motion.at("tables", Motion.FULL) then return 0, 0 end
     local amp = SHAKE_MAX_PX * trauma * trauma
     return (love.math.random() * 2 - 1) * amp,
            (love.math.random() * 2 - 1) * amp
@@ -82,7 +83,16 @@ end
 -- lowers it. No separate slam impulse — the slam mechanic was creating
 -- an overshoot that looked like a teleport on quick re-deals.
 function Effects.liftSlamOffset(tbl)
-    return (tbl.lift_t or 0) * -LIFT_MAX_PX
+    local lvl = Motion.level("tables")
+    if lvl <= Motion.LOW then return 0 end
+    local k = (lvl == Motion.MEDIUM) and 0.5 or 1
+    return (tbl.lift_t or 0) * -LIFT_MAX_PX * k
+end
+
+-- Low motion has no lift: a still raised edge says "in a hand" instead.
+-- Drawn by TablePanel over the chrome when this returns true.
+function Effects.stillLift(tbl)
+    return Motion.level("tables") <= Motion.LOW and (tbl.lift_t or 0) > 0.5
 end
 
 -- ── Draw passes ──────────────────────────────────────────────────────
@@ -128,6 +138,9 @@ function Effects.drawBorderPulse(tbl, x, y, w, h)
     if t <= 0.001 or not tbl.border_pulse_color then return end
     local color = (tbl.border_pulse_color == "good") and Theme.status.good
                                                        or Theme.status.error
+    -- Low motion: the frame at full width for as long as the pulse runs,
+    -- no ramp.
+    if Motion.level("tables") <= Motion.LOW then t = 1 end
     local line_w = math.max(1, math.floor(BORDER_PULSE_MAX_W * t + 0.5))
     Theme.setColor(color, t * BORDER_PULSE_ALPHA)
     love.graphics.setLineWidth(line_w)
@@ -158,6 +171,8 @@ end
 function Effects.drawGlow(tbl, x, y, w, h)
     local t = tbl.glow_t or 0
     if t <= 0.001 then return end
+    -- Low motion: a still glow for the settle window, no ramp.
+    if Motion.level("tables") <= Motion.LOW then t = 0.4 end
     local sh = ShaderRegistry.get("radial_glow")
     if not sh then return end
     local gx = x - GLOW_RECT_PAD
@@ -219,8 +234,10 @@ function Effects.drawStatusGlow(tbl, x, y, w, h)
     local sh = ShaderRegistry.get("radial_glow")
     if not (color and sh) then return end
 
-    -- Breathe, so a lasting status doesn't read as a frozen frame.
-    local pulse = 0.80 + 0.20 * math.sin((love.timer and love.timer.getTime() or 0) * 3.0)
+    -- Breathe, so a lasting status doesn't read as a frozen frame. Below
+    -- High nothing loops: the halo holds.
+    local pulse = Motion.at("tables", Motion.HIGH)
+        and (0.80 + 0.20 * math.sin((love.timer and love.timer.getTime() or 0) * 3.0)) or 0.9
     local intensity = math.min(1, (e.magnitude or 0) * 8) * pulse
     if intensity <= 0.01 then return end
 
@@ -290,7 +307,8 @@ function Effects.drawStatusRing(tbl, x, y, w, h)
     if not def then return end
     local color = tokenColor(def.glow_token or def.wash_token)
     if not color then return end
-    local pulse = 0.55 + 0.45 * math.sin((love.timer and love.timer.getTime() or 0) * 3.0)
+    local pulse = Motion.at("tables", Motion.HIGH)
+        and (0.55 + 0.45 * math.sin((love.timer and love.timer.getTime() or 0) * 3.0)) or 0.75
     Theme.setColor(color, 0.30 + 0.25 * pulse)
     love.graphics.setLineWidth(math.max(1, math.floor(2 * (w / 400))))
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
@@ -303,6 +321,9 @@ end
 -- swings the more a near-miss costs the player. Direction is seeded off
 -- the table id so neighbours lean opposite ways instead of in formation.
 function Effects.statusRotation(tbl)
+    -- Low motion: nothing leans; the ring and wash carry the status.
+    local lvl = Motion.level("tables")
+    if lvl <= Motion.LOW then return 0 end
     local sign = ((tbl._id or 0) % 2 == 0) and 1 or -1
     local angle = 0
 
@@ -337,6 +358,7 @@ function Effects.statusRotation(tbl)
                             * p * math.cos((1 - p) * math.pi * BUMP_ROCKS)
         end
     end
+    if lvl == Motion.MEDIUM then angle = angle * 0.5 end
     return angle
 end
 
@@ -358,6 +380,11 @@ function Effects.bumpOffset(tbl)
     local lift01 = 0
     local dur = tbl.bump_slam and (SLAM.duration or 1.5) or BUMP_DURATION
     local p = Pop.progress("tbl_bump:" .. id, dur)
+    -- Motion: Low and below nothing is displaced (TablePanel flashes the
+    -- border instead); High and below the shover doesn't lunge.
+    local lvl = Motion.level("tables")
+    if lvl <= Motion.LOW then return 0, 0, 1, 1, 0 end
+    if p > 0 and tbl.bump_out and lvl <= Motion.HIGH then p = 0 end
     if p > 0 then
         -- Pop eases (p = (1 - t/dur)^2), which is right for a scale pop
         -- but wrong for a multi-phase motion: `1 - p` runs well ahead of
@@ -435,7 +462,20 @@ function Effects.bumpOffset(tbl)
         local s = Pop.scale(math.sin(math.pi * (1 - g)), 1, BUMP_GROW)
         sx, sy = sx * s, sy * s
     end
+    if lvl == Motion.MEDIUM then
+        dx, dy = dx * 0.5, dy * 0.5
+        sx, sy = 1 + (sx - 1) * 0.5, 1 + (sy - 1) * 0.5
+        lift01 = lift01 * 0.5
+    end
     return dx, dy, sx, sy, lift01
+end
+
+-- Low motion's stand-in for a punch: is this table being hit right now?
+-- TablePanel paints the status colour on the frame while it is.
+function Effects.punchFlash(tbl)
+    if Motion.level("tables") > Motion.LOW then return 0 end
+    local dur = tbl.bump_slam and (SLAM.duration or 1.5) or BUMP_DURATION
+    return Pop.progress("tbl_bump:" .. (tbl._id or 0), dur)
 end
 
 -- Rotate everything drawn between push and pop about a point. The held
@@ -473,6 +513,8 @@ end
 function Effects.drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
     local a = tbl.vignette_alpha or 0
     if a <= 0.001 or not tbl.vignette_kind then return end
+    -- Low motion: still, at half strength, for as long as it would run.
+    if Motion.level("tables") <= Motion.LOW then a = 0.5 end
     local color = (tbl.vignette_kind == "good") and Theme.status.good
                                                   or Theme.status.error
     local cfg = FeltStyle.vignette
@@ -500,9 +542,6 @@ function Effects.drawStatusFire(tbl, x, y, w, h)
         if def and def.flame then e = s; break end
     end
     if not e then return end
-    local sh = ShaderRegistry.get("flame")
-    if not sh then return end
-
     -- Full blaze while the status runs; dies down over its last beat
     -- instead of vanishing between frames. Magnitude is inert on heaters
     -- (the status IS the interrupt), so remaining time is the only dial.
@@ -510,7 +549,25 @@ function Effects.drawStatusFire(tbl, x, y, w, h)
     if intensity <= 0.01 then return end
 
     local fh = math.max(10, math.min(math.floor(h * 0.45), 96))
+    local lvl = Motion.level("tables")
+    if lvl <= Motion.LOW then
+        -- Still embers: a warm band along the felt's bottom edge, no
+        -- shader, no motion. Says "hot" without anything moving.
+        local def = StatusData[e.kind]
+        local color = tokenColor(def and def.glow_token) or Theme.status.warn
+        local bands = 4
+        for i = 1, bands do
+            local k  = i / bands
+            local bh = math.floor(fh * (1 - (i - 1) / bands))
+            Theme.setColor(color, 0.12 * k * intensity)
+            love.graphics.rectangle("fill", x, y + h - bh, w, bh)
+        end
+        return
+    end
+    local sh = ShaderRegistry.get("flame")
+    if not sh then return end
     local t  = (love.timer and love.timer.getTime() or 0)
+    if lvl == Motion.MEDIUM then t = t * 0.5 end
     Theme.setColor(SHADER_PASS_COLOR, 1)
     love.graphics.setShader(sh)
     sh:send("u_time", t)
@@ -566,6 +623,8 @@ end
 -- end. Same always-legible treatment as drawStatusRing — a line survives
 -- any panel size, so the KO moment never falls below a gate.
 function Effects.drawSeatKOFlash(x, y, w, h, p)
+    -- Low motion: a still ring for the flash's duration.
+    if Motion.level("tables") <= Motion.LOW then p = 0 end
     local fade = 1 - p
     Theme.setColor(Theme.status.error, 0.85 * fade)
     love.graphics.setLineWidth(math.max(1, math.floor(3 * fade)))

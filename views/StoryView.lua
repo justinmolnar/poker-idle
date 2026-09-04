@@ -25,6 +25,7 @@ local HintView     = require("views.HintView")
 local RadioVoice   = require("services.RadioVoice")
 local StoryDynamic = require("models.story_dynamic")
 
+local Motion = require("services.Motion")
 local StoryView = {}
 StoryView.__index = StoryView
 
@@ -108,7 +109,14 @@ function StoryView:draw(line, opts)
     local cue_h = fonts.sm:getHeight() + fl(4 * s)
     local ph    = pad + #lines * lh + cue_h + pad
     if rv.shown < #rv.words then
-        rv.acc   = rv.acc + love.timer.getDelta() * WORDS_PER_SEC
+        -- Motion: Medium speaks twice as fast; Low and below the whole
+        -- block is there at once.
+        local lvl = Motion.level("text")
+        if lvl <= Motion.LOW then
+            rv.acc = #rv.words
+        else
+            rv.acc = rv.acc + love.timer.getDelta() * WORDS_PER_SEC * ((lvl == Motion.MEDIUM) and 2 or 1)
+        end
         rv.shown = math.min(#rv.words, math.floor(rv.acc))
     end
     local typing = rv.shown < #rv.words
@@ -249,7 +257,8 @@ function StoryView:draw(line, opts)
     if opts.holding and not typing then
         local cf  = fonts.sm
         local cw  = cf:getWidth(CUE_TEXT)
-        local pulse = 0.55 + 0.35 * math.sin(love.timer.getTime() * 3)
+        local pulse = Motion.at("text", Motion.HIGH)
+            and (0.55 + 0.35 * math.sin(love.timer.getTime() * 3)) or 0.8
         love.graphics.setFont(cf)
         Theme.setColor(Theme.fg.muted, pulse)
         love.graphics.print(CUE_TEXT,

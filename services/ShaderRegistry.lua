@@ -20,6 +20,7 @@
 --       love.graphics.setShader()
 --   end
 
+local Motion = require("services.Motion")
 local ShaderRegistry = {}
 
 local _shaders = {}    -- name → love.graphics.Shader (or nil on failure)
@@ -92,7 +93,7 @@ function ShaderRegistry.apply(name, params)
     end
     love.graphics.setShader(sh)
     if love.timer and type(sh.hasUniform) == "function" and sh:hasUniform("u_time") then
-        pcall(sh.send, sh, "u_time", love.timer.getTime())
+        pcall(sh.send, sh, "u_time", Motion.time("shine", love.timer.getTime()))
     end
     if params then
         for k, v in pairs(params) do

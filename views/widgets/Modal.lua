@@ -9,14 +9,28 @@
 -- so a host state's tinted palette (e.g. shove's red) doesn't bleed
 -- into modal chrome. Set pin_palette = false if you want the modal to
 -- inherit the active palette.
+--
+-- ── Sizing and scrolling ──────────────────────────────────────────────
+-- The frame sizes to its content (title + body_h_request + padding) up
+-- to max_h_frac of the viewport. Content taller than that SCROLLS: the
+-- body is clipped to the frame while the caller draws (between :draw and
+-- :endDraw), a scrollbar rides the frame's right edge, and the body rect
+-- handed back is offset by the scroll so the caller lays out exactly as
+-- it always did — its hit rects land where its rows are drawn. The caller
+-- must (1) keep one Modal instance across frames, since the scroll lives
+-- on it, (2) route wheelmoved / mousepressed / mousemoved / mousereleased
+-- here first, and (3) ignore body hits outside :bodyClip() (a row drawn
+-- past the clip is not on screen). Modal:inBody(mx, my) answers that.
 
-local Theme = require("views.Theme")
+local Theme     = require("views.Theme")
+local Scrollbar = require("views.Scrollbar")
 
 local Modal = {}
 Modal.__index = Modal
 
 local DEFAULT_PAD       = 24
 local DEFAULT_TITLE_PAD = 14
+local TRACK_INSET       = 4     -- scrollbar off the frame's right edge
 
 -- opts:
 --   title         (string, optional)         — header text
@@ -47,6 +61,11 @@ function Modal:new(opts)
         pin_palette = (opts.pin_palette == nil) and "room" or opts.pin_palette,
         pad         = opts.pad or DEFAULT_PAD,
         _box        = nil,                                  -- last-drawn rect
+        _clip       = nil,                                  -- visible body rect
+        _scroll     = 0,
+        _content_h  = 0,
+        _view_h     = 0,
+        _drag       = nil,                                  -- scrollbar thumb drag
     }, Modal)
 end
 
@@ -59,11 +78,19 @@ local function headerH(self, fonts)
     return fonts.lg:getHeight() + DEFAULT_TITLE_PAD * 2
 end
 
+function Modal:overflows() return self._content_h > self._view_h + 1 end
+
+local function trackRect(self)
+    local c = self._clip
+    if not c then return nil end
+    return c.x + c.w - Scrollbar.width() - TRACK_INSET, c.y, c.h
+end
+
 -- Draw the frame and return the inner body rect for the caller to
 -- render into. body_h_request is optional — when given, the modal
--- attempts to size itself to title + body + 2*pad (capped by
--- max_h_frac). When nil, the caller is responsible for self.h being
--- set (or accepts the natural cap).
+-- sizes itself to title + body + 2*pad (capped by max_h_frac) and, when
+-- the body doesn't fit, clips and scrolls it. When nil, the caller is
+-- responsible for self.h being set (or accepts the natural cap).
 function Modal:draw(fonts, body_h_request)
     local W, H  = love.graphics.getDimensions()
     local hh    = headerH(self, fonts)
@@ -131,6 +158,21 @@ function Modal:draw(fonts, body_h_request)
 
     self._box = { x = bx, y = by, w = self.w, h = modal_h }
 
+    -- The body: what fits, and how far the content runs past it.
+    local view_h = modal_h - hh - self.pad
+    self._view_h    = view_h
+    self._content_h = body_h_request or view_h
+    self._clip      = { x = bx, y = by + hh, w = self.w, h = view_h }
+    if not self:overflows() then self._scroll = 0 end
+    self._scroll = Scrollbar.clamp(self._scroll, view_h, self._content_h)
+
+    -- Clip the body while the caller draws it; :endDraw lifts the clip.
+    if self:overflows() then
+        local sx, sy, sw, sh = love.graphics.getScissor()
+        self._prev_scissor = sx and { sx, sy, sw, sh } or {}
+        love.graphics.setScissor(bx, by + hh, self.w, view_h)
+    end
+
     if prior_palette then
         -- Restore at end of frame; caller draws body in pinned palette.
         -- Defer the restore to :endDraw().
@@ -139,19 +181,76 @@ function Modal:draw(fonts, body_h_request)
 
     return {
         x = bx + self.pad,
-        y = by + hh,
+        y = by + hh - self._scroll,
         w = self.w - self.pad * 2,
-        h = modal_h - hh - self.pad,
+        h = view_h,
+        clip = self._clip,
     }
 end
 
--- Call after the body is drawn to restore the pre-modal palette. Only
--- needed when pin_palette was set to a non-active palette.
+-- Call after the body is drawn: lifts the body clip, draws the scrollbar
+-- when the content scrolls, and restores the pre-modal palette.
 function Modal:endDraw()
+    if self._prev_scissor then
+        love.graphics.setScissor(unpack(self._prev_scissor))
+        self._prev_scissor = nil
+    end
+    if self:overflows() then
+        local tx, ty, th = trackRect(self)
+        if tx then
+            local mx, my = love.mouse.getPosition()
+            local hov = self._drag ~= nil or Scrollbar.containsPoint(tx, ty, th, mx, my)
+            Scrollbar.draw(tx, ty, th, self._scroll, self._content_h, hov)
+        end
+    end
     if self._restore_palette then
         Theme.setActive(self._restore_palette)
         self._restore_palette = nil
     end
+end
+
+-- ── Scrolling input. Hosts route these before their own body hits. ────
+
+-- True if the wheel scrolled the body.
+function Modal:wheelmoved(_, dy)
+    if not self:overflows() or not dy or dy == 0 then return false end
+    self._scroll = Scrollbar.clamp(self._scroll - dy * Scrollbar.WHEEL_NOTCH_PX,
+                                   self._view_h, self._content_h)
+    return true
+end
+
+-- True if the press landed on the scrollbar (thumb drag armed, or a
+-- track click that jumped the scroll).
+function Modal:mousepressed(mx, my, button)
+    if button ~= 1 or not self:overflows() then return false end
+    local tx, ty, th = trackRect(self)
+    if not tx then return false end
+    if Scrollbar.containsThumb(tx, ty, th, self._scroll, self._content_h, mx, my) then
+        self._drag = { y0 = my, scroll0 = self._scroll }
+        return true
+    end
+    if Scrollbar.containsPoint(tx, ty, th, mx, my) then
+        self._scroll = Scrollbar.scrollFromTrackClick(ty, th, my, self._content_h)
+        self._drag = { y0 = my, scroll0 = self._scroll }
+        return true
+    end
+    return false
+end
+
+function Modal:mousemoved(_, my)
+    local d = self._drag
+    if not d then return false end
+    local _, _, th = trackRect(self)
+    if th then
+        self._scroll = Scrollbar.scrollFromDrag(th, my - d.y0, d.scroll0, self._content_h)
+    end
+    return true
+end
+
+function Modal:mousereleased()
+    if not self._drag then return false end
+    self._drag = nil
+    return true
 end
 
 -- "inside" if (mx,my) lies within the chrome box; "outside" otherwise.
@@ -163,6 +262,18 @@ function Modal:hitTest(mx, my)
     end
     return "outside"
 end
+
+-- Is the point inside the VISIBLE body? A caller's body hit rects are
+-- laid out through the scroll, so a rect can sit above or below the clip;
+-- only a hit inside the clip is a hit on something on screen.
+function Modal:inBody(mx, my)
+    local c = self._clip
+    if not c then return true end
+    return mx >= c.x and mx < c.x + c.w and my >= c.y and my < c.y + c.h
+end
+
+-- The visible body rect (the clip), for hosts placing popups.
+function Modal:bodyClip() return self._clip end
 
 -- Last-drawn box rect, in case the caller needs absolute coords for
 -- popups / scrollbars / tooltips that anchor outside the body inset.

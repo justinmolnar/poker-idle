@@ -28,6 +28,7 @@
 local Theme          = require("views.Theme")
 local ShaderRegistry = require("services.ShaderRegistry")
 
+local Motion         = require("services.Motion")
 local DeckArt = {}
 
 local PIP_BASE       = 9     -- pip side, px at scale 1
@@ -138,10 +139,15 @@ function DeckArt.draw(game, spec, x, y, w, h, opts)
             end
         else
             local shader = nil
-            local now = (game and game.time and game.time.total_time) or 0
+            -- Motion: High drops the sparkles; below High the foil and its
+            -- border hold still.
+            local now = Motion.time("shine", (game and game.time and game.time.total_time) or 0)
             if level >= max_level then
                 shader = ShaderRegistry.get("foil")
-                if shader then shader:send("u_time", now) end
+                if shader then
+                    shader:send("u_time", now)
+                    pcall(shader.send, shader, "u_sparkle", Motion.at("shine", Motion.FULL) and 1 or 0)
+                end
             end
             drawBand(sprite, x, y, w, h, y, h, shader, 1, 1, 1, alpha)
             if level >= max_level then

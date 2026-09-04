@@ -25,6 +25,7 @@ local Anchors  = require("services.AnchorRegistry")
 local Glossary = require("data.glossary")
 local HintView = require("views.HintView")
 
+local Motion = require("services.Motion")
 local GlossaryPanel = {}
 GlossaryPanel.__index = GlossaryPanel
 
@@ -59,7 +60,8 @@ function GlossaryPanel:beginClose()
 end
 
 function GlossaryPanel:update(dt)
-    local step = (dt or 0) / SLIDE_TIME
+    -- Motion: Medium slides faster; Low and below the panel is simply there.
+    local step = (dt or 0) / (SLIDE_TIME * math.max(Motion.scale("ui"), 0.003))
     if self.closing then
         self.slide = self.slide - step
         if self.slide <= 0 then self.slide, self.done = 0, true end
