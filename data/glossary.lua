@@ -27,7 +27,7 @@ return {
         id   = "zoom",
         term = "Zoom",
         beat = "arrival",
-        text = "Deals you a new table every hand. More wins, smaller ones, and it never holds you up. My busiest room.",
+        text = "Deals you a new table every hand. More {c:won:wins}, smaller ones, and it never holds you up. My busiest room.",
     },
     {
         id   = "pot_sizes",
@@ -35,16 +35,16 @@ return {
         beat = "first_chip",
         text = {
             "Hands come in four sizes, both ways.",
-            "wins  {w:small} {w:medium} {w:large} {w:stack}",
-            "losses  {l:small} {l:medium} {l:large} {l:stack}",
+            "{c:won:wins}  {w:small} {w:medium} {w:large} {w:stack}",
+            "{c:lost:losses}  {l:small} {l:medium} {l:large} {l:stack}",
             "The readout under a table shows what it makes per hour and its odds per size. Hover it for the math.",
         },
     },
     {
         id   = "run_upgrades",
-        term = "Run upgrades",
+        term = "Run {c:upgrade:upgrades}",
         beat = "sharper_reads",
-        text = "The rack on the right. They make you better at the tables, and they only last the run.",
+        text = "{c:upgrade:The_rack} on the right. They make you better at the tables, and they only last the run.",
     },
     {
         id   = "heads_up",
@@ -76,7 +76,7 @@ return {
         id   = "chips",
         term = "{chip}",
         beat = "first_chip",
-        text = "The gold one. A table pays one the first time it wins a whole stack each run. They survive everything: resets, shoves, all of it. Spend them in the catalog. Weighed and counted.",
+        text = "The gold one. A table pays one the first time it {c:won:wins} a whole stack each run. They survive everything: resets, shoves, all of it. Spend them in the catalog. Weighed and counted.",
     },
     {
         id   = "stack_odds",
@@ -86,7 +86,7 @@ return {
     },
     {
         id   = "bounty_rule",
-        term = "One bounty per table",
+        term = "One {c:chip:bounty} per table",
         beat = "chip_denied",
         text = "Each stake and game pays its {chip} once per run. After that the table still makes money, just no more gold. Climb, or reset. It's all in the ledger.",
     },
@@ -98,9 +98,9 @@ return {
     },
     {
         id   = "payouts",
-        term = "Payouts",
+        term = "{c:won:Payouts}",
         beat = "first_payout",
-        text = "Wins land on the table's stack first, up to its buy-in. Anything past full spills into your bankroll. Losses come off the stack the same way. I don't touch the spill.",
+        text = "{c:won:Wins} land on the table's stack first, up to its buy-in. Anything past full spills into your bankroll. {c:lost:Losses} come off the stack the same way. I don't touch the spill.",
     },
     {
         id   = "rebuy",
@@ -130,9 +130,9 @@ return {
     },
     {
         id   = "banked",
-        term = "Banked",
+        term = "{c:chip:Banked}",
         beat = "shove_result",
-        text = "What the shove can't touch. BANKED is yours to keep; the all-in was everything else. That column is yours.",
+        text = "What the shove can't touch. {c:chip:BANKED} is yours to keep; the all-in was everything else. That column is yours.",
     },
     {
         id   = "house_rules",
@@ -144,7 +144,7 @@ return {
         id   = "runs",
         term = "Runs",
         beat = "the_loop",
-        text = "Shove, reset to two dollars, go again. Run upgrades reset with it. The catalog and your {chip} don't. I reset the felt myself.",
+        text = "Shove, reset to two dollars, go again. Run {c:upgrade:upgrades} reset with it. The catalog and your {chip} don't. I reset the felt myself.",
     },
 
     -- ── The shop and the room ────────────────────────────────────────
@@ -162,7 +162,7 @@ return {
     },
     {
         id   = "cursors",
-        term = "The cursors",
+        term = "The {c:upgrade:cursors}",
         beat = "first_cursors",
         text = "They deal for you. Buy more of them, and faster, in the sidebar. The D on a table's header stops them dealing there; R controls rebuys. Good workers.",
     },

@@ -29,7 +29,7 @@ return {
             arc_x       = 0,
             arc_y       = -64,
             lifetime    = 1.6,
-            color_token = "amber",          -- gold so it pops on green felt
+            color_token = "won",          -- gold so it pops on green felt
             -- Real font the settled number rests in. Text is never left at
             -- a fractional scale — the pop is transient, the rest state is
             -- always one of the rasterized sizes. Same font on EVERY tier:
@@ -47,7 +47,7 @@ return {
             arc_x       = 0,
             arc_y       = -72,
             lifetime    = 1.8,
-            color_token = "amber",
+            color_token = "won",
             settle_font = "sm",
         },
     },
@@ -61,7 +61,7 @@ return {
             arc_x       = 18,
             arc_y       = -96,
             lifetime    = 2.0,
-            color_token = "amber",
+            color_token = "won",
             settle_font = "sm",
         },
         -- No chip burst at Large — the detonating pot is reserved for
@@ -79,7 +79,7 @@ return {
             arc_x       = 36,
             arc_y       = -120,
             lifetime    = 2.5,
-            color_token = "amber",
+            color_token = "won",
             settle_font = "sm",
         },
         -- The pot detonates — the pile itself comes apart, each chip

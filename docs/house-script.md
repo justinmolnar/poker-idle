@@ -86,22 +86,22 @@ the same way, climbing from 0, with no line.
 | Deal. | `table:1` | **FORCE** wait: hands_played ≥ 1 |
 
 ### `first_hand_lost` — grind. Trigger: the first resolved hand lost.
-| Looks like you lost that one. Luckily it was only a {dyn:first_hand_tier}. | `stack:1` | click |
-| Wins and losses come at different sizes. {l:stack} {l:large} {l:medium} {l:small} {w:small} {w:medium} {w:large} {w:stack} Keep playing. | | click |
+| Looks like you {c:lost:lost} that one. Luckily it was only a {dyn:first_hand_tier}. | `stack:1` | click |
+| {c:won:Wins} and {c:lost:losses} come at different sizes. {l:stack} {l:large} {l:medium} {l:small} {w:small} {w:medium} {w:large} {w:stack} Keep playing. | | click |
 
 ### `first_hand_won` — grind. Trigger: the first resolved hand won.
-| Looks like you won your first hand. We're going to get along just fine. You can see the size of the win here, it was a {dyn:first_hand_tier} | `stack:1` | click |
-| Wins and losses come at different sizes. {l:stack} {l:large} {l:medium} {l:small} {w:small} {w:medium} {w:large} {w:stack} Keep playing. | | click |
+| Looks like you {c:won:won} your first hand. We're going to get along just fine. You can see the size of the win here, it was a {dyn:first_hand_tier} | `stack:1` | click |
+| {c:won:Wins} and {c:lost:losses} come at different sizes. {l:stack} {l:large} {l:medium} {l:small} {w:small} {w:medium} {w:large} {w:stack} Keep playing. | | click |
 
 ### `first_payout` — grind. Trigger: hands_played ≥ 1, bankroll > 0.
-| See that. A table only holds its buy-in. Win past full and the rest ends up in the bankroll. Yours to spend how you see fit. | `stack:1`, `cell:bankroll` | click |
+| See that. A table only holds its buy-in. {c:won:Win} past full and the rest ends up in the bankroll. Yours to spend how you see fit. | `stack:1`, `cell:bankroll` | click |
 
 ### `sharper_reads` — grind. Trigger: can afford Sharper Reads (strand-safe).
 | block | anchor | hold |
 |---|---|---|
-| You can afford Sharper Reads. Grab it. | `buy_runup_sharper_reads` | show: affordable → **FORCE** wait: run_upgrades_owned ≥ 1 |
+| You can afford {c:upgrade:Sharper_Reads}. Grab it. | `buy_runup_sharper_reads` | show: affordable → **FORCE** wait: run_upgrades_owned ≥ 1 |
 | That'll improve your odds of winning. Hover it to see what it can do for you at the next level. | `buy_runup_sharper_reads` | **FORCE** wait: a fresh hover (the mouse has to leave and come back) |
-| You'll want to keep an eye on the upgrade rack, you won't have a chance in hell at the higher stakes without it. The players get better at every stake. | `buy_runup_sharper_reads` | click |
+| You'll want to keep an eye on the {c:upgrade:upgrade_rack}, you won't have a chance in hell at the higher stakes without it. The players get better at every stake. | `buy_runup_sharper_reads` | click |
 
 ### `second_table` — grind. Trigger: hu_unlocked (2nd buy-in was in hand).
 | block | anchor | hold |
@@ -114,8 +114,8 @@ the same way, climbing from 0, with no line.
 |---|---|---|
 | You rinsed him. got his whole stack {w:stack}. | `stack:1` | click |
 | It came with a {chip}. Real gold, I weigh them myself. Win a {w:stack} and the table and it pays one. *(CHECK: a word seems missing)* | `cell:chips`, `chip_badge:banked` | click |
-| Remember though, It's only the FIRST {w:stack} at a table that pays a {chip}. You can tell if a table's paid by the border on the felt, or the button. | `table:banked`, `add_table:banked`, `chip_badge:banked` | click |
-| You can also see how many {chip} you'll earn for a {w:stack} here. Higher stakes, better payouts. | every `add_table_chip:*` badge on the strip | click |
+| Remember though, It's only the FIRST {w:stack} at a table that pays a {chip}. You can tell if a table's {c:chip:paid} by the border on the felt, or the button. | `table:banked`, `add_table:banked`, `chip_badge:banked` | click |
+| You can also see how many {chip} you'll earn for a {w:stack} here. Higher stakes, better {c:won:payouts}. | every `add_table_chip:*` badge on the strip | click |
 | Get 3 {chip}, and you'll get your first answer. | `chip_badge:banked`, `chip_badge:shove` | click |
 | While we're here, hover the readout under a table. Go on, don't keep me waiting. | `ev:1..4` | **FORCE** wait: hovering a readout |
 | Everything a table does per hour, and its odds at all four pot sizes. The gold {w:stack} is the one that pays. | `ev:1..4` | click |
@@ -127,9 +127,9 @@ the same way, climbing from 0, with no line.
 | block | anchor | hold |
 |---|---|---|
 | Three! Look at you. So here's your answer. | `chip_badge:shove` | click |
-| There's only one way out of here. Straight through the door. | `btn:shove` | click |
+| There's only one way out of here. Straight through the {c:chip:door}. | `btn:shove` | click |
 | But first, you gotta get past me. One hand, everything you have goes in. Winner takes all. | `btn:shove` | click |
-| Win, and you walk out with the lot. Lose, and you keep the {chip}. I'll set you back up with the 2 dollar loan. No harm done. | `btn:shove` | click |
+| {c:won:Win}, and you walk out with the lot. {c:lost:Lose}, and you keep the {chip}. I'll set you back up with the 2 dollar loan. No harm done. | `btn:shove` | click |
 | Whenever you're ready. No rush. I'm always here. If you feel like you've stalled out, then it's usually a good idea to SHOVE. | `btn:shove` | click |
 
 ## The shove
@@ -145,7 +145,7 @@ count); the ROOM button on the grind appears only after that shove.
 | ...Am I reading that right? 0%? Bad luck. | `shove:readout` | click (the runout deals after it) |
 
 ### `shove_result` — shove. **PAUSE.** Trigger: result hold.
-| Looks like you banked {dyn:banked_chips} {chip}. Those are yours to keep, call it a consolation prize. | `shove:summary` | click |
+| Looks like you {c:chip:banked} {dyn:banked_chips} {chip}. Those are yours to keep, call it a consolation prize. | `shove:summary` | click |
 
 ### `house_cheats` — shove. **PAUSE.** Trigger: a cheat card is ON the felt (never a flag).
 | I forgot to tell you about the undertow card. Unfortunately it landed on your ITEMS and took them out of the count. The bar shows what's left. House rules. Nothing personal. | `shove:cheat_6` | click |
@@ -156,7 +156,7 @@ Fixed slots; an empty text is a silent slot.
 |---|---|---|
 | `pushing` | Pushing all in. | |
 | `arrive` | All of it. That's the spirit. | |
-| `loss` | Ah. House wins that one. I'm sure you got the next one though. | |
+| `loss` | Ah. House {c:won:wins} that one. I'm sure you got the next one though. | |
 | `panic_wait` | Wait...No no nono |  |
 | `panic_won` | What just happened? |  |
 | `panic_no` | *(silent)* |  |
@@ -185,7 +185,7 @@ Fixed slots; an empty text is a silent slot.
 | block | anchor | hold |
 |---|---|---|
 | Same loan, same terms. That's a run. | `cell:bankroll` | click |
-| Your upgrades went with it. Those reset. | `buy_runup_sharper_reads` | click |
+| Your {c:upgrade:upgrades} went with it. Those reset. | `buy_runup_sharper_reads` | click |
 | Let's take a look at your room. | `btn:room` | **FORCE** wait: on the room screen |
 
 ### `the_room` — room. Trigger: has_shoved, on the room screen.
@@ -198,7 +198,7 @@ Fixed slots; an empty text is a silent slot.
 ## Rooms and tools, as they first exist
 
 ### `first_heat` — grind. **PAUSE.** Trigger: total_heaters ≥ 1.
-| This table's on fire, if it was already on a hand, that one wins, the next hand is dealt for you. Guaranteed win. Fire's your friend. | `table:heater` | click |
+| This table's {c:heat:on_fire}, if it was already on a hand, that one {c:won:wins}, the next hand is dealt for you. Guaranteed win. Fire's your friend. | `table:heater` | click |
 
 ### `six_max_open` — grind. Trigger: a 6-max table open.
 | The long game. Slow hands, five stacks on the table, and the fattest pots in the room when one finally lands. | `gtype:six_max` | click |
@@ -210,23 +210,23 @@ Fixed slots; an empty text is a silent slot.
 
 ### `first_cursors` — grind. Trigger: owns box_of_mice.
 The right-click controls described are not wired yet; the copy leads.
-| Look at you, management. The cursors can deal for you now. Buy them over here, and their upgrades. Right click a table to stop them dealing there. You can also right click a table button to stop dealing to ALL of that type, or the cursor button itself to COMPLETELY stop them from dealing. Right click again to enable. | `buy_runup_cursor`, `buy_runup_cursor_speed` | click |
+| Look at you, management. The {c:upgrade:cursors} can deal for you now. Buy them over here, and their {c:upgrade:upgrades}. Right click a table to stop them dealing there. You can also right click a table button to stop dealing to ALL of that type, or the {c:upgrade:cursor} button itself to COMPLETELY stop them from dealing. Right click again to enable. | `buy_runup_cursor`, `buy_runup_cursor_speed` | click |
 
 ## Reactive lessons (first time the situation exists)
 
 ### `stake_ladder` — grind. Trigger: can afford NL10.
-| NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better. Worth an upgrade or two first. | `add_table:s002:zoom` | click |
-| The number's red. I wouldn't recommend playing here until you get a few more upgrades first | `add_table_ev:s002:*` (the $/h readout) | click |
+| NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better. Worth an {c:upgrade:upgrade} or two first. | `add_table:s002:zoom` | click |
+| The number's {c:lost:red}. I wouldn't recommend playing here until you get a few more {c:upgrade:upgrades} first | `add_table_ev:s002:*` (the $/h readout) | click |
 
 ### `first_bust` — grind. Trigger: any table busted.
-| So much for knowing what you're doing I guess, you lost your whole stack at this table. | `rebuy:any` | click |
+| So much for knowing what you're doing I guess, you {c:lost:lost} your whole stack at this table. | `rebuy:any` | click |
 | To keep playing you'll have to rebuy, don't let it happen again. | `rebuy:any` | click |
 
 ### `chip_denied` — grind. Trigger: a denied stack.
-| You won another {w:stack} but no {chip}. This table type's already paid its {chip}. Each stake and game pays once per run. Climb. | `chip_badge:banked` | click |
+| You {c:won:won} another {w:stack} but no {chip}. This table type's already {c:chip:paid} its {chip}. Each stake and game pays once per run. Climb. | `chip_badge:banked` | click |
 
 ### `focus_overload` — grind. Trigger: focus overloaded.
-| Easy, tiger. You can't focus on that many tables at once. ALL your wins at ALL tables win {dyn:focus_penalty_pct} less for each table above your focus cap. Adds up fast. | `cell:focus`, `buy_runup_focus` | click |
+| Easy, tiger. You can't focus on that many tables at once. ALL your {c:won:wins} at ALL tables win {dyn:focus_penalty_pct} less for each table above your focus cap. Adds up fast. | `cell:focus`, `buy_runup_focus` | click |
 
 ### `first_corruption` — shove. Trigger: catalog open, a CORRUPTED item exists.
 Corruption and {achip} are NOT HIS and get no tutorialization anywhere (see

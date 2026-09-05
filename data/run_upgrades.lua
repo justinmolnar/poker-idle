@@ -84,7 +84,7 @@ local RunUpgrades = {
         name        = "Pot Control",
         description = "More {w:stack}, fewer {l:stack}.",
         tooltip_blurb = {
-            "Raises chance of smaller losses and bigger wins.",
+            "Raises chance of smaller {c:lost:losses} and bigger {c:won:wins}.",
             "Graph shows {w:stack}% increase, used to earn {chip}.",
         },
         icon        = "pot_control",
@@ -118,9 +118,9 @@ local RunUpgrades = {
     {
         id            = "cursor",
         name          = "Cursor",
-        description   = "+1 cursor. It deals for you.",
+        description   = "+1 {c:upgrade:cursor}. It deals for you.",
         tooltip_blurb = {
-            "Adds an autoclicking cursor that clicks DEAL /",
+            "Adds an autoclicking {c:upgrade:cursor} that clicks DEAL /",
             "REBUY (if purchased in catalog) buttons automatically.",
         },
         icon          = "cursor",
@@ -147,9 +147,9 @@ local RunUpgrades = {
     {
         id            = "cursor_speed",
         name          = "Cursor Speed",
-        description   = "Cursors move faster",
+        description   = "{c:upgrade:Cursors} move faster",
         tooltip_blurb = {
-            "+25% cursor movement speed.",
+            "+25% {c:upgrade:cursor} movement speed.",
         },
         icon          = "cursor_speed",
         requires      = "box_of_mice",

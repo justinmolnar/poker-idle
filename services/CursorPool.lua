@@ -231,7 +231,7 @@ function CursorPool.draw(fonts_or_game)
                     local sa = spin_a + (s * math.pi * 2 / 3)
                     local sx = c.x + math.cos(sa) * 14
                     local sy = c.y - 8 + math.sin(sa) * 6
-                    Theme.setColor(Theme.status.warn, 0.95)
+                    Theme.setColor(Theme.fg.heading, 0.95)
                     drawStar(sx, sy, 2.5, 6, 4, sa * 2, "fill")
                     Theme.setColor(Theme.border.strong, 0.8)
                     love.graphics.setLineWidth(1)
@@ -278,7 +278,7 @@ function CursorPool.draw(fonts_or_game)
                         love.graphics.circle("fill", px, py, 1.5)
                     else
                         -- Clean sparkles
-                        Theme.setColor(Theme.status.warn or { 1.0, 0.9, 0.3 }, (progress - 0.5) * 1.8)
+                        Theme.setColor(Theme.fg.heading, (progress - 0.5) * 1.8)
                         drawStar(px, py, 1.5, 4, 4, pa, "fill")
                     end
                 end
@@ -296,7 +296,7 @@ function CursorPool.draw(fonts_or_game)
 
                 -- Progress bar line along pill bottom
                 local fill_w = math.floor((pill_w - 4) * progress)
-                Theme.setColor(Theme.status.good or { 0.3, 0.85, 0.4 }, 0.95)
+                Theme.setColor(Theme.fg.heading, 0.95)
                 love.graphics.rectangle("fill", px + 2, py + pill_h - 3, fill_w, 2, 1)
 
                 -- Text label inside pill (ALWAYS active via fallback font)
@@ -333,14 +333,14 @@ function CursorPool.draw(fonts_or_game)
             local alpha = 1.0 - k
             local scale = 0.5 + k * 1.8
             -- Outer shockwave ring
-            Theme.setColor(Theme.status.warn, alpha * 0.9)
+            Theme.setColor(Theme.fg.heading, alpha * 0.9)
             love.graphics.setLineWidth(3 - k * 2)
             love.graphics.circle("line", sp.x, sp.y, scale * 16)
 
             -- 6-point comic starburst
             Theme.setColor(Theme.fg.heading, alpha)
             drawStar(sp.x, sp.y, scale * 5, scale * 20, 6, sp.angle + k * 2, "fill")
-            Theme.setColor(Theme.status.warn, alpha * 0.8)
+            Theme.setColor(Theme.fg.heading, alpha * 0.8)
             drawStar(sp.x, sp.y, scale * 5, scale * 20, 6, sp.angle + k * 2, "line")
         end
     end

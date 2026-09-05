@@ -99,7 +99,7 @@ local function iconRow(game, str, style, color)
         end,
         render  = function(x, y, fonts)
             local f = fonts[fstyle] or fonts.sm
-            local c = color and ((Theme.data and Theme.data[color])
+            local c = color and (Theme.semColor(color)
                        or (Theme.status and Theme.status[color])
                        or (Theme.fg and Theme.fg[color])) or Theme.fg.heading
             IconText.draw(game, str, x, y, f, c, 1)
@@ -212,8 +212,8 @@ local function buildCashOverviewRenderRow(header, bb, ev_dollars, ev_bb, win_cha
         local ev_color_token = (ev_bb > 0.05) and "good"
                             or (ev_bb < -0.05) and "error"
                             or "muted"
-        local ev_c = (ev_color_token == "good" and Theme.status.good)
-                  or (ev_color_token == "error" and Theme.status.error)
+        local ev_c = (ev_color_token == "good" and Theme.sem.won)
+                  or (ev_color_token == "error" and Theme.sem.lost)
                   or Theme.fg.muted
 
         love.graphics.setFont(f_md)
@@ -228,7 +228,7 @@ local function buildCashOverviewRenderRow(header, bb, ev_dollars, ev_bb, win_cha
 
         -- 3. WIN SECTION (Header on line 1, Chip icons on line 2)
         love.graphics.setFont(f_sm)
-        Theme.setColor(Theme.status.good)
+        Theme.setColor(Theme.sem.won)
         local win_hdr_str = string.format("Win Rate: %s · Avg Win: %s", fmtPctClean(win_chance), fmtMoney(win_avg_dollars))
         love.graphics.print(win_hdr_str, x, cy)
         cy = cy + fh_sm + 2
@@ -242,7 +242,7 @@ local function buildCashOverviewRenderRow(header, bb, ev_dollars, ev_bb, win_cha
 
         -- 4. LOSS SECTION (Header on line 1, Chip icons on line 2)
         love.graphics.setFont(f_sm)
-        Theme.setColor(Theme.status.error or Theme.fg.muted)
+        Theme.setColor(Theme.sem.lost)
         local loss_hdr_str = string.format("Loss Rate: %s · Avg Loss: %s", fmtPctClean(loss_chance), fmtMoney(loss_avg_dollars))
         love.graphics.print(loss_hdr_str, x, cy)
         cy = cy + fh_sm + 2
@@ -608,8 +608,8 @@ local function buildGridRenderRow(game, bd)
 
                     love.graphics.setFont(f)
                     local name_color = Theme.fg.heading
-                    if r.ev_delta > 0.001 then name_color = Theme.status.good
-                    elseif r.ev_delta < -0.001 then name_color = Theme.status.error end
+                    if r.ev_delta > 0.001 then name_color = Theme.sem.won
+                    elseif r.ev_delta < -0.001 then name_color = Theme.sem.lost end
                     Theme.setColor(name_color)
                     love.graphics.print(r.name, x + 6, cy + 2)
 
@@ -622,8 +622,8 @@ local function buildGridRenderRow(game, bd)
                         local col_right = x + name_col_w + i * col_w - 6
                         local sw   = f:getWidth(str)
                         local c_token = ratioColor(val)
-                        local c    = (c_token == "good" and Theme.status.good)
-                                  or (c_token == "error" and Theme.status.error)
+                        local c    = (c_token == "good" and Theme.sem.won)
+                                  or (c_token == "error" and Theme.sem.lost)
                                   or Theme.fg.muted
                         Theme.setColor(c)
                         love.graphics.print(str, col_right - sw, cy + 2)
@@ -655,9 +655,9 @@ local function buildGridRenderRow(game, bd)
             cy = cy + line_h + 4
         end
 
-        drawSubgrid("WINS MULTIPLIERS", "win", win_active, bd.total.win, Theme.status.good)
+        drawSubgrid("WINS MULTIPLIERS", "win", win_active, bd.total.win, Theme.sem.won)
         cy = cy + 4
-        drawSubgrid("LOSSES MULTIPLIERS", "loss", loss_active, bd.total.loss, Theme.status.error or Theme.fg.muted)
+        drawSubgrid("LOSSES MULTIPLIERS", "loss", loss_active, bd.total.loss, Theme.sem.lost)
     end
 
     return { measure = measure, render = render }
@@ -752,20 +752,20 @@ local function buildFocusedRenderRow(game, bd)
                 end
 
                 local name_color = Theme.fg.heading
-                if item.r.ev_delta > 0.001 then name_color = Theme.status.good
-                elseif item.r.ev_delta < -0.001 then name_color = Theme.status.error end
+                if item.r.ev_delta > 0.001 then name_color = Theme.sem.won
+                elseif item.r.ev_delta < -0.001 then name_color = Theme.sem.lost end
                 Theme.setColor(name_color)
                 local name_text = item.r.name .. (item.varies and " *" or "")
                 love.graphics.print(name_text, x + 6, cy + 2)
 
                 local str_w = fmtRatio(item.win_val, item.r.win_delta and item.r.win_delta[tier])
                 local col1_right = x + name_col_w + col_w - 6
-                Theme.setColor(ratioColor(item.win_val) == "good" and Theme.status.good or Theme.fg.muted)
+                Theme.setColor(ratioColor(item.win_val) == "good" and Theme.sem.won or Theme.fg.muted)
                 love.graphics.print(str_w, col1_right - f:getWidth(str_w), cy + 2)
 
                 local str_l = fmtRatio(item.loss_val, item.r.loss_delta and item.r.loss_delta[tier])
                 local col2_right = x + name_col_w + 2 * col_w - 6
-                Theme.setColor(ratioColor(item.loss_val) == "error" and Theme.status.error or Theme.fg.muted)
+                Theme.setColor(ratioColor(item.loss_val) == "error" and Theme.sem.lost)
                 love.graphics.print(str_l, col2_right - f:getWidth(str_l), cy + 2)
 
                 cy = cy + line_h
@@ -828,7 +828,7 @@ local function buildTotalsRenderRow(game, bd)
 
         Theme.setColor(Theme.bg.card or Theme.bg.window, 0.5)
         love.graphics.rectangle("fill", x, cy, grid_w, line_h, 2)
-        Theme.setColor(Theme.status.good)
+        Theme.setColor(Theme.sem.won)
         love.graphics.print("WIN TOTALS", x + 6, cy + 2)
         for i, t in ipairs(bd.tiers) do
             local str = fmtRatio(bd.total.win[t], bd.total.win_val and bd.total.win_val[t])
@@ -839,7 +839,7 @@ local function buildTotalsRenderRow(game, bd)
 
         Theme.setColor(Theme.bg.card or Theme.bg.window, 0.5)
         love.graphics.rectangle("fill", x, cy, grid_w, line_h, 2)
-        Theme.setColor(Theme.status.error or Theme.fg.muted)
+        Theme.setColor(Theme.sem.lost)
         love.graphics.print("LOSS TOTALS", x + 6, cy + 2)
         for i, t in ipairs(bd.tiers) do
             local str = fmtRatio(bd.total.loss[t], bd.total.loss_val and bd.total.loss_val[t])
@@ -884,12 +884,12 @@ local function buildTotalsRenderRow(game, bd)
 
                 local str_w = fmtRatio(item.win_val, item.r.win_delta and item.r.win_delta[tier])
                 local col1_right = x + name_col_w + col_w - 6
-                Theme.setColor(ratioColor(item.win_val) == "good" and Theme.status.good or Theme.fg.muted)
+                Theme.setColor(ratioColor(item.win_val) == "good" and Theme.sem.won or Theme.fg.muted)
                 love.graphics.print(str_w, col1_right - f:getWidth(str_w), cy + 2)
 
                 local str_l = fmtRatio(item.loss_val, item.r.loss_delta and item.r.loss_delta[tier])
                 local col2_right = x + name_col_w + 2 * col_w - 6
-                Theme.setColor(ratioColor(item.loss_val) == "error" and Theme.status.error or Theme.fg.muted)
+                Theme.setColor(ratioColor(item.loss_val) == "error" and Theme.sem.lost)
                 love.graphics.print(str_l, col2_right - f:getWidth(str_l), cy + 2)
 
                 cy = cy + line_h
@@ -1031,8 +1031,8 @@ local function evMetrics(tbl, controller, font)
         total_w = total_w + gap + r * 2 + glyph_pad + font:getWidth(loss_label)
     end
 
-    local color     = (ev_bb > 0.05 and Theme.status.good)
-                   or (ev_bb < -0.05 and Theme.status.error)
+    local color     = (ev_bb > 0.05 and Theme.sem.won)
+                   or (ev_bb < -0.05 and Theme.sem.lost)
                    or Theme.fg.muted
 
     return {
@@ -1087,12 +1087,11 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
     -- Stack-loss chance: purple tier glyph + pct
     if m.show_loss and not money_only then
         local lx = sx + m.r * 2 + m.glyph_pad + font:getWidth(m.stack_label) + m.gap
-        local old_color = Theme.tier.loss.stack
-        Theme.tier.loss.stack = { 0.55, 0.25, 0.85 }
-        TierGlyph.draw(lx + m.r, ty + m.text_h - m.r, "stack", m.r, "loss")
-        Theme.tier.loss.stack = old_color
-        
-        Theme.setColor({ 0.55, 0.25, 0.85 })
+        -- Corruption's purple on the Stack glyph (the anti-chip is what a Stack
+        -- loss pays in Act 3), without patching the tier ramp in place.
+        TierGlyph.drawColored(lx + m.r, ty + m.text_h - m.r, "stack", m.r, Theme.sem.corrupt)
+
+        Theme.setColor(Theme.sem.corrupt)
         love.graphics.print(m.loss_label, lx + m.r * 2 + m.glyph_pad, ty)
     end
 
@@ -1176,7 +1175,7 @@ local function renderDebugTooltip(tbl, mx, my, game, controller)
             r.render(tip_x + DEBUG_TIP_PAD, cy, fonts)
         else
             love.graphics.setFont(r.font)
-            local c = r.color and ((Theme.data and Theme.data[r.color])
+            local c = r.color and (Theme.semColor(r.color)
                        or (Theme.status and Theme.status[r.color])
                        or (Theme.fg and Theme.fg[r.color])) or Theme.fg.heading
             Theme.setColor(c)

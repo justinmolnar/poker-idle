@@ -353,9 +353,12 @@ const COLORS = {
   chip:      "#EDBF4D", chipRing:  "#856624",   // Theme.currency lines 224-227
   achip:     "#A659F2", achipRing: "#59268C",
   tierWin:  { small: "#619157", medium: "#75B86B", large: "#8FDB7A", stack: "#F5C74D" },
-  tierLoss: { small: "#85544F", medium: "#B3665E", large: "#DB7066", stack: "#F25285" },
+  tierLoss: { small: "#85544F", medium: "#B3665E", large: "#DB7066", stack: "#EB4D4D" },
 };
 const TIER_COUNT = { small: 1, medium: 2, large: 3, stack: 4 }; // views/TierGlyph.lua
+// The colour code (data/theme.lua `sem`, room palette), for {c:<meaning>:<text>}.
+const SEM = { won: "#80C773", lost: "#D16B61", chip: "#EDBF4D", corrupt: "#A659F2",
+              heat: "#FA8547", tilt: "#94A8D1", upgrade: "#B88594" };
 const TAG_PALETTE = ["#F25285","#F2B333","#73D973","#73A6D9","#BF73F2","#EDBF4D",
                      "#5ED9C3","#F2825E","#9CB35E","#D973B8"];
 const LS_EDITS = "catalog_designer_edits_v1";
@@ -1155,6 +1158,12 @@ function renderIconText(str, size) {
   if (str == null) return "";
   return String(str).replace(/\{([\w:]+)\}|[^{]+|\{/g, (m, token) => {
     if (token === undefined) return esc(m);
+    // {c:<meaning>:<text>}: the word in its meaning's colour (views/IconText.lua)
+    const cm = token.match(/^c:(\w+):?(.*)$/);
+    if (cm && SEM[cm[1]]) {
+      const word = (cm[2] || cm[1]).replace(/_/g, " ");
+      return `<span style="color:${SEM[cm[1]]}">${esc(word)}</span>`;
+    }
     if (token === "chip") return chipSvg(size, COLORS.chip, COLORS.chipRing);
     if (token === "achip") return chipSvg(size, COLORS.achip, COLORS.achipRing);
     if (token === "arrow") return arrowSvg(size);

@@ -158,7 +158,7 @@ function RoomState:draw()
         end
         love.graphics.setFont(fonts.sm)
         if is_unlocked then
-            Theme.setColor(Theme.status.warn)
+            Theme.setColor(Theme.fg.heading)
             love.graphics.print("ALL UNLOCKED [U]", des_x - fl(140 * s), btn_y + fl(10 * s))
         else
             Theme.setColor(Theme.fg.muted)

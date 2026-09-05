@@ -777,7 +777,7 @@ function GrindController:update(dt)
                 if payout > 0 then msg = msg .. "\n" .. Format.moneySigned(payout) end
                 if award  > 0 then msg = msg .. string.format("\n+%d {chip}", award) end
                 self.game.floating_text.emit(msg, center[1], center[2],
-                    { scale = 1.4, font = "lg", color_token = "amber",
+                    { scale = 1.4, font = "lg", color_token = "won",
                       lifetime = 2.6, arc_y = -math.floor(lg_h * 0.5),
                       fit_table = t })
             elseif payout > 0 then
@@ -1442,11 +1442,11 @@ function GrindController:_announceOnDeckCell(text)
     if self.game.floating_text then
         self.game.floating_text.emit(text,
             a[1] + (a[3] or 0) * 0.5, a[2] + (a[4] or 0),
-            -- "amber" resolves through Theme.data in GrindView's floater
+            -- "won" resolves through Theme.semColor in GrindView's floater
             -- draw. Without a token this text would default to status.error,
             -- because the auto-color rule only reads a leading "+" as good
             -- news and an unlock does not start with one.
-            { color_token = "amber" })
+            { color_token = "won" })
     end
 end
 

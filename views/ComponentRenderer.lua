@@ -396,7 +396,7 @@ function CR._button(comp, px, pw, p, y, game)
             if disabled then
                 color = Theme.fg.disabled
             elseif line.color_token then
-                color = (Theme.data and Theme.data[line.color_token])
+                color = Theme.semColor(line.color_token)
                      or (Theme.status and Theme.status[line.color_token])
                      or (Theme.fg and Theme.fg[line.color_token])
                      or Theme.fg.primary
@@ -405,7 +405,7 @@ function CR._button(comp, px, pw, p, y, game)
             elseif style == "heading" then
                 color = Theme.fg.heading
             elseif style == "warning" then
-                color = Theme.status.warn
+                color = Theme.fg.heading
             else
                 color = Theme.fg.primary
             end
@@ -442,7 +442,7 @@ function CR._button(comp, px, pw, p, y, game)
             if line.right then
                 local right_color = color
                 if line.right_color_token then
-                    right_color = (Theme.data and Theme.data[line.right_color_token])
+                    right_color = Theme.semColor(line.right_color_token)
                                or (Theme.status and Theme.status[line.right_color_token])
                                or (Theme.fg and Theme.fg[line.right_color_token])
                                or color
@@ -482,7 +482,7 @@ function CR._button(comp, px, pw, p, y, game)
                 if line.right2 then
                     local color2 = color
                     if line.right2_color_token then
-                        color2 = (Theme.data and Theme.data[line.right2_color_token])
+                        color2 = Theme.semColor(line.right2_color_token)
                               or (Theme.status and Theme.status[line.right2_color_token])
                               or (Theme.fg and Theme.fg[line.right2_color_token])
                               or color

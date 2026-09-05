@@ -32,7 +32,7 @@
 --   progress      (number 0..1, default 0) — how far the stock is filled
 --   stock_token   (token, default Theme.bg.widget)   — die-cut backing (white vinyl)
 --   panel_token   (token, default warm cream)        — base stock, the UNFILLED portion
---   fill_token    (token, default Theme.status.warn) — earned portion: saturated, obvious
+--   fill_token    (token, default Theme.border.strong) — earned portion: saturated, obvious
 --   ink_token     (token, default Theme.fg.heading)  — all text (on the vinyl disc)
 --   edge_token    (token, default Theme.border.strong) — die-cut keyline
 --   vinyl_token   (token, default warm cream)        — the text disc / adhesive side
@@ -106,14 +106,14 @@ function Sticker.draw(opts)
     -- never does. The base stock is cream; the EARNED fraction is the
     -- saturated ink. Progress fills light → loud, never the reverse: a
     -- saturated field that bleaches out as it fills reads backwards.
-    local stock = opts.stock_token or { 1, 1, 1 }
-    local panel = opts.panel_token or { 1.00, 0.97, 0.88 }
-    local fill  = opts.fill_token  or Theme.status.warn
+    local stock = opts.stock_token or Theme.paper.sticker_stock
+    local panel = opts.panel_token or Theme.paper.sticker_panel
+    local fill  = opts.fill_token  or Theme.border.strong
     local ink   = opts.ink_token   or Theme.fg.heading
     local edge  = opts.edge_token  or Theme.border.strong
     -- The vinyl disc the text prints on, and the adhesive side of a peel:
     -- pale warm cream, like the back of a crack-and-peel sheet.
-    local vinyl = opts.vinyl_token or { 1.00, 0.98, 0.90 }
+    local vinyl = opts.vinyl_token or Theme.paper.vinyl
     local underside = opts.underside_token
                       or { vinyl[1] * 0.94, vinyl[2] * 0.92, vinyl[3] * 0.86 }
 

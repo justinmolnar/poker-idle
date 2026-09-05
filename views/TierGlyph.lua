@@ -34,6 +34,13 @@ end
 
 -- Draw the tier as a chip-stack, bottom chip centered at (cx, baseline_y),
 -- radius r, colored by the win/loss ramp. Returns the drawn width.
+-- The same stack in an explicit colour: the anti-chip readout draws the
+-- Stack glyph in corruption's purple without touching the tier ramp.
+function TierGlyph.drawColored(cx, baseline_y, tier, r, color, alpha)
+    Chips.drawGlyphStack(cx, baseline_y, COUNT[tier] or 1, r, color, alpha)
+    return r * 2
+end
+
 function TierGlyph.draw(cx, baseline_y, tier, r, outcome, alpha)
     local count = COUNT[tier] or 1
     Chips.drawGlyphStack(cx, baseline_y, count, r, TierGlyph.color(tier, outcome), alpha)

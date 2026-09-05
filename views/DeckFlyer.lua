@@ -49,31 +49,35 @@ local function col(token, a)
 end
 
 -- ─── Palette (the room's, fixed) ─────────────────────────────────────
-local P = {
-    stock   = { 0.145, 0.125, 0.110 },
-    window  = { 0.118, 0.102, 0.090 },
-    sunken  = { 0.085, 0.075, 0.065 },
-    edge    = { 0.65, 0.55, 0.40 },
-    rule    = { 0.40, 0.35, 0.28 },
-    soft    = { 0.25, 0.22, 0.18 },
-    heading = { 0.95, 0.88, 0.75 },
-    primary = { 0.88, 0.82, 0.72 },
-    muted   = { 0.62, 0.56, 0.46 },
-    faint   = { 0.42, 0.38, 0.31 },
-    good    = { 0.50, 0.78, 0.45 },
-    warn    = { 0.92, 0.72, 0.32 },
-    error   = { 0.82, 0.42, 0.38 },
+-- The flyer's palette IS the theme (one palette everywhere): read live so
+-- nothing here can drift from data/theme.lua. P.<name> resolves per access.
+local P_MAP = {
+    stock   = function() return Theme.bg.chrome end,
+    window  = function() return Theme.bg.window end,
+    sunken  = function() return Theme.bg.sunken end,
+    edge    = function() return Theme.border.strong end,
+    rule    = function() return Theme.border.default end,
+    soft    = function() return Theme.border.soft end,
+    heading = function() return Theme.fg.heading end,
+    primary = function() return Theme.fg.primary end,
+    muted   = function() return Theme.fg.muted end,
+    faint   = function() return Theme.fg.faint end,
+    good    = function() return Theme.sem.won end,
+    warn    = function() return Theme.border.strong end,
+    error   = function() return Theme.sem.lost end,
 }
-local function gold() return Theme.currency and Theme.currency.chip or P.warn end
+local P = setmetatable({}, { __index = function(_, k) local f = P_MAP[k]; return f and f() end })
+local function gold() return Theme.sem.chip end
 
--- The catalog's sticker palette (views/CatalogModal), so a sticker here is
--- the same object the player peeled there.
-local STICKER_STOCK = { 1.00, 1.00, 1.00 }
-local STICKER_PANEL = { 1.00, 0.97, 0.88 }
-local STICKER_INK   = { 0.15, 0.15, 0.12 }
-local STICKER_EDGE  = { 0.15, 0.15, 0.12, 0.45 }
-local FILL_COUNTING = { 0.88, 0.62, 0.10 }
-local FILL_EARNED   = { 0.20, 0.58, 0.28 }
+-- The catalog's sticker paper (Theme.paper), so a sticker here is the same
+-- object the player peeled there. Progress fills: the paper's tan while counting,
+-- the earned green once complete.
+local STICKER_STOCK = Theme.paper.sticker_stock
+local STICKER_PANEL = Theme.paper.sticker_panel
+local STICKER_INK   = Theme.paper.ink
+local STICKER_EDGE  = Theme.paper.ink_faint
+local FILL_COUNTING = Theme.paper.sticker_counting
+local FILL_EARNED   = Theme.paper.sticker_earned
 local STICKER_COMING = "COMING SOON!"
 
 -- ─── Layout (design units, × ui_scale at draw) ──────────────────────

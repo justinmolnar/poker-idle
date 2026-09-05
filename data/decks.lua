@@ -71,7 +71,7 @@ local Decks = {
             { kind = "earnings_mult", value = 1.5 },
         },
         capstone  = {
-            text    = "{w:stack} wins pay double.",
+            text    = "{w:stack} {c:won:wins} pay double.",
             effects = { { kind = "stack_mult", value = 2.0 } },
         },
         bonus       = { text = "+{n}% cash winnings", per_level = 50 },
@@ -119,7 +119,7 @@ local Decks = {
             { kind = "win_chance_shift", amount = 0.03, gtype = "hu" },
         },
         capstone  = {
-            text    = "Heads-Up {l:stack} losses read one tier smaller half the time.",
+            text    = "Heads-Up {l:stack} {c:lost:losses} read one tier smaller half the time.",
             effects = { { kind = "loss_tier_shift", from = "stack", to = "large", chance = 0.5, gtype = "hu" } },
         },
         bonus       = { text = "+{n}% win chance Heads-Up", per_level = 3 },
@@ -146,7 +146,7 @@ local Decks = {
             { kind = "unbanked_stack_shift", value = 0.05 },
         },
         capstone  = {
-            text    = "+1 {chip} on every bounty.",
+            text    = "+1 {chip} on every {c:chip:bounty}.",
             effects = { { kind = "stack_chip_add", value = 1 } },
         },
         bonus       = { text = "+{n}% {w:stack} chance at unbanked tables", per_level = 5 },
@@ -198,15 +198,15 @@ local Decks = {
             { kind = "heater_win_mult", value = 1.25 },
         },
         capstone  = {
-            text    = "A burnt-out heater jumps to a neighbouring table 25% of the time.",
+            text    = "A burnt-out {c:heat:heater} jumps to a neighbouring table 25% of the time.",
             effects = { { kind = "proc", proc = "hot_hand_spread" } },
         },
-        bonus       = { text = "A heater's hand pays {n}% more", per_level = 25 },
+        bonus       = { text = "A {c:heat:heater}'s hand pays {n}% more", per_level = 25 },
         flavor_text = "Run good. Then run gooder.",
         unlock = {
             kind      = "total_heaters",
             threshold = 50,
-            text      = "Catch 50 heaters",
+            text      = "Catch 50 {c:heat:heaters}",
         },
     },
 
@@ -225,13 +225,13 @@ local Decks = {
               shift = { small = -0.10, medium = -0.10, large = 0.10, stack = 0.10 } },
         },
         capstone  = {
-            text    = "Half your wins read a tier bigger, the other half pay double.",
+            text    = "Half your {c:won:wins} read a tier bigger, the other half pay double.",
             effects = {
                 { kind = "win_tier_bump_chance",     value = 0.5 },
                 { kind = "win_payout_double_chance", value = 0.5 },
             },
         },
-        bonus       = { text = "Wins lean Large and {w:stack}, +{n}% each", per_level = 10 },
+        bonus       = { text = "{c:won:Wins} lean Large and {w:stack}, +{n}% each", per_level = 10 },
         flavor_text = "Put the pedal to the floor. Wild swings, huge pots.",
         unlock = {
             kind      = "lifetime_stack_count",
@@ -255,10 +255,10 @@ local Decks = {
               shift = { small = 0.18, medium = -0.06, large = -0.06, stack = -0.06 } },
         },
         capstone  = {
-            text    = "{l:stack} losses read one tier smaller half the time.",
+            text    = "{l:stack} {c:lost:losses} read one tier smaller half the time.",
             effects = { { kind = "loss_tier_shift", from = "stack", to = "large", chance = 0.5 } },
         },
-        bonus       = { text = "Losses lean Small, +{n}%", per_level = 18 },
+        bonus       = { text = "{c:lost:Losses} lean Small, +{n}%", per_level = 18 },
         flavor_text = "Tight is right. Play safe, live to grind another day.",
         unlock = {
             kind      = "lifetime_money_lost",
@@ -285,15 +285,15 @@ local Decks = {
             { kind = "tilted_loss_mult", value = 0.8, gtype = "six_max" },
         },
         capstone  = {
-            text    = "A tilt spent on a 6-max table heats a neighbour.",
+            text    = "A {c:tilt:tilt} spent on a 6-max table heats a neighbour.",
             effects = { { kind = "proc", proc = "anchor_convert" } },
         },
-        bonus       = { text = "Tilted 6-max hands lose {n}% less", per_level = 20 },
+        bonus       = { text = "{c:tilt:Tilted} 6-max hands lose {n}% less", per_level = 20 },
         flavor_text = "Somebody has to take the hit. Sit them at the big table.",
         unlock = {
             kind      = "total_tilts",
             threshold = 25,
-            text      = "Take 25 tilts",
+            text      = "Take 25 {c:tilt:tilts}",
         },
     },
 
@@ -337,7 +337,7 @@ local Decks = {
             { kind = "earnings_per_tier", value = 0.075 },
         },
         capstone  = {
-            text    = "Wins scale with your BANK multiplier, up to 3x.",
+            text    = "{c:won:Wins} scale with your BANK multiplier, up to 3x.",
             effects = { { kind = "earnings_scale_by_bankroll", wins_only = true, cap = 3 } },
         },
         bonus       = { text = "+{n}% cash winnings per table tier", per_level = 7.5 },

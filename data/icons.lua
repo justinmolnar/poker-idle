@@ -21,7 +21,7 @@ return {
 
     -- Top-bar jargon cells (icon hooks; silent until art lands).
     focus = { sprite = "ui/icons/focus", tint = "fg.heading" },
-    shove = { sprite = "ui/icons/shove", tint = "status.error" },
+    shove = { sprite = "ui/icons/shove", tint = "sem.chip" },
 
     -- Run-upgrade rail (data/run_upgrades.lua `icon` fields reference these).
     sharper_reads = { sprite = "ui/icons/sharper_reads", tint = "fg.heading" },

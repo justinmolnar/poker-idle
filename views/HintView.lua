@@ -305,7 +305,7 @@ function HintView:_drawHint(layout, track_bubble)
     local r        = fl(4 * s)
     Theme.setColor(Theme.bg.window)
     love.graphics.rectangle("fill", b.x, b.y, b.w, b.h, r)
-    Theme.setColor(Theme.status.warn)
+    Theme.setColor(Theme.fg.heading)
     love.graphics.rectangle("line", b.x, b.y, b.w, b.h, r)
 
     -- Speech tail down to THE HOUSE: fill first (covers the bubble's
@@ -320,7 +320,7 @@ function HintView:_drawHint(layout, track_bubble)
             tip_x - tw, base_y - 1,
             tip_x + tw, base_y - 1,
             tip_x, layout.tail.tip_y)
-        Theme.setColor(Theme.status.warn)
+        Theme.setColor(Theme.fg.heading)
         love.graphics.line(tip_x - tw, base_y, tip_x, layout.tail.tip_y)
         love.graphics.line(tip_x + tw, base_y, tip_x, layout.tail.tip_y)
     end

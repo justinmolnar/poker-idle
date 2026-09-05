@@ -124,7 +124,6 @@ local function flyChipsToPot(tbl, seat, amount)
         ChipFlight.transfer(seat_pos, pot_pos, {
             chips     = tournamentChips(tbl, amount),
             labels    = false,
-            chip_tint = Theme.data.violet,
             dest_key  = pot_key,
             budget    = timeToNextEvent(tbl),
         })
@@ -269,7 +268,6 @@ local PokerEventAnims = {
             ChipFlight.transfer(pot_pos, target_pos, {
                 chips         = tournamentChips(tbl, ev.amount),
                 labels        = false,
-                chip_tint     = Theme.data.violet,
                 arrival_sound = is_player and "chip_land_you" or nil,
             })
             return

@@ -136,8 +136,8 @@ end
 function Effects.drawBorderPulse(tbl, x, y, w, h)
     local t = tbl.border_pulse_t or 0
     if t <= 0.001 or not tbl.border_pulse_color then return end
-    local color = (tbl.border_pulse_color == "good") and Theme.status.good
-                                                       or Theme.status.error
+    local color = (tbl.border_pulse_color == "good") and Theme.sem.won
+                                                       or Theme.sem.lost
     -- Low motion: the frame at full width for as long as the pulse runs,
     -- no ramp.
     if Motion.level("tables") <= Motion.LOW then t = 1 end
@@ -515,8 +515,8 @@ function Effects.drawVignette(tbl, felt_x, felt_y, felt_w, felt_h)
     if a <= 0.001 or not tbl.vignette_kind then return end
     -- Low motion: still, at half strength, for as long as it would run.
     if Motion.level("tables") <= Motion.LOW then a = 0.5 end
-    local color = (tbl.vignette_kind == "good") and Theme.status.good
-                                                  or Theme.status.error
+    local color = (tbl.vignette_kind == "good") and Theme.sem.won
+                                                  or Theme.sem.lost
     local cfg = FeltStyle.vignette
     Theme.setColor(color, a * VIGNETTE_MAX_ALPHA * (cfg.flash_flat or 1))
     love.graphics.rectangle("fill", felt_x, felt_y, felt_w, felt_h,
@@ -554,7 +554,7 @@ function Effects.drawStatusFire(tbl, x, y, w, h)
         -- Still embers: a warm band along the felt's bottom edge, no
         -- shader, no motion. Says "hot" without anything moving.
         local def = StatusData[e.kind]
-        local color = tokenColor(def and def.glow_token) or Theme.status.warn
+        local color = tokenColor(def and def.glow_token) or Theme.fg.heading
         local bands = 4
         for i = 1, bands do
             local k  = i / bands
@@ -626,7 +626,7 @@ function Effects.drawSeatKOFlash(x, y, w, h, p)
     -- Low motion: a still ring for the flash's duration.
     if Motion.level("tables") <= Motion.LOW then p = 0 end
     local fade = 1 - p
-    Theme.setColor(Theme.status.error, 0.85 * fade)
+    Theme.setColor(Theme.sem.lost, 0.85 * fade)
     love.graphics.setLineWidth(math.max(1, math.floor(3 * fade)))
     local grow = 3 * p
     love.graphics.rectangle("line", x - grow, y - grow,

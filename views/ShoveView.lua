@@ -1168,7 +1168,7 @@ local function drawCardSprite(sl, sprite_name, x, y, w, h, scale_x, alpha, verdi
         if a > 0.005 then
             for i = (cfg.glow_steps or 1), 1, -1 do
                 local g = (cfg.glow_grow or 0) * i / (cfg.glow_steps or 1)
-                Theme.setColor(Theme.data.amber, a * (1 - (i - 1) / (cfg.glow_steps or 1)))
+                Theme.setColor(Theme.sem.won, a * (1 - (i - 1) / (cfg.glow_steps or 1)))
                 love.graphics.rectangle("fill", x - g, y + dy - g, w + 2 * g, h + 2 * g,
                                         Theme.space.radius + g)
             end
@@ -1238,7 +1238,7 @@ function ShoveView:_drawNumberFlight(f, dst)
     love.graphics.push()
     love.graphics.translate(x, y)
     love.graphics.scale(sc, sc)
-    Theme.setColor(Theme.status.good)
+    Theme.setColor(Theme.fg.heading)
     love.graphics.print(f.text, -tw * 0.5, -lg_h * 0.5)
     love.graphics.pop()
     if p >= 1 then
@@ -1278,12 +1278,12 @@ function ShoveView:_drawRoomCount(W, H)
         love.graphics.push()
         love.graphics.translate(ncx, ny + fonts.lg:getHeight() * 0.5)
         love.graphics.scale(nsc, nsc)
-        Theme.setColor(locked and Theme.status.good or Theme.fg.heading)
+        Theme.setColor(Theme.fg.heading)
         love.graphics.print(num, -nw * 0.5, -fonts.lg:getHeight() * 0.5)
         love.graphics.pop()
         love.graphics.setFont(fonts.sm)
         local label = locked and "ITEMS" or "THINGS YOU OWN"
-        Theme.setColor(locked and Theme.status.good or Theme.fg.muted)
+        Theme.setColor(locked and Theme.fg.heading or Theme.fg.muted)
         love.graphics.print(label, ncx + math.floor(nw * 0.5) + math.floor(10 * s),
             ny + fonts.lg:getHeight() - fonts.sm:getHeight() - math.floor(3 * s))
     end

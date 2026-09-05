@@ -438,10 +438,15 @@ function condProse(c) {
   }
 }
 
+// The colour code (data/theme.lua `sem`, room palette), for {c:<meaning>:<text>}.
+const SEM = { won: "#80C773", lost: "#D16B61", chip: "#EDBF4D", corrupt: "#A659F2",
+              heat: "#FA8547", tilt: "#94A8D1", upgrade: "#B88594" };
+
 /* ══════════════ state ══════════════ */
 const S = {
   files: new Map(), rootName: "", dirHandle: null,
   beats: [],          // [{id, screen, trigger, lines:[{text, anchor,...}], raw, order}]
+  terms: null,        // data/terms.lua: { words: {cat: [..]}, optional: [..], never: [..] }
   shove: {},          // key -> {text, once}
   shoveOrder: [],
   edits: { beats: {}, shove: {}, newOrder: [] },
@@ -601,6 +606,11 @@ async function openMap(map, name) {
 async function loadAll() {
   const src = await readText("data/story.lua");
   if (!src) return showPickerError(new Error("could not read data/story.lua"));
+  // The colour code's word map, for the preview and the bare-word warning.
+  try {
+    const tsrc = await readText("data/terms.lua");
+    if (tsrc) S.terms = parseLua(returnTableSource(tsrc)).parseValue();
+  } catch (e) { S.terms = null; }
   let root;
   try { root = parseLua(returnTableSource(src)).parseValue(); }
   catch (e) { return showPickerError(new Error("story.lua parse failed: " + e.message)); }
@@ -761,14 +771,39 @@ function fieldChips(l) {
 function copyWarnings(text) {
   const w = [];
   if (/—|–/.test(text)) w.push("em-dash");
-  if (/\bchips?\b/i.test(text.replace(/\{[^}]*\}/g, ""))) w.push('the word "chip(s)"');
+  const bare = text.replace(/\{[^}]*\}/g, " ");
+  if (/\bchips?\b/i.test(bare)) w.push('the word "chip(s)"');
   if (/\b(genuinely|basically|actually|really|just)\b/i.test(text)) w.push("filler");
+  // The colour code: a mechanic word that is not tinted, and a tint on a
+  // word its meaning does not own (data/terms.lua, same rules as sim/lint_terms.lua).
+  if (S.terms && S.terms.words) {
+    const optional = new Set((S.terms.optional || []).map(x => x.toLowerCase()));
+    const owner = {};
+    for (const [cat, words] of Object.entries(S.terms.words)) for (const wd of words) owner[wd.toLowerCase()] = cat;
+    for (const m of text.matchAll(/\{c:(\w+):?([^}]*)\}/g)) {
+      const word = (m[2] || m[1]).replace(/_/g, " ").toLowerCase();
+      const own = owner[word] || owner[word.replace(/'s$/, "")] || owner[word.replace(/s$/, "")];
+      if (!S.terms.words[m[1]]) w.push(`unknown meaning {c:${m[1]}}`);
+      else if (own !== m[1]) w.push(`"${word}" tinted ${m[1]} but is ${own || "no one's"}`);
+    }
+    const tinted = new Set([...text.matchAll(/\{c:\w+:?([^}]*)\}/g)].map(m => m[1].replace(/_/g, " ").toLowerCase()));
+    const low = bare.toLowerCase();
+    for (const [wd, cat] of Object.entries(owner)) {
+      if (optional.has(wd) || tinted.has(wd)) continue;
+      if (new RegExp("(^|[^\\w])" + wd.replace(/[-]/g, "\\-") + "([^\\w]|$)").test(low)) w.push(`bare "${wd}" (${cat})`);
+    }
+  }
   return w;
 }
+// The preview shows the block as it renders: tinted words in their colour,
+// other tokens as chips.
 function tokenPreview(text) {
-  const toks = text.match(/\{[^}]*\}/g);
-  if (!toks) return "";
-  return `<div class="preview">tokens: ${toks.map(t => `<span class="tok">${esc(t)}</span>`).join(" ")}</div>`;
+  if (!/\{[^}]*\}/.test(text)) return "";
+  const html = esc(text).replace(/\{c:(\w+):?([^}]*)\}/g, (m, cat, word) => {
+    const col = SEM[cat] || "var(--err)";
+    return `<span style="color:${col};font-weight:600">${esc((word || cat).replace(/_/g, " "))}</span>`;
+  }).replace(/\{(?!c:)[^}]*\}/g, m => `<span class="tok">${m}</span>`);
+  return `<div class="preview">${html}</div>`;
 }
 function wordCount(t) { return (t.trim().match(/\S+/g) || []).length; }
 

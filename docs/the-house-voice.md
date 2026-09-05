@@ -277,6 +277,18 @@ register — ration them.
 
 ## Hard copy rules (non-negotiable)
 
+- **The colour code.** A mechanic word is tinted in its meaning's colour
+  with `{c:<meaning>:<word>}` (an underscore is a space): `{c:heat:Heat}`,
+  `{c:chip:banked}`, `{c:lost:busted}`. Seven meanings, in
+  data/theme.lua: won (green), lost (red), chip (gold), corrupt (purple),
+  heat (orange), tilt (steel blue), upgrade (the rack's muted rose: the
+  cards wear it as their face, the word is the same rose). The catalog,
+  room and decks stay plain: paper and chrome, no colour of their own to
+  lend. The words each meaning owns are in data/terms.lua. Rules: tint the
+  noun, not the sentence; the first occurrence of a word per block; only a
+  word its meaning owns; never a stake, a game type, money, the House, the
+  shove, the bankroll or the cards' names. `lua sim/lint_terms.lua` checks
+  every copy field; the story editor and catalog designer preview and warn.
 - No em-dashes, anywhere.
 - `{chip}` / `{achip}` tokens, never the words "chip"/"chips" for currency.
 - No question marks in anything that can play before `panic_won`.

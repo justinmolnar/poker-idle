@@ -289,7 +289,8 @@ function ShoveDecor.drawMeter(x, y, w, h, frac, over)
     love.graphics.rectangle("fill", x, y, w, h, r)
     frac = math.max(0, math.min(1, frac or 0))
     if frac > 0 then
-        Theme.setColor(over and Theme.data.violet or Theme.status.good)
+        -- Parchment below a lock, the colour of a hand won at and past it.
+        Theme.setColor(over and Theme.sem.won or Theme.fg.muted)
         love.graphics.rectangle("fill", x, y, math.max(h, w * frac), h, r)
     end
 end

@@ -471,9 +471,9 @@ function SettingsModal:draw()
             Theme.setColor(Theme.bg.widget)
             love.graphics.rectangle("fill", row_x, y, row_w, ROW_H, math.floor(3 * s))
         end
-        Theme.setColor(ana_on and Theme.status.good or Theme.bg.widget)
+        Theme.setColor(ana_on and Theme.fg.heading or Theme.bg.widget)
         love.graphics.rectangle("fill", box_x, box_y, box_sz, box_sz, math.floor(2*s))
-        Theme.setColor(ana_on and Theme.status.good or Theme.border.default)
+        Theme.setColor(ana_on and Theme.fg.heading or Theme.border.default)
         love.graphics.rectangle("line", box_x, box_y, box_sz, box_sz, math.floor(2*s))
         if ana_on then
             love.graphics.setFont(fonts.sm)

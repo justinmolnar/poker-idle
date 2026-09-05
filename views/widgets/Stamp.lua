@@ -43,7 +43,7 @@ function Stamp.draw(opts)
     if not font then return end
 
     local label  = opts.label or ""
-    local ink    = opts.color_token or Theme.status.error
+    local ink    = opts.color_token or Theme.paper.stamp
     local hit    = math.max(0, math.min(1, opts.impact or 0))
     local scale  = 1 + IMPACT_SCALE * hit
     local alpha  = (ink[4] or 1) * (1 - IMPACT_FADE * hit)

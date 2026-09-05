@@ -43,7 +43,7 @@ function HintMarks.draw(game, marks)
     local t   = Motion.time("text", love.timer.getTime())
     local pad = fl(4 * s) + fl(2 * math.sin(t * 4) + 2)
     local pulse = Motion.at("text", Motion.HIGH) and (0.55 + 0.35 * math.sin(t * 4)) or 0.8
-    Theme.setColor(Theme.status.warn, pulse)
+    Theme.setColor(Theme.fg.heading, pulse)
     for _, m in ipairs(marks) do
         if m.is_rect then
             local r = fl(4 * s)

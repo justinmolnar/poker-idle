@@ -10,6 +10,24 @@
 --   {small} {medium} {large} {stack} → outcome-tier glyphs via TierGlyph; a
 --                                      win/loss prefix may be given as
 --                                      "{l:large}" / "{w:small}" (absent → win)
+--   {c:<meaning>:<text>}             → <text> printed in Theme.sem[<meaning>]
+--                                      (data/theme.lua's colour code; the
+--                                      words per meaning in data/terms.lua).
+--                                      "_" in <text> is a space. {c:heat}
+--                                      alone prints the meaning's name. An
+--                                      unknown meaning prints literally.
+--   {c:<meaning>:<text>}             → <text> printed in Theme.sem[<meaning>]
+--                                      (data/theme.lua's colour code; the
+--                                      words per meaning in data/terms.lua).
+--                                      "_" in <text> is a space. {c:heat}
+--                                      alone prints the meaning's name. An
+--                                      unknown meaning prints literally.
+--   {c:<meaning>:<text>}             → <text> printed in Theme.sem[<meaning>]
+--                                      (data/theme.lua's colour code; the
+--                                      words per meaning in data/terms.lua).
+--                                      "_" in <text> is a space. {c:heat}
+--                                      alone prints the meaning's name. An
+--                                      unknown meaning prints literally.
 --
 -- Single line, no wrapping. DI: takes `game` for the sprite atlas; the actual
 -- love.graphics work stays in views/Chips / services/SpriteRenderer.
@@ -36,8 +54,20 @@ end
 
 local OUTCOME = { w = "win", l = "loss" }
 
+-- A {c:…} token → its display text and colour, or nil when it is not one.
+local function tintedWord(token)
+    local cat, text = token:match("^c:([%w_]+):?(.*)$")
+    if not cat then return nil end
+    local color = Theme.semColor and Theme.semColor(cat) or nil
+    if not color then return nil end
+    if text == "" then text = cat end
+    return (text:gsub("_", " ")), color
+end
+
 -- Width of a {token}'s glyph at `size` (0 = not a known icon token).
-local function tokenWidth(token, size)
+local function tokenWidth(token, size, font)
+    local word = tintedWord(token)
+    if word then return font and font:getWidth(word) or 0 end
     if token == "chip" or token == "achip" or token == "arrow" then return size end
     local _, name = token:match("^(%w+):(%w+)$")
     name = name or token
@@ -46,7 +76,14 @@ local function tokenWidth(token, size)
 end
 
 -- Draw a {token} icon at (x, y). Width comes from tokenWidth.
-local function drawToken(game, token, x, y, size, color, alpha)
+local function drawToken(game, token, x, y, size, color, alpha, font)
+    local word, tint = tintedWord(token)
+    if word then
+        Theme.setColor(tint, alpha)
+        love.graphics.setFont(font)
+        love.graphics.print(word, x, y)
+        return
+    end
     if token == "chip" then
         Icons.drawChip(game, x, y, size, alpha)
     elseif token == "achip" then
@@ -85,9 +122,13 @@ local function walk(game, str, x, y, font, color, alpha, draw)
         local s, e, token = str:find("{([%w_:]+)}", i)
         if not s then text(str:sub(i)); break end
         text(str:sub(i, s - 1))
-        local iw = tokenWidth(token, size)
+        local iw = tokenWidth(token, size, font)
         if iw == 0 then
             text(str:sub(s, e))            -- unknown token → literal text
+        elseif tintedWord(token) then
+            -- A tinted word is text: no icon gap, its own width.
+            if draw then drawToken(game, token, cx, y, size, color, alpha, font) end
+            cx = cx + iw
         else
             if draw then drawToken(game, token, cx, y, size, color, alpha) end
             cx = cx + iw + gap

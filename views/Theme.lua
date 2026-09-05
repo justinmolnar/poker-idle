@@ -21,6 +21,7 @@ Theme.font  = PaletteData.font
 Theme.debug = PaletteData.debug
 Theme.currency = PaletteData.currency
 Theme.card  = PaletteData.card
+Theme.paper = PaletteData.paper
 
 -- ─── Active-palette dispatch ────────────────────────────────────────
 -- Per-palette tables (bg/fg/border/data/status/tint) are repointed by
@@ -33,7 +34,7 @@ function Theme.setActive(name)
     Theme.bg     = p.bg
     Theme.border = p.border
     Theme.fg     = p.fg
-    Theme.data   = p.data
+    Theme.sem    = p.sem
     Theme.status = p.status
     Theme.status_fx = p.status_fx
     Theme.tier   = p.tier
@@ -65,6 +66,22 @@ function Theme.setColor(token, alpha)
     else
         love.graphics.setColor(token[1], token[2], token[3], token[4] or 1)
     end
+end
+
+-- A meaning's colour by name: "heat" → Theme.sem.heat. Accepts the
+-- status aliases (good → won, error → lost) and the fg names (heading,
+-- muted, faint, primary) so one resolver serves every data-driven
+-- color_token field and the {c:…} copy token. nil for an unknown name.
+local SEM_ALIAS = { good = "won", error = "lost", amber = "won", bad = "lost" }
+function Theme.semColor(name)
+    if not name then return nil end
+    local sem = Theme.sem
+    if sem and sem[name] then return sem[name] end
+    local alias = SEM_ALIAS[name]
+    if alias and sem then return sem[alias] end
+    if Theme.fg and Theme.fg[name] then return Theme.fg[name] end
+    if Theme.paper and Theme.paper[name] then return Theme.paper[name] end
+    return nil
 end
 
 -- Tint for drawing pixel-art assets. Reads the active palette's tint.world

@@ -542,7 +542,7 @@ function CatalogModal:_drawClosedOnFelt(W, H, page_w, page_h, fonts, s)
     -- shrunk with it: the cover's own copy would be a thumbnail of text.
     if t >= 1 then
         love.graphics.setFont(fonts.md)
-        Theme.setColor({ 0.75, 0.20, 0.20 })
+        Theme.setColor(Theme.paper.stamp)
         love.graphics.printf("CLICK TO OPEN", -cw * 0.5, ch * 0.5 - fonts.md:getHeight() - fl(10 * s), cw, "center")
     end
     love.graphics.pop()
@@ -732,12 +732,12 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- catalog greys out a line it can't sell you. Drawn under everything else
     -- so the whole card reads unavailable before you read a word of it.
     if unlock_locked then
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.10 })
+        Theme.setColor(Theme.paper.ink, 0.10)
         love.graphics.rectangle("fill", x, y, w, h)
     end
 
     -- Vintage newsprint border for this ad
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.30 })
+    Theme.setColor(Theme.paper.ink, 0.30)
     love.graphics.rectangle("line", x, y, w, h)
     -- Picture frame for the illustration. Hero: a large square centered in the
     -- card's upper half. Normal: a small thumb on the left.
@@ -758,9 +758,9 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         img_y = y + fl(14 * s)
     end
 
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.08 })
+    Theme.setColor(Theme.paper.ink, 0.08)
     love.graphics.rectangle("fill", img_x, img_y, img_w, img_h)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.35 })
+    Theme.setColor(Theme.paper.ink, 0.35)
     love.graphics.rectangle("line", img_x, img_y, img_w, img_h)
 
     -- Resolve item animation & shader settings (paper magazine catalog defaults to static unless overridden in item data)
@@ -816,9 +816,9 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- The book is immutable: this ring is the printed price, and it reads
     -- OWN once ordered, corruption or not. The corruption gets its OWN
     -- ring, beside this one (below).
-    local price_color = { 0.15, 0.15, 0.12, 0.50 } -- black ink default
+    local price_color = Theme.paper.ink_half -- black ink default
     if not is_owned and not locked then
-        price_color = { 0.75, 0.20, 0.20 } -- red rubber stamp for active purchase price
+        price_color = Theme.paper.stamp -- red rubber stamp for active purchase price
     end
 
     local cx_stamp = x + w - fl(24 * s)
@@ -852,7 +852,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- room beside it): the {achip} price while it is on offer, OWN once paid.
     if is_corruptible or is_corrupted then
         local ccy  = cy_stamp + r_stamp * 2 + fl(8 * s)
-        local ccol = is_corrupted and { 0.40, 0.15, 0.60 } or { 0.55, 0.25, 0.85 }
+        local ccol = is_corrupted and Theme.paper.corrupt_ink or Theme.sem.corrupt
         Theme.setColor(ccol)
         love.graphics.setLineWidth(2)
         love.graphics.circle("line", cx_stamp, ccy, r_stamp)
@@ -872,11 +872,11 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- Owned is dimmed, as the book prints it; the corruption's own marks
     -- (its ring, its line on the No. row, its stamp) are full ink on top.
     local dim = is_owned
-    local ink = dim and { 0.15, 0.15, 0.12, 0.40 } or { 0.15, 0.15, 0.12 }
+    local ink = dim and Theme.paper.ink_dim or Theme.paper.ink
     -- An unlock-gated item is dimmed like an owned one — it is not orderable
     -- either way. The requirement itself lives on the sticker, not in the
     -- text column.
-    local name_ink = unlock_locked and { 0.15, 0.15, 0.12, 0.45 } or ink
+    local name_ink = unlock_locked and Theme.paper.ink_faint or ink
 
     -- Sticker rect is computed BEFORE any text is drawn, because the text
     -- column has to know where the sticker starts in order to stay out from
@@ -998,7 +998,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         local ty  = img_y + img_h + fl(10 * s)
 
         love.graphics.setFont(fonts.sm)
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.60 })
+        Theme.setColor(Theme.paper.ink, 0.60)
         local code = string.format("No. %03d", index or 0)
         love.graphics.print(code, cxm - fonts.sm:getWidth(code) * 0.5, ty)
         if corrupt_line then
@@ -1028,8 +1028,9 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         local desc_txt = item.description or ""
         if desc_txt ~= "" then
             love.graphics.setFont(fonts.sm)
-            Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
-            love.graphics.print(desc_txt, cxm - fonts.sm:getWidth(desc_txt) * 0.5, ty)
+            -- Through IconText: the flavour may tint a mechanic word.
+            local dw = IconText.measure(desc_txt, fonts.sm)
+            IconText.draw(self.game, desc_txt, cxm - dw * 0.5, ty, fonts.sm, Theme.paper.ink, 0.45)
             ty = ty + fonts.sm:getHeight() + 4
         end
 
@@ -1055,7 +1056,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         local col_w = (x + w - fl(44 * s)) - text_x
 
         local index_text = string.format("No. %03d", index or 0)
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.60 })
+        Theme.setColor(Theme.paper.ink, 0.60)
         love.graphics.setFont(fonts.sm)
         love.graphics.print(index_text, text_x, title_y)
         if corrupt_line then
@@ -1088,9 +1089,13 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         -- wherever it lands, so that test made the blurb blink in and out
         -- depending on where a hash put a label. A sticker covering some
         -- flavor text is exactly what a sticker on a catalog does.
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
         love.graphics.setFont(fonts.sm)
-        love.graphics.print(clampText(item.description, fonts.sm, col_w), text_x, flavor_y)
+        if (item.description or ""):find("{", 1, true) then
+            IconText.draw(self.game, item.description, text_x, flavor_y, fonts.sm, Theme.paper.ink, 0.45)
+        else
+            Theme.setColor(Theme.paper.ink, 0.45)
+            love.graphics.print(clampText(item.description, fonts.sm, col_w), text_x, flavor_y)
+        end
 
         -- Shove contribution: its own right-aligned stat on the flavor line.
         -- Makes "buying builds your shove base" legible — every buyable
@@ -1146,12 +1151,12 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
             -- fraction is the saturated ink. Progress fills light → loud.
             -- Filler flips amber→green the moment it can be peeled, so the
             -- state change is visible from across the room.
-            stock_token = { 1.00, 1.00, 1.00 },
-            panel_token = { 1.00, 0.97, 0.88 },
-            fill_token  = met and { 0.20, 0.58, 0.28 } or { 0.88, 0.62, 0.10 },
-            vinyl_token = { 1.00, 0.97, 0.88 },
-            ink_token   = { 0.15, 0.15, 0.12 },
-            edge_token  = { 0.15, 0.15, 0.12, 0.45 },
+            stock_token = Theme.paper.sticker_stock,
+            panel_token = Theme.paper.sticker_panel,
+            fill_token  = met and Theme.paper.sticker_earned or Theme.paper.sticker_counting,
+            vinyl_token = Theme.paper.sticker_panel,
+            ink_token   = Theme.paper.ink,
+            edge_token  = Theme.paper.ink_faint,
         }
     end
     if show_req then
@@ -1168,12 +1173,12 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
             title    = rq_title,
             line     = rq_line,
             progress = rq_frac,
-            stock_token = { 1.00, 1.00, 1.00 },
-            panel_token = { 0.80, 0.87, 0.93 },
-            fill_token  = rq_ready and { 0.20, 0.58, 0.28 } or { 0.42, 0.56, 0.72 },
-            vinyl_token = { 0.88, 0.93, 0.97 },
-            ink_token   = { 0.13, 0.16, 0.20 },
-            edge_token  = { 0.13, 0.16, 0.20, 0.45 },
+            stock_token = Theme.paper.sticker_stock,
+            panel_token = Theme.paper.req_panel,
+            fill_token  = rq_ready and Theme.paper.sticker_earned or Theme.paper.req_fill,
+            vinyl_token = Theme.paper.req_vinyl,
+            ink_token   = Theme.paper.req_ink,
+            edge_token  = Theme.paper.req_edge,
         }
     end
 
@@ -1212,7 +1217,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- line under the effect saying what it would do.
     local stamp
     if is_owned then
-        stamp = { label = "ORDERED", color = { 0.75, 0.20, 0.20, 0.85 },
+        stamp = { label = "ORDERED", color = { Theme.paper.stamp[1], Theme.paper.stamp[2], Theme.paper.stamp[3], 0.85 },
                   font = fonts.md, lw = 3,
                   hw = 55, hh = 14, r = 4 }
     end
@@ -1290,7 +1295,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
             label       = "CORRUPTED",
             fonts       = fonts,
             font        = fonts.md,
-            color_token = { 0.45, 0.15, 0.70, 0.90 },
+            color_token = { Theme.paper.corrupt_ink[1], Theme.paper.corrupt_ink[2], Theme.paper.corrupt_ink[3], 0.90 },
             angle       = angle,
             radius      = fl(4 * s),
             line_width  = 3,
@@ -1352,7 +1357,7 @@ function CatalogModal:_drawCorruptLine(item, text, x, y, fonts)
     end
     -- Contrast that breathes while it resolves, steady once it has.
     local a = 1 - 0.45 * unrest * (0.5 + 0.5 * math.sin(now * 23))
-    IconText.draw(self.game, shown, x, y, f, { 0.55, 0.25, 0.85 }, a)
+    IconText.draw(self.game, shown, x, y, f, Theme.sem.corrupt, a)
 end
 
 -- ─── Book rendering ────────────────────────────────────────────────────
@@ -1375,13 +1380,13 @@ end
 -- is { title, items } or nil (a blank verso — draw bare paper only).
 local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y, w, h, is_right, s, card_h)
     local fl = math.floor
-    Theme.setColor({ 0.94, 0.90, 0.83 })
+    Theme.setColor(Theme.paper.page_light)
     love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.40 })
+    Theme.setColor(Theme.paper.ink, 0.40)
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
     love.graphics.setLineWidth(1)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.12 })
+    Theme.setColor(Theme.paper.ink, 0.12)
     love.graphics.rectangle("line", x + fl(4 * s), y + fl(4 * s), w - fl(8 * s), h - fl(8 * s), Theme.space.radius)
 
     if not page then return end   -- blank verso
@@ -1391,7 +1396,7 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
     -- department has one (see :_pages); continuation leaves keep the header
     -- band for the ledger and the rule, but print no name.
     if page.title then
-        Theme.setColor({ 0.15, 0.15, 0.12 })
+        Theme.setColor(Theme.paper.ink)
         love.graphics.setFont(fonts.md)
         love.graphics.print(page.title:upper(), x + pad, y + fl(10 * s))
     end
@@ -1409,7 +1414,7 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
         local gap   = fl(5 * s)
         local bx    = x + w - pad - (bal_w + gap + gsize)
         love.graphics.setFont(fonts.md)
-        Theme.setColor({ 0.75, 0.20, 0.20 })
+        Theme.setColor(Theme.paper.stamp)
         love.graphics.print(bal, bx, y + fl(10 * s))
         Icons.drawChip(self.game, bx + bal_w + gap, y + fl(10 * s), gsize)
         -- {achip} beside it once Act 3 has begun: the corruption prices are
@@ -1419,20 +1424,20 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
             local abal_w = fonts.md:getWidth(abal)
             local ax     = bx - fl(14 * s) - (abal_w + gap + gsize)
             love.graphics.setFont(fonts.md)
-            Theme.setColor({ 0.45, 0.15, 0.70 })
+            Theme.setColor(Theme.paper.corrupt_ink)
             love.graphics.print(abal, ax, y + fl(10 * s))
             Icons.drawAntiChip(self.game, ax + abal_w + gap, y + fl(10 * s), gsize)
         end
     end
     local head_h = fonts.md:getHeight() + fl(16 * s)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.20 })
+    Theme.setColor(Theme.paper.ink, 0.20)
     love.graphics.line(x + pad, y + head_h, x + w - pad, y + head_h)
 
     -- First-visit lede, on the felt: the cover is a thumbnail there, so the
     -- line lives under the first page's header instead, where it is read at
     -- the moment the book is first opened.
     if self.intro_callout and self.on_felt and page_num == 1 then
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.70 })
+        Theme.setColor(Theme.paper.ink, 0.70)
         love.graphics.setFont(fonts.sm)
         love.graphics.printf("Make your room a home. Everything here is permanent.",
                              x + pad, y + head_h + fl(4 * s), w - pad * 2, "center")
@@ -1467,7 +1472,7 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
 
     -- Page number, bottom-center.
     love.graphics.setFont(fonts.sm)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
+    Theme.setColor(Theme.paper.ink, 0.45)
     local ns = tostring(page_num)
     love.graphics.print(ns, x + w * 0.5 - fonts.sm:getWidth(ns) * 0.5, y + h - fonts.sm:getHeight() - fl(8 * s))
 end
@@ -1475,21 +1480,21 @@ end
 -- Front cover face (single narrow page).
 drawFrontCover = function(self, x, y, w, h, fonts, s)
     local fl = math.floor
-    Theme.setColor({ 0.90, 0.85, 0.76 })
+    Theme.setColor(Theme.paper.page)
     love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.55 })
+    Theme.setColor(Theme.paper.ink, 0.55)
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
     love.graphics.setLineWidth(1)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.20 })
+    Theme.setColor(Theme.paper.ink, 0.20)
     love.graphics.rectangle("line", x + fl(5 * s), y + fl(5 * s), w - fl(10 * s), h - fl(10 * s), Theme.space.radius)
 
-    Theme.setColor({ 0.15, 0.15, 0.12 })
+    Theme.setColor(Theme.paper.ink)
     love.graphics.setFont(fonts.lg)
     love.graphics.printf("SEARS, ROEBUCK & CO.", x, y + fl(40 * s), w, "center")
 
     local dx, dy, dr = x + w * 0.5, y + h * 0.46, fl(48 * s)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.30 })
+    Theme.setColor(Theme.paper.ink, 0.30)
     love.graphics.setLineWidth(2)
     love.graphics.circle("line", dx, dy, dr)
     love.graphics.circle("line", dx, dy, dr - fl(4 * s))
@@ -1498,7 +1503,7 @@ drawFrontCover = function(self, x, y, w, h, fonts, s)
     love.graphics.print("1999", dx - fonts.md:getWidth("1999") * 0.5, dy - fonts.md:getHeight() - 2)
     love.graphics.print("EDITION", dx - fonts.md:getWidth("EDITION") * 0.5, dy + 2)
 
-    Theme.setColor({ 0.15, 0.15, 0.12 })
+    Theme.setColor(Theme.paper.ink)
     love.graphics.setFont(fonts.lg)
     love.graphics.printf("HOME FURNISHINGS", x, y + h * 0.66, w, "center")
     love.graphics.setFont(fonts.md)
@@ -1509,7 +1514,7 @@ drawFrontCover = function(self, x, y, w, h, fonts, s)
     -- scaled).
     if not self.on_felt then
         love.graphics.setFont(fonts.sm)
-        Theme.setColor({ 0.75, 0.20, 0.20 })
+        Theme.setColor(Theme.paper.stamp)
         love.graphics.printf("GRAB CORNER TO OPEN", x, y + h * 0.88, w, "center")
     end
 
@@ -1523,10 +1528,10 @@ drawFrontCover = function(self, x, y, w, h, fonts, s)
         local band_h = fl(30 * s)
         -- Below CATALOG & ORDER BOOK (drawn at 0.74), above GRAB CORNER (0.88).
         local by     = y + h * 0.81
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.10 })
+        Theme.setColor(Theme.paper.ink, 0.10)
         love.graphics.rectangle("fill", x + fl(18 * s), by,
                                 w - fl(36 * s), band_h, Theme.space.radius)
-        Theme.setColor({ 0.15, 0.15, 0.12 })
+        Theme.setColor(Theme.paper.ink)
         love.graphics.setFont(fonts.sm)
         love.graphics.printf("Make your room a home. Everything here is permanent.",
                              x + fl(18 * s),
@@ -1539,16 +1544,16 @@ end
 -- sets self._continue_rect; mid-flip it's just the visual (no hit rect).
 local function drawBackCover(self, x, y, w, h, fonts, state, forcing, s, interactive)
     local fl = math.floor
-    Theme.setColor({ 0.90, 0.85, 0.76 })
+    Theme.setColor(Theme.paper.page)
     love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.55 })
+    Theme.setColor(Theme.paper.ink, 0.55)
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
     love.graphics.setLineWidth(1)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.20 })
+    Theme.setColor(Theme.paper.ink, 0.20)
     love.graphics.rectangle("line", x + fl(5 * s), y + fl(5 * s), w - fl(10 * s), h - fl(10 * s), Theme.space.radius)
 
-    Theme.setColor({ 0.15, 0.15, 0.12 })
+    Theme.setColor(Theme.paper.ink)
     love.graphics.setFont(fonts.lg)
     love.graphics.printf("ORDER SUMMARY", x, y + fl(40 * s), w, "center")
 
@@ -1557,7 +1562,7 @@ local function drawBackCover(self, x, y, w, h, fonts, state, forcing, s, interac
         if id ~= "no_poster_handicap" then owned_count = owned_count + 1 end
     end
     love.graphics.setFont(fonts.md)
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.70 })
+    Theme.setColor(Theme.paper.ink, 0.70)
     love.graphics.printf(string.format("Items active in room: %d", owned_count), x, y + h * 0.34, w, "center")
     love.graphics.setFont(fonts.sm)
     love.graphics.printf("All mail orders processed immediately.\nDecorations persist across prestiges.", x, y + h * 0.42, w, "center")
@@ -1572,7 +1577,7 @@ local function drawBackCover(self, x, y, w, h, fonts, state, forcing, s, interac
         self._continue_rect = { x = btn_x, y = btn_y, w = btn_w, h = btn_h }
         Anchors.set("catalog:continue", btn_x, btn_y, btn_w, btn_h)
     end
-    Theme.setColor({ 0.15, 0.15, 0.12, 0.50 })
+    Theme.setColor(Theme.paper.ink, 0.50)
     love.graphics.rectangle("line", btn_x, btn_y, btn_w, btn_h)
     LabelButton.draw{
         x = btn_x + 2, y = btn_y + 2, w = btn_w - 4, h = btn_h - 4,
@@ -1582,14 +1587,14 @@ local function drawBackCover(self, x, y, w, h, fonts, state, forcing, s, interac
         hovered      = hov and (not forcing),
         disabled     = forcing,
         depth        = 3,
-        fill_token   = (hov and not forcing) and { 0.75, 0.20, 0.20 } or { 0.90, 0.86, 0.78 },
-        border_token = forcing and Theme.fg.disabled or { 0.15, 0.15, 0.12 },
-        text_token   = (hov and not forcing) and { 0.94, 0.90, 0.83 } or (forcing and Theme.fg.disabled or { 0.15, 0.15, 0.12 }),
+        fill_token   = (hov and not forcing) and Theme.paper.stamp or Theme.paper.button,
+        border_token = forcing and Theme.fg.disabled or Theme.paper.ink,
+        text_token   = (hov and not forcing) and Theme.paper.page_light or (forcing and Theme.fg.disabled or Theme.paper.ink),
     }
     if hov and forcing then TooltipSvc.set("Get the Poker Poster to start your next run.", mx, my) end
 
     love.graphics.setFont(fonts.sm)
-    Theme.setColor({ 0.75, 0.20, 0.20 })
+    Theme.setColor(Theme.paper.stamp)
     love.graphics.printf("GRAB CORNER TO BROWSE", x, y + h * 0.88, w, "center")
 end
 
@@ -1781,12 +1786,12 @@ function CatalogModal:draw()
         local hov = HoverSvc.rest("button", "catalog_prev",
             mx >= book_l and mx <= book_l + fl(48 * s) and my >= book_b - fl(48 * s) and my <= book_b, 0)
         if hov then sz = fl(38 * s) end
-        Theme.setColor({ 0.88, 0.84, 0.77 })
+        Theme.setColor(Theme.paper.page_dim)
         love.graphics.polygon("fill", book_l + sz, book_b, book_l + sz, book_b - sz, book_l, book_b - sz)
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.35 })
+        Theme.setColor(Theme.paper.ink, 0.35)
         love.graphics.line(book_l + sz, book_b, book_l, book_b - sz)
         love.graphics.setFont(fonts.sm)
-        Theme.setColor({ 0.15, 0.15, 0.12, hov and 0.85 or 0.40 })
+        Theme.setColor(Theme.paper.ink, hov and 0.85 or 0.40)
         love.graphics.print("<", book_l + sz * 0.35, book_b - sz * 0.8)
         if not flipping then self._prev_rect = { x = book_l, y = book_b - sz, w = sz, h = sz } end
     end
@@ -1798,12 +1803,12 @@ function CatalogModal:draw()
         local hov = HoverSvc.rest("button", "catalog_next",
             mx >= book_r - fl(48 * s) and mx <= book_r and my >= book_b - fl(48 * s) and my <= book_b, 0)
         if hov then sz = fl(38 * s) end
-        Theme.setColor({ 0.88, 0.84, 0.77 })
+        Theme.setColor(Theme.paper.page_dim)
         love.graphics.polygon("fill", book_r - sz, book_b, book_r - sz, book_b - sz, book_r, book_b - sz)
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.35 })
+        Theme.setColor(Theme.paper.ink, 0.35)
         love.graphics.line(book_r - sz, book_b, book_r, book_b - sz)
         love.graphics.setFont(fonts.sm)
-        Theme.setColor({ 0.15, 0.15, 0.12, hov and 0.85 or 0.40 })
+        Theme.setColor(Theme.paper.ink, hov and 0.85 or 0.40)
         love.graphics.print(">", book_r - sz * 0.65, book_b - sz * 0.8)
         if not flipping then self._next_rect = { x = book_r - sz, y = book_b - sz, w = sz, h = sz } end
     end
@@ -1821,7 +1826,7 @@ function CatalogModal:draw()
         local cyr  = math.max(fl(6 * s), top - cz - fl(6 * s))
         local hovx = HoverSvc.rest("button", "catalog_close",
             mx >= cxr and mx < cxr + cz and my >= cyr and my < cyr + cz, 0)
-        Theme.setColor({ 0.15, 0.15, 0.12, hovx and 0.85 or 0.40 })
+        Theme.setColor(Theme.paper.ink, hovx and 0.85 or 0.40)
         love.graphics.setLineWidth(fl(2 * s))
         local xp = fl(5 * s)
         love.graphics.line(cxr + xp, cyr + xp, cxr + cz - xp, cyr + cz - xp)
@@ -1835,7 +1840,7 @@ function CatalogModal:draw()
     -- Page-turn hint under an open spread.
     if idx ~= 0 and idx ~= max_spread then
         love.graphics.setFont(fonts.sm)
-        Theme.setColor({ 0.15, 0.15, 0.12, 0.45 })
+        Theme.setColor(Theme.paper.ink, 0.45)
         love.graphics.printf("scroll wheel or grab a corner to turn pages",
             book_l, book_b + fl(6 * s), book_r - book_l, "center")
     end

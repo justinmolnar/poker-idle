@@ -438,7 +438,7 @@ local function drawHistoryBars(tbl, zone_x, zone_y, zone_w, zone_h, s)
             -- lookup — no tier branches; flat win/loss color is the fallback.
             local ramp  = entry.won and Theme.tier.win or Theme.tier.loss
             local color = ramp[entry.tier]
-                          or (entry.won and Theme.status.good or Theme.status.error)
+                          or (entry.won and Theme.sem.won or Theme.sem.lost)
             Theme.setColor(color, 0.95)
             love.graphics.rectangle("fill", bx, by, bar_w, bh)
         end
@@ -477,7 +477,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     local rb_x = x + w - REMOVE_BTN_SIZE - 4
     local rb_y = y + 3
     local pending_close = tbl.pending_close == true
-    local rb_fill       = pending_close and Theme.status.warn
+    local rb_fill       = pending_close and Theme.border.strong
                           or (can_remove and Theme.bg.widget_hover or Theme.bg.sunken)
     do
         local rid     = "remove_table:" .. tbl._id
@@ -524,7 +524,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
         local cid     = "toggle_cursor:" .. tbl._id
         local hovered = Hover.is("hit", cid)
         local press   = ClickFlash.alpha("hit", cid)
-        local active_color = Theme.status.good       -- DEAL = green
+        local active_color = Theme.fg.heading        -- DEAL is lit, not green (green is a hand won)
         Button.draw(cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, {
             fill_color   = muted and Theme.bg.sunken or Theme.bg.widget_hover,
             border_color = muted and Theme.border.soft or active_color,
@@ -563,7 +563,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
         local rcid     = "toggle_rebuy_cursor:" .. tbl._id
         local rhovered = Hover.is("hit", rcid)
         local rpress   = ClickFlash.alpha("hit", rcid)
-        local r_active_color = Theme.status.error    -- REBUY = red
+        local r_active_color = Theme.sem.lost        -- REBUY follows a loss and spends money
         Button.draw(rcb_x, rcb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, {
             fill_color   = rmuted and Theme.bg.sunken or Theme.bg.widget_hover,
             border_color = rmuted and Theme.border.soft or r_active_color,
@@ -749,7 +749,7 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
                     -- Stamping in: red and oversized on the hit, settling
                     -- into the resting grey.
                     local pop = Motion.at("tables", Motion.FULL) and (1 + 0.6 * (1 - ko)) or 1
-                    Theme.setColor(Theme.status.error, 0.5 + 0.5 * (1 - ko))
+                    Theme.setColor(Theme.sem.lost, 0.5 + 0.5 * (1 - ko))
                     love.graphics.push()
                     love.graphics.translate(x + w / 2, ty + f:getHeight() / 2)
                     love.graphics.scale(pop, pop)
@@ -945,8 +945,7 @@ local function drawPotLabel(tbl, pot, fonts)
             max_cols = pot.max_cols,
             max_rows = pot.max_rows,
             scale = pot.chip_scale or 1,
-            tint  = is_tourney and Theme.data.violet
-                    or (stake_theme_pot and stake_theme_pot.chip_tint),
+            tint  = stake_theme_pot and stake_theme_pot.chip_tint,
             labels = not is_tourney,
         })
     else
@@ -1176,7 +1175,7 @@ local function drawTournamentLadder(tbl, gtype, ctx, band, fonts)
         if over and not paid then
             Theme.setColor(Theme.fg.disabled, 0.9)
         else
-            Theme.setColor(Theme.status.good, over and 0.95 or 0.55)
+            Theme.setColor(Theme.sem.won, over and 0.95 or 0.55)
         end
         love.graphics.rectangle("fill", band.x, band.y, fill_w, band.h,
                                 Theme.space.radius)
@@ -1354,7 +1353,7 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
             counter_label = string.format("FINISH %s", ordinal(tbl.last_finish))
         elseif pays > 0 and alive <= pays then
             counter_label = "IN THE MONEY"
-            counter_color = Theme.status.good
+            counter_color = Theme.sem.won
             -- Shrink-then-drop: the short form before no form at all.
             if font:getWidth(counter_label) > bottom.inner_w * 0.6 then
                 counter_label = "PAID"
@@ -2014,7 +2013,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     end
     local punch = Effects.punchFlash(tbl)
     if punch > 0 then
-        Theme.setColor(Theme.status.error, 0.9)
+        Theme.setColor(Theme.sem.lost, 0.9)
         love.graphics.setLineWidth(4)
         love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
         love.graphics.setLineWidth(1)
@@ -2037,7 +2036,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
         love.graphics.setLineWidth(1)
     elseif anti_banked then
-        Theme.setColor({ 0.65, 0.35, 0.95 })
+        Theme.setColor(Theme.sem.corrupt)
         love.graphics.setLineWidth(math.max(1, math.floor(2 * s)))
         love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
         love.graphics.setLineWidth(1)
@@ -2258,7 +2257,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             }
             drawFeltButton(felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, label, "rebuy",
-                Theme.status.error, can_rebuy, tbl._id, residue_opts)
+                Theme.sem.lost, can_rebuy, tbl._id, residue_opts)
             -- Tag the rebuy hit_box with the per-table rebuy-mute flag
             -- so CursorPool can skip this table when the player has
             -- opted out of auto-rebuy here.
@@ -2267,9 +2266,15 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
                 last.cursor_rebuy_muted = tbl.cursor_rebuy_muted == true
             end
         else
+            -- The button wears its own table's felt, lifted: a different
+            -- table, a different button, and never a result colour.
+            local felt = TablePanel.feltForStake(tbl.stake_id) or Theme.bg.felt
+            local deal_fill = { math.min(1, felt[1] * 1.7 + 0.10),
+                                math.min(1, felt[2] * 1.7 + 0.10),
+                                math.min(1, felt[3] * 1.7 + 0.10) }
             drawFeltButton(felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, "DEAL", "deal",
-                Theme.status.good, true, tbl._id, residue_opts)
+                deal_fill, true, tbl._id, residue_opts)
             -- Tag the just-pushed DEAL hit_box so CursorPool can skip
             -- this table when the player has muted it. Mouse-click hit
             -- testing in GrindView ignores this field — muted tables

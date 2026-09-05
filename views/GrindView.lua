@@ -577,7 +577,7 @@ function GrindView:_buildTablesTabComponents()
             local chip_text = string.format("+%d", award)
             local chip_color_tok, chip_shade
             if banked then
-                chip_color_tok, chip_shade = "good", 1.0
+                chip_color_tok, chip_shade = "chip", 1.0   -- a chip count is gold
             elseif cant_afford then
                 chip_color_tok, chip_shade = "faint", 0.15
             else
@@ -590,7 +590,7 @@ function GrindView:_buildTablesTabComponents()
                 achip_text = string.format("+%d", self.controller:antiBountyAward(stake.id))
                 if abanked then
                     achip_color_tok, achip_shade = "good", 1.0
-                    if not banked then border_color = { 0.65, 0.35, 0.95 } end
+                    if not banked then border_color = Theme.sem.corrupt end
                 elseif cant_afford then
                     achip_color_tok, achip_shade = "faint", 0.15
                 else
@@ -615,7 +615,7 @@ function GrindView:_buildTablesTabComponents()
                 -- queued behind a live hand.
                 { id = "cash_out_type" .. suffix, label = "X",
                   tint_token = Theme.fg.heading,
-                  fill_token = (pending > 0) and Theme.status.warn or nil,
+                  fill_token = (pending > 0) and Theme.border.strong or nil,
                   disabled = none,
                   tooltip = (pending > 0)
                             and string.format(
@@ -632,7 +632,7 @@ function GrindView:_buildTablesTabComponents()
             if cursor_on then
                 actions[#actions + 1] = {
                     id = "type_cursor_deal" .. suffix, label = "D",
-                    tint_token = Theme.status.good,
+                    tint_token = Theme.fg.heading,
                     disabled = none,
                     muted = (not none) and deal_muted >= open_n,
                     tooltip = none and nil
@@ -643,7 +643,7 @@ function GrindView:_buildTablesTabComponents()
                 if rebuy_on then
                     actions[#actions + 1] = {
                         id = "type_cursor_rebuy" .. suffix, label = "R",
-                        tint_token = Theme.status.error,
+                        tint_token = Theme.sem.lost,
                         disabled = none,
                         muted = (not none) and rebuy_muted >= open_n,
                         tooltip = none and nil
@@ -997,6 +997,9 @@ function GrindView:_buildUpgradesTabComponents()
                 disabled = disabled,
                 tooltip  = self:_buildRangeTooltip(up),
                 icon     = up.icon,   -- icon id (data/icons); drawn when art ships
+                -- The rack's face: a muted rose, the same hue the word
+                -- "upgrade" takes in copy. Text on the card stays chrome.
+                face_color = Theme.bg.upgrade_face,
                 lines = {
                     { text = up.name, style = "heading", right = level_text },
                     {
@@ -1119,7 +1122,7 @@ function GrindView:update(dt)
         local rates = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
         local pending    = state.chips_this_run or 0
         local chip_line  = string.format("Banks +%d {chip} for the catalog.", pending)
-        local chip_color = (pending > 0) and Theme.status.good or Theme.fg.muted
+        local chip_color = (pending > 0) and Theme.sem.chip or Theme.fg.muted
         local game       = self.game
         local lines = {
             { style = "sm", color_token = "muted",
@@ -1294,7 +1297,6 @@ function GrindView:update(dt)
                     local within = (c and c[3] and c[4]) and { c[3], c[4] } or nil
                     local chips = { 1, 1, 1, 1, 1, 1, 1, 1 }
                     ChipFlight.explodeStack(pos[1], pos[2], chips, {
-                        chip_tint = Theme.data.violet,
                         labels    = false,
                         within    = within,
                     })
@@ -1442,7 +1444,7 @@ function GrindView:_drawTopBar(W)
     local bankroll_tint = Theme.fg.heading
     local diff_bank = (state.bankroll or 0) - d_bank
     if math.abs(diff_bank) > 0.01 then
-        bankroll_tint = (diff_bank > 0) and Theme.status.good or Theme.status.error
+        bankroll_tint = (diff_bank > 0) and Theme.sem.won or Theme.sem.lost
     end
 
     -- BANKROLL cluster — solo, lg font. The big spendable number.
@@ -1473,12 +1475,10 @@ function GrindView:_drawTopBar(W)
     -- real target) so it fires once per change, not on each roll step.
     local focus_shown = math.floor(RollingValue.get("focus_pct", focus_pct) + 0.5)
 
-    -- Color-coded off the SHOWN value so the tint tracks the rolling number:
-    -- green = 100% (no penalty), amber = 70–99%, red = <70%.
-    local focus_color
-    if focus_shown >= 100     then focus_color = Theme.status.good
-    elseif focus_shown >= 70  then focus_color = Theme.status.warn
-    else                          focus_color = Theme.status.error end
+    -- Off the SHOWN value so the tint tracks the rolling number. A healthy
+    -- focus is simply fine (parchment); any penalty is money lost (red).
+    -- Green is a hand won, and a meter is not a hand.
+    local focus_color = (focus_shown >= 100) and Theme.fg.heading or Theme.sem.lost
 
     -- SHOVE: live gauntlet-clear readout. Same compute the gauntlet
     -- locks in at click time — players see the grind feed the rate in
@@ -1489,11 +1489,9 @@ function GrindView:_drawTopBar(W)
     local ctx = (self.controller and self.controller.ctx) or {}
     local rates = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
     local r1_raw = rates.raw_r1 or 0
-    local rate_color
-    if     r1_raw < 0.50 then rate_color = Theme.status.error
-    elseif r1_raw < 1.00 then rate_color = Theme.status.warn
-    else                      rate_color = Theme.status.good
-    end
+    -- Parchment until the hand is a lock; then the colour of a hand won.
+    -- Long odds are not a loss yet, so never red.
+    local rate_color = (r1_raw >= 1.00) and Theme.sem.won or Theme.fg.heading
 
     -- Cluster layout: walk left→right. Cells inside a cluster sit
     -- flush, each sized to its own content. Clusters are separated
@@ -1697,9 +1695,9 @@ function GrindView:_drawCashOutButton()
         hovered      = hovered,
         press_alpha  = ClickFlash.alpha("cash_out", "cash_out"),
         disabled     = not enabled,
-        fill_token   = enabled and Theme.status.warn or Theme.bg.sunken,
-        border_token = enabled and Theme.fg.heading  or Theme.border.soft,
-        text_token   = enabled and Theme.bg.window   or Theme.fg.disabled,
+        fill_token   = enabled and Theme.bg.widget_hover or Theme.bg.sunken,
+        border_token = enabled and Theme.fg.heading      or Theme.border.soft,
+        text_token   = enabled and Theme.fg.heading      or Theme.fg.disabled,
     }
 end
 
@@ -2236,9 +2234,11 @@ function GrindView:_drawShoveFace(sb)
                                   and my >= sb.y and my < sb.y + sb.h, 0)
     local press   = ClickFlash.alpha("shove", "shove")
 
+    -- The door. Lit, with the chip's gold on its edge: the one button that
+    -- wears that colour. Never lost-red; a shove is not a loss.
     Button.draw(sb.x, sb.y, sb.w, sb.h, {
-        fill_color   = can_shove and Theme.status.error or Theme.bg.sunken,
-        border_color = can_shove and Theme.fg.heading   or Theme.border.soft,
+        fill_color   = can_shove and Theme.bg.widget_hover or Theme.bg.sunken,
+        border_color = can_shove and Theme.sem.chip        or Theme.border.soft,
         line_width   = Theme.space.line_strong,
         hovered      = hovered,
         press_alpha  = press,
@@ -2296,7 +2296,7 @@ function GrindView:_drawShoveFace(sb)
         end
 
         local chip_text  = string.format("+%d", pending_chips)
-        local chip_color = (pending_chips > 0) and Theme.status.good
+        local chip_color = (pending_chips > 0) and Theme.sem.chip
                                                or  Theme.fg.faint
         Theme.setColor(chip_color)
         local ctw   = small:getWidth(chip_text)
@@ -2327,7 +2327,7 @@ function GrindView:_drawFloatingText()
     -- name colors symbolically (e.g., "amber" for streak callouts).
     local function resolveToken(tok)
         if not tok then return nil end
-        return (Theme.data and Theme.data[tok])
+        return Theme.semColor(tok)
             or (Theme.status and Theme.status[tok])
             or nil
     end
@@ -2338,7 +2338,7 @@ function GrindView:_drawFloatingText()
             if t.text:sub(1, 1) == "+" then
                 -- Default win color: amber/gold, not green. Green blends
                 -- with the green felt; gold pops on every stake's color.
-                color = Theme.data.amber or Theme.status.good
+                color = Theme.sem.won
             else
                 color = Theme.status.error
             end

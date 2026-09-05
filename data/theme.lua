@@ -32,15 +32,47 @@
 -- the shove screen than on the grind was a bug, not a mode. No per-component
 -- "if state == shove" branches anywhere else.
 --
+-- ─── The colour code (2026-09) ──────────────────────────────────────
+--
+-- A hue means ONE thing, in a widget or in a sentence. Seven meanings,
+-- the `sem` namespace; everything that is simply fine is the parchment
+-- (fg.heading). Copy tints a mechanic word in its meaning's colour with
+-- the IconText token {c:<meaning>:<word>} (data/terms.lua lists the words).
+--
+--   sem.won        green   a hand won, money up, a positive forecast
+--   sem.lost       red     a hand lost, money down, a bust, a penalty
+--   sem.chip       gold    the {chip}: banked, the Stack win tier, the door
+--   sem.corrupt    purple  anti-chips, corrupted items, the underflow
+--   sem.heat       orange  heat on a table (the flame strip's colour)
+--   sem.tilt       steel   tilt, as a WORD (status_fx.tilt is the felt's
+--                          multiply target and too dark for text)
+--   sem.upgrade    rose    the run upgrades. The rack's cards wear a muted
+--                          rose FACE (bg.upgrade_face), like a stake row
+--                          wears its felt; the word in copy is the same
+--                          muted rose, legible. UI text stays chrome.
+--
+-- Everything else is chrome: hint rings, pending glows, toggles, buttons
+-- and the other UI nouns (the catalog, the room, the decks) are parchment
+-- (fg.heading) or the warm border tans, never a hue. A counting sticker
+-- fills in the paper's tan.
+--
+-- Meters do not borrow result colours (a healthy focus is parchment, a
+-- penalty is lost-red). Controls do not either (DEAL wears its table's
+-- felt, lightened; SHOVE wears the chip's gold on its edge, never
+-- lost-red). Purple is corruption only. The only gold is the chip. There
+-- is no amber, and there is no blue.
+--
 -- ─── Token namespaces ───────────────────────────────────────────────
 --
 -- Per-palette (re-pointed by Theme.setActive):
 --   bg     = window / chrome / widget / widget_hover / sunken / felt
 --   fg     = primary / heading / muted / faint / disabled
 --   border = soft / default / strong
---   data   = blue / amber / violet / red (chart series + payouts)
---   status = good / warn / error / info
+--   sem    = won / lost / chip / corrupt / heat / tilt / upgrade
+--   status = good / error  (aliases of sem.won / sem.lost; prefer sem)
 --   tint   = world (asset multiplier)
+-- Theme-invariant:
+--   paper  = the catalog's stock and inks (identity, not signals)
 --
 -- Theme-invariant (one set across both palettes):
 --   font   = path_main / size_ui[*]
@@ -72,6 +104,9 @@ Theme.palettes = {
             -- tinted per stake via data/stake_themes), but both palettes carry
             -- the same key set so a view can read Theme.bg.felt either side.
             felt         = { 0.10, 0.16, 0.12 },
+            -- The rack's face: the same muted rose as sem.upgrade, at the
+            -- depth of a felt. The cards wear it; the word matches it.
+            upgrade_face = { 0.200, 0.150, 0.160 },
         },
         border = {
             soft    = { 0.25, 0.22, 0.18 },
@@ -85,17 +120,20 @@ Theme.palettes = {
             faint    = { 0.42, 0.38, 0.31 },
             disabled = { 0.28, 0.25, 0.20 },
         },
-        data = {
-            blue   = { 0.55, 0.72, 0.85 },           -- desaturated, fits warm room
-            amber  = { 0.92, 0.72, 0.32 },
-            violet = { 0.72, 0.55, 0.78 },
-            red    = { 0.82, 0.42, 0.38 },
+        -- The seven meanings. Read the header.
+        sem = {
+            won       = { 0.50, 0.78, 0.45 },
+            lost      = { 0.82, 0.42, 0.38 },
+            chip      = { 0.93, 0.75, 0.30 },        -- = currency.chip
+            corrupt   = { 0.65, 0.35, 0.95 },        -- = currency.achip
+            heat      = { 0.98, 0.52, 0.28 },        -- = status_fx.heater
+            tilt      = { 0.58, 0.66, 0.82 },        -- legible steel blue
+            upgrade   = { 0.72, 0.52, 0.58 },        -- the rack's muted rose, as text
         },
+        -- Aliases kept for the widgets that say good/error (a hand's result).
         status = {
             good  = { 0.50, 0.78, 0.45 },
-            warn  = { 0.92, 0.72, 0.32 },
             error = { 0.82, 0.42, 0.38 },
-            info  = { 0.55, 0.72, 0.85 },
         },
         -- Table statuses (data/statuses.lua). Deliberately NOT the
         -- status.good/error pair above: those mean "a hand just won or
@@ -127,7 +165,7 @@ Theme.palettes = {
                 small   = { 0.52, 0.33, 0.31 },
                 medium  = { 0.70, 0.40, 0.37 },
                 large   = { 0.86, 0.44, 0.40 },
-                stack = { 0.95, 0.32, 0.52 },
+                stack   = { 0.92, 0.30, 0.30 },   -- the deepest red, not pink: purple is corruption's
             },
         },
         tint = {
@@ -146,6 +184,7 @@ Theme.palettes = {
             -- table's green: the shove reads as a different, more serious
             -- room, so the felt is deep and desaturated.
             felt         = { 0.045, 0.075, 0.060 },
+            upgrade_face = { 0.075, 0.045, 0.055 },
         },
         border = {
             -- Oxblood leather, not alert red. These were {0.85,0.25,0.25}
@@ -162,21 +201,22 @@ Theme.palettes = {
             faint    = { 0.32, 0.28, 0.27 },
             disabled = { 0.18, 0.15, 0.14 },
         },
-        data = {
-            blue   = { 0.45, 0.65, 0.85 },
-            amber  = { 0.95, 0.70, 0.20 },
-            violet = { 0.75, 0.45, 0.95 },
-            red    = { 0.95, 0.20, 0.20 },
+        sem = {
+            won       = { 0.45, 0.85, 0.45 },
+            lost      = { 0.95, 0.20, 0.20 },
+            chip      = { 0.93, 0.75, 0.30 },
+            corrupt   = { 0.65, 0.35, 0.95 },
+            heat      = { 1.00, 0.55, 0.25 },
+            tilt      = { 0.58, 0.66, 0.82 },
+            upgrade   = { 0.72, 0.52, 0.58 },
         },
         status = {
             good  = { 0.45, 0.85, 0.45 },
-            warn  = { 0.95, 0.70, 0.20 },
             error = { 0.95, 0.20, 0.20 },
-            info  = { 0.45, 0.65, 0.85 },
+        },
         status_fx = {
             heater = { 1.00, 0.55, 0.25 },
             tilt   = { 0.28, 0.31, 0.38 },
-        },
         },
         tier = {
             win = {
@@ -189,7 +229,7 @@ Theme.palettes = {
                 small   = { 0.62, 0.26, 0.26 },
                 medium  = { 0.80, 0.30, 0.30 },
                 large   = { 0.95, 0.34, 0.34 },
-                stack = { 1.00, 0.28, 0.55 },
+                stack   = { 1.00, 0.24, 0.24 },
             },
         },
         tint = {
@@ -227,6 +267,37 @@ Theme.currency = {
     chip_ring = { 0.52, 0.40, 0.14 },   -- darker rim / inner ring
     achip     = { 0.65, 0.35, 0.95 },   -- purple disc for anti-chips
     achip_ring= { 0.35, 0.15, 0.55 },   -- darker rim
+}
+
+-- ─── Paper (theme-invariant) ────────────────────────────────────────
+-- The catalog, the flyer and the receipt are printed objects: cream stock,
+-- black ink, a red rubber stamp, white vinyl stickers. These are the
+-- object's own colours (identity), not signals, so they are not `sem`.
+-- A sticker's progress fill is the paper's own tan while it counts
+-- (paper.sticker_counting) and green once complete (paper.sticker_earned).
+Theme.paper = {
+    page        = { 0.90, 0.85, 0.76 },         -- the leaf
+    page_light  = { 0.94, 0.90, 0.83 },
+    page_dim    = { 0.88, 0.84, 0.77 },
+    button      = { 0.90, 0.86, 0.78 },
+    ink         = { 0.15, 0.15, 0.12 },         -- the printing
+    ink_half    = { 0.15, 0.15, 0.12, 0.50 },
+    ink_faint   = { 0.15, 0.15, 0.12, 0.45 },
+    ink_dim     = { 0.15, 0.15, 0.12, 0.40 },
+    stamp       = { 0.75, 0.20, 0.20 },         -- rubber stamp ink (ORDERED, the price ring)
+    corrupt_ink = { 0.45, 0.15, 0.70 },         -- the CORRUPTED stamp, purple ink on paper
+    -- Stickers: white vinyl, cream disc; the prerequisite slip is a cooler
+    -- blue paper because it asks for a different action.
+    vinyl          = { 1.00, 0.98, 0.90 },
+    sticker_stock  = { 1.00, 1.00, 1.00 },
+    sticker_panel  = { 1.00, 0.97, 0.88 },
+    sticker_earned = { 0.20, 0.58, 0.28 },
+    sticker_counting = { 0.78, 0.62, 0.36 },    -- the paper's own tan while the count fills
+    req_panel      = { 0.80, 0.87, 0.93 },
+    req_fill       = { 0.42, 0.56, 0.72 },
+    req_vinyl      = { 0.88, 0.93, 0.97 },
+    req_ink        = { 0.13, 0.16, 0.20 },
+    req_edge       = { 0.13, 0.16, 0.20, 0.45 },
 }
 
 -- ─── Playing cards (theme-invariant) ────────────────────────────────

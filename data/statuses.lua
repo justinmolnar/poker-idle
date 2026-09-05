@@ -85,7 +85,7 @@ return {
     -- never as auras.
     heater = {
         name     = "HEATER",
-        blurb    = "Running hot: this hand wins, and the next.",
+        blurb    = "Running hot: this hand {c:won:wins}, and the next.",
         lifetime = "punch",
         -- Landing mid-hand on a cash table ENDS that hand as a win, and
         -- the next hand wins too; anywhere it can't honestly end a hand
@@ -175,7 +175,7 @@ return {
     -- three rungs and a shift names its own from/to.
     sharp = {
         name     = "SHARP",
-        blurb    = "Wins reach a tier higher.",
+        blurb    = "{c:won:Wins} reach a tier higher.",
         lifetime = "run",
         silent   = true,   -- a result, not an event. See stacked_mark.
         stack    = "add",

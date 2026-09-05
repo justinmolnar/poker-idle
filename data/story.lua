@@ -120,9 +120,9 @@ return {
             screen  = "grind",
             trigger = { kind = "first_hand", result = "lost" },
             lines = {
-                { text = "Looks like you lost that one. Luckily it was only a {dyn:first_hand_tier}.",
+                { text = "Looks like you {c:lost:lost} that one. Luckily it was only a {dyn:first_hand_tier}.",
                   anchor = "stack:1" },
-                { text = "Wins and losses come at different sizes. {l:stack} {l:large} {l:medium} {l:small} {w:small} {w:medium} {w:large} {w:stack} Keep playing." },
+                { text = "{c:won:Wins} and {c:lost:losses} come at different sizes. {l:stack} {l:large} {l:medium} {l:small} {w:small} {w:medium} {w:large} {w:stack} Keep playing." },
             },
         },
         {
@@ -130,9 +130,9 @@ return {
             screen  = "grind",
             trigger = { kind = "first_hand", result = "won" },
             lines = {
-                { text = "Looks like you won your first hand. We're going to get along just fine. You can see the size of the win here, it was a {dyn:first_hand_tier}",
+                { text = "Looks like you {c:won:won} your first hand. We're going to get along just fine. You can see the size of the win here, it was a {dyn:first_hand_tier}",
                   anchor = "stack:1" },
-                { text = "Wins and losses come at different sizes. {l:stack} {l:large} {l:medium} {l:small} {w:small} {w:medium} {w:large} {w:stack} Keep playing." },
+                { text = "{c:won:Wins} and {c:lost:losses} come at different sizes. {l:stack} {l:large} {l:medium} {l:small} {w:small} {w:medium} {w:large} {w:stack} Keep playing." },
             },
         },
 
@@ -147,7 +147,7 @@ return {
                         { kind = "hands_played", min = 1 },
                         { kind = "bankroll",     min = 0.001 } },
             lines = {
-                { text = "See that. A table only holds its buy-in. Win past full and the rest ends up in the bankroll. Yours to spend how you see fit.",
+                { text = "See that. A table only holds its buy-in. {c:won:Win} past full and the rest ends up in the bankroll. Yours to spend how you see fit.",
                   anchor = { "stack:1", "cell:bankroll" } },
             },
         },
@@ -161,7 +161,7 @@ return {
             screen  = "grind",
             trigger = { kind = "can_afford_run_upgrade", id = "sharper_reads", safe = true },
             lines = {
-                { text = "You can afford Sharper Reads. Grab it.",
+                { text = "You can afford {c:upgrade:Sharper_Reads}. Grab it.",
                   anchor = "buy_runup_sharper_reads",
                   show   = { kind = "can_afford_run_upgrade", id = "sharper_reads", safe = true },
                   force  = true,
@@ -171,7 +171,7 @@ return {
                   force  = true,
                   wait_fresh = true,
                   wait   = { kind = "hovering", anchor = "buy_runup_sharper_reads" } },
-                { text = "You'll want to keep an eye on the upgrade rack, you won't have a chance in hell at the higher stakes without it. The players get better at every stake.",
+                { text = "You'll want to keep an eye on the {c:upgrade:upgrade_rack}, you won't have a chance in hell at the higher stakes without it. The players get better at every stake.",
                   anchor = "buy_runup_sharper_reads" },
             },
         },
@@ -211,10 +211,10 @@ return {
                   anchor = { "cell:chips", "chip_badge:banked" } },
                 -- The border on the felt (the panel that paid), the border on
                 -- its button, and the +{chip} badge on that button.
-                { text = "Remember though, It's only the FIRST {w:stack} at a table that pays a {chip}. You can tell if a table's paid by the border on the felt, or the button.",
+                { text = "Remember though, It's only the FIRST {w:stack} at a table that pays a {chip}. You can tell if a table's {c:chip:paid} by the border on the felt, or the button.",
                   anchor = { "table:banked", "add_table:banked", "chip_badge:banked" } },
                 -- Every "+N {chip}" badge on the strip (the rows of the open tab).
-                { text = "You can also see how many {chip} you'll earn for a {w:stack} here. Higher stakes, better payouts.",
+                { text = "You can also see how many {chip} you'll earn for a {w:stack} here. Higher stakes, better {c:won:payouts}.",
                   anchor = { "add_table_chip:s001:zoom", "add_table_chip:s002:zoom", "add_table_chip:s003:zoom",
                              "add_table_chip:s001:hu",   "add_table_chip:s002:hu",   "add_table_chip:s003:hu" } },
                 { text = "Get 3 {chip}, and you'll get your first answer.",
@@ -242,10 +242,10 @@ return {
             trigger = { kind = "chips_this_run", min = Constants.GAMEPLAY.SHOVE_UNLOCK_CHIPS },
             lines = {
                 { text = "Three! Look at you. So here's your answer.", anchor = "chip_badge:shove" },
-                { text = "There's only one way out of here. Straight through the door.", anchor = "btn:shove" },
+                { text = "There's only one way out of here. Straight through the {c:chip:door}.", anchor = "btn:shove" },
                 { text = "But first, you gotta get past me. One hand, everything you have goes in. Winner takes all.",
                   anchor = "btn:shove" },
-                { text = "Win, and you walk out with the lot. Lose, and you keep the {chip}. I'll set you back up with the 2 dollar loan. No harm done.",
+                { text = "{c:won:Win}, and you walk out with the lot. {c:lost:Lose}, and you keep the {chip}. I'll set you back up with the 2 dollar loan. No harm done.",
                   anchor = "btn:shove" },
                 { text = "Whenever you're ready. No rush. I'm always here. If you feel like you've stalled out, then it's usually a good idea to SHOVE.",
                   anchor = "btn:shove" },
@@ -277,7 +277,7 @@ return {
             pause   = true,
             trigger = { kind = "shove_beat", id = "result" },
             lines = {
-                { text = "Looks like you banked {dyn:banked_chips} {chip}. Those are yours to keep, call it a consolation prize.",
+                { text = "Looks like you {c:chip:banked} {dyn:banked_chips} {chip}. Those are yours to keep, call it a consolation prize.",
                   anchor = "shove:summary" },
             },
         },
@@ -327,7 +327,7 @@ return {
             lines = {
                 { text = "Same loan, same terms. That's a run.",
                   anchor = "cell:bankroll" },
-                { text = "Your upgrades went with it. Those reset.",
+                { text = "Your {c:upgrade:upgrades} went with it. Those reset.",
                   anchor = "buy_runup_sharper_reads" },
                 { text = "Let's take a look at your room.",
                   anchor = "btn:room",
@@ -362,7 +362,7 @@ return {
             pause   = true,
             trigger = { kind = "total_heaters", min = 1 },
             lines = {
-                { text = "This table's on fire, if it was already on a hand, that one wins, the next hand is dealt for you. Guaranteed win. Fire's your friend.",
+                { text = "This table's {c:heat:on_fire}, if it was already on a hand, that one {c:won:wins}, the next hand is dealt for you. Guaranteed win. Fire's your friend.",
                   anchor = "table:heater" },
             },
         },
@@ -398,7 +398,7 @@ return {
             screen  = "grind",
             trigger = { kind = "owns_item", id = "box_of_mice" },
             lines = {
-                { text = "Look at you, management. The cursors can deal for you now. Buy them over here, and their upgrades. Right click a table to stop them dealing there. You can also right click a table button to stop dealing to ALL of that type, or the cursor button itself to COMPLETELY stop them from dealing. Right click again to enable.",
+                { text = "Look at you, management. The {c:upgrade:cursors} can deal for you now. Buy them over here, and their {c:upgrade:upgrades}. Right click a table to stop them dealing there. You can also right click a table button to stop dealing to ALL of that type, or the {c:upgrade:cursor} button itself to COMPLETELY stop them from dealing. Right click again to enable.",
                   anchor = { "buy_runup_cursor", "buy_runup_cursor_speed" } },
             },
         },
@@ -411,9 +411,9 @@ return {
             screen  = "grind",
             trigger = { kind = "can_afford_stake", stake = "s002" },
             lines = {
-                { text = "NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better. Worth an upgrade or two first.",
+                { text = "NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better. Worth an {c:upgrade:upgrade} or two first.",
                   anchor = "add_table:s002:zoom" },
-                { text = "The number's red. I wouldn't recommend playing here until you get a few more upgrades first",
+                { text = "The number's {c:lost:red}. I wouldn't recommend playing here until you get a few more {c:upgrade:upgrades} first",
                   anchor = { "add_table_ev:s002:zoom", "add_table_ev:s002:hu" } },
             },
         },
@@ -422,7 +422,7 @@ return {
             screen  = "grind",
             trigger = { kind = "any_table_busted" },
             lines = {
-                { text = "So much for knowing what you're doing I guess, you lost your whole stack at this table.",
+                { text = "So much for knowing what you're doing I guess, you {c:lost:lost} your whole stack at this table.",
                   anchor = "rebuy:any" },
                 { text = "To keep playing you'll have to rebuy, don't let it happen again.",
                   anchor = "rebuy:any" },
@@ -433,7 +433,7 @@ return {
             screen  = "grind",
             trigger = { kind = "total_denied_stacks", min = 1 },
             lines = {
-                { text = "You won another {w:stack} but no {chip}. This table type's already paid its {chip}. Each stake and game pays once per run. Climb.",
+                { text = "You {c:won:won} another {w:stack} but no {chip}. This table type's already {c:chip:paid} its {chip}. Each stake and game pays once per run. Climb.",
                   anchor = "chip_badge:banked" },
             },
         },
@@ -442,7 +442,7 @@ return {
             screen  = "grind",
             trigger = { kind = "focus_overloaded" },
             lines = {
-                { text = "Easy, tiger. You can't focus on that many tables at once. ALL your wins at ALL tables win {dyn:focus_penalty_pct} less for each table above your focus cap. Adds up fast.",
+                { text = "Easy, tiger. You can't focus on that many tables at once. ALL your {c:won:wins} at ALL tables win {dyn:focus_penalty_pct} less for each table above your focus cap. Adds up fast.",
                   anchor = { "cell:focus", "buy_runup_focus" } },
             },
         },
@@ -527,7 +527,7 @@ return {
     shove = {
         pushing        = { text = "Pushing all in." },
         arrive         = { text = "All of it. That's the spirit." },
-        loss           = { text = "Ah. House wins that one. I'm sure you got the next one though." },
+        loss           = { text = "Ah. House {c:won:wins} that one. I'm sure you got the next one though." },
         -- The panic. Only reachable after a runout win; the one place the
         -- host's mask slips. Three slots on the timeline; the third is
         -- silent.

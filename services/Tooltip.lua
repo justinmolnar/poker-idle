@@ -99,13 +99,21 @@ local function resolveLine(line, fonts, default_font)
     }
 end
 
+local IconText = require("views.IconText")
+
+-- A colour by name: the seven meanings, their aliases, and the fg names.
 local function tokenColor(token)
     if not token then return nil end
-    return (Theme.data and Theme.data[token])
+    if type(token) == "table" then return token end
+    return Theme.semColor and Theme.semColor(token)
         or (Theme.status and Theme.status[token])
         or (Theme.fg and Theme.fg[token])
         or nil
 end
+
+-- Rows whose text carries {…} markers (a tier glyph, a tinted word) lay
+-- out and draw through IconText; plain rows keep love's own wrap.
+local function hasMarkers(text) return type(text) == "string" and text:find("{", 1, true) ~= nil end
 
 -- font_or_fonts: either a single Font object (legacy) or a fonts table
 -- like game.fonts ({ sm = Font, md = Font, lg = Font }). Structured
@@ -141,6 +149,21 @@ function Tooltip.draw(font_or_fonts)
         if r.render then
             w, h = 0, default_font:getHeight()
             if r.measure and fonts then w, h = r.measure(fonts) end
+        elseif hasMarkers(r.text) then
+            r._lines = IconText.wrap(r.text, r.font, MAX_W)
+            w = 0
+            for _, l in ipairs(r._lines) do w = math.max(w, IconText.measure(l, r.font)) end
+            h = #r._lines * r.font:getHeight()
+        elseif hasMarkers(r.text) then
+            r._lines = IconText.wrap(r.text, r.font, MAX_W)
+            w = 0
+            for _, l in ipairs(r._lines) do w = math.max(w, IconText.measure(l, r.font)) end
+            h = #r._lines * r.font:getHeight()
+        elseif hasMarkers(r.text) then
+            r._lines = IconText.wrap(r.text, r.font, MAX_W)
+            w = 0
+            for _, l in ipairs(r._lines) do w = math.max(w, IconText.measure(l, r.font)) end
+            h = #r._lines * r.font:getHeight()
         else
             local wrapw, wlines = r.font:getWrap(r.text, MAX_W)
             w = wrapw
@@ -176,6 +199,13 @@ function Tooltip.draw(font_or_fonts)
     for _, r in ipairs(rows) do
         if r.render then
             if fonts then r.render(x + _padding, cy, fonts) end
+        elseif r._lines then
+            local color = tokenColor(r.color) or Theme.fg.heading
+            local ly = cy
+            for _, l in ipairs(r._lines) do
+                IconText.draw(nil, l, x + _padding, ly, r.font, color)
+                ly = ly + r.font:getHeight()
+            end
         else
             love.graphics.setFont(r.font)
             local color = tokenColor(r.color) or Theme.fg.heading
