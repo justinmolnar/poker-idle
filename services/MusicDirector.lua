@@ -17,7 +17,8 @@
 --     DISTANCE: 20% quieter (multiplicative) and duller — until speakers.
 --   • The gauntlet felt (any shove phase past "room") cuts the music
 --     dead. Tension. It returns on the next screen.
---   • Title/credits: silence.
+--   • The title is the room in the dark: the room's treatment.
+--   • Credits: silence.
 --
 -- Engine: Decoder → per-chunk Lua DSP → QueueableSource, the pipeline
 -- proven at real-time on desktop AND this repo's love.js compat build.
@@ -278,10 +279,10 @@ function MusicDirector.update(dt, game)
 
     -- Where are we, and what should it sound like?
     local want = false
-    if screen == "grind" or screen == "title" then
+    if screen == "grind" then
         want = true
         _grime_t, _echo_t = speakers and 0 or 1, 0
-    elseif screen == "room" then
+    elseif screen == "room" or screen == "title" then
         want = true
         _grime_t = speakers and 0 or 1
         _echo_t  = speakers and 0 or 1

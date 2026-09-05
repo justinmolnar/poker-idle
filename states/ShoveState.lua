@@ -138,7 +138,15 @@ function ShoveState:enter()
     -- doesn't begin until the view's buildup phase finishes (handled
     -- in :update — sees view:isReadyToDeal and fires _beginGauntlet).
     if not self.gauntlet then
-        self.view:beginRoomCount(self:_roomView(), self:_countedItems(), self.shove_rates)
+        -- Nothing owned (the first shove): no room to count, so no room.
+        -- The view goes straight to the buildup when it gets no room view;
+        -- the empty room, and the room_* lines, wait until there is a room.
+        local ids = self:_countedItems()
+        if #ids == 0 then
+            self.view:beginRoomCount(nil, ids, self.shove_rates)
+        else
+            self.view:beginRoomCount(self:_roomView(), ids, self.shove_rates)
+        end
     end
 end
 
@@ -439,6 +447,9 @@ function ShoveState:_finalizePostBustReturn()
 end
 
 function ShoveState:update(dt)
+    -- A `pause` beat stops the shove's clock under the House's line: the
+    -- buildup, the deal and the holds wait for the click.
+    if self.game.sim_frozen then dt = 0 end
     self.view:update(dt)
 
     -- Buildup just finished — kick off the actual gauntlet. The view

@@ -27,6 +27,10 @@ function HintCtx.build(deps)
         shove_phase      = is_shove and sv and sv.phase or nil,
         shove_hold       = is_shove and sv and sv.hold_id or nil,
         shove_cheats     = is_shove and sv and sv.cheatsDealt and sv:cheatsDealt() or 0,
+        -- Every chip of the buildup's pour has landed on the pot.
+        shove_pot_landed = is_shove and sv and sv.buildup_chips ~= nil
+                           and (sv.buildup_arrived_count or 0) >= #sv.buildup_chips
+                           and #sv.buildup_chips > 0 or false,
         catalog_open     = cur and (cur.catalog_modal ~= nil) or false,
         -- The deck flyer: open (either screen), or landed folded on the felt.
         deck_flyer_open   = cur and ((cur.deck_flyer and cur.deck_flyer:isOpen())

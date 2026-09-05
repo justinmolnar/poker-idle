@@ -218,6 +218,35 @@ function CardSprites.sprite(atlas, sprite_name, x, y, w, h, scale_x, alpha, rot)
     SpriteRenderer.draw(atlas, sprite_name, actual_x, y, effective_w, h, { 1, 1, 1, alpha })
 end
 
+-- A card with a letter on it: the plate body (bone face, black edge) and
+-- one glyph of `font` centred on it, turned about the card's centre by
+-- `rot` and squashed across by `scale_x` (a flip mid-turn). The title
+-- deals its name as these.
+function CardSprites.letter(x, y, w, h, glyph, font, alpha, rot, scale_x)
+    alpha = alpha or 1
+    scale_x = scale_x or 1
+    local transformed = (rot and rot ~= 0) or scale_x ~= 1
+    if transformed then
+        local cx, cy = x + w / 2, y + h / 2
+        love.graphics.push()
+        love.graphics.translate(cx, cy)
+        if rot and rot ~= 0 then love.graphics.rotate(rot) end
+        love.graphics.scale(scale_x, 1)
+        love.graphics.translate(-cx, -cy)
+    end
+    plateBody(x, y, w, h, Theme.card.face, Theme.card.black, alpha)
+    if glyph and glyph ~= "" and font then
+        local prev = love.graphics.getFont()
+        love.graphics.setFont(font)
+        Theme.setColor(Theme.card.black, alpha)
+        love.graphics.print(glyph,
+            math.floor(x + (w - font:getWidth(glyph)) * 0.5),
+            math.floor(y + (h - font:getHeight()) * 0.5))
+        if prev then love.graphics.setFont(prev) end
+    end
+    if transformed then love.graphics.pop() end
+end
+
 -- Outline a card slot. `inset > 0` draws inside the card, `inset < 0`
 -- draws outside. Used for the player/dealer best-5 highlights.
 function CardSprites.strokeSlot(x, y, w, h, inset, lw)

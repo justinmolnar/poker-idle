@@ -957,13 +957,14 @@ function GrindController:update(dt)
         -- drainPayout block above when the tournament ends.
         local label
         local floater_opts_override = nil
-        -- Wins carry their tier GLYPH inline, beside the amount on the
-        -- same line — {w:small} .. {w:stack} via IconText (the floater
-        -- renderer routes any {…} line through it), NEVER the tier
-        -- words. The tier key is the token. Losses stay a bare number.
+        -- Every result carries its tier GLYPH inline, beside the amount
+        -- on the same line — {w:small} .. {w:stack} for a win, {l:small}
+        -- .. {l:stack} for a loss, via IconText (the floater renderer
+        -- routes any {…} line through it), NEVER the tier words. The tier
+        -- key is the token.
         local tier_glyph = ""
         if r.tier then
-            tier_glyph = " {w:" .. r.tier .. "}"
+            tier_glyph = " {" .. (((r.delta or 0) >= 0) and "w" or "l") .. ":" .. r.tier .. "}"
         end
         if r.chip_stack_table then
             local stake = tbl and Lookups.findById(Stakes, tbl.stake_id)
@@ -972,13 +973,13 @@ function GrindController:update(dt)
             if bb_delta >= 0 then
                 label = string.format("+%dbb", math.floor(bb_delta + 0.5)) .. tier_glyph
             else
-                label = string.format("-%dbb", math.floor(-bb_delta + 0.5))
+                label = string.format("-%dbb", math.floor(-bb_delta + 0.5)) .. tier_glyph
                 floater_opts_override = { color_token = "error" }
             end
         elseif r.delta >= 0 then
             label = Format.moneySigned(r.delta) .. tier_glyph
         else
-            label = Format.moneySigned(r.delta)
+            label = Format.moneySigned(r.delta) .. tier_glyph
             -- Loss: override the data-file's amber default with red so
             -- losses read correctly. Without this every tier picks up
             -- color_token="amber" and "-$X.XX" floaters render in gold
@@ -1284,6 +1285,10 @@ function GrindController:update(dt)
         local focus_cap = self:currentFocusCapacity()
 
         state.total_hands_played = (state.total_hands_played or 0) + 1
+        if state.total_hands_played == 1 and state.first_hand_delta == nil then
+            state.first_hand_delta = r.delta or 0
+            state.first_hand_tier  = r.tier or "small"
+        end
         -- Every hand, won or lost, for the volume counters (Energy Drink's
         -- "every 250 hands"). Same running-total shape as on_hand_won.
         self:_announce("on_hand_played", {
@@ -1732,6 +1737,11 @@ end
 -- Bricked: nothing in play and can't afford even the cheapest buy-in — the
 -- soft-stuck state the quick-reset rescues.
 function GrindController:isStranded()
+    -- Before the loan has been handed over there is nothing to be stranded
+    -- from: a fresh game holds $0 until the arrival beat pays, and the
+    -- rescue must not offer a "reset to two dollars" over that.
+    if (self.game.state.total_hands_played or 0) == 0
+       and (self.game.state.bankroll or 0) <= 0 then return false end
     if not self:_noLiveTables() then return false end
     local cheapest = self:_cheapestBuyIn()
     if not cheapest then return false end

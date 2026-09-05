@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tools — poker-idle</title>
+<!--
+  The launcher for the project's browser tools. Every tool is a single
+  HTML file opened from file://, reads the repo through a folder picker,
+  and writes nothing into the game except where its header says so.
+-->
+<style>
+:root {
+  --bg: #1E1A17; --panel: #26211C; --card: #2E2822; --card-hi: #383026;
+  --border: #453B31; --border-hi: #6B5B49;
+  --fg: #EBE1D6; --muted: #9C8F82; --faint: #6B6055;
+  --gold: #EDBF4D; --gold-dim: #856624;
+  --mono: Consolas, "Cascadia Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+  font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+#header { display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+  background: var(--panel); border-bottom: 1px solid var(--border); }
+#header h1 { font-size: 15px; margin: 0; color: var(--gold); font-weight: 600; }
+.tools-nav { display: inline-flex; gap: 2px; margin-left: 6px; }
+.tools-nav a { color: var(--muted); text-decoration: none; font-size: 12px;
+  padding: 3px 9px; border-radius: 4px; border: 1px solid transparent; }
+.tools-nav a:hover { color: var(--fg); border-color: var(--border); }
+.tools-nav a.current { color: var(--gold); border-color: var(--gold-dim); }
+main { max-width: 760px; margin: 40px auto; padding: 0 20px; }
+a.tool { display: block; background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px 18px; margin-bottom: 12px; color: inherit; text-decoration: none; }
+a.tool:hover { background: var(--card-hi); border-color: var(--border-hi); }
+a.tool h2 { margin: 0 0 4px; font-size: 16px; color: var(--gold); }
+a.tool p { margin: 0; color: var(--muted); }
+.cmd { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; }
+.cmd h2 { margin: 0 0 4px; font-size: 16px; color: var(--gold); }
+.cmd p { margin: 0 0 6px; color: var(--muted); }
+code { font-family: var(--mono); background: #191512; padding: 2px 6px; border-radius: 3px; }
+.foot { margin-top: 28px; color: var(--faint); font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>Tools</h1>
+  <nav class="tools-nav">
+    <a href="index.html" class="current">Tools</a>
+    <a href="catalog_designer.html">Catalog</a>
+    <a href="story_editor.html">Story</a>
+    <a href="hand_analytics.html">Analytics</a>
+  </nav>
+</div>
+<main>
+  <a class="tool" href="catalog_designer.html">
+    <h2>Catalog Designer</h2>
+    <p>Every item in data/catalog.lua: chains, prices, copy, sprites, the shove math, and a Sim tab
+    that runs the game's own outcome math. Stages edits; exports a from/to JSON.</p>
+  </a>
+  <a class="tool" href="story_editor.html">
+    <h2>Story Editor</h2>
+    <p>Every beat the House plays, listed by what triggers it. Rewrite, reorder, add and delete
+    lines; mark beats for creation or deletion. Exports a change list for Claude to apply.</p>
+  </a>
+  <a class="tool" href="hand_analytics.html">
+    <h2>Hand Analytics</h2>
+    <p>Charts over the analytics saves: hands, outcomes, tiers, session shape.</p>
+  </a>
+  <div class="cmd">
+    <h2>Balance sweep</h2>
+    <p>Headless: runs tools/sim_bridge.lua over the ladder and writes docs/balance-sweep.md.</p>
+    <code>cd tools && node balance_sweep.js</code> &nbsp; <code>--quick</code> &nbsp; <code>--act2</code>
+  </div>
+  <p class="foot">Open any tool from file://. Each one asks for the repo folder and reads the data live.</p>
+</main>
+</body>
+</html>

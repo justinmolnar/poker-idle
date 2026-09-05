@@ -58,6 +58,11 @@ img.sprite { image-rendering: pixelated; }
   background: var(--panel); border-bottom: 1px solid var(--border);
   position: sticky; top: 0; z-index: 40; }
 #header h1 { font-size: 15px; margin: 0; color: var(--gold); font-weight: 600; }
+.tools-nav { display: inline-flex; gap: 2px; margin-left: 6px; }
+.tools-nav a { color: var(--muted); text-decoration: none; font-size: 12px;
+  padding: 3px 9px; border-radius: 4px; border: 1px solid transparent; }
+.tools-nav a:hover { color: var(--fg); border-color: var(--border); }
+.tools-nav a.current { color: var(--gold); border-color: var(--gold-dim); }
 #header .spacer { flex: 1; }
 #save-pill { font-size: 11px; padding: 2px 10px; border-radius: 10px;
   border: 1px solid var(--border); color: var(--muted); }
@@ -280,6 +285,12 @@ td.delta-pos { color: var(--good); } td.delta-neg { color: var(--err); }
 
 <div id="header">
   <h1>Catalog Designer</h1>
+  <nav class="tools-nav">
+    <a href="index.html">Tools</a>
+    <a href="catalog_designer.html" class="current">Catalog</a>
+    <a href="story_editor.html">Story</a>
+    <a href="hand_analytics.html">Analytics</a>
+  </nav>
   <span id="hdr-sub" class="muted"></span>
   <span class="spacer"></span>
   <span id="save-pill" title="tools/catalog_meta.json save state">no folder</span>

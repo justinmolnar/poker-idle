@@ -899,6 +899,8 @@ end
 function ShoveView:_say(line_id)
     local spec = Story.shove[line_id]
     if not spec then return end
+    -- An empty text is a deliberate silence in that slot.
+    if not spec.text or spec.text == "" then self.house_line = nil return end
     if spec.once then
         local seen = self.game.state and self.game.state.story_seen
         local key  = "shove:" .. line_id

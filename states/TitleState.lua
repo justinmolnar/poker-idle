@@ -1,167 +1,207 @@
 -- states/TitleState.lua
 --
--- Boot-screen state shown unconditionally on launch. Four buttons
--- stacked in the center of the window:
---   • Start       — fresh game (confirms first if a save exists)
---   • Load Save   — switches to grind with whatever was loaded at boot
---   • Delete Save — confirms, then clears the meta + run save slots
---   • Exit        — confirms, then love.event.quit()
+-- Boot screen, shown on every launch: the player's room in the dark
+-- (views/TitleView draws it), the name dealt as cards, and the menu:
+--   • Continue   — with a save: back to the grind (or the pending shove).
+--                  Owns Enter.
+--   • New Game   — confirms first if a save exists. Owns Enter without one.
+--   • Settings   — the in-game SettingsModal in menu mode (no Save/Load),
+--                  so the Motion page is reachable before anything moves.
+--                  ESC opens it; ESC inside closes it.
+--   • Exit       — desktop only (a browser tab can't quit itself).
+--   • delete save — a small link in the corner; confirms.
 --
--- Reuses ConfirmDialog for the destructive flows so the chrome stays
--- consistent with the in-game settings modal. State holds nothing
--- beyond the active confirm dialog (if any) and stores the menu
--- button rects for hit-testing.
+-- Continue and New Game are the light switch: `lights_on` plays, the
+-- fixture blooms on the room's own curve and the switch happens on the
+-- settle, so a new game's "Morning, princess" lands seconds after the
+-- tube comes on. At cinematics Low or None the switch is immediate.
+--
+-- Between clicks the intercom keys up now and then: static, no words
+-- (services/RadioVoice with nothing typing plays the key-up alone) and
+-- the wall speaker rattles. He's listening.
 
 local Theme         = require("views.Theme")
-local LabelButton   = require("views.widgets.LabelButton")
 local ConfirmDialog = require("views.widgets.ConfirmDialog")
+local SettingsModal = require("views.SettingsModal")
+local TitleView     = require("views.TitleView")
 local Constants     = require("data.constants")
+local SoundService  = require("services.SoundService")
+local RadioVoice    = require("services.RadioVoice")
+local Motion        = require("services.Motion")
 
 local TitleState = {}
 TitleState.__index = TitleState
 
-local BTN_W_BASE   = 280
-local BTN_H_BASE   = 56
-local BTN_GAP_BASE = 14
+local KEYUP_FIRST   = 9.0    -- seconds of quiet before the first key-up
+local KEYUP_MIN     = 14.0   -- then every KEYUP_MIN..KEYUP_MAX
+local KEYUP_MAX     = 28.0
+local RATTLE_SECS   = 0.6    -- the speaker's rattle per key-up
 
 function TitleState:new(game)
     return setmetatable({
-        game     = game,
-        _confirm = nil,
-        _btn_rects = {},
+        game           = game,
+        view           = TitleView:new(game),
+        t              = 0,
+        skip           = false,
+        leave          = nil,      -- { t, action } while the light comes on
+        speaker        = 0,
+        _next_keyup    = KEYUP_FIRST,
+        _lands_played  = 0,
+        _chip_played   = false,
+        _confirm       = nil,
+        settings_modal = nil,
     }, TitleState)
 end
 
 function TitleState:enter()
     Theme.setActive("room")
+    self.t             = 0
+    self.skip          = false
+    self.leave         = nil
+    self.speaker       = 0
+    self._next_keyup   = KEYUP_FIRST
+    self._lands_played = 0
+    self._chip_played  = false
+    self._confirm      = nil
+    self.settings_modal = nil
+    self.view:reset()
 end
 
 function TitleState:exit() end
-
-function TitleState:update(_) end
 
 local function hasSave()
     return love.filesystem.getInfo(Constants.SAVE.META_FILE) ~= nil
         or love.filesystem.getInfo(Constants.SAVE.RUN_FILE)  ~= nil
 end
 
-function TitleState:_buttons()
-    -- Order matters: drawn top-to-bottom, hit-tested same.
-    local has = hasSave()
-    -- No Exit on the web build: a browser tab can't quit itself, and
-    -- love.event.quit() hard-errors the canvas there.
-    local os_name = (love.system and love.system.getOS and love.system.getOS()) or ""
-    local list = {
-        { id = "start",   label = "Start",       enabled = true },
-        { id = "load",    label = "Load Save",   enabled = has  },
-        { id = "delete",  label = "Delete Save", enabled = has  },
-    }
-    if os_name ~= "Web" and os_name ~= "Emscripten" then
-        list[#list + 1] = { id = "exit", label = "Exit", enabled = true }
-    end
-    return list
+-- The player's room: RoomState owns the one RoomView (the shove intro
+-- borrows it the same way). nil without a room state (a harness).
+function TitleState:_roomView()
+    local sm = self.game.state_machine
+    local room = sm and sm.states and sm.states.room
+    if room and room.getRoomView then return room:getRoomView() end
+    return nil
 end
 
-function TitleState:_buttonRects()
-    local s = (self.game and self.game.ui_scale) or 1
-    local btn_w = math.floor(BTN_W_BASE   * s)
-    local btn_h = math.floor(BTN_H_BASE   * s)
-    local gap   = math.floor(BTN_GAP_BASE * s)
+-- ── The clock ─────────────────────────────────────────────────────────
 
-    local W, H  = love.graphics.getDimensions()
-    local btns  = self:_buttons()
-    local n     = #btns
-    local total = n * btn_h + (n - 1) * gap
-    local start_y = math.floor((H - total) / 2 + total * 0.05)
-    local x = math.floor((W - btn_w) / 2)
+function TitleState:update(dt)
+    dt = dt or 0
+    self.t = self.t + dt
 
-    local rects = {}
-    for i, b in ipairs(btns) do
-        rects[i] = {
-            id      = b.id,
-            label   = b.label,
-            enabled = b.enabled,
-            x = x, y = start_y + (i - 1) * (btn_h + gap),
-            w = btn_w, h = btn_h,
-        }
+    -- The deal's sounds, the frame each card (and the chip) lands.
+    local sched = self.view:schedule()
+    local t_eff = self.skip and math.huge or self.t
+    if sched.scale > 0 then
+        while self._lands_played < #sched.lands
+              and t_eff >= sched.lands[self._lands_played + 1] do
+            self._lands_played = self._lands_played + 1
+            if not self.skip then SoundService.playNamed("card_dealt") end
+        end
+        if not self._chip_played and t_eff >= sched.chip_at then
+            self._chip_played = true
+            if not self.skip then SoundService.playNamed("chip_land_pot") end
+        end
+        -- The idle turns: one flip sound per turn, either direction.
+        local t_now  = self.skip and math.max(self.t, sched.done_at) or self.t
+        local t_prev = self.skip and math.max(self.t - dt, sched.done_at) or (self.t - dt)
+        if self.view:idleFlips(t_prev, t_now) > 0 then
+            SoundService.playNamed("hole_card_flip")
+        end
     end
-    return rects
+
+    -- The intercom, listening.
+    if self.speaker > 0 then
+        self.speaker = math.max(0, self.speaker - dt / RATTLE_SECS)
+    end
+    if not self.leave and self.t >= self._next_keyup then
+        self._next_keyup = self.t + KEYUP_MIN + love.math.random() * (KEYUP_MAX - KEYUP_MIN)
+        RadioVoice.lineStarted()
+        if Motion.at("cinematics", Motion.HIGH) then self.speaker = 1 end
+    end
+
+    -- The light coming on.
+    if self.leave then
+        self.leave.t = self.leave.t + dt
+        if self.leave.t >= TitleView.LEAVE_SECS then
+            local action = self.leave.action
+            self.leave = nil
+            self:_go(action)
+        end
+    end
 end
 
 function TitleState:draw()
-    local W, H  = love.graphics.getDimensions()
-    local fonts = self.game.fonts
-
-    Theme.setColor(Theme.bg.window)
-    love.graphics.rectangle("fill", 0, 0, W, H)
-
-    -- Title.
-    love.graphics.setFont(fonts.lg)
-    Theme.setColor(Theme.fg.heading)
-    love.graphics.printf("POKER IDLE", 0, math.floor(H * 0.18), W, "center")
-
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.printf("prototype build", 0,
-        math.floor(H * 0.18) + fonts.lg:getHeight() + 8, W, "center")
-
-    -- Buttons.
-    self._btn_rects = self:_buttonRects()
-    local mx, my = love.mouse.getPosition()
-    for _, r in ipairs(self._btn_rects) do
-        local hov = r.enabled
-                    and mx >= r.x and mx < r.x + r.w
-                    and my >= r.y and my < r.y + r.h
-        LabelButton.draw{
-            x = r.x, y = r.y, w = r.w, h = r.h,
-            text     = r.label,
-            fonts    = fonts,
-            font     = fonts.md,
-            hovered  = hov,
-            disabled = not r.enabled,
-            depth    = 4,
-        }
-    end
-
-    if self._confirm then
-        self._confirm:draw(fonts)
-    end
+    self.view:draw{
+        t         = self.t,
+        skip      = self.skip,
+        leave_t   = self.leave and self.leave.t or nil,
+        speaker   = self.speaker,
+        has_save  = hasSave(),
+        room_view = self:_roomView(),
+    }
+    if self.settings_modal then self.settings_modal:draw() end
+    if self._confirm then self._confirm:draw(self.game.fonts) end
 end
 
--- Title-screen button handlers. Adding a new menu button = one entry
--- here + one entry in the button list rendered in :draw.
-local BUTTON_HANDLERS = {
-    start = function(self)
-        if hasSave() then
-            self._confirm = ConfirmDialog:new{
-                prompt        = "Start a new game? Existing save will be erased.",
-                danger        = true,
-                confirm_label = "Start Over",
-                on_confirm    = function() self:_doStart() end,
-            }
-        else
-            self:_doStart()
-        end
-    end,
-    load = function(self)
+-- ── Leaving ───────────────────────────────────────────────────────────
+
+-- Throw the switch. The action runs when the fixture settles; at Low and
+-- None (nothing travels) it runs now, after the sound.
+function TitleState:_leave(action)
+    if self.leave then return end
+    SoundService.playNamed("lights_on")
+    if Motion.scale("cinematics") <= 0 then
+        self:_go(action)
+        return
+    end
+    self.leave = { t = 0, action = action }
+end
+
+function TitleState:_go(action)
+    -- The tube's hum is layered under lights_on and runs until stopped
+    -- (the shove intro stops it at its switch-off); the cut to the game
+    -- is where it ends here.
+    SoundService.stopNamed("lights_on")
+    if action == "new" then
+        if self.game.startNewGame then self.game.startNewGame() end
+    elseif action == "continue" then
         -- A save with shove_pending was written from the shove screen: the
         -- run is already spent (chips banked, outcomes rolled). Resume the
-        -- shove itself — landing on grind here handed back the un-reset
-        -- run, which was both an infinite chip re-bank and a free gauntlet
-        -- retry.
+        -- shove itself — landing on grind handed back the un-reset run,
+        -- an infinite chip re-bank and a free gauntlet retry.
         if self.game.state.shove_pending then
             self.game.state_machine:switch("shove")
         else
             self.game.state_machine:switch("grind")
         end
+    end
+end
+
+function TitleState:_doDelete()
+    self.game.save_service:clearAll()
+    self.game.state:wipeAll()
+    -- Stay on the title; the room redraws bare and Continue is gone.
+end
+
+-- ── The menu ──────────────────────────────────────────────────────────
+
+local BUTTON_HANDLERS = {
+    continue = function(self) self:_leave("continue") end,
+    new = function(self)
+        if hasSave() then
+            self._confirm = ConfirmDialog:new{
+                prompt        = "Start a new game? Existing save will be erased.",
+                danger        = true,
+                confirm_label = "Start Over",
+                on_confirm    = function() self:_leave("new") end,
+            }
+        else
+            self:_leave("new")
+        end
     end,
-    delete = function(self)
-        self._confirm = ConfirmDialog:new{
-            prompt        = "Delete your save? This cannot be undone.",
-            danger        = true,
-            confirm_label = "Delete",
-            on_confirm    = function() self:_doDelete() end,
-        }
+    settings = function(self)
+        self.settings_modal = SettingsModal:new(self.game, { menu = true })
     end,
     exit = function(self)
         self._confirm = ConfirmDialog:new{
@@ -171,6 +211,20 @@ local BUTTON_HANDLERS = {
             on_confirm    = function() love.event.quit() end,
         }
     end,
+    delete = function(self)
+        self._confirm = ConfirmDialog:new{
+            prompt        = "Delete your save? This cannot be undone.",
+            danger        = true,
+            confirm_label = "Delete",
+            on_confirm    = function() self:_doDelete() end,
+        }
+    end,
+    wishlist = function()
+        local url = Constants.STEAM_URL
+        if url and url ~= "" and love.system and love.system.openURL then
+            pcall(love.system.openURL, url)
+        end
+    end,
 }
 
 function TitleState:_handleButton(id)
@@ -178,46 +232,69 @@ function TitleState:_handleButton(id)
     if handler then handler(self) end
 end
 
-function TitleState:_doStart()
-    if self.game.startNewGame then self.game.startNewGame() end
+function TitleState:_closeSettings()
+    self.settings_modal = nil
 end
 
-function TitleState:_doDelete()
-    self.game.save_service:clearAll()
-    self.game.state:wipeAll()
-    -- Stay on title; Load Save / Delete Save will now be greyed.
-end
+-- ── Input ─────────────────────────────────────────────────────────────
 
 function TitleState:mousepressed(x, y, button)
-    if button ~= 1 then return end
-
+    if self.settings_modal then
+        if not self.settings_modal:consumeMouse(x, y, button) then self:_closeSettings() end
+        return
+    end
     if self._confirm then
         self._confirm:consumeMouse(x, y, button)
         if self._confirm:resolved() then self._confirm = nil end
         return
     end
+    if button ~= 1 or self.leave then return end
 
-    for _, r in ipairs(self._btn_rects or {}) do
-        if r.enabled
-           and x >= r.x and x < r.x + r.w
-           and y >= r.y and y < r.y + r.h then
-            self:_handleButton(r.id)
-            return
-        end
+    local id = self.view:hit(x, y)
+    if id then
+        self:_handleButton(id)
+        return
+    end
+    -- A click on nothing while the deal is still going completes it.
+    if not self.skip and self.t < self.view:schedule().done_at then
+        self.skip = true
+    end
+end
+
+function TitleState:mousereleased(x, y, button)
+    if self.settings_modal and self.settings_modal.mousereleased then
+        self.settings_modal:mousereleased(x, y, button)
+    end
+end
+
+function TitleState:mousemoved(x, y)
+    if self.settings_modal and self.settings_modal.mousemoved then
+        self.settings_modal:mousemoved(x, y)
+    end
+end
+
+function TitleState:wheelmoved(x, y)
+    if self.settings_modal and self.settings_modal.wheelmoved then
+        self.settings_modal:wheelmoved(x, y)
     end
 end
 
 function TitleState:keypressed(key)
+    if self.settings_modal then
+        if self.settings_modal:consumeKey(key) then return end
+        if key == "escape" then self:_closeSettings() end
+        return
+    end
     if self._confirm then
         self._confirm:consumeKey(key)
         if self._confirm:resolved() then self._confirm = nil end
         return
     end
-    -- ENTER from title with no confirm = Start (fastest path for keyboard).
+    if self.leave then return end
     if key == "return" or key == "kpenter" then
-        self:_handleButton("start")
+        self:_handleButton(hasSave() and "continue" or "new")
     elseif key == "escape" then
-        self:_handleButton("exit")
+        self:_handleButton("settings")
     end
 end
 

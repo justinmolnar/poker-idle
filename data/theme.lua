@@ -275,7 +275,7 @@ Theme.space = {
 }
 
 -- ─── Fonts ──────────────────────────────────────────────────────────
--- Three universal sizes. Chunky pixel font (Thin Sans) — Balatro-feel:
+-- Three universal sizes plus xl for the title. Chunky pixel font (Thin Sans) — Balatro-feel:
 -- prominent numbers tower over labels. lg pulls double duty for the
 -- bankroll-class big-number tier AND cinematic moments (Shove cinematic,
 -- Credits) — collapsed from the old kpi/hero split.
@@ -284,6 +284,7 @@ Theme.font = {
     size_sm   = 8,
     size_md   = 16,
     size_lg   = 24,
+    size_xl   = 48,   -- one use: the title's letter cards (views/TitleView)
 }
 
 -- Default-active palette name. views/Theme.lua reads this on first load.

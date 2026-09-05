@@ -106,8 +106,26 @@ local BASE_H = 900
 local BASE_W_MIN, BASE_W_MAX = 1600, 2400
 local BASE_W = BASE_W_MIN
 local _realDimensions = love.graphics.getDimensions
+local _realPixelDims  = love.graphics.getPixelDimensions or love.graphics.getDimensions
 local _realGetPos     = love.mouse.getPosition
 local _frameCanvas, _scaleShader
+
+-- ── Pixels, not units ─────────────────────────────────────────────────
+-- LÖVE 12 (SDL3) reports the window in DPI-scaled UNITS on Windows: on a
+-- 175% desktop a 1600 px window is 914 units, and everything drawn in
+-- units is stretched 1.75× by the engine on the way to the screen. The
+-- pixel font must land 1:1, so this frame pipeline works in PIXELS end to
+-- end: the base width is derived from pixel dims, the fit scale is pixels
+-- per frame texel, the frame canvas is forced to one pixel per unit
+-- (dpiscale 1), and the blit and the mouse convert between the two spaces
+-- through the live DPI factor. On 11 (and on 12 with no scaling) the
+-- factor is 1 and this is exactly the old code.
+local function dpiFactor()
+    local uw = _realDimensions()
+    local pw = _realPixelDims()
+    if uw and pw and uw > 0 then return pw / uw end
+    return 1
+end
 
 -- The base width for a window of ww × wh: BASE_H × aspect, rounded to an even
 -- number (keeps the shader's texel centres clean), clamped to [MIN, MAX].
@@ -120,7 +138,7 @@ end
 -- Re-derive BASE_W from the live window. Returns true when it changed; the
 -- frame canvas is dropped so love.draw reallocates it at the new width.
 local function recomputeBase()
-    local w = baseWidthFor(_realDimensions())
+    local w = baseWidthFor(_realPixelDims())
     if w == BASE_W then return false end
     BASE_W = w
     _frameCanvas = nil
@@ -128,12 +146,21 @@ local function recomputeBase()
 end
 recomputeBase()
 
--- Uniform fit scale + centering offset that maps the base frame onto the window.
+-- Uniform fit scale + centering offset that maps the base frame onto the
+-- window, in PIXELS: s = window pixels per frame texel, ox/oy in pixels.
 local function fitTransform()
-    local ww, wh = _realDimensions()
-    if ww == 0 or wh == 0 then return 1, 0, 0 end
+    local ww, wh = _realPixelDims()
+    if not ww or ww == 0 or wh == 0 then return 1, 0, 0 end
     local s = math.min(ww / BASE_W, wh / BASE_H)
     return s, (ww - BASE_W * s) / 2, (wh - BASE_H * s) / 2
+end
+
+-- A point in window UNITS (what love hands the mouse callbacks and
+-- love.mouse.getPosition) → frame coordinates.
+local function unitsToFrame(x, y)
+    local d = dpiFactor()
+    local s, ox, oy = fitTransform()
+    return (x * d - ox) / s, (y * d - oy) / s, s / d
 end
 
 love.graphics.getDimensions = function() return BASE_W, BASE_H end
@@ -141,8 +168,8 @@ love.graphics.getWidth      = function() return BASE_W end
 love.graphics.getHeight     = function() return BASE_H end
 love.mouse.getPosition = function()
     local x, y = _realGetPos()
-    local s, ox, oy = fitTransform()
-    return (x - ox) / s, (y - oy) / s
+    local fx, fy = unitsToFrame(x, y)
+    return fx, fy
 end
 -- getX/getY go through the same fit (a few views read them directly).
 love.mouse.getX = function() local x = love.mouse.getPosition(); return x end
@@ -541,6 +568,21 @@ function love.load()
 
     do local M, m, r = love.getVersion(); print(("[main] LÖVE %d.%d.%d, audio device switching %s"):format(M, m, r, (love.audio and love.audio.setPlaybackDevice) and "ON" or "OFF (needs LÖVE 12)")) end
     print("[main] Poker Idle booted. Active state: " .. tostring(Game.state_machine:current()))
+    -- Text diagnostics: every layer between a glyph and the screen.
+    pcall(function()
+        local ww, wh = _realDimensions()
+        local pw, ph = _realPixelDims()
+        local dpi = dpiFactor()
+        local mw, mh, flags = love.window.getMode()
+        local s = fitTransform()
+        local f = Game.fonts and Game.fonts.sm
+        print(("[text] window %dx%d units, %sx%s px, dpi %s; mode %dx%d fullscreen=%s highdpi=%s; base %dx%d fit %.4f; sm font h=%s dpi=%s filter=%s")
+            :format(ww, wh, tostring(pw), tostring(ph), tostring(dpi), mw, mh,
+                tostring(flags and flags.fullscreen), tostring(flags and flags.highdpi),
+                BASE_W, BASE_H, s,
+                f and tostring(f:getHeight()) or "?", f and tostring(f.getDPIScale and f:getDPIScale()) or "?",
+                f and tostring(f.getFilter and (f:getFilter())) or "?"))
+    end)
 end
 
 function love.update(dt)
@@ -576,6 +618,10 @@ function love.update(dt)
         local blocked = (cur and cur.hintsBlocked and cur:hintsBlocked()) or false
         local ctx = Game.hint_ctx()
         Game.story:update(dt, ctx, blocked)
+        -- A `pause` beat with a line up stops the simulation (states read
+        -- this and hand their models dt = 0). Not while a menu is up: the
+        -- beat's own clock is stopped then, and so is everything else.
+        Game.sim_frozen = (not blocked) and Game.story:freezesGame() or false
         if not blocked then
             Game.hints.paused = Game.story:isActive()
             Game.hints:update(dt, ctx)
@@ -663,7 +709,9 @@ end
 
 function love.draw()
     if not _frameCanvas then
-        _frameCanvas = love.graphics.newCanvas(BASE_W, BASE_H)
+        -- dpiscale 1: exactly BASE_W × BASE_H pixels whatever the desktop's
+        -- scale, so an 8 px glyph is 8 px in the frame.
+        _frameCanvas = love.graphics.newCanvas(BASE_W, BASE_H, { dpiscale = 1 })
         _frameCanvas:setFilter("linear", "linear")   -- shader needs bilinear sampling
         _scaleShader = love.graphics.newShader(SHARP_BILINEAR)
     end
@@ -723,14 +771,16 @@ function love.draw()
     -- Scale the finished frame to the window via the sharp-bilinear shader.
     -- Whatever the frame doesn't cover (a window narrower than 16:9, or wider
     -- than the base-width cap) is the page colour, not black.
-    local s, ox, oy = fitTransform()
+    local s, ox, oy = fitTransform()          -- pixels
+    local d = dpiFactor()                     -- pixels per unit
     local bg = Theme.bg.window
     love.graphics.clear(bg[1], bg[2], bg[3], 1)
     _scaleShader:send("u_sourceSize", { BASE_W, BASE_H })
-    _scaleShader:send("u_scale",      { s, s })
+    _scaleShader:send("u_scale",      { s, s })   -- output PIXELS per texel
     love.graphics.setShader(_scaleShader)
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(_frameCanvas, ox, oy, 0, s, s)
+    -- The draw happens in units; s/d units per texel puts s pixels there.
+    love.graphics.draw(_frameCanvas, ox / d, oy / d, 0, s / d, s / d)
     love.graphics.setShader()
 end
 
@@ -744,9 +794,9 @@ function love.keypressed(key)
 end
 function love.keyreleased(key)   Game.input_dispatcher:dispatch("keyreleased",  key)         end
 
-function love.mousepressed(x, y, b)    local s, ox, oy = fitTransform(); Game.input_dispatcher:dispatch("mousepressed",  (x-ox)/s, (y-oy)/s, b)          end
-function love.mousereleased(x, y, b)   local s, ox, oy = fitTransform(); Game.input_dispatcher:dispatch("mousereleased", (x-ox)/s, (y-oy)/s, b)          end
-function love.mousemoved(x, y, dx, dy) local s, ox, oy = fitTransform(); Game.input_dispatcher:dispatch("mousemoved", (x-ox)/s, (y-oy)/s, dx/s, dy/s)    end
+function love.mousepressed(x, y, b)    local fx, fy = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousepressed",  fx, fy, b) end
+function love.mousereleased(x, y, b)   local fx, fy = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousereleased", fx, fy, b) end
+function love.mousemoved(x, y, dx, dy) local fx, fy, k = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousemoved", fx, fy, dx / k, dy / k) end
 function love.textinput(text)    Game.input_dispatcher:dispatch("textinput",    text)        end
 function love.wheelmoved(x, y)   Game.input_dispatcher:dispatch("wheelmoved",   x, y)        end
 

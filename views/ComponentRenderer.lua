@@ -430,6 +430,14 @@ function CR._button(comp, px, pw, p, y, game)
                 love.graphics.printf(line.text or "",
                     fx + indent, cursor, left_printf_w, line.align or "left")
             end
+            -- line.text_anchor: the left text's rect, for story marks (a
+            -- readout on a row).
+            if line.text_anchor and line.text and line.text ~= "" then
+                local tw = (line.text):find("{", 1, true) and IconText.measure(line.text, font)
+                           or font:getWidth(line.text)
+                local sx, sy = love.graphics.transformPoint(fx + indent, cursor)
+                Anchors.set(line.text_anchor, sx, sy, math.min(tw, left_printf_w), font:getHeight())
+            end
 
             if line.right then
                 local right_color = color
@@ -453,13 +461,20 @@ function CR._button(comp, px, pw, p, y, game)
                     Icons.drawChip(game, fx + indent + printf_w - icon_d, right_y, icon_d,
                         line.right_icon_alpha, line.right_icon_shade)
                 end
-                if comp.badge_anchor and icon_d > 0 then
+                -- The badge's rect (text + icon): under the component's
+                -- badge_anchor (a shared name, e.g. chip_badge:banked) and
+                -- the line's own right_anchor (this row's badge by name).
+                if comp.badge_anchor or line.right_anchor then
                     local bx0 = fx + indent + text_w
                                 - right_font:getWidth(line.right)
                     local sx, sy = love.graphics.transformPoint(bx0, right_y)
-                    Anchors.set(comp.badge_anchor, sx, sy,
-                        (fx + indent + printf_w) - bx0,
-                        right_font:getHeight())
+                    local bw = (fx + indent + printf_w) - bx0
+                    if comp.badge_anchor and icon_d > 0 then
+                        Anchors.set(comp.badge_anchor, sx, sy, bw, right_font:getHeight())
+                    end
+                    if line.right_anchor then
+                        Anchors.set(line.right_anchor, sx, sy, bw, right_font:getHeight())
+                    end
                 end
                 -- Second badge: the same shape, immediately left of the
                 -- first (the add-table button shows "+N {achip}" beside
@@ -524,6 +539,8 @@ function CR._button(comp, px, pw, p, y, game)
     if comp.anchor then
         local sx, sy = love.graphics.transformPoint(px + p, y)
         Anchors.set(comp.anchor, sx, sy, content_w, total_h)
+        -- A second, shared name for the same rect (e.g. add_table:banked).
+        if comp.anchor_also then Anchors.set(comp.anchor_also, sx, sy, content_w, total_h) end
     end
 
     return total_h

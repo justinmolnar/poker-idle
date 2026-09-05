@@ -598,6 +598,7 @@ end
 function RoomView:draw(full_screen, opts)
     opts = opts or {}
     self._anchored_item = nil   -- "first placed item" hint anchor is per draw
+    self._items_union   = nil   -- room:items, the union of drawn items, per draw
     self.full_screen = full_screen
     local W, H = love.graphics.getDimensions()
     local game = self.game
@@ -947,9 +948,12 @@ function RoomView:draw(full_screen, opts)
             if (obj.sprite or obj.id) == "house_poster_wall" then
                 -- "Speaking" = the band's text is mid-typewriter, same
                 -- window as the grind intercom and the radio voice.
+                -- opts.speaker overrides it (the title's idle key-ups).
                 local speaking = 0
                 local story, sv = game.story, game.story_view
-                if story and story.currentLine and story:currentLine()
+                if opts.speaker then
+                    speaking = opts.speaker
+                elseif story and story.currentLine and story:currentLine()
                    and not story:isPaused()
                    and sv and sv.isTyping and sv:isTyping() then
                     speaking = 1
@@ -958,14 +962,29 @@ function RoomView:draw(full_screen, opts)
                     ox, oy, speaking, love.timer.getTime())
             end
             -- The first placed item, for a "your things end up here" hint.
-            -- The rect is the drawn sprite's footprint on screen.
-            if not self._anchored_item then
-                self._anchored_item = true
+            -- The rect is the drawn sprite's footprint on screen. And the
+            -- union of every drawn item, for "everything you bought"
+            -- (room:items), grown as the items are painted.
+            do
                 local sw = sprite:getWidth()  * math.abs(draw_scale_x or 1)
                 local sh = sprite:getHeight() * (draw_scale_y or 1)
-                Anchors.set("room:item:first",
-                            px - (ox or 0) * math.abs(draw_scale_x or 1),
-                            py - (oy or 0) * (draw_scale_y or 1), sw, sh)
+                local ix = px - (ox or 0) * math.abs(draw_scale_x or 1)
+                local iy = py - (oy or 0) * (draw_scale_y or 1)
+                if not self._anchored_item then
+                    self._anchored_item = true
+                    Anchors.set("room:item:first", ix, iy, sw, sh)
+                end
+                local u = self._items_union
+                if not u then
+                    u = { x1 = ix, y1 = iy, x2 = ix + sw, y2 = iy + sh }
+                    self._items_union = u
+                else
+                    if ix < u.x1 then u.x1 = ix end
+                    if iy < u.y1 then u.y1 = iy end
+                    if ix + sw > u.x2 then u.x2 = ix + sw end
+                    if iy + sh > u.y2 then u.y2 = iy + sh end
+                end
+                Anchors.set("room:items", u.x1, u.y1, u.x2 - u.x1, u.y2 - u.y1)
             end
 
             if shader_name and ShaderRegistry and ShaderRegistry.apply then

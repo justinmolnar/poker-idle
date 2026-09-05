@@ -13,6 +13,9 @@ local Stakes      = require("data.stakes")
 local GameTypes   = require("data.game_types")
 local Lookups     = require("utils.lookups")
 
+local Format      = require("utils.format")
+local Constants   = require("data.constants")
+
 local StoryDynamic = {}
 
 -- The stack-band odds the EV readout under a table displays, for the
@@ -45,6 +48,29 @@ local HANDLERS = {
                   / math.max(1e-9, a.buy_in or 1) + 0.5)
         return NUMBER_WORDS[m - 1] or tostring(m)
     end, fallback = "five" },
+    -- What the shove just banked: the commit record's count (the chips
+    -- were zeroed into state.chips in the same write).
+    banked_chips = { fn = function(g)
+        local sp = g.state and g.state.shove_pending
+        local n = sp and sp.chips
+        if n == nil then return nil end
+        return tostring(math.floor(n))
+    end, fallback = "a few" },
+    -- The first hand this save resolved, as its pot-tier glyph: the win
+    -- or loss marker views/IconText draws ({w:large}, {l:small}), sized by
+    -- the tier the hand landed in. The sentence says won or lost; the
+    -- glyph says how big.
+    first_hand_tier = { fn = function(g)
+        local st = g.state
+        if not st or st.first_hand_delta == nil then return nil end
+        local side = (st.first_hand_delta > 0) and "w" or "l"
+        return "{" .. side .. ":" .. (st.first_hand_tier or "small") .. "}"
+    end, fallback = "{w:small}" },
+    -- The focus penalty per table over capacity, as a percentage.
+    focus_penalty_pct = { fn = function()
+        local p = Constants.GAMEPLAY.FOCUS_BASE_PENALTY or 0
+        return string.format("%d%%", math.floor(p * 100 + 0.5))
+    end, fallback = "15%" },
 }
 
 -- Replace every {dyn:NAME} in `text`. Unknown names keep a visible stub

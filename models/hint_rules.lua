@@ -238,6 +238,21 @@ function HintRules.registerAll(reg)
         return ctx.shove_phase == cond.phase
     end)
 
+    -- The buildup's pile has fully landed (every chip of the pour arrived).
+    reg:register("shove_pot_landed", function(_cond, ctx)
+        return ctx.shove_pot_landed == true
+    end)
+
+    -- The first hand this save ever resolved, by its sign: cond.result is
+    -- "won" or "lost". GrindController records state.first_hand_delta the
+    -- hand it happens; nil until then, so neither passes before it.
+    reg:register("first_hand", function(cond, ctx)
+        local d = ctx.state and ctx.state.first_hand_delta
+        if d == nil then return false end
+        if cond.result == "won" then return d > 0 end
+        return d <= 0
+    end)
+
     -- The shove is paused on a named hold (cond.id), waiting for the player.
     reg:register("shove_beat", function(cond, ctx)
         return ctx.shove_hold ~= nil and ctx.shove_hold == cond.id

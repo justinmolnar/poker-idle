@@ -55,6 +55,7 @@ function FontService.build(font_data, W, H)
         sm = newFont(font_data, base * s),
         md = newFont(font_data, (font_data.size_md or 16) * s),
         lg = newFont(font_data, (font_data.size_lg or 24) * s),
+        xl = newFont(font_data, (font_data.size_xl or 48) * s),
     }
 end
 

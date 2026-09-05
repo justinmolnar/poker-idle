@@ -1,134 +1,162 @@
 # Sound checklist
 
-Every sound the current build wants, in one list, so they can be sourced in
-one sitting. Companion to `docs/audio-audit.md` (the why in full).
+Every sound the build wants, one line each, so they can be sourced in one
+sitting. Cross-referenced 2026-09-04 against `data/sounds.lua` (the named
+presets), every `playNamed` / timeline beat / `arrival_sound` in the code,
+`assets/audio/` on disk, and the catalog's item ids. Companion to
+`docs/audio-audit.md` (the why).
 
-**Status (2026-08-25):** `[x]` = in the game. All 52 item sounds are in
-(`assets/audio/items`, played in the room count and when the item fires).
-From the felt section only the cheat card (the pack's deal) and the
-degraded deals for the flood (rendered from it) are in. **Still to find: music (4),
-the House (3), room materialize + lift whoosh (2), the win fanfare, the
-catalog set (6), the grind/UI set (4), the break set (2).**
+Marks: `[x]` a real file is in and wired · `[~]` wired, but playing a stand-in
+(a chip or card from the pack, or a legacy MP3) · `[ ]` nothing yet.
+`(wire)` = the code has no call for it; a file alone won't play, ask for the
+hook. Files drop into `assets/audio/<folder>/<name>.ogg` and pair by name
+(`services/SoundLoader`); presets in `data/sounds.lua` win when they exist.
 
-Format per line: `[ ] name` | what it is | where it plays.
-Length guide: item foley 0.1-0.5s; UI 0.1-0.3s; stingers under 2s; music loops
-60-120s. Mono is fine for everything but music. OGG.
+Length guide: foley 0.1–0.5s, UI 0.1–0.3s, stingers under 2s, loops 60–120s.
+Mono for everything but music. OGG.
 
-## 1. Music (3 files, one loop plus two layers)
+## 1. Music
 
-- [ ] `music_room_loop` | lo-fi electric piano, tape hiss, brushed kick, slightly detuned; "a radio in the next room" | the room and the grind (grind gets a lowpass; Desk Speakers lifts it)
-- [ ] `music_layer_bass` | a bass line that sits under the same loop, same tempo/key | Act 2 on the grind
-- [ ] `music_layer_hiss` | tape hiss / vinyl crackle bed, loopable | Act 3 (piano + hiss only); louder after the underflow
-- [ ] `music_gauntlet_drone` | one sustained low tone, loopable, that can be pitched up per runout | the gauntlet (no music there, only this)
+The director plays whatever is in `assets/audio/music/` through the
+intercom chain (muffled until Desk Speakers). Ten noir tracks are in there
+now.
 
-## 2. The House (3 sounds)
+- [x] room / grind loop | whatever plays on the grind; decide if the noir pack is final or a placeholder for the lo-fi Rhodes loop the audit wants | grind, room
+- [ ] `music_layer_bass` (wire) | a bass line under the same loop, same key and tempo | Act 2 grind
+- [ ] `music_layer_hiss` (wire) | tape hiss / vinyl crackle bed, loopable | Act 3, louder after the underflow
+- [ ] `music_gauntlet_drone` (wire) | one sustained low tone, pitchable up per runout | the gauntlet felt
+- [~] title / credits | the title already plays the loop through the intercom (MusicDirector treats it like the grind; its header comment saying "silence" is stale); credits are silent. Decide if that stays | title, credits
 
-- [ ] `house_tick` | one soft note (Rhodes) or a single typewriter key; the same every time | each block of his text appears
-- [ ] `house_tick_low` | the same, lower | the panic lines ("No." "Again.")
-- [ ] `house_stinger` | one low piano note left to ring, 1.5-2s | reveal beats only: first cheat card, act 2 lede, underflow, deck_out
+## 2. The House
 
-## 3. The room count and the cut (4 sounds)
+- [x] `radio/open/*` | mic keying on, static burst; ONE file now, want 4–6 so the key-up varies | every speech bubble starts
+- [x] `radio/voice/*` | distorted voice bed, ONE file now, want 3–4 different textures | while his text types
+- [ ] `house_tick` (wire) | one soft Rhodes note or a single typewriter key, the same every time | each block of text lands
+- [ ] `house_tick_low` (wire) | the same, lower | the panic lines ("No." "Again.")
+- [ ] `house_stinger` (wire) | one low piano note left to ring, 1.5–2s | first cheat card, the Act 2 lede, the underflow, deck_out
 
-- [x] `lights_on` | the switch with the fluorescent tube layered over it | the fixture blooms on at the start of the shove
-- [x] `lights_off` | the switch alone | the fixture dies after the count
-- [ ] `number_lift` | short whoosh (existing `whoosh.mp3` may do) | ITEMS and BANK lift off
-- [x] `number_land` | the card snap | the number lands in its slot
+## 3. The room count and the cut (shove intro)
 
-## 4. Per-item foley (52 sounds, one per catalog item)
+- [x] `lights_on` | switch plus the tube coming on | the fixture blooms
+- [x] `lights_off` | the switch alone | the fixture dies
+- [~] room-count tick | each item plays its own file, or falls back to a chip click for the ones without one (section 6) | each item counted
+- [ ] `room_lock` | a latch, or a light switch on its own | the count locks (wired by name, silent)
+- [ ] `number_lift` (wire) | short whoosh (`whoosh.mp3` may do) | ITEMS and BANK lift off the room
+- [~] `card_snap` | the number lands: currently a card give from the pack | ITEMS / BANK land in their slot
+- [~] `shove_initiated` | a card riffle from the pack; fine, or a deck shuffle proper | the buildup starts
+- [~] `chip_land_pot` | a chip from the pack, pitched up per landing; fine | each chip of the pour lands
 
-Played when the item is counted in the room intro, and again in play when the
-item fires (F) or only in the count (C) if it is a passive.
+## 4. The felt (the gauntlet)
 
-| | id | item | sound to find | fires |
-|---|---|---|---|---|
-| [x] | wall_hanger | Wall Hanger | a hat dropped on a hook | C |
-| [x] | mirror | Mirror | glass tap | C |
-| [x] | energy_drink | Energy Drink | can crack and fizz | C |
-| [x] | corkboard | Corkboard | a pushpin pressed into cork | C |
-| [x] | stack_of_books | Stack of Books | page flip | F: win tier bumps small to medium |
-| [x] | throw_pillow | Throw Pillow | soft cloth thump | F: loss softened large to medium |
-| [x] | gift_box | Starter Gift Box | box lid lifting, tissue paper | C (run start is between screens: silent) |
-| [x] | lava_lamp | Lava Lamp | a slow glass blub | F: win tier bumps medium to large |
-| [x] | comfort_bed | Comfort Bed | mattress creak | F: loss softened stack to large |
-| [x] | sticky_notes | Yellow Sticky Note | sticky note peel | C |
-| [x] | rubber_duck | Rubber Duck | squeak | F: first loss voided |
-| [x] | stash_box | Stash Box | small drawer / tin lid | C (run start is silent) |
-| [x] | dogs_playing_poker | Dogs Playing Poker | picture frame knocked against a wall | F: first bounty +1 |
-| [x] | calculator | Calculator | one calculator key | C |
-| [x] | ring_binder | Ring Binder | binder rings snapping shut | C |
-| [x] | space_heater | Space Heater | heater click (not the hum) | C (per-hand passive) |
-| [x] | pencil_holder | Pencil Holder | pen click | F: bounty paid |
-| [x] | desk_plant | Desk Plant | leaves brushed | C |
-| [ ] | desk | Desk (was Reserved Seat Card; its card-flick sound was deleted 2026-08-25) | a hand set down on wood | C (run start is silent) |
-| [x] | rebuy_note | Rebuy Sticky Note | sticky note peel, shorter | F: rebuy |
-| [x] | gaming_chair | Gaming Chair | office chair creak | C |
-| [x] | headset | Headset | headphone crackle / cup placed on head | C |
-| [x] | prize_vase | Prize Vase | ceramic ring | F: tournament cash |
-| [x] | fridge | Compact Fridge | fridge door thunk | F: first stack loss voided |
-| [x] | wall_clock | Wall Clock | one clock tick | F: hand won outright |
-| [x] | vouchers | Rolled Vouchers | paper rip | F: buy-in |
-| [x] | second_monitor | Second Monitor | monitor power blip | C |
-| [x] | laptop | Laptop Terminal | laptop trackpad tap | F: cursor deals |
-| [x] | gaming_keyboard | Gaming Keyboard | mechanical key tap | F: cursor deals (faster) |
-| [x] | box_of_mice | Box of Mice | a burst of mouse clicks | F: cursor deals |
-| [x] | wacom_tablet | Wacom Tablet | stylus tap | F: cursor rebuys |
-| [x] | kettle | Electric Kettle | kettle switch click | F: busted table refund |
-| [x] | toaster | Chrome Toaster | toaster pop | F: pot bumps a tier |
-| [x] | first_aid_kit | First Aid Kit | latch click | F: free rebuy |
-| [x] | nightstand | Nightstand | wooden drawer | C |
-| [x] | receipt_printer | Receipt Printer | receipt printer chatter, short | F: denied chip banks |
-| [x] | microwave | Microwave Oven | microwave ding | F: pot pays double |
-| [x] | diploma | Framed Diploma | glass tap on a frame | F: tournament cash |
-| [x] | blueprint | Laminated Blueprint | laminate sheet flex | C |
-| [x] | console_tv | Console Television | CRT power on click and hum tail | C |
-| [x] | high_roller_pass | High Roller Pass | a card swipe / frame set down | F: buy-in at NL1K+ |
-| [x] | window | Window | window latch / blind cord | C |
-| [x] | bookshelf | Bookshelf | a book slid onto a shelf | C |
-| [x] | cereal_shelf | Cereal Shelf | cereal box shake | C (run start is silent) |
-| [x] | fire_extinguisher | Fire Extinguisher | short hiss | F: a loss would have been a stack |
-| [x] | blackout_curtains | Blackout Curtains | curtain slide | F: a win would have been small |
-| [x] | tip_jar | Tip Jar | coins into a glass | F: bounty paid |
-| [x] | pc_tower | Tower Upgrade | PC fan spin-up | C |
-| [x] | curved_monitor | Curved Monitor | monitor blip, lower | C |
-| [x] | desk_speakers | Desk Speakers | one speaker thump | C (and it lifts the music lowpass) |
-| [x] | shredder | Shredder | shredder whir, short | C (per-hand passive) |
-| [x] | unlock_ultra | Ultra Stake | a heavy gate | F: unlock |
+- [~] `card_dealt` / `cheat_card_dealt` | the pack's card give; fine, the cheat is the heavier take | hole and board cards land; cards 6 and 7
+- [~] `hole_card_flip` | the pack's card give; a distinct FLIP (card turning over) would separate the deal from the reveal | your cards turn, the dealer's turn
+- [~] `runout_won` | coins from the pack | a won runout, R1/R2
+- [~] `gauntlet_won` | legacy `victory_fanfare.mp3`; want a short clean fanfare under 1.5s | the full clear
+- [~] `gauntlet_lost` | legacy `game_over.mp3`; want one chip sliding off felt, no jingle | a lost runout
+- [~] `chip_land_you` | a chip from the pack | the pot arrives at you
+- [ ] `catalog_thud` | heavy paper thud, a book on a table | the book lands on the felt (wired, silent)
+- [~] pamphlet landing | plays `hole_card_flip`; want a light paper slap | the pamphlet lands beside the book
+- [x] `deck_card_degraded_1..3` | rendered from the pack's deal | the ending flood
 
-Corrupt items reuse the same file through the damage bus (built); nothing extra to find.
+## 5. The grind
 
-## 5. The felt and the shove (6 sounds)
+- [~] `card_dealt` | pack card give, once per seat as the backs land | the new hand is dealt
+- [ ] fold / muck (wire) | a card slid off felt, soft | a seat folds; the old hand mucks on the next deal
+- [~] `pot_won_small/medium/large/stack` | pack chip stacks, coins layered on a Stack; fine | a hand resolves
+- [~] `pot_lost_small/medium/large/stack` | pack chips; the Stack layers legacy `negative_buzz.mp3`, replace that with a low thud | a hand loses
+- [~] `border_pulse_win/loss` | pack chips at tier volume; could be dropped once the pot sounds carry it | every resolution
+- [~] `chip_land_bankroll` | pack chip drop; fine | chips reach the bankroll
+- [~] `table_added` | pack chip drop; want a chair pulled up | a table opens
+- [ ] table close / cash out (wire) | chair pushed in | a table is cashed out
+- [~] `rebuy_clack` | pack chip drop; want a stack set down | REBUY
+- [~] `upgrade_purchased` | pack chip drop; want a soft mechanical click, not a chip | a run upgrade is bought
+- [~] `stake_up_flourish` | pack chips plus coins; fine | a new stake opens
+- [~] `seat_ko` | heaviest pack drop; fine | a tournament seat busts
+- [ ] tournament won (wire) | a short clean sting, distinct from the shove's | TOURNAMENT WON floater
+- [ ] busted (wire) | one dull knock | a table busts (BUSTED floater)
+- [ ] focus overload (wire) | a short strained tone | focus over the cap
+- [~] `cursor_tap` | pack chip at 18%; want a real mouse click, quiet | a cursor clicks a table
+- [ ] cursor bump (wire) | tiny plastic knock | two cursors collide (the sparks)
+- [ ] tilt lands (wire) | glass tipping / a knock going wrong | a tilt is applied to a table
+- [ ] heater lands (wire) | a match strike, short | a heater is applied
+- [ ] punch: shove (wire) | a shove of furniture across a floor | a table shoves its neighbour
+- [ ] punch: slam (wire) | fist on a table, the frame the fist lands (data/statuses slam.rise) | the slam
+- [ ] deck level up (wire) | one bright note or a card fan | the deck in play levels
+- [ ] new deck (wire) | a paper tab / a card turned face up | a deck unlocks
+- [ ] underflow (wire) | a deep thud with a tail, 1s | the Act 3 break
+- [ ] glitch tick (wire) | a short digital tear, three variants | the broken readouts' glyph ticks
+- [~] `anti_chip_bank` | the bankroll chip through the damage bus; fine | an anti-chip banks
 
-- [x] `chip_pour_tick` | already `chip_land_pot`; want it pitchable so the pour rises | each chip lands in the buildup
-- [x] `cheat_card` | the pack's card deal, heavy | cards 6 and 7 land (was a chip drop)
-- [ ] `runout_loss` | one chip sliding off felt | a lost runout (replaces `game_over.mp3`; preset `gauntlet_lost`)
-- [ ] `runout_win_short` | a short clean fanfare, under 1.5s | a won runout (shorten `victory_fanfare.mp3` or replace)
-- [ ] `catalog_thud` | heavy paper thud | the catalog lands on the felt (name wired on the timeline)
-- [x] `deck_card_degraded` | rendered: bitcrushed, 8kHz, clicks | the ending flood, one step every 12 cards
+## 6. Per-item foley
 
-## 6. The catalog (6 sounds)
+Each item plays the file named after its id: in the room count, and again
+when it fires in play. 52 are in (`assets/audio/items`, credited in its
+MANIFEST). Still to find, for the items added since:
 
-- [ ] `catalog_open` | paper unfold | the catalog opens
-- [ ] `page_turn` | one page turn, two or three variants | each leaf
-- [ ] `stamp` | rubber stamp thunk | an item is bought
-- [ ] `pen_scratch` | short pen scratch | the price ring is drawn
-- [ ] `stamp_reverse` | the stamp reversed | a corrupt purchase
-- [ ] `glyph_whine` | faint high whine, loopable, quiet | while looking at a corrupt offer
+- [ ] `bonsai` | leaves brushed, a snip | count only
+- [ ] `candle` | a match strike, short | a Stack win lights a heater
+- [ ] `cleaning_robot` | a small motor whir | a Stack win sends the cursors into overdrive
+- [ ] `cool_towel` | wet cloth wrung once | a tilt ending heats the table
+- [ ] `copy_machine` | copier feed, one sheet | the printer's sweep deals a Zoom table
+- [ ] `desk` | a hand set down on wood | count only (run start is silent)
+- [ ] `desk_lamp` | a lamp switch, click | count only
+- [ ] `dish_soap` | a squeeze bottle, short | a tilt slides to the next table
+- [ ] `dusty_console` | a cartridge blown on, a click | count only
+- [ ] `fight_night_poster` | a bell, one strike | a Heads-Up bounty pays double
+- [ ] `glass_partition` | a knuckle on glass | count only
+- [ ] `handheld` | a handheld's power tone / button click | count only
+- [ ] `house_cat` | one short meow | every 50 hands won, a tier bump
+- [ ] `red_rug` | a rug shaken out, one flap | count only
+- [ ] `telephone` | a receiver set down | count only
+- [ ] `waste_basket` | paper into a bin | a tilt lands in the corner
+- [ ] `whiteboard` | a marker squeak, short | count only
 
-## 7. Grind and UI (5 sounds, mostly replacing chip sounds)
+(`tilt` and `snake_case_unique` are a hidden system entry and the authoring
+template; no sound.)
 
-- [ ] `upgrade_buy` | a soft mechanical click (not a chip) | run upgrade bought
-- [ ] `table_open` | chair pulled up | a table is opened
-- [ ] `table_close` | chair pushed in | a table is closed / cashed out
-- [ ] `focus_over` | a short strained tone | focus overloaded
-- [x] `anti_chip_bank` | the bank chip sound through the damage bus | an anti-chip banks
+## 7. Paper: the catalog and the pamphlet
 
-## 8. Act 3 and the break (3 sounds)
+- [ ] catalog open (wire) | paper unfold | the book opens on the felt / from the top bar
+- [~] page turn | plays `hole_card_flip`; want two or three page turns | each leaf, wheel or dog-ear
+- [ ] `stamp` (wire) | rubber stamp thunk | ORDERED lands on a bought item
+- [ ] `pen_scratch` (wire) | short pen scratch | the price ring is drawn
+- [ ] `stamp_reverse` (wire) | the stamp reversed | a corrupt purchase
+- [ ] `glyph_whine` (wire) | faint high whine, loopable, quiet | while a corrupt offer is on screen
+- [ ] sticker peel (wire) | vinyl peeling off paper | a ready sticker comes off
+- [ ] receipt feed (wire) | thermal printer chatter, short | the manifest prints a new row
+- [ ] pamphlet open (wire) | a sheet unfolding, lighter than the book | the pamphlet opens out
+- [ ] deck picked (wire) | a card tapped on a table | a tile is put in play
+- [ ] flyer end card (wire) | (demo build) nothing, or the House's stinger | the demo's end sheet opens
 
-- [ ] `underflow_hit` | a deep thud with a violet-flash-sized tail, 1s | the underflow moment
-- [ ] `glitch_burst` | a short digital tear, three variants | the broken grind's glyph corruption ticks
-- [ ] `music_skip` | a 250ms segment of the room loop cut so it can repeat | the loop skipping after the underflow (can be cut from the loop itself)
+## 8. Interface
+
+Nothing in the interface makes a sound today except the felt and the
+cursors; the click flash is silent.
+
+- [ ] button click (wire) | one soft click, the same everywhere | any button, tab, key, row, dropdown item
+- [ ] toggle / checkbox (wire) | a lighter tick | Motion levels, analytics box, D/R table toggles
+- [ ] modal open / close (wire) | a paper or panel slide, in and out | Settings, glossary, confirm dialogs
+- [ ] slider tick (wire) | a very quiet tick per step, or none | the volume sliders
+- [ ] hint / story bubble (wire) | covered by the radio key-up; nothing else needed | a bubble opens
+- [~] title deal | the pack's card give per letter card, then a chip landing for the apostrophe; fine | the name deals onto the title
+- [x] title light switch | `lights_on` | Continue / New Game throw the switch
+- [x] title key-up | the radio open, static only, no words | the intercom keys up while the title idles
+- [ ] credits (wire) | silence, or the clean loop | the credits
 
 ## Totals
 
-Music 4, House 3, room/cut 5, items 52, felt 6, catalog 6, grind 5, break 3:
-**84 sounds**, of which about 10 can be made from files already in the repo.
+| section | in | stand-in | to find |
+|---|---|---|---|
+| music | 1 | 0 | 4 (three need wiring) |
+| the House | 2 sets (want more variants) | 0 | 3 |
+| room count and cut | 2 | 4 | 2 |
+| felt | 1 | 7 | 1 |
+| grind | 0 | 12 | 13 |
+| items | 52 | 0 | 17 |
+| paper | 0 | 1 | 10 |
+| interface | 2 | 1 | 6 |
+
+**58 to find, 24 stand-ins worth replacing; 39 lines need a hook in the
+code before a file does anything (marked wire).** The wiring is one
+`playNamed` per line; ask and I'll add the hooks in a batch so every name
+here pairs with a file the moment it lands in `assets/audio/`.

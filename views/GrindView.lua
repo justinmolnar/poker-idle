@@ -293,6 +293,9 @@ end
 -- Smooth lerp helper for the top-bar number tween. ~95% catch-up in 0.4 s
 -- with k = dt * 8; snaps when within a hundredth-cent so the displayed
 -- value doesn't jitter forever near the target.
+-- The loan arriving (GameState.loan_fresh): the readout runs 0 → value over this.
+local COUNT_UP_SECS = 1.2
+
 local function tweenNumber(curr, target, dt)
     local k = math.min(1, (dt or 0) * 8)
     local out = curr + (target - curr) * k
@@ -661,6 +664,9 @@ function GrindView:_buildTablesTabComponents()
                 -- as "chip_badge:banked" (any banked button; last drawn
                 -- wins) for the chip-teaching hints.
                 anchor       = "add_table:" .. stake.id .. ":" .. gtype_id,
+                -- The row that has banked, under one shared name, for the
+                -- lines about the button that paid.
+                anchor_also  = banked and "add_table:banked" or nil,
                 badge_anchor = banked and "chip_badge:banked" or nil,
                 disabled = disabled,
                 -- The stake row wears its stake's felt — the same color
@@ -676,12 +682,17 @@ function GrindView:_buildTablesTabComponents()
                 lines = {
                     {
                         text  = "+ " .. stake.display_name, style = "heading",
+                        -- This row's "+N {chip}" badge, by name, for the
+                        -- lines that point at every badge on the strip.
+                        right_anchor = "add_table_chip:" .. stake.id .. ":" .. gtype_id,
                         right = chip_text, right_color_token = chip_color_tok,
                         right_icon = icon_id, right_icon_shade = chip_shade,
                         right2 = achip_text, right2_color_token = achip_color_tok,
                         right2_icon = achip_text and "achip" or nil, right2_icon_shade = achip_shade,
                     },
                     { text = sub_left, style = "small", color_token = sub_color,
+                      -- This row's $/h readout, by name.
+                      text_anchor = "add_table_ev:" .. stake.id .. ":" .. gtype_id,
                       right = sub_right, right_color_token = "muted" },
                 },
             }
@@ -1225,7 +1236,26 @@ function GrindView:update(dt)
         self.displayed_bankroll = state.bankroll
     end
     self._was_broken = broken_now
+    -- The loan arriving (a fresh grant, or a run reset renewing it): the
+    -- number climbs from 0 to its value over COUNT_UP_SECS, then the normal
+    -- tween takes over. GameState raises loan_fresh; this consumes it.
+    do
+        if state.loan_fresh then
+            state.loan_fresh = false
+            self.displayed_bankroll = 0
+            self._count_up_t = 0
+        end
+        if self._count_up_t then
+            self._count_up_t = self._count_up_t + (dt or 0)
+            local p = math.min(1, self._count_up_t / (COUNT_UP_SECS * math.max(Motion.scale("text"), 0.001)))
+            if Motion.level("text") <= Motion.LOW then p = 1 end
+            self.displayed_bankroll = (state.bankroll or 0) * (1 - (1 - p) ^ 2)
+            if p >= 1 then self._count_up_t = nil end
+        end
+    end
+    if not self._count_up_t then
     self.displayed_bankroll = tweenNumber(self.displayed_bankroll, state.bankroll,            dt)
+    end
     self.displayed_chips    = tweenNumber(self.displayed_chips,    state.chips,               dt)
     self.displayed_anti_chips = tweenNumber(self.displayed_anti_chips or 0, state.anti_chips or 0, dt)
     self.displayed_tied     = tweenNumber(self.displayed_tied,     self.controller:tiedUp(),  dt)
@@ -1712,6 +1742,13 @@ end
 
 -- ─── Room button (top bar, between Catalog and Settings) ──────────────
 
+-- The ROOM button appears once the player has shoved: until the House
+-- sends them there (story beat the_loop) an empty room explains nothing.
+function GrindView:_roomButtonVisible()
+    local st = self.game.state
+    return st ~= nil and st.has_shoved == true
+end
+
 function GrindView:_roomButtonRect()
     local cb = self:_catalogButtonRect()
     local bw = self:_topBarBtnW()
@@ -1744,7 +1781,8 @@ end
 -- ─── Settings button (top bar, rightmost) ────────────────────────────
 
 function GrindView:_settingsButtonRect()
-    local rb = self:_roomButtonRect()
+    -- Closes up over the ROOM slot while that button is hidden.
+    local rb = self:_roomButtonVisible() and self:_roomButtonRect() or self:_catalogButtonRect()
     local bw = self:_topBarBtnW()
     return {
         x = rb.x + bw + TOPBAR_BTN_GAP,
@@ -2384,6 +2422,13 @@ function GrindView:_drawFloatingText()
             end
             if widest > 0 then
                 local block_h = (n_lines - 1) * step + line_h
+                -- The parked readout's plate, in screen space, for story
+                -- marks: views/TablePanel folds it into the stack box.
+                if t.table and t.table._id then
+                    AnchorRegistry.set("result:" .. tostring(t.table._id),
+                        t.x + (-widest * 0.5 - 6) * scale, t.y + (ly - 3) * scale,
+                        (widest + 12) * scale, (block_h + 6) * scale)
+                end
                 Theme.setColor(Theme.bg.window, 0.9 * alpha)
                 love.graphics.rectangle("fill", -widest * 0.5 - 6, ly - 3,
                     widest + 12, block_h + 6, Theme.space.radius)
@@ -2521,7 +2566,7 @@ function GrindView:draw(overlay_fn)
     self:_drawTopBar(W)
     self:_drawCashOutButton()
     if self:_catalogButtonVisible() then self:_drawCatalogButton() end
-    self:_drawRoomButton()
+    if self:_roomButtonVisible() then self:_drawRoomButton() end
     self:_drawSettingsButton()
 
     self:_drawCenterGrid(W, H)
@@ -2645,7 +2690,8 @@ function GrindView:mousepressed(x, y, b)
 
     -- Room toggle button (top bar, between catalog and settings).
     local room_rect = self:_roomButtonRect()
-    if x >= room_rect.x and x < room_rect.x + room_rect.w
+    if self:_roomButtonVisible()
+       and x >= room_rect.x and x < room_rect.x + room_rect.w
        and y >= room_rect.y and y < room_rect.y + room_rect.h then
         ClickFlash.flash("room_btn", "room_btn")
         if self.game.toggleRoom then self.game.toggleRoom() end

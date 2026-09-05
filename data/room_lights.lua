@@ -17,6 +17,9 @@ return {
         cone    = { w = 0.90, h = 0.70, alpha = 0.90, base = 0.15 },
     },
     emitters = {
+        -- The House's print: its windows are always lit. The one light in
+        -- an empty room (the title screen, before anything is owned).
+        the_house_poster = { color = { 1.00, 0.86, 0.55 }, radius = 0.55, alpha = 0.30, pulse = { secs = 3.20, amount = 0.10 } },
         console_television       = { color = { 0.70, 0.85, 1.00 }, radius = 1.40, alpha = 0.50, pulse = { secs = 0.90, amount = 0.08 } },
         corkboard        = { color = { 0.50, 0.95, 0.80 }, radius = 0.60, alpha = 0.15, pulse = { secs = 2.00, amount = 0.15 } },
         curved_monitor   = { color = { 0.75, 0.88, 1.00 }, radius = 1.30, alpha = 0.45 },

@@ -58,6 +58,20 @@ end
 
 function StoryDirector:isActive()    return self.beat ~= nil end
 function StoryDirector:isPaused()    return self._paused end
+
+-- Does the running beat freeze the simulation right now? True while a
+-- `pause = true` beat has a line up on its own screen, except on a forced
+-- `wait` line (the action has to be able to happen). The host reads this
+-- once a tick and hands dt = 0 to the tables, the cursors and the shove
+-- clock; flights in the air still land.
+function StoryDirector:freezesGame()
+    local beat, tl = self.beat, self.timeline
+    if not (beat and beat.pause and tl) or self._paused then return false end
+    local line = tl:line()
+    if not line then return false end
+    if line.force and tl:isWaiting() then return false end
+    return true
+end
 function StoryDirector:currentLine() return self.timeline and self.timeline:line() or nil end
 
 function StoryDirector:isHoldingClick()
@@ -149,6 +163,25 @@ function StoryDirector:_armTriggers(ctx)
     end
 end
 
+-- The timeline's wait check: true while the wait is STILL blocked. A
+-- wait built by `wait_fresh` (see _start) has to be seen FALSE once
+-- before it may pass: a hover the mouse is already making when the line
+-- lands does not count, the player has to make it after reading.
+function StoryDirector:_blockedFn(ctx)
+    local rules = self.rules
+    return function(cond)
+        if cond and cond.fresh_inner then
+            local ok = rules:check(cond.fresh_inner, ctx)
+            if not cond.seen_false then
+                if not ok then cond.seen_false = true end
+                return true
+            end
+            return not ok
+        end
+        return not rules:check(cond, ctx)
+    end
+end
+
 function StoryDirector:_drive(dt, ctx)
     local beat, tl = self.beat, self.timeline
     local fresh = ctx.anchor_fresh or function() return true end
@@ -161,10 +194,20 @@ function StoryDirector:_drive(dt, ctx)
         self._anchor_missing_t = 0
     end
     self._paused = paused
-    if paused then return end
+    local blocked = self:_blockedFn(ctx)
+    if paused then
+        -- Off its screen the beat's clock stops, but a pending `wait` is
+        -- still asked: a forced action that CHANGES screen ("go to the
+        -- room") has to be able to complete the beat from over there, or
+        -- the next beat on that screen could never start.
+        if tl:isWaiting() then
+            tl:update(0, blocked)
+            if tl:isDone() then self:_finish() end
+        end
+        return
+    end
 
-    local rules = self.rules
-    tl:update(dt, function(cond) return not rules:check(cond, ctx) end)
+    tl:update(dt, blocked)
     if tl:isDone() then self:_finish() end
 end
 
@@ -178,14 +221,20 @@ end
 -- holds; clicks and waits pin it, so every line is placed at the moment
 -- the previous one released.
 function StoryDirector:_start(beat, ctx)
-    local tl = Timeline:new()
+    -- A line with `grant` acts the moment it lands (before its wait is
+    -- asked, so a wait on what the grant makes possible can pass).
+    local tl = Timeline:new{ on_say = function(line)
+        if line.grant == "loan" and self.game.state and self.game.state.grantLoan then
+            self.game.state:grantLoan()
+        end
+    end }
     local t  = 0
     for i, line in ipairs(beat.lines) do
         t = t + (line.delay or 0)
         if line.show then tl:wait(t, line.show) end
         tl:say(t, { beat = beat.id, index = i, text = line.text,
                     anchor = line.anchor, font = line.font,
-                    force = line.force })
+                    force = line.force, grant = line.grant })
         local hold = line.hold
         if hold == nil and line.wait == nil then hold = "click" end
         if hold == "click" then
@@ -193,15 +242,18 @@ function StoryDirector:_start(beat, ctx)
         elseif type(hold) == "number" then
             t = t + hold
         end
-        if line.wait then tl:wait(t, line.wait) end
+        if line.wait then
+            -- wait_fresh: the condition must be seen false before it can
+            -- pass (a fresh table per beat run, so the memory is per play).
+            tl:wait(t, line.wait_fresh and { fresh_inner = line.wait, seen_false = false } or line.wait)
+        end
     end
     self.beat     = beat
     self.timeline = tl
     self._paused  = false
     self._anchor_missing_t = 0
     -- Land the first line now rather than a tick later.
-    local rules = self.rules
-    tl:update(0, function(cond) return not rules:check(cond, ctx) end)
+    tl:update(0, self:_blockedFn(ctx))
     if tl:isDone() then self:_finish() end
 end
 

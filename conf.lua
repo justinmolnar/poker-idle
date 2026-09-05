@@ -36,7 +36,7 @@ function love.conf(t)
     t.version  = ON_12 and "12.0" or "11.4"
     t.console  = true
 
-    t.window.title      = "Poker Idle"
+    t.window.title      = "I hardly know'er"
     -- Default opens at 1600×900, the base frame's size at 16:9. The game
     -- lays out in a base frame 900 high whose width follows the window's
     -- aspect (main.lua), blitted to the window at a uniform scale, so any
@@ -53,15 +53,24 @@ function love.conf(t)
     t.window.resizable  = true
     t.window.vsync      = 1
     t.window.fullscreen = false
-    -- Ask LÖVE for actual physical pixels. On desktop (with SetProcessDPIAware
-    -- above) the window opens at physical px. On web, highdpi makes
-    -- getPixelDimensions() report the true device resolution (3840×2160 on a
-    -- 4K/150% display) while getDimensions() reports the smaller CSS size
-    -- (2560×1440) — main.lua's web HiDPI layer lays the game out in that full
-    -- device-pixel space so web matches the native window. (Required on: with
-    -- highdpi off, pixel == CSS and that layer has nothing to scale.)
+    -- Units must be PIXELS. The pixel font is rasterized at exactly 8/16/24
+    -- px (services/FontService, dpiscale 1) and blitted once by the frame's
+    -- sharp-bilinear pass; any other scaling layer between the glyph and
+    -- the screen doubles the resampling and the text goes uneven.
+    --
+    -- 11 (web + the old desktop): highdpi ON. On Windows 11 is made
+    -- DPI-aware above, so units are already pixels and the flag is inert;
+    -- on web it makes getPixelDimensions() report the true device
+    -- resolution while getDimensions() reports the CSS size, and main.lua's
+    -- web HiDPI layer lays the game out in device pixels.
+    --
+    -- 12 (desktop): highdpi OFF. With it on, SDL3 divides everything by
+    -- the Windows display scale (1.5 on a 4K/150% desktop): a unit becomes
+    -- 1.5 px, an 8 px glyph is stretched to 12 px on its way into the
+    -- frame, and every piece of text in the game looks wrong. Off, a unit
+    -- is a pixel, exactly as it was on 11.
     if ON_12 then
-        t.highdpi        = true     -- 12's flag
+        t.highdpi        = false    -- 12's flag
     else
         t.window.highdpi = true     -- 11's flag
     end

@@ -1269,6 +1269,7 @@ end
 -- right edge later in :draw). Tournament tables draw their ladder as a
 -- single row in the bottom band (bottom.band). `tied_anchor_key` (e.g.
 -- "tied:1") registers the "Tied up $X" label as a hint-anchor.
+local self_stack_anchor = nil   -- handed from the pile to the label within one drawPlayerSeat
 local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key, button)
     local card_w  = hole.card_w
     local card_h  = hole.card_h
@@ -1435,6 +1436,21 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
     else
         Anchors.set(you_key, bottom.chips.x, bottom.chips.y)
     end
+    -- The pile AND its tied-up label as one tight RECT anchor
+    -- ("stack:<idx>") for story marks: as wide as the chips actually laid
+    -- out (or the label, whichever is wider), from the top chip down to
+    -- the label's baseline. Registered after the label below, which sets
+    -- _stack_anchor for it.
+    if tied_anchor_key then
+        local fw, fh = Chips.stackFootprint(ChipPile.denominations(you_key))
+        local pad    = math.floor(4 * (cs or 1))
+        self_stack_anchor = {
+            key = (tied_anchor_key:gsub("^tied:", "stack:")),
+            x   = bottom.chips.x - pad,
+            y   = pile_y - Chips.radius() * cs - math.max(0, fh * cs - Chips.radius() * cs * 2) - pad,
+            w   = fw * cs + pad * 2,
+        }
+    end
 
     -- "Tied up $X.XX" on the bottom line beneath the pile it prices — the
     -- same term as the top-bar TIED UP cell, which is the sum of these
@@ -1450,8 +1466,14 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
     local tied_str = tiedText(tbl, bottom.tied.parts)
     love.graphics.print(tied_str, bottom.tied.x, bottom.tied.y)
     if tied_anchor_key then
-        Anchors.set(tied_anchor_key, bottom.tied.x, bottom.tied.y,
-            fonts.sm:getWidth(tied_str), fonts.sm:getHeight())
+        local tw, th = fonts.sm:getWidth(tied_str), fonts.sm:getHeight()
+        Anchors.set(tied_anchor_key, bottom.tied.x, bottom.tied.y, tw, th)
+        local a = self_stack_anchor
+        if a then
+            local right = math.max(a.x + a.w, bottom.tied.x + tw + 2)
+            Anchors.set(a.key, a.x, a.y, right - a.x, (bottom.tied.y + th) - a.y)
+            self_stack_anchor = nil
+        end
     end
 end
 
@@ -1899,6 +1921,18 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- hint/story marks — the center anchors above are centre-point
     -- convention and a highlight ring would draw half-offset.
     Anchors.set("table:" .. idx, x, y, w, h)
+    -- Shared names for "the table that ...", for story marks: the panel
+    -- whose (stake, game type) has banked its bounty this run, and the
+    -- panel with heat on it right now. Last drawn wins when several do.
+    do
+        if controller and controller.bountyBanked
+           and controller:bountyBanked(tbl.stake_id, tbl.game_type_id) then
+            Anchors.set("table:banked", x, y, w, h)
+        end
+        for _, st in ipairs(tbl.statuses or {}) do
+            if st.kind == "heater" then Anchors.set("table:heater", x, y, w, h) break end
+        end
+    end
 
     -- Seed a default pot anchor BEFORE the script-event loop below runs. The
     -- first bet of a hand flies its chips to the "pot" anchor during that loop,
@@ -2169,6 +2203,19 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     desatOn()
     drawPlayerSeat(tbl, L.hole, L.bottom, sl, fonts, ctx, "tied:" .. idx, L.button)
     desatOff()
+    -- The stack box takes in the parked result readout above the pile
+    -- (registered by the floater renderer last frame) while it is there,
+    -- so "the readout, tied up and the chips" is one mark.
+    do
+        local sa = Anchors.get("stack:" .. idx)
+        local rk = "result:" .. tostring(tbl._id)
+        local ra = Anchors.get(rk)
+        if sa and ra and Anchors.age(rk) <= 2 then
+            local x1 = math.min(sa[1], ra[1]);            local y1 = math.min(sa[2], ra[2])
+            local x2 = math.max(sa[1] + sa[3], ra[1] + ra[3]); local y2 = math.max(sa[2] + sa[4], ra[2] + ra[4])
+            Anchors.set("stack:" .. idx, x1, y1, x2 - x1, y2 - y1)
+        end
+    end
 
     -- DEAL / REBUY overlay (only when idle). Stack > 0 → DEAL. Stack at
     -- 0 means the player busted out and must rebuy the buy-in to keep

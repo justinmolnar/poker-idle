@@ -219,6 +219,13 @@ function GrindState:update(dt)
     -- _handleHitBox covers whatever this ordering can't.
     local cursor_view = self.view
     local state = self.game.state
+    -- The House has the floor on a `pause` beat: the tables, the cursors
+    -- and the status clocks stand still until the click. The view still
+    -- runs its hover pass with no time.
+    if self.game.sim_frozen then
+        self.view:update(0)
+        return
+    end
     CursorPool.update(dt, cursor_view.hit_boxes, self.controller.ctx,
         function(hb)
             -- Lifetime count of DEAL clicks the swarm makes: the cursor

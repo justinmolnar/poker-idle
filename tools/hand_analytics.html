@@ -9,6 +9,11 @@
 body { font-family: Consolas, monospace; background: #1a1a2e; color: #e0e0e0; padding: 16px; }
 h1 { color: #0ff; margin-bottom: 4px; font-size: 22px; }
 h1 small { font-size: 11px; color: #666; font-weight: normal; }
+.tools-nav { display: inline-flex; gap: 2px; margin: 4px 0 10px; }
+.tools-nav a { color: #888; text-decoration: none; font-size: 12px;
+  padding: 3px 9px; border-radius: 4px; border: 1px solid transparent; }
+.tools-nav a:hover { color: #e0e0e0; border-color: #444; }
+.tools-nav a.current { color: #0ff; border-color: #0aa; }
 h2 { color: #0ff; font-size: 16px; margin: 16px 0 8px; }
 h3 { font-size: 13px; color: #0ff; margin-bottom: 8px; }
 
@@ -87,6 +92,12 @@ tr:hover td { background: #1a2a4e; }
 </head>
 <body>
 <h1>Poker Idle — Hand Analytics <small>auto-loads every save from the cloud backend</small></h1>
+<nav class="tools-nav">
+  <a href="index.html">Tools</a>
+  <a href="catalog_designer.html">Catalog</a>
+  <a href="story_editor.html">Story</a>
+  <a href="hand_analytics.html" class="current">Analytics</a>
+</nav>
 
 <div id="load-section">
   <div style="margin-bottom:8px;">

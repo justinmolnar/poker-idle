@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Story Editor — poker-idle</title>
+<!--
+  Standalone reader/editor for data/story.lua: every beat the House plays,
+  listed by what triggers it, with its lines as panels you can rewrite,
+  reorder, delete and add. Beats can be marked for deletion or created.
+
+  HOW TO USE: open this file in Chrome/Edge (file:// is fine), click
+  "Open project folder" and pick the poker-idle repo root. The tool parses
+  data/story.lua live.
+
+  WRITE BOUNDARY: this tool writes NOTHING in the repo. Edits stage in the
+  browser (localStorage) and leave only via "Export edits" as a JSON change
+  list (from/to per line, notes for trigger and field changes) handed to
+  Claude to apply to data/story.lua and docs/house-script.md by hand.
+-->
+<style>
+:root {
+  --bg: #1E1A17; --panel: #26211C; --card: #2E2822; --card-hi: #383026;
+  --border: #453B31; --border-hi: #6B5B49;
+  --fg: #EBE1D6; --muted: #9C8F82; --faint: #6B6055;
+  --gold: #EDBF4D; --gold-dim: #856624;
+  --good: #73D973; --warn: #F2B333; --err: #F25252; --blue: #73A6D9;
+  --mono: Consolas, "Cascadia Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+  font: 13px/1.45 "Segoe UI", system-ui, sans-serif; height: 100%; }
+button { font: inherit; color: var(--fg); background: var(--card);
+  border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+button:hover { background: var(--card-hi); border-color: var(--border-hi); }
+button.primary { background: #4A3B1E; border-color: var(--gold-dim); color: var(--gold); }
+button.primary:hover { background: #5C4A26; }
+button.danger { color: var(--err); }
+button.small { padding: 2px 7px; font-size: 11px; }
+button:disabled { opacity: .4; cursor: default; }
+input[type=text], input[type=search], select, textarea {
+  font: inherit; color: var(--fg); background: #191512; border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 8px; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--gold-dim); }
+textarea { width: 100%; resize: vertical; font-family: inherit; line-height: 1.5; }
+.hidden { display: none !important; }
+.mono { font-family: var(--mono); }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+
+/* ── Header + nav ── */
+#header { display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 40; }
+#header h1 { font-size: 15px; margin: 0; color: var(--gold); font-weight: 600; }
+#header .spacer { flex: 1; }
+.tools-nav { display: inline-flex; gap: 2px; margin-left: 6px; }
+.tools-nav a { color: var(--muted); text-decoration: none; font-size: 12px;
+  padding: 3px 9px; border-radius: 4px; border: 1px solid transparent; }
+.tools-nav a:hover { color: var(--fg); border-color: var(--border); }
+.tools-nav a.current { color: var(--gold); border-color: var(--gold-dim); }
+#stage-pill { font-size: 11px; padding: 2px 10px; border-radius: 10px;
+  border: 1px solid var(--border); color: var(--muted); }
+#stage-pill.dirty { color: var(--warn); border-color: #4A3E1E; }
+#disk-pill { font-size: 11px; color: var(--faint); }
+#disk-pill.ok { color: var(--good); }
+#disk-pill.bad { color: var(--err); }
+#alert-bar { position: fixed; top: 46px; left: 0; right: 0; z-index: 50; background: #4A1E1E;
+  color: #fff; padding: 8px 14px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid var(--err); }
+#alert-bar span { flex: 1; }
+
+/* ── Picker ── */
+#picker-zone { margin: 40px auto; max-width: 620px; text-align: center;
+  border: 2px dashed var(--border); border-radius: 10px; padding: 40px 30px;
+  background: var(--panel); }
+#picker-zone.dragover { border-color: var(--gold); background: #2E2820; }
+#picker-zone h2 { margin-top: 0; color: var(--gold); }
+#picker-zone .or { margin: 14px 0 10px; color: var(--faint); }
+#picker-err { color: var(--err); margin-top: 12px; white-space: pre-wrap; }
+#reopen-row { margin-bottom: 18px; }
+
+/* ── Two columns ── */
+#main { display: none; height: calc(100vh - 46px); }
+#main.on { display: grid; grid-template-columns: 380px 1fr; }
+#left { border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  min-height: 0; background: var(--panel); }
+#left-tools { padding: 8px 10px; display: flex; gap: 6px; border-bottom: 1px solid var(--border); }
+#left-tools input { flex: 1; min-width: 0; }
+#beat-list { overflow-y: auto; flex: 1; min-height: 0; }
+#left-foot { padding: 8px 10px; border-top: 1px solid var(--border); display: flex; gap: 6px; align-items: center; }
+.beat-row { padding: 8px 10px 8px 12px; border-bottom: 1px solid #2a2420; cursor: pointer;
+  border-left: 4px solid transparent; }
+.beat-row:hover { background: var(--card); }
+.beat-row.sel { background: var(--card-hi); }
+.beat-row.edited { border-left-color: var(--warn); }
+.beat-row.new { border-left-color: var(--good); }
+.beat-row.delete { border-left-color: var(--err); }
+.beat-row.delete .prose { text-decoration: line-through; color: var(--muted); }
+.beat-row .prose { font-weight: 600; }
+.beat-row .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.beat-row .sub .n { color: var(--faint); }
+.list-head { padding: 6px 12px; font-size: 11px; color: var(--faint); text-transform: uppercase;
+  letter-spacing: .06em; background: #1b1714; border-bottom: 1px solid #2a2420; }
+
+#right { overflow-y: auto; min-height: 0; padding: 16px 22px 120px; }
+#right h2 { margin: 0; font-size: 18px; color: var(--gold); }
+.beat-head { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: start;
+  padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.beat-head .meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.beat-head .btns { display: flex; gap: 6px; }
+.raw { font-family: var(--mono); font-size: 12px; background: #191512; border: 1px solid var(--border);
+  border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; color: var(--muted); }
+.field-label { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em;
+  margin: 12px 0 4px; }
+.note { min-height: 34px; }
+
+.line { background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px 12px; margin-bottom: 10px; }
+.line.deleted { opacity: .55; border-color: #4A1E1E; }
+.line.deleted textarea { text-decoration: line-through; }
+.line.new { border-color: #2E4A2E; }
+.line.changed { border-color: var(--gold-dim); }
+.line-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.line-top .num { font-family: var(--mono); color: var(--gold); min-width: 26px; }
+.line-top .spacer { flex: 1; }
+.line textarea { min-height: 54px; }
+.line-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.chip { font-size: 11px; font-family: var(--mono); padding: 1px 7px; border-radius: 10px;
+  border: 1px solid var(--border); color: var(--muted); background: #221d19; }
+.chip.force { color: var(--warn); border-color: #4A3E1E; }
+.chip.wait { color: var(--blue); }
+.warnchip { font-size: 11px; color: var(--err); }
+.preview { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.preview .tok { color: var(--gold); font-family: var(--mono); }
+.insert-row { text-align: center; margin: -4px 0 10px; }
+.insert-row button { font-size: 11px; color: var(--faint); border-style: dashed; }
+.insert-row button:hover { color: var(--fg); }
+
+#rules { position: fixed; right: 0; bottom: 0; left: 380px; background: #191512;
+  border-top: 1px solid var(--border); padding: 6px 22px; font-size: 11px; color: var(--muted);
+  display: none; }
+#main.on ~ #rules { display: block; }
+#rules b { color: var(--gold); font-weight: 600; }
+.empty { color: var(--faint); padding: 40px; text-align: center; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>Story Editor</h1>
+  <nav class="tools-nav">
+    <a href="index.html">Tools</a>
+    <a href="catalog_designer.html">Catalog</a>
+    <a href="story_editor.html" class="current">Story</a>
+    <a href="hand_analytics.html">Analytics</a>
+  </nav>
+  <span id="hdr-sub" class="muted"></span>
+  <span class="spacer"></span>
+  <span id="disk-pill" title="The staged set is also written to this file on every save; Import it to restore.">no disk copy (pick the folder with the Open button to enable)</span>
+  <span id="stage-pill">nothing staged</span>
+  <button id="btn-undo" title="Undo the last structural change (delete, move, insert, mark, reset, import). Ctrl+Z outside a text box.">Undo</button>
+  <button id="btn-import">Import…</button>
+  <button id="btn-reset" class="danger">Reset staged</button>
+  <button id="btn-export" class="primary">Export edits</button>
+  <input type="file" id="import-input" accept=".json" class="hidden">
+</div>
+
+<div id="picker-zone">
+  <h2>Open the poker-idle project</h2>
+  <div id="reopen-row" class="hidden"><button id="btn-reopen" class="primary"></button></div>
+  <button id="btn-pick" class="primary">Open project folder</button>
+  <div class="or">— or drag the project folder here —</div>
+  <input type="file" id="dir-input" webkitdirectory class="hidden">
+  <button id="btn-pick-ro">Pick folder (file input)</button>
+  <div id="picker-err"></div>
+  <p class="faint" style="margin-top:22px">Reads data/story.lua. Writes nothing: edits stage in
+  the browser and leave as a JSON change list for Claude to apply.</p>
+</div>
+
+<div id="main">
+  <div id="left">
+    <div id="left-tools">
+      <input type="search" id="f-search" placeholder="filter: trigger, id, text…">
+      <select id="f-screen"><option value="">all screens</option></select>
+    </div>
+    <div id="beat-list"></div>
+    <div id="left-foot">
+      <button id="btn-new" class="primary">+ New beat</button>
+      <span id="f-count" class="faint"></span>
+    </div>
+  </div>
+  <div id="right"><div class="empty">Pick a beat.</div></div>
+</div>
+<div id="rules"><b>Copy rules</b> · no em-dashes · never the word "chips" (use {chip}) · cut filler ·
+  reveal rule: nothing before a runout win names a runout, a cheat, a card count, or the second hand ·
+  once-only phrases: princess, I'm always here, We'll fix that, It's what I do, one always lands</div>
+
+<script>
+/* ══════════════ helpers ══════════════ */
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g,
+  c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function el(tag, attrs, html) {
+  const e = document.createElement(tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else e.setAttribute(k, v);
+  }
+  if (html != null) e.innerHTML = html;
+  return e;
+}
+function nowIso() { return new Date().toISOString(); }
+function lsGet(key, dflt) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : dflt; }
+  catch (e) { return dflt; }
+}
+function lsSet(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
+function download(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+function idb() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open("story_editor", 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore("kv");
+    rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+  });
+}
+async function idbGet(key) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const rq = db.transaction("kv").objectStore("kv").get(key);
+    rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+  });
+}
+async function idbSet(key, val) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const rq = db.transaction("kv", "readwrite").objectStore("kv").put(val, key);
+    rq.onsuccess = () => res(); rq.onerror = () => rej(rq.error);
+  });
+}
+function autosize(ta) { ta.style.height = "auto"; ta.style.height = (ta.scrollHeight + 2) + "px"; }
+
+/* ══════════════ Lua literal parser (from catalog_designer, plus expressions) ══════════════ */
+function tokenizeLua(src) {
+  const toks = []; let i = 0, line = 1; const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    if (c === "\n") { line++; i++; continue; }
+    if (c === " " || c === "\t" || c === "\r") { i++; continue; }
+    if (c === "-" && src[i + 1] === "-") {
+      if (src[i + 2] === "[" && src[i + 3] === "[") {
+        const end = src.indexOf("]]", i + 4);
+        const seg = src.slice(i, end < 0 ? n : end + 2);
+        line += (seg.match(/\n/g) || []).length;
+        i = end < 0 ? n : end + 2; continue;
+      }
+      const nl = src.indexOf("\n", i);
+      i = nl < 0 ? n : nl; continue;
+    }
+    if (c === '"' || c === "'") {
+      let j = i + 1, out = "";
+      while (j < n && src[j] !== c) {
+        if (src[j] === "\\") { const e = src[j + 1]; out += e === "n" ? "\n" : e === "t" ? "\t" : e; j += 2; }
+        else { out += src[j]; j++; }
+      }
+      toks.push({ t: "str", v: out, line }); i = j + 1; continue;
+    }
+    if (c === "[" && src[i + 1] === "[") {
+      const end = src.indexOf("]]", i + 2);
+      const body = src.slice(i + 2, end < 0 ? n : end);
+      line += (body.match(/\n/g) || []).length;
+      toks.push({ t: "str", v: body, line }); i = end < 0 ? n : end + 2; continue;
+    }
+    if ("{}[]=,;.".includes(c) && !(c === "." && /[0-9]/.test(src[i + 1] || ""))) {
+      toks.push({ t: "punct", v: c, line }); i++; continue;
+    }
+    // An arithmetic operator between an expression and a number ("X - 1"):
+    // kept for the expression capture in parseValue. A "-" glued to a digit
+    // is a negative number (below).
+    if ("+*/".includes(c) || (c === "-" && !/[0-9.]/.test(src[i + 1] || ""))) {
+      toks.push({ t: "op", v: c, line }); i++; continue;
+    }
+    if (/[0-9]/.test(c) || (c === "-" && /[0-9.]/.test(src[i + 1] || "")) ||
+        (c === "." && /[0-9]/.test(src[i + 1] || ""))) {
+      let j = i + 1;
+      while (j < n && /[0-9.eExX+\-a-fA-F]/.test(src[j])) {
+        if ((src[j] === "+" || src[j] === "-") && !/[eE]/.test(src[j - 1])) break;
+        j++;
+      }
+      toks.push({ t: "num", v: Number(src.slice(i, j)), line }); i = j; continue;
+    }
+    if (/[A-Za-z_]/.test(c)) {
+      let j = i + 1;
+      while (j < n && /[A-Za-z0-9_]/.test(src[j])) j++;
+      const w = src.slice(i, j);
+      if (w === "true" || w === "false") toks.push({ t: "bool", v: w === "true", line });
+      else if (w === "nil") toks.push({ t: "nil", v: null, line });
+      else toks.push({ t: "ident", v: w, line });
+      i = j; continue;
+    }
+    throw new Error(`unexpected char '${c}' at line ${line}`);
+  }
+  return toks;
+}
+function parseLua(src) {
+  const toks = tokenizeLua(src); let p = 0;
+  const peek = () => toks[p]; const next = () => toks[p++];
+  const err = (msg) => { const t = toks[p]; throw new Error(msg + (t ? ` at line ${t.line}` : " at EOF")); };
+  function parseValue() {
+    const t = peek();
+    if (!t) err("unexpected EOF");
+    if (t.t === "punct" && t.v === "{") return parseTable();
+    if (t.t === "str" || t.t === "num" || t.t === "bool" || t.t === "nil") { next(); return t.v; }
+    if (t.t === "ident") {
+      // An expression the game evaluates (Constants.X.Y): kept as text.
+      const chain = () => {
+        let s = next().v;
+        while (peek() && peek().t === "punct" && peek().v === "." && toks[p + 1] && toks[p + 1].t === "ident") {
+          next(); s += "." + next().v;
+        }
+        return s;
+      };
+      let s = chain();
+      while (peek() && peek().t === "op") {
+        const op = next().v; const t2 = peek();
+        if (t2 && t2.t === "num") { next(); s += ` ${op} ${t2.v}`; }
+        else if (t2 && t2.t === "ident") { s += ` ${op} ${chain()}`; }
+        else err("bad expression");
+      }
+      return { $expr: s };
+    }
+    err(`unexpected token '${t.v}'`);
+  }
+  function parseTable() {
+    const open = next();
+    if (!(open.t === "punct" && open.v === "{")) err("expected {");
+    const arr = []; const obj = {}; let hasHash = false;
+    for (;;) {
+      let t = peek();
+      if (!t) err("unclosed table");
+      if (t.t === "punct" && t.v === "}") { next(); break; }
+      if (t.t === "punct" && (t.v === "," || t.v === ";")) { next(); continue; }
+      if (t.t === "ident" && toks[p + 1] && toks[p + 1].t === "punct" && toks[p + 1].v === "=") {
+        const key = next().v; next();
+        obj[key] = parseValue(); hasHash = true;
+      } else if (t.t === "punct" && t.v === "[") {
+        next(); const key = parseValue(); const close = next();
+        if (!(close.t === "punct" && close.v === "]")) err("expected ]");
+        const eq = next(); if (!(eq.t === "punct" && eq.v === "=")) err("expected =");
+        obj[key] = parseValue(); hasHash = true;
+      } else {
+        arr.push(parseValue());
+      }
+    }
+    if (hasHash) {
+      if (arr.length) arr.forEach((v, i) => { obj[i + 1] = v; });
+      Object.defineProperty(obj, "__line", { value: open.line, enumerable: false });
+      return obj;
+    }
+    return arr;
+  }
+  return { parseValue };
+}
+// The `return {` table at the end of the module, as source text.
+function returnTableSource(src) {
+  const at = src.lastIndexOf("\nreturn {");
+  if (at < 0) throw new Error("no `return {` found");
+  return src.slice(at + "\nreturn ".length);
+}
+
+/* ══════════════ Lua printing (display + export of conditions) ══════════════ */
+function luaStr(s) { return '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n") + '"'; }
+function luaPrint(v, indent) {
+  indent = indent || "";
+  if (v === null || v === undefined) return "nil";
+  if (typeof v === "string") return luaStr(v);
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (v.$expr) return v.$expr;
+  if (Array.isArray(v)) return "{ " + v.map(x => luaPrint(x, indent)).join(", ") + " }";
+  const parts = [];
+  const arrKeys = Object.keys(v).filter(k => /^\d+$/.test(k)).sort((a, b) => a - b);
+  for (const k of Object.keys(v)) if (!/^\d+$/.test(k)) parts.push(`${k} = ${luaPrint(v[k], indent)}`);
+  for (const k of arrKeys) parts.push(luaPrint(v[k], indent));
+  return "{ " + parts.join(", ") + " }";
+}
+
+/* ══════════════ Trigger prose (models/hint_rules.lua kinds) ══════════════ */
+function rangeProse(label, c) {
+  const parts = [];
+  if (c.min != null && c.max != null && c.min === c.max) return `${label} = ${val(c.min)}`;
+  if (c.min != null) parts.push(`${label} ≥ ${val(c.min)}`);
+  if (c.max != null) parts.push(`${label} ≤ ${val(c.max)}`);
+  return parts.join(", ") || label;
+}
+function val(v) { return (v && v.$expr) ? v.$expr.split(".").pop() : String(v); }
+const FLAG_PROSE = {
+  hu_unlocked: "the second buy-in was in hand", six_max_unlocked: "6-max unlocked",
+  act2_unlocked: "first shove hand won (Act 2)", act3_unlocked: "both shove hands won (Act 3)",
+  ultra_unlocked: "the Ultra key bought", has_shoved: "has shoved", gauntlet_cleared: "the gauntlet cleared",
+  any_table_busted: "any table busted", focus_overloaded: "focus overloaded", can_quick_reset: "can quick-reset",
+  catalog_open: "the catalog is open", deck_flyer_landed: "the deck flyer has landed",
+  deck_flyer_open: "the deck flyer is open", shove_pot_landed: "the shove's pile has landed",
+};
+const COUNT_PROSE = {
+  hands_played: "hands played", tables_open: "tables open", bankroll: "bankroll", chips_this_run: "{chip} this run",
+  run_upgrades_owned: "run upgrades owned", total_heaters: "heaters ever", total_busts: "busts ever",
+  total_rebuys: "rebuys ever", total_denied_stacks: "denied stacks", total_stack_losses: "stack losses",
+  total_big_outcomes: "big outcomes", total_chips_banked: "{chip} banked ever", total_cursor_deals: "cursor deals",
+  hands_since_last_bank: "hands since the last bank", highest_stake_idx: "highest stake index", shoves: "shoves",
+  anti_chips: "anti-chips", anti_chips_this_run: "anti-chips this run", cheat_dealt: "cheat cards on the felt",
+  tied_up: "money tied up", corrupted_count: "corrupted items", decks_unlocked_count: "decks unlocked",
+};
+function condProse(c) {
+  if (!c || typeof c !== "object") return String(c);
+  const k = c.kind;
+  const subs = Object.keys(c).filter(x => /^\d+$/.test(x)).map(x => c[x]);
+  if (k === "all") return subs.map(condProse).join(" and ");
+  if (k === "any") return subs.map(condProse).join(" or ");
+  if (k === "not") return "not (" + subs.map(condProse).join(", ") + ")";
+  if (FLAG_PROSE[k]) return FLAG_PROSE[k];
+  if (COUNT_PROSE[k]) return rangeProse(COUNT_PROSE[k], c);
+  switch (k) {
+    case "owns_item": return `owns ${c.id}`;
+    case "can_afford_run_upgrade": return `can afford ${c.id}${c.safe ? " (safe)" : ""}`;
+    case "can_afford_stake": return `can afford ${c.stake}`;
+    case "gtype_table_open": return `a ${c.gtype} table open`;
+    case "shove_phase": return `shove phase ${c.phase}`;
+    case "shove_beat": return `shove beat ${c.id}`;
+    case "first_hand": return `the first hand ${c.result}`;
+    case "screen": return `on the ${c.name || c.screen} screen`;
+    case "hovering": return `hovering ${Array.isArray(c.anchor) ? c.anchor.join("/") : c.anchor}`;
+    default: return luaPrint(c);
+  }
+}
+
+/* ══════════════ state ══════════════ */
+const S = {
+  files: new Map(), rootName: "", dirHandle: null,
+  beats: [],          // [{id, screen, trigger, lines:[{text, anchor,...}], raw, order}]
+  shove: {},          // key -> {text, once}
+  shoveOrder: [],
+  edits: { beats: {}, shove: {}, newOrder: [] },
+  // edits.beats[id] = { status?: "delete"|"new", screen?, trigger_note?, insert_after?, work? }
+  // work = [{ kind:"orig", index, text, note, deleted }, { kind:"new", text, note }]
+  sel: null, filter: "", screen: "",
+};
+function lsKey() { return "story_editor:" + (S.rootName || "project"); }
+// ── History: a snapshot of the whole staged set before every structural
+// change (delete, move, insert, remove, mark, reset, import, new beat) and
+// once a minute while typing. Undo pops one. Nothing typed is ever the only
+// copy for more than a minute, and no button can throw away text silently.
+const HISTORY_MAX = 80;
+function histKey() { return lsKey() + ":history"; }
+function snapshot(reason) {
+  const h = lsGet(histKey(), []);
+  const cur = JSON.stringify(S.edits);
+  if (h.length && h[h.length - 1].edits === cur) return;
+  h.push({ at: nowIso(), reason, edits: cur });
+  while (h.length > HISTORY_MAX) h.shift();
+  lsSet(histKey(), h);
+  updateUndo();
+}
+function undo() {
+  const h = lsGet(histKey(), []);
+  if (!h.length) return;
+  const cur = JSON.stringify(S.edits);
+  let entry = h.pop();
+  // The top entry may equal the present state (snapshot taken, nothing changed since); skip it.
+  if (entry.edits === cur && h.length) entry = h.pop();
+  lsSet(histKey(), h);
+  S.edits = JSON.parse(entry.edits);
+  if (!S.edits.newOrder) S.edits.newOrder = [];
+  persist(); renderList(); renderDetail();
+}
+function updateUndo() {
+  const h = lsGet(histKey(), []);
+  const b = $("#btn-undo"); if (!b) return;
+  b.disabled = !h.length;
+  b.textContent = h.length ? `Undo (${h.length})` : "Undo";
+}
+let _typingSnap = 0;
+function noteTyping() {
+  const now = Date.now();
+  if (now - _typingSnap > 60000) { _typingSnap = now; snapshot("typing"); }
+}
+function persist() {
+  lsSet(lsKey(), { version: 1, edits: S.edits });
+  const n = stagedCount();
+  const pill = $("#stage-pill");
+  pill.textContent = n ? `${n} beat${n === 1 ? "" : "s"} staged` : "nothing staged";
+  pill.classList.toggle("dirty", n > 0);
+  updateUndo();
+  writeStagedSoon();
+}
+// ── On-disk copy. With a writable folder handle the staged set is also
+// written to tools/story_staged.json (the same shape Import accepts), so
+// the browser is never the only place the work lives.
+const STAGED_FILE = "story_staged.json";
+let _writeT = null, _writeFail = false;
+function writeStagedSoon() { clearTimeout(_writeT); _writeT = setTimeout(writeStaged, 800); }
+async function writeStaged() {
+  if (!S.dirHandle) return;
+  try {
+    const tools = await S.dirHandle.getDirectoryHandle("tools", { create: true });
+    const fh = await tools.getFileHandle(STAGED_FILE, { create: true });
+    const w = await fh.createWritable();
+    await w.write(JSON.stringify({ version: 1, saved_at: nowIso(), edits: S.edits }, null, 1));
+    await w.close();
+    _writeFail = false;
+    $("#disk-pill").textContent = "on disk: tools/" + STAGED_FILE;
+    $("#disk-pill").className = "ok";
+  } catch (e) {
+    _writeFail = true;
+    $("#disk-pill").textContent = "disk copy failed: " + (e.message || e);
+    $("#disk-pill").className = "bad";
+  }
+}
+// If the browser has nothing staged but the disk file does, take the file.
+async function readStagedFromDisk() {
+  if (!S.dirHandle) return null;
+  try {
+    const tools = await S.dirHandle.getDirectoryHandle("tools");
+    const fh = await tools.getFileHandle(STAGED_FILE);
+    const txt = await (await fh.getFile()).text();
+    const data = JSON.parse(txt);
+    return data && data.edits ? data : null;
+  } catch (e) { return null; }
+}
+function stagedCount() {
+  let n = 0;
+  for (const id of Object.keys(S.edits.beats)) if (beatChanged(id)) n++;
+  if (Object.keys(S.edits.shove).some(k => S.edits.shove[k] !== (S.shove[k] || {}).text)) n++;
+  return n;
+}
+
+/* ══════════════ ingress ══════════════ */
+const FS_OK = "showDirectoryPicker" in window;
+if (!FS_OK) $("#btn-pick").classList.add("hidden");
+const SKIP_DIRS = new Set([".git", "node_modules", ".claude", "build-tools", "assets"]);
+async function readText(relpath) {
+  const h = S.files.get(relpath); if (!h) return null;
+  const file = h.getFile ? await h.getFile() : h; return file.text();
+}
+async function walkFsDir(dirHandle, prefix, map, depth) {
+  if (depth > 6) return;
+  for await (const [name, h] of dirHandle.entries()) {
+    if (h.kind === "directory") {
+      if (SKIP_DIRS.has(name) || name.startsWith(".")) continue;
+      await walkFsDir(h, prefix + name + "/", map, depth + 1);
+    } else map.set(prefix + name, h);
+  }
+}
+function walkEntry(entry, prefix, map) {
+  return new Promise((resolve) => {
+    if (entry.isFile) entry.file(f => { map.set(prefix + entry.name, f); resolve(); }, resolve);
+    else if (entry.isDirectory) {
+      if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) return resolve();
+      const rd = entry.createReader(); const all = [];
+      const readBatch = () => rd.readEntries(async (ents) => {
+        if (!ents.length) { for (const e of all) await walkEntry(e, prefix + entry.name + "/", map); resolve(); }
+        else { all.push(...ents); readBatch(); }
+      }, resolve);
+      readBatch();
+    } else resolve();
+  });
+}
+function rerootFiles(map) {
+  if (map.has("data/story.lua")) return map;
+  let root = null;
+  for (const key of map.keys()) { const m = key.match(/^([^/]+)\/data\/story\.lua$/); if (m) { root = m[1] + "/"; break; } }
+  if (!root) return map;
+  const out = new Map();
+  for (const [k, v] of map) if (k.startsWith(root)) out.set(k.slice(root.length), v);
+  return out;
+}
+function showPickerError(e) { $("#picker-err").textContent = String(e.message || e); }
+async function openViaPicker() {
+  try { const handle = await window.showDirectoryPicker({ id: "poker-idle", mode: "readwrite" }); await openFromHandle(handle); }
+  catch (e) { if (e.name !== "AbortError") showPickerError(e); }
+}
+async function openFromHandle(handle) {
+  const map = new Map(); await walkFsDir(handle, "", map, 0);
+  const rooted = rerootFiles(map);
+  if (!rooted.has("data/story.lua")) return showPickerError(new Error("data/story.lua not found in the picked folder (or one level below it)"));
+  S.dirHandle = handle; S.files = rooted; S.rootName = handle.name;
+  try { await idbSet("projectDir", handle); } catch (e) {}
+  await loadAll();
+}
+async function openMap(map, name) {
+  const rooted = rerootFiles(map);
+  if (!rooted.has("data/story.lua")) return showPickerError(new Error("data/story.lua not found in the dropped folder"));
+  S.files = rooted; S.rootName = name || "project";
+  await loadAll();
+}
+
+async function loadAll() {
+  const src = await readText("data/story.lua");
+  if (!src) return showPickerError(new Error("could not read data/story.lua"));
+  let root;
+  try { root = parseLua(returnTableSource(src)).parseValue(); }
+  catch (e) { return showPickerError(new Error("story.lua parse failed: " + e.message)); }
+  S.beats = (root.beats || []).map((b, i) => ({
+    id: b.id, screen: b.screen, trigger: b.trigger, raw: b, order: i,
+    line: b.__line,
+    lines: (b.lines || []).map(l => ({ ...l })),
+  }));
+  S.shove = {}; S.shoveOrder = [];
+  for (const [k, v] of Object.entries(root.shove || {})) { S.shove[k] = v; S.shoveOrder.push(k); }
+  const saved = lsGet(lsKey(), null);
+  S.edits = (saved && saved.edits) || null;
+  if (!S.edits || (!Object.keys(S.edits.beats || {}).length && !Object.keys(S.edits.shove || {}).length)) {
+    const disk = await readStagedFromDisk();
+    if (disk) S.edits = disk.edits;
+  }
+  S.edits = S.edits || { beats: {}, shove: {}, newOrder: [] };
+  if (!S.edits.newOrder) S.edits.newOrder = [];
+  $("#hdr-sub").textContent = `${S.beats.length} beats · ${S.shoveOrder.length} keyed shove lines · data/story.lua`;
+  $("#picker-zone").classList.add("hidden");
+  $("#main").classList.add("on");
+  const screens = [...new Set(S.beats.map(b => b.screen))];
+  const sel = $("#f-screen");
+  for (const s of screens) sel.appendChild(el("option", { value: s }, esc(s)));
+  persist();
+  renderList();
+}
+
+/* ══════════════ edit model ══════════════ */
+function beatById(id) { return S.beats.find(b => b.id === id); }
+function editOf(id, create) {
+  let e = S.edits.beats[id];
+  if (!e && create) { e = S.edits.beats[id] = {}; }
+  return e;
+}
+// The working line list for a beat: staged if present, else the original.
+function workOf(id) {
+  const e = editOf(id);
+  if (e && e.work) return e.work;
+  const b = beatById(id);
+  if (!b) return [];
+  return b.lines.map((l, i) => ({ kind: "orig", index: i + 1, text: l.text || "", note: "", deleted: false }));
+}
+let _nid = 0;
+function newId() { return "n" + Date.now().toString(36) + (_nid++).toString(36); }
+// ── The guard. A structural change (delete, move, insert, remove) may add,
+// drop or reorder lines; it may NEVER change the text or note of a line
+// that survives it. If it would, it is refused and the reason is shown,
+// because that is exactly how two hours of copy went missing once.
+function textDrift(before, after) {
+  const key = w => w.kind === "orig" ? "o" + w.index : (w.nid ? "n" + w.nid : null);
+  const prev = new Map();
+  for (const w of before) { const k = key(w); if (k) prev.set(k, w); }
+  const drift = [];
+  after.forEach((w, i) => {
+    const k = key(w); const p = k && prev.get(k);
+    if (!p) return;
+    if ((p.text || "") !== (w.text || "") || (p.note || "") !== (w.note || ""))
+      drift.push(`line ${i + 1}`);
+  });
+  return drift;
+}
+function setWork(id, work) {
+  const before = workOf(id);
+  const drift = textDrift(before, work);
+  if (drift.length) {
+    showAlert(`Refused: that change would have altered the text of ${drift.join(", ")}. Nothing was changed. Reload the page and try again; if it repeats, report it.`);
+    return false;
+  }
+  snapshot("lines"); editOf(id, true).work = work; persist();
+  return true;
+}
+function showAlert(msg) {
+  let b = $("#alert-bar");
+  if (!b) { b = el("div", { id: "alert-bar" }); document.body.appendChild(b); }
+  b.innerHTML = `<span>${esc(msg)}</span><button class="small" onclick="this.parentNode.remove()">dismiss</button>`;
+}
+function beatChanged(id) {
+  const e = S.edits.beats[id]; if (!e) return false;
+  if (e.status === "delete" || e.status === "new") return true;
+  if (e.trigger_note && e.trigger_note.trim()) return true;
+  const b = beatById(id);
+  if (e.screen && b && e.screen !== b.screen) return true;
+  if (!e.work) return false;
+  const orig = b ? b.lines : [];
+  if (e.work.length !== orig.length) return true;
+  return e.work.some((w, i) => w.kind !== "orig" || w.index !== i + 1 || w.deleted
+    || (w.text || "") !== (orig[i].text || "") || (w.note && w.note.trim()));
+}
+function beatStatus(id) {
+  const e = S.edits.beats[id];
+  if (!e) return "";
+  if (e.status === "delete") return "delete";
+  if (e.status === "new") return "new";
+  return beatChanged(id) ? "edited" : "";
+}
+// Script order with new beats slotted after their insert_after.
+function orderedIds() {
+  const ids = S.beats.map(b => b.id);
+  for (const nid of S.edits.newOrder) {
+    const e = S.edits.beats[nid]; if (!e || e.status !== "new") continue;
+    const at = ids.indexOf(e.insert_after);
+    ids.splice(at < 0 ? ids.length : at + 1, 0, nid);
+  }
+  return ids;
+}
+function beatView(id) {
+  const b = beatById(id); const e = S.edits.beats[id] || {};
+  if (b) return { id, screen: e.screen || b.screen, trigger: b.trigger, isNew: false, prose: condProse(b.trigger), line: b.line };
+  return { id, screen: e.screen || "grind", trigger: null, isNew: true, prose: e.trigger_note || "(new beat: describe the trigger)" };
+}
+
+/* ══════════════ left column ══════════════ */
+function renderList() {
+  const list = $("#beat-list"); list.innerHTML = "";
+  const q = S.filter.trim().toLowerCase();
+  let shown = 0;
+  const matches = (v) => {
+    if (S.screen && v.screen !== S.screen) return false;
+    if (!q) return true;
+    const hay = [v.id, v.screen, v.prose, ...workOf(v.id).map(w => w.text)].join(" ").toLowerCase();
+    return hay.includes(q);
+  };
+  list.appendChild(el("div", { class: "list-head" }, "Beats, in script order · listed by trigger"));
+  for (const id of orderedIds()) {
+    const v = beatView(id);
+    if (!matches(v)) continue;
+    shown++;
+    const st = beatStatus(id);
+    const row = el("div", { class: "beat-row " + st + (S.sel === id ? " sel" : "") });
+    row.innerHTML = `<div class="prose">${esc(v.prose)}</div>
+      <div class="sub"><span class="n">${v.line ? "L" + v.line + " · " : ""}</span>${esc(id)} · ${esc(v.screen)}${st ? " · " + st : ""}</div>`;
+    row.addEventListener("click", () => { S.sel = id; renderList(); renderDetail(); });
+    list.appendChild(row);
+  }
+  list.appendChild(el("div", { class: "list-head" }, "Keyed lines"));
+  const srow = el("div", { class: "beat-row" + (S.sel === "$shove" ? " sel" : "") + (shoveChanged() ? " edited" : "") });
+  srow.innerHTML = `<div class="prose">Shove lines, keyed</div><div class="sub">scheduled by the shove's own timeline · ${S.shoveOrder.length} lines</div>`;
+  srow.addEventListener("click", () => { S.sel = "$shove"; renderList(); renderDetail(); });
+  list.appendChild(srow);
+  $("#f-count").textContent = `${shown} of ${orderedIds().length}`;
+}
+function shoveChanged() { return Object.keys(S.edits.shove).some(k => S.edits.shove[k] !== (S.shove[k] || {}).text); }
+
+/* ══════════════ right column ══════════════ */
+const LINE_FIELDS = ["anchor", "hold", "wait", "show", "force", "delay", "font"];
+function fieldChips(l) {
+  if (!l) return "";
+  return LINE_FIELDS.filter(f => l[f] !== undefined).map(f => {
+    let v = l[f];
+    if (f === "wait" || f === "show") v = condProse(v);
+    else if (Array.isArray(v)) v = v.join(", ");
+    else if (typeof v === "object") v = luaPrint(v);
+    const cls = f === "force" ? " force" : (f === "wait" ? " wait" : "");
+    return `<span class="chip${cls}">${esc(f)}${v === true ? "" : ": " + esc(v)}</span>`;
+  }).join(" ");
+}
+function copyWarnings(text) {
+  const w = [];
+  if (/—|–/.test(text)) w.push("em-dash");
+  if (/\bchips?\b/i.test(text.replace(/\{[^}]*\}/g, ""))) w.push('the word "chip(s)"');
+  if (/\b(genuinely|basically|actually|really|just)\b/i.test(text)) w.push("filler");
+  return w;
+}
+function tokenPreview(text) {
+  const toks = text.match(/\{[^}]*\}/g);
+  if (!toks) return "";
+  return `<div class="preview">tokens: ${toks.map(t => `<span class="tok">${esc(t)}</span>`).join(" ")}</div>`;
+}
+function wordCount(t) { return (t.trim().match(/\S+/g) || []).length; }
+
+function renderDetail() {
+  const right = $("#right"); right.innerHTML = "";
+  if (!S.sel) { right.innerHTML = '<div class="empty">Pick a beat.</div>'; return; }
+  if (S.sel === "$shove") return renderShove(right);
+  const id = S.sel; const v = beatView(id); const b = beatById(id); const e = editOf(id, true);
+  const st = beatStatus(id);
+
+  // ── header ──
+  const head = el("div", { class: "beat-head" });
+  const left = el("div");
+  if (v.isNew) {
+    left.innerHTML = `<h2><input type="text" id="new-id" value="${esc(id)}" class="mono" style="font-size:16px;width:320px"></h2>`;
+  } else {
+    left.innerHTML = `<h2>${esc(id)}</h2>`;
+  }
+  const meta = el("div", { class: "meta" });
+  const scr = el("select", { id: "screen-sel" });
+  for (const s of ["grind", "shove", "room", "credits"]) {
+    const o = el("option", { value: s }, s); if (s === v.screen) o.selected = true; scr.appendChild(o);
+  }
+  scr.addEventListener("change", () => { e.screen = scr.value; persist(); renderList(); });
+  meta.appendChild(el("span", { class: "muted" }, "screen"));
+  meta.appendChild(scr);
+  if (v.isNew) {
+    const after = el("select", { id: "after-sel" });
+    for (const bid of S.beats.map(x => x.id)) {
+      const o = el("option", { value: bid }, esc(bid)); if (bid === e.insert_after) o.selected = true; after.appendChild(o);
+    }
+    after.addEventListener("change", () => { e.insert_after = after.value; persist(); renderList(); });
+    meta.appendChild(el("span", { class: "muted" }, "plays after"));
+    meta.appendChild(after);
+  } else if (v.line) {
+    meta.appendChild(el("span", { class: "faint mono" }, `data/story.lua line ${v.line}`));
+  }
+  if (st) meta.appendChild(el("span", { class: "chip" }, st));
+  left.appendChild(meta);
+  head.appendChild(left);
+
+  const btns = el("div", { class: "btns" });
+  if (v.isNew) {
+    const del = el("button", { class: "danger" }, "Discard new beat");
+    del.addEventListener("click", () => {
+      if (!confirm("Discard this new beat and its lines?")) return;
+      snapshot("discard new beat");
+      delete S.edits.beats[id]; S.edits.newOrder = S.edits.newOrder.filter(x => x !== id);
+      S.sel = null; persist(); renderList(); renderDetail();
+    });
+    btns.appendChild(del);
+  } else {
+    const mark = el("button", { class: e.status === "delete" ? "" : "danger" }, e.status === "delete" ? "Unmark deletion" : "Mark for deletion");
+    mark.addEventListener("click", () => { snapshot("mark"); e.status = e.status === "delete" ? undefined : "delete"; persist(); renderList(); renderDetail(); });
+    btns.appendChild(mark);
+    const reset = el("button", {}, "Reset beat");
+    reset.addEventListener("click", () => { if (!confirm("Drop every staged change on this beat?")) return; snapshot("reset beat"); delete S.edits.beats[id]; persist(); renderList(); renderDetail(); });
+    btns.appendChild(reset);
+  }
+  head.appendChild(btns);
+  right.appendChild(head);
+
+  if (v.isNew) {
+    $("#new-id").addEventListener("change", (ev) => {
+      const nid = ev.target.value.trim().replace(/[^a-z0-9_]/gi, "_").toLowerCase();
+      if (!nid || nid === id || S.edits.beats[nid] || beatById(nid)) { ev.target.value = id; return; }
+      S.edits.beats[nid] = S.edits.beats[id]; delete S.edits.beats[id];
+      S.edits.newOrder = S.edits.newOrder.map(x => x === id ? nid : x);
+      S.sel = nid; persist(); renderList(); renderDetail();
+    });
+  }
+
+  // ── trigger ──
+  right.appendChild(el("div", { class: "field-label" }, "Trigger"));
+  if (!v.isNew) {
+    right.appendChild(el("div", {}, `<b>${esc(v.prose)}</b>`));
+    right.appendChild(el("div", { class: "raw", style: "margin-top:6px" }, esc(luaPrint(v.trigger))));
+  }
+  right.appendChild(el("div", { class: "field-label" }, v.isNew ? "Trigger, in words (required for a new beat)" : "Trigger note (how it should change, in words)"));
+  const tn = el("textarea", { class: "note", placeholder: v.isNew ? "e.g. the player owns desk_lamp" : "leave empty if the trigger is fine" });
+  tn.value = e.trigger_note || "";
+  tn.addEventListener("input", () => { noteTyping(); e.trigger_note = tn.value; autosize(tn); persist(); renderListSoft(); });
+  right.appendChild(tn); autosize(tn);
+
+  // ── lines ──
+  right.appendChild(el("div", { class: "field-label" }, "Lines"));
+  const work = workOf(id);
+  const orig = b ? b.lines : [];
+  const wrap = el("div");
+  const insertRow = (at) => {
+    const r = el("div", { class: "insert-row" });
+    const btn = el("button", {}, "+ insert line here");
+    btn.addEventListener("click", () => {
+      const w = workOf(id).slice(); w.splice(at, 0, { kind: "new", nid: newId(), text: "", note: "" });
+      setWork(id, w); renderDetail(); renderList();
+      const tas = $$("#right .line textarea.text"); if (tas[at]) tas[at].focus();
+    });
+    r.appendChild(btn); return r;
+  };
+  wrap.appendChild(insertRow(0));
+  work.forEach((w, i) => {
+    const o = w.kind === "orig" ? orig[w.index - 1] : null;
+    const changed = w.kind === "orig" && !w.deleted && (w.text || "") !== (o.text || "");
+    const box = el("div", { class: "line" + (w.deleted ? " deleted" : "") + (w.kind === "new" ? " new" : "") + (changed ? " changed" : "") });
+    const top = el("div", { class: "line-top" });
+    top.innerHTML = `<span class="num">${i + 1}</span>
+      <span class="faint">${w.kind === "orig" ? "was line " + w.index : "new"}${changed ? " · edited" : ""}${w.deleted ? " · deleted" : ""}</span>
+      <span class="spacer"></span>`;
+    const up = el("button", { class: "small" }, "↑"); up.disabled = i === 0;
+    const dn = el("button", { class: "small" }, "↓"); dn.disabled = i === work.length - 1;
+    // Every handler reads the LIVE staged lines (workOf), never the array this
+    // panel was drawn from: typing updates the staged copy without a redraw,
+    // and a snapshot here would throw that typing away.
+    up.addEventListener("click", () => { const a = workOf(id).slice(); [a[i - 1], a[i]] = [a[i], a[i - 1]]; setWork(id, a); renderDetail(); renderList(); });
+    dn.addEventListener("click", () => { const a = workOf(id).slice(); [a[i + 1], a[i]] = [a[i], a[i + 1]]; setWork(id, a); renderDetail(); renderList(); });
+    top.appendChild(up); top.appendChild(dn);
+    if (w.kind === "orig") {
+      const del = el("button", { class: "small " + (w.deleted ? "" : "danger") }, w.deleted ? "Undo delete" : "Delete");
+      del.addEventListener("click", () => { const a = workOf(id).slice(); a[i] = { ...a[i], deleted: !a[i].deleted }; setWork(id, a); renderDetail(); renderList(); });
+      top.appendChild(del);
+      if (changed) {
+        const rv = el("button", { class: "small" }, "Revert text");
+        rv.addEventListener("click", () => { const a = workOf(id).slice(); a[i] = { ...a[i], text: o.text || "" }; setWork(id, a); renderDetail(); renderList(); });
+        top.appendChild(rv);
+      }
+    } else {
+      const del = el("button", { class: "small danger" }, "Remove");
+      del.addEventListener("click", () => { const a = workOf(id).slice(); a.splice(i, 1); setWork(id, a); renderDetail(); renderList(); });
+      top.appendChild(del);
+    }
+    box.appendChild(top);
+
+    const ta = el("textarea", { class: "text", placeholder: "what he says" });
+    ta.value = w.text || "";
+    const foot = el("div", { class: "line-foot" });
+    const refreshFoot = () => {
+      const warns = copyWarnings(ta.value);
+      foot.innerHTML = `<span class="faint">${wordCount(ta.value)} words</span> ${fieldChips(o)}` +
+        (warns.length ? ` <span class="warnchip">⚠ ${esc(warns.join(", "))}</span>` : "") +
+        tokenPreview(ta.value);
+    };
+    ta.addEventListener("input", () => {
+      noteTyping();
+      const a = workOf(id).slice(); a[i] = { ...a[i], text: ta.value }; editOf(id, true).work = a;
+      autosize(ta); refreshFoot(); persist(); renderListSoft();
+      box.classList.toggle("changed", w.kind === "orig" && (ta.value !== (o.text || "")));
+    });
+    box.appendChild(ta); autosize(ta);
+    refreshFoot(); box.appendChild(foot);
+
+    const note = el("textarea", { class: "note", placeholder: w.kind === "orig"
+      ? "field note: anchor / hold / wait / force changes, in words (optional)"
+      : "field note: where it points, what it waits on (optional)" });
+    note.value = w.note || "";
+    note.style.marginTop = "6px";
+    note.addEventListener("input", () => { noteTyping(); const a = workOf(id).slice(); a[i] = { ...a[i], note: note.value }; editOf(id, true).work = a; autosize(note); persist(); renderListSoft(); });
+    box.appendChild(note); autosize(note);
+    wrap.appendChild(box);
+    wrap.appendChild(insertRow(i + 1));
+  });
+  right.appendChild(wrap);
+}
+let _softT = null;
+function renderListSoft() { clearTimeout(_softT); _softT = setTimeout(renderList, 250); }
+
+function renderShove(right) {
+  right.appendChild(el("div", { class: "beat-head" }, `<div><h2>Shove lines, keyed</h2>
+    <div class="meta"><span class="muted">data/story.lua · shove = { … } · scheduled by views/ShoveView's timeline; \`once\` lines play one time per save</span></div></div>`));
+  for (const k of S.shoveOrder) {
+    const o = S.shove[k]; const cur = (k in S.edits.shove) ? S.edits.shove[k] : (o.text || "");
+    const changed = cur !== (o.text || "");
+    const box = el("div", { class: "line" + (changed ? " changed" : "") });
+    box.innerHTML = `<div class="line-top"><span class="num mono">${esc(k)}</span>
+      ${o.once ? '<span class="chip">once</span>' : ""}<span class="spacer"></span></div>`;
+    if (changed) {
+      const rv = el("button", { class: "small" }, "Revert"); rv.addEventListener("click", () => { delete S.edits.shove[k]; persist(); renderDetail(); renderList(); });
+      $(".line-top", box).appendChild(rv);
+    }
+    const ta = el("textarea", { class: "text" }); ta.value = cur;
+    const foot = el("div", { class: "line-foot" });
+    const refresh = () => { const w = copyWarnings(ta.value); foot.innerHTML = `<span class="faint">${wordCount(ta.value)} words</span>` + (w.length ? ` <span class="warnchip">⚠ ${esc(w.join(", "))}</span>` : ""); };
+    ta.addEventListener("input", () => {
+      if (ta.value === (o.text || "")) delete S.edits.shove[k]; else S.edits.shove[k] = ta.value;
+      autosize(ta); refresh(); persist(); renderListSoft(); box.classList.toggle("changed", ta.value !== (o.text || ""));
+    });
+    box.appendChild(ta); autosize(ta); refresh(); box.appendChild(foot);
+    right.appendChild(box);
+  }
+}
+
+/* ══════════════ new beat ══════════════ */
+function newBeat() {
+  snapshot("new beat");
+  let n = 1, id; do { id = "new_beat_" + n++; } while (S.edits.beats[id] || beatById(id));
+  const after = S.sel && S.sel !== "$shove" ? S.sel : (S.beats[S.beats.length - 1] || {}).id;
+  S.edits.beats[id] = { status: "new", screen: "grind", insert_after: after, trigger_note: "",
+    work: [{ kind: "new", nid: newId(), text: "", note: "" }] };
+  S.edits.newOrder.push(id);
+  S.sel = id; persist(); renderList(); renderDetail();
+  const inp = $("#new-id"); if (inp) { inp.focus(); inp.select(); }
+}
+
+/* ══════════════ export / import ══════════════ */
+function buildExport() {
+  const out = { tool: "story_editor", version: 1, exported_at: nowIso(),
+    source: { file: "data/story.lua", beats: S.beats.length, shove_lines: S.shoveOrder.length },
+    apply: "Claude: apply to data/story.lua (beats in script order; keep every field not mentioned) and mirror copy into docs/house-script.md. Notes are instructions in words.",
+    beats: {}, shove: {} };
+  for (const id of orderedIds()) {
+    if (!beatChanged(id)) continue;
+    const e = S.edits.beats[id]; const b = beatById(id);
+    if (e.status === "delete") { out.beats[id] = { status: "delete" }; continue; }
+    const entry = { status: e.status === "new" ? "new" : "edited" };
+    if (e.status === "new") { entry.screen = e.screen || "grind"; entry.insert_after = e.insert_after || null; entry.trigger = e.trigger_note || ""; }
+    else {
+      if (e.screen && e.screen !== b.screen) entry.screen = { from: b.screen, to: e.screen };
+      if (e.trigger_note && e.trigger_note.trim()) entry.trigger_note = e.trigger_note.trim();
+    }
+    const work = workOf(id); const orig = b ? b.lines : [];
+    const lines = [];
+    const reordered = work.filter(w => w.kind === "orig" && !w.deleted).map(w => w.index)
+      .some((idx, i, a) => i > 0 && idx < a[i - 1]);
+    work.forEach((w, i) => {
+      if (w.kind === "orig") {
+        const o = orig[w.index - 1] || {};
+        const rec = { position: i + 1, was: w.index };
+        if (w.deleted) { rec.op = "delete"; rec.from = o.text || ""; }
+        else if ((w.text || "") !== (o.text || "")) { rec.op = "edit"; rec.from = o.text || ""; rec.to = w.text; }
+        else rec.op = "keep";
+        if (w.note && w.note.trim()) rec.note = w.note.trim();
+        if (rec.op === "keep" && !rec.note && !reordered && w.index === i + 1) return;
+        lines.push(rec);
+      } else {
+        const rec = { position: i + 1, op: "insert", text: w.text || "" };
+        if (w.note && w.note.trim()) rec.note = w.note.trim();
+        lines.push(rec);
+      }
+    });
+    if (reordered) entry.reordered = true;
+    if (lines.length) entry.lines = lines;
+    out.beats[id] = entry;
+  }
+  for (const k of Object.keys(S.edits.shove)) {
+    if (S.edits.shove[k] !== (S.shove[k] || {}).text) out.shove[k] = { from: (S.shove[k] || {}).text || "", to: S.edits.shove[k] };
+  }
+  if (!Object.keys(out.shove).length) delete out.shove;
+  return out;
+}
+function doExport() {
+  const data = buildExport();
+  if (!Object.keys(data.beats).length && !data.shove) { alert("Nothing staged."); return; }
+  download(`story_edits_${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data, null, 2));
+}
+function doImport(file) {
+  file.text().then(txt => {
+    const data = JSON.parse(txt);
+    snapshot("import");
+    // A raw staged set (the tool's own localStorage shape, or a recovery
+    // file): load it whole.
+    if (data.edits && data.version === 1 && !data.tool) {
+      S.edits = data.edits; if (!S.edits.newOrder) S.edits.newOrder = [];
+      persist(); renderList(); renderDetail(); return;
+    }
+    if (data.tool !== "story_editor") throw new Error("not a story_editor export");
+    for (const [id, entry] of Object.entries(data.beats || {})) {
+      const b = beatById(id);
+      if (entry.status === "delete") { S.edits.beats[id] = { status: "delete" }; continue; }
+      const e = {};
+      if (entry.status === "new") {
+        e.status = "new"; e.screen = entry.screen || "grind"; e.insert_after = entry.insert_after; e.trigger_note = entry.trigger || "";
+        e.work = (entry.lines || []).map(l => ({ kind: "new", text: l.text || "", note: l.note || "" }));
+        if (!S.edits.newOrder.includes(id)) S.edits.newOrder.push(id);
+      } else {
+        if (!b) continue;
+        if (entry.screen && entry.screen.to) e.screen = entry.screen.to;
+        if (entry.trigger_note) e.trigger_note = entry.trigger_note;
+        // Rebuild the work list: originals in order, then apply the records by position.
+        const work = b.lines.map((l, i) => ({ kind: "orig", index: i + 1, text: l.text || "", note: "", deleted: false }));
+        const recs = (entry.lines || []).slice().sort((a, c) => a.position - c.position);
+        if (entry.reordered || recs.some(r => r.op === "insert")) {
+          const placed = [];
+          const byWas = new Map(work.map(w => [w.index, w]));
+          const used = new Set();
+          for (const r of recs) {
+            if (r.op === "insert") placed[r.position - 1] = { kind: "new", text: r.text || "", note: r.note || "" };
+            else { const w = byWas.get(r.was); if (w) { placed[r.position - 1] = w; used.add(r.was); } }
+          }
+          // originals not mentioned keep their relative order in the gaps
+          let gi = 0; const rest = work.filter(w => !used.has(w.index));
+          const finalW = [];
+          for (let i = 0; i < Math.max(placed.length, work.length + recs.filter(r => r.op === "insert").length); i++) {
+            if (placed[i]) finalW.push(placed[i]); else if (gi < rest.length) finalW.push(rest[gi++]);
+          }
+          while (gi < rest.length) finalW.push(rest[gi++]);
+          e.work = finalW;
+        } else e.work = work;
+        for (const r of recs) {
+          if (r.op === "insert") continue;
+          const w = e.work.find(x => x.kind === "orig" && x.index === r.was); if (!w) continue;
+          if (r.op === "delete") w.deleted = true;
+          if (r.op === "edit") w.text = r.to;
+          if (r.note) w.note = r.note;
+        }
+      }
+      S.edits.beats[id] = e;
+    }
+    for (const [k, v] of Object.entries(data.shove || {})) S.edits.shove[k] = v.to;
+    persist(); renderList(); renderDetail();
+  }).catch(e => alert("Import failed: " + e.message));
+}
+
+/* ══════════════ wiring ══════════════ */
+$("#btn-pick").addEventListener("click", openViaPicker);
+$("#btn-pick-ro").addEventListener("click", () => $("#dir-input").click());
+$("#dir-input").addEventListener("change", async (e) => {
+  const map = new Map(); let name = "project";
+  for (const f of e.target.files) {
+    const parts = (f.webkitRelativePath || f.name).split("/"); name = parts[0] || name;
+    const rel = parts.slice(1).join("/"); if (rel) map.set(rel, f);
+  }
+  await openMap(map, name);
+});
+const pz = $("#picker-zone");
+pz.addEventListener("dragover", e => { e.preventDefault(); pz.classList.add("dragover"); });
+pz.addEventListener("dragleave", () => pz.classList.remove("dragover"));
+pz.addEventListener("drop", async (e) => {
+  e.preventDefault(); pz.classList.remove("dragover");
+  const items = e.dataTransfer.items; if (!items || !items.length) return;
+  const it0 = items[0];
+  const entry = it0.webkitGetAsEntry && it0.webkitGetAsEntry();
+  const handleP = it0.getAsFileSystemHandle ? it0.getAsFileSystemHandle().catch(() => null) : null;
+  if (handleP) { const h = await handleP; if (h && h.kind === "directory") return openFromHandle(h); }
+  if (entry && entry.isDirectory) { const map = new Map(); await walkEntry(entry, "", map); await openMap(map, entry.name); }
+});
+$("#f-search").addEventListener("input", () => { S.filter = $("#f-search").value; renderList(); });
+$("#f-screen").addEventListener("change", () => { S.screen = $("#f-screen").value; renderList(); });
+$("#btn-new").addEventListener("click", newBeat);
+$("#btn-undo").addEventListener("click", undo);
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !/^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName)) {
+    e.preventDefault(); undo();
+  }
+});
+$("#btn-export").addEventListener("click", doExport);
+$("#btn-import").addEventListener("click", () => $("#import-input").click());
+$("#import-input").addEventListener("change", (e) => { if (e.target.files[0]) doImport(e.target.files[0]); e.target.value = ""; });
+$("#btn-reset").addEventListener("click", () => {
+  if (!stagedCount()) return;
+  if (!confirm("Drop every staged edit?")) return;
+  snapshot("reset all");
+  S.edits = { beats: {}, shove: {}, newOrder: [] }; S.sel = null; persist(); renderList(); renderDetail();
+});
+
+// one-click reopen of the last folder
+(async () => {
+  if (!FS_OK) return;
+  try {
+    const h = await idbGet("projectDir"); if (!h) return;
+    const perm = await h.queryPermission({ mode: "readwrite" });
+    if (perm === "granted") { await openFromHandle(h); return; }
+    if (perm === "prompt") {
+      $("#reopen-row").classList.remove("hidden");
+      const btn = $("#btn-reopen"); btn.textContent = `Reopen "${h.name}"`;
+      btn.addEventListener("click", async () => {
+        const p = await h.requestPermission({ mode: "readwrite" }); if (p === "granted") await openFromHandle(h);
+      });
+    }
+  } catch (e) { /* fresh start */ }
+})();
+</script>
+</body>
+</html>

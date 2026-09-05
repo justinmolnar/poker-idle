@@ -66,8 +66,16 @@ C.GTYPE_GATE = {
     ko     = "shove_r1_won",
 }
 
+-- The name, its setup line (the joke needs both halves on screen), the
+-- build string on the title's corner, and the store page the demo's
+-- WISHLIST sticker opens. STEAM_URL empty = no sticker (no page yet).
+C.TITLE       = "I hardly know'er"
+C.TITLE_SETUP = "Poker?"
+C.BUILD       = "0.1.0"
+C.STEAM_URL   = ""
+
 C.WINDOW = {
-    title  = "Poker Idle",
+    title  = "I hardly know'er",
     width  = 1280,
     height = 720,
 }

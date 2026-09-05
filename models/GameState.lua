@@ -85,6 +85,10 @@ function GameState:new(saved)
     -- banked 3 {chip} on your first run" gate reads this, because reading
     -- shove_count let the rescue button reveal the shove without shoving.
     instance.has_shoved = false
+    -- The net result of the first hand this save ever resolved (money).
+    -- nil until it happens; the first_hand beats read its sign.
+    instance.first_hand_delta = nil
+    instance.first_hand_tier  = nil   -- its pot tier: small / medium / large / stack
     -- Zoom-first opening (Constants.GTYPE_GATE): HU latches open the
     -- moment a second table is affordable (GrindController update);
     -- 6-max latches from owning the Desk Plant (invalidateEffects).
@@ -167,8 +171,11 @@ function GameState:new(saved)
     -- Same shape for the 2026-09 deck roster swap (retired ids pruned).
     instance.deck_roster_migrated           = true
 
-    -- Run-side defaults (wiped on prestige).
-    instance.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
+    -- Run-side defaults (wiped on prestige). A fresh game starts with
+    -- NOTHING: the two dollars arrive when the House hands them over
+    -- (story beat arrival, `grant = "loan"` → GameState:grantLoan).
+    instance.bankroll            = 0
+    instance.loan_fresh          = false   -- runtime: the readout climbs from 0
     instance.current_stake_id    = "s001"
     -- Stacking run upgrades: id → integer level. Absent / 0 = not owned.
     -- Each level applies the item's effect block once (see EffectsRegistry:applyN).
@@ -279,11 +286,24 @@ function GameState:new(saved)
     return instance
 end
 
+-- The House hands over the loan: the starting bankroll, once, when the
+-- arrival beat says so. Idempotent: a replayed line (a save quit mid-beat)
+-- never pays twice, and nothing is paid over money already on a table.
+function GameState:grantLoan()
+    local amount = Constants.GAMEPLAY.INITIAL_BANKROLL
+    if (self.bankroll or 0) >= amount then return false end
+    if self.active_table_specs and #self.active_table_specs > 0 then return false end
+    self.bankroll   = amount
+    self.loan_fresh = true
+    return true
+end
+
 -- Wipes run-side fields back to defaults. Called by the prestige flow after
 -- a gauntlet bust. Meta-side (chips, owned_items, cleared) is left untouched —
 -- chips earned during the run were already banked to state.chips during play.
 function GameState:resetRun()
     self.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
+    self.loan_fresh          = true   -- the loan renews: the readout climbs from 0
     self.current_stake_id    = "s001"
     self.run_upgrade_levels  = {}
     self.active_table_specs = {}
@@ -411,6 +431,12 @@ function GameState:wipeAll()
     self.six_max_unlocked = false
     self.gtype_announced  = {}
     self:resetRun()
+    -- A wiped game is a FRESH game: no money until the loan is handed over,
+    -- and no first hand yet (the first_hand beats read these).
+    self.bankroll   = 0
+    self.loan_fresh = false
+    self.first_hand_delta = nil
+    self.first_hand_tier  = nil
     -- resetRun incremented shove_count to 1; wipeAll is shove 0 (first run).
     self.shove_count = 0
 end
@@ -831,6 +857,8 @@ function GameState:serializeMeta()
         save_id                         = self.save_id,
         shove_count                     = self.shove_count,
         has_shoved                      = self.has_shoved,
+        first_hand_delta                = self.first_hand_delta,
+        first_hand_tier                 = self.first_hand_tier,
         hu_unlocked                     = self.hu_unlocked,
         six_max_unlocked                = self.six_max_unlocked,
         gtype_announced                 = self.gtype_announced,

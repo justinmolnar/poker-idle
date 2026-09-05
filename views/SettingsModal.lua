@@ -52,9 +52,13 @@ end
 
 -- ─── Construction ─────────────────────────────────────────────────────
 
-function SettingsModal:new(game)
+-- opts.menu: opened from the title. Hides Save / Load: there is nothing
+-- live to save (Save would write a file where none may exist) and Load is
+-- the title's own Continue.
+function SettingsModal:new(game, opts)
     local self_inst = setmetatable({
         game           = game,
+        _menu          = opts and opts.menu or false,
         _modal         = Modal:new{ title = "Settings", w = MODAL_W },
         _row_rects     = {},
         _confirm       = nil,
@@ -334,6 +338,7 @@ function SettingsModal:draw()
     -- Motion page: all-motion, one per group, back.
     local show_display = self._res_dd ~= nil and self.game.settings ~= nil
     local rows = show_display and 11 or 9
+    if self._menu then rows = rows - 2 end
     if self._page == "motion" then rows = 2 + #Motion.GROUPS end
     local body_h = rows * ROW_H + (rows - 1) * ROW_GAP
 
@@ -484,8 +489,10 @@ function SettingsModal:draw()
         y = y + ROW_H + ROW_GAP
     end
 
-    action_row("Save now",       "save")
-    action_row("Load save",      "load")
+    if not self._menu then
+        action_row("Save now",       "save")
+        action_row("Load save",      "load")
+    end
     action_row("Start new game", "new_game")
     -- The web/love.js build can't quit a browser tab — love.event.quit()
     -- hard-errors the canvas — so Quit greys out on that platform.

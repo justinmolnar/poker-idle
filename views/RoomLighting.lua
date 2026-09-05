@@ -55,7 +55,7 @@ function RoomLighting.draw(room_view, L, W, H)
         _canvas = nil
     end
     if not _canvas then
-        local ok, c = pcall(love.graphics.newCanvas, W, H)
+        local ok, c = pcall(love.graphics.newCanvas, W, H, { dpiscale = 1 })
         if ok and c then _canvas = c end
     end
     if not _canvas then return end
