@@ -72,8 +72,6 @@ local DEAL = { throw_dx = 420, throw_arc = 60, throw_spin = 0.35, impact_squash 
 
 -- ── Layout (base px, × ui_scale) ───────────────────────────────────────
 local L = {
-    room_zoom  = 1.25,
-    room_dy    = 0.06,   -- of H: the room sits low, under the wordmark
     row_y      = 0.20,   -- of H: the wordmark's top
     card_w     = 60,
     card_h     = 84,
@@ -438,17 +436,12 @@ function TitleView:draw(st)
         title_a = 1 - clamp01(st.leave_t / T.leave)
     end
 
-    -- The room, in the dark.
+    -- The room, in the dark: the same scene the shove and the room screen
+    -- draw, under the wordmark.
     Theme.setColor(Theme.bg.sunken)
     love.graphics.rectangle("fill", 0, 0, W, H)
     if st.room_view then
-        st.room_view:draw(true, {
-            zoom     = L.room_zoom,
-            dy       = math.floor(H * L.room_dy),
-            lighting = { fixture = fixture, emitters = true },
-            speaker  = st.speaker or 0,
-        })
-        ShoveDecor.drawVignette(W, H)
+        st.room_view:drawScene(W, H, { fixture = fixture, speaker = st.speaker or 0 })
     end
     -- Fade up from black.
     local room_a = (sc > 0) and prog(t, 0, T.room_fade * sc) or Motion.fade("cinematics", "title:room")

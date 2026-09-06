@@ -1478,6 +1478,9 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
 end
 
 -- Front cover face (single narrow page).
+-- Exported as CatalogModal.drawFrontCover(ctx, ...): the rail's catalog
+-- button is this cover at thumbnail size (ctx = { on_felt = true }, the
+-- felt's own thumbnail rule: no invitation, no lede).
 drawFrontCover = function(self, x, y, w, h, fonts, s)
     local fl = math.floor
     Theme.setColor(Theme.paper.page)
@@ -1857,5 +1860,11 @@ function CatalogModal:draw()
 
     TooltipSvc.draw(fonts)
 end
+
+CatalogModal.drawFrontCover = function(ctx, x, y, w, h, fonts, s)
+    return drawFrontCover(ctx, x, y, w, h, fonts, s)
+end
+-- The cover's design proportions (a page), for callers that scale it.
+CatalogModal.COVER_W, CatalogModal.COVER_H = 300, 420
 
 return CatalogModal

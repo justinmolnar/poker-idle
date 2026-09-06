@@ -2,6 +2,12 @@
 -- Draws a flat list of component descriptors stacked vertically.
 -- Has no knowledge of what the components represent.
 --
+-- The chrome is built from these too (GrindView's rail): `row` lays
+-- children out left to right, `column` stacks a nested list, `stat` is a
+-- label over a value, and `button` is the one button (the add-table rows,
+-- the upgrade cards, the game-type keys, SHOVE, the nav). One component
+-- per kind of thing; nothing draws chrome by hand.
+--
 -- draw(components, panel_x, panel_w, game, scroll_view?) → total_h
 -- hitTest(components, panel_x, panel_w, cx, cy, game) → component or nil
 --
@@ -47,7 +53,6 @@ function CR.configureFromFonts(fonts)
     LINE_H.small   = fonts.sm:getHeight()
     LINE_H.muted   = fonts.sm:getHeight()
 end
-
 -- Total vertical padding inside a button (top+bottom). Scaled in
 -- CR.setScale so the multi-line stake-add buttons grow with the
 -- window — without this, content gets cramped at large resolutions
@@ -77,11 +82,9 @@ local function styleFont(style, game)
     if style == "small" or style == "muted" then return game.fonts.sm end
     return game.fonts.md  -- body / heading / warning
 end
-
 local function lineIndent(style)
     return (style == "body" or style == "heading" or style == "warning") and 4 or 10
 end
-
 -- How tall does this line render, given the available content width?
 -- Returns max(LINE_H[style], rows × font:getHeight()) so single-row lines
 -- keep their existing breathing room and wrapped lines grow honestly.
@@ -116,7 +119,9 @@ local function lineRenderedHeight(line, game, content_w)
 end
 
 -- Inner content height (face content size only, no chrome/depth).
+-- comp.face_h names it outright (a face drawn by face_fn has no lines).
 local function contentH(comp, content_w, game)
+    if comp.face_h then return comp.face_h end
     local lines = comp.lines
     if not lines or #lines == 0 then return 32 end
     if not (game and game.fonts) then
@@ -135,9 +140,23 @@ end
 
 -- Total allocation: face content + chunky depth + hover lift.
 local function buttonH(comp, content_w, game)
-    return Button.allocatedH(contentH(comp, content_w, game), BTN_DEPTH)
+    return Button.allocatedH(contentH(comp, content_w, game), comp.depth or BTN_DEPTH)
 end
-
+-- A button's natural width, for a row that sizes it by content: the
+-- widest line (text plus its right badge) plus the indents.
+local function buttonW(comp, game)
+    if comp.w then return comp.w end
+    local best = 0
+    for _, line in ipairs(comp.lines or {}) do
+        local font = styleFont(line.style or "body", game)
+        local w = (line.text or ""):find("{", 1, true) and IconText.measure(line.text, font)
+                  or font:getWidth(line.text or "")
+        if line.right then w = w + game.fonts.sm:getWidth(line.right) + 16 end
+        w = w + lineIndent(line.style or "body") * 2 + 8
+        if w > best then best = w end
+    end
+    return best
+end
 -- ─── Type registry (data-driven dispatch) ───────────────────────────────────
 --
 -- Adding a new component type = one entry here. No if/elseif chains on
@@ -203,13 +222,31 @@ function CR.actionStripW(comp, h)
     return size + pad * 2
 end
 
-local function _hitButton(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
+-- Where a button's overlay sits (comp.overlay: a second button descriptor
+-- straddling the parent's top edge, the quick-reset rescue over SHOVE).
+-- One source for draw and hit.
+local function overlayRect(comp, panel_x, panel_w, p, y, game)
+    local o = comp.overlay
+    if not o then return nil end
+    local ow = o.w or buttonW(o, game)
+    local oh = buttonH(o, panel_w, game)
+    local ox = panel_x + p + math.floor(((panel_w - p * 2) - ow) * 0.5)
+    return ox, y - math.floor(oh * 0.5), ow, oh
+end
+local _hitButton
+_hitButton = function(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
+    if comp.overlay then
+        local ox, oy, ow, oh = overlayRect(comp, panel_x, panel_w, p, cursor_y, comp.__game)
+        if ox and cx >= ox and cx < ox + ow and cy >= oy and cy < oy + oh then
+            return _hitButton(comp.overlay, ox, ow, 0, oy, oh, cx, cy)
+        end
+    end
     -- Trailing actions are hit-tested FIRST and independently of the button's
     -- own disabled state: "cash out every table of this type" is exactly the
     -- thing you want when the parent +ADD is greyed out because you're broke.
     -- Each returns its own descriptor, so the dispatcher routes on its id.
     if comp.actions and cy >= cursor_y and cy < cursor_y + h then
-        local depth = BTN_DEPTH
+        local depth = comp.depth or BTN_DEPTH
         local face_h = math.max(2, h - depth - 1)
         local face_y = cursor_y + 1
         local fx = panel_x + p
@@ -271,9 +308,296 @@ local function _staticH(default)
     return function(comp, _w, _game) return comp.h or default end
 end
 
+-- ── stat: a label over a value (the readout) ──────────────────────────
+-- { label (small, on top), value, value_style ("sm"|"md"|"lg"), icon
+--   ("chip" | "achip" | an icon id: a glyph on the value line, before the
+--   number), value_color (a colour) or value_color_token, value_scale (a
+--   pop), value_glow_color (the underflow's glyphs), value_anchor,
+--   bar = { frac, color, w } (a short fill on the value line, after the
+--   value), suffix = { text, color_token, anchor } (small, after the value
+--   and the bar, on the value's baseline), sub = { text, color_token } (a
+--   small line under), anchor, tooltip, dim, h (taller than content),
+--   valign ("top" | "bottom": where the content sits inside a taller h) }
+-- The pixel fonts carry leading inside getHeight(); the label is pulled
+-- down onto its value by this much so the two read as one readout.
+local function leadTrim(font) return math.floor(font:getHeight() * 0.3) end
+CR.leadTrim = leadTrim
+local function statHasHead(comp)
+    return comp.label ~= nil and comp.label ~= ""
+end
+local function statContentH(comp, game)
+    local fonts = game.fonts
+    local vf = fonts[comp.value_style or "md"] or fonts.md
+    local h = vf:getHeight() + 2
+    if statHasHead(comp) then h = h + fonts.sm:getHeight() - leadTrim(fonts.sm) end
+    if comp.sub then h = h + fonts.sm:getHeight() end
+    return h
+end
+local function statH(comp, _w, game)
+    if comp.h then return comp.h end
+    return statContentH(comp, game)
+end
+local function statW(comp, game)
+    if comp.w then return comp.w end
+    local fonts = game.fonts
+    local vf = fonts[comp.value_style or "md"] or fonts.md
+    local w = vf:getWidth(comp.value or "")
+    if comp.icon then w = w + math.floor(vf:getHeight() * 0.62) + 4 end
+    if comp.bar then w = w + 6 + (comp.bar.w or 48) end
+    if comp.suffix and comp.suffix.text then w = w + 6 + fonts.sm:getWidth(comp.suffix.text) end
+    if comp.label and comp.label ~= "" then
+        local lw = fonts.sm:getWidth(comp.label)
+        if lw > w then w = lw end
+    end
+    if comp.sub and comp.sub.text then
+        local sw = fonts.sm:getWidth(comp.sub.text)
+        if sw > w then w = sw end
+    end
+    return w + 4
+end
+local function tokenColor(tok, fallback)
+    if not tok then return fallback end
+    return Theme.semColor(tok)
+        or (Theme.status and Theme.status[tok])
+        or (Theme.fg and Theme.fg[tok])
+        or fallback
+end
+function CR._stat(comp, px, pw, p, y, game)
+    local fonts = game.fonts
+    local sm    = fonts.sm
+    local vf    = fonts[comp.value_style or "md"] or fonts.md
+    local h     = statH(comp, pw, game)
+    local x, w  = px + p, pw - p * 2
+    local dim   = comp.dim
+    local cy    = y + 1
+    if comp.valign == "bottom" then cy = y + h - statContentH(comp, game) + 1 end
+    -- The label, small, on its value.
+    if statHasHead(comp) then
+        love.graphics.setFont(sm)
+        Theme.setColor(dim and Theme.fg.faint or Theme.fg.muted)
+        love.graphics.print(comp.label, x, cy)
+        cy = cy + sm:getHeight() - leadTrim(sm)
+    end
+    -- The value line: a glyph, the number (popping about its centre when
+    -- it changes), a small suffix on the same baseline.
+    local value = comp.value or ""
+    local color = dim and Theme.fg.disabled
+               or comp.value_color
+               or tokenColor(comp.value_color_token, Theme.fg.primary)
+    love.graphics.setFont(vf)
+    local vw, vh = vf:getWidth(value), vf:getHeight()
+    local vx = x
+    if comp.icon then
+        -- The glyph at the number's cap height, on its line.
+        local size = math.floor(vh * 0.62)
+        local iy   = cy + math.floor((vh - size) * 0.5)
+        local drew = false
+        if comp.icon == "chip" then
+            Icons.drawChip(game, x, iy, size, dim and 0.45 or 1); drew = true
+        elseif comp.icon == "achip" then
+            Icons.drawAntiChip(game, x, iy, size, dim and 0.45 or 1); drew = true
+        else
+            drew = Icons.draw(game, comp.icon, x, iy, size, size)
+        end
+        if drew then vx = x + size + 4 end
+    end
+    local scale = comp.value_scale or 1
+    if scale ~= 1 then
+        love.graphics.push()
+        love.graphics.translate(vx + vw / 2, cy + vh / 2)
+        love.graphics.scale(scale, scale)
+        love.graphics.translate(-(vx + vw / 2), -(cy + vh / 2))
+    end
+    if comp.value_glow_color then
+        Theme.setColor(comp.value_glow_color, 0.22)
+        for _, o in ipairs{ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
+            love.graphics.print(value, vx + o[1], cy + o[2])
+        end
+    end
+    Theme.setColor(color)
+    love.graphics.print(value, vx, cy)
+    if scale ~= 1 then love.graphics.pop() end
+    if comp.value_anchor then
+        local sx, sy = love.graphics.transformPoint(x, cy)
+        Anchors.set(comp.value_anchor, sx, sy, (vx - x) + vw, vh)
+    end
+    -- Everything after the number sits on the number's BASELINE (the
+    -- fonts' line boxes differ; their baselines are what the eye aligns):
+    -- the suffix's small text, and the bar centred on its x-height.
+    local after_x  = vx + vw
+    local baseline = cy + vf:getBaseline()
+    local line_y   = baseline - sm:getBaseline()
+    if comp.bar then
+        local bw, bh = comp.bar.w or 48, math.max(3, math.floor(sm:getHeight() * 0.3))
+        local by = baseline - math.floor(sm:getAscent() * 0.45) - math.floor(bh * 0.5)
+        local bx = after_x + ((vw > 0) and 6 or 0)   -- no gap when the bar is the value
+        Theme.setColor(Theme.bg.sunken)
+        love.graphics.rectangle("fill", bx, by, bw, bh, 1)
+        Theme.setColor(dim and Theme.fg.disabled or comp.bar.color or Theme.fg.heading)
+        love.graphics.rectangle("fill", bx, by, math.floor(bw * math.max(0, math.min(1, comp.bar.frac or 0))), bh, 1)
+        Theme.setColor(Theme.border.soft)
+        love.graphics.rectangle("line", bx, by, bw, bh, 1)
+        after_x = bx + bw
+    end
+    if comp.suffix and comp.suffix.text then
+        love.graphics.setFont(sm)
+        Theme.setColor(dim and Theme.fg.faint or tokenColor(comp.suffix.color_token, Theme.fg.muted))
+        local sfx_x, sfx_y = after_x + 6, line_y
+        love.graphics.print(comp.suffix.text, sfx_x, sfx_y)
+        if comp.suffix.anchor then
+            local sx, sy = love.graphics.transformPoint(sfx_x, sfx_y)
+            Anchors.set(comp.suffix.anchor, sx, sy, sm:getWidth(comp.suffix.text), sm:getHeight())
+        end
+    end
+    cy = cy + vh
+    -- The sub-line.
+    if comp.sub then
+        love.graphics.setFont(sm)
+        Theme.setColor(dim and Theme.fg.faint or tokenColor(comp.sub.color_token, Theme.fg.muted))
+        love.graphics.print(comp.sub.text or "", x, cy)
+        cy = cy + sm:getHeight()
+    end
+    if comp.anchor then
+        local sx, sy = love.graphics.transformPoint(x, y)
+        Anchors.set(comp.anchor, sx, sy, statW(comp, game), h)
+    end
+    return h
+end
+-- A stat is not clickable; hovering it shows its tooltip and nothing else.
+local function _hitStat(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
+    if comp.tooltip and cy >= cursor_y and cy < cursor_y + h
+       and cx >= panel_x + p and cx < panel_x + p + statW(comp, comp.__game) then
+        local mx, my = love.mouse.getPosition()
+        require("services.Tooltip").set(comp.tooltip, mx, my)
+    end
+    return nil
+end
+
+-- ── row / column: the layout ──────────────────────────────────────────
+-- row: children left to right. A child has `w` (px), `flex` (a share of
+-- what is left) or neither (its natural width). Children centre
+-- vertically in the row's height (comp.h, else the tallest child).
+-- column: children stacked, top down. Both walk the registry for their
+-- children's draw / hit / measure, so anything can sit inside either.
+local function childW(child, game)
+    local def = CR.types[child.type]
+    if def and def.measureW then return def.measureW(child, game) end
+    return child.w or 0
+end
+local function rowLayout(comp, pw, p, game)
+    local gap  = comp.gap or 8
+    local kids = comp.children or {}
+    local inner_w = pw - p * 2
+    local fixed, flex_total = 0, 0
+    for _, c in ipairs(kids) do
+        if c.flex then flex_total = flex_total + c.flex else fixed = fixed + childW(c, game) end
+    end
+    local free = math.max(0, inner_w - fixed - gap * math.max(0, #kids - 1))
+    local out, x = {}, p
+    for _, c in ipairs(kids) do
+        local w = c.flex and math.floor(free * c.flex / math.max(flex_total, 1)) or childW(c, game)
+        out[#out + 1] = { comp = c, x = x, w = w }
+        x = x + w + gap
+    end
+    return out
+end
+local function rowH(comp, pw, game)
+    if comp.h then return comp.h end
+    local best = 0
+    for _, c in ipairs(comp.children or {}) do
+        local def = CR.types[c.type]
+        local h = def and def.measureH(c, c.w or pw, game) or (c.h or 0)
+        if h > best then best = h end
+    end
+    return best
+end
+local function _drawRow(comp, px, pw, p, y, game)
+    local h = rowH(comp, pw, game)
+    for _, slot in ipairs(rowLayout(comp, pw, p, game)) do
+        local c   = slot.comp
+        local def = CR.types[c.type]
+        if def and def.draw then
+            local ch = def.measureH(c, slot.w, game)
+            local cy = (comp.align == "top") and y or (y + math.floor((h - ch) * 0.5))
+            c.__game = game
+            def.draw(c, px + slot.x, slot.w, 0, cy, game)
+        end
+    end
+    return h
+end
+local function _hitRow(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
+    for _, slot in ipairs(rowLayout(comp, panel_w, p, comp.__game)) do
+        local c   = slot.comp
+        local def = CR.types[c.type]
+        if def and def.hit then
+            local ch = def.measureH(c, slot.w, comp.__game)
+            local y0 = (comp.align == "top") and cursor_y or (cursor_y + math.floor((h - ch) * 0.5))
+            c.__game = comp.__game
+            local res = def.hit(c, panel_x + slot.x, slot.w, 0, y0, ch, cx, cy)
+            if res then return res end
+        end
+    end
+    return nil
+end
+local function rowW(comp, game)
+    if comp.w then return comp.w end
+    local w, gap = 0, comp.gap or 8
+    for i, c in ipairs(comp.children or {}) do
+        w = w + childW(c, game) + (i > 1 and gap or 0)
+    end
+    return w
+end
+local function columnH(comp, pw, game)
+    if comp.h then return comp.h end
+    local h, gap = 0, comp.gap or 0
+    for i, c in ipairs(comp.children or {}) do
+        local def = CR.types[c.type]
+        h = h + (def and def.measureH(c, pw, game) or (c.h or 0)) + (i > 1 and gap or 0)
+    end
+    return h
+end
+local function columnW(comp, game)
+    if comp.w then return comp.w end
+    local w = 0
+    for _, c in ipairs(comp.children or {}) do
+        local cw = childW(c, game)
+        if cw > w then w = cw end
+    end
+    return w
+end
+local function _drawColumn(comp, px, pw, p, y, game)
+    local cy, gap = y, comp.gap or 0
+    for _, c in ipairs(comp.children or {}) do
+        local def = CR.types[c.type]
+        c.__game = game
+        local h = def and def.draw and def.draw(c, px, pw, p, cy, game)
+                  or (def and def.measureH(c, pw, game)) or (c.h or 0)
+        cy = cy + h + gap
+    end
+    return columnH(comp, pw, game)
+end
+local function _hitColumn(comp, panel_x, panel_w, p, cursor_y, _h, cx, cy)
+    local y, gap = cursor_y, comp.gap or 0
+    for _, c in ipairs(comp.children or {}) do
+        local def = CR.types[c.type]
+        local h = def and def.measureH(c, panel_w, comp.__game) or (c.h or 0)
+        if def and def.hit then
+            c.__game = comp.__game
+            local res = def.hit(c, panel_x, panel_w, p, y, h, cx, cy)
+            if res then return res end
+        end
+        y = y + h + gap
+    end
+    return nil
+end
+
 CR.types = {
     label    = { draw = nil,           hit = nil,        measureH = _staticH(24) },
-    button   = { draw = nil,           hit = _hitButton, measureH = function(comp, w, game) return buttonH(comp, w, game) end },
+    button   = { draw = nil,           hit = _hitButton, measureH = function(comp, w, game) return buttonH(comp, w, game) end,
+                 measureW = buttonW },
+    stat     = { draw = nil,           hit = _hitStat,   measureH = statH, measureW = statW },
+    row      = { draw = _drawRow,      hit = _hitRow,    measureH = rowH, measureW = rowW },
+    column   = { draw = _drawColumn,   hit = _hitColumn, measureH = columnH, measureW = columnW },
     -- icon_row reads ICON_ROW_H live: CR.setScale mutates the upvalue at
     -- runtime, so a captured default would freeze at the boot value.
     icon_row = { draw = nil,           hit = _hitIconRow, measureH = function(comp, _w, _g) return comp.h or ICON_ROW_H end },
@@ -324,12 +648,15 @@ function CR._label(comp, px, pw, p, y, game)
 end
 
 function CR._button(comp, px, pw, p, y, game)
+    comp.__game = game
     local content_w = pw - p * 2
     local total_h   = buttonH(comp, content_w, game)
     local disabled  = comp.disabled
-    local hovered   = (not disabled) and comp.id and HoverSvc.is("button", comp.id)
-    local press     = (comp.id and ClickFlash.alpha("button", comp.id)) or 0
-
+    local depth     = comp.depth or BTN_DEPTH
+    -- A pressed key (the selected game type) neither lifts nor washes.
+    local hovered   = (not disabled) and (not comp.pressed) and comp.id and HoverSvc.is("button", comp.id)
+    -- press_alpha may be driven by the builder (the keys' travel animation).
+    local press     = comp.press_alpha or (comp.id and ClickFlash.alpha("button", comp.id)) or 0
     -- Resolve face / border colours based on state. The chunky chrome,
     -- hover lift, press depth, and juice scale are all applied by
     -- Button.draw — we just pick the right colour tokens.
@@ -373,13 +700,24 @@ function CR._button(comp, px, pw, p, y, game)
     end
 
     Button.draw(px + p, y, content_w, total_h, {
-        fill_color   = fill,
-        border_color = border,
-        hovered      = hovered,
-        press_alpha  = press,
-        disabled     = disabled,
-        depth        = BTN_DEPTH,
+        fill_color    = fill,
+        border_color  = border,
+        hovered       = hovered,
+        press_alpha   = press,
+        disabled      = disabled,
+        disabled_fill = comp.disabled_face_color,
+        depth         = depth,
+        line_width    = comp.border_line_width,
     }, function(fx, fy, fw, fh)
+        -- A drawn face (the book's cover, the room, the gear, the deck's
+        -- art) instead of lines; dimmed under a wash while disabled.
+        if comp.face_fn then
+            comp.face_fn(fx, fy, fw, fh, game, disabled)
+            if disabled then
+                Theme.setColor(Theme.bg.sunken, 0.6)
+                love.graphics.rectangle("fill", fx, fy, fw, fh, Theme.space.radius)
+            end
+        end
         -- Measure total lines height to center text stack vertically on the button face
         local total_lines_h = 0
         for _, line in ipairs(comp.lines or {}) do
@@ -423,9 +761,23 @@ function CR._button(comp, px, pw, p, y, game)
                 right_w = right_font:getWidth(line.right) + 8
             end
 
+            -- A centred word with a right badge is one centred group: the
+            -- word, a gap, the badge (SHOVE with its rate), not a word in
+            -- the middle and a number at the edge.
+            local group = (line.align == "center") and line.right and not line.right_icon
             local left_printf_w = math.max(1, printf_w - right_w)
+            local group_x, group_tw
+            if group then
+                group_tw = font:getWidth(line.text or "")
+                local gap  = 10
+                local total = group_tw + gap + right_font:getWidth(line.right)
+                group_x = fx + indent + math.floor((printf_w - total) * 0.5)
+                left_printf_w = printf_w
+            end
             if (line.text or ""):find("{", 1, true) then
                 IconText.draw(game, line.text, fx + indent, cursor, font, color)
+            elseif group then
+                love.graphics.print(line.text or "", group_x, cursor)
             else
                 love.graphics.printf(line.text or "",
                     fx + indent, cursor, left_printf_w, line.align or "left")
@@ -435,10 +787,14 @@ function CR._button(comp, px, pw, p, y, game)
             if line.text_anchor and line.text and line.text ~= "" then
                 local tw = (line.text):find("{", 1, true) and IconText.measure(line.text, font)
                            or font:getWidth(line.text)
-                local sx, sy = love.graphics.transformPoint(fx + indent, cursor)
-                Anchors.set(line.text_anchor, sx, sy, math.min(tw, left_printf_w), font:getHeight())
+                tw = math.min(tw, left_printf_w)
+                local ax = fx + indent
+                if group then ax = group_x
+                elseif line.align == "center" then ax = ax + math.floor((left_printf_w - tw) * 0.5)
+                elseif line.align == "right" then ax = ax + (left_printf_w - tw) end
+                local sx, sy = love.graphics.transformPoint(ax, cursor)
+                Anchors.set(line.text_anchor, sx, sy, tw, font:getHeight())
             end
-
             if line.right then
                 local right_color = color
                 if line.right_color_token then
@@ -449,9 +805,13 @@ function CR._button(comp, px, pw, p, y, game)
                 end
                 love.graphics.setFont(right_font)
                 Theme.setColor(right_color)
-                local right_y = cursor + math.floor((font:getHeight() - right_font:getHeight()) / 2)
+                local right_y = cursor + font:getBaseline() - right_font:getBaseline()
                 local icon_d = line.right_icon and right_font:getHeight() or 0
                 local text_w = (icon_d > 0) and math.max(1, printf_w - icon_d - 4) or printf_w
+                if group then
+                    -- The badge's right edge closes the centred group.
+                    text_w = (group_x + group_tw + 10 + right_font:getWidth(line.right)) - (fx + indent)
+                end
                 love.graphics.printf(line.right,
                     fx + indent, right_y, text_w, "right")
                 if line.right_icon == "achip" then
@@ -532,7 +892,6 @@ function CR._button(comp, px, pw, p, y, game)
     -- Chip-award fanfare: a gold pulse over the button face the moment a
     -- bounty banks (GrindView fires it; shared with the game-type tab strip).
     AwardGlow.draw(comp.id, px + p, y, content_w, total_h)
-
     -- Optional named anchor (tutorial-hint highlight target). Panel draws
     -- components under a scroll translate, so run the local rect through
     -- the current transform to land in screen space.
@@ -542,10 +901,13 @@ function CR._button(comp, px, pw, p, y, game)
         -- A second, shared name for the same rect (e.g. add_table:banked).
         if comp.anchor_also then Anchors.set(comp.anchor_also, sx, sy, content_w, total_h) end
     end
-
+    -- The overlay: a second button straddling this one's top edge.
+    if comp.overlay then
+        local ox, oy, ow = overlayRect(comp, px, pw, p, y, game)
+        CR._button(comp.overlay, ox, ow, 0, oy, game)
+    end
     return total_h
 end
-
 -- icon_row uses an `emoji_ui` font in CC. Poker-idle has no emoji font yet,
 -- so it falls back to `ui` — emoji glyphs will render as "?" tofu, which is
 -- fine for now; icon_row is only used if/when we want pictographic catalog
@@ -583,8 +945,8 @@ function CR.hitTest(components, panel_x, panel_w, cx, cy, game)
     if not components then return nil end
     local cursor_y = 0
     local p = 10
-
     for _, comp in ipairs(components) do
+        comp.__game = game   -- rows and columns hit-test their children with it
         local def = CR.types[comp.type]
         local h = def and def.measureH(comp, panel_w - p * 2, game) or (comp.h or 0)
         if def and def.hit then
@@ -603,6 +965,7 @@ end
 -- inside the registry literal would capture nil.
 CR.types.label.draw    = function(c, px, pw, p, y, g) return CR._label   (c, px, pw, p, y, g) end
 CR.types.button.draw   = function(c, px, pw, p, y, g) return CR._button  (c, px, pw, p, y, g) end
+CR.types.stat.draw     = function(c, px, pw, p, y, g) return CR._stat    (c, px, pw, p, y, g) end
 CR.types.icon_row.draw = function(c, px, pw, p, y, g) return CR._iconRow (c, px, pw, p, y, g) end
 
 return CR

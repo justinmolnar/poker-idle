@@ -159,26 +159,10 @@ function ShoveState:_roomView()
     return nil
 end
 
--- The things you own, in the order you bought them: every owned catalog
--- item that counts toward BASE (a nonzero shove_rate_add) and is not
--- removed by something else you own. #list is the BASE integer.
+-- The things you own (GameState:countedItems: the rule the room screen's
+-- count shares), shuffled. #list is the BASE integer.
 function ShoveState:_countedItems()
-    local state = self.game.state
-    local by_id = {}
-    for _, item in ipairs(Catalog) do by_id[item.id] = item end
-    local owned_set = {}
-    for _, id in ipairs(state.owned_items or {}) do owned_set[id] = true end
-    local ids = {}
-    for _, id in ipairs(state.owned_items or {}) do
-        local item = by_id[id]
-        if item and not (item.removed_by and owned_set[item.removed_by]) then
-            local rate = 0
-            for _, eff in ipairs(item.effects or {}) do
-                if eff.kind == "shove_rate_add" then rate = eff.value or 0 end
-            end
-            if rate > 0 then ids[#ids + 1] = id end
-        end
-    end
+    local ids = self.game.state:countedItems(Catalog)
     -- A different order every shove: the room is counted, not read.
     local rnd = (love.math and love.math.random) or math.random
     for i = #ids, 2, -1 do

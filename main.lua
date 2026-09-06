@@ -36,6 +36,7 @@ local ClickFlash      = require("services.ClickFlash")
 local Tooltip         = require("services.Tooltip")
 local Ghosts          = require("services.Ghosts")
 local ItemGhosts      = require("views.ItemGhosts")
+local ItemFoley       = require("services.ItemFoley")
 local AnchorRegistry  = require("services.AnchorRegistry")
 local ShaderRegistry  = require("services.ShaderRegistry")
 local HandAnalytics   = require("services.HandAnalytics")
@@ -97,13 +98,14 @@ local Game = nil
 -- The base HEIGHT is fixed at 900. The base WIDTH follows the window's aspect
 -- (recomputeBase, below): a window wider than 16:9 gets a wider frame instead
 -- of black bars, and every screen lays out from getWidth so the extra room
--- goes to the table grid / the centred board. The width never drops below
--- 1600 — that floor is what keeps FontService.layoutScale at exactly 1.25 for
--- every window, so nothing ever rescales; a window narrower than 16:9 shows
--- page-coloured bars top and bottom instead. Capped at 2400 (a 32:9 monitor
--- gets margins, not a 3200px table grid).
+-- goes to the table grid / the centred board. Narrower than 16:9 the frame
+-- narrows too, down to 16:10 (1440): the layout scale follows the fixed
+-- height (FontService.layoutScale), so nothing rescales, and the sidebars
+-- and the rail still fit. Narrower than that shows page-coloured bars top
+-- and bottom. Capped at 2400 (a 32:9 monitor gets margins, not a 3200px
+-- table grid).
 local BASE_H = 900
-local BASE_W_MIN, BASE_W_MAX = 1600, 2400
+local BASE_W_MIN, BASE_W_MAX = 1440, 2400
 local BASE_W = BASE_W_MIN
 local _realDimensions = love.graphics.getDimensions
 local _realPixelDims  = love.graphics.getPixelDimensions or love.graphics.getDimensions
@@ -259,17 +261,18 @@ local function buildGame()
     g.sound_loader    = SoundLoader:new()
     g.sound_loader:loadAll()
     SoundService.attachLoader(g.sound_loader, g.sprite_loader)
-    -- An item doing its job is heard: its own sound (the file that shares
-    -- its name), damaged if the item is corrupted.
+    -- An item doing its job is heard (services/ItemFoley: its own sound,
+    -- damaged if corrupted)...
     g.event_bus:subscribe("item_fired", function(e)
-        local mix = require("data.sounds")._mix
-        local rule = (mix and mix.item_fire) or {}
-        local damaged = false
-        for _, id in ipairs(g.state.corrupted_items or {}) do
-            if id == e.item_id then damaged = true end
+        ItemFoley.play(g.state, e.item_id)
+        -- ...and counted, this run and for life: the room's card reads both.
+        local st = g.state
+        if st and e.item_id then
+            st.item_fires_run  = st.item_fires_run  or {}
+            st.item_fires_life = st.item_fires_life or {}
+            st.item_fires_run[e.item_id]  = (st.item_fires_run[e.item_id]  or 0) + 1
+            st.item_fires_life[e.item_id] = (st.item_fires_life[e.item_id] or 0) + 1
         end
-        SoundService.playNamed(e.item_id, { volume_mult = rule.volume or 0.5,
-                                            min_gap = rule.min_gap, damaged = damaged })
         -- ...and seen: the item's sprite pops over the table that fired it,
         -- because most of the foley reads alike.
         ItemGhosts.spawn(g, e.item_id, e.x, e.y, e.pw, e.ph)
@@ -546,6 +549,7 @@ function love.load()
     -- Bake THE HOUSE's wall portrait (procedural, views/HouseArt) into
     -- the sprite pool so the room draws it like any other wall item.
     require("views.HouseArt").bake(Game.sprite_loader)
+    require("views.RoomFixtures").bake(Game.sprite_loader)
 
     -- Compile shaders at boot. ShaderRegistry caches by name; compile
     -- failures log a warning and degrade gracefully (no crash).

@@ -1438,7 +1438,7 @@ end
 function GrindController:_announceOnDeckCell(text)
     local a = AnchorRegistry.get("cell:deck")
     if not a then return end
-    AwardGlow.flash("cell:deck")
+    AwardGlow.flash("deck")   -- the rail's deck button, by its id
     if self.game.floating_text then
         self.game.floating_text.emit(text,
             a[1] + (a[3] or 0) * 0.5, a[2] + (a[4] or 0),

@@ -112,14 +112,14 @@ the same way, climbing from 0, with no line.
 ### `first_chip` — grind. Trigger: chips_this_run ≥ 1.
 | block | anchor | hold |
 |---|---|---|
-| You rinsed him. got his whole stack {w:stack}. | `stack:1` | click |
+| You rinsed him. got his whole stack {w:stack}. | `stack:banked` | click |
 | It came with a {chip}. Real gold, I weigh them myself. Win a {w:stack} and the table and it pays one. *(CHECK: a word seems missing)* | `cell:chips`, `chip_badge:banked` | click |
 | Remember though, It's only the FIRST {w:stack} at a table that pays a {chip}. You can tell if a table's {c:chip:paid} by the border on the felt, or the button. | `table:banked`, `add_table:banked`, `chip_badge:banked` | click |
 | You can also see how many {chip} you'll earn for a {w:stack} here. Higher stakes, better {c:won:payouts}. | every `add_table_chip:*` badge on the strip | click |
 | Get 3 {chip}, and you'll get your first answer. | `chip_badge:banked`, `chip_badge:shove` | click |
 | While we're here, hover the readout under a table. Go on, don't keep me waiting. | `ev:1..4` | **FORCE** wait: hovering a readout |
 | Everything a table does per hour, and its odds at all four pot sizes. The gold {w:stack} is the one that pays. | `ev:1..4` | click |
-| Now compare your rooms. Zoom's gold number sits at {dyn:stack_odds_zoom} a hand. The duel runs {dyn:stack_odds_hu}. | `ev:1..4` | click |
+| Now compare your rooms. Zoom's gold number sits at {dyn:stack_odds_zoom} a hand. The duel runs {dyn:stack_odds_hu}. | `stack_pct:1..4` | click |
 | Zoom players rarely go all in. Until you get better at reeling them in at least. | `ev:1..4` | click |
 | In case you forget anything, I'm keeping notes. | `btn:help` | click |
 
@@ -181,7 +181,7 @@ Fixed slots; an empty text is a silent slot.
 | That stamp's the price. Stickered ones aren't ready yet. | `catalog:price:first`, `catalog:sticker:first` | show: catalog open → click |
 | Close it when you're done and we'll set you back up. How fun. | `catalog:continue` | click |
 
-### `the_loop` — grind. Trigger: has_shoved, a table open.
+### `the_loop` — grind. Trigger: has_shoved (the moment the felt is back; no table needed).
 | block | anchor | hold |
 |---|---|---|
 | Same loan, same terms. That's a run. | `cell:bankroll` | click |

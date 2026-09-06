@@ -9,9 +9,22 @@ local RoomView      = require("views.RoomView")
 local Constants     = require("data.constants")
 local LabelButton   = require("views.widgets.LabelButton")
 local ClickFlash    = require("services.ClickFlash")
-local Format        = require("utils.format")
+local ShoveDecor    = require("views.ShoveDecor")
+local CatalogReceipt = require("views.CatalogReceipt")
+local Tooltip       = require("services.Tooltip")
+local Pop           = require("services.Pop")
+local Motion        = require("services.Motion")
+local SoundService  = require("services.SoundService")
+local ItemFoley     = require("services.ItemFoley")
+local Style         = require("data.shove_style")
+local Catalog       = require("data.catalog")
+local SettingsModal = require("views.SettingsModal")
 
-local function moneyText(n) return Format.money(n) end
+local CARD_PIN_SECS = 3.0    -- a clicked item's card stays up this long
+local POPIN_START   = 0.6    -- after enter, the first undelivered item pops in
+local POPIN_STAGGER = 0.35   -- and the next, and the next
+local BAND_CLEAR    = 76     -- × ui_scale: the story band's strip along the bottom
+local EDGE          = 16     -- × ui_scale: the manifest's margin to the bar and the edge
 
 local RoomState = {}
 RoomState.__index = RoomState
@@ -20,7 +33,35 @@ function RoomState:new(game)
     return setmetatable({
         game      = game,
         room_view = nil,
+        -- The manifest: the catalog's receipt, drawn flat on the right.
+        manifest  = CatalogReceipt:new(game),
+        _pinned   = nil,   -- { item, mx, my, until_t }: the card a click pinned
+        _manifest_highlight = nil,   -- the room's hovered item: its row lights
+        settings_modal = nil,
     }, RoomState)
+end
+
+-- The grind's view: its chrome (top bar and buttons) is drawn here too,
+-- so the numbers never leave the screen. nil in a harness without one.
+function RoomState:_grindView()
+    local sm = self.game.state_machine
+    local g  = sm and sm.states and sm.states.grind
+    return g and g.view or nil
+end
+
+function RoomState:openSettings()
+    if not self.settings_modal then
+        self.settings_modal = SettingsModal:new(self.game)
+    end
+end
+
+function RoomState:closeSettings()
+    self.settings_modal = nil
+end
+
+-- The hint layer and the story stay quiet under the settings modal.
+function RoomState:hintsBlocked()
+    return self.settings_modal ~= nil
 end
 
 -- The one RoomView. The shove borrows it for its intro (the room counts
@@ -41,11 +82,82 @@ function RoomState:enter()
     if not self.room_view then
         self.room_view = RoomView:new(self.game)
     end
+    self._pinned = nil
+    self.settings_modal = nil
+    -- The chrome's numbers snap to the state: no tween across the cut.
+    local gv = self:_grindView()
+    if gv and gv.resetDisplays then gv:resetDisplays() end
+    -- The lights stay how you left them.
+    local settings = self.game.settings
+    if settings and settings.room_lights_off ~= nil then
+        self.room_view.fixture_off = settings.room_lights_off == true
+    end
+    self:_queuePopIn()
+end
+
+-- ── Delivery ─────────────────────────────────────────────────────────
+
+-- Things bought since the last visit: those the layout has a place for
+-- pop in one at a time (drawn at nothing until their turn); the rest are
+-- seen by being on the manifest, and clear now.
+function RoomState:_queuePopIn()
+    local state = self.game.state
+    local rv    = self.room_view
+    local placed = {}
+    for _, o in ipairs(rv.placed or {}) do
+        local id = rv:catalogIdOf(o)
+        if id then placed[id] = true end
+    end
+    local queue, pending = {}, {}
+    for _, id in ipairs(state.room_unseen or {}) do
+        if placed[id] and rv.catalog_by_id[id] and not pending[id] then
+            queue[#queue + 1] = id
+            pending[id] = true
+        end
+    end
+    state.room_unseen = {}
+    for _, id in ipairs(queue) do state.room_unseen[#state.room_unseen + 1] = id end
+    self._popin = (#queue > 0) and { queue = queue, pending = pending, t = 0, next_at = POPIN_START } or nil
+end
+
+function RoomState:_updatePopIn(dt)
+    local p = self._popin
+    if not p then return end
+    local state = self.game.state
+    if Motion.scale("cinematics") <= 0 then
+        -- No motion: everything is simply there.
+        self._popin = nil
+        state.room_unseen = {}
+        return
+    end
+    p.t = p.t + dt
+    while p.queue[1] and p.t >= p.next_at do
+        local id = table.remove(p.queue, 1)
+        p.pending[id] = nil
+        local item = self.room_view.catalog_by_id[id]
+        if item then self:_popItem(item) end
+        for i = #state.room_unseen, 1, -1 do
+            if state.room_unseen[i] == id then table.remove(state.room_unseen, i) end
+        end
+        p.next_at = p.next_at + POPIN_STAGGER
+    end
+    if not p.queue[1] then self._popin = nil end
+end
+
+-- The item's moment: its foley (the count's fallback tick when it has
+-- none) and the count's own pop.
+function RoomState:_popItem(item)
+    local R = Style.room
+    ItemFoley.play(self.game.state, item.id, { volume_mult = R.item_volume, fallback = R.fallback_tick })
+    Pop.trigger("room_item:" .. item.id)
 end
 
 function RoomState:exit()
+    self.settings_modal = nil
+    self._pinned = nil
     if self.room_view then
         self.room_view.editor_mode = false
+        self.room_view.hover_placed = nil   -- the shove and the title borrow the view
     end
     if love.keyboard and love.keyboard.setKeyRepeat then love.keyboard.setKeyRepeat(false) end
     self._key_repeat = false
@@ -75,6 +187,74 @@ function RoomState:update(dt)
             self.room_view:autosave()
         end
     end
+
+    local gv = self:_grindView()
+    if gv and gv.tweenChrome then gv:tweenChrome(dt) end
+
+    if self.room_view and not want and not self.settings_modal then
+        self:_updatePopIn(dt)
+        self:_updateHover()
+    end
+end
+
+-- ── The trophy case: hover, card, click ──────────────────────────────
+
+-- What the pointer is on, in the room or on the manifest: the item
+-- brightens in place, its row lights, and its card shows (a clicked
+-- item's card stays pinned for a few seconds).
+function RoomState:_updateHover()
+    local rv = self.room_view
+    local mx, my = love.mouse.getPosition()
+    local hov_obj, hov_id
+    local row = self.manifest:rowAt(mx, my)
+    if row then
+        hov_id  = row.item.id
+        hov_obj = rv:placedById(hov_id)
+    else
+        hov_obj = rv:hitAt(mx, my)
+        hov_id  = rv:catalogIdOf(hov_obj)
+    end
+    rv.hover_placed = hov_obj
+    self._manifest_highlight = hov_id
+
+    local pin = self._pinned
+    if pin and love.timer.getTime() > pin.until_t then
+        self._pinned = nil
+        pin = nil
+    end
+    if pin then
+        Tooltip.pin(self:_itemCard(pin.item), pin.mx, pin.my)
+    elseif hov_id then
+        local item = rv.catalog_by_id[hov_id]
+        if item then Tooltip.set(self:_itemCard(item), mx, my) end
+    end
+end
+
+-- The item's card: the receipt's (name, effect, corrupt line, description,
+-- fire counts), read from the room too.
+function RoomState:_itemCard(item)
+    return CatalogReceipt.itemCard(self.game, item, self.game.state:isCorrupted(item.id))
+end
+
+-- A click on an item (in the room or on its row): its foley, a pop, the
+-- card pinned, and, if it has one, the House's line about it.
+function RoomState:_clickItem(item, mx, my)
+    self:_popItem(item)
+    self._pinned = { item = item, mx = mx, my = my, until_t = love.timer.getTime() + CARD_PIN_SECS }
+    local story = self.game.story
+    if item.house_line and story and story.sayOnce then story:sayOnce(item.house_line) end
+end
+
+-- The pop an item is mid-way through (a click, or the count's own pop),
+-- as the scale RoomView draws it at.
+function RoomState:_itemScale(obj)
+    local id = self.room_view:catalogIdOf(obj)
+    if not id then return 1 end
+    -- Not delivered yet: its slot stands empty until its turn.
+    if self._popin and self._popin.pending[id] then return 0 end
+    local p = Pop.progress("room_item:" .. id, Style.room.flash_secs)
+    if p <= 0 then return 1 end
+    return Pop.scale(Motion.pop("cinematics", p), 1, 0.18)
 end
 
 function RoomState:draw()
@@ -93,43 +273,29 @@ function RoomState:draw()
     -- straight over Export / Reset / Clear / Help / Size / Floor.
     local view_last = self.room_view and self.room_view.editor_mode
     if self.room_view and not view_last then
-        self.room_view:draw(true, { lighting = { fixture = self.room_view.fixture_off and 0 or 1, emitters = true } })
+        self:_drawRoom(W, H)
     end
 
-    -- Draw top bar
-    local top_h = fl(56 * s)
-    Theme.setColor(Theme.bg.chrome)
-    love.graphics.rectangle("fill", 0, 0, W, top_h)
-    Theme.setColor(Theme.border.default)
-    love.graphics.rectangle("fill", 0, top_h - 1, W, 1)
-
-    -- Display bankroll in top bar
-    local d_bank = self.game.state.bankroll or 0
-    Theme.setColor(Theme.fg.heading)
-    love.graphics.setFont(fonts.lg)
-    local bank_y = fl((top_h - fonts.lg:getHeight()) * 0.5)
-    local bank_str = moneyText(d_bank)
-    love.graphics.print(bank_str, fl(16 * s), bank_y)
-
-    -- Draw back/PLAY button to return to grind
-    local btn_w = fl(100 * s)
-    local btn_h = fl(36 * s)
-    local btn_x = W - btn_w - fl(16 * s)
-    local btn_y = fl((top_h - btn_h) * 0.5)
-    -- Hint target: the way back to the tables.
-    AnchorRegistry.set("room:play", btn_x, btn_y, btn_w, btn_h)
-    -- The House's story band: a strip along the bottom of the room.
-    AnchorRegistry.set("story:band", fl(16 * s), H - fl(60 * s), W - fl(32 * s), fl(44 * s))
-
+    -- The top bar is the grind's: bankroll, tied up, total, chips, shove,
+    -- tables, focus and the buttons, the ROOM button reading PLAY here.
+    -- The chrome is the grind's rail along the bottom (its room button
+    -- reads PLAY here and carries the room:play anchor).
+    local gv = self:_grindView()
+    local top_h = self:_topBarH()
+    if gv then gv:drawChrome(W) end
+    -- The House's story band: a strip along the bottom of the room, above the rail.
+    AnchorRegistry.set("story:band", fl(16 * s), H - self:_railH() - fl(60 * s), W - fl(32 * s), fl(44 * s))
     local mx, my = love.mouse.getPosition()
 
     -- DESIGNER button + unlock-cheat status: dev tooling, not demo content.
     -- The editor's EXPORT writes into the source tree, which doesn't even
-    -- exist on the web build.
+    -- exist on the web build. Under the bar, at the right.
     if Constants.FEATURES.DEV_HOTKEYS then
-    -- Draw DESIGNER button
+    local btn_h = fl(30 * s)
+    local btn_y = top_h + fl(8 * s)
     local des_w = fl(140 * s)
-    local des_x = btn_x - des_w - fl(12 * s)
+    local des_x = W - des_w - fl(16 * s)
+    self._designer_rect = { x = des_x, y = btn_y, w = des_w, h = btn_h }
     local is_editing = self.room_view and self.room_view.editor_mode
 
     local des_hov = mx >= des_x and mx < des_x + des_w and my >= btn_y and my < btn_y + btn_h
@@ -165,20 +331,90 @@ function RoomState:draw()
             love.graphics.print("UNLOCK ALL [U]", des_x - fl(140 * s), btn_y + fl(10 * s))
         end
     end
+    else
+        self._designer_rect = nil
     end
 
-    local btn_hov = mx >= btn_x and mx < btn_x + btn_w
-                and my >= btn_y and my < btn_y + btn_h
-
-    LabelButton.draw{
-        x = btn_x, y = btn_y, w = btn_w, h = btn_h,
-        text        = "PLAY",
-        fonts       = fonts,
-        hovered     = btn_hov,
-        press_alpha = ClickFlash.alpha("room_back_btn", "room_back_btn"),
-    }
     if view_last then
-        self.room_view:draw(true, { lighting = { fixture = self.room_view.fixture_off and 0 or 1, emitters = true } })
+        self:_drawRoom(W, H)
+    end
+    if self.settings_modal then self.settings_modal:draw() end
+end
+
+-- Nothing sits along the top any more: the chrome is the rail (below).
+function RoomState:_topBarH()
+    return 0
+end
+
+-- The rail's height, from the grind view that draws it.
+function RoomState:_railH()
+    local gv = self:_grindView()
+    return (gv and gv.railH) and gv:railH() or 0
+end
+-- The room: the same scene the shove's count and the title draw
+-- (RoomView:drawScene), nothing moved; the manifest lies over its right
+-- edge and the count sits where the shove's does. The editor keeps its
+-- own zoom control and its unframed view.
+function RoomState:_drawRoom(W, H)
+    local rv = self.room_view
+    local fixture = rv.fixture_off and 0 or 1
+    if rv.editor_mode then
+        rv:draw(true, { lighting = { fixture = fixture, emitters = true } })
+        return
+    end
+    rv:drawScene(W, H, {
+        fixture    = fixture,
+        item_scale = function(obj) return self:_itemScale(obj) end,
+    })
+    -- The manifest: the same paper the catalog tucks behind its cover,
+    -- laid flat. The card is the room's to show (hover or pinned).
+    self.manifest:drawStandalone(self:_manifestRect(W, H), {
+        placed_set   = rv:drawnIdSet(),
+        highlight_id = self._manifest_highlight,
+        tooltip      = false,
+    })
+    self:_drawCount(W, H)
+end
+
+-- Where the manifest lies: the paper's own width, down the right side,
+-- under the bar and clear of the story band.
+function RoomState:_manifestRect(W, H)
+    local s, fl = self.game.ui_scale or 1, math.floor
+    local pw, m = CatalogReceipt.paperWidth(s), fl(EDGE * s)
+    local top_h = self:_topBarH()
+    -- The rail stops left of this column, so the paper runs to the band.
+    return { x = W - pw - m, y = top_h + m, w = pw, h = H - top_h - m - fl(BAND_CLEAR * s) }
+end
+
+-- The count: the number the shove's count reaches, where the shove puts
+-- it (centred, at the room's counter line), the same word beside it.
+function RoomState:_drawCount(W, H)
+    local fonts = self.game.fonts
+    local s     = self.game.ui_scale or 1
+    local n     = #self.game.state:countedItems(Catalog)
+    local c     = ShoveDecor.drawRoomCounter(fonts, s, W, H, n, "THINGS YOU OWN",
+                                             { pop_id = "room_screen_count" })
+    local lg_h  = fonts.lg:getHeight()
+    local w     = fonts.lg:getWidth(tostring(n)) + math.floor(10 * s) + fonts.sm:getWidth("THINGS YOU OWN")
+    AnchorRegistry.set("room:count", math.floor(c.x - fonts.lg:getWidth(tostring(n)) * 0.5),
+                       c.y - lg_h * 0.5, w, lg_h)
+end
+
+-- The light switch: the fixture off and on, the tube's hum with it, and
+-- the choice kept in settings so the room stays how you left it.
+function RoomState:_toggleLights()
+    local rv = self.room_view
+    rv.fixture_off = not rv.fixture_off
+    if rv.fixture_off then
+        SoundService.stopNamed("lights_on")   -- the hum ends with the tube
+        SoundService.playNamed("lights_off")
+    else
+        SoundService.playNamed("lights_on")
+    end
+    local g = self.game
+    if g.settings then
+        g.settings.room_lights_off = rv.fixture_off
+        if g.save_service and g.save_service.saveSettings then g.save_service:saveSettings(g.settings) end
     end
 end
 
@@ -189,6 +425,7 @@ function RoomState:capturesDevKeys()
 end
 
 function RoomState:keypressed(key)
+    if SettingsModal.route(self, "keypressed", key) then return end
     if self.room_view and self.room_view:keypressed(key) then
         return
     end
@@ -246,54 +483,86 @@ function RoomState:keypressed(key)
 end
 
 function RoomState:mousepressed(x, y, button)
-    local W, H = love.graphics.getDimensions()
-    local s    = self.game.ui_scale or 1
-    local fl   = math.floor
+    if SettingsModal.route(self, "mousepressed", x, y, button) then return end
+    if button ~= 1 then return end
 
-    -- Check top-bar PLAY button click
-    local top_h = fl(56 * s)
-    local btn_w = fl(100 * s)
-    local btn_h = fl(36 * s)
-    local btn_x = W - btn_w - fl(16 * s)
-    local btn_y = fl((top_h - btn_h) * 0.5)
-
-    if x >= btn_x and x < btn_x + btn_w and y >= btn_y and y < btn_y + btn_h then
-        ClickFlash.flash("room_back_btn", "room_back_btn")
+    -- The rail: the grind's controls, read here. The room button is PLAY
+    -- (back to the tables); the catalog and the deck roster are the
+    -- grind's modals, so they open there; settings opens over the room;
+    -- cash out, the quick reset and SHOVE act where they are.
+    local gv = self:_grindView()
+    local hit = gv and gv:chromeHit(x, y)
+    if hit == "nav:room" then
+        ClickFlash.flash("button", hit)
         self.game.state_machine:switch("grind")
+        return
+    elseif hit == "nav:settings" then
+        ClickFlash.flash("button", hit)
+        self:openSettings()
+        return
+    elseif hit == "nav:catalog" or hit == "deck" then
+        ClickFlash.flash("button", hit)
+        self.game.state_machine:switch("grind")
+        if hit == "nav:catalog" then
+            if self.game.openCatalog then self.game.openCatalog() end
+        elseif self.game.openDeckRoster then
+            self.game.openDeckRoster()
+        end
+        return
+    elseif gv and gv:chromeMousepressed(x, y) then
+        return
+    end
+    -- DESIGNER (dev builds only), under the bar at the right.
+    local dr = self._designer_rect
+    if dr and Constants.FEATURES.DEV_HOTKEYS
+       and x >= dr.x and x < dr.x + dr.w and y >= dr.y and y < dr.y + dr.h then
+        if self.room_view then
+            self.room_view.editor_mode = not self.room_view.editor_mode
+        end
         return
     end
 
-    -- Check top-bar DESIGNER button click (dev builds only)
-    if Constants.FEATURES.DEV_HOTKEYS then
-        local des_w = fl(140 * s)
-        local des_x = btn_x - des_w - fl(12 * s)
-        if x >= des_x and x < des_x + des_w and y >= btn_y and y < btn_y + btn_h then
-            if self.room_view then
-                self.room_view.editor_mode = not self.room_view.editor_mode
-            end
-            return
-        end
-    end
+    -- Otherwise forward to RoomView (the editor's own targets)...
+    if self.room_view and self.room_view:mousepressed(x, y, button) then return end
 
-    -- Otherwise forward to RoomView
-    if self.room_view then
-        self.room_view:mousepressed(x, y, button)
+    -- ...or, playing, a click on a thing you own: on its row or in the room.
+    if self.room_view and not self.room_view.editor_mode and button == 1 then
+        local rv  = self.room_view
+        local row = self.manifest:rowAt(x, y)
+        local item = row and row.item
+        if not item then
+            local hit = rv:hitAt(x, y)
+            if hit and hit.id == "light_switch" then
+                self:_toggleLights()
+                return
+            end
+            local id = rv:catalogIdOf(hit)
+            item = id and rv.catalog_by_id[id]
+        end
+        if item then self:_clickItem(item, x, y) end
     end
 end
 
 function RoomState:mousemoved(x, y, dx, dy)
+    if SettingsModal.route(self, "mousemoved", x, y) then return end
     if self.room_view and self.room_view.mousemoved then
         self.room_view:mousemoved(x, y, dx, dy)
     end
 end
 
 function RoomState:mousereleased(x, y, button)
+    if SettingsModal.route(self, "mousereleased", x, y, button) then return end
     if self.room_view and self.room_view.mousereleased then
         self.room_view:mousereleased(x, y, button)
     end
 end
 
 function RoomState:wheelmoved(x, y)
+    if SettingsModal.route(self, "wheelmoved", x, y) then return end
+    if self.room_view and not self.room_view.editor_mode then
+        if self.manifest then self.manifest:wheelmoved(y) end
+        return
+    end
     if self.room_view then
         self.room_view:wheelmoved(y)
     end

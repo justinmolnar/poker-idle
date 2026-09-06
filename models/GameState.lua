@@ -89,6 +89,10 @@ function GameState:new(saved)
     -- nil until it happens; the first_hand beats read its sign.
     instance.first_hand_delta = nil
     instance.first_hand_tier  = nil   -- its pot tier: small / medium / large / stack
+    -- How often each item has fired (item_fired events, by catalog id):
+    -- this run, and over the save's life. The room's card reads both.
+    instance.item_fires_run   = {}
+    instance.item_fires_life  = {}
     -- Zoom-first opening (Constants.GTYPE_GATE): HU latches open the
     -- moment a second table is affordable (GrindController update);
     -- 6-max latches from owning the Desk Plant (invalidateEffects).
@@ -118,6 +122,9 @@ function GameState:new(saved)
     -- top-bar cell pulses while this is non-empty. Cleared when the roster
     -- opens. Persisted so a restart doesn't lose the nudge.
     instance.decks_unseen   = {}
+    -- Catalog items bought and not yet seen in the room: the ROOM button
+    -- pulses while this is non-empty; each pops in on the next visit.
+    instance.room_unseen    = {}
 
     -- Hands resolved over the save's whole life, unconditional. The
     -- lifetime_* counters below only accrue once decks unlock; these
@@ -303,7 +310,8 @@ end
 -- chips earned during the run were already banked to state.chips during play.
 function GameState:resetRun()
     self.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
-    self.loan_fresh          = true   -- the loan renews: the readout climbs from 0
+    self.loan_fresh          = true   -- the loan renews: the readout climbs from 0
+    self.item_fires_run      = {}     -- the room's per-run fire counts start over
     self.current_stake_id    = "s001"
     self.run_upgrade_levels  = {}
     self.active_table_specs = {}
@@ -370,6 +378,8 @@ function GameState:wipeAll()
     self.screen_visits = {}
     self.story_seen   = {}
     self.story_armed  = {}
+    self.item_fires_run  = {}
+    self.item_fires_life = {}
     -- Deck state resets to starter-only with all unlock progress lost.
     -- Mirrors the fresh-:new defaults exactly.
     local starter = DeckSpecs[1]
@@ -383,6 +393,7 @@ function GameState:wipeAll()
     end
     self.active_deck_id = starter and starter.id or nil
     self.decks_unseen   = {}
+    self.room_unseen    = {}
 
     -- Lifetime counters reset too — the unlock conditions need a fresh
     -- start when the player wipes their game.
@@ -455,6 +466,10 @@ function GameState:applySaved(saved)
     end
     -- Backfill for saves from before the unseen-deck nudge (2026-09).
     if type(self.decks_unseen) ~= "table" then self.decks_unseen = {} end
+    if type(self.room_unseen)  ~= "table" then self.room_unseen  = {} end
+    -- ...and before the room counted item fires (2026-09).
+    if type(self.item_fires_life) ~= "table" then self.item_fires_life = {} end
+    if type(self.item_fires_run)  ~= "table" then self.item_fires_run  = {} end
     if saved.run then
         AutoSerializer.apply(self, saved.run, GameState.REFS, function() return nil end)
     end
@@ -883,6 +898,8 @@ function GameState:serializeMeta()
         deck_xp                         = self.deck_xp,
         active_deck_id                  = self.active_deck_id,
         decks_unseen                    = self.decks_unseen,
+        room_unseen                     = self.room_unseen,
+        item_fires_life                 = self.item_fires_life,
         lifetime_money_won              = self.lifetime_money_won,
         lifetime_money_lost             = self.lifetime_money_lost,
         lifetime_stack_count          = self.lifetime_stack_count,
@@ -930,6 +947,7 @@ end
 function GameState:serializeRun()
     return {
         bankroll                   = self.bankroll,
+        item_fires_run             = self.item_fires_run,
         run_upgrade_levels         = self.run_upgrade_levels,
         active_table_specs         = self.active_table_specs,
         active_table_mutes         = self.active_table_mutes,
@@ -1107,6 +1125,38 @@ end
 
 -- Spend chips on a catalog item: validates affordability + non-duplicate +
 -- requires-prereq, applies the mutation, invalidates the effects cache.
+-- Whether an owned item is corrupted (corrupted_items is an array of ids).
+function GameState:isCorrupted(id)
+    for _, cid in ipairs(self.corrupted_items or {}) do
+        if cid == id then return true end
+    end
+    return false
+end
+
+-- The things you own, in the order you bought them: every owned catalog
+-- item that counts toward the shove's BASE (a nonzero shove_rate_add) and
+-- is not removed by something else you own. #list is the number the
+-- shove's count reaches and the room screen prints. `catalog` is the
+-- data/catalog list (the model does not require data).
+function GameState:countedItems(catalog)
+    local by_id = {}
+    for _, item in ipairs(catalog or {}) do by_id[item.id] = item end
+    local owned_set = {}
+    for _, id in ipairs(self.owned_items or {}) do owned_set[id] = true end
+    local ids = {}
+    for _, id in ipairs(self.owned_items or {}) do
+        local item = by_id[id]
+        if item and not (item.removed_by and owned_set[item.removed_by]) then
+            local rate = 0
+            for _, eff in ipairs(item.effects or {}) do
+                if eff.kind == "shove_rate_add" then rate = eff.value or 0 end
+            end
+            if rate > 0 then ids[#ids + 1] = id end
+        end
+    end
+    return ids
+end
+
 -- Returns true on success. Centralised so both grind-time and post-bust
 -- catalog UIs route through one mutation point — no view mutates state.chips
 -- directly. Caller-side concerns (sound, ctx recompute) remain on the
@@ -1126,6 +1176,8 @@ function GameState:tryBuyCatalogItem(item)
     if self.chips < item.cost_chip then return false end
     self.chips = self.chips - item.cost_chip
     self.owned_items[#self.owned_items + 1] = item.id
+    self.room_unseen = self.room_unseen or {}
+    self.room_unseen[#self.room_unseen + 1] = item.id   -- delivered on the next room visit
     self.effects_cache = nil
     return true
 end

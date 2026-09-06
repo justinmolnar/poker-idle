@@ -76,4 +76,34 @@ function Icons.drawAntiChip(game, x, y, size, alpha, shade)
                     { Theme.currency.achip, Theme.currency.achip_ring })
 end
 
+-- The gear: settings, the way every UI has said it. Art from
+-- data/icons `settings` when it ships; a procedural gear until then, the
+-- same rule as the chip glyph.
+function Icons.drawGear(game, x, y, size, color)
+    local spec  = IconData.settings
+    local atlas = spec and spriteReady(game, spec.sprite)
+    if atlas then
+        SpriteRenderer.draw(atlas, spec.sprite, x, y, size, size, resolveTint(spec.tint))
+        return
+    end
+    local cx, cy = x + size / 2, y + size / 2
+    local r_out  = size * 0.5
+    local r_in   = size * 0.36
+    local r_hole = size * 0.14
+    local teeth  = 8
+    local tw     = r_out * 0.55
+    Theme.setColor(color or Theme.fg.heading)
+    for i = 1, teeth do
+        local a = (i - 1) / teeth * math.pi * 2
+        love.graphics.push()
+        love.graphics.translate(cx, cy)
+        love.graphics.rotate(a)
+        love.graphics.rectangle("fill", -tw * 0.5, -r_out, tw, r_out - r_in + 1)
+        love.graphics.pop()
+    end
+    love.graphics.circle("fill", cx, cy, r_in)
+    Theme.setColor(Theme.bg.chrome)
+    love.graphics.circle("fill", cx, cy, r_hole)
+end
+
 return Icons

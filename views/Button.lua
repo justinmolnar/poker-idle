@@ -41,6 +41,12 @@ local function darken(c, f)     return { c[1] * f, c[2] * f, c[3] * f, c[4] } en
 --   line_width   number   border line width. Default Theme.space.hairline.
 --   disabled     bool     overrides fill_color with Theme.bg.sunken;
 --                         disables hover wash and press animation.
+--   disabled_fill {r,g,b} the face while disabled, instead of bg.sunken
+--                         (a locked key that keeps its material, near-black).
+--   disabled_fill {r,g,b} the face while disabled, instead of bg.sunken
+--                         (a locked key that keeps its material, near-black).
+--   disabled_fill {r,g,b} the face while disabled, instead of bg.sunken
+--                         (a locked key that keeps its material, near-black).
 --
 -- label_fn(face_x, face_y, face_w, face_h) — called after the chrome with
 -- the post-press face rect. Caller renders text/icons relative to this rect
@@ -71,7 +77,7 @@ function Button.draw(x, y, w, h, opts, label_fn)
     if side_h < 0 then side_h = 0 end
 
     -- Resolve colours.
-    local fill = disabled and Theme.bg.sunken or opts.fill_color
+    local fill = disabled and (opts.disabled_fill or Theme.bg.sunken) or opts.fill_color
     if not fill then return end
     local side = opts.side_color or darken(fill, 0.5)
 

@@ -46,6 +46,9 @@
 --                        text+counter — the card is never hidden, but a gate
 --                        whose WORDS would introduce an unmet mechanic stays
 --                        unspeakable ("0/5 tables tilted" is a tilt spoiler).
+--     house_line       = "...",   -- optional: what the House says when the
+--                                 -- item is clicked in the room (one line,
+--                                 -- the band, never recorded). None yet.
 --   }
 --
 -- ─── Writing unlock.text ────────────────────────────────────────────────

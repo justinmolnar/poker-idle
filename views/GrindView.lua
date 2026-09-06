@@ -56,7 +56,8 @@ local Decks          = require("models.Decks")
 local DeckArt        = require("views.DeckArt")
 local OutcomeMath    = require("models.outcome_math")
 local Lookups        = require("utils.lookups")
-
+local Rail           = require("data.rail")
+local CatalogModal   = require("views.CatalogModal")
 local GrindView = {}
 GrindView.__index = GrindView
 
@@ -76,45 +77,28 @@ local function stakeVisible(view, stake)
 end
 
 
--- Layout values. The window-relative ones (TOP_BAR_H, LEFT_W, RIGHT_W,
--- CELL_W.*, BANKROLL_CELL_W, TOPBAR_LABEL_Y, TOPBAR_VALUE_Y) are
+-- Layout values. The window-relative ones (LEFT_W, RIGHT_W, RAIL_H) are
 -- *recomputed* in recomputeLayout() at init and on resize — derived
 -- from window dimensions + font metrics rather than hardcoded px so
--- the bar fits the active font and sidebars scale with the window.
+-- the rail fits the active font and sidebars scale with the window.
 -- Initial values here are placeholders; the first :_buildPanels call
 -- replaces them.
-local TOP_BAR_H            = 70
 local LEFT_W               = 280
 local RIGHT_W              = 250
-local BANKROLL_CELL_W      = 160
--- Per-cell widths sized to fit each cell's actual label / value so
--- within-cluster cells pack tight against their content. Recomputed
--- in recomputeLayout from the active fonts. Order matches the draw
--- walk in _drawTopBar.
-local CELL_W = {
-    tied = 72, total = 72,                   -- money cluster
-    chip = 48, achip = 48, shove = 56, deck = 50, -- run cluster (chip + deck are icon/sprite)
-    tables = 72, focus = 56,                 -- workload cluster
-}
-local TOPBAR_LABEL_Y       = 8
-local TOPBAR_VALUE_Y       = 32
-
 local MARGIN               = 12
--- Button heights are recomputed from font metrics in recomputeLayout
--- so they grow/shrink with whatever sizes data/theme.lua picks.
-local SHOVE_BTN_H          = 64
--- THE HOUSE poster (the captor) sits above the SHOVE button; hint
--- bubbles speak from it (views/HintView anchors to "house"). Doubled
--- when the portrait got real art (views/HouseArt); _buildPanels cuts
--- the Upgrades panel by the same amount automatically.
+-- The rail along the bottom: the chrome, as components (data/rail.lua
+-- for the words; _buildRailComponents for the row). Two text lines tall
+-- (a small label over a value, what the old top bar was), a little air
+-- above and below; every button in it is RAIL_BTN_H tall.
+local RAIL_BTN_H           = 40
+local RAIL_PAD             = 6
+local RAIL_H               = 52
+local CLUSTER_GAP          = 24     -- between the rail's groups
+-- THE HOUSE poster (the captor) sits at the bottom of the right sidebar,
+-- above the rail; hint bubbles speak from it (views/HintView anchors to
+-- "house"). Doubled when the portrait got real art (views/HouseArt);
+-- _buildPanels cuts the Upgrades panel by the same amount automatically.
 local HOUSE_H              = 184
-local CASH_OUT_BTN_W       = 110
-local CASH_OUT_BTN_H       = 36
-local CATALOG_BTN_W        = 110
-local CATALOG_BTN_H        = 36
-local TOPBAR_BTN_GAP       = 8
-local CLUSTER_GAP          = 24
-local TOPBAR_PAD_X         = 16
 -- Reserved band at the bottom of the center column for the bankroll
 -- chip pile. Center grid shrinks vertically by this much. Sidebars are
 -- unaffected — they keep running their full height.
@@ -153,28 +137,14 @@ local function recomputeLayout(W, H, fonts, state)
     PANEL_MAX_W = math.floor(520 * s)
     PANEL_MAX_H = math.floor(390 * s)
 
-    -- Top-bar buttons + bottom band + table chrome bits scale too.
-    SHOVE_BTN_H          = math.floor(64 * s)
+    -- The poster, the pile band and the table chrome bits scale too.
     HOUSE_H              = math.floor(184 * s)
-    -- Top-bar button widths are derived from the longest label in
-    -- their font so they don't waste horizontal space the stat cells
-    -- could use. fonts.sm at any scale already grew with the integer
-    -- font scale.
-    local longest = math.max(
-        fonts.sm:getWidth("SETTINGS"),
-        fonts.sm:getWidth("CATALOG"),
-        fonts.sm:getWidth("CASH OUT"))
-    local btn_pad_x = math.floor(28 * s)
-    CASH_OUT_BTN_W       = longest + btn_pad_x
-    CATALOG_BTN_W        = longest + btn_pad_x
     BOTTOM_BAND_H        = math.floor(90  * s)
     PANEL_REMOVE_BTN_SIZE = math.floor(22 * s)
     PILL_H               = math.floor(18 * s)
     PILL_GAP             = math.floor(4  * s)
     MARGIN               = math.floor(12 * s)
-    TOPBAR_BTN_GAP       = math.floor(8  * s)
-    CLUSTER_GAP          = math.floor(40 * s)
-    TOPBAR_PAD_X         = math.floor(16 * s)
+    CLUSTER_GAP          = math.floor(10 * s)
 
     -- Sidebars: window-fraction with absolute minimums. The minimum
     -- is NOT layout-scale-multiplied — at 720p the heading text on
@@ -184,83 +154,11 @@ local function recomputeLayout(W, H, fonts, state)
     LEFT_W  = math.max(290, math.floor(W * 0.18))
     RIGHT_W = math.max(320, math.floor(W * 0.22))
 
-    -- Top bar height + label/value y-offsets derived from font heights.
-    -- Padding kept minimal — pixel fonts already include leading inside
-    -- getHeight() so extra px just produces visible empty space.
-    local label_h = fonts.sm:getHeight()
-    local value_h = fonts.md:getHeight()
-    TOPBAR_LABEL_Y = 2
-    TOPBAR_VALUE_Y = TOPBAR_LABEL_Y + label_h
-    TOP_BAR_H      = TOPBAR_VALUE_Y + value_h + 2
-
-    -- Top-bar buttons (CATALOG / CASH OUT) draw their text in fonts.sm,
-    -- so size their height from sm + padding, not md.
-    CASH_OUT_BTN_H = fonts.sm:getHeight() + 16
-    CATALOG_BTN_H  = fonts.sm:getHeight() + 16
-
-    -- Top-bar layout: each cell sized to its own label/value (the
-    -- max of fonts.sm:getWidth(label) and fonts.md:getWidth(value))
-    -- plus a small intrinsic pad. Cells inside a cluster draw flush,
-    -- so within-cluster spacing equals just that intrinsic pad —
-    -- which keeps it visually distinct from the larger CLUSTER_GAP
-    -- between clusters (3 gaps: BANK|MONEY, MONEY|RUN, RUN|WORKLOAD).
-    local button_zone = RIGHT_W
-    local cell_pad    = math.floor(8 * s)
-    local function cellW(label, value_ref)
-        return math.max(
-            math.ceil(fonts.sm:getWidth(label)),
-            math.ceil(fonts.md:getWidth(value_ref))) + cell_pad
-    end
-
-    CELL_W.tied   = cellW("TIED UP", "$999.99")
-    CELL_W.total  = cellW("TOTAL",   "$999.99")
-    -- Chip cell is a prominent glyph + count (not a stacked label/value),
-    -- so size it from the chip diameter + gap + the widest count.
-    CELL_W.chip   = math.floor(TOP_BAR_H * 0.6) + math.floor(6 * s)
-                    + math.ceil(fonts.md:getWidth("9999")) + cell_pad
-    CELL_W.achip  = math.floor(TOP_BAR_H * 0.6) + math.floor(6 * s)
-                    + math.ceil(fonts.md:getWidth("9999")) + cell_pad
-    CELL_W.shove  = cellW("SHOVE",   "999%")
-    -- Deck cell is a wide crop of the deck's back (pips and the level bar
-    -- ride inside it), not a text value. Only takes bar space when
-    -- FEATURES.DECKS is on; the cluster collapses otherwise (the
-    -- cells_total sum below excludes it).
-    CELL_W.deck   = math.max(cellW("DECK", "L9"), math.floor(96 * s))
-    -- Act 3 bleed meter: label plus a bar, so it sizes off the label and a
-    -- minimum bar width rather than a value string.
-    CELL_W.tables = cellW("TABLES",  "99 / 99")
-    CELL_W.focus  = cellW("FOCUS",   "100%")
-
-
-    local ideal_bankroll = math.ceil(fonts.lg:getWidth("$999.99K")) + math.floor(24 * s)
-    local cells_total    = CELL_W.tied  + CELL_W.total
-                         + CELL_W.chip  + CELL_W.shove
-                         + CELL_W.tables + CELL_W.focus
-    -- The {achip} cell is reserved UNCONDITIONALLY, same reasoning as the
-    -- deck cell below: layout only reruns on resize, and winning R2
-    -- mid-session used to shove the whole cluster into CASH OUT until the
-    -- next resize because the cell was reserved on the live flag.
-    cells_total = cells_total + CELL_W.achip
-    -- Reserve on the static flag, not Decks.systemUnlocked: the system
-    -- unlocks mid-session (first gauntlet clear) and this only reruns on
-    -- resize — reserving up front keeps the bar from reflowing under the
-    -- player when the chip appears.
-    if Constants.FEATURES and Constants.FEATURES.DECKS then
-        cells_total = cells_total + CELL_W.deck
-    end
-    local ideal_total    = ideal_bankroll + cells_total + 3 * CLUSTER_GAP
-    local available      = W - TOPBAR_PAD_X - button_zone
-
-    if ideal_total <= available then
-        BANKROLL_CELL_W = ideal_bankroll
-    else
-        -- Squeeze: scale bankroll + every cell + cluster gaps by
-        -- the same ratio so the bar still fits without overlap.
-        local ratio = available / ideal_total
-        BANKROLL_CELL_W = math.max(80, math.floor(ideal_bankroll * ratio))
-        for k, v in pairs(CELL_W) do CELL_W[k] = math.max(28, math.floor(v * ratio)) end
-        CLUSTER_GAP     = math.max(8, math.floor(CLUSTER_GAP * ratio))
-    end
+    -- The rail: a small label on a value (the label pulled down over the
+    -- font's leading), plus a little air.
+    RAIL_BTN_H = fonts.sm:getHeight() + fonts.md:getHeight() - math.floor(fonts.sm:getHeight() * 0.3) + math.floor(4 * s)
+    RAIL_PAD   = math.floor(4 * s)
+    RAIL_H     = RAIL_BTN_H + 2 * RAIL_PAD
 end
 
 -- ─── Construction ─────────────────────────────────────────────────────
@@ -318,7 +216,7 @@ function GrindView:_buildPanels()
     local W, H = love.graphics.getDimensions()
     recomputeLayout(W, H, self.game.fonts, self.game.state)
 
-    self.left_panel = Panel:new(0, TOP_BAR_H, LEFT_W, H - TOP_BAR_H)
+    self.left_panel = Panel:new(0, 0, LEFT_W, H - RAIL_H)
     self.left_panel:registerTab({
         id       = "tables",
         label    = "Tables",
@@ -328,174 +226,82 @@ function GrindView:_buildPanels()
     -- Catalog tab removed — purchases now happen in views/CatalogModal.lua
     -- after each bust. The chip shop is only accessible between runs.
 
-    -- Right panel reserves space at the bottom for the SHOVE button, a
-    -- few px so the quick-reset button can straddle the shove's top edge
-    -- without overlapping panel content, and THE HOUSE poster above that.
-    local qr_reserve    = math.floor(18 * (self.game.ui_scale or 1))
-    local house_reserve = HOUSE_H + MARGIN
-    local right_panel_h = H - TOP_BAR_H - SHOVE_BTN_H - 2 * MARGIN
-                          - qr_reserve - house_reserve
-    self.right_panel = Panel:new(W - RIGHT_W, TOP_BAR_H, RIGHT_W, right_panel_h)
+    -- Right panel runs to the bottom of the screen (the rail stops at its
+    -- edge) and reserves THE HOUSE poster at its foot.
+    local right_panel_h = H - HOUSE_H - 2 * MARGIN
+    self.right_panel = Panel:new(W - RIGHT_W, 0, RIGHT_W, right_panel_h)
     self.right_panel:registerTab({
         id       = "upgrades",
         label    = "Upgrades",
         priority = 0,
         build    = function() return self:_buildUpgradesTabComponents() end,
     })
-end
 
+    -- The rail: the chrome, one row of components along the bottom, left
+    -- of the right sidebar, drawn and hit-tested by the same Panel +
+    -- ComponentRenderer path.
+    self.rail = Panel:new(0, H - RAIL_H, W - RIGHT_W, RAIL_H)
+    self.rail:registerTab({
+        id       = "rail",
+        label    = "Rail",
+        priority = 0,
+        build    = function() return self:_buildRailComponents() end,
+    })
+end
 -- ─── Panel content builders (called every frame by Panel:draw) ────────────
 
--- Game-type sub-tab strip — 4 horizontal buttons at the top of the Tables
--- tab. Selecting one swaps which set of stake-add buttons render below.
--- Built as a `custom` ComponentRenderer entry so the row layout sits in
--- one component instead of stacking 4 separate buttons vertically.
+-- Game-type keys: a row of four buttons at the top of the Tables tab.
+-- Selecting one swaps which stake-add rows render below. Cassette-deck
+-- selection: every open key rides HIGH on a deep rim; the selected one is
+-- HELD DOWN, pressed flat with a lit legend, so the shape carries the
+-- state. Locked keys (Constants.GTYPE_GATE) stay: dark, flush, blank and
+-- inert, a slot to want. The story beats do the explaining when each opens.
 function GrindView:_makeGameTypeStrip()
-    -- Strip height tracks the active sm font + a tight pad. The pad
-    -- DOESN'T multiply by ui_scale — at fullscreen the font itself
-    -- already grew via the integer fontScale, so adding another
-    -- 20*ui_scale on top doubled the band height. Plain pad keeps
-    -- the buttons compact at every window size.
-    local fh      = self.game.fonts.sm:getHeight()
-    -- Tall enough for the cassette-deck travel: keys ride a DEEP rim
-    -- (KEY_DEPTH px of visible side AND of press travel — a shallow rim
-    -- under a big drop reads as two misaligned buttons, not up/down) and
-    -- the selected one sits pressed flat at the bottom of it.
+    local fh        = self.game.fonts.sm:getHeight()
+    local s         = self.game.ui_scale or 1
     local KEY_DEPTH = 10
-    local STRIP_H   = fh + KEY_DEPTH + 14
-    local self_ref = self
-    -- Per-gtype short blurb for the hover tooltip. Hardcoded next to
-    -- where the strip is built so callers don't have to juggle a string
-    -- table; the data file (data/game_types.lua) only carries gameplay
-    -- knobs (seats, pace, dist_shifts), not UI copy.
-    local GTYPE_BLURB = {
-        six_max  = "6-Max. The long game: five opponents, slow hands, the fattest pots in the room.",
-        hu       = "Heads-Up. One opponent, whole stacks, both ways. You win less often and it goes deeper.",
-        zoom     = "Zoom. A new table every hand. More wins, smaller ones, and it never holds you up.",
-        ko      = "A tournament. Eight seats, ten blinds each, no rebuy, and it deals itself. Top three cash.",
-    }
-    -- Locked tabs (Constants.GTYPE_GATE) draw dark and inert rather than
-    -- disappearing: the strip's width math, the hint anchors, and the
-    -- unlock fanfare's AwardGlow target all stay alive, and a visible
-    -- locked slot is something to want. They carry no tooltip and no
-    -- hover — the story beats do the explaining when each one opens.
-    return {
-        type = "custom",
-        h    = STRIP_H,
-        draw_fn = function(px, y, pw, _, game)
-            local fonts = game.fonts
-            local pad   = 6
-            local strip_x = px + pad
-            local strip_w = pw - pad * 2
-            local n = #GameTypes
-            local btn_w = strip_w / n
-            for i, gt in ipairs(GameTypes) do
-                local bx = strip_x + (i - 1) * btn_w
-                local rect_w, rect_h = btn_w - 2, STRIP_H - 4
-                local locked = not self_ref.controller:gtypeAvailable(gt.id)
-                local active = (gt.id == self_ref.selected_gtype) and not locked
-                local id     = "gtype:" .. gt.id
-                local hov    = game.hover.is("button", id) and not active
-                                                           and not locked
-                -- Press TRAVEL is animated: the key eases down when it
-                -- becomes selected and eases back up when it isn't, on a
-                -- wall-clock lerp — no per-frame state to plumb.
-                local press  = RollingValue.get("gtype_press:" .. gt.id,
-                                                (active or locked) and 1 or 0, 14, "ui")
-                local label  = gt.short or gt.name
-                -- The tab wears its game type's chrome — the same color
-                -- the table headers wear (data/game_type_themes.lua) —
-                -- full strength when selected, sunk toward the panel
-                -- when not, and sunk near-out when LOCKED: the material
-                -- is visible as a promise, not an option.
-                local chrome = GameTypeThemes[gt.id]
-                               and GameTypeThemes[gt.id].chrome_color
-                local fill
-                -- Cassette-deck selection: every open key rides HIGH on a
-                -- deep rim; the selected one is HELD DOWN — pressed flat,
-                -- rim swallowed, face in shadow with a lit legend. The
-                -- shape carries the state, so no underlines or borders
-                -- have to.
-                if locked then
-                    -- A dead key: flush AND near-black.
-                    fill = chrome and { chrome[1] * 0.12, chrome[2] * 0.12,
-                                        chrome[3] * 0.12 }
-                           or Theme.bg.sunken
-                elseif chrome then
-                    -- Raised keys catch the light; the pressed one sits in
-                    -- the well and reads darker.
-                    local k = active and 0.60 or (hov and 1.0 or 0.85)
-                    fill = { chrome[1] * k, chrome[2] * k, chrome[3] * k }
-                else
-                    fill = active and Theme.bg.widget_hover or Theme.bg.chrome
-                end
-                Button.draw(bx, y, rect_w, rect_h, {
-                    fill_color   = fill,
-                    border_color = locked and Theme.border.soft
-                                  or active and Theme.border.strong
-                                  or Theme.border.default,
-                    hovered      = hov,
-                    -- Selected (and dead) keys are fully pressed; open
-                    -- keys ease back up (press carries the animation).
-                    press_alpha  = press,
-                    disabled     = locked,
-                    depth        = KEY_DEPTH,
-                }, function(fx, fy, fw, fh)
-                    -- A locked key is BLANK — no name until the mode is
-                    -- earned. The unlabeled dead keys are the tease.
-                    if locked then return end
-                    Theme.setColor(active and Theme.fg.heading
-                                  or hov  and Theme.fg.heading
-                                  or Theme.fg.muted)
-                    love.graphics.setFont(fonts.sm)
-                    love.graphics.printf(label, fx,
-                        fy + math.floor((fh - fonts.sm:getHeight()) * 0.5),
-                        fw, "center")
-                end)
-                -- Chip-award pulse routed here when a bounty banks for a
-                -- game type the player isn't currently viewing.
-                AwardGlow.draw(id, bx, y, rect_w, rect_h)
-                -- Same rect, as a hint target: the tab strip is the only way
-                -- to reach HU / Zoom / tournaments and nothing could point at
-                -- it. Registered every draw so staleness hides it normally.
-                -- Panel draws components under a scroll translate, so run
-                -- the local rect through the current transform to land in
-                -- screen space (same as ComponentRenderer's comp.anchor) —
-                -- raw coords put the mark a header-height off the button.
-                local ax, ay = love.graphics.transformPoint(bx, y)
-                AnchorRegistry.set(id, ax, ay, rect_w, rect_h)
-            end
-        end,
-        hit_fn = function(px, y, pw, _, cx, cy)
-            local pad = 6
-            local strip_x = px + pad
-            local strip_w = pw - pad * 2
-            local n = #GameTypes
-            local btn_w = strip_w / n
-            for i, gt in ipairs(GameTypes) do
-                local bx = strip_x + (i - 1) * btn_w
-                if cx >= bx and cx < bx + btn_w - 2
-                   and cy >= y and cy < y + STRIP_H - 4 then
-                    local id = "gtype:" .. gt.id
-                    -- A locked tab is inert: no hover, no tooltip, no
-                    -- click. The story beats carry the explanations.
-                    if not self_ref.controller:gtypeAvailable(gt.id) then
-                        return nil
-                    end
-                    -- Set hover + tooltip here so the dispatch flow reaches
-                    -- both even though custom components don't have generic
-                    -- post-hit-test logic in ComponentRenderer.
-                    require("services.HoverService").set("button", id)
-                    if GTYPE_BLURB[gt.id] then
-                        local mx, my = love.mouse.getPosition()
-                        TooltipSvc.set(GTYPE_BLURB[gt.id], mx, my)
-                    end
-                    return { id = id }
-                end
-            end
-            return nil
-        end,
-    }
+    local kids = {}
+    for _, gt in ipairs(GameTypes) do
+        local locked = not self.controller:gtypeAvailable(gt.id)
+        local active = (gt.id == self.selected_gtype) and not locked
+        local id     = "gtype:" .. gt.id
+        local hov    = (not active) and (not locked) and self.game.hover.is("button", id)
+        -- Press TRAVEL is animated: the key eases down when it becomes
+        -- selected and back up when it isn't, on a wall-clock lerp.
+        local press  = RollingValue.get("gtype_press:" .. gt.id, (active or locked) and 1 or 0, 14, "ui")
+        -- The key wears its game type's chrome (data/game_type_themes), the
+        -- same colour the table headers wear: full when selected, sunk when
+        -- not, near-out when locked.
+        local chrome = GameTypeThemes[gt.id] and GameTypeThemes[gt.id].chrome_color
+        local fill
+        if chrome then
+            local k = active and 0.60 or (hov and 1.0 or 0.85)
+            fill = { chrome[1] * k, chrome[2] * k, chrome[3] * k }
+        else
+            fill = active and Theme.bg.widget_hover or Theme.bg.chrome
+        end
+        kids[#kids + 1] = {
+            type = "button", id = id, anchor = id, flex = 1,
+            face_h      = fh + math.floor(8 * s),
+            depth       = KEY_DEPTH,
+            pressed     = active,
+            press_alpha = press,
+            disabled    = locked,
+            face_color  = fill,
+            disabled_face_color = chrome and { chrome[1] * 0.12, chrome[2] * 0.12, chrome[3] * 0.12 }
+                                  or Theme.bg.sunken,
+            border_color = locked and Theme.border.soft
+                           or active and Theme.border.strong
+                           or Theme.border.default,
+            tooltip = (not locked) and Rail.gtype[gt.id] or nil,
+            -- A locked key is BLANK: no name until the mode is earned.
+            lines = (not locked) and {
+                { text = gt.short or gt.name, style = "small", align = "center",
+                  color_token = (active or hov) and "heading" or "muted" },
+            } or {},
+        }
+    end
+    return { type = "row", gap = 2, children = kids }
 end
 
 function GrindView:_buildTablesTabComponents()
@@ -510,7 +316,7 @@ function GrindView:_buildTablesTabComponents()
         h = self.game.fonts.md:getHeight() + math.floor(10 * s_ui),
     }
 
-    -- Game-type sub-tab strip.
+    -- Game-type keys.
     components[#components + 1] = self:_makeGameTypeStrip()
     components[#components + 1] = { type = "spacer", h = math.floor(4 * s_ui) }
 
@@ -699,10 +505,10 @@ function GrindView:_buildTablesTabComponents()
         end
     end
 
-    -- Tables count / focus / capacity all live in the top-bar workload
-    -- cluster now (the sidebar duplicate was redundant). The local `active`
-    -- and `cap` reads above still drive the per-button "tables full" /
-    -- "buy-in unaffordable" disabled states.
+    -- Tables count / focus / capacity live on the rail (the sidebar
+    -- duplicate was redundant). The local `active` and `cap` reads above
+    -- still drive the per-button "tables full" / "buy-in unaffordable"
+    -- disabled states.
 
     return components
 end
@@ -1016,6 +822,45 @@ end
 
 -- ─── Per-frame update + hover ─────────────────────────────────────────────
 
+-- The top bar's numbers, tweened toward the live state. Run every frame
+-- by update(); the room screen, which draws this chrome too, runs it on
+-- its own (no grid, no controller tick, but the bar stays live).
+function GrindView:tweenChrome(dt)
+    -- Tween top-bar numbers toward live state values.
+    local state = self.game.state
+    -- The underflow: the count breaks. Snap the display (no tween through
+    -- trillions) and start the break (shake + flash) on the transition.
+    local broken_now = ShoveRate.underflowed(state.bankroll)
+    if broken_now and not self._was_broken then
+        self._break_t0 = love.timer.getTime()
+        self.displayed_bankroll = state.bankroll
+    end
+    self._was_broken = broken_now
+    -- The loan arriving (a fresh grant, or a run reset renewing it): the
+    -- number climbs from 0 to its value over COUNT_UP_SECS, then the normal
+    -- tween takes over. GameState raises loan_fresh; this consumes it.
+    do
+        if state.loan_fresh then
+            state.loan_fresh = false
+            self.displayed_bankroll = 0
+            self._count_up_t = 0
+        end
+        if self._count_up_t then
+            self._count_up_t = self._count_up_t + (dt or 0)
+            local p = math.min(1, self._count_up_t / (COUNT_UP_SECS * math.max(Motion.scale("text"), 0.001)))
+            if Motion.level("text") <= Motion.LOW then p = 1 end
+            self.displayed_bankroll = (state.bankroll or 0) * (1 - (1 - p) ^ 2)
+            if p >= 1 then self._count_up_t = nil end
+        end
+    end
+    if not self._count_up_t then
+    self.displayed_bankroll = tweenNumber(self.displayed_bankroll, state.bankroll,            dt)
+    end
+    self.displayed_chips    = tweenNumber(self.displayed_chips,    state.chips,               dt)
+    self.displayed_anti_chips = tweenNumber(self.displayed_anti_chips or 0, state.anti_chips or 0, dt)
+    self.displayed_tied     = tweenNumber(self.displayed_tied,     self.controller:tiedUp(),  dt)
+end
+
 function GrindView:update(dt)
     local mx, my = love.mouse.getPosition()
     self.left_panel:update(my)
@@ -1057,31 +902,9 @@ function GrindView:update(dt)
     end
     self._bounty_glow_primed = true
 
-    -- Quick-reset button (overlaps the shove) — explain it on hover. Rendered
-    -- as IconText rows so the {chip} glyph shows instead of the word.
-    if self.controller:canQuickReset() then
-        local qr = self:_quickResetButtonRect()
-        if mx >= qr.x and mx < qr.x + qr.w and my >= qr.y and my < qr.y + qr.h then
-            local function iconRow(str)
-                return {
-                    render  = function(rx, ry, fonts)
-                        IconText.draw(self.game, str, rx, ry, fonts.sm, Theme.fg.heading)
-                    end,
-                    measure = function(fonts)
-                        return IconText.measure(str, fonts.sm), fonts.sm:getHeight()
-                    end,
-                }
-            end
-            TooltipSvc.set({
-                iconRow("Banks your {chip} and starts a fresh $2 stake."),
-                iconRow("No Shove — for when you're broke and stuck."),
-            }, mx, my)
-        end
-    end
-
     -- Hit-test components for hover (writes "button" namespace into
     -- HoverService AND stashes any comp.tooltip via Tooltip.set).
-    for _, panel in ipairs({ self.left_panel, self.right_panel }) do
+    for _, panel in ipairs({ self.left_panel, self.right_panel, self.rail }) do
         local comps = panel:getComponents()
         if comps then
             local cy = panel:toContentY(my)
@@ -1108,160 +931,7 @@ function GrindView:update(dt)
         end
     end
 
-    -- SHOVE button hover tooltip (direct rect — no hit_box entry). Leads
-    -- with what a shove actually does (all-in for the bankroll, ends the
-    -- run, prestige), then the {chip} the run will bank (mirrors the "+N"
-    -- readout on the button), the rate breakdown, and a "click to lock".
-    -- Silent while the button is still locked (TUTORIAL reveal) — a
-    -- greyed button shouldn't pitch its own click.
-    local sb = self:_shoveButtonRect()
-    if self.controller:shoveUnlocked()
-       and mx >= sb.x and mx < sb.x + sb.w and my >= sb.y and my < sb.y + sb.h then
-        local state = self.game.state
-        local ctx = (self.controller and self.controller.ctx) or {}
-        local rates = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
-        local pending    = state.chips_this_run or 0
-        local chip_line  = string.format("Banks +%d {chip} for the catalog.", pending)
-        local chip_color = (pending > 0) and Theme.sem.chip or Theme.fg.muted
-        local game       = self.game
-        local lines = {
-            { style = "sm", color_token = "muted",
-              text = "Bet everything on one all-in hand at the rate below."
-                  .. " Winning beats the prototype (you can keep playing"
-                  .. " after). Either way you bank this run's chips to spend"
-                  .. " in the catalog on permanent upgrades, then a new run"
-                  .. " starts." },
-            { measure = function(fonts) local f = fonts.sm
-                  return IconText.measure(chip_line, f), f:getHeight() end,
-              render  = function(x, y, fonts)
-                  IconText.draw(game, chip_line, x, y, fonts.sm, chip_color, 1) end },
-        }
-        for _, r in ipairs(ShoveRate.formatBreakdown(rates)) do lines[#lines + 1] = r end
-        lines[#lines + 1] = "Click to lock this rate."
-        TooltipSvc.set(lines, mx, my)
-    end
-
-    -- Cash-Out-All button hover tooltip. Same direct-rect treatment as
-    -- SHOVE — sits in the top bar above the panels, not a hit_box entry.
-    local cb = self:_cashOutButtonRect()
-    if mx >= cb.x and mx < cb.x + cb.w
-       and my >= cb.y and my < cb.y + cb.h then
-        local pool_count = self.controller.pool:count()
-        if pool_count > 0 then
-            TooltipSvc.set(
-                "Cash out all tables — refunds each table's current"
-                .. " stack to your bankroll.", mx, my)
-        else
-            TooltipSvc.set("No tables open to cash out.", mx, my)
-        end
-    end
-
-    -- TIED UP cell hover tooltip — explains where that money is.
-    local tr = self._tied_cell_rect
-    if tr and mx >= tr.x and mx < tr.x + tr.w and my >= tr.y and my < tr.y + tr.h then
-        TooltipSvc.set("Currently held in tables.", mx, my)
-    end
-
-    -- Top-bar SHOVE cell hover tooltip — full breakdown of the live
-    -- shove-rate. Rect is stashed by _drawTopBar (1-frame stale); nil
-    -- while the shove hasn't revealed itself (TUTORIAL gate).
-    local sh = self._shove_cell_rect
-    if sh and mx >= sh.x and mx < sh.x + sh.w and my >= sh.y and my < sh.y + sh.h then
-        local state = self.game.state
-        local ctx = (self.controller and self.controller.ctx) or {}
-        local rates = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
-        TooltipSvc.set(ShoveRate.formatBreakdown(rates), mx, my)
-    end
-
-    -- Top-bar DECK cell hover tooltip: the deck in play, in five lines.
-    -- Progress is the bar under the cell; the roster has the rest. Only
-    -- fires once the deck system has unlocked (the cell rect is nil otherwise).
-    local dr = self._deck_cell_rect
-    if dr and mx >= dr.x and mx < dr.x + dr.w and my >= dr.y and my < dr.y + dr.h then
-        local state = self.game.state
-        local active_id = state.active_deck_id
-        local spec = active_id and Decks.specById(active_id)
-        if spec then
-            local level = (state.deck_levels and state.deck_levels[active_id]) or 0
-            local maxed = level >= (spec.max_level or 5)
-            local row   = TablePanelStats.iconRow
-            local lines = {
-                { text = string.format("%s   %s", spec.name or active_id,
-                    maxed and "maxed" or string.format("level %d of %d", level, spec.max_level or 5)),
-                  style = "sm", color_token = "heading" },
-            }
-            if level > 0 and spec.bonus and spec.bonus.per_level then
-                lines[#lines + 1] = row(self.game, Decks.bonusTextAt(spec, level), "sm", "heading")
-                lines[#lines + 1] = row(self.game, "(" .. Decks.bonusTextPerLevel(spec) .. ")", "sm", "muted")
-            else
-                lines[#lines + 1] = row(self.game, Decks.bonusTextPerLevel(spec), "sm", "primary")
-            end
-            lines[#lines + 1] = row(self.game, Decks.levelsOnText(spec), "sm", "muted")
-            if spec.capstone and spec.capstone.text then
-                lines[#lines + 1] = row(self.game,
-                    (maxed and "Capstone, earned: " or "Capstone, at level 5: ") .. spec.capstone.text,
-                    "sm", maxed and "heading" or "muted")
-            end
-            lines[#lines + 1] = { text = "Click to see your decks", style = "sm", color_token = "faint" }
-            TooltipSvc.set(lines, mx, my)
-        end
-    end
-
-    -- Top-bar workload cluster (TABLES · FOCUS) hover tooltip. Explains
-    -- what the "N / cap" reading means, what FOCUS does, and the
-    -- penalty math the inline cells deliberately don't surface.
-    local wr = self._workload_rect
-    if wr and mx >= wr.x and mx < wr.x + wr.w and my >= wr.y and my < wr.y + wr.h then
-        local cap        = self.controller:tableSlotsCap()
-        local focus_cap  = self.controller:currentFocusCapacity()
-        local penalty    = Constants.GAMEPLAY.FOCUS_BASE_PENALTY
-        local floor_v    = Constants.GAMEPLAY.FOCUS_FLOOR
-        local ctx        = (self.controller and self.controller.ctx) or {}
-        local reduce     = ctx.focus_penalty_reduce_mult or 1
-        local eff_pen    = penalty * reduce
-        TooltipSvc.set({
-            "TABLES — currently open / focus capacity.",
-            "FOCUS — multiplier on every $ you win or lose.",
-            string.format("Stays 100%% at or under %d tables.", focus_cap),
-            string.format("Each table over capacity drops focus by %.0f%% (min %.0f%%).",
-                          eff_pen * 100, floor_v * 100),
-            string.format("Hard cap: %d tables.", cap),
-        }, mx, my)
-    end
-
-    -- Tween top-bar numbers toward live state values.
-    local state = self.game.state
-    -- The underflow: the count breaks. Snap the display (no tween through
-    -- trillions) and start the break (shake + flash) on the transition.
-    local broken_now = ShoveRate.underflowed(state.bankroll)
-    if broken_now and not self._was_broken then
-        self._break_t0 = love.timer.getTime()
-        self.displayed_bankroll = state.bankroll
-    end
-    self._was_broken = broken_now
-    -- The loan arriving (a fresh grant, or a run reset renewing it): the
-    -- number climbs from 0 to its value over COUNT_UP_SECS, then the normal
-    -- tween takes over. GameState raises loan_fresh; this consumes it.
-    do
-        if state.loan_fresh then
-            state.loan_fresh = false
-            self.displayed_bankroll = 0
-            self._count_up_t = 0
-        end
-        if self._count_up_t then
-            self._count_up_t = self._count_up_t + (dt or 0)
-            local p = math.min(1, self._count_up_t / (COUNT_UP_SECS * math.max(Motion.scale("text"), 0.001)))
-            if Motion.level("text") <= Motion.LOW then p = 1 end
-            self.displayed_bankroll = (state.bankroll or 0) * (1 - (1 - p) ^ 2)
-            if p >= 1 then self._count_up_t = nil end
-        end
-    end
-    if not self._count_up_t then
-    self.displayed_bankroll = tweenNumber(self.displayed_bankroll, state.bankroll,            dt)
-    end
-    self.displayed_chips    = tweenNumber(self.displayed_chips,    state.chips,               dt)
-    self.displayed_anti_chips = tweenNumber(self.displayed_anti_chips or 0, state.anti_chips or 0, dt)
-    self.displayed_tied     = tweenNumber(self.displayed_tied,     self.controller:tiedUp(),  dt)
+    self:tweenChrome(dt)
 
     -- Drain the controller's chip-burst queue. Controller produces denomination
     -- indices and source/dest pairs; the view delegates to ChipFlight which
@@ -1331,480 +1001,378 @@ local function chipsText(n)
     return Format.formatBig(math.floor(n))
 end
 
--- Draws "LABEL" (sm, muted) on top and the value (md, given color)
--- below at the cell's left edge. Keeps every non-bankroll cell visually
--- identical so the eye scans cleanly across the bar. md (not lg) for
--- values because lg=48 overflows the 72px cell width — only bankroll
--- (its own fat cell) gets the lg pop.
--- Optional `icon_fn(ix, iy, size)` draws a glyph in the label slot and
--- returns true when it rendered; if so, the text label is skipped. When
--- it returns false/nil (e.g. a not-yet-shipped sprite) the text label
--- still draws, so a cell never loses its identity waiting on art.
--- value_scale (optional, default 1): a transient grow/pop applied to JUST the
--- value number (scaled about its own center) so a stat can flag a change
--- without disturbing its label.
-local function drawStatCell(x, w, label, value, value_color, fonts, icon_fn, value_scale)
-    local drew_icon = false
-    if icon_fn then
-        drew_icon = icon_fn(x, TOPBAR_LABEL_Y, fonts.sm:getHeight()) and true or false
-    end
-    if not drew_icon then
-        love.graphics.setFont(fonts.sm)
-        Theme.setColor(Theme.fg.muted)
-        love.graphics.print(label, x, TOPBAR_LABEL_Y)
-    end
+-- ─── The rail ─────────────────────────────────────────────────────────
+-- The chrome, as components: one row along the bottom, left to right the
+-- way the money moves. Nav (gear, the book, the room) · the bankroll under
+-- its pile · CASH OUT over what is tied up · FOCUS · the chips (banked,
+-- next) · the deck · SHOVE. Every button exists from the first frame, dim
+-- with its locked line until earned (data/rail.lua for the words). Drawn,
+-- hovered and clicked by the same Panel + ComponentRenderer path the
+-- sidebars use; RoomState draws the same rail.
 
-    love.graphics.setFont(fonts.md)
-    Theme.setColor(value_color)
-    if value_scale and value_scale ~= 1 then
-        local vcx = x + fonts.md:getWidth(value) / 2
-        local vcy = TOPBAR_VALUE_Y + fonts.md:getHeight() / 2
-        love.graphics.push()
-        love.graphics.translate(vcx, vcy)
-        love.graphics.scale(value_scale, value_scale)
-        love.graphics.translate(-vcx, -vcy)
-        love.graphics.print(value, x, TOPBAR_VALUE_Y)
-        love.graphics.pop()
-    else
-        love.graphics.print(value, x, TOPBAR_VALUE_Y)
-    end
+local COVER_CTX = { on_felt = true }   -- the cover as a thumbnail: no invitation
+
+local function iconRows(game, strs, color)
+    local out = {}
+    for _, str in ipairs(strs) do out[#out + 1] = TablePanelStats.iconRow(game, str, "sm", color) end
+    return out
 end
 
--- The deck in play, in the top bar: its art with level pips (views/DeckArt),
--- a progress bar to the next level along the cell's bottom edge, and a gold
--- pulse while a newly-opened deck hasn't been looked at. Returns the cell
--- hit rect for the hover tooltip. Caller invokes this only once the deck
--- system has unlocked.
-function GrindView:_drawDeckCell(x, w, fonts)
+-- The room, as the picture on its button: the room (views/RoomView, lit,
+-- at zoom 1) rendered once into a frame-sized canvas and kept until
+-- something in it changes (what you own, corruption, the switch, a
+-- delivery). Returns the canvas and the box the room occupies in it
+-- (floor and everything drawn on it), so the face can frame the whole room.
+function GrindView:_roomThumb()
+    local sm   = self.game.state_machine
+    local room = sm and sm.states and sm.states.room
+    local rv   = room and room.getRoomView and room:getRoomView()
+    if not (rv and love.graphics.newCanvas) then return nil end
+    local st   = self.game.state
+    local W, H = love.graphics.getDimensions()
+    local key  = table.concat({ #(st.owned_items or {}), #(st.corrupted_items or {}),
+                                rv.fixture_off and 1 or 0, #(st.room_unseen or {}), W, H }, ":")
+    local t = self._room_thumb
+    if t and t.key == key then return t.canvas, t.box end
+    local ok, canvas = pcall(love.graphics.newCanvas, W, H, { dpiscale = 1 })
+    if not ok then return nil end
+    local prev = love.graphics.getCanvas()
+    love.graphics.push("all")
+    love.graphics.origin()
+    love.graphics.setScissor()
+    love.graphics.setCanvas(canvas)
+    love.graphics.clear(0, 0, 0, 0)
+    rv:draw(true, { zoom = 1, dy = 0, lighting = { fixture = rv.fixture_off and 0 or 1, emitters = true } })
+    love.graphics.setCanvas(prev)
+    love.graphics.pop()
+    -- The room's extent: the floor's corners and the union of what stands
+    -- on it (the walls and the things), from the draw that just happened.
+    local b = rv._view and rv._view.bounds
+    local u = rv._items_union
+    local box = { x1 = b and b.x1 or 0, y1 = b and b.y1 or 0, x2 = b and b.x2 or W, y2 = b and b.y2 or H }
+    if u then
+        box.x1 = math.min(box.x1, u.x1); box.y1 = math.min(box.y1, u.y1)
+        box.x2 = math.max(box.x2, u.x2); box.y2 = math.max(box.y2, u.y2)
+    end
+    self._room_thumb = { key = key, canvas = canvas, box = box }
+    return canvas, box
+end
+
+-- The deck in play, as its button's face: the art with level pips
+-- (views/DeckArt) and the progress bar to the next level along the bottom.
+function GrindView:_drawDeckFace(spec, fx, fy, fw, fh)
     local state = self.game.state
-    local active_id = state.active_deck_id
-    local spec = active_id and Decks.specById(active_id)
-    local cell_rect = { x = x, y = 0, w = w, h = TOP_BAR_H }
-    if not spec then return cell_rect end
-
-    local s  = self.game.ui_scale or 1
-    local fl = math.floor
-    local level = (state.deck_levels and state.deck_levels[active_id]) or 0
+    local s, fl = self.game.ui_scale or 1, math.floor
+    local level = (state.deck_levels and state.deck_levels[spec.id]) or 0
     local gold  = Theme.currency and Theme.currency.chip or Theme.fg.heading
-
-    -- A wide window onto the back: the art keeps its height and is cropped
-    -- top and bottom (DeckArt cover-scales to the wider rect).
-    local inset  = fl(4 * s)
-    local art_x, art_y = x + inset, inset
-    local art_w, art_h = w - inset * 2, TOP_BAR_H - inset * 2
-    DeckArt.draw(self.game, spec, art_x, art_y, art_w, art_h, { level = level, scale = s })
-
-    -- The level bar, inside the art's bottom edge on a dark band so it reads
-    -- at a glance; gold and full at max.
-    local xp = (state.deck_xp and state.deck_xp[active_id]) or 0
+    DeckArt.draw(self.game, spec, fx, fy, fw, fh, { level = level, scale = s })
+    local xp = (state.deck_xp and state.deck_xp[spec.id]) or 0
     local into, span = Decks.progressInLevel(spec, level, xp)
-    local frac  = span and math.max(0, math.min(1, into / span)) or 1
-    local bar_h = math.max(3, fl(4 * s))
-    local pad   = fl(5 * s)
+    local frac   = span and math.max(0, math.min(1, into / span)) or 1
+    local bar_h  = math.max(3, fl(4 * s))
+    local pad    = fl(5 * s)
     local band_h = bar_h + pad * 2
-    local band_y = art_y + art_h - band_h
+    local band_y = fy + fh - band_h
     Theme.setColor(Theme.bg.window, 0.7)
-    love.graphics.rectangle("fill", art_x, band_y, art_w, band_h)
-    local bar_x, bar_y, bar_w = art_x + pad, band_y + pad, art_w - pad * 2
+    love.graphics.rectangle("fill", fx, band_y, fw, band_h)
+    local bar_x, bar_y, bar_w = fx + pad, band_y + pad, fw - pad * 2
     Theme.setColor(Theme.bg.sunken)
     love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 1)
     Theme.setColor(span and Theme.fg.heading or gold)
     love.graphics.rectangle("fill", bar_x, bar_y, fl(bar_w * frac), bar_h, 1)
     Theme.setColor(Theme.border.soft)
     love.graphics.rectangle("line", bar_x, bar_y, bar_w, bar_h, 1)
-
-    -- A deck opened and hasn't been seen: re-fire the award pulse every
-    -- 1.2 s (a steady glow would read as a state, not a nudge).
-    if state.decks_unseen and #state.decks_unseen > 0
-       and (love.timer.getTime() % 1.2) < 0.05 then
-        AwardGlow.flash("cell:deck")
-    end
-    AwardGlow.draw("cell:deck", x + 1, 1, w - 2, TOP_BAR_H - 2)
-
-    return cell_rect
 end
 
-function GrindView:_drawTopBar(W)
-    Theme.setColor(Theme.bg.chrome)
-    love.graphics.rectangle("fill", 0, 0, W, TOP_BAR_H)
-    Theme.setColor(Theme.border.default)
-    love.graphics.rectangle("fill", 0, TOP_BAR_H - 1, W, 1)
-
-    local fonts = self.game.fonts
+-- The deck in play, in five lines. Progress is the bar on the button; the
+-- roster has the rest.
+function GrindView:_deckTooltip(spec)
     local state = self.game.state
-
-    -- Tweened display values (set in :update each frame). Reading these
-    -- instead of state.* gives a smooth count-up/down after a hand.
-    local d_bank = self.displayed_bankroll or state.bankroll
-    local d_chips = self.displayed_chips or state.chips
-    local d_tied = self.displayed_tied     or self.controller:tiedUp()
-
-    -- Tint the bankroll while a tween is in progress: green when counting
-    -- up (target > displayed), red when counting down.
-    local bankroll_tint = Theme.fg.heading
-    local diff_bank = (state.bankroll or 0) - d_bank
-    if math.abs(diff_bank) > 0.01 then
-        bankroll_tint = (diff_bank > 0) and Theme.sem.won or Theme.sem.lost
-    end
-
-    -- BANKROLL cluster — solo, lg font. The big spendable number.
-    -- Center vertically in the bar.
-    Theme.setColor(bankroll_tint)
-    love.graphics.setFont(fonts.lg)
-    local bank_y = math.floor((TOP_BAR_H - fonts.lg:getHeight()) * 0.5)
-    local bank_str = moneyText(d_bank)
-    if self:_broken() then
-        -- The number is not a number any more. It never resolves.
-        bank_str = self:_brokenText(bank_str, "bank")
-        self:_brokenGlow(bank_str, fonts.lg, TOPBAR_PAD_X, bank_y)
-        Theme.setColor(Theme.currency.achip)
-        love.graphics.setFont(fonts.lg)
-    end
-    love.graphics.print(bank_str, TOPBAR_PAD_X, bank_y)
-    -- Hint-anchor on the big number (distinct from "bankroll", the chip
-    -- pile point anchor chip-flights target).
-    AnchorRegistry.set("cell:bankroll", TOPBAR_PAD_X, bank_y,
-        fonts.lg:getWidth(bank_str), fonts.lg:getHeight())
-
-    local total     = d_bank + d_tied
-    local n_tables  = self.controller.pool:count()
-    local focus_cap = self.controller:currentFocusCapacity()
-    local focus_pct = math.floor(self.controller:currentFocusMult() * 100 + 0.5)
-    -- Shift the DISPLAYED % smoothly toward the target instead of snapping (same
-    -- roll feel as the money). The pop/change-watch still keys off focus_pct (the
-    -- real target) so it fires once per change, not on each roll step.
-    local focus_shown = math.floor(RollingValue.get("focus_pct", focus_pct) + 0.5)
-
-    -- Off the SHOWN value so the tint tracks the rolling number. A healthy
-    -- focus is simply fine (parchment); any penalty is money lost (red).
-    -- Green is a hand won, and a meter is not a hand.
-    local focus_color = (focus_shown >= 100) and Theme.fg.heading or Theme.sem.lost
-
-    -- SHOVE: live gauntlet-clear readout. Same compute the gauntlet
-    -- locks in at click time — players see the grind feed the rate in
-    -- real time. Mechanically the displayed value is raw_r1 (catalog ×
-    -- bankroll-mult, uncapped) so the player can see overshoots like
-    -- "120%" / "220%" — that's the "I've ground past anything that
-    -- matters" feel.
-    local ctx = (self.controller and self.controller.ctx) or {}
-    local rates = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
-    local r1_raw = rates.raw_r1 or 0
-    -- Parchment until the hand is a lock; then the colour of a hand won.
-    -- Long odds are not a loss yet, so never red.
-    local rate_color = (r1_raw >= 1.00) and Theme.sem.won or Theme.fg.heading
-
-    -- Cluster layout: walk left→right. Cells inside a cluster sit
-    -- flush, each sized to its own content. Clusters are separated
-    -- by CLUSTER_GAP whitespace so the grouping (Bankroll | Money |
-    -- Run | Workload) reads visually without divider lines.
-    local x = TOPBAR_PAD_X + BANKROLL_CELL_W + CLUSTER_GAP
-
-    -- Money cluster: TIED · TOTAL
-    local tied_cell_x = x
-    local broken = self:_broken()
-    drawStatCell(x, CELL_W.tied,  "TIED UP",
-                 broken and self:_brokenText(moneyText(d_tied), "tied") or moneyText(d_tied),
-                 broken and Theme.currency.achip or Theme.fg.muted, fonts)
-    x = x + CELL_W.tied
-    drawStatCell(x, CELL_W.total, "TOTAL",
-                 broken and self:_brokenText(moneyText(total), "total") or moneyText(total),
-                 broken and Theme.currency.achip or Theme.fg.primary, fonts)
-    x = x + CELL_W.total + CLUSTER_GAP
-
-    -- Stash the TIED UP cell rect for hover tooltip in update().
-    self._tied_cell_rect = {
-        x = tied_cell_x, y = 2, w = CELL_W.tied, h = TOP_BAR_H - 4,
+    local id    = spec.id
+    local level = (state.deck_levels and state.deck_levels[id]) or 0
+    local maxed = level >= (spec.max_level or 5)
+    local row   = TablePanelStats.iconRow
+    local lines = {
+        { text = string.format("%s   %s", spec.name or id,
+            maxed and "maxed" or string.format("level %d of %d", level, spec.max_level or 5)),
+          style = "sm", color_token = "heading" },
     }
-    AnchorRegistry.set("cell:tied", tied_cell_x, 2, CELL_W.tied, TOP_BAR_H - 4)
-
-    -- Run cluster: CHIPS · SHOVE · (DECK). The Gold Chip is the meta
-    -- currency — drawn prominently as a real-sized glyph + count, not a
-    -- tiny label-slot dot. (Procedural until ui/icons/chip art lands.)
-    -- Hidden until the player has shoved once:
-    -- pre-shove the banked balance is always 0 and this-run chips live
-    -- on the SHOVE button's "+N" badge instead. Slot still advances —
-    -- no reflow at the reveal.
-    if (state.shove_count or 0) > 0 then
-        local cs = self.game.ui_scale or 1
-        local cd = math.floor(TOP_BAR_H * 0.6)
-        Icons.drawChip(self.game, x, math.floor((TOP_BAR_H - cd) / 2), cd)
-        love.graphics.setFont(fonts.md)
-        Theme.setColor(Theme.fg.heading)
-        love.graphics.print(chipsText(d_chips),
-            x + cd + math.floor(6 * cs),
-            math.floor((TOP_BAR_H - fonts.md:getHeight()) / 2))
-        AnchorRegistry.set("cell:chips", x, 2, CELL_W.chip, TOP_BAR_H - 4)
-    end
-    x = x + CELL_W.chip
-
-    if state.shove_r2_won then
-        local cs = self.game.ui_scale or 1
-        local cd = math.floor(TOP_BAR_H * 0.6)
-        Icons.drawAntiChip(self.game, x, math.floor((TOP_BAR_H - cd) / 2), cd)
-        love.graphics.setFont(fonts.md)
-        Theme.setColor(Theme.fg.heading)
-        local d_achips = self.displayed_anti_chips or state.anti_chips or 0
-        love.graphics.print(chipsText(d_achips),
-            x + cd + math.floor(6 * cs),
-            math.floor((TOP_BAR_H - fonts.md:getHeight()) / 2))
-        AnchorRegistry.set("cell:achips", x, 2, CELL_W.achip, TOP_BAR_H - 4)
-        x = x + CELL_W.achip
-    end
-    -- SHOVE % cell — hidden until the shove reveals itself (TUTORIAL
-    -- gate: 3 chips banked on the first-ever run). The slot still
-    -- advances so the bar doesn't reflow at the reveal.
-    local shove_unlocked = self.controller:shoveUnlocked()
-    local shove_cell_x = x
-    if shove_unlocked then
-        local shove_txt = string.format("%.0f%%", r1_raw * 100)
-        if self:_broken() then
-            -- Mostly 999, warping now and then: readable as the number it
-            -- is, never quite trusted.
-            shove_txt  = self:_brokenText("-999%", "shove", 0.92, 0.12)
-            rate_color = Theme.currency.achip
-        end
-        drawStatCell(x, CELL_W.shove, "SHOVE", shove_txt, rate_color, fonts,
-                     function(ix, iy, isize) return Icons.draw(self.game, "shove", ix, iy, isize, isize) end)
-    end
-    x = x + CELL_W.shove
-
-    -- DECK chip (sprite) sits in the run cluster once the deck system
-    -- has unlocked (first gauntlet clear). The chip renders the active
-    -- deck's card-back at icon size with a level overlay; the hover
-    -- tooltip in update() carries the full name + bonus + XP-to-next
-    -- breakdown. Rect nil while locked, so clicks/tooltips no-op.
-    if Decks.systemUnlocked(self.game.state) then
-        self._deck_cell_rect = self:_drawDeckCell(x, CELL_W.deck, fonts)
-        -- The one top-bar cell that never had an anchor, so nothing could
-        -- point at it and an unlock had nowhere to announce itself. Every
-        -- sibling cell registers one; this is the same line.
-        AnchorRegistry.set("cell:deck", x, 2, CELL_W.deck, TOP_BAR_H - 4)
-        x = x + CELL_W.deck
+    if level > 0 and spec.bonus and spec.bonus.per_level then
+        lines[#lines + 1] = row(self.game, Decks.bonusTextAt(spec, level), "sm", "heading")
+        lines[#lines + 1] = row(self.game, "(" .. Decks.bonusTextPerLevel(spec) .. ")", "sm", "muted")
     else
-        self._deck_cell_rect = nil
+        lines[#lines + 1] = row(self.game, Decks.bonusTextPerLevel(spec), "sm", "primary")
     end
-    x = x + CLUSTER_GAP
-
-    -- Stash the SHOVE cell rect for hover tooltip in update(); nil while
-    -- the cell is hidden so hover/hints stay inert.
-    if shove_unlocked then
-        self._shove_cell_rect = {
-            x = shove_cell_x, y = 2, w = CELL_W.shove, h = TOP_BAR_H - 4,
-        }
-        AnchorRegistry.set("cell:shove", shove_cell_x, 2, CELL_W.shove, TOP_BAR_H - 4)
-    else
-        self._shove_cell_rect = nil
+    lines[#lines + 1] = row(self.game, Decks.levelsOnText(spec), "sm", "muted")
+    if spec.capstone and spec.capstone.text then
+        lines[#lines + 1] = row(self.game,
+            (maxed and "Capstone, earned: " or "Capstone, at level 5: ") .. spec.capstone.text,
+            "sm", maxed and "heading" or "muted")
     end
+    lines[#lines + 1] = { text = Rail.tooltips.deck_click, style = "sm", color_token = "faint" }
+    return lines
+end
 
-    -- Workload cluster: TABLES (count / focus capacity) · FOCUS %.
-    -- Each number watches itself via Pop.onChange and pops when it changes:
-    -- the open-count X pops on buy/close, the capacity Y only when an upgrade
-    -- moves it, FOCUS% on any focus change. (Both pops are the SAME reusable
-    -- treatment as the showdown winning cards.)
-    local md = fonts.md
-    local function popText(str, px, scale, color)
-        love.graphics.setFont(md)
-        Theme.setColor(color)
-        if scale ~= 1 then
-            local cx, cy = px + md:getWidth(str) / 2, TOPBAR_VALUE_Y + md:getHeight() / 2
-            love.graphics.push()
-            love.graphics.translate(cx, cy)
-            love.graphics.scale(scale, scale)
-            love.graphics.translate(-cx, -cy)
-            love.graphics.print(str, px, TOPBAR_VALUE_Y)
-            love.graphics.pop()
-        else
-            love.graphics.print(str, px, TOPBAR_VALUE_Y)
-        end
+function GrindView:_buildRailComponents()
+    local game  = self.game
+    local state = game.state
+    local fonts = game.fonts
+    local s     = game.ui_scale or 1
+    local fl    = math.floor
+    local ctrl  = self.controller
+    local R     = Rail
+    local sm      = game.state_machine
+    local on_room = sm and sm.current and sm:current() == "room"
+    local depth   = 4
+    local face_h  = RAIL_BTN_H - Button.allocatedH(0, depth)
+    local nav_w   = RAIL_BTN_H
+    local kids    = {}
+    -- Every child is the rail's full height: a stat hangs its label and
+    -- value from the bottom, so all the values share one baseline and all
+    -- the buttons share top and bottom.
+    local function add(c)
+        if c.type == "stat" and not c.h then c.h = RAIL_BTN_H; c.valign = "bottom" end
+        kids[#kids + 1] = c
     end
+    local function group_gap() add({ type = "spacer", w = CLUSTER_GAP, h = 0 }) end
 
-    -- TABLES: "X / Y" with X and Y popping independently.
-    local workload_x0 = x
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor(Theme.fg.muted)
-    love.graphics.print("TABLES", x, TOPBAR_LABEL_Y)
-    local x_str, sep, y_str = tostring(n_tables), " / ", tostring(focus_cap)
-    local xw, sw = md:getWidth(x_str), md:getWidth(sep)
-    popText(x_str, x,           Pop.changeScale("tables_x", n_tables, 1, 0.30, 0.45), Theme.fg.primary)
-    Theme.setColor(Theme.fg.primary)
-    love.graphics.setFont(md)
-    love.graphics.print(sep, x + xw, TOPBAR_VALUE_Y)
-    popText(y_str, x + xw + sw, Pop.changeScale("tables_y", focus_cap, 1, 0.30, 0.45), Theme.fg.primary)
-    x = x + CELL_W.tables
+    -- ── Nav: the gear, the book, the room ──
+    add({ type = "button", id = "nav:settings", anchor = "btn:settings",
+          w = nav_w, face_h = face_h, depth = depth, tooltip = R.tooltips.settings,
+          face_fn = function(fx, fy, fw, fh, g)
+              local sz = fl(math.min(fw, fh) * 0.5)
+              Icons.drawGear(g, fx + fl((fw - sz) / 2), fy + fl((fh - sz) / 2), sz)
+          end })
+    -- Locked, a button is BLANK (the locked game-type keys' rule): no
+    -- picture, no word, no line. The slot is there; nothing else is said.
+    local cat_locked = not state.catalog_seen
+    add({ type = "button", id = "nav:catalog", anchor = "btn:catalog",
+          w = nav_w, face_h = face_h, depth = depth,
+          disabled = cat_locked, tooltip = (not cat_locked) and R.tooltips.catalog or nil,
+          lines = {},
+          face_fn = (not cat_locked) and function(fx, fy, fw, fh, _g)
+              -- The book's own cover, at thumbnail size (the felt's rule).
+              local pad = fl(4 * s)
+              local k = math.min((fw - pad * 2) / CatalogModal.COVER_W, (fh - pad * 2) / CatalogModal.COVER_H)
+              local cw, ch = CatalogModal.COVER_W * k, CatalogModal.COVER_H * k
+              love.graphics.push()
+              love.graphics.translate(fx + fl((fw - cw) / 2), fy + fl((fh - ch) / 2))
+              love.graphics.scale(k, k)
+              CatalogModal.drawFrontCover(COVER_CTX, 0, 0, CatalogModal.COVER_W, CatalogModal.COVER_H, fonts, 1)
+              love.graphics.pop()
+          end or nil })
+    local room_locked = not state.has_shoved
+    -- Something bought and not yet seen in the room: re-fire the award
+    -- pulse every 1.2 s (the deck's nudge), until the room is visited.
+    if not room_locked and not on_room and state.room_unseen and #state.room_unseen > 0
+       and (love.timer.getTime() % 1.2) < 0.05 then
+        AwardGlow.flash("nav:room")
+    end
+    add({ type = "button", id = "nav:room", anchor = "btn:room",
+          anchor_also = on_room and "room:play" or nil,
+          w = nav_w, face_h = face_h, depth = depth,
+          disabled = room_locked,
+          tooltip  = (not room_locked) and (on_room and R.labels.play or R.tooltips.room) or nil,
+          lines    = {},
+          w = fl(nav_w * 1.3),
+          face_fn = (not room_locked) and function(fx, fy, fw, fh, _g)
+              -- The whole room, framed by its own extent.
+              local canvas, box = self:_roomThumb()
+              if canvas and box then
+                  local pad = fl(3 * s)
+                  local bw, bh = math.max(1, box.x2 - box.x1), math.max(1, box.y2 - box.y1)
+                  local k = math.min((fw - pad * 2) / bw, (fh - pad * 2) / bh)
+                  local cxr, cyr = (box.x1 + box.x2) * 0.5, (box.y1 + box.y2) * 0.5
+                  local sx0, sy0, sw0, sh0 = love.graphics.getScissor()
+                  local tx, ty = love.graphics.transformPoint(fx, fy)
+                  love.graphics.intersectScissor(tx, ty, fw, fh)
+                  love.graphics.setColor(1, 1, 1, 1)
+                  love.graphics.draw(canvas, fx + fw * 0.5 - cxr * k, fy + fh * 0.5 - cyr * k, 0, k, k)
+                  if sx0 then love.graphics.setScissor(sx0, sy0, sw0, sh0) else love.graphics.setScissor() end
+              end
+              if on_room then
+                  -- On the room screen the same button is the way back.
+                  love.graphics.setFont(fonts.sm)
+                  local th = fonts.sm:getHeight()
+                  Theme.setColor(Theme.bg.sunken, 0.7)
+                  love.graphics.rectangle("fill", fx, fy + fl((fh - th) / 2) - 2, fw, th + 4)
+                  Theme.setColor(Theme.fg.heading)
+                  love.graphics.printf(R.labels.play, fx, fy + fl((fh - th) / 2), fw, "center")
+              end
+          end or nil })
+    group_gap()
 
-    -- FOCUS%: pops + flashes white when the focus value changes.
-    local fpop    = Pop.onChange("focus", focus_pct, 0.5)
-    local focusFn = function(ix, iy, isize) return Icons.draw(self.game, "focus", ix, iy, isize, isize) end
-    local fcolor  = focus_color
+    -- ── The money: the bankroll under its pile, CASH OUT over what is tied up ──
+    local d_bank  = self.displayed_bankroll or state.bankroll or 0
+    local d_tied  = self.displayed_tied     or ctrl:tiedUp()
+    local d_chips = self.displayed_chips    or state.chips or 0
+    local broken  = self:_broken()
+    -- Tint the bankroll while a tween is in progress: won-green counting
+    -- up, lost-red counting down.
+    local bank_color = Theme.fg.heading
+    local diff_bank  = (state.bankroll or 0) - d_bank
+    if math.abs(diff_bank) > 0.01 then
+        bank_color = (diff_bank > 0) and Theme.sem.won or Theme.sem.lost
+    end
+    local bank_str = moneyText(d_bank)
+    if broken then
+        -- The number is not a number any more. It never resolves.
+        bank_str   = self:_brokenText(bank_str, "bank")
+        bank_color = Theme.currency.achip
+    end
+    add({ type = "stat", label = R.labels.bankroll, value = bank_str, value_color = bank_color,
+          value_glow_color = broken and Theme.currency.achip or nil,
+          anchor = "cell:bankroll",
+          w = math.max(fonts.md:getWidth("$999.99K"), fonts.sm:getWidth(R.labels.bankroll)) + 4 })
+    local n_open   = ctrl.pool:count()
+    local tied_str = moneyText(d_tied)
+    if broken then tied_str = self:_brokenText(tied_str, "tied") end
+    -- "TIED UP $x" as the small line on top (where the labels are), the
+    -- CASH OUT button under it on the value row.
+    local tied_h = fonts.sm:getHeight() + 2
+    local cash_w = math.max(fonts.sm:getWidth(R.labels.cash_out) + fl(20 * s),
+                            fonts.sm:getWidth(R.labels.tied_up .. " $999.99") + 4)
+    add({ type = "column", children = {
+        { type = "stat", value = R.labels.tied_up .. " " .. tied_str, value_style = "sm", h = tied_h,
+          value_color = broken and Theme.currency.achip or Theme.fg.muted,
+          anchor = "cell:tied", tooltip = R.tooltips.tied_up, w = cash_w },
+        { type = "button", id = "cash_out", anchor = "btn:cash_out", depth = 3,
+          face_h = (RAIL_BTN_H - tied_h) - Button.allocatedH(0, 3),
+          w = cash_w,
+          disabled = n_open == 0,
+          tooltip  = (n_open > 0) and R.tooltips.cash_out or R.locked.cash_out,
+          lines = { { text = R.labels.cash_out, style = "small", align = "center", color_token = "heading" } } },
+    } })
+    group_gap()
+
+    -- ── FOCUS: what it is at, and the tables that drive it ──
+    local focus_cap   = ctrl:currentFocusCapacity()
+    local focus_pct   = fl(ctrl:currentFocusMult() * 100 + 0.5)
+    -- Rolls toward the target like the money; the pop keys off the real
+    -- target so it fires once per change.
+    local focus_shown = fl(RollingValue.get("focus_pct", focus_pct) + 0.5)
+    local over        = focus_shown < 100
+    -- A healthy focus is simply fine (parchment); any penalty is money lost.
+    local focus_color = over and Theme.sem.lost or Theme.fg.heading
+    local fpop = Pop.onChange("focus", focus_pct, 0.5)
     if fpop > 0 then
-        fcolor = {
+        focus_color = {
             focus_color[1] + (1 - focus_color[1]) * fpop,
             focus_color[2] + (1 - focus_color[2]) * fpop,
             focus_color[3] + (1 - focus_color[3]) * fpop,
         }
     end
-    drawStatCell(x, CELL_W.focus, "FOCUS", focus_shown .. "%", fcolor, fonts, focusFn,
-                 Pop.scale(fpop, 1, 0.45))
-    AnchorRegistry.set("cell:focus", x, 2, CELL_W.focus, TOP_BAR_H - 4)
-    x = x + CELL_W.focus
-
-    -- Stash workload rect for the hover tooltip in update().
-    self._workload_rect = {
-        x = workload_x0, y = 2, w = x - workload_x0, h = TOP_BAR_H - 4,
+    local cap     = ctrl:tableSlotsCap()
+    local eff_pen = Constants.GAMEPLAY.FOCUS_BASE_PENALTY * ((ctrl.ctx and ctrl.ctx.focus_penalty_reduce_mult) or 1)
+    local focus_tip = {
+        R.tooltips.focus,
+        string.format(R.tooltips.focus_ok, focus_cap),
+        string.format(R.tooltips.focus_pen, eff_pen * 100, Constants.GAMEPLAY.FOCUS_FLOOR * 100),
+        string.format(R.tooltips.focus_cap, cap),
     }
-end
+    add({ type = "stat", label = R.labels.focus,
+          value = focus_shown .. "%", value_color = focus_color,
+          value_scale = Pop.scale(fpop, 1, 0.45),
+          anchor = "cell:focus", tooltip = focus_tip,
+          w = math.max(fonts.md:getWidth("100%"), fonts.sm:getWidth(R.labels.focus)) + 4 })
+    -- TABLES: open against the capacity, as a fill that reddens past it.
+    local bar_w = fl(48 * s)
+    add({ type = "stat", label = R.labels.tables, value = "",
+          bar = { frac = n_open / math.max(1, focus_cap), w = bar_w,
+                  color = over and Theme.sem.lost or Theme.fg.heading },
+          suffix = { text = n_open .. " / " .. focus_cap, color_token = over and "lost" or "muted" },
+          tooltip = focus_tip,
+          w = bar_w + 6 + fonts.sm:getWidth("99 / 99") + 4 })
+    group_gap()
 
--- ─── Cash-Out-All button (top bar, leftmost of the 3-button strip) ───
+    -- ── The chips: banked (yours) and next (this run's, banked when you shove) ──
+    local glyph   = fl(fonts.md:getHeight() * 0.62) + 4
+    local chip_w  = glyph + fonts.md:getWidth("9999") + 6 + fonts.sm:getWidth("+99 " .. R.labels.next) + 4
+    local pending = state.chips_this_run or 0
+    add({ type = "stat", icon = "chip", label = R.labels.banked, value = chipsText(d_chips),
+          dim = (state.shove_count or 0) == 0 and pending == 0,
+          value_color = Theme.fg.heading,
+          suffix = { text = "+" .. pending .. " " .. R.labels.next,
+                     color_token = (pending > 0) and "chip" or "faint", anchor = "chip_badge:shove" },
+          anchor = "cell:chips", tooltip = { R.tooltips.banked, R.tooltips.next }, w = chip_w })
+    if state.shove_r2_won then
+        local d_achips = self.displayed_anti_chips or state.anti_chips or 0
+        local pend_a   = state.anti_chips_this_run or 0
+        add({ type = "stat", icon = "achip", label = R.labels.banked, value = chipsText(d_achips),
+              value_color = Theme.currency.achip,
+              suffix = { text = "+" .. pend_a .. " " .. R.labels.next,
+                         color_token = (pend_a > 0) and "corrupt" or "faint", anchor = "achip_badge:shove" },
+              anchor = "cell:achips", w = chip_w })
+    end
 
--- The four top-bar buttons span the upgrades-sidebar width:
---   [CASH OUT] gap [CATALOG] gap [ROOM] gap [SETTINGS] right_pad ‖ screen edge
--- Equal-width buttons, TOPBAR_BTN_GAP between them, MARGIN on the
--- right so the rightmost button doesn't kiss the screen edge.
-function GrindView:_topBarBtnW()
-    local pad_right = MARGIN
-    local gap       = TOPBAR_BTN_GAP
-    local num_btns  = 4
-    return math.floor((RIGHT_W - (num_btns - 1) * gap - pad_right) / num_btns)
-end
+    group_gap()
 
-function GrindView:_cashOutButtonRect()
-    local W = love.graphics.getWidth()
-    local bw = self:_topBarBtnW()
+    -- ── The deck in play ──
+    local deck_open = Decks.systemUnlocked(state)
+    local spec = deck_open and state.active_deck_id and Decks.specById(state.active_deck_id) or nil
+    -- A deck opened and hasn't been seen: the same nudge as the room's.
+    if deck_open and state.decks_unseen and #state.decks_unseen > 0
+       and (love.timer.getTime() % 1.2) < 0.05 then
+        AwardGlow.flash("deck")
+    end
+    -- Locked, the key is BLANK: no name, no line, nothing to want by name.
+    -- The slot is there, like a locked game type's, and that is all it says.
+    add({ type = "button", id = "deck", anchor = "cell:deck",
+          w = fl(nav_w * 1.2), face_h = face_h, depth = depth,
+          disabled = not deck_open,
+          tooltip  = spec and self:_deckTooltip(spec) or nil,
+          lines    = {},
+          face_fn  = spec and function(fx, fy, fw, fh) self:_drawDeckFace(spec, fx, fy, fw, fh) end or nil })
+    group_gap()
+
+    -- ── SHOVE: the door, with the chip's gold on its edge ──
+    local can_shove = ctrl:shoveUnlocked()
+    local rates     = ShoveRate.compute(ctrl.ctx or {}, (state.bankroll or 0) + ctrl:tiedUp())
+    local r1        = rates.raw_r1 or 0
+    local rate_txt  = string.format("%.0f%%", r1 * 100)
+    -- Parchment until the hand is a lock; then the colour of a hand won.
+    local rate_tok  = (r1 >= 1.00) and "won" or "heading"
+    if broken then
+        rate_txt = self:_brokenText("-999%", "shove", 0.92, 0.12)
+        rate_tok = "corrupt"
+    end
+    local shove_tip
+    if can_shove then
+        shove_tip = {
+            { style = "sm", color_token = "muted", text = R.tooltips.shove_lede },
+            TablePanelStats.iconRow(game, string.format(R.tooltips.shove_take, pending), "sm",
+                                    (pending > 0) and "chip" or "muted"),
+        }
+        for _, r in ipairs(ShoveRate.formatBreakdown(rates)) do shove_tip[#shove_tip + 1] = r end
+        shove_tip[#shove_tip + 1] = R.tooltips.shove_lock
+    else
+        shove_tip = nil   -- a greyed button does not pitch its own click
+    end
+    add({ type = "button", id = "shove", anchor = "btn:shove",
+          w = fonts.md:getWidth(R.labels.shove) + fonts.sm:getWidth("999%") * 2 + fl(24 * s),
+          face_h = face_h, depth = depth,
+          disabled = not can_shove,
+          face_color = Theme.bg.widget_hover,
+          border_color = Theme.sem.chip, border_line_width = Theme.space.line_strong,
+          tooltip = shove_tip,
+          lines = can_shove and {
+              { text = R.labels.shove, style = "heading", align = "center", color_token = "heading",
+                right = rate_txt, right_color_token = rate_tok, right_anchor = "cell:shove" },
+          } or {},
+          -- The quick-reset rescue straddles the shove's top edge when bricked.
+          overlay = ctrl:canQuickReset() and {
+              type = "button", id = "quick_reset", anchor = "btn:quick_reset", depth = 4,
+              w = fl(fonts.sm:getWidth(R.labels.quick_reset)) + fl(28 * s),
+              tooltip = iconRows(game, R.tooltips.quick_reset, "heading"),
+              lines = { { text = R.labels.quick_reset, style = "small", align = "center", color_token = "heading" } },
+          } or nil })
+
     return {
-        x = W - RIGHT_W,                                    -- leftmost
-        y = math.floor((TOP_BAR_H - CASH_OUT_BTN_H) / 2),
-        w = bw,
-        h = CASH_OUT_BTN_H,
+        { type = "spacer", h = RAIL_PAD },
+        { type = "row", gap = fl(8 * s), h = RAIL_BTN_H, align = "top", children = kids },
     }
 end
 
-function GrindView:_drawCashOutButton()
-    local rect    = self:_cashOutButtonRect()
-    AnchorRegistry.set("btn:cash_out", rect.x, rect.y, rect.w, rect.h)
-    local n       = self.controller.pool:count()
-    local enabled = n > 0
-    local mx, my  = love.mouse.getPosition()
-    local hovered = self.game.hover.rest("button", "cash_out",
-                        enabled
-                        and mx >= rect.x and mx < rect.x + rect.w
-                        and my >= rect.y and my < rect.y + rect.h, 0)
-    LabelButton.draw{
-        x = rect.x, y = rect.y, w = rect.w, h = rect.h,
-        text         = "CASH OUT",
-        fonts        = self.game.fonts,
-        hovered      = hovered,
-        press_alpha  = ClickFlash.alpha("cash_out", "cash_out"),
-        disabled     = not enabled,
-        fill_token   = enabled and Theme.bg.widget_hover or Theme.bg.sunken,
-        border_token = enabled and Theme.fg.heading      or Theme.border.soft,
-        text_token   = enabled and Theme.fg.heading      or Theme.fg.disabled,
-    }
-end
-
--- ─── Catalog button (top bar, between Cash-Out and Room) ─────────
-
--- Hidden until the post-shove catalog has introduced itself (persisted
--- as state.catalog_seen, set by ShoveState when the modal first opens).
--- Only the tutorial build gates it — the scripted-intro build always
--- shows the button. The rect itself stays put, so the button pops into
--- its slot on unlock without moving CASH OUT or SETTINGS.
-function GrindView:_catalogButtonVisible()
-    return self.game.state.catalog_seen
-end
-
-function GrindView:_catalogButtonRect()
-    local cb = self:_cashOutButtonRect()
-    local bw = self:_topBarBtnW()
-    return {
-        x = cb.x + bw + TOPBAR_BTN_GAP,
-        y = math.floor((TOP_BAR_H - CATALOG_BTN_H) / 2),
-        w = bw,
-        h = CATALOG_BTN_H,
-    }
-end
-
-function GrindView:_drawCatalogButton()
-    local rect   = self:_catalogButtonRect()
-    AnchorRegistry.set("btn:catalog", rect.x, rect.y, rect.w, rect.h)
-    local mx, my = love.mouse.getPosition()
-    LabelButton.draw{
-        x = rect.x, y = rect.y, w = rect.w, h = rect.h,
-        text        = "CATALOG",
-        fonts       = self.game.fonts,
-        hovered     = self.game.hover.rest("button", "catalog_btn",
-                          mx >= rect.x and mx < rect.x + rect.w
-                          and my >= rect.y and my < rect.y + rect.h, 0),
-        press_alpha = ClickFlash.alpha("catalog_btn", "catalog_btn"),
-    }
-end
-
--- ─── Room button (top bar, between Catalog and Settings) ──────────────
-
--- The ROOM button appears once the player has shoved: until the House
--- sends them there (story beat the_loop) an empty room explains nothing.
-function GrindView:_roomButtonVisible()
-    local st = self.game.state
-    return st ~= nil and st.has_shoved == true
-end
-
-function GrindView:_roomButtonRect()
-    local cb = self:_catalogButtonRect()
-    local bw = self:_topBarBtnW()
-    return {
-        x = cb.x + bw + TOPBAR_BTN_GAP,
-        y = math.floor((TOP_BAR_H - CATALOG_BTN_H) / 2),
-        w = bw,
-        h = CATALOG_BTN_H,
-    }
-end
-
-function GrindView:_drawRoomButton()
-    local rect   = self:_roomButtonRect()
-    AnchorRegistry.set("btn:room", rect.x, rect.y, rect.w, rect.h)
-    local mx, my = love.mouse.getPosition()
-    local is_room_active = self.game.state_machine
-        and self.game.state_machine.current_state_name == "room"
-    local btn_text = is_room_active and "PLAY" or "ROOM"
-    LabelButton.draw{
-        x = rect.x, y = rect.y, w = rect.w, h = rect.h,
-        text        = btn_text,
-        fonts       = self.game.fonts,
-        hovered     = self.game.hover.rest("button", "room_btn",
-                          mx >= rect.x and mx < rect.x + rect.w
-                          and my >= rect.y and my < rect.y + rect.h, 0),
-        press_alpha = ClickFlash.alpha("room_btn", "room_btn"),
-    }
-end
-
--- ─── Settings button (top bar, rightmost) ────────────────────────────
-
-function GrindView:_settingsButtonRect()
-    -- Closes up over the ROOM slot while that button is hidden.
-    local rb = self:_roomButtonVisible() and self:_roomButtonRect() or self:_catalogButtonRect()
-    local bw = self:_topBarBtnW()
-    return {
-        x = rb.x + bw + TOPBAR_BTN_GAP,
-        y = math.floor((TOP_BAR_H - CATALOG_BTN_H) / 2),
-        w = bw,
-        h = CATALOG_BTN_H,
-    }
-end
-
-function GrindView:_drawSettingsButton()
-    local rect   = self:_settingsButtonRect()
-    local mx, my = love.mouse.getPosition()
-    LabelButton.draw{
-        x = rect.x, y = rect.y, w = rect.w, h = rect.h,
-        text        = "SETTINGS",
-        fonts       = self.game.fonts,
-        hovered     = self.game.hover.rest("button", "settings_btn",
-                          mx >= rect.x and mx < rect.x + rect.w
-                          and my >= rect.y and my < rect.y + rect.h, 0),
-        press_alpha = ClickFlash.alpha("settings_btn", "settings_btn"),
-    }
-end
-
--- ─── Help button (top bar, "?" — reopens the how-to-play modal) ──────
 
 -- ─── Center grid ──────────────────────────────────────────────────────
 
@@ -1876,28 +1444,11 @@ local function bestGridLayout(n, grid_w, grid_h)
     return best
 end
 
--- Small "Quick reset" button straddling the SHOVE button's top edge (half on
--- the shove, half in the reserved strip above it) — an obvious overlapping
--- alternative. Only shown / hit-tested when GrindController:canQuickReset().
-function GrindView:_quickResetButtonRect()
-    local sb   = self:_shoveButtonRect()
-    local s    = self.game.ui_scale or 1
-    local font = self.game.fonts.sm
-    local bw   = font:getWidth("Quick reset") + math.floor(28 * s)
-    local bh   = font:getHeight() + math.floor(14 * s)
-    return {
-        x = sb.x + math.floor((sb.w - bw) / 2),
-        y = sb.y - math.floor(bh / 2),
-        w = bw, h = bh,
-    }
-end
-
 function GrindView:_drawCenterGrid(W, H)
     local grid_x = LEFT_W + MARGIN
-    local grid_y = TOP_BAR_H + MARGIN
+    local grid_y = MARGIN
     local grid_w = W - LEFT_W - RIGHT_W - 2 * MARGIN
-    local grid_h = H - TOP_BAR_H - BOTTOM_BAND_H - 2 * MARGIN
-
+    local grid_h = H - RAIL_H - BOTTOM_BAND_H - 2 * MARGIN
     -- The table section's centre, for anything that needs "somewhere over
     -- the tables" without a specific table (item-fired ghosts fall back
     -- here). Same shape as the per-table center anchors: centre point + dims.
@@ -2075,18 +1626,6 @@ function GrindView:_drawCenterGrid(W, H)
     end
 end
 
--- ─── SHOVE button (right sidebar bottom) ──────────────────────────────
-
-function GrindView:_shoveButtonRect()
-    local W, H = love.graphics.getDimensions()
-    return {
-        x = W - RIGHT_W + MARGIN,
-        y = H - SHOVE_BTN_H - MARGIN,
-        w = RIGHT_W - 2 * MARGIN,
-        h = SHOVE_BTN_H,
-    }
-end
-
 -- ─── THE HOUSE (the captor's poster) ──────────────────────────────────
 
 -- Sits above the SHOVE button (what you shove against). The tutorial's
@@ -2095,15 +1634,13 @@ end
 -- Drawn from shapes until art lands: a framed poster with a gold-roofed
 -- house glyph.
 function GrindView:_houseRect()
-    local sb = self:_shoveButtonRect()
-    local qr = math.floor(18 * (self.game.ui_scale or 1))
+    local W, H = love.graphics.getDimensions()
     return {
-        x = sb.x, w = sb.w,
-        y = sb.y - qr - HOUSE_H,
+        x = W - RIGHT_W + MARGIN, w = RIGHT_W - 2 * MARGIN,
+        y = H - MARGIN - HOUSE_H,
         h = HOUSE_H,
     }
 end
-
 -- The "?" badge in the poster's bottom-right corner (TUTORIAL builds only).
 function GrindView:_houseHelpBtnRect()
     local r  = self:_houseRect()
@@ -2182,130 +1719,6 @@ function GrindView:_drawHouse()
             press_alpha = ClickFlash.alpha("help_btn", "help_btn"),
         }
     end
-end
-
--- The shove face always draws; until unlocked (TUTORIAL:
--- SHOVE_UNLOCK_CHIPS banked on the first-ever run) it renders greyed-out
--- and ignores clicks — the "+N {chip}" badge stays live so the player
--- watches their pile grow toward the reveal. The quick-reset rescue is
--- independent and draws either way.
-function GrindView:_drawShoveButton()
-    local sb = self:_shoveButtonRect()
-    self:_drawShoveFace(sb)
-    -- Quick-reset alternative, overlaid on the shove face when the player is
-    -- bricked with no chips to bank (GrindController:canQuickReset). Drawn
-    -- after the shove so it sits on top; the shove (when revealed) peeks as
-    -- a red frame + bottom readouts so it's clearly an alternative, not a
-    -- replacement.
-    if self.controller:canQuickReset() then
-        local qr     = self:_quickResetButtonRect()
-        AnchorRegistry.set("btn:quick_reset", qr.x, qr.y, qr.w, qr.h)
-        local mx, my = love.mouse.getPosition()
-        local hov    = self.game.hover.rest("button", "quick_reset",
-                           mx >= qr.x and mx < qr.x + qr.w
-                           and my >= qr.y and my < qr.y + qr.h, 0)
-        LabelButton.draw{
-            x = qr.x, y = qr.y, w = qr.w, h = qr.h,
-            text = "Quick reset",
-            fonts = self.game.fonts, font = self.game.fonts.sm,
-            hovered = hov, depth = 4,
-            press_alpha = ClickFlash.alpha("quick_reset", "quick_reset"),
-        }
-    end
-end
-
-function GrindView:_drawShoveFace(sb)
-    AnchorRegistry.set("btn:shove", sb.x, sb.y, sb.w, sb.h)
-    local state = self.game.state
-    -- No bankroll floor — softlocking the player with a "you can't even
-    -- surrender" gate was strictly worse than letting them shove with
-    -- nothing. The only lock is the tutorial reveal (3 chips, first run);
-    -- while locked the button renders in its disabled state.
-    local can_shove = self.controller:shoveUnlocked()
-    local ctx = self.controller.ctx or {}
-    -- Live rates match the top-bar column. Headline is gauntlet-clear
-    -- (r1·r2·r3); the math-reality clamps live inside ShoveRate.compute.
-    local rates      = ShoveRate.compute(ctx, (state.bankroll or 0) + self.controller:tiedUp())
-    local pending_chips = state.chips_this_run or 0
-
-    local mx, my = love.mouse.getPosition()
-    local hovered = self.game.hover.rest("button", "shove",
-                        can_shove and mx >= sb.x and mx < sb.x + sb.w
-                                  and my >= sb.y and my < sb.y + sb.h, 0)
-    local press   = ClickFlash.alpha("shove", "shove")
-
-    -- The door. Lit, with the chip's gold on its edge: the one button that
-    -- wears that colour. Never lost-red; a shove is not a loss.
-    Button.draw(sb.x, sb.y, sb.w, sb.h, {
-        fill_color   = can_shove and Theme.bg.widget_hover or Theme.bg.sunken,
-        border_color = can_shove and Theme.sem.chip        or Theme.border.soft,
-        line_width   = Theme.space.line_strong,
-        hovered      = hovered,
-        press_alpha  = press,
-        disabled     = not can_shove,
-        depth        = 5,
-    }, function(fx, fy, fw, fh)
-        -- Restructured layout: SHOVE is the headline — kpi-sized,
-        -- vertically centered, fills most of the button. The two
-        -- secondary readouts (live win %, banked chips) tuck into the
-        -- bottom corners as small labels so they don't compete with
-        -- the action verb.
-        local fonts   = self.game.fonts
-        local small   = fonts.sm
-        local title   = fonts.lg
-
-        -- Title — massive, centered both axes. Vertical center is
-        -- biased a few pixels up so the bottom-corner labels have
-        -- breathing room without crowding the title.
-        Theme.setColor(can_shove and Theme.fg.heading or Theme.fg.disabled)
-        love.graphics.setFont(title)
-        local title_y = fy + math.floor((fh - title:getHeight()) * 0.5) - 4
-        love.graphics.printf("SHOVE", fx, title_y, fw, "center")
-
-        -- Bottom corners. Both sit on the same baseline.
-        local pad   = 10
-        local sub_y = fy + fh - small:getHeight() - 5
-        love.graphics.setFont(small)
-
-        -- Win-chance, bottom-left. Number-only — the "to win" suffix
-        -- was redundant with the giant SHOVE label above it.
-        Theme.setColor(can_shove and Theme.fg.heading or Theme.fg.faint)
-        love.graphics.print(
-            string.format("%.0f%%", (rates.raw_r1 or 0) * 100),
-            fx + pad, sub_y)
-
-        -- Chips-banked, bottom-right: "+N ◆" and "+N (achip)". Muted when 0;
-        -- active color once a bounty has landed so the player can glance at
-        -- the SHOVE button and know whether they have anything riding.
-        local pending_achips = state.anti_chips_this_run or 0
-        local crx = fx + fw - pad
-        local gsize = small:getHeight()
-        local cgap  = 3
-
-        if state.shove_r2_won then
-            local achip_text = string.format("+%d", pending_achips)
-            local achip_color = (pending_achips > 0) and Theme.currency.achip or Theme.fg.faint
-            Theme.setColor(achip_color)
-            local actw = small:getWidth(achip_text)
-            crx = crx - (actw + cgap + gsize)
-            love.graphics.print(achip_text, crx, sub_y)
-            Icons.drawAntiChip(self.game, crx + actw + cgap, sub_y, gsize)
-            AnchorRegistry.set("achip_badge:shove", crx, sub_y,
-                actw + cgap + gsize, gsize)
-            crx = crx - 8 -- Gap between chips and anti-chips
-        end
-
-        local chip_text  = string.format("+%d", pending_chips)
-        local chip_color = (pending_chips > 0) and Theme.sem.chip
-                                               or  Theme.fg.faint
-        Theme.setColor(chip_color)
-        local ctw   = small:getWidth(chip_text)
-        crx   = crx - (ctw + cgap + gsize)
-        love.graphics.print(chip_text, crx, sub_y)
-        Icons.drawChip(self.game, crx + ctw + cgap, sub_y, gsize)
-        AnchorRegistry.set("chip_badge:shove", crx, sub_y,
-            ctw + cgap + gsize, gsize)
-    end)
 end
 
 -- ─── Floating text overlay ────────────────────────────────────────────
@@ -2468,16 +1881,17 @@ end
 function GrindView:_drawBankrollChips(W, H)
     local band_x = LEFT_W + MARGIN
     local band_w = W - LEFT_W - RIGHT_W - 2 * MARGIN
-    local band_y = H - BOTTOM_BAND_H
+    local band_y = H - RAIL_H - BOTTOM_BAND_H   -- the pile band sits on the rail
     local center_x = band_x + band_w * 0.5
     local stack_y  = band_y + BOTTOM_BAND_H - 22
 
     -- Stash for emission code (1-frame stale, fine).
     AnchorRegistry.set("bankroll", center_x, stack_y)
-    -- The House's story band: the top strip of the bottom band, above the
-    -- pile (whose stack top sits at band_y + 68), between the sidebars.
-    AnchorRegistry.set("story:band", band_x, band_y, band_w,
-                       math.floor(40 * (self.game.ui_scale or 1)))
+    -- The House's story band: a strip sitting ON the pile band's top edge,
+    -- between the sidebars. The panel bottom-aligns to it (views/StoryView),
+    -- so the words end where the chips begin instead of over them.
+    local strip_h = math.floor(40 * (self.game.ui_scale or 1))
+    AnchorRegistry.set("story:band", band_x, band_y - strip_h, band_w, strip_h)
 
     -- A collection, not a breakdown of the scalar (views/ChipPile). Chips
     -- flown here — a table cashing out, a stack-cap overflow — are
@@ -2563,18 +1977,11 @@ function GrindView:draw(overlay_fn)
         love.graphics.translate(math.sin(t * 1.3) * k, math.cos(t * 1.7) * k)
     end
 
-    self:_drawTopBar(W)
-    self:_drawCashOutButton()
-    if self:_catalogButtonVisible() then self:_drawCatalogButton() end
-    if self:_roomButtonVisible() then self:_drawRoomButton() end
-    self:_drawSettingsButton()
-
+    self:drawChrome(W)
     self:_drawCenterGrid(W, H)
-
     self.left_panel:draw(self.game)
     self.right_panel:draw(self.game)
     self:_drawHouse()
-    self:_drawShoveButton()
     self:_drawFloatingText()
 
     -- Held (dragged) table panel — drawn after the sidebars and floating
@@ -2639,74 +2046,46 @@ local HEADER_DRAG_ACTIONS = {
 local DRAG_PROMOTE_PX = 4    -- < the 8px grid-freeze deadzone; promote
                              -- clears the freeze itself
 
+-- ─── The chrome, shared with the room screen ─────────────────────────
+-- The rail: its ground, then its components. The room screen draws the
+-- same, so the money, the chips and the way out never leave the screen.
+
+function GrindView:drawChrome(W)
+    local H = select(2, love.graphics.getDimensions())
+    local rw = self.rail.w
+    Theme.setColor(Theme.bg.chrome)
+    love.graphics.rectangle("fill", 0, H - RAIL_H, rw, RAIL_H)
+    Theme.setColor(Theme.border.default)
+    love.graphics.rectangle("fill", 0, H - RAIL_H, rw, 1)
+    love.graphics.rectangle("fill", rw - 1, H - RAIL_H, 1, RAIL_H)
+    self.rail:draw(self.game)
+end
+
+function GrindView:railH() return RAIL_H end
+
+-- The rail component under a point, by id ("shove", "nav:room", …), or nil.
+function GrindView:chromeHit(x, y)
+    if not self.rail or y < self.rail.y then return nil end
+    local comps = self.rail:getComponents()
+    if not comps then return nil end
+    local hit = CR.hitTest(comps, self.rail.x, self.rail.w, x, self.rail:toContentY(y), self.game)
+    return hit and hit.id or nil
+end
+
+-- The rail's click, dispatched like any sidebar button. True when the
+-- click was the rail's (a control, or its ground).
+function GrindView:chromeMousepressed(x, y)
+    local id = self:chromeHit(x, y)
+    if id then self:_handleSidebarButton(id) end
+    local r = self.rail
+    return id ~= nil or (r ~= nil and y >= r.y and x >= r.x and x < r.x + r.w)
+end
+
 function GrindView:mousepressed(x, y, b)
     if b ~= 1 then return end
 
-    -- Quick-reset button — overlaid on the SHOVE face when bricked with no
-    -- chips to bank. Checked before SHOVE so the overlay wins; clicks on the
-    -- peeking shove frame/readouts still fall through to the shove below.
-    if self.controller:canQuickReset() then
-        local qr = self:_quickResetButtonRect()
-        if x >= qr.x and x < qr.x + qr.w and y >= qr.y and y < qr.y + qr.h then
-            ClickFlash.flash("quick_reset", "quick_reset")
-            if self.game.quickReset then self.game.quickReset() end
-            return
-        end
-    end
-
-    -- Cash-Out-All button (top bar). Checked first so the right-side hit
-    -- doesn't fall through to the right panel's tab-strip / scroll zone.
-    local cb = self:_cashOutButtonRect()
-    if self.controller.pool:count() > 0
-       and x >= cb.x and x < cb.x + cb.w
-       and y >= cb.y and y < cb.y + cb.h then
-        ClickFlash.flash("cash_out", "cash_out")
-        self.controller:cashOutAll()
-        return
-    end
-
-    -- Catalog button (top bar, between cash-out and settings). Opens
-    -- the same modal the post-bust prestige flow uses, so the player
-    -- can spend chips mid-grind without busting first.
-    local cat = self:_catalogButtonRect()
-    if self:_catalogButtonVisible()
-       and x >= cat.x and x < cat.x + cat.w
-       and y >= cat.y and y < cat.y + cat.h then
-        ClickFlash.flash("catalog_btn", "catalog_btn")
-        if self.game.openCatalog then self.game.openCatalog() end
-        return
-    end
-
-    -- DECK chip (top bar, run cluster). Opens the read-only roster
-    -- modal — swapping the active deck is restricted to the post-shove
-    -- ritual, but the player can inspect their decks any time.
-    local deck_rect = self._deck_cell_rect
-    if deck_rect
-       and x >= deck_rect.x and x < deck_rect.x + deck_rect.w
-       and y >= deck_rect.y and y < deck_rect.y + deck_rect.h then
-        if self.game.openDeckRoster then self.game.openDeckRoster() end
-        return
-    end
-
-    -- Room toggle button (top bar, between catalog and settings).
-    local room_rect = self:_roomButtonRect()
-    if self:_roomButtonVisible()
-       and x >= room_rect.x and x < room_rect.x + room_rect.w
-       and y >= room_rect.y and y < room_rect.y + room_rect.h then
-        ClickFlash.flash("room_btn", "room_btn")
-        if self.game.toggleRoom then self.game.toggleRoom() end
-        return
-    end
-
-    -- Settings button (top bar, rightmost).
-    local set_rect = self:_settingsButtonRect()
-    if x >= set_rect.x and x < set_rect.x + set_rect.w
-       and y >= set_rect.y and y < set_rect.y + set_rect.h then
-        ClickFlash.flash("settings_btn", "settings_btn")
-        if self.game.openSettings then self.game.openSettings() end
-        return
-    end
-
+    -- The rail first.
+    if self:chromeMousepressed(x, y) then return end
     -- The "?" on THE HOUSE poster: the glossary rises from the poster.
     do
         local hb = self:_houseHelpBtnRect()
@@ -2716,16 +2095,6 @@ function GrindView:mousepressed(x, y, b)
             if self.game.openHelp then self.game.openHelp() end
             return
         end
-    end
-
-    -- SHOVE button has priority — it's bottom-right and overlaps the right
-    -- panel zone. Inert until the shove has revealed itself.
-    local sb = self:_shoveButtonRect()
-    if self.controller:shoveUnlocked()
-       and x >= sb.x and x < sb.x + sb.w and y >= sb.y and y < sb.y + sb.h then
-        ClickFlash.flash("shove", "shove")
-        self.controller:initiateShove()
-        return
     end
 
     -- Right panel.
@@ -2812,7 +2181,14 @@ end
 
 function GrindView:_handleSidebarButton(id)
     ClickFlash.flash("button", id)
-
+    -- The rail.
+    if id == "nav:settings" then if self.game.openSettings   then self.game.openSettings()   end return end
+    if id == "nav:catalog"  then if self.game.openCatalog    then self.game.openCatalog()    end return end
+    if id == "nav:room"     then if self.game.toggleRoom     then self.game.toggleRoom()     end return end
+    if id == "deck"         then if self.game.openDeckRoster then self.game.openDeckRoster() end return end
+    if id == "quick_reset"  then if self.game.quickReset     then self.game.quickReset()     end return end
+    if id == "cash_out"     then self.controller:cashOutAll()   return end
+    if id == "shove"        then self.controller:initiateShove() return end
     -- Game-type sub-tab selection.
     local gtype = id:match("^gtype:(.+)$")
     if gtype then

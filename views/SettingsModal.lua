@@ -217,6 +217,27 @@ end
 
 -- ─── Input ─────────────────────────────────────────────────────────────
 
+-- Modal-first input for a host with a `settings_modal` field and a
+-- closeSettings() method (the grind, the title, the room). Returns true
+-- when the modal took the event, so the host stops there: a click outside
+-- the modal or an unconsumed ESC closes it.
+function SettingsModal.route(host, event, a, b, c)
+    local m = host.settings_modal
+    if not m then return false end
+    if event == "mousepressed" then
+        if not m:consumeMouse(a, b, c) then host:closeSettings() end
+    elseif event == "keypressed" then
+        if not m:consumeKey(a) and a == "escape" then host:closeSettings() end
+    elseif event == "mousemoved" then
+        if m.mousemoved then m:mousemoved(a, b) end
+    elseif event == "mousereleased" then
+        if m.mousereleased then m:mousereleased(a, b, c) end
+    elseif event == "wheelmoved" then
+        if m.wheelmoved then m:wheelmoved(a, b) end
+    end
+    return true
+end
+
 function SettingsModal:consumeKey(key)
     if self._confirm then
         local consumed = self._confirm:consumeKey(key)

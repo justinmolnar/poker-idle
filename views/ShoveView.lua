@@ -42,6 +42,7 @@ local Story                  = require("data.story")
 local StoryView              = require("views.StoryView")
 local FlightSystem           = require("services.FlightSystem")
 local Pop                    = require("services.Pop")
+local ItemFoley              = require("services.ItemFoley")
 local RoomLighting           = require("views.RoomLighting")
 local RoomLights             = require("data.room_lights")
 local ChipFlight             = require("views.ChipFlight")
@@ -297,10 +298,6 @@ function ShoveView:beginRoomCount(room_view, ids, rates)
     self.room_ids     = ids or {}
     self.room_id_set  = {}
     for _, id in ipairs(self.room_ids) do self.room_id_set[id] = true end
-    self.room_corrupt = {}
-    for _, id in ipairs((self.game.state and self.game.state.corrupted_items) or {}) do
-        self.room_corrupt[id] = true
-    end
     self.room_lit     = {}
     self.room_lit_at  = {}
     self.room_count   = 0
@@ -1041,14 +1038,13 @@ function ShoveView:update(dt)
             Pop.trigger("room_count")
             Pop.trigger("room_item:" .. id)
             if sounds and sounds.playNamed then
-                -- The item's own sound (the file that shares its name),
-                -- rising with the count; the chip tick when it has none.
+                -- The item's own sound, rising with the count (ItemFoley:
+                -- damaged if corrupted, the chip tick when it has none).
                 local R = Style.room
                 local pitch = sounds.rampPitch and sounds.rampPitch(self.room_count, #self.room_ids,
                     R.item_pitch.from, R.item_pitch.to) or 1
-                local damaged = self.room_corrupt and self.room_corrupt[id] or false
-                local played = sounds.playNamed(id, { volume_mult = R.item_volume, pitch = pitch, damaged = damaged })
-                if not played then sounds.playNamed(R.fallback_tick, { pitch = pitch, damaged = damaged }) end
+                ItemFoley.play(self.game.state, id, { volume_mult = R.item_volume, pitch = pitch,
+                                                      fallback = R.fallback_tick, sounds = sounds })
             end
         end
         if not self.room_locked and self.phase_t >= self.room_lock_t
@@ -1266,26 +1262,12 @@ function ShoveView:_drawRoomCount(W, H)
     -- The counter: the number and its word, centred at the top. Drawn lit,
     -- and again in the dark after the switch (it is what you take with you).
     local function drawCounter()
-        local n      = self.room_count
         local locked = self.room_locked
-        love.graphics.setFont(fonts.lg)
-        local num  = tostring(n)
-        local nw   = fonts.lg:getWidth(num)
-        local ny   = math.floor(H * R.counter_y)
-        local nsc  = Pop.changeScale("room_count", n, 1, 0.35, 0.3)
-        local ncx = math.floor(W * 0.5)
-        self._room_counter_pos = { x = ncx, y = ny + fonts.lg:getHeight() * 0.5 }
-        love.graphics.push()
-        love.graphics.translate(ncx, ny + fonts.lg:getHeight() * 0.5)
-        love.graphics.scale(nsc, nsc)
-        Theme.setColor(Theme.fg.heading)
-        love.graphics.print(num, -nw * 0.5, -fonts.lg:getHeight() * 0.5)
-        love.graphics.pop()
-        love.graphics.setFont(fonts.sm)
-        local label = locked and "ITEMS" or "THINGS YOU OWN"
-        Theme.setColor(locked and Theme.fg.heading or Theme.fg.muted)
-        love.graphics.print(label, ncx + math.floor(nw * 0.5) + math.floor(10 * s),
-            ny + fonts.lg:getHeight() - fonts.sm:getHeight() - math.floor(3 * s))
+        self._room_counter_pos = ShoveDecor.drawRoomCounter(fonts, s, W, H, self.room_count,
+            locked and "ITEMS" or "THINGS YOU OWN", {
+                pop_id = "room_count",
+                label_color = locked and Theme.fg.heading or Theme.fg.muted,
+            })
     end
 
     -- The fixture: off while we look in (the lamp and the screens glow
@@ -1296,18 +1278,14 @@ function ShoveView:_drawRoomCount(W, H)
         level = RoomLighting.fixtureLevel(RoomLights.fixture, self.phase_t - R.lights_on_at)
     end
 
-    Theme.setColor(Theme.bg.sunken)
-    love.graphics.rectangle("fill", 0, 0, W, H)
     local lit  = self.room_lit
     local sil  = R.silhouette
     local counted = self.room_id_set
-    self.room_view:draw(true, {
-        zoom = R.zoom,
-        dy   = math.floor(H * R.room_dy),
+    self.room_view:drawScene(W, H, {
+        fixture = level,
         -- Things still to be counted are dark shapes; counted ones, and
         -- the room's own flavor, are themselves.
         item_tint = function(obj) if counted[obj.id] and not lit[obj.id] then return sil end end,
-        lighting  = { fixture = level, emitters = true },
     })
     self._room_fixture_level = level
 
@@ -1840,10 +1818,10 @@ end
 -- The ONE line in the band above the table. Set by the beats (the
 -- buildup, the deal, the House at the reveal) and drawn the same way every
 -- time. Nothing else prints in this band.
--- The same rect the grind's SHOVE button occupies (views/GrindView
--- _shoveButtonRect): bottom-right, RIGHT_W = max(320, 22% of W) wide less
--- margins, 64*s tall. Kept numerically identical rather than shared so this
--- view does not require the grind view.
+-- Bottom-right, the grind's SHOVE slot: RIGHT_W = max(320, 22% of W) wide
+-- less margins, 64*s tall (the rail's SHOVE button lives there on the
+-- grind, views/GrindView _buildRailComponents). Kept numerically similar
+-- rather than shared so this view does not require the grind view.
 function ShoveView:_continueRect()
     local W, H = love.graphics.getDimensions()
     local s = self.game.ui_scale or 1

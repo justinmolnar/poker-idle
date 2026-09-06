@@ -124,6 +124,7 @@ function StoryDirector:update(dt, ctx, blocked)
     local state = self.game.state
     if not (state and state.story_seen) then return end
 
+    self._last_ctx = ctx   -- for a line said outside the script (sayOnce)
     self._timer = self._timer + (dt or 0)
     if self._timer >= CHECK_INTERVAL then
         self._timer = 0
@@ -257,9 +258,22 @@ function StoryDirector:_start(beat, ctx)
     if tl:isDone() then self:_finish() end
 end
 
+-- One line outside the script: an item's house_line when it is clicked
+-- in the room. Said on the current screen, held a few seconds, and never
+-- recorded (no id in story_seen). Nothing while a beat is up.
+local ONCE_HOLD = 4.0
+function StoryDirector:sayOnce(text)
+    if self.beat or not text or text == "" then return false end
+    local ctx = self._last_ctx
+    if not ctx or not ctx.screen then return false end
+    self:_start({ id = "_once", screen = ctx.screen, transient = true,
+                  lines = { { text = text, hold = ONCE_HOLD } } }, ctx)
+    return true
+end
+
 function StoryDirector:_finish()
     local state = self.game.state
-    if state and self.beat then
+    if state and self.beat and not self.beat.transient then
         if state.story_seen  then state.story_seen[self.beat.id] = true end
         if state.story_armed then state.story_armed[self.beat.id] = nil end
     end

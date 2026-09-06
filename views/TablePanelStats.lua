@@ -1076,12 +1076,18 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
     Theme.setColor(m.color)
     love.graphics.print(m.label, tx, ty)
 
-    -- Stack-win chance: gold tier glyph + pct, sharing the EV color.
+    -- Stack-win chance: gold tier glyph + pct, sharing the EV color. Its
+    -- own anchor ("ev:<idx>" -> "stack_pct:<idx>") for the beats about the
+    -- gold number alone.
     local sx = tx + m.bb_w + m.gap
     if not money_only then
         TierGlyph.draw(sx + m.r, ty + m.text_h - m.r, "stack", m.r, "win")
         Theme.setColor(m.color)
         love.graphics.print(m.stack_label, sx + m.r * 2 + m.glyph_pad, ty)
+        if anchor_key then
+            Anchors.set((anchor_key:gsub("^ev:", "stack_pct:")), sx, ty,
+                m.r * 2 + m.glyph_pad + font:getWidth(m.stack_label), m.text_h)
+        end
     end
 
     -- Stack-loss chance: purple tier glyph + pct

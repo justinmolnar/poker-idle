@@ -439,18 +439,21 @@ end
 
 -- ── The room bake ──────────────────────────────────────────────────────
 
--- Render the framed portrait flat, shear it onto the left-wall plane,
--- add the kit-style drop shadow, downsample, inject as
--- "house_poster_wall". Guarded like SpriteLoader.resample: any failure
--- leaves the loader untouched (the room falls back to its iso box).
-function HouseArt.bake(sprite_loader)
-    if not (sprite_loader and sprite_loader.setSprite) then return end
+-- The wall bake, one pipeline: paint(fw, fh) draws the flat content into
+-- a supersampled canvas (fw x fh = flat_w x flat_h x SS), which is sheared
+-- onto the left-wall plane with the kit-style drop shadow, downsampled to
+-- sprite size and injected as `name`. Guarded like SpriteLoader.resample:
+-- any failure leaves the loader untouched (the room falls back to its iso
+-- box). THE HOUSE's print and the room's fittings (views/RoomFixtures)
+-- both bake through here.
+function HouseArt.bakeWallSprite(sprite_loader, name, flat_w, flat_h, paint)
+    if not (sprite_loader and sprite_loader.setSprite) then return false end
     local ok = pcall(function()
-        local fw, fh = FLAT_W * SS, FLAT_H * SS
-
-        -- 1. The framed flat portrait.
-        local flat = love.graphics.newCanvas(fw, fh)
+        local fw, fh = flat_w * SS, flat_h * SS
         local prev = love.graphics.getCanvas()
+
+        -- 1. The flat content.
+        local flat = love.graphics.newCanvas(fw, fh)
         love.graphics.push("all")
         love.graphics.origin()
         love.graphics.setScissor()
@@ -458,14 +461,7 @@ function HouseArt.bake(sprite_loader)
         love.graphics.setBlendMode("alpha", "alphamultiply")
         love.graphics.setCanvas(flat)
         love.graphics.clear(0, 0, 0, 0)
-        local frame = 2 * SS
-        Theme.setColor({ 0.16, 0.12, 0.10 })
-        love.graphics.rectangle("fill", 0, 0, fw, fh)
-        Theme.setColor({ 0.88, 0.82, 0.70 })
-        love.graphics.rectangle("fill", frame * 0.5, frame * 0.5,
-            fw - frame, fh - frame)
-        -- The same portrait crop, same frozen frame, the grind poster shows.
-        HouseArt.paintPortrait(frame, frame, fw - frame * 2, fh - frame * 2)
+        paint(fw, fh, SS)
         love.graphics.setCanvas(prev)
         love.graphics.pop()
 
@@ -509,9 +505,25 @@ function HouseArt.bake(sprite_loader)
             or final:newImageData()                      -- 11
         local img = love.graphics.newImage(data)
         img:setFilter("nearest", "nearest")
-        sprite_loader:setSprite("house_poster_wall", img)
+        sprite_loader:setSprite(name, img)
     end)
     return ok
+end
+
+-- THE HOUSE's print for the room: the framed portrait, baked onto the
+-- wall as "house_poster_wall".
+function HouseArt.bake(sprite_loader)
+    return HouseArt.bakeWallSprite(sprite_loader, "house_poster_wall", FLAT_W, FLAT_H,
+        function(fw, fh, ss)
+            local frame = 2 * ss
+            Theme.setColor({ 0.16, 0.12, 0.10 })
+            love.graphics.rectangle("fill", 0, 0, fw, fh)
+            Theme.setColor({ 0.88, 0.82, 0.70 })
+            love.graphics.rectangle("fill", frame * 0.5, frame * 0.5,
+                fw - frame, fh - frame)
+            -- The same portrait crop, same frozen frame, the grind poster shows.
+            HouseArt.paintPortrait(frame, frame, fw - frame * 2, fh - frame * 2)
+        end)
 end
 
 return HouseArt

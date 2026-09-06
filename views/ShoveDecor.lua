@@ -24,6 +24,7 @@
 local Theme     = require("views.Theme")
 local FeltDecor = require("views.FeltDecor")
 local Style     = require("data.shove_style")
+local Pop       = require("services.Pop")
 
 local ShoveDecor = {}
 
@@ -174,6 +175,45 @@ function ShoveDecor.drawGlow(band)
     local mw, mh = _glow:getWidth(), _glow:getHeight()
     Theme.setColor(Theme.fg.heading, cfg.alpha)
     love.graphics.draw(_glow, gx, gy, 0, gw / mw, gh / mh)
+end
+
+-- The count of things you own: the number big, its word small beside it,
+-- popping on change (Pop.changeScale under o.pop_id). x is the number's
+-- left edge, or its centre with o.center. o.number_color / o.label_color
+-- default to heading / muted. The shove's intro and the room screen draw
+-- the same count. Returns x, y, w, h of the whole.
+function ShoveDecor.drawCount(fonts, s, n, label, x, y, o)
+    o = o or {}
+    local fl = math.floor
+    local lg, sm = fonts.lg, fonts.sm
+    local lg_h, sm_h = lg:getHeight(), sm:getHeight()
+    local num = tostring(n)
+    local nw  = lg:getWidth(num)
+    local nx  = o.center and fl(x - nw * 0.5) or x
+    local nsc = o.pop_id and Pop.changeScale(o.pop_id, n, 1, 0.35, 0.3) or 1
+    love.graphics.setFont(lg)
+    love.graphics.push()
+    love.graphics.translate(nx + nw * 0.5, y + lg_h * 0.5)
+    love.graphics.scale(nsc, nsc)
+    Theme.setColor(o.number_color or Theme.fg.heading)
+    love.graphics.print(num, -nw * 0.5, -lg_h * 0.5)
+    love.graphics.pop()
+    love.graphics.setFont(sm)
+    Theme.setColor(o.label_color or Theme.fg.muted)
+    love.graphics.print(label, nx + nw + fl(10 * s), y + lg_h - sm_h - fl(3 * s))
+    return nx, y, nw + fl(10 * s) + sm:getWidth(label), lg_h
+end
+
+-- The room's counter, where the shove's count puts it: centred, at
+-- Style.room.counter_y of the height. The room screen prints the same
+-- number in the same place. Returns the number's centre { x, y }.
+function ShoveDecor.drawRoomCounter(fonts, s, W, H, n, label, o)
+    local ny  = math.floor(H * Style.room.counter_y)
+    local ncx = math.floor(W * 0.5)
+    o = o or {}
+    o.center = true
+    ShoveDecor.drawCount(fonts, s, n, label, ncx, ny, o)
+    return { x = ncx, y = ny + fonts.lg:getHeight() * 0.5 }
 end
 
 -- Room vignette: FeltDecor's alpha ramp stretched over the whole viewport, so

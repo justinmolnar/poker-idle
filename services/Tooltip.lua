@@ -62,6 +62,13 @@ function Tooltip.clear()
     _t = nil
 end
 
+-- A card the player asked for (a click on the thing): shown this frame,
+-- no rest needed. Same rows as set().
+function Tooltip.pin(lines, mx, my)
+    if type(lines) ~= "table" or #lines == 0 then return end
+    _t = { lines = lines, mx = mx or 0, my = my or 0 }
+end
+
 -- A rect {x, y, w, h} the tooltip must not cover — the story panel while
 -- the House is talking (a forced hover lesson's tooltip was landing under
 -- the dialog). Set every frame by main.lua; nil clears it. When the

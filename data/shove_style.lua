@@ -305,7 +305,9 @@ return {
     room = {
         -- We are looking in: the room dark but for the lamp and the
         -- screens; the fluorescent blooms and settles; the count; the number
-        -- sits; the fixture dies; the glows hold the dark; the felt.
+        -- sits; the fixture dies; the glows hold the dark; the felt. How big
+        -- the room is drawn, and how far down, is the layout's own
+        -- (data/room_layout.lua __meta.view), shared with the room screen.
         lights_on_at    = 1.0,    -- the fluorescent switches on (data/room_lights.lua: how it lights)
         lights_off_secs = 1.2,    -- after the lock: fixture off, the emitters hold the dark, then the felt
         first_tick = 2.4,     -- first item counted: the lights settle, a breath, then the count
@@ -320,7 +322,6 @@ return {
         item_volume   = 0.8,
         item_pitch    = { from = 1.0, to = 1.5 },   -- rises across the count (SoundService.rampPitch)
         fallback_tick = "chip_land_pot",
-        room_dy    = 0.06,    -- of H; the room sits this much lower so the counter clears its top corner
         -- After the cut the number flies from where it sat to the BASE
         -- readout on the felt, shrinking to that font on the way.
         fly_delay  = 0.45,    -- after the buildup starts (its fade-in first)
@@ -332,7 +333,6 @@ return {
         settle_secs = 0.4,    -- then the readout eases from the count to full BASE (deck included)
         bank_delay  = 0.15,   -- after the last chip lands, BANK lifts off the pile toward its slot
         bank_label_dy = -64,  -- the "$bankroll" figure sits this far above the pile centre, px; BANK lifts off it
-        zoom       = 1.9,     -- the room drawn big for the intro
         -- Not yet counted: a dark silhouette. Counted: the sprite pops in
         -- and glows in its own shape (additive copies at these pixel
         -- offsets, scaled by ui_scale), breathing on `pulse_secs`.

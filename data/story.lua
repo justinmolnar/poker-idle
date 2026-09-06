@@ -204,7 +204,7 @@ return {
             trigger = { kind = "chips_this_run", min = 1 },
             lines = {
                 { text = "You rinsed him. got his whole stack {w:stack}.",
-                  anchor = "stack:1" },
+                  anchor = "stack:banked" },
                 -- CHECK: "Win a {w:stack} and the table and it pays one" reads
                 -- like a word went missing.
                 { text = "It came with a {chip}. Real gold, I weigh them myself. Win a {w:stack} and the table and it pays one.",
@@ -226,7 +226,7 @@ return {
                 { text = "Everything a table does per hour, and its odds at all four pot sizes. The gold {w:stack} is the one that pays.",
                   anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } },
                 { text = "Now compare your rooms. Zoom's gold number sits at {dyn:stack_odds_zoom} a hand. The duel runs {dyn:stack_odds_hu}.",
-                  anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } },
+                  anchor = { "stack_pct:1", "stack_pct:2", "stack_pct:3", "stack_pct:4" } },
                 { text = "Zoom players rarely go all in. Until you get better at reeling them in at least.",
                   anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } },
                 { text = "In case you forget anything, I'm keeping notes.",
@@ -315,15 +315,14 @@ return {
             },
         },
 
-        -- A9. Back on the grind after the first shove. "Run" is said for
-        -- the first time here, when it is true. The last line sends the
-        -- player to the room (forced); the_room picks up there.
+        -- A9. Back on the grind after the first shove, the moment the felt
+        -- is back (no table needs to be open). "Run" is said for the first
+        -- time here, when it is true. The last line sends the player to the
+        -- room (forced); the_room picks up there.
         {
             id      = "the_loop",
             screen  = "grind",
-            trigger = { kind = "all",
-                        { kind = "has_shoved" },
-                        { kind = "tables_open", min = 1 } },
+            trigger = { kind = "has_shoved" },
             lines = {
                 { text = "Same loan, same terms. That's a run.",
                   anchor = "cell:bankroll" },

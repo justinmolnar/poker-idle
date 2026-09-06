@@ -2213,6 +2213,14 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             local x1 = math.min(sa[1], ra[1]);            local y1 = math.min(sa[2], ra[2])
             local x2 = math.max(sa[1] + sa[3], ra[1] + ra[3]); local y2 = math.max(sa[2] + sa[4], ra[2] + ra[4])
             Anchors.set("stack:" .. idx, x1, y1, x2 - x1, y2 - y1)
+            sa = { x1, y1, x2 - x1, y2 - y1 }
+        end
+        -- The same box under a shared name on the table whose (stake, game
+        -- type) has banked its bounty this run: "the stack that paid", for
+        -- the beats about it. Last drawn wins when several have.
+        if sa and controller and controller.bountyBanked
+           and controller:bountyBanked(tbl.stake_id, tbl.game_type_id) then
+            Anchors.set("stack:banked", sa[1], sa[2], sa[3], sa[4])
         end
     end
 

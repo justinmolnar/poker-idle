@@ -28,4 +28,5 @@ return {
     pot_control   = { sprite = "ui/icons/pot_control",   tint = "fg.heading" },
     cursor        = { sprite = "ui/icons/cursor",        tint = "fg.heading" },
     cursor_speed  = { sprite = "ui/icons/cursor_speed",  tint = "fg.heading" },
+    settings      = { sprite = "ui/icons/settings",      tint = "fg.heading" },
 }

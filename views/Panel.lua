@@ -51,7 +51,6 @@ function Panel:new(x, y, w, h)
     instance.scroll = {}
 
     instance._last_components = nil
-
     return instance
 end
 
@@ -213,7 +212,6 @@ function Panel:toContentY(screen_y)
     local s = self.scroll[self.active_tab_id]
     return screen_y - self.content_y + (s and s.scroll_y or 0)
 end
-
 function Panel:isInContentArea(screen_x, screen_y)
     return screen_x >= self.x and screen_x < self.x + self.w
        and screen_y >= self.content_y and screen_y < self.content_y + self.content_h
@@ -264,11 +262,9 @@ function Panel:draw(game)
     if not active_tab or not active_tab.build then return end
 
     local s = self.scroll[self.active_tab_id]
-
     love.graphics.setScissor(self.x, self.content_y, self.w, self.content_h)
     love.graphics.push()
     love.graphics.translate(0, self.content_y - (s and s.scroll_y or 0))
-
     local comps = active_tab.build(game)
     self._last_components = comps
 
@@ -285,7 +281,6 @@ function Panel:draw(game)
         local max_scroll = math.max(0, total_h - self.content_h)
         if s.scroll_y > max_scroll then s.scroll_y = max_scroll end
     end
-
     love.graphics.pop()
     love.graphics.setScissor()
 

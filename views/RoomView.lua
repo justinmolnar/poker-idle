@@ -13,6 +13,7 @@ local Layout         = require("data.room_layout")
 local Tiles          = require("data.room_tiles")
 local RoomLighting   = require("views.RoomLighting")
 local RoomLights     = require("data.room_lights")
+local ShoveDecor     = require("views.ShoveDecor")
 local RoomPlacement  = require("models.room_placement")
 local LayersPanel    = require("views.RoomLayersPanel")
 local Scrollbar      = require("views.Scrollbar")
@@ -237,6 +238,10 @@ function RoomView:new(game)
             else
                 local new_id = remap(id)
                 if type(info) == "table" and info.sprite then info.sprite = remap(info.sprite) end
+                -- A home sits ON another item by id; the parent's key moved, so must this.
+                if type(info) == "table" and info.homes then
+                    for _, h in ipairs(info.homes) do h.on = remap(h.on) end
+                end
                 if migrated[new_id] == nil then migrated[new_id] = info end
             end
         end
@@ -364,6 +369,10 @@ function RoomView:new(game)
     local floor_flip = meta.floor_flip or false
     local wall_flip = meta.wall_flip or false
     local wall_courses = meta.wall_courses or Tiles.default_courses
+    -- The room's framing when it fills the screen (the shove's count and
+    -- the room screen draw it the same): how big, and how far down.
+    local view_meta = meta.view or {}
+    self.frame = { zoom = view_meta.zoom or 1.9, dy = view_meta.dy or 0.06 }
 
     local floor_idx = 0
     for i, t in ipairs(floor_list) do
@@ -591,10 +600,40 @@ end
 
 -- opts (optional): zoom = scale the room about its centre (the shove intro
 -- draws it big); dy = vertical offset; item_tint = fn(obj) -> {r,g,b,a} or
--- nil, the colour a placed item is drawn with (nil = normal); lighting =
+-- nil, the colour a placed item is drawn with (nil = normal); item_scale =
+-- fn(obj) -> scale (a pop, or zero before a delivery); lighting =
 -- { fixture = level, emitters = bool, lit = fn(id) } runs views/RoomLighting
 -- over the drawn room. The centre, zoom and bounds used are left in
 -- self._view so an overlay can match them.
+--
+-- The full-screen framing every caller shares (data/room_layout __meta.view):
+-- zoom, and dy as a fraction of the height. Pass H to get dy in pixels.
+function RoomView:frameOpts(H)
+    local fr = self.frame or { zoom = 1.9, dy = 0.06 }
+    return fr.zoom, math.floor(H * fr.dy)
+end
+
+-- THE room, as a whole screen: the dark ground, the room at the layout's
+-- own framing, lit, under the vignette. The shove's count, the title and
+-- the room screen all draw exactly this and lay their own things over it
+-- (the count's halo, the wordmark, the manifest). scene = { fixture =
+-- level 0..1, speaker, item_tint, item_scale }.
+function RoomView:drawScene(W, H, scene)
+    scene = scene or {}
+    Theme.setColor(Theme.bg.sunken)
+    love.graphics.rectangle("fill", 0, 0, W, H)
+    local zoom, dy = self:frameOpts(H)
+    self:draw(true, {
+        zoom       = zoom,
+        dy         = dy,
+        item_tint  = scene.item_tint,
+        item_scale = scene.item_scale,
+        speaker    = scene.speaker,
+        lighting   = { fixture = scene.fixture or 0, emitters = true },
+    })
+    ShoveDecor.drawVignette(W, H)
+end
+
 function RoomView:draw(full_screen, opts)
     opts = opts or {}
     self._anchored_item = nil   -- "first placed item" hint anchor is per draw
@@ -874,7 +913,10 @@ function RoomView:draw(full_screen, opts)
             shader_name, shader_params = Constants.CORRUPT_ROOM_SHADER, nil
         end
 
-        local sprite = game.sprite_loader:getSprite(obj.sprite or obj.id, time_arg, fps_arg, frame_arg)
+        local sprite_name = obj.sprite or obj.id
+        -- The light switch (views/RoomFixtures) shows the fixture's state.
+        if sprite_name == "light_switch" and self.fixture_off then sprite_name = "light_switch_off" end
+        local sprite = game.sprite_loader:getSprite(sprite_name, time_arg, fps_arg, frame_arg)
         if sprite then
             local draw_gx, draw_gy
             if obj.align == "left_wall" then
@@ -889,8 +931,12 @@ function RoomView:draw(full_screen, opts)
             end
             local sx, sy = gridToScreen(draw_gx, draw_gy, cx, cy, tw, th)
             local scale_factor = obj.scale or 1.0
-            local draw_scale_x = s * scale_factor
-            local draw_scale_y = s * scale_factor
+            -- opts.item_scale(obj): a transient scale on the item (a pop
+            -- when clicked or counted, zero before it has popped in).
+            local isc = opts.item_scale and opts.item_scale(obj) or 1
+            if isc < 0.001 then isc = 0.001 end
+            local draw_scale_x = s * scale_factor * isc
+            local draw_scale_y = s * scale_factor * isc
             
             local ox = sprite:getWidth() * 0.5
             local diff_y
@@ -1003,7 +1049,7 @@ function RoomView:draw(full_screen, opts)
     if opts.lighting then
         RoomLighting.draw(self, opts.lighting, W, H)
     end
-    if self.editor_mode then self:_drawEditorHighlights() end
+    self:_drawHoverHighlight()
 
     -- 6. Editor overlay: Selected active item preview + cursor grid position
     local mx, my = love.mouse.getPosition()
@@ -2401,11 +2447,12 @@ end
 -- The layers panel's hover and selection, lit in the room: the item's
 -- own silhouette, additive, plus its box. Drawn after the lighting pass,
 -- under the room's transform.
-function RoomView:_drawEditorHighlights()
-    -- The mouse over the room lights what it is on, the same as a row in
-    -- the layers panel. Nothing glows otherwise (a selection is a row).
+-- The item under the pointer (or under the pointer on a manifest row /
+-- layers row) brightens in place. RoomState and the layers panel set
+-- self.hover_placed; the editor also probes the room itself here.
+function RoomView:_drawHoverHighlight()
     local hov = self.hover_placed
-    if not hov and not self.hide_editor_hud then
+    if not hov and self.editor_mode and not self.hide_editor_hud then
         local mx, my = love.mouse.getPosition()
         local pr = self._panel_rect
         local over_panel = pr and mx >= pr.x and mx < pr.x + pr.w and my >= pr.y and my < pr.y + pr.h
@@ -2437,9 +2484,9 @@ function RoomView:_drawEditorHighlights()
     end
     love.graphics.pop()
 
-    -- What the cursor is on, named next to it. Always: knowing what the
-    -- click will land on is the point of hovering.
-    if hov then
+    -- What the cursor is on, named next to it (the editor's raw id; the
+    -- player gets the item's card from RoomState instead).
+    if hov and self.editor_mode then
         local mx, my = love.mouse.getPosition()
         local sm = self.game.fonts and self.game.fonts.sm
         if sm then
@@ -2495,6 +2542,46 @@ function RoomView:lightsString()
     L[#L + 1] = "    },"
     L[#L + 1] = "}"
     return table.concat(L, "\n")
+end
+
+-- The placed item under a SCREEN point, through the last draw's view
+-- (zoom and drop). Alpha-tested; nil over nothing.
+function RoomView:hitAt(mx, my)
+    local v = self._view
+    if not v then return nil end
+    local ux = (mx - v.cx) / v.zoom + v.cx
+    local uy = (my - (v.dy or 0) - v.cy) / v.zoom + v.cy
+    return self:_hitItem(ux, uy)
+end
+
+-- A placed item's catalog id: numbered copies ("lava_lamp_2") count as
+-- their base. Flavour entries (poster, mirror, a sprite path) return nil.
+function RoomView:catalogIdOf(obj)
+    if not obj then return nil end
+    local id = obj.id
+    if self.catalog_by_id[id] then return id end
+    local base = id:match("^(.-)_%d+$")
+    if base and self.catalog_by_id[base] then return base end
+    return nil
+end
+
+-- The first drawn copy of a catalog item this frame, or nil (not placed,
+-- or not shown). The manifest's hover lights it through hover_placed.
+function RoomView:placedById(id)
+    for _, r in ipairs(self._hit_rects or {}) do
+        if self:catalogIdOf(r.obj) == id then return r.obj end
+    end
+    return nil
+end
+
+-- The set of catalog ids drawn this frame.
+function RoomView:drawnIdSet()
+    local set = {}
+    for _, r in ipairs(self._hit_rects or {}) do
+        local id = self:catalogIdOf(r.obj)
+        if id then set[id] = true end
+    end
+    return set
 end
 
 -- Screen -> room space, undoing the zoom about the room centre.
@@ -2640,6 +2727,8 @@ function RoomView:layoutString()
     lines[#lines + 1] = string.format("        wall_courses = %d,", self.wall_courses or Tiles.default_courses)
     if self.floor_flip then lines[#lines + 1] = "        floor_flip = true," end
     if self.wall_flip then lines[#lines + 1] = "        wall_flip = true," end
+    local fr = self.frame or { zoom = 1.9, dy = 0.06 }
+    lines[#lines + 1] = string.format("        view = { zoom = %.2f, dy = %.2f },", fr.zoom, fr.dy)
     lines[#lines + 1] = "    },"
 
     -- Sort placed items alphabetically by id for neatness. What is in

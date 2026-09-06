@@ -232,17 +232,14 @@ function TitleState:_handleButton(id)
     if handler then handler(self) end
 end
 
-function TitleState:_closeSettings()
+function TitleState:closeSettings()
     self.settings_modal = nil
 end
 
 -- ── Input ─────────────────────────────────────────────────────────────
 
 function TitleState:mousepressed(x, y, button)
-    if self.settings_modal then
-        if not self.settings_modal:consumeMouse(x, y, button) then self:_closeSettings() end
-        return
-    end
+    if SettingsModal.route(self, "mousepressed", x, y, button) then return end
     if self._confirm then
         self._confirm:consumeMouse(x, y, button)
         if self._confirm:resolved() then self._confirm = nil end
@@ -262,29 +259,19 @@ function TitleState:mousepressed(x, y, button)
 end
 
 function TitleState:mousereleased(x, y, button)
-    if self.settings_modal and self.settings_modal.mousereleased then
-        self.settings_modal:mousereleased(x, y, button)
-    end
+    SettingsModal.route(self, "mousereleased", x, y, button)
 end
 
 function TitleState:mousemoved(x, y)
-    if self.settings_modal and self.settings_modal.mousemoved then
-        self.settings_modal:mousemoved(x, y)
-    end
+    SettingsModal.route(self, "mousemoved", x, y)
 end
 
 function TitleState:wheelmoved(x, y)
-    if self.settings_modal and self.settings_modal.wheelmoved then
-        self.settings_modal:wheelmoved(x, y)
-    end
+    SettingsModal.route(self, "wheelmoved", x, y)
 end
 
 function TitleState:keypressed(key)
-    if self.settings_modal then
-        if self.settings_modal:consumeKey(key) then return end
-        if key == "escape" then self:_closeSettings() end
-        return
-    end
+    if SettingsModal.route(self, "keypressed", key) then return end
     if self._confirm then
         self._confirm:consumeKey(key)
         if self._confirm:resolved() then self._confirm = nil end

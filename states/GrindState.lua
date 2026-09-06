@@ -335,11 +335,7 @@ function GrindState:keypressed(key)
     -- Modal-first input: ESC always closes; SPACE/RETURN dismiss the
     -- modal back to grind. Modal-context keys are not hotkeys, so they
     -- run in every mode.
-    if self.settings_modal then
-        if self.settings_modal:consumeKey(key) then return end
-        if key == "escape" then self:closeSettings() end
-        return
-    end
+    if SettingsModal.route(self, "keypressed", key) then return end
     if self.catalog_modal then
         -- The modal gets the key first: ESC may only be tucking the
         -- manifest away (consumed, book stays). An unconsumed ESC, or a
@@ -404,11 +400,7 @@ function GrindState:mousepressed(x, y, b)
         if self.analytics_modal:resolved() then self:_resolveAnalyticsConsent() end
         return
     end
-    if self.settings_modal then
-        local consumed = self.settings_modal:consumeMouse(x, y, b)
-        if not consumed then self:closeSettings() end
-        return
-    end
+    if SettingsModal.route(self, "mousepressed", x, y, b) then return end
     if self.catalog_modal then
         local consumed = self.catalog_modal:consumeMouse(x, y, b)
         -- Continue button click sets the modal's resolved flag — close
@@ -439,12 +431,7 @@ function GrindState:mousereleased(x, y, b)
         self.analytics_modal:mousereleased(x, y, b)
         return
     end
-    if self.settings_modal then
-        if self.settings_modal.mousereleased then
-            self.settings_modal:mousereleased(x, y, b)
-        end
-        return
-    end
+    if SettingsModal.route(self, "mousereleased", x, y, b) then return end
     if self.catalog_modal then return end
     if self.deck_roster_modal then return end
     self.view:mousereleased(x, y, b)
@@ -455,12 +442,7 @@ function GrindState:mousemoved(x, y, dx, dy)
         self.analytics_modal:mousemoved(x, y)
         return
     end
-    if self.settings_modal then
-        if self.settings_modal.mousemoved then
-            self.settings_modal:mousemoved(x, y)
-        end
-        return
-    end
+    if SettingsModal.route(self, "mousemoved", x, y) then return end
     if self.catalog_modal then return end
     if self.deck_roster_modal then return end
     self.view:mousemoved(x, y, dx, dy)
@@ -471,10 +453,7 @@ function GrindState:wheelmoved(x, y)
         self.help_panel:wheelmoved(x, y)
         return
     end
-    if self.settings_modal and self.settings_modal.wheelmoved then
-        self.settings_modal:wheelmoved(x, y)
-        return
-    end
+    if SettingsModal.route(self, "wheelmoved", x, y) then return end
     if self.catalog_modal and self.catalog_modal.wheelmoved then
         self.catalog_modal:wheelmoved(x, y)
         return

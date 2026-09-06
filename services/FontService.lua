@@ -24,9 +24,12 @@ local function fontScale(W, H)
     return s
 end
 
+-- The layout scale follows the HEIGHT only: the base frame's height is
+-- fixed (main.lua BASE_H), so this is the same 1.25 for every window, and
+-- a narrow window can shrink the base width without rescaling anything.
 local function layoutScale(W, H)
     if not (W and H) then return 1 end
-    local s = math.min(W / REF_W, H / REF_H)
+    local s = H / REF_H
     if s < 1 then s = 1 end
     return s
 end

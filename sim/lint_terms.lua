@@ -26,6 +26,7 @@ local Glossary    = require("data.glossary")
 local Statuses    = require("data.statuses")
 local Decks       = require("data.decks")
 local Hints       = require("data.hints")
+local Rail        = require("data.rail")
 
 local quiet = arg and arg[1] == "--quiet"
 local errors, warns = 0, 0
@@ -113,6 +114,13 @@ for _, d in ipairs(Decks) do
     if d.capstone then check("deck " .. d.id .. " capstone", d.capstone.text) end
     if d.unlock then check("deck " .. d.id .. " unlock", d.unlock.text) end
 end
+-- (Rail.labels are the chrome's own words, plain by the colour code: not linted.)
+for k, v in pairs(Rail.locked)   do check("rail locked " .. k, v) end
+for k, v in pairs(Rail.tooltips) do
+    if type(v) == "string" then check("rail tip " .. k, v)
+    else for i, l in ipairs(v) do check(("rail tip %s:%d"):format(k, i), l) end end
+end
+for k, v in pairs(Rail.gtype)    do check("rail gtype " .. k, v) end
 for _, h in ipairs(Hints) do
     if type(h.text) == "string" then check("hint " .. h.id, h.text)
     else for i, l in ipairs(h.text or {}) do check(("hint %s:%d"):format(h.id, i), l) end end
