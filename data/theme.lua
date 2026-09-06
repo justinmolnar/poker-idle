@@ -343,6 +343,34 @@ Theme.space = {
     dot_r            = 4,
     scrollbar_w      = 6,
     sidebar_width_frac = 0.5,
+    panel_pad        = 10,   -- a Panel's inner horizontal padding (ComponentRenderer)
+    -- Readouts (ComponentRenderer `stat`). Shares are of a font's line.
+    stat_pad         = 4,    -- a stat's slot beyond its content
+    stat_gap         = 6,    -- between the value and what follows it on its line
+    stat_glyph       = 0.62, -- a glyph's size, as a share of the value font's line
+    stat_lead_trim   = 0.3,  -- the label pulled down onto its value, as a share of the small line
+    stat_bar_h       = 0.3,  -- an inline bar's height, as a share of the small line
+    stat_bar_w       = 40,   -- the TABLES fill's width
+    -- Flex rows (ComponentRenderer `row`): the gap between children that
+    -- belong together, and the least a spread justify leaves between those
+    -- that do not.
+    flex_gap         = 8,
+    flex_min_gap     = 8,
+    -- Buttons with a picture or a glyph for a face. Widths are shares of
+    -- the row's height.
+    icon_button_w    = 0.8,  -- a square-ish icon button
+    icon_share       = 0.5,  -- a glyph inside its face
+    thumb_pad        = 4,    -- a thumbnail's inset in its face
+    room_thumb_w     = 1.3,  -- the room's picture is wide
+    deck_thumb_w     = 1.5,  -- a deck's back is wider still
+    word_button_pad  = 20,   -- a word button's width beyond its word
+    shove_button_pad = 36,   -- SHOVE's, beyond its word and rate
+    overlay_button_pad = 28, -- the quick reset's, beyond its words
+    button_depth     = 4,    -- a button's chunk
+    level_bar_h      = 4,    -- a deck's level bar
+    level_bar_pad    = 5,
+    -- The rail: its own air above and below its row.
+    rail_pad         = 4,
 }
 
 -- ─── Fonts ──────────────────────────────────────────────────────────

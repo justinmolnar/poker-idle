@@ -9,14 +9,13 @@
 
 return {
     labels = {
-        bankroll = "BANKROLL",
         cash_out = "CASH OUT",
         tied_up  = "TIED UP",
         focus    = "FOCUS",
         tables   = "TABLES",        -- after the focus bar: "1 / 4 TABLES"
-        banked   = "BANKED",
         next     = "NEXT",          -- after the count: "+3 NEXT"
         shove    = "SHOVE",
+        deck     = "DECK",          -- the deck button, open with no deck in play yet
         quick_reset = "Quick reset",
         play     = "PLAY",          -- the room button, on the room screen
     },
@@ -34,6 +33,7 @@ return {
         room     = "Your room.",
         cash_out = "Cash out every table: each one's stack comes back to your bankroll.",
         tied_up  = "Money sitting at your tables. CASH OUT brings it back.",
+        bankroll = "Your bankroll: the money you play with.",
         banked   = "Yours. Spend them in the catalog.",
         next     = "{c:chip:Banked} when you shove.",
         -- FOCUS: the first line, then the numbers the builder formats.

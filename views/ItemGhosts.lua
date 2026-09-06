@@ -16,6 +16,8 @@ local AnchorRegistry = require("services.AnchorRegistry")
 local Easing         = require("utils.easing")
 
 local Motion         = require("services.Motion")
+local Catalog        = require("data.catalog")
+local Lookups        = require("utils.lookups")
 local ItemGhosts = {}
 
 local _ghosts = {}
@@ -54,7 +56,8 @@ function ItemGhosts.spawn(game, item_id, x, y, pw, ph)
     -- Motion: at None the ghost is not shown at all (the sound still says
     -- something fired).
     if Motion.level("text") <= Motion.NONE then return end
-    local sprite = game.sprite_loader:getSprite(item_id)
+    local sprite = game.sprite_loader:itemArt(Lookups.findById(Catalog, item_id), "room", nil,
+        { corrupted = game.state and game.state.isCorrupted and game.state:isCorrupted(item_id) })
     if not sprite then return end
 
     if not (x and y) then

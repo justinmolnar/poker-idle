@@ -881,42 +881,14 @@ function RoomView:draw(full_screen, opts)
         end
         
         local cat_item = self.catalog_by_id and self.catalog_by_id[obj.id] or {}
-        local cat_anim = cat_item.anim or {}
-        local obj_anim = obj.anim or {}
-
-        -- Room default: Animated by default!
-        -- Disabled if obj or cat_item explicitly sets anim_room = false or anim.room_enabled = false or anim.enabled = false
-        local is_room_anim = true
-        if obj.anim_room ~= nil then
-            is_room_anim = obj.anim_room
-        elseif obj_anim.room_enabled ~= nil then
-            is_room_anim = obj_anim.room_enabled
-        elseif obj_anim.enabled ~= nil then
-            is_room_anim = obj_anim.enabled
-        elseif cat_item.anim_room ~= nil then
-            is_room_anim = cat_item.anim_room
-        elseif cat_anim.room_enabled ~= nil then
-            is_room_anim = cat_anim.room_enabled
-        elseif cat_anim.enabled ~= nil then
-            is_room_anim = cat_anim.enabled
-        end
-
-        if obj.frame then is_room_anim = false end
-        local time_arg  = is_room_anim and love.timer.getTime() or false
-        local fps_arg   = obj.fps or obj_anim.fps or cat_item.fps or cat_anim.fps
-        local frame_arg = obj.frame or obj.static_frame or obj_anim.frame or cat_item.frame or cat_item.static_frame or cat_anim.frame
-
-        local shader_name   = obj.shader or obj_anim.shader or cat_item.shader or cat_anim.shader
-        local shader_params = obj.shader_params or obj_anim.shader_params or cat_item.shader_params or cat_anim.shader_params
-        -- A corrupted item is drawn corrupted, whatever else it wears.
-        if corrupted_set[obj.id] then
-            shader_name, shader_params = Constants.CORRUPT_ROOM_SHADER, nil
-        end
-
-        local sprite_name = obj.sprite or obj.id
-        -- The light switch (views/RoomFixtures) shows the fixture's state.
-        if sprite_name == "light_switch" and self.fixture_off then sprite_name = "light_switch_off" end
-        local sprite = game.sprite_loader:getSprite(sprite_name, time_arg, fps_arg, frame_arg)
+        -- How the item looks is the loader's one answer (SpriteLoader:itemArt:
+        -- the layout's overrides over the catalog's; corrupted wears the
+        -- corruption shader; the light switch shows the fixture's state).
+        local sprite, shader_name, shader_params, animated = game.sprite_loader:itemArt(
+            cat_item, "room", obj, {
+                corrupted = corrupted_set[obj.id],
+                sprite    = ((obj.sprite or obj.id) == "light_switch" and self.fixture_off) and "light_switch_off" or nil,
+            })
         if sprite then
             local draw_gx, draw_gy
             if obj.align == "left_wall" then
@@ -961,7 +933,7 @@ function RoomView:draw(full_screen, opts)
                            w = sprite:getWidth() * asx, h = sprite:getHeight() * draw_scale_y,
                            -- exactly how it was drawn, so an overlay can redraw it in place
                            draw = { sprite = sprite, px = px, py = py, sx = draw_scale_x, sy = draw_scale_y, ox = ox, oy = oy,
-                                    animated = (time_arg ~= false) or nil } }
+                                    animated = animated or nil } }
             self._hit_rects[#self._hit_rects + 1] = rect
 
             local tint = opts.item_tint and opts.item_tint(obj)
@@ -2562,6 +2534,15 @@ function RoomView:catalogIdOf(obj)
     if self.catalog_by_id[id] then return id end
     local base = id:match("^(.-)_%d+$")
     if base and self.catalog_by_id[base] then return base end
+    return nil
+end
+
+-- The layout's entry for a catalog id (the first copy), drawn or not: the
+-- manifest draws an item exactly as the room does, overrides included.
+function RoomView:layoutEntry(id)
+    for _, o in ipairs(self.placed or {}) do
+        if self:catalogIdOf(o) == id then return o end
+    end
     return nil
 end
 

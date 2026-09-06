@@ -320,15 +320,16 @@ end
 --   valign ("top" | "bottom": where the content sits inside a taller h) }
 -- The pixel fonts carry leading inside getHeight(); the label is pulled
 -- down onto its value by this much so the two read as one readout.
-local function leadTrim(font) return math.floor(font:getHeight() * 0.3) end
+local function leadTrim(font) return math.floor(font:getHeight() * Theme.space.stat_lead_trim) end
 CR.leadTrim = leadTrim
+local function glyphSize(font) return math.floor(font:getHeight() * Theme.space.stat_glyph) end
 local function statHasHead(comp)
     return comp.label ~= nil and comp.label ~= ""
 end
 local function statContentH(comp, game)
     local fonts = game.fonts
     local vf = fonts[comp.value_style or "md"] or fonts.md
-    local h = vf:getHeight() + 2
+    local h = vf:getHeight()
     if statHasHead(comp) then h = h + fonts.sm:getHeight() - leadTrim(fonts.sm) end
     if comp.sub then h = h + fonts.sm:getHeight() end
     return h
@@ -341,10 +342,11 @@ local function statW(comp, game)
     if comp.w then return comp.w end
     local fonts = game.fonts
     local vf = fonts[comp.value_style or "md"] or fonts.md
+    local SP = Theme.space
     local w = vf:getWidth(comp.value or "")
-    if comp.icon then w = w + math.floor(vf:getHeight() * 0.62) + 4 end
-    if comp.bar then w = w + 6 + (comp.bar.w or 48) end
-    if comp.suffix and comp.suffix.text then w = w + 6 + fonts.sm:getWidth(comp.suffix.text) end
+    if comp.icon then w = w + glyphSize(vf) + SP.stat_pad end
+    if comp.bar then w = w + SP.stat_gap + (comp.bar.w or SP.stat_bar_w) end
+    if comp.suffix and comp.suffix.text then w = w + SP.stat_gap + fonts.sm:getWidth(comp.suffix.text) end
     if comp.label and comp.label ~= "" then
         local lw = fonts.sm:getWidth(comp.label)
         if lw > w then w = lw end
@@ -353,7 +355,7 @@ local function statW(comp, game)
         local sw = fonts.sm:getWidth(comp.sub.text)
         if sw > w then w = sw end
     end
-    return w + 4
+    return w + SP.stat_pad
 end
 local function tokenColor(tok, fallback)
     if not tok then return fallback end
@@ -367,16 +369,28 @@ function CR._stat(comp, px, pw, p, y, game)
     local sm    = fonts.sm
     local vf    = fonts[comp.value_style or "md"] or fonts.md
     local h     = statH(comp, pw, game)
+    local SP    = Theme.space
     local x, w  = px + p, pw - p * 2
+    local x0    = x   -- the slot's left edge (the anchor), before any centring
     local dim   = comp.dim
-    local cy    = y + 1
-    if comp.valign == "bottom" then cy = y + h - statContentH(comp, game) + 1 end
-    -- The label, small, on its value.
+    local cy    = y
+    -- "bottom": the label sits on the slot's TOP edge and the value's
+    -- baseline on its BOTTOM edge (the font's descent below it), so a row
+    -- of readouts shares one label line and one bottom line with the
+    -- buttons, whatever each one holds.
+    local label_y = y
+    if comp.valign == "bottom" then
+        cy = y + h - vf:getBaseline()
+    elseif comp.valign == "center" then
+        cy = y + math.floor((h - statContentH(comp, game)) * 0.5)
+        if statHasHead(comp) then label_y = cy; cy = cy + sm:getHeight() - leadTrim(sm) end
+    elseif statHasHead(comp) then
+        cy = cy + sm:getHeight() - leadTrim(sm)
+    end
     if statHasHead(comp) then
         love.graphics.setFont(sm)
-        Theme.setColor(dim and Theme.fg.faint or Theme.fg.muted)
-        love.graphics.print(comp.label, x, cy)
-        cy = cy + sm:getHeight() - leadTrim(sm)
+        Theme.setColor(dim and Theme.fg.faint or tokenColor(comp.label_color_token, Theme.fg.muted))
+        love.graphics.print(comp.label, x, label_y)
     end
     -- The value line: a glyph, the number (popping about its centre when
     -- it changes), a small suffix on the same baseline.
@@ -387,9 +401,19 @@ function CR._stat(comp, px, pw, p, y, game)
     love.graphics.setFont(vf)
     local vw, vh = vf:getWidth(value), vf:getHeight()
     local vx = x
+    -- align = "center": the value line centred in the stat's width (the
+    -- bankroll under the middle of its pile, whatever the number's length).
+    if comp.align == "center" then
+        local line_w = vw
+        if comp.icon then line_w = line_w + glyphSize(vf) + SP.stat_pad end
+        if comp.bar then line_w = line_w + SP.stat_gap + (comp.bar.w or SP.stat_bar_w) end
+        if comp.suffix and comp.suffix.text then line_w = line_w + SP.stat_gap + sm:getWidth(comp.suffix.text) end
+        x  = x + math.floor((w - line_w) * 0.5)
+        vx = x
+    end
     if comp.icon then
         -- The glyph at the number's cap height, on its line.
-        local size = math.floor(vh * 0.62)
+        local size = glyphSize(vf)
         local iy   = cy + math.floor((vh - size) * 0.5)
         local drew = false
         if comp.icon == "chip" then
@@ -399,7 +423,7 @@ function CR._stat(comp, px, pw, p, y, game)
         else
             drew = Icons.draw(game, comp.icon, x, iy, size, size)
         end
-        if drew then vx = x + size + 4 end
+        if drew then vx = x + size + SP.stat_pad end
     end
     local scale = comp.value_scale or 1
     if scale ~= 1 then
@@ -428,9 +452,10 @@ function CR._stat(comp, px, pw, p, y, game)
     local baseline = cy + vf:getBaseline()
     local line_y   = baseline - sm:getBaseline()
     if comp.bar then
-        local bw, bh = comp.bar.w or 48, math.max(3, math.floor(sm:getHeight() * 0.3))
-        local by = baseline - math.floor(sm:getAscent() * 0.45) - math.floor(bh * 0.5)
-        local bx = after_x + ((vw > 0) and 6 or 0)   -- no gap when the bar is the value
+        local bw, bh = comp.bar.w or SP.stat_bar_w, math.max(Theme.space.hairline, math.floor(sm:getHeight() * SP.stat_bar_h))
+        -- Centred on the small text's x-height: half its ascent up from the baseline.
+        local by = baseline - math.floor(sm:getAscent() * 0.5) - math.floor(bh * 0.5)
+        local bx = after_x + ((vw > 0) and SP.stat_gap or 0)   -- no gap when the bar is the value
         Theme.setColor(Theme.bg.sunken)
         love.graphics.rectangle("fill", bx, by, bw, bh, 1)
         Theme.setColor(dim and Theme.fg.disabled or comp.bar.color or Theme.fg.heading)
@@ -442,7 +467,7 @@ function CR._stat(comp, px, pw, p, y, game)
     if comp.suffix and comp.suffix.text then
         love.graphics.setFont(sm)
         Theme.setColor(dim and Theme.fg.faint or tokenColor(comp.suffix.color_token, Theme.fg.muted))
-        local sfx_x, sfx_y = after_x + 6, line_y
+        local sfx_x, sfx_y = after_x + SP.stat_gap, line_y
         love.graphics.print(comp.suffix.text, sfx_x, sfx_y)
         if comp.suffix.anchor then
             local sx, sy = love.graphics.transformPoint(sfx_x, sfx_y)
@@ -458,7 +483,7 @@ function CR._stat(comp, px, pw, p, y, game)
         cy = cy + sm:getHeight()
     end
     if comp.anchor then
-        local sx, sy = love.graphics.transformPoint(x, y)
+        local sx, sy = love.graphics.transformPoint(x0, y)
         Anchors.set(comp.anchor, sx, sy, statW(comp, game), h)
     end
     return h
@@ -474,31 +499,73 @@ local function _hitStat(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
 end
 
 -- ── row / column: the layout ──────────────────────────────────────────
--- row: children left to right. A child has `w` (px), `flex` (a share of
--- what is left) or neither (its natural width). Children centre
--- vertically in the row's height (comp.h, else the tallest child).
--- column: children stacked, top down. Both walk the registry for their
--- children's draw / hit / measure, so anything can sit inside either.
+-- row: a flex row. Children lay out left to right; a child is as wide as
+-- its content, or `w`, or `flex` (a share of what is left after the
+-- others). `justify` says what to do with the space left over: "start"
+-- (default; `gap` between children), "center", "end", "between",
+-- "around", "evenly", the way a CSS flex row does; `gap` is the least the
+-- spread justifies leave between children. A row nests: a child may be a
+-- row of its own (things that belong together move as one).
+-- Children centre vertically in the row's height (comp.h, else the
+-- tallest child) unless align = "top".
+-- column: children stacked, top down.
 local function childW(child, game)
     local def = CR.types[child.type]
     if def and def.measureW then return def.measureW(child, game) end
     return child.w or 0
 end
+-- Place widths ws inside [x0, x1] by `justify`; gap is the start mode's
+-- gap and the floor for the spread modes. Returns the xs.
+local function justifyRun(ws, x0, x1, justify, gap)
+    local n = #ws
+    local xs = {}
+    if n == 0 then return xs end
+    local total = 0
+    for _, w in ipairs(ws) do total = total + w end
+    local span = x1 - x0
+    local free = span - total
+    local lead, between = 0, gap
+    if justify == "center" then
+        lead = (free - gap * (n - 1)) * 0.5
+    elseif justify == "end" then
+        lead = free - gap * (n - 1)
+    elseif justify == "between" then
+        between = (n > 1) and math.max(gap, free / (n - 1)) or gap
+    elseif justify == "around" then
+        between = math.max(gap, free / n)
+        lead = between * 0.5
+    elseif justify == "evenly" then
+        between = math.max(gap, free / (n + 1))
+        lead = between
+    end
+    local x = x0 + lead
+    for i, w in ipairs(ws) do
+        xs[i] = math.floor(x)
+        x = x + w + between
+    end
+    return xs
+end
 local function rowLayout(comp, pw, p, game)
-    local gap  = comp.gap or 8
+    local gap  = comp.gap or Theme.space.widget_gap
     local kids = comp.children or {}
-    local inner_w = pw - p * 2
-    local fixed, flex_total = 0, 0
-    for _, c in ipairs(kids) do
-        if c.flex then flex_total = flex_total + c.flex else fixed = fixed + childW(c, game) end
+    local n    = #kids
+    local x0, x1 = p, pw - p
+    local inner_w = x1 - x0
+    -- Widths: natural, fixed, or a flex share of what the others leave.
+    local ws, fixed, flex_total = {}, 0, 0
+    for i, c in ipairs(kids) do
+        if c.flex then flex_total = flex_total + c.flex
+        else ws[i] = childW(c, game); fixed = fixed + ws[i] end
     end
-    local free = math.max(0, inner_w - fixed - gap * math.max(0, #kids - 1))
-    local out, x = {}, p
-    for _, c in ipairs(kids) do
-        local w = c.flex and math.floor(free * c.flex / math.max(flex_total, 1)) or childW(c, game)
-        out[#out + 1] = { comp = c, x = x, w = w }
-        x = x + w + gap
+    if flex_total > 0 then
+        local free = math.max(0, inner_w - fixed - gap * math.max(0, n - 1))
+        for i, c in ipairs(kids) do
+            if c.flex then ws[i] = math.floor(free * c.flex / flex_total) end
+        end
     end
+    local xs = justifyRun(ws, x0, x1, comp.justify or "start", gap)
+    local out = {}
+    for i, c in ipairs(kids) do out[i] = { comp = c, x = xs[i], w = ws[i] } end
     return out
 end
 local function rowH(comp, pw, game)
@@ -513,6 +580,10 @@ local function rowH(comp, pw, game)
 end
 local function _drawRow(comp, px, pw, p, y, game)
     local h = rowH(comp, pw, game)
+    if comp.anchor then
+        local sx, sy = love.graphics.transformPoint(px + p, y)
+        Anchors.set(comp.anchor, sx, sy, pw - p * 2, h)
+    end
     for _, slot in ipairs(rowLayout(comp, pw, p, game)) do
         local c   = slot.comp
         local def = CR.types[c.type]
@@ -567,6 +638,10 @@ local function columnW(comp, game)
 end
 local function _drawColumn(comp, px, pw, p, y, game)
     local cy, gap = y, comp.gap or 0
+    if comp.anchor then
+        local sx, sy = love.graphics.transformPoint(px + p, y)
+        Anchors.set(comp.anchor, sx, sy, pw - p * 2, columnH(comp, pw, game))
+    end
     for _, c in ipairs(comp.children or {}) do
         local def = CR.types[c.type]
         c.__game = game
@@ -611,7 +686,7 @@ CR.types = {
 function CR.draw(components, panel_x, panel_w, game, scroll_view)
     if not components then return 0 end
     local cursor_y = 0
-    local p = 10
+    local p = Theme.space.panel_pad
 
     for _, comp in ipairs(components) do
         local h = CR._drawComp(comp, panel_x, panel_w, p, cursor_y, game, scroll_view)
@@ -939,12 +1014,17 @@ function CR._iconRow(comp, px, pw, p, y, game)
     return h
 end
 
+-- A component's natural width (a row's is its children's, laid out).
+function CR.measureW(comp, game)
+    return childW(comp, game)
+end
+
 -- ─── Hit test ────────────────────────────────────────────────────────────────
 
 function CR.hitTest(components, panel_x, panel_w, cx, cy, game)
     if not components then return nil end
     local cursor_y = 0
-    local p = 10
+    local p = Theme.space.panel_pad
     for _, comp in ipairs(components) do
         comp.__game = game   -- rows and columns hit-test their children with it
         local def = CR.types[comp.type]

@@ -222,6 +222,30 @@ function ShoveState:_milestoneFor(result)
     return m
 end
 
+-- The act flags, from the gauntlet's result: R1 won opens Act 2 (decks,
+-- mid stakes), R2 won opens Act 3. Called the moment the result exists
+-- (the cinematic reads them: the deck flyer is thrown mid-summary, and
+-- Decks.systemUnlocked has to be true by then) and again at the end, as
+-- a no-op. Returns true when a flag changed.
+function ShoveState:_recordActFlags()
+    local result = self.gauntlet and self.gauntlet.result
+    local state  = self.game.state
+    if not (result and result.outcomes) or Constants.FEATURES.DEMO_CUT then return false end
+    local changed = false
+    if result.outcomes[1] == true and not state.shove_r1_won then
+        state.shove_r1_won = true
+        changed = true
+        print("[shove] Won Runout 1 of the gauntlet: unlocked Act 2!")
+    end
+    if result.outcomes[2] == true and not state.shove_r2_won then
+        state.shove_r2_won = true
+        changed = true
+        print("[shove] Won Runout 2 of the gauntlet: unlocked Act 3!")
+    end
+    if changed then self._act_flags_changed = true end
+    return changed
+end
+
 function ShoveState:_onGauntletEnded()
     self._ended_handled = true
     local result = self.gauntlet.result
@@ -247,20 +271,11 @@ function ShoveState:_onGauntletEnded()
     -- shaped forever (R2 is never even rolled), every future R1 win
     -- repeats the same cliffhanger, and nothing downstream (act2 story
     -- beats, decks, mid/high stakes, act-gated catalog items) unlocks.
-    local save_needed = false
-    if result.outcomes and not Constants.FEATURES.DEMO_CUT then
-        if result.outcomes[1] == true and not state.shove_r1_won then
-            state.shove_r1_won = true
-            save_needed = true
-            print("[shove] Won Runout 1 of the gauntlet: unlocked Act 2!")
-        end
-        if result.outcomes[2] == true and not state.shove_r2_won then
-            state.shove_r2_won = true
-            save_needed = true
-            print("[shove] Won Runout 2 of the gauntlet: unlocked Act 3!")
-        end
-    end
-    if save_needed then
+    -- (Recorded as soon as the result existed, in :update, so the
+    -- flyer the cinematic throws finds decks already unlocked; a second
+    -- call here is a no-op.)
+    if self:_recordActFlags() or self._act_flags_changed then
+        self._act_flags_changed = false
         self.game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
     end
 
@@ -443,6 +458,12 @@ function ShoveState:update(dt)
         self.view:markRunning()
         self:_beginGauntlet()
         return
+    end
+
+    -- The result is known before the cinematic plays it: record the act
+    -- flags now, so what the cinematic throws (the deck flyer) sees them.
+    if self.gauntlet and self.gauntlet.state == "finished" then
+        self:_recordActFlags()
     end
 
     -- After the cinematic finishes, fire the prestige flow once. No-op if

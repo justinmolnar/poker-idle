@@ -238,8 +238,8 @@ the voice doc's treason section); all he does is notice.
 ### `act2` — grind. Trigger: first shove hand won.
 | block | anchor | hold |
 |---|---|---|
-| I hope the undertow didn't catch you off guard, I should've told you about it sooner. Oh well. | `cell:shove` | click |
-| The mid stakes are open now. Bring money. | `add_table:s004:zoom` | click |
+| I hope the undertow didn't catch you off guard, I should've told you about it sooner. Oh well. |  | click |
+| The mid stakes are open now. Bring money. | `add_table:s004:zoom`, `add_table:s005:zoom`, `add_table:s006:zoom` | click |
 
 ### `flyer_lands` — shove. Trigger: the deck flyer has landed on the felt.
 | I have a new flyer for you, check it out. | `deck:flyer` | **FORCE** wait: the flyer open |

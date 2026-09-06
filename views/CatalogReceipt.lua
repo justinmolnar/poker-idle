@@ -36,6 +36,7 @@ local Decal        = require("services.Decal")
 local TooltipSvc   = require("services.Tooltip")
 
 local Motion       = require("services.Motion")
+local ShaderRegistry = require("services.ShaderRegistry")
 local CatalogReceipt = {}
 CatalogReceipt.__index = CatalogReceipt
 
@@ -69,6 +70,15 @@ function CatalogReceipt:new(game)
 end
 
 function CatalogReceipt:isOpen() return self.open end
+
+-- The room's view, for each item's layout entry (RoomState owns it and
+-- registers after this is built, so it is looked up when drawing; a
+-- harness without one draws the catalog's own look).
+function CatalogReceipt:_roomView()
+    local sm   = self.game.state_machine
+    local room = sm and sm.states and sm.states.room
+    return room and room.getRoomView and room:getRoomView() or nil
+end
 function CatalogReceipt:close()  self.open = false end
 
 -- Click routing, ahead of the book's own targets. Returns true when the
@@ -321,17 +331,26 @@ function CatalogReceipt:_drawPaper(x, y, pw, ph, rows, total_chip, total_achip, 
 
         if yy + r.h >= list_y and yy <= list_y + list_vis then
             local ink = r.corrupted and PURPLE or INK
-            -- Thumb, aspect-fit into a small square (the modal's pattern).
+            -- Thumb, aspect-fit into a small square: the item exactly as the
+            -- room draws it (its layout entry's frame and animation, the
+            -- corruption shader), from the one resolver.
             local sq = fl(16 * s)
-            local sprite = game.sprite_loader
-                           and game.sprite_loader:getSprite(it.sprite or it.id)
+            local sprite, shader_name, shader_params
+            if game.sprite_loader then
+                local rv    = self:_roomView()
+                local entry = rv and rv:layoutEntry(it.id) or nil
+                sprite, shader_name, shader_params = game.sprite_loader:itemArt(it, "room", entry,
+                    { corrupted = r.corrupted })
+            end
             if sprite then
                 local sw, sh = sprite:getWidth(), sprite:getHeight()
                 local k = math.min(sq / sw, sq / sh)
                 Theme.setColor({ 1, 1, 1, alpha })
+                if shader_name and ShaderRegistry.apply then ShaderRegistry.apply(shader_name, shader_params) end
                 love.graphics.draw(sprite,
                     fl(x + pad + (sq - sw * k) / 2),
                     fl(yy + (r.h - (r.corrupted and sm_h or 0) - sh * k) / 2), 0, k, k)
+                if shader_name and ShaderRegistry.apply then ShaderRegistry.apply(nil) end
             end
             local row_h = r.h - (r.corrupted and sm_h or 0)
             -- Price, right-aligned: chip glyph + count.

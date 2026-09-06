@@ -399,6 +399,46 @@ end
 -- level instead of a 16:1 minification of a 144px one. Falls through to
 -- getSprite for every sprite without a chain, which is all of them but the
 -- card backs. Called by services/SpriteRenderer, so no draw site changes.
+-- One source of truth for how a catalog item LOOKS, wherever it is drawn:
+-- the room, the catalog's card, the manifest, the count's glow, a fired
+-- ghost. Returns sprite, shader_name, shader_params, animated.
+--   item   the catalog entry (nil for an id-only flavour sprite)
+--   place  "room" (animated by default) | "catalog" (still by default)
+--   obj    the room layout's placed entry, whose frame / fps / anim /
+--          shader override the item's (nil elsewhere)
+--   opts   { corrupted = bool (the corruption shader wins), time =
+--            number|false (default: the clock when animated), sprite =
+--            a name override (the light switch's off face) }
+function SpriteLoader:itemArt(item, place, obj, opts)
+    item = item or {}; obj = obj or {}; opts = opts or {}
+    local cat_anim, obj_anim = item.anim or {}, obj.anim or {}
+    local animated
+    if place == "catalog" then
+        animated = false
+        if cat_anim.catalog_enabled ~= nil then animated = cat_anim.catalog_enabled
+        elseif item.anim_catalog ~= nil then animated = item.anim_catalog end
+    else
+        animated = true
+        if obj.anim_room ~= nil then animated = obj.anim_room
+        elseif obj_anim.room_enabled ~= nil then animated = obj_anim.room_enabled
+        elseif obj_anim.enabled ~= nil then animated = obj_anim.enabled
+        elseif item.anim_room ~= nil then animated = item.anim_room
+        elseif cat_anim.room_enabled ~= nil then animated = cat_anim.room_enabled
+        elseif cat_anim.enabled ~= nil then animated = cat_anim.enabled end
+    end
+    if obj.frame then animated = false end   -- a pinned frame is a still
+    local fps   = obj.fps or obj_anim.fps or item.fps or cat_anim.fps
+    local frame = obj.frame or obj.static_frame or obj_anim.frame
+               or item.frame or item.static_frame or cat_anim.frame
+    local time  = opts.time
+    if time == nil then time = animated and (love.timer and love.timer.getTime() or 0) or false end
+    local shader = obj.shader or obj_anim.shader or item.shader or cat_anim.shader
+    local params = obj.shader_params or obj_anim.shader_params or item.shader_params or cat_anim.shader_params
+    if opts.corrupted then shader, params = Constants.CORRUPT_ROOM_SHADER, nil end
+    local name = opts.sprite or obj.sprite or item.sprite or item.id or obj.id
+    return self:getSprite(name, time, fps, frame), shader, params, (time ~= false)
+end
+
 function SpriteLoader:getSpriteFor(sprite_name, target_w, time, fps, frame)
     if not self.loaded then self:loadAll() end
     local resolved = _resolve(self, sprite_name)

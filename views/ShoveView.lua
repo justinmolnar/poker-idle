@@ -907,13 +907,19 @@ function ShoveView:_say(line_id)
     self.house_line = spec.text
 end
 
--- How many cheat cards are on the felt this shove. Read by the host for the
--- `cheat_dealt` hint kind, which is what stops a cheat hint from firing
--- before the card exists.
+-- How many cheat cards have LANDED on the felt this shove. Read by the
+-- host for the `cheat_dealt` hint kind: a beat about the card ("it landed
+-- on your ITEMS") cannot fire while it is still in the air, and a pausing
+-- beat must not freeze it there.
 function ShoveView:cheatsDealt()
+    local function landed(a)
+        if not a then return false end
+        local p = (a.getProgress and a:getProgress()) or a.progress or 0
+        return p >= 1 or a.active == false
+    end
     local n = 0
-    if self.card_anims.board_6 then n = n + 1 end
-    if self.card_anims.board_7 then n = n + 1 end
+    if landed(self.card_anims.board_6) then n = n + 1 end
+    if landed(self.card_anims.board_7) then n = n + 1 end
     return n
 end
 
@@ -1310,9 +1316,8 @@ function ShoveView:_drawRoomCount(W, H)
         if r and loader then
             k = k + 1
             local o = r.obj
-            local still = o.anim_room == false or o.frame ~= nil
-            local sprite = loader:getSprite(o.sprite or o.id,
-                (not still) and now or false, o.fps, o.frame)
+            local sprite = loader:itemArt(self.room_view.catalog_by_id[id], "room", o,
+                { corrupted = self.game.state and self.game.state:isCorrupted(id) })
             if sprite then
                 local p  = Motion.pop("cinematics", Pop.progress("room_item:" .. id, R.flash_secs))
                 -- The glow is the item's moment, then it settles: gone
@@ -1997,7 +2002,9 @@ function ShoveView:draw()
     -- The band holds the buildup's "All in." through the deal; the House's
     -- line replaces it at the reveal. Same slot, same font, same colour, so
     -- a change of line reads as the line changing, never as text vanishing.
-    if not self.house_line then self.house_line = Story.shove.arrive.text end
+    -- Only until the reveal: after it, an empty slot is a deliberate
+    -- silence (the panic's third beat), not a cue to say "All in" again.
+    if not self.house_line and not self.winner then self.house_line = Story.shove.arrive.text end
 
     -- Persistent shove status (pot chip pile + the SHOVE % breakdown) so the
     -- player always sees what's at stake and what their odds are during the

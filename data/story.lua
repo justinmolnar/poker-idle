@@ -465,12 +465,12 @@ return {
             screen  = "grind",
             trigger = { kind = "act2_unlocked" },
             lines = {
-                { text = "I hope the undertow didn't catch you off guard, I should've told you about it sooner. Oh well.",
-                  anchor = "cell:shove" },
-                -- Anchored on a zoom row: 6-max may still be behind its
-                -- catalog key here, but zoom is always open and s004
-                -- opens with this very beat.
-                { text = "The mid stakes are open now. Bring money.", anchor = "add_table:s004:zoom" },
+                { text = "I hope the undertow didn't catch you off guard, I should've told you about it sooner. Oh well." },
+                -- The three Act 2 stakes, on the zoom rows: 6-max may still
+                -- be behind its catalog key here, but zoom is always open
+                -- and these rows open with this very beat.
+                { text = "The mid stakes are open now. Bring money.",
+                  anchor = { "add_table:s004:zoom", "add_table:s005:zoom", "add_table:s006:zoom" } },
             },
         },
 

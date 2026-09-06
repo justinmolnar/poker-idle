@@ -763,24 +763,9 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     Theme.setColor(Theme.paper.ink, 0.35)
     love.graphics.rectangle("line", img_x, img_y, img_w, img_h)
 
-    -- Resolve item animation & shader settings (paper magazine catalog defaults to static unless overridden in item data)
-    local anim_spec = item.anim or {}
-    local catalog_animated = false
-    if anim_spec.catalog_enabled ~= nil then
-        catalog_animated = anim_spec.catalog_enabled
-    elseif item.anim_catalog ~= nil then
-        catalog_animated = item.anim_catalog
-    end
-
-    local time_arg  = catalog_animated and love.timer.getTime() or false
-    local fps_arg   = anim_spec.fps or item.fps
-    local frame_arg = anim_spec.frame or item.frame or item.static_frame
-
-    local shader_name   = anim_spec.shader or item.shader
-    local shader_params = anim_spec.shader_params or item.shader_params
-
-    -- Draw sprite (if exists)
-    local sprite = self.game.sprite_loader:getSprite(item.sprite or item.id, time_arg, fps_arg, frame_arg)
+    -- The item as it looks (SpriteLoader:itemArt; the paper catalog is
+    -- still unless the item says otherwise).
+    local sprite, shader_name, shader_params = self.game.sprite_loader:itemArt(item, "catalog")
     if sprite then
         local scale_x = img_w / sprite:getWidth()
         local scale_y = img_h / sprite:getHeight()

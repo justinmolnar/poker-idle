@@ -60,7 +60,10 @@ end
 local function drawBand(sprite, x, y, w, h, cy, ch, shader, r, g, b, a)
     if ch <= 0 then return end
     local sx, sy, sw, sh = love.graphics.getScissor()
-    love.graphics.setScissor(x, cy, w, ch)
+    -- The clip is in SCREEN space; the caller may be drawing under a
+    -- translate (a Panel's content), so run the band through the transform.
+    local tx, ty = love.graphics.transformPoint(x, cy)
+    love.graphics.intersectScissor(math.floor(tx), math.floor(ty), w, ch)
     if shader then love.graphics.setShader(shader) end
     local dx, dy, scale = coverRect(sprite, x, y, w, h)
     love.graphics.setColor(r, g, b, a)
