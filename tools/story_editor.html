@@ -777,6 +777,21 @@ function copyWarnings(text) {
   // The colour code: a mechanic word that is not tinted, and a tint on a
   // word its meaning does not own (data/terms.lua, same rules as sim/lint_terms.lua).
   if (S.terms && S.terms.words) {
+    // The style sheet's retired words (data/terms.lua `banned`), the way
+    // sim/lint_copy.lua asks; a beat may say the House's story-only words.
+    if (S.terms.banned) {
+      const low = " " + bare.toLowerCase() + " ";
+      for (const [phrase, hint] of Object.entries(S.terms.banned)) {
+        const p = phrase.toLowerCase();
+        const hit = /^[\w\s'-]+$/.test(p)
+          ? new RegExp("(^|[^\\w])" + p.replace(/[-]/g, "\\-") + "([^\\w]|$)").test(low)
+          : low.includes(p);
+        if (hit) w.push(`retired "${phrase}" (write: ${hint})`);
+      }
+      for (const phrase of Object.keys(S.terms.banned_case || {})) {
+        if (bare.includes(phrase)) w.push(`retired spelling "${phrase}"`);
+      }
+    }
     const optional = new Set((S.terms.optional || []).map(x => x.toLowerCase()));
     const owner = {};
     for (const [cat, words] of Object.entries(S.terms.words)) for (const wd of words) owner[wd.toLowerCase()] = cat;

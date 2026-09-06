@@ -65,6 +65,21 @@ end
 -- Same as money; the name survives from when the two differed.
 Format.moneyExact = Format.money
 
+-- An unlock sticker's counter, "2 / 3", for a gated catalog item or deck.
+-- Picked by the condition's `format` field ("count" default, "money"): a
+-- table lookup, never a branch on the unlock kind, so a new format is one
+-- entry here plus one field in data. nil when the condition is a flag
+-- (no ratio to report; see services/UnlockRegistry:progress).
+local COUNTER_FORMAT = {
+    count = function(n) return Format.formatBig(n) end,
+    money = function(n) return Format.money(n) end,
+}
+function Format.unlockCounter(cond, current, target)
+    if not (current and target) then return nil end
+    local fmt = COUNTER_FORMAT[cond and cond.format or "count"] or COUNTER_FORMAT.count
+    return fmt(current) .. " / " .. fmt(target)
+end
+
 -- A price: money() with a whole-dollar amount's ".00" dropped, so a
 -- 2-significant-figure price reads "$23", "$180", "$540M" but a small
 -- one keeps its cents, "$2.30".

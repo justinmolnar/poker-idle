@@ -198,14 +198,18 @@ Fixed slots; an empty text is a silent slot.
 ## Rooms and tools, as they first exist
 
 ### `first_heat` — grind. **PAUSE.** Trigger: total_heaters ≥ 1.
-| This table's {c:heat:on_fire}, if it was already on a hand, that one {c:won:wins}, the next hand is dealt for you. Guaranteed win. Fire's your friend. | `table:heater` | click |
+| This table's {c:heat:on_fire}. A {c:heat:heater}: if it was already on a hand, that one {c:won:wins}, and the next hand is dealt for you. Guaranteed win. Fire's your friend. | `table:heater` | click |
+
+### `first_tilt` — grind. **PAUSE.** Trigger: total_tilts ≥ 1.
+Tilt is granted at run start (the hidden Tilt catalog entry), so the first one lands on its own. He names it once, the way he named the heater; the glossary card opens on it.
+| That table's on {c:tilt:tilt}. This hand's gone and so's the next. Happens at every table sooner or later. Ride it out. | `table:tilt` | click |
 
 ### `six_max_open` — grind. Trigger: a 6-max table open.
 | The long game. Slow hands, five stacks on the table, and the fattest pots in the room when one finally lands. | `gtype:six_max` | click |
 | With so many players these take forever. Maybe you can speed them up somehow. | `gtype:six_max` | click |
 
 ### `first_tournament` — grind. Trigger: a tournament open.
-| A tournament. One buy-in, no rebuy, eight seats, ten blinds each, and it deals itself. Top three cash. Win it outright for the {chip}. Great business, tournaments. | `gtype:ko` | click |
+| A tournament. One buy-in, no rebuy, eight seats, ten blinds each, and it deals itself. Every seat it {c:lost:busts} is a knockout. Top three cash. Win it outright for the {chip}. Great business, tournaments. | `gtype:ko` | click |
 | Not for you of course, cash games pay better. They do have their place though, they can improve your other tables. | `gtype:ko` | click |
 
 ### `first_cursors` — grind. Trigger: owns box_of_mice.

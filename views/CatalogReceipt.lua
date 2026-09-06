@@ -181,9 +181,30 @@ local function hasProc(item, corrupted)
     return false
 end
 
+-- Rules an item refers to (`see_also`): another catalog item by id, or a
+-- run upgrade as "runup:<id>". Resolved here, once, so the hover card can
+-- print the referenced rule beneath the item's own.
+local RunUpgrades  = require("data.run_upgrades")
+local ItemReadouts = require("models.item_readouts")
+local BY_ID = {}
+for _, it in ipairs(Catalog) do BY_ID[it.id] = it end
+local UPGRADE_BY_ID = {}
+for _, up in ipairs(RunUpgrades) do UPGRADE_BY_ID[up.id] = up end
+
+local function seeAlsoLine(ref)
+    local up_id = ref:match("^runup:(.+)$")
+    if up_id then
+        local up = UPGRADE_BY_ID[up_id]
+        return up and (up.name .. ": " .. (up.description or "")) or nil
+    end
+    local it = BY_ID[ref]
+    return it and (it.name .. ": " .. (it.effect_text or "")) or nil
+end
+
 -- An item's card, as Tooltip rows: name, effect (and the corrupt line),
--- description, and how often it has fired. The receipt's hover and the
--- room screen (hover and click) show this same card.
+-- the rules it refers to, its live value, description, and how often it
+-- has fired. The receipt's hover, the catalog's cards and the room screen
+-- (hover and click) show this same card.
 function CatalogReceipt.itemCard(game, item, corrupted)
     local tt = { { text = item.name or item.id, style = "md" } }
     if item.effect_text then
@@ -191,6 +212,14 @@ function CatalogReceipt.itemCard(game, item, corrupted)
     end
     if corrupted and item.corrupt and item.corrupt.effect_text then
         tt[#tt + 1] = iconRow(game, item.corrupt.effect_text, Theme.sem.corrupt)
+    end
+    for _, ref in ipairs(item.see_also or {}) do
+        local line = seeAlsoLine(ref)
+        if line then tt[#tt + 1] = iconRow(game, line, Theme.fg.muted) end
+    end
+    local now = ItemReadouts.text(game, item)
+    if now then
+        tt[#tt + 1] = { text = now, style = "sm", color_token = "muted" }
     end
     if item.description then
         tt[#tt + 1] = { text = item.description, style = "sm" }

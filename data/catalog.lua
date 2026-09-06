@@ -20,8 +20,23 @@
 --   {
 --     id          = "snake_case_unique",   -- key in GameState.owned_items
 --     name        = "Display Name",
---     effect_text = "Explicit mechanical effect, e.g. '+5% win chance'",
---     description = "Italic flavor blurb under the effect line",
+--     effect_text = "The rule, in the style sheet's forms (docs/copy-style.md):
+--                    '+5% win chance at Zoom.', '1 in 4 chance: {w:small}
+--                    {arrow} {w:medium}.', 'Win a {w:stack}: 1 in 3 chance
+--                    the table beside it catches a {c:heat:heater}.' Every
+--                    number in it is checked against `effects` by
+--                    sim/lint_copy.lua; a corrupt line that only adds a
+--                    penalty reads 'Same, and {c:lost:Losses} ×1.5.'
+--     description = "Italic flavor blurb under the effect line: the voice
+--                    lives here, never in effect_text",
+--     allow_numbers = { 10 },       -- optional: a number in effect_text with
+--                                   -- no effect behind it (a real-time count)
+--     see_also    = { "<item id>", "runup:<upgrade id>" },
+--                                   -- optional: rules this one refers to; the
+--                                   -- hover card prints theirs beneath
+--     readout     = { kind = "..." },
+--                                   -- optional: a live value the hover card
+--                                   -- prints (models/item_readouts.lua kinds)
 --     sprite      = "sprite_name",          -- looked up via SpriteLoader
 --     cost_chip   = number,
 --     phase       = "demo" | "mid" | "late" | "system",
@@ -62,6 +77,7 @@
 --
 -- So: a lowercase plural noun phrase, no leading number (the counter owns
 -- it), no imperative. Icon markers work exactly as they do in effect_text.
+-- Deck stickers (data/decks.lua) use the same shape.
 --
 -- A gate with no meaningful ratio (a flag, like shove_r1_won) prints no
 -- counter, so it keeps a standalone imperative: "Win your first shove".
@@ -108,7 +124,7 @@ local items = {
     {
         id               = "tilt",
         name             = "Tilt",
-        effect_text      = "Bad beats rattle the tables around them.",
+        effect_text      = "Bad beats put {c:tilt:tilts} on the tables around them.",
         description      = "Happens at every table sooner or later.",
         hidden           = true,
         granted_at_start = true,
@@ -125,7 +141,7 @@ local items = {
     {
         id          = "wall_hanger",
         name        = "Wall Hanger",
-        effect_text = "{stack} pays 1.2×.",
+        effect_text = "{w:stack} {c:won:wins} ×1.2.",
         description = "Sturdy wall hook for hanging your hat and gear.",
         sprite      = "wall_hanger",
         phase       = "demo",
@@ -141,14 +157,14 @@ local items = {
                 { kind = "shove_rate_add", value = 0.15 },
                 { kind = "stack_mult",   value = 5.00 },
             },
-            effect_text = "{stack} pays 5.0×.",
+            effect_text = "{w:stack} {c:won:wins} ×5.",
         },
     },
     {
         id          = "mirror",
         name        = "Mirror",
         effect_text = "+10% win chance at Heads-Up.",
-        description = "A nice big one. You should see yourself sometimes.",
+        description = "A nice big one. You should see yourself.",
         sprite      = "mirror",
         phase       = "demo",
         cost_chip     = 3,
@@ -176,7 +192,7 @@ local items = {
         -- true — Heads-Up is the chip mode.
         id          = "fight_night_poster",
         name        = "Fight Night Poster",
-        effect_text = "Heads-Up {c:chip:bounties} pay double {chip}.",
+        effect_text = "Heads-Up {c:chip:bounties} pay ×2 {chip}.",
         description = "A duel draws a crowd. The crowd pays.",
         sprite      = "fight_night_poster",
         phase       = "demo",
@@ -195,7 +211,7 @@ local items = {
             effects = {
                 { kind = "bounty_gtype_mult", gtype = "hu", value = 4.0 },
             },
-            effect_text = "Heads-Up {c:chip:bounties} pay quadruple {chip}.",
+            effect_text = "Heads-Up {c:chip:bounties} pay ×4 {chip}.",
         },
     },
     {
@@ -207,7 +223,8 @@ local items = {
         -- first_heat). Tuned by the proc's `every`, nothing else.
         id          = "energy_drink",
         name        = "Energy Drink",
-        effect_text = "Every 25 hands, a Zoom table catches a {c:heat:heater}.",
+        effect_text = "Every 25 hands: a Zoom table catches a {c:heat:heater}.",
+        readout     = { kind = "hands_to_next" },
         description = "Tastes terrible. Works fine.",
         sprite      = "energy_drink",
         phase       = "demo",
@@ -222,13 +239,13 @@ local items = {
             effects = {
                 { kind = "proc", proc = "energy_drink_caffeine_corrupt" },
             },
-            effect_text = "Every 10 hands, a Zoom table catches a {c:heat:heater}.",
+            effect_text = "Every 10 hands: a Zoom table catches a {c:heat:heater}.",
         },
     },
     {
         id          = "corkboard",
         name        = "Corkboard",
-        effect_text = "+5% win chance at all tables.",
+        effect_text = "+5% win chance at every table.",
         description = "Pins, notes, one photo of a beach.",
         sprite      = "corkboard",
         phase       = "demo",
@@ -243,13 +260,13 @@ local items = {
             effects = {
                 { kind = "win_chance_shift", amount = 0.2 },
             },
-            effect_text = "+20% win chance at all tables.",
+            effect_text = "+20% win chance at every table.",
         },
     },
     {
         id          = "stack_of_books",
         name        = "Stack of Books",
-        effect_text = "25% chance to boost {small} {arrow} {medium}.",
+        effect_text = "1 in 4 chance: {w:small} {arrow} {w:medium}.",
         description = "Pile of bestselling self-help guides.",
         sprite      = "stack_of_books",
         phase       = "demo",
@@ -268,15 +285,15 @@ local items = {
         corrupt = {
             cost_achip = 3,
             effects = {
-                { kind = "win_tier_shift", from = "small", to = "medium", chance = 0.45 },
+                { kind = "win_tier_shift", from = "small", to = "medium", chance = 1/2 },
             },
-            effect_text = "45% chance {small} {arrow} {medium}.",
+            effect_text = "1 in 2 chance: {w:small} {arrow} {w:medium}.",
         },
     },
     {
         id          = "throw_pillow",
         name        = "Throw Pillow",
-        effect_text = "25% chance to soften {l:large} {arrow} {l:medium}.",
+        effect_text = "1 in 4 chance: {l:large} {arrow} {l:medium}.",
         description = "Soft plush pillow. Perfect for cushioning rough beats.",
         sprite      = "throw_pillow",
         phase       = "demo",
@@ -295,9 +312,9 @@ local items = {
         corrupt = {
             cost_achip = 2,
             effects = {
-                { kind = "loss_tier_shift", from = "large", to = "stack", chance = 0.4 },
+                { kind = "loss_tier_shift", from = "large", to = "stack", chance = 2/5 },
             },
-            effect_text = "40% chance {l:large} {arrow} {l:stack}.",
+            effect_text = "2 in 5 chance: {l:large} {arrow} {l:stack}.",
         },
     },
     {
@@ -322,13 +339,13 @@ local items = {
             effects = {
                 { kind = "start_bankroll_pct", value = 25.0 },
             },
-            effect_text = "Start with 25× last run's bankroll.",
+            effect_text = "Start each run with ×25 last run's bankroll.",
         },
     },
     {
         id          = "lava_lamp",
         name        = "Lava Lamp",
-        effect_text = "15% chance to boost {medium} {arrow} {large}.",
+        effect_text = "1 in 6 chance: {w:medium} {arrow} {w:large}.",
         description = "Soothing to watch. Hypnotic, almost.",
         sprite      = "lava_lamp",
         phase       = "demo",
@@ -337,20 +354,20 @@ local items = {
         effects     = {
             { kind = "shove_rate_add", value = 0.012 },
             { kind = "win_tier_shift",
-              from = "medium", to = "large", chance = 0.15 },
+              from = "medium", to = "large", chance = 1/6 },
         },
         corrupt = {
             cost_achip = 3,
             effects = {
-                { kind = "win_tier_shift", from = "medium", to = "large", chance = 0.45 },
+                { kind = "win_tier_shift", from = "medium", to = "large", chance = 1/2 },
             },
-            effect_text = "45% chance {medium} {arrow} {large}.",
+            effect_text = "1 in 2 chance: {w:medium} {arrow} {w:large}.",
         },
     },
     {
         id          = "comfort_bed",
         name        = "Comfort Bed",
-        effect_text = "15% chance to soften {l:stack} {arrow} {l:large}.",
+        effect_text = "1 in 6 chance: {l:stack} {arrow} {l:large}.",
         description = "Restful memory-foam bed to sleep off heavy {c:lost:losses}.",
         sprite      = "comfort_bed",
         phase       = "demo",
@@ -363,7 +380,7 @@ local items = {
         -- large-loss cushion.
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "loss_tier_shift", from = "stack", to = "large", chance = 0.15 },
+            { kind = "loss_tier_shift", from = "stack", to = "large", chance = 1/6 },
         },
         unlock = {
             kind      = "total_stack_losses",
@@ -375,13 +392,13 @@ local items = {
             effects = {
                 { kind = "anti_award_mult", value = 2.0 },
             },
-            effect_text = "{l:stack} {c:lost:losses} pay {achip} twice.",
+            effect_text = "{l:stack} {c:lost:losses} pay ×2 {achip}.",
         },
     },
     {
         id          = "yellow_sticky_note",
         name        = "Yellow Sticky Note",
-        effect_text = "{c:won:Wins} pay 25% more.",
+        effect_text = "{c:won:Wins} ×1.25.",
         description = "A pad of yellow notes. Sticks to anything.",
         sprite      = "yellow_sticky_note",
         phase       = "demo",
@@ -395,7 +412,7 @@ local items = {
             effects = {
                 { kind = "earnings_mult", value = 4.0 },
             },
-            effect_text = "{c:won:Wins} pay 4×.",
+            effect_text = "{c:won:Wins} ×4.",
         },
     },
     {
@@ -419,9 +436,9 @@ local items = {
         corrupt = {
             cost_achip = 2,
             effects = {
-                { kind = "loss_tier_shift", from = "small", to = "stack", chance = 0.35 },
+                { kind = "loss_tier_shift", from = "small", to = "stack", chance = 1/3 },
             },
-            effect_text = "35% chance {l:small} {arrow} {l:stack}.",
+            effect_text = "1 in 3 chance: {l:small} {arrow} {l:stack}.",
         },
     },
 
@@ -456,7 +473,7 @@ local items = {
     {
         id          = "dogs_playing_poker",
         name        = "Dogs Playing Poker",
-        effect_text = "Winning a {stack}: 25% chance that table catches a {c:heat:heater}.",
+        effect_text = "Win a {w:stack}: 1 in 4 chance that table catches a {c:heat:heater}.",
         description = "The one with the bulldog. It winks.",
         sprite      = "dogs_playing_poker",
         phase       = "mid",
@@ -476,13 +493,14 @@ local items = {
             effects = {
                 { kind = "proc", proc = "dogs_playing_poker_high_corrupt" },
             },
-            effect_text = "Winning a {stack}: 35% chance that table catches a {c:heat:heater}.",
+            effect_text = "Win a {w:stack}: 1 in 3 chance that table catches a {c:heat:heater}.",
         },
     },
     {
         id          = "calculator",
         name        = "Calculator",
-        effect_text = "{c:upgrade:Sharper_Reads} and {c:upgrade:Pot_Control} 15% stronger.",
+        effect_text = "{c:upgrade:Sharper_Reads} and {c:upgrade:Pot_Control} +15%.",
+        see_also    = { "runup:sharper_reads", "runup:pot_control" },
         description = "Solar. Works under the desk lamp.",
         sprite      = "calculator",
         phase       = "mid",
@@ -502,13 +520,13 @@ local items = {
             effects = {
                 { kind = "run_upgrade_strength_mult", value = 1.5 },
             },
-            effect_text = "{c:upgrade:Sharper_Reads} and {c:upgrade:Pot_Control} 2.5× stronger.",
+            effect_text = "{c:upgrade:Sharper_Reads} and {c:upgrade:Pot_Control} +150%.",
         },
     },
     {
         id          = "ring_binder",
         name        = "Ring Binder",
-        effect_text = "{c:upgrade:Upgrades} cost 15% less.",
+        effect_text = "{c:upgrade:Upgrade} prices -15%.",
         description = "Three rings, one broken clasp.",
         sprite      = "ring_binder",
         phase       = "mid",
@@ -527,13 +545,13 @@ local items = {
             effects = {
                 { kind = "run_upgrade_cost_mult", value = 0.2 },
             },
-            effect_text = "{c:upgrade:Upgrades} cost 80% less.",
+            effect_text = "{c:upgrade:Upgrade} prices -80%.",
         },
     },
     {
         id          = "space_heater",
         name        = "Space Heater",
-        effect_text = "{c:lost:Losses} 20% softer.",
+        effect_text = "{c:lost:Losses} ×0.8.",
         description = "Hums all night. The cold stops mattering.",
         sprite      = "space_heater",
         phase       = "mid",
@@ -553,14 +571,14 @@ local items = {
             effects = {
                 { kind = "loss_mult", value = 3.0 },
             },
-            effect_text = "{c:lost:Losses} 3× bigger.",
+            effect_text = "{c:lost:Losses} ×3.",
         },
     },
     {
         id          = "pencil_holder",
         name        = "Pencil Holder",
         effect_text = "+1 {chip} on every {c:chip:bounty}.",
-        description = "Desk holder with pens. Extra chip on every {c:chip:bounty}.",
+        description = "Desk holder with pens. Nobody counts them.",
         sprite      = "pencil_holder",
         phase       = "mid",
         cost_chip     = 8,
@@ -589,8 +607,8 @@ local items = {
         -- the slow, deep table itself, and what other items land on it.
         id          = "bonsai",
         name        = "Bonsai",
-        effect_text = "Opens the 6-Max tables, the deep game.",
-        description = "Grown slow on purpose. Worth the wait.",
+        effect_text = "Opens 6-Max.",
+        description = "Grown slow on purpose. The deep game. Worth the wait.",
         sprite      = "bonsai",
         phase       = "mid",
         cost_chip   = 10,
@@ -612,14 +630,15 @@ local items = {
             cost_achip = 5,
             effects = {
                 { kind = "six_max_unlocked" },
+                { kind = "hand_pace_mult", value = 1.25, gtype = "six_max" },
             },
-            effect_text = "Opens the 6-Max tables.",
+            effect_text = "Opens 6-Max. 6-Max deal speed ×1.25.",
         },
     },
     {
         id          = "desk_plant",
         name        = "Desk Plant",
-        effect_text = "+6% win chance at 6-max.",
+        effect_text = "+6% win chance at 6-Max.",
         description = "Real. Someone waters it when you're not looking.",
         sprite      = "desk_plant",
         phase       = "mid",
@@ -634,7 +653,7 @@ local items = {
             effects = {
                 { kind = "win_chance_shift", amount = 0.35, gtype = "six_max" },
             },
-            effect_text = "+35% win chance at 6-max.",
+            effect_text = "+35% win chance at 6-Max.",
         },
     },
     {
@@ -666,7 +685,7 @@ local items = {
     {
         id          = "rebuy_sticky_note",
         name        = "Rebuy Sticky Note",
-        effect_text = "Rebuys cost 25% less.",
+        effect_text = "Rebuy prices -25%.",
         description = "Discount coupon pad. Sticks where you'll see it.",
         sprite      = "rebuy_sticky_note",
         phase       = "mid",
@@ -685,13 +704,13 @@ local items = {
             effects = {
                 { kind = "rebuy_discount", value = 0.75 },
             },
-            effect_text = "Rebuys cost 75% less.",
+            effect_text = "Rebuy prices -75%.",
         },
     },
     {
         id          = "gaming_chair",
         name        = "Gaming Chair",
-        effect_text = "Winning a {stack}: 30% chance a nearby table catches a {c:heat:heater}.",
+        effect_text = "Win a {w:stack}: 1 in 3 chance the table beside it catches a {c:heat:heater}.",
         description = "Ergonomic. Overload hurts less.",
         sprite      = "gaming_chair",
         phase       = "mid",
@@ -699,7 +718,7 @@ local items = {
         unlock = {
             kind      = "total_hands_overwhelmed",
             threshold = 25,
-            text      = "hands past focus",
+            text      = "hands over full FOCUS",
         },
         position    = { x = 150, y = 400 },
         effects     = {
@@ -712,7 +731,7 @@ local items = {
                 { kind = "proc",      proc = "gaming_chair_spread" },
                 { kind = "loss_mult", value = 1.4 },
             },
-            effect_text = "Winning a {stack}: 30% chance a nearby table catches a {c:heat:heater}. {c:lost:Losses} 40% heavier.",
+            effect_text = "Same, and {c:lost:Losses} ×1.4.",
         },
     },
     {
@@ -748,7 +767,8 @@ local items = {
         -- as a "???" the demo can never open.
         act         = 2,
         name        = "Prize Vase",
-        effect_text = "Winning a tournament lifts every table 1% for the run.",
+        effect_text = "Win a tournament: +1% win chance at every table for the run.",
+        readout     = { kind = "run_ratchet", effect = "win_chance_shift", field = "amount" },
         description = "Came with a ribbon. The ribbon didn't last.",
         sprite      = "prize_vase",
         phase       = "mid",
@@ -770,7 +790,7 @@ local items = {
             effects = {
                 { kind = "proc", proc = "prize_vase_ratchet_corrupt" },
             },
-            effect_text = "Winning a tournament lifts every table 3% for the run.",
+            effect_text = "Win a tournament: +3% win chance at every table for the run.",
         },
     },
     {
@@ -796,13 +816,14 @@ local items = {
             effects = {
                 { kind = "first_anti_mult", value = 3.0 },
             },
-            effect_text = "First {l:stack} each run pays {achip} 3×.",
+            effect_text = "First {l:stack} each run pays ×3 {achip}.",
         },
     },
     {
         id          = "wall_clock",
         name        = "Wall Clock",
-        effect_text = "Every 100 hands won, a random table catches a {c:heat:heater}.",
+        effect_text = "Every 100 hands won: a random table catches a {c:heat:heater}.",
+        readout     = { kind = "hands_to_next" },
         description = "The second hand ticks a little loud.",
         sprite      = "wall_clock",
         phase       = "mid",
@@ -822,14 +843,15 @@ local items = {
                 { kind = "proc",      proc = "wall_clock_century" },
                 { kind = "loss_mult", value = 1.5 },
             },
-            effect_text = "Every 100 hands won, a random table catches a {c:heat:heater}. {c:lost:Losses} 50% heavier.",
+            effect_text = "Same, and {c:lost:Losses} ×1.5.",
         },
     },
 
     {
         id          = "house_cat",
         name        = "House Cat",
-        effect_text = "Every 50 hands won, a table's next win reads a tier higher.",
+        effect_text = "Every 50 hands won: a table's next {c:won:win} lands one size up.",
+        readout     = { kind = "hands_to_next" },
         description = "Someone's cat. It has opinions.",
         sprite      = "house_cat",
         phase       = "mid",
@@ -848,13 +870,13 @@ local items = {
             effects = {
                 { kind = "proc", proc = "house_cat_nap_corrupt" },
             },
-            effect_text = "Every 25 hands won, a table's next win reads a tier higher.",
+            effect_text = "Every 25 hands won: a table's next {c:won:win} lands one size up.",
         },
     },
     {
         id          = "candle",
         name        = "Candle",
-        effect_text = "Winning a {stack}: 25% chance a random table catches a {c:heat:heater}.",
+        effect_text = "Win a {w:stack}: 1 in 4 chance a random table catches a {c:heat:heater}.",
         description = "One wick. Surprising reach.",
         sprite      = "candle",
         phase       = "mid",
@@ -865,7 +887,7 @@ local items = {
         unlock = {
             kind      = "total_stacks",
             threshold = 600,
-            text      = "{stack} {c:won:wins}",
+            text      = "{w:stack} {c:won:wins}",
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
@@ -875,7 +897,7 @@ local items = {
     {
         id          = "dusty_console",
         name        = "Dusty Console",
-        effect_text = "+3% win chance at Heads-Up tables.",
+        effect_text = "+3% win chance at Heads-Up.",
         description = "Two controllers. Built for one-on-one.",
         sprite      = "dusty_console",
         phase       = "mid",
@@ -894,7 +916,7 @@ local items = {
     {
         id          = "handheld",
         name        = "Handheld",
-        effect_text = "+3% win chance at Zoom tables.",
+        effect_text = "+3% win chance at Zoom.",
         description = "Fits in a pocket. Fast games between fast games.",
         sprite      = "handheld",
         phase       = "mid",
@@ -913,8 +935,8 @@ local items = {
     {
         id          = "red_rug",
         name        = "Red Rug",
-        effect_text = "The table in the board's top-left corner plays on the rug: +2% win chance.",
-        description = "Really ties the room together.",
+        effect_text = "+2% win chance at the top-left table.",
+        description = "Really ties the room together. The top-left table sits on it.",
         sprite      = "red_rug",
         phase       = "mid",
         cost_chip   = 8,
@@ -931,7 +953,7 @@ local items = {
     {
         id          = "dish_soap",
         name        = "Dish Soap",
-        effect_text = "A {c:tilt:tilt} has a 25% chance to land on the table beside its target instead.",
+        effect_text = "A {c:tilt:tilt} aimed at a table: 1 in 4 chance it lands on the table beside it instead.",
         description = "Cuts through anything.",
         sprite      = "dish_soap",
         phase       = "mid",
@@ -954,7 +976,7 @@ local items = {
         id          = "rolled_vouchers",
         act         = 2,
         name        = "Rolled Vouchers",
-        effect_text = "The first table you open at a stake catches {c:heat:heat}.",
+        effect_text = "Open your first table at a stake: it catches a {c:heat:heater}.",
         description = "Tightly rolled entry coupons.",
         sprite      = "rolled_vouchers",
         phase       = "mid",
@@ -974,14 +996,14 @@ local items = {
             effects = {
                 { kind = "proc", proc = "rolled_vouchers_arrival_corrupt" },
             },
-            effect_text = "Every table you open catches {c:heat:heat}.",
+            effect_text = "Open any table: it catches a {c:heat:heater}.",
         },
     },
     {
         id          = "second_monitor",
         act         = 2,
         name        = "Second Monitor",
-        effect_text = "+2 focus capacity.",
+        effect_text = "+2 tables at full FOCUS.",
         description = "Mismatched stand. You stop turning your head.",
         sprite      = "second_monitor",
         phase       = "mid",
@@ -1000,7 +1022,7 @@ local items = {
             effects = {
                 { kind = "focus_capacity_add", value = 6 },
             },
-            effect_text = "+6 focus capacity.",
+            effect_text = "+6 tables at full FOCUS.",
         },
     },
     {
@@ -1030,7 +1052,7 @@ local items = {
         id            = "gaming_keyboard",
         act         = 2,
         name          = "Gaming Keyboard",
-        effect_text   = "{c:upgrade:Cursors} travel 30% faster.",
+        effect_text   = "{c:upgrade:Cursor} speed ×1.3.",
         description   = "Mechanical keyboard for faster {c:upgrade:cursor} response.",
         sprite        = "gaming_keyboard",
         phase         = "late",
@@ -1050,14 +1072,14 @@ local items = {
             effects = {
                 { kind = "cursor_instant_click" },
             },
-            effect_text = "{c:upgrade:Cursors} click instantly.",
+            effect_text = "{c:upgrade:Cursors} click the moment they arrive.",
         },
     },
     {
         id          = "box_of_mice",
         act         = 2,
         name        = "Box of Mice",
-        effect_text = "Unlocks the {c:upgrade:cursor} swarm and the Cursor {c:upgrade:upgrade}.",
+        effect_text = "Opens the {c:upgrade:cursors} and the Cursor {c:upgrade:upgrade}.",
         description = "Cardboard storage box of mice.",
         sprite      = "box_of_mice",
         phase       = "late",
@@ -1079,7 +1101,7 @@ local items = {
                 { kind = "cursor_unlocked" },
                 { kind = "cursor_count_add", value = 8 },
             },
-            effect_text = "+8 {c:upgrade:cursors}.",
+            effect_text = "Opens the {c:upgrade:cursors}, +8 of them.",
         },
     },
     {
@@ -1108,15 +1130,15 @@ local items = {
                 { kind = "cursor_rebuy_unlocked" },
                 { kind = "rebuy_discount", value = 0.20 },
             },
-            effect_text = "{c:upgrade:Cursors} click REBUY, and rebuys cost 20% less.",
+            effect_text = "{c:upgrade:Cursors} click REBUY. Rebuy prices -20%.",
         },
     },
     {
         id            = "desk_lamp",
         act           = 2,
         name          = "Desk Lamp",
-        effect_text   = "{c:upgrade:Cursors} never pause to clean their trackballs.",
-        description   = "Optical sensors need light to work.",
+        effect_text   = "{c:upgrade:Cursors} never stop to clean.",
+        description   = "Optical sensors need light to work. No trackball, no cleaning.",
         sprite        = "desk_lamp",
         phase         = "late",
         cost_chip     = 10,
@@ -1134,16 +1156,16 @@ local items = {
             cost_achip = 6,
             effects = {
                 { kind = "cursor_optical_sensor" },
-                { kind = "cursor_memory_unlocked" },
+                { kind = "cursor_speed_mult", value = 1.5 },
             },
-            effect_text = "{c:upgrade:Cursors} see everything and forget nothing.",
+            effect_text = "Same, and {c:upgrade:cursor} speed ×1.5.",
         },
     },
     {
         id            = "telephone",
         act           = 2,
         name          = "Telephone",
-        effect_text   = "{c:upgrade:Cursors} coordinate targeting: no two race to the same table.",
+        effect_text   = "No two {c:upgrade:cursors} head for the same table.",
         description   = "They call ahead.",
         sprite        = "telephone",
         phase         = "late",
@@ -1163,7 +1185,7 @@ local items = {
         id            = "glass_partition",
         act           = 2,
         name          = "Glass Partition",
-        effect_text   = "{c:upgrade:Cursors} phase through each other without bumping.",
+        effect_text   = "{c:upgrade:Cursors} pass through each other.",
         description   = "Everyone gets a lane.",
         sprite        = "glass_partition",
         phase         = "late",
@@ -1178,7 +1200,7 @@ local items = {
         id          = "electric_kettle",
         act         = 2,
         name        = "Electric Kettle",
-        effect_text = "{c:lost:Busted} tables refund 30% of the buy-in.",
+        effect_text = "{c:lost:Bust}: 30% of the buy-in refunded.",
         description = "Boils fast. Whistles louder.",
         sprite      = "electric_kettle",
         phase       = "late",
@@ -1197,40 +1219,40 @@ local items = {
             effects = {
                 { kind = "bust_refund_pct", value = 1.2 },
             },
-            effect_text = "{c:lost:Busted} tables refund 120% of the buy-in.",
+            effect_text = "{c:lost:Bust}: 120% of the buy-in refunded.",
         },
     },
     {
         id          = "chrome_toaster",
         act         = 2,
         name        = "Chrome Toaster",
-        effect_text = "8% chance a win bumps one tier.",
+        effect_text = "1 in 12 chance a {c:won:win} lands one size up.",
         description = "Two slots. One setting. Pops without warning.",
         sprite      = "chrome_toaster",
         phase       = "late",
         cost_chip   = 14,
         effects     = {
             { kind = "shove_rate_add",       value = 0.014 },
-            { kind = "win_tier_bump_chance", value = 0.08 },
+            { kind = "win_tier_bump_chance", value = 1/12 },
         },
         unlock = {
             kind      = "total_stacks",
             threshold = 1600,
-            text      = "{stack} {c:won:wins}",
+            text      = "{w:stack} {c:won:wins}",
         },
         corrupt = {
             cost_achip = 8,
             effects = {
-                { kind = "win_tier_bump_chance", value = 0.35 },
+                { kind = "win_tier_bump_chance", value = 1/3 },
             },
-            effect_text = "35% chance a win bumps one tier.",
+            effect_text = "1 in 3 chance a {c:won:win} lands one size up.",
         },
     },
     {
         id          = "first_aid_kit",
         act         = 2,
         name        = "First Aid Kit",
-        effect_text = "Knockouts have a 10% chance to pay out your biggest buy-in.",
+        effect_text = "A knockout: 1 in 10 chance it pays your biggest buy-in.",
         description = "Wall-mounted. Break glass, sit back down.",
         sprite      = "first_aid_kit",
         phase       = "late",
@@ -1250,14 +1272,14 @@ local items = {
                 { kind = "proc",          proc = "first_aid_kit_biggest" },
                 { kind = "earnings_mult", value = 0.70 },
             },
-            effect_text = "Knockouts have a 10% chance to pay out your biggest buy-in. {c:won:Wins} pay 30% less.",
+            effect_text = "Same, and {c:won:Wins} ×0.7.",
         },
     },
     {
         id          = "nightstand",
         act         = 2,
         name        = "Nightstand",
-        effect_text = "A rebuy has a 50% chance to {c:heat:heat} that table.",
+        effect_text = "Rebuy: 1 in 2 chance that table catches a {c:heat:heater}.",
         description = "One drawer. Lock included.",
         sprite      = "nightstand",
         phase       = "late",
@@ -1276,14 +1298,14 @@ local items = {
             effects = {
                 { kind = "proc", proc = "nightstand_rested_corrupt" },
             },
-            effect_text = "Every rebuy heats that table.",
+            effect_text = "Rebuy: that table catches a {c:heat:heater}.",
         },
     },
     {
         id          = "receipt_printer",
         act         = 2,
         name        = "Receipt Printer",
-        effect_text = "Win a {stack} and every Zoom table settles at once.",
+        effect_text = "Win a {w:stack}: every other Zoom table settles now.",
         description = "Chatters out a slip for every table. Feed it more paper.",
         sprite      = "receipt_printer",
         phase       = "mid",
@@ -1293,7 +1315,7 @@ local items = {
         unlock = {
             kind      = "total_stacks",
             threshold = 1100,
-            text      = "{stack} {c:won:wins}",
+            text      = "{w:stack} {c:won:wins}",
         },
         position    = { x = 330, y = 400 },
         effects     = {
@@ -1303,16 +1325,16 @@ local items = {
         corrupt = {
             cost_achip = 9,
             effects = {
-                { kind = "proc", proc = "receipt_printer_cascade" },
+                { kind = "proc", proc = "receipt_printer_cascade_corrupt" },
             },
-            effect_text = "Win a {stack} and every Zoom table settles at once.",
+            effect_text = "Win a {w:stack}: every other table settles now.",
         },
     },
     {
         id          = "microwave_oven",
         act         = 2,
         name        = "Microwave Oven",
-        effect_text = "When a 6-max is {c:tilt:tilted}: 50% chance another table catches a {c:heat:heater}.",
+        effect_text = "A 6-Max takes a {c:tilt:tilt}: 1 in 2 chance a random table catches a {c:heat:heater}.",
         description = "Turntable squeaks. Clock blinks 12:00.",
         sprite      = "microwave_oven",
         phase       = "late",
@@ -1330,14 +1352,16 @@ local items = {
                 { kind = "proc",      proc = "microwave_oven_vent" },
                 { kind = "loss_mult", value = 1.5 },
             },
-            effect_text = "When a 6-max is {c:tilt:tilted}: 50% chance another table catches a {c:heat:heater}. {c:lost:Losses} 50% heavier.",
+            effect_text = "Same, and {c:lost:Losses} ×1.5.",
         },
     },
     {
         id          = "framed_diploma",
         act         = 2,
         name        = "Framed Diploma",
-        effect_text = "Every 100 hands won, every table rolls: a third catch {c:heat:heat}, a third {c:tilt:tilt}, a third nothing.",
+        effect_text = "Every 100 hands won: every table rolls 1 in 3 chance each for a {c:heat:heater}, a {c:tilt:tilt}, or nothing.",
+        allow_numbers = { 1, 3 },   -- the roll's thirds are proc weights, not a chance field
+        readout     = { kind = "hands_to_next" },
         description = "Wall-mounted certificate. Handsome on the wall.",
         sprite      = "framed_diploma",
         phase       = "late",
@@ -1355,14 +1379,14 @@ local items = {
                 { kind = "proc",          proc = "framed_diploma_century" },
                 { kind = "earnings_mult", value = 0.70 },
             },
-            effect_text = "Every 100 hands won, every table rolls: a third catch {c:heat:heat}, a third {c:tilt:tilt}, a third nothing. {c:won:Wins} pay 30% less.",
+            effect_text = "Same, and {c:won:Wins} ×0.7.",
         },
     },
     {
         id          = "laminated_blueprint",
         act         = 2,
         name        = "Laminated Blueprint",
-        effect_text = "Active deck earns 50% more XP.",
+        effect_text = "The deck in play earns ×1.5 XP.",
         description = "Wall blueprint chart for systematic study.",
         sprite      = "laminated_blueprint",
         phase       = "late",
@@ -1383,14 +1407,14 @@ local items = {
             effects = {
                 { kind = "deck_xp_mult", value = 8.0 },
             },
-            effect_text = "Active deck earns 8× XP.",
+            effect_text = "The deck in play earns ×8 XP.",
         },
     },
     {
         id          = "console_television",
         act         = 2,
         name        = "Console Television",
-        effect_text = "A 6-max may take a status aimed at the table beside it.",
+        effect_text = "A {c:heat:heater} or {c:tilt:tilt} aimed beside a 6-Max: 1 in 2 chance it lands on the 6-Max instead.",
         description = "Always on. You stop noticing the sound.",
         sprite      = "console_television",
         phase       = "late",
@@ -1407,7 +1431,7 @@ local items = {
                 { kind = "router",        router = "console_television_intercept" },
                 { kind = "earnings_mult", value = 0.5 },
             },
-            effect_text = "A 6-max may take a status aimed at the table beside it. {c:won:Wins} pay 50% less.",
+            effect_text = "Same, and {c:won:Wins} ×0.5.",
         },
     },
 
@@ -1435,14 +1459,14 @@ local items = {
                 { kind = "win_chance_shift", amount = 0.30, gtype = "ko" },
                 { kind = "win_chance_shift", amount = -0.10, gtype = "six_max" },
             },
-            effect_text = "+30% win chance at tournaments. -10% at 6-max.",
+            effect_text = "+30% win chance at tournaments, -10% at 6-Max.",
         },
     },
     {
         id          = "curved_monitor",
         act         = 2,
         name        = "Curved Monitor",
-        effect_text = "Knockouts have a 20% chance to {c:heat:heat} a nearby table.",
+        effect_text = "A knockout: 1 in 5 chance the table beside it catches a {c:heat:heater}.",
         description = "Wraps around you. The room gets smaller.",
         sprite      = "curved_monitor",
         phase       = "mid",
@@ -1459,14 +1483,14 @@ local items = {
                 { kind = "proc",      proc = "curved_monitor_heater_corrupt" },
                 { kind = "loss_mult", value = 1.5 },
             },
-            effect_text = "Knockouts have a 30% chance to {c:heat:heat} every nearby table. {c:lost:Losses} 50% heavier.",
+            effect_text = "A knockout: 1 in 3 chance every table beside it catches a {c:heat:heater}, and {c:lost:Losses} ×1.5.",
         },
     },
     {
         id          = "tower_upgrade",
         act         = 2,
         name        = "Tower Upgrade",
-        effect_text = "Knockouts have a 15% chance to make a nearby table's next win read a tier higher.",
+        effect_text = "A knockout: 1 in 6 chance the next {c:won:win} beside it lands one size up.",
         description = "Fans you can hear from the bed. Boots in seconds.",
         sprite      = "tower_upgrade",
         phase       = "mid",
@@ -1482,16 +1506,17 @@ local items = {
                 { kind = "proc", proc = "tower_upgrade_bump_corrupt" },
                 -- It bumps pot tiers, so corruption bumps loss tiers back.
                 { kind = "loss_tier_shift", from = "medium", to = "large",
-                  chance = 0.35 },
+                  chance = 1/3 },
             },
-            effect_text = "Knockouts have a 25% chance to make every nearby table's next win read a tier higher. {c:lost:Losses} run a tier bigger.",
+            effect_text = "A knockout: 1 in 4 chance every next {c:won:win} beside it lands one size up, and 1 in 3 chance: {l:medium} {arrow} {l:large}.",
         },
     },
     {
         id          = "copy_machine",
         act         = 2,
         name        = "Copy Machine",
-        effect_text = "The Receipt Printer's sweep DEALS the Zoom tables it finds empty.",
+        effect_text = "The Receipt Printer also deals the empty Zoom tables.",
+        see_also    = { "receipt_printer" },
         description = "The printer's big sibling.",
         sprite      = "copy_machine",
         phase       = "mid",
@@ -1506,8 +1531,9 @@ local items = {
         id          = "whiteboard",
         act         = 2,
         name        = "Whiteboard",
-        effect_text = "The plan, drawn out: tournament {c:won:wins} ratchet twice as hard.",
-        description = "Nobody else can read it.",
+        effect_text = "The Prize Vase's bonus ×2.",
+        see_also    = { "prize_vase" },
+        description = "The plan, drawn out. Nobody else can read it.",
         sprite      = "whiteboard",
         phase       = "late",
         cost_chip   = 17,
@@ -1523,7 +1549,8 @@ local items = {
         id          = "high_roller_pass",
         act         = 2,
         name        = "High Roller Pass",
-        effect_text = "Each tournament finish gives cash games at its stake +1% win chance, lost if that tournament closes.",
+        effect_text = "Each tournament you sit in: +1% win chance at cash tables of its stake, while it runs.",
+        readout     = { kind = "tourney_backing" },
         description = "Laminated. Rarely inspected.",
         sprite      = "high_roller_pass",
         phase       = "late",
@@ -1540,15 +1567,15 @@ local items = {
                 { kind = "tourney_backing", value = 0.01 },
                 { kind = "loss_mult",       value = 1.5 },
             },
-            effect_text = "Each tournament finish gives cash games at its stake +1% win chance, lost if that tournament closes. {c:lost:Losses} 50% heavier.",
+            effect_text = "Same, and {c:lost:Losses} ×1.5.",
         },
     },
     {
         id          = "window",
         act         = 2,
         name        = "Window",
-        effect_text = "While a tournament runs, {c:tilt:tilts} aimed at its stake have a 35% chance to arrive as {c:heat:heat}.",
-        description = "Mounts flat on any wall. View may vary.",
+        effect_text = "While a tournament runs: a {c:tilt:tilt} aimed at its stake has a 1 in 3 chance to arrive as a {c:heat:heater}.",
+        description = "Mounts flat on any wall. The view is not included.",
         sprite      = "window",
         phase       = "late",
         cost_chip   = 20,
@@ -1571,7 +1598,7 @@ local items = {
                 { kind = "router",    router = "window_bend" },
                 { kind = "loss_mult", value = 1.5 },
             },
-            effect_text = "While a tournament runs, {c:tilt:tilts} aimed at its stake have a 35% chance to arrive as {c:heat:heat}. {c:lost:Losses} 50% heavier.",
+            effect_text = "Same, and {c:lost:Losses} ×1.5.",
         },
     },
     {
@@ -1629,7 +1656,7 @@ local items = {
         id          = "fire_extinguisher",
         act         = 2,
         name        = "Fire Extinguisher",
-        effect_text = "A {c:tilt:tilt} landing on an already {c:tilt:tilted} 6-max heats the table beside it.",
+        effect_text = "A {c:tilt:tilt} lands on a {c:tilt:tilted} 6-Max: the table beside it catches a {c:heat:heater}.",
         description = "Inspection tag expired a long time ago.",
         sprite      = "fire_extinguisher",
         phase       = "late",
@@ -1646,14 +1673,14 @@ local items = {
                 { kind = "proc",          proc = "fire_extinguisher_compress" },
                 { kind = "earnings_mult", value = 0.75 },
             },
-            effect_text = "A {c:tilt:tilt} landing on an already {c:tilt:tilted} 6-max heats the table beside it. {c:won:Wins} pay 25% less.",
+            effect_text = "Same, and {c:won:Wins} ×0.75.",
         },
     },
     {
         id          = "blackout_curtains",
         act         = 2,
         name        = "Blackout Curtains",
-        effect_text = "When a 6-max catches {c:heat:heat}, 50% chance the table beside it catches it too.",
+        effect_text = "A 6-Max catches a {c:heat:heater}: 1 in 2 chance the table beside it catches one too.",
         description = "No window behind them. Still helps.",
         sprite      = "blackout_curtains",
         phase       = "late",
@@ -1669,14 +1696,14 @@ local items = {
                 { kind = "proc",      proc = "blackout_curtains_read" },
                 { kind = "loss_mult", value = 1.6 },
             },
-            effect_text = "When a 6-max catches {c:heat:heat}, 50% chance the table beside it catches it too. {c:lost:Losses} 60% heavier.",
+            effect_text = "Same, and {c:lost:Losses} ×1.6.",
         },
     },
     {
         id          = "tip_jar",
         act         = 2,
         name        = "Tip Jar",
-        effect_text = "{chip} {c:chip:bounties} pay 50% more.",
+        effect_text = "{chip} {c:chip:bounties} pay ×1.5.",
         description = "Coins in a glass. Yours, mostly.",
         sprite      = "tip_jar",
         phase       = "late",
@@ -1695,7 +1722,7 @@ local items = {
             effects = {
                 { kind = "chip_award_mult", value = 4.0 },
             },
-            effect_text = "{chip} {c:chip:bounties} pay 4×.",
+            effect_text = "{chip} {c:chip:bounties} pay ×4.",
         },
     },
 
@@ -1703,7 +1730,7 @@ local items = {
         id          = "shredder",
         act         = 2,
         name        = "Shredder",
-        effect_text = "Knockouts have a 12% chance to refund a nearby buy-in.",
+        effect_text = "A knockout: 1 in 8 chance a buy-in beside it is refunded.",
         description = "Under the desk. Takes the bad ones.",
         sprite      = "shredder",
         phase       = "late",
@@ -1719,14 +1746,14 @@ local items = {
                 { kind = "proc",          proc = "shredder_refund_corrupt" },
                 { kind = "earnings_mult", value = 0.70 },
             },
-            effect_text = "Knockouts have a 25% chance to refund a nearby buy-in. {c:won:Wins} pay 30% less.",
+            effect_text = "A knockout: 1 in 4 chance a buy-in beside it is refunded, and {c:won:Wins} ×0.7.",
         },
     },
     {
         id          = "cool_towel",
         act         = 2,
         name        = "Cool Towel",
-        effect_text = "After a {c:tilt:tilt} runs its course, 25% chance the table heats up.",
+        effect_text = "A {c:tilt:tilt} ends: 1 in 4 chance that table catches a {c:heat:heater}.",
         description = "Kept folded. Kept cold.",
         sprite      = "cool_towel",
         phase       = "late",
@@ -1741,8 +1768,8 @@ local items = {
         id          = "waste_basket",
         act         = 2,
         name        = "Waste Basket",
-        effect_text = "The corner is the basket: a {c:tilt:tilt} aimed anywhere has a 35% chance to land on the corner table instead.",
-        description = "Ride it out, throw it away.",
+        effect_text = "A {c:tilt:tilt} aimed anywhere: 1 in 3 chance it lands on the corner table instead.",
+        description = "The corner is the basket. Ride it out, throw it away.",
         sprite      = "waste_basket",
         phase       = "late",
         cost_chip   = 18,
@@ -1756,15 +1783,16 @@ local items = {
             effects = {
                 { kind = "router", router = "basket_corner_corrupt" },
             },
-            effect_text = "The corner is the basket: a {c:tilt:tilt} aimed anywhere has a 70% chance to land on the corner table instead.",
+            effect_text = "A {c:tilt:tilt} aimed anywhere: 2 in 3 chance it lands on the corner table instead.",
         },
     },
     {
         id            = "cleaning_robot",
         act           = 2,
         name          = "Cleaning Robot",
-        effect_text   = "Winning a {stack} sends the {c:upgrade:cursors} into overdrive: double speed for 10 seconds.",
-        description   = "It only speeds up after someone {c:won:wins} big. Nobody knows why.",
+        effect_text   = "Win a {w:stack}: {c:upgrade:cursor} speed ×2 for 10 seconds.",
+        allow_numbers = { 2, 10 },
+        description   = "Overdrive. It only speeds up after someone {c:won:wins} big. Nobody knows why.",
         sprite        = "cleaning_robot",
         phase         = "late",
         cost_chip     = 24,
@@ -1772,7 +1800,7 @@ local items = {
         unlock = {
             kind      = "total_stacks",
             threshold = 500,
-            text      = "{stack} {c:won:wins}",
+            text      = "{w:stack} {c:won:wins}",
         },
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
@@ -1790,7 +1818,7 @@ local items = {
         id          = "ultra_stake",
         act         = 2,
         name        = "Ultra Stake",
-        effect_text = "Unlock the T10 ULTRA stake.",
+        effect_text = "Opens the ULTRA stake.",
         description = "The top table. House limit: none.",
         sprite      = "ultra_stake",
         phase       = "late",
@@ -1805,7 +1833,7 @@ local items = {
         corrupt = {
             cost_achip = 25,
             effects = { { kind = "ultra_unlock_effect" } },
-            effect_text = "Ultra stake unlocked.",
+            effect_text = "The ULTRA stake is open.",
         },
     },
 

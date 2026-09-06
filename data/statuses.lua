@@ -85,7 +85,7 @@ return {
     -- never as auras.
     heater = {
         name     = "HEATER",
-        blurb    = "Running hot: this hand {c:won:wins}, and the next.",
+        blurb    = "This hand {c:won:wins}, and the next.",
         lifetime = "punch",
         -- Landing mid-hand on a cash table ENDS that hand as a win, and
         -- the next hand wins too; anywhere it can't honestly end a hand
@@ -108,7 +108,7 @@ return {
     -- The mirror.
     tilt = {
         name     = "TILT",
-        blurb    = "Steaming: this hand is lost, and the next.",
+        blurb    = "This hand is {c:lost:lost}, and the next.",
         lifetime = "punch",
         interrupt = "lose",
         polarity = "bad",
@@ -128,7 +128,7 @@ return {
     -- guaranteed one-step bump on the next pot and needs no new consumer.
     marked = {
         name     = "MARKED",
-        blurb    = "Next pot bumped one tier.",
+        blurb    = "The next pot lands one size up.",
         lifetime = "charges",
         polarity = "good",
         icon     = "marked",
@@ -153,7 +153,7 @@ return {
     -- that is the fiction working rather than a bug.
     stacked_mark = {
         name     = "MARKED",
-        blurb    = "The next pots run a tier bigger.",
+        blurb    = "The next pots land one size up.",
         lifetime = "charges",
         -- Silent: this is what the engine PRODUCES. An item that reacts to
         -- statuses landing must not react to its own output, or it feeds
@@ -175,7 +175,7 @@ return {
     -- three rungs and a shift names its own from/to.
     sharp = {
         name     = "SHARP",
-        blurb    = "{c:won:Wins} reach a tier higher.",
+        blurb    = "{c:won:Wins} land one size up.",
         lifetime = "run",
         silent   = true,   -- a result, not an event. See stacked_mark.
         stack    = "add",

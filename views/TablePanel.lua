@@ -1931,6 +1931,9 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         for _, st in ipairs(tbl.statuses or {}) do
             if st.kind == "heater" then Anchors.set("table:heater", x, y, w, h) break end
         end
+        for _, st in ipairs(tbl.statuses or {}) do
+            if st.kind == "tilt" then Anchors.set("table:tilt", x, y, w, h) break end
+        end
     end
 
     -- Seed a default pot anchor BEFORE the script-event loop below runs. The

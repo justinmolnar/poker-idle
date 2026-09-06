@@ -38,7 +38,26 @@ return {
             "{c:won:wins}  {w:small} {w:medium} {w:large} {w:stack}",
             "{c:lost:losses}  {l:small} {l:medium} {l:large} {l:stack}",
             "The readout under a table shows what it makes per hour and its odds per size. Hover it for the math.",
+            "Some things in the catalog move a hand one size up or down. The glyphs on the card say which.",
         },
+    },
+    {
+        id   = "heater",
+        term = "{c:heat:Heater}",
+        beat = "first_heat",
+        text = "A table on a {c:heat:heater} {c:won:wins} this hand and the next, dealt for you. Things in the catalog hand them out. I don't. A second one waits its turn.",
+    },
+    {
+        id   = "tilt",
+        term = "{c:tilt:Tilt}",
+        beat = "first_tilt",
+        text = "A table on a {c:tilt:tilt} {c:lost:loses} this hand and the next. It comes off the felt, not from me. Some things in the catalog move a tilt to the table beside its target.",
+    },
+    {
+        id   = "beside",
+        term = "The table beside it",
+        beat = "first_heat",
+        text = "Sharing a side on the board. Not diagonal. Drag tables around to choose their neighbours.",
     },
     {
         id   = "run_upgrades",
@@ -63,6 +82,12 @@ return {
         term = "Tournaments",
         beat = "first_tournament",
         text = "One buy-in, no rebuy. Eight seats sit down with ten blinds each and it deals itself. Top three cash; win it outright for the {chip}.",
+    },
+    {
+        id   = "knockouts",
+        term = "Knockouts",
+        beat = "first_tournament",
+        text = "Every seat a tournament {c:lost:busts} is a knockout. Some things in the catalog fire on each one, at the table beside the tournament.",
     },
     {
         id   = "stakes",
@@ -138,7 +163,7 @@ return {
         id   = "house_rules",
         term = "The extra card",
         beat = "house_cheats",
-        text = "Sometimes the House deals a card onto your ITEMS and takes them out of the count. The bar shows what's left. Plan around it.",
+        text = "Now and then the House deals a card onto your ITEMS and takes them out of the count. The bar shows what's left. Plan around it.",
     },
     {
         id   = "runs",

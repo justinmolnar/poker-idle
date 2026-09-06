@@ -361,8 +361,21 @@ return {
             pause   = true,
             trigger = { kind = "total_heaters", min = 1 },
             lines = {
-                { text = "This table's {c:heat:on_fire}, if it was already on a hand, that one {c:won:wins}, the next hand is dealt for you. Guaranteed win. Fire's your friend.",
+                { text = "This table's {c:heat:on_fire}. A {c:heat:heater}: if it was already on a hand, that one {c:won:wins}, and the next hand is dealt for you. Guaranteed win. Fire's your friend.",
                   anchor = "table:heater" },
+            },
+        },
+        -- The other punch. Tilt is granted at run start (the hidden Tilt
+        -- catalog entry), so the first one lands on its own; he names it
+        -- once, the way he named the heater, and the glossary card opens.
+        {
+            id      = "first_tilt",
+            screen  = "grind",
+            pause   = true,
+            trigger = { kind = "total_tilts", min = 1 },
+            lines = {
+                { text = "That table's on {c:tilt:tilt}. This hand's gone and so's the next. Happens at every table sooner or later. Ride it out.",
+                  anchor = "table:tilt" },
             },
         },
 
@@ -384,7 +397,7 @@ return {
             screen  = "grind",
             trigger = { kind = "gtype_table_open", gtype = "ko" },
             lines = {
-                { text = "A tournament. One buy-in, no rebuy, eight seats, ten blinds each, and it deals itself. Top three cash. Win it outright for the {chip}. Great business, tournaments.",
+                { text = "A tournament. One buy-in, no rebuy, eight seats, ten blinds each, and it deals itself. Every seat it {c:lost:busts} is a knockout. Top three cash. Win it outright for the {chip}. Great business, tournaments.",
                   anchor = "gtype:ko" },
                 { text = "Not for you of course, cash games pay better. They do have their place though, they can improve your other tables.",
                   anchor = "gtype:ko" },

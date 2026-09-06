@@ -222,14 +222,6 @@ local function isPeeled(state, item_id)
     return false
 end
 
--- Counter formatters for the sticker, picked by the condition's `format`
--- field. Table lookup, never a branch on the unlock kind — a new format is
--- one entry here plus one field in data/catalog.lua.
-local COUNTER_FORMAT = {
-    count = function(n) return Format.formatBig(n) end,
-    money = function(n) return Format.money(n) end,
-}
-
 -- Headlines on the locked-item sticker: still counting down, vs. earned and
 -- waiting to be pulled off.
 local STICKER_TITLE = "COMING SOON!"
@@ -255,13 +247,9 @@ local function clampText(str, font, avail)
     return str .. "..."
 end
 
--- "2 / 3" for a gated item, or nil when the condition is a flag (no ratio to
--- report — see services/UnlockRegistry:progress).
-local function unlockCounter(cond, current, target)
-    if not (current and target) then return nil end
-    local fmt = COUNTER_FORMAT[cond and cond.format or "count"] or COUNTER_FORMAT.count
-    return fmt(current) .. " / " .. fmt(target)
-end
+-- "2 / 3" for a gated item, or nil when the condition is a flag. Shared
+-- with the deck roster's stickers (utils/format).
+local unlockCounter = Format.unlockCounter
 
 -- ─── Page model ───────────────────────────────────────────────────────
 
@@ -1173,6 +1161,8 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     if not self.flip_t then
         self._cells[#self._cells + 1] = {
             x = x, y = y, w = w, h = h, item = item, buyable = buyable, corruptible = corruptible,
+            -- The hover card shows the rule only once the card is open.
+            revealed = is_owned or not locked,
         }
         -- Hint targets: the first card's price stamp, and the first
         -- corruptible card. "first" is per draw pass; the flags reset at
@@ -1833,8 +1823,25 @@ function CatalogModal:draw()
             book_l, book_b + fl(6 * s), book_r - book_l, "center")
     end
 
+    -- A card under the mouse shows its hover card: the same rows the
+    -- receipt and the room use (CatalogReceipt.itemCard), so the rules it
+    -- refers to and its live value read where the player is looking. Only
+    -- once the card is open: a stickered card says what the object is and
+    -- how to earn it, never what it does.
+    if not self.flip_t then
+        for _, cell in ipairs(self._cells) do
+            if cell.revealed and mx >= cell.x and mx < cell.x + cell.w
+               and my >= cell.y and my < cell.y + cell.h then
+                local corrupted = state.corrupted_items and state.corrupted_items[cell.item.id]
+                TooltipSvc.set(CatalogReceipt.itemCard(self.game, cell.item, corrupted), mx, my)
+                break
+            end
+        end
+    end
+
     -- The manifest, pulled out: on top of the whole book. Sets the hover
-    -- tooltip, which TooltipSvc.draw below renders.
+    -- tooltip, which TooltipSvc.draw below renders (last writer wins, so the
+    -- receipt's own card takes over when it is under the mouse).
     if self.receipt then self.receipt:draw("front", receipt_ctx) end
 
     -- The House's story band while the book is open: a strip along the

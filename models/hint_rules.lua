@@ -81,6 +81,7 @@ function HintRules.registerAll(reg)
     stateField(reg, "total_big_outcomes",    "total_big_outcomes")
     stateField(reg, "total_denied_stacks",   "total_denied_stacks")
     stateField(reg, "total_heaters",         "total_heaters")
+    stateField(reg, "total_tilts",           "total_tilts")   -- story: first_tilt
     stateField(reg, "total_cursor_deals",    "total_cursor_deals")
     stateField(reg, "hands_since_last_bank", "hands_since_last_bank")
     stateField(reg, "bankroll",              "bankroll")

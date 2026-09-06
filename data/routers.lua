@@ -38,7 +38,7 @@ return {
     -- not a free filter.
     console_television_intercept = {
         kind   = "steal_nearby",
-        chance = 0.50,
+        chance = 1/2,
         gtype  = "six_max",
         radius = 1,
         ghost  = "console_television",
@@ -60,31 +60,33 @@ return {
         radius = 1,
         ghost  = nil,
     },
-    -- Window: while a tournament runs, tilts aimed at its stake have a
-    -- 35% chance to arrive as heat.
+    -- Window: while a tournament runs, a tilt aimed at its stake has a
+    -- 1 in 3 chance to arrive as a heater.
+    -- Chances are printable fractions (docs/copy-style.md): the card says
+    -- "1 in 3", so the roll is 1/3, and sim/lint_copy.lua holds them equal.
     window_bend = {
         kind   = "tournament_stake",
-        chance = 0.35,
+        chance = 1/3,
         map    = { tilt = "heater" },
         ghost  = nil,   -- weather, not an event
     },
     -- Waste Basket: the corner slot is the basket. A tilt aimed anywhere
-    -- (not at a six-max) lands on the corner table instead, 35% of the
-    -- time; corrupt 70%. Anchor's taunt takes precedence when owned.
+    -- (not at a six-max) lands on the corner table instead, 1 in 3;
+    -- corrupt 2 in 3. Anchor's taunt takes precedence when owned.
     basket_corner = {
         kind   = "basket_corner",
-        chance = 0.35,
+        chance = 1/3,
         ghost  = "waste_basket",
     },
     basket_corner_corrupt = {
         kind   = "basket_corner",
-        chance = 0.70,
+        chance = 2/3,
         ghost  = "waste_basket",
     },
-    -- Dish Soap: a tilt lands on the table beside its target instead, 25%.
+    -- Dish Soap: a tilt lands on the table beside its target instead, 1 in 4.
     dish_soap_deflect = {
         kind   = "tilt_deflect",
-        chance = 0.25,
+        chance = 1/4,
         radius = 1,
         ghost  = "dish_soap",
     },

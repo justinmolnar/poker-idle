@@ -277,6 +277,13 @@ register — ration them.
 
 ## Hard copy rules (non-negotiable)
 
+The style sheet for every RULE the player reads (effect lines, deck
+bonuses, stickers, blurbs) is docs/copy-style.md: one word per mechanic
+noun, one sentence shape per rule family, `1 in N` for a roll, `+N%` for a
+quantity, `×N` for a multiplier. His lines use those nouns when they name a
+mechanic ("a heater", "the table beside it", "a knockout"); "on fire" and
+"hot" are his and his alone. `lua sim/lint_copy.lua` checks all of it.
+
 - **The colour code.** A mechanic word is tinted in its meaning's colour
   with `{c:<meaning>:<word>}` (an underscore is a space): `{c:heat:Heat}`,
   `{c:chip:banked}`, `{c:lost:busted}`. Seven meanings, in

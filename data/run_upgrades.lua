@@ -53,10 +53,10 @@ local RunUpgrades = {
     {
         id          = "sharper_reads",
         name        = "Sharper Reads",
-        description = "Higher win chance",
+        description = "+win chance at every table",
         tooltip_blurb = {
-            "Raises your odds of winning across all stakes",
-            "and game types. Graph shows next level increases.",
+            "Raises your win chance at every stake and",
+            "game type. The graph shows the next level.",
         },
         icon        = "sharper_reads",
         -- Drives a per-stake range tooltip (win chance, current → next level).
@@ -84,8 +84,8 @@ local RunUpgrades = {
         name        = "Pot Control",
         description = "More {w:stack}, fewer {l:stack}.",
         tooltip_blurb = {
-            "Raises chance of smaller {c:lost:losses} and bigger {c:won:wins}.",
-            "Graph shows {w:stack}% increase, used to earn {chip}.",
+            "More {w:stack}, fewer {l:stack}, at every stake.",
+            "The graph shows the {w:stack} odds, the ones that pay {chip}.",
         },
         icon        = "pot_control",
         -- Drives a per-stake range tooltip (Stack rate, current → next level).
@@ -120,8 +120,8 @@ local RunUpgrades = {
         name          = "Cursor",
         description   = "+1 {c:upgrade:cursor}. It deals for you.",
         tooltip_blurb = {
-            "Adds an autoclicking {c:upgrade:cursor} that clicks DEAL /",
-            "REBUY (if purchased in catalog) buttons automatically.",
+            "One more {c:upgrade:cursor}. It clicks DEAL for you,",
+            "and REBUY once the Wacom Tablet is owned.",
         },
         icon          = "cursor",
         requires      = "box_of_mice",
@@ -147,9 +147,9 @@ local RunUpgrades = {
     {
         id            = "cursor_speed",
         name          = "Cursor Speed",
-        description   = "{c:upgrade:Cursors} move faster",
+        description   = "{c:upgrade:Cursor} speed ×1.25",
         tooltip_blurb = {
-            "+25% {c:upgrade:cursor} movement speed.",
+            "{c:upgrade:Cursor} speed ×1.25 per level.",
         },
         icon          = "cursor_speed",
         requires      = "box_of_mice",
@@ -167,10 +167,10 @@ local RunUpgrades = {
     {
         id          = "focus",
         name        = "Focus",
-        description = "Watch more tables without slipping.",
+        description = "+1 table at full FOCUS",
         tooltip_blurb = {
-            "Run more tables at once before your",
-            "FOCUS multiplier starts dropping.",
+            "One more table before FOCUS",
+            "starts dropping.",
         },
         icon        = "focus",
         max_level   = 10,

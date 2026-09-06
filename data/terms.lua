@@ -30,7 +30,9 @@ return {
         lost      = { "lost", "lose", "loss", "losses", "bust", "busted", "busts", "denied", "red" },
         chip      = { "bounty", "bounties", "banked", "bank", "paid", "the door", "door" },
         corrupt   = { "anti-chip", "anti-chips", "corrupt", "corrupted", "corruption", "underflow" },
-        heat      = { "heat", "heater", "heaters", "on fire", "hot" },
+        -- "heater" is the noun in rule copy; "on fire" and "hot" are the
+        -- House's words (story_only below) and validate only there.
+        heat      = { "heater", "heaters", "on fire", "hot" },
         tilt      = { "tilt", "tilted", "tilts", "tilting" },
         -- The run upgrades: the rack's cards wear a muted rose face, and the
         -- word is that same rose.
@@ -57,5 +59,78 @@ return {
     never = {
         "zoom", "heads-up", "6-max", "tournament", "tournaments", "stake", "stakes",
         "table", "tables", "felt", "the house", "shove", "bankroll", "hand", "hands",
+    },
+
+    -- ── The style sheet (docs/copy-style.md), enforced by sim/lint_copy.lua ──
+
+    -- Words the House may say in a story beat that rule copy may not.
+    story_only = { "on fire", "hot" },
+
+    -- Spellings, matched exactly as written (case matters).
+    banned_case = {
+        ["6-max"] = "6-Max",
+        ["6-MAX"] = "6-Max",
+    },
+
+    -- Retired words: phrase → what to write instead. Checked in every copy
+    -- field except story beats. A phrase of plain words matches whole
+    -- words, case-insensitively; anything with punctuation matches as is.
+    banned = {
+        -- the nouns
+        ["tier"]          = "a glyph, or 'size'",
+        ["tiers"]         = "glyphs, or 'sizes'",
+        ["nearby"]        = "the table beside it",
+        ["neighbour"]     = "the table beside it",
+        ["neighbor"]      = "the table beside it",
+        ["neighbouring"]  = "the table beside it",
+        ["neighboring"]   = "the table beside it",
+        ["another table"] = "a random table",
+        ["status"]        = "a heater or a tilt",
+        ["statuses"]      = "heaters and tilts",
+        ["ratchet"]       = "the plain rule: +1% win chance at every table for the run",
+        ["ratchets"]      = "the plain rule",
+        ["sweep"]         = "settles",
+        ["resolves"]      = "settles",
+        ["cascade"]       = "settles",
+        ["unbanked"]      = "unpaid",
+        ["capacity"]      = "tables at full FOCUS",
+        ["heats"]         = "catches a heater",
+        ["heats up"]      = "catches a heater",
+        ["heat up"]       = "catches a heater",
+        ["burnt-out"]     = "ends",
+        ["runs its course"] = "ends",
+        ["spent"]         = "lands / ends",
+        -- the number words: the form is the operation (+N%, ×N, 1 in N)
+        ["double"]        = "×2",
+        ["doubles"]       = "×2",
+        ["quadruple"]     = "×4",
+        ["twice"]         = "×2",
+        ["thrice"]        = "×3",
+        ["% more"]        = "×N or +N%",
+        ["% less"]        = "×N or -N%",
+        ["% stronger"]    = "+N%",
+        ["% softer"]      = "×N",
+        ["% heavier"]     = "×N",
+        ["% bigger"]      = "×N",
+        ["% faster"]      = "×N",
+        ["× bigger"]      = "×N",
+        ["softer"]        = "×N",
+        ["heavier"]       = "×N",
+        ["half the time"] = "1 in 2 chance",
+        ["a third"]       = "1 in 3 chance",
+        ["% chance"]      = "1 in N chance",
+        ["sometimes"]     = "1 in N chance",
+        ["may "]          = "1 in N chance",
+        -- the verbs that stood in for a glyph and an arrow
+        ["boost"]         = "{from} {arrow} {to}",
+        ["boosts"]        = "{from} {arrow} {to}",
+        ["soften"]        = "{from} {arrow} {to}",
+        ["softens"]       = "{from} {arrow} {to}",
+        ["bumps"]         = "lands one size up",
+        ["bumped"]        = "lands one size up",
+        ["reads a"]       = "lands one size up",
+        ["read a"]        = "lands one size up",
+        ["read one"]      = "{from} {arrow} {to}",
+        ["reach a"]       = "lands one size up",
     },
 }

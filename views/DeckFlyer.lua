@@ -225,12 +225,10 @@ local function iconWrapCentered(game, str, x, y, w, font, color, alpha)
     return y
 end
 
+-- "2 / 3", the catalog sticker's counter (utils/format; the unlock entry's
+-- `format` field picks dollars).
 local function unlockCounter(spec, current, target)
-    local kind = spec.unlock and spec.unlock.kind or ""
-    if kind:find("money") then
-        return Format.money(current) .. " / " .. Format.money(target)
-    end
-    return Format.formatBig(current) .. " / " .. Format.formatBig(target)
+    return Format.unlockCounter(spec.unlock, current or 0, target or 0) or ""
 end
 
 -- A leaf of stock: the book's double rule, in the pamphlet's own palette.
@@ -425,8 +423,12 @@ local function drawColumn(self, spec, rx, ry, rw, rh, fonts, s, unlocked)
     cy = cy + fl(10 * s)
 
     if not unlocked then
-        cy = iconWrapCentered(game, (spec.unlock and spec.unlock.text) or "", cx, cy, cw, fonts.sm, P.primary)
-        cy = iconWrapCentered(game, unlockCounter(spec, cur or 0, target or 0), cx, cy, cw, fonts.sm, P.error)
+        -- One line, the catalog sticker's shape: the counter starts the
+        -- sentence the noun phrase finishes ("0 / 3,000 Zoom hands").
+        local counter = unlockCounter(spec, cur, target)
+        local line    = (spec.unlock and spec.unlock.text) or ""
+        if counter ~= "" then line = counter .. " " .. line end
+        cy = iconWrapCentered(game, line, cx, cy, cw, fonts.sm, P.error)
         cy = cy + fl(10 * s)
     end
 

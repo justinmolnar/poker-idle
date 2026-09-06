@@ -64,12 +64,19 @@ return {
         -- Nobody is being hit. The printer runs and those hands finish;
         -- what you should see is the ghost and the tables settling.
     },
+    -- Corrupt: every other table, not just the Zoom ones.
+    receipt_printer_cascade_corrupt = {
+        trigger = "on_stack_win",
+        target  = { kind = "any_other" },
+        payload = { kind = "resolve_now" },
+        ghost   = "receipt_printer",
+    },
 
     -- The aura. A knockout heats a neighbouring table.
     curved_monitor_heater = {
         trigger = "on_ko",
-        chance  = 0.20,
-        target  = { kind = "board_near", radius = 2, pick = "random", pick_n_field = "ko_targets_add",
+        chance  = 1/5,
+        target  = { kind = "board_near", radius = 1, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6,
@@ -85,8 +92,8 @@ return {
     -- plan never scheduled.
     tower_upgrade_bump = {
         trigger = "on_ko",
-        chance  = 0.15,
-        target  = { kind = "board_near", radius = 2, pick = "random", pick_n_field = "ko_targets_add",
+        chance  = 1/6,
+        target  = { kind = "board_near", radius = 1, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "next_win_tier_up" },
         ghost   = "tower_upgrade",
@@ -95,7 +102,7 @@ return {
     -- The healer. A knockout sometimes buys back a neighbour's buy-in.
     shredder_refund = {
         trigger = "on_ko",
-        chance  = 0.12,
+        chance  = 1/8,
         target  = { kind = "board_near", radius = 1, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "refund_buyin", chance = 1.0 },
@@ -133,7 +140,7 @@ return {
     },
     dogs_playing_poker_high_corrupt = {
         trigger = "on_stack_win",
-        chance  = 0.35,
+        chance  = 1/3,
         target  = { kind = "self" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 8 },
@@ -143,7 +150,7 @@ return {
     -- Gaming Chair. The good run spreads to the table beside it.
     gaming_chair_spread = {
         trigger = "on_stack_win",
-        chance  = 0.30,
+        chance  = 1/3,
         target  = { kind = "board_near", radius = 1, pick = "random",
                     exclude_self = true },
         payload = { kind = "apply_status", status = "heater",
@@ -292,7 +299,7 @@ return {
     -- quietly pay for the rest of the board.
     first_aid_kit_biggest = {
         trigger = "on_ko",
-        chance  = 0.10,
+        chance  = 1/10,
         target  = { kind = "none" },
         payload = { kind = "pay_biggest_buyin" },
         ghost   = "first_aid_kit",
@@ -363,8 +370,8 @@ return {
 
     curved_monitor_heater_corrupt = {
         trigger = "on_ko",
-        chance  = 0.30,
-        target  = { kind = "board_near", radius = 2, exclude_self = true },
+        chance  = 1/3,
+        target  = { kind = "board_near", radius = 1, exclude_self = true },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6,
                     escalate = { field = "busted_total", per = 0.12 } },
@@ -375,7 +382,7 @@ return {
     tower_upgrade_bump_corrupt = {
         trigger = "on_ko",
         chance  = 0.25,
-        target  = { kind = "board_near", radius = 2, exclude_self = true,
+        target  = { kind = "board_near", radius = 1, exclude_self = true,
                     where = { chip_stack_table = false } },
         payload = { kind = "next_win_tier_up" },
         ghost   = "tower_upgrade",
