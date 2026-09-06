@@ -1142,6 +1142,11 @@ function GrindView:_buildRailComponents()
     -- chunk), and its value's baseline sits on that line.
     local face_bottom = RAIL_BTN_H - depth
     local function stat(c) c.type = "stat"; c.h = c.h or face_bottom; c.valign = c.valign or "bottom"; return c end
+    -- A slot is as wide as the widest value it can hold (data/rail.lua
+    -- reserve), never as wide as the value it holds now: the row does not
+    -- move as the numbers change.
+    local function reserveW(font, text, extra) return font:getWidth(text) + (extra or 0) + SP.stat_pad end
+    local glyph_w = fl(fonts.md:getHeight() * SP.stat_glyph) + SP.stat_pad
     local function group(kids) return { type = "row", gap = gap, h = RAIL_BTN_H, align = "top", children = kids } end
 
     -- ── The buttons: the gear, the book, the room, the deck ──
@@ -1255,13 +1260,15 @@ function GrindView:_buildRailComponents()
     local focus = stat{ label = R.labels.focus,
         value = focus_shown .. "%", value_color = focus_color,
         value_scale = Pop.scale(fpop, 1, 0.45),
-        anchor = "cell:focus", tooltip = focus_tip }
+        anchor = "cell:focus", tooltip = focus_tip,
+        w = reserveW(fonts.md, R.reserve.focus) }
     -- TABLES: open against the capacity, as a fill that reddens past it.
     local tables = stat{ label = R.labels.tables, value = "",
         bar = { frac = n_open / math.max(1, focus_cap), w = fl(SP.stat_bar_w * s),
                 color = over and Theme.sem.lost or Theme.fg.heading },
         suffix = { text = n_open .. " / " .. focus_cap, color_token = over and "lost" or "muted" },
-        tooltip = focus_tip }
+        tooltip = focus_tip,
+        w = fl(SP.stat_bar_w * s) + SP.stat_gap + reserveW(fonts.sm, R.reserve.tables) }
 
     -- ── The money: what is tied up at the tables, and the bankroll under its pile ──
     local d_bank  = self.displayed_bankroll or state.bankroll or 0
@@ -1292,7 +1299,8 @@ function GrindView:_buildRailComponents()
     local tied = { type = "column", children = {
         stat{ value = R.labels.tied_up .. " " .. tied_str, value_style = "sm", h = tied_h, valign = "top",
               value_color = broken and Theme.currency.achip or Theme.fg.muted,
-              anchor = "cell:tied", tooltip = R.tooltips.tied_up },
+              anchor = "cell:tied", tooltip = R.tooltips.tied_up,
+              w = reserveW(fonts.sm, R.labels.tied_up .. " " .. R.reserve.tied_up) },
         { type = "button", id = "cash_out", anchor = "btn:cash_out", depth = depth,
           face_h = (RAIL_BTN_H - tied_h) - Button.allocatedH(0, depth),
           w = cash_w,
@@ -1304,7 +1312,8 @@ function GrindView:_buildRailComponents()
     -- centres itself over this slot, see _drawBankrollChips).
     local bankroll = stat{ value = bank_str, value_style = "lg", value_color = bank_color,
         value_glow_color = broken and Theme.currency.achip or nil,
-        anchor = "cell:bankroll", align = "center", tooltip = R.tooltips.bankroll }
+        anchor = "cell:bankroll", align = "center", tooltip = R.tooltips.bankroll,
+        w = reserveW(fonts.lg, R.reserve.bankroll) }
 
     -- ── The chips: banked (yours) and next (this run's, banked when you shove) ──
     local pending = state.chips_this_run or 0
@@ -1315,11 +1324,13 @@ function GrindView:_buildRailComponents()
     local banked = { type = "column", anchor = "cell:chips", children = {
         stat{ icon = "chip", value = chipsText(d_chips), h = count_h, valign = "top",
               dim = chip_dim, value_color = Theme.fg.heading,
-              tooltip = { R.tooltips.banked, R.tooltips.next } },
+              tooltip = { R.tooltips.banked, R.tooltips.next },
+              w = glyph_w + reserveW(fonts.md, R.reserve.chips) },
         stat{ value = "+" .. pending .. " " .. R.labels.next, value_style = "sm",
               h = face_bottom - count_h, dim = chip_dim,
               value_color_token = (pending > 0) and "chip" or "faint", value_anchor = "chip_badge:shove",
-              tooltip = { R.tooltips.banked, R.tooltips.next } },
+              tooltip = { R.tooltips.banked, R.tooltips.next },
+              w = reserveW(fonts.sm, R.reserve.next .. " " .. R.labels.next) },
     } }
     local anti
     if state.shove_r2_won then
@@ -1327,10 +1338,12 @@ function GrindView:_buildRailComponents()
         local pend_a   = state.anti_chips_this_run or 0
         anti = { type = "column", anchor = "cell:achips", children = {
             stat{ icon = "achip", value = chipsText(d_achips), h = count_h, valign = "top",
-                  value_color = Theme.currency.achip },
+                  value_color = Theme.currency.achip,
+                  w = glyph_w + reserveW(fonts.md, R.reserve.chips) },
             stat{ value = "+" .. pend_a .. " " .. R.labels.next, value_style = "sm",
                   h = face_bottom - count_h,
-                  value_color_token = (pend_a > 0) and "corrupt" or "faint", value_anchor = "achip_badge:shove" },
+                  value_color_token = (pend_a > 0) and "corrupt" or "faint", value_anchor = "achip_badge:shove",
+                  w = reserveW(fonts.sm, R.reserve.next .. " " .. R.labels.next) },
         } }
     end
 
@@ -1358,7 +1371,7 @@ function GrindView:_buildRailComponents()
         shove_tip = nil   -- a greyed button does not pitch its own click
     end
     local shove = { type = "button", id = "shove", anchor = "btn:shove",
-        w = fonts.md:getWidth(R.labels.shove) + fonts.sm:getWidth(rate_txt) + fl(SP.shove_button_pad * s),
+        w = fonts.md:getWidth(R.labels.shove) + fonts.sm:getWidth(R.reserve.rate) + fl(SP.shove_button_pad * s),
         face_h = face_h, depth = depth,
         disabled = not can_shove,
         face_color = Theme.bg.widget_hover,

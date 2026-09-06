@@ -50,6 +50,18 @@ return {
         deck_click  = "Click to see your decks",
     },
 
+    -- The widest value each readout must hold: its slot is sized to this
+    -- once, so the row never moves as the numbers change.
+    reserve = {
+        bankroll = "$999.99K",
+        tied_up  = "$999.99",
+        focus    = "100%",
+        tables   = "99 / 99",
+        chips    = "999",
+        next     = "+99",
+        rate     = "999%",
+    },
+
     -- The game-type keys' blurbs (the strip above the ADD TABLE rows).
     gtype = {
         six_max  = "6-Max. The long game: five opponents, slow hands, the fattest pots in the room.",
