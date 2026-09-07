@@ -2,14 +2,13 @@
 --
 -- A single autonomous on-screen cursor. State machine:
 --   wandering → seeking → wandering
---   seeking   → cleaning / stunned
+--   seeking   → stunned
 --
 --   wandering — no claimed target. Drifts toward a random wander point in
 --               the window; scans visible hit-boxes for targets.
 --   seeking   — has a target. Travels with organic steering & wrist-arc
 --               curvature toward the target. On arrival (within CLICK_RADIUS),
 --               dispatches click.
---   cleaning  — trackball pause every 10 clicks. Spins in place for 2.5s.
 --   stunned   — collision recoil pause for 0.35s when bumping another cursor.
 --
 -- Engine-agnostic: holds pure state (x, y, angle, target, timers);
@@ -33,16 +32,14 @@ function Cursor:new(x, y)
         total_dist        = 1,                     -- initial distance of current leg
         arc_sign          = 1,                     -- +1 or -1 for lateral wrist curve
         arc_scale         = 0.2,                   -- curvature intensity
-        angle             = 0,                     -- rotation angle in radians (for cleaning spin)
+        angle             = 0,                     -- rotation angle in radians
         target_idx        = nil,                   -- claimed hit-box.idx, or nil
         target_x          = x or 0,
         target_y          = y or 0,
-        state             = "wandering",           -- wandering | seeking | cleaning | stunned
+        state             = "wandering",           -- wandering | seeking | stunned
         scan_timer        = 0,                     -- 0 = scan immediately on first tick
         wander_timer      = 0,
         seek_timer        = 0,                     -- elapsed time seeking (memory timeout)
-        click_count       = 0,                     -- total clicks since last trackball cleaning
-        clean_timer       = 0,                     -- timer for trackball cleaning spin
         stun_timer        = 0,                     -- timer for collision recoil/stun
         recoil_vx         = 0,                     -- recoil velocity x on collision
         recoil_vy         = 0,                     -- recoil velocity y on collision
@@ -258,7 +255,6 @@ end
 function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher, ctx)
     local allow_duplicate = not (ctx and ctx.cursor_sync_unlocked)
     local memory_unlocked = (ctx and ctx.cursor_memory_unlocked)
-    local optical_sensor  = (ctx and ctx.cursor_optical_sensor)
 
     -- 1. Handle STUNNED state (dramatic collision launch & friction slide)
     if self.state == "stunned" then
@@ -298,18 +294,6 @@ function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher, ctx)
         return
     end
 
-    -- 2. Handle CLEANING state (trackball cleaning wobble)
-    if self.state == "cleaning" then
-        self.clean_timer = self.clean_timer - dt
-        self.angle = math.sin((1.4 - self.clean_timer) * 12.0) * 0.25
-        if self.clean_timer <= 0 then
-            self.angle = 0
-            self.state = "wandering"
-            self.vx, self.vy = 0, 0
-            pickWanderPoint(self, W, H)
-        end
-        return
-    end
 
     -- Brief hold right after click
     if ctx and ctx.cursor_zero_click_delay then
@@ -345,15 +329,7 @@ function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher, ctx)
                 end
                 self:releaseTarget()
 
-                -- Trackball cleaning check (every 10 clicks unless optical sensor owned)
-                self.click_count = self.click_count + 1
-                if not optical_sensor and self.click_count >= 10 then
-                    self.click_count = 0
-                    self.state = "cleaning"
-                    self.clean_timer = 1.4
-                else
-                    pickWanderPoint(self, W, H)
-                end
+                pickWanderPoint(self, W, H)
             end
         end
     end

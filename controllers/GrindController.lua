@@ -491,7 +491,10 @@ end
 function GrindController:dealIdleTable(t)
     if not t or t.state ~= "idle" or t.pending_close then return false end
     if (t.stack or 0) <= 0 then return false end
-    t:deal(self.ctx)
+    if not t:deal(self.ctx) then return false end
+    -- A deal is a moment procs can fire on (the Energy Drink's spread). A
+    -- cascade's deal announces it too, so a block of Zoom tables chains.
+    self:_announce("on_deal", { table = t })
     return true
 end
 
@@ -2215,6 +2218,9 @@ function GrindController:dealHand(idx)
         -- again. Set here rather than in Table:deal because these are view
         -- FX fields.
         t.pot_exploded, t.pot_explode_pending = nil, nil
+        -- The player's (or a cursor's) deal is a moment procs fire on: the
+        -- Energy Drink deals the same-stake Zoom tables beside this one.
+        self:_announce("on_deal", { table = t })
     end
     return ok
 end

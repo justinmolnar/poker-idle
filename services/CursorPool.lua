@@ -109,10 +109,10 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
     if not phasing and #_cursors > 1 then
         for i = 1, #_cursors - 1 do
             local c1 = _cursors[i]
-            if c1.state ~= "cleaning" then
+            do
                 for j = i + 1, #_cursors do
                     local c2 = _cursors[j]
-                    if c2.state ~= "cleaning" then
+                    do
                         local dx, dy = c2.x - c1.x, c2.y - c1.y
                         local dist2 = dx * dx + dy * dy
                         if dist2 < 20 * 20 then
@@ -240,74 +240,7 @@ function CursorPool.draw(fonts_or_game)
             end
         end
 
-        -- Trackball cleaning animation & status badge
-        for _, c in ipairs(_cursors) do
-            if c.state == "cleaning" and flourish then
-                local dur = 1.4
-                local progress = math.max(0, math.min(1.0, 1.0 - ((c.clean_timer or 0) / dur)))
-                local cx, cy = c.x, c.y
-
-                -- 1. Q-Tip Cotton Swab rubbing the mouse
-                local rub = math.sin(tnow * 16.0) * 6
-                local sx1 = cx + 10 + rub
-                local sy1 = cy + 16
-                local sx2 = sx1 + 10
-                local sy2 = sy1 + 10
-
-                -- Wooden stick
-                Theme.setColor({ 0.75, 0.6, 0.4 }, 0.9)
-                love.graphics.setLineWidth(2)
-                love.graphics.line(sx1, sy1, sx2, sy2)
-
-                -- Fluffy white cotton swab tip
-                Theme.setColor({ 0.98, 0.98, 0.92 }, 0.98)
-                love.graphics.circle("fill", sx1, sy1, 4)
-                Theme.setColor(Theme.border.strong or { 0.4, 0.4, 0.45 }, 0.6)
-                love.graphics.setLineWidth(1)
-                love.graphics.circle("line", sx1, sy1, 4)
-
-                -- 2. Gunk dust / Sparkle Particles
-                for p = 1, 3 do
-                    local pa = tnow * 10.0 + p * 2.1
-                    local pr = 6 + math.sin(pa * 3.0) * 3
-                    local px = sx1 + math.cos(pa) * pr
-                    local py = sy1 + math.sin(pa) * pr
-                    if progress < 0.5 then
-                        -- Gunk dust particles
-                        Theme.setColor({ 0.5, 0.45, 0.38 }, (0.5 - progress) * 1.8)
-                        love.graphics.circle("fill", px, py, 1.5)
-                    else
-                        -- Clean sparkles
-                        Theme.setColor(Theme.fg.heading, (progress - 0.5) * 1.8)
-                        drawStar(px, py, 1.5, 4, 4, pa, "fill")
-                    end
-                end
-
-                -- 3. Status Pill Badge ("cleaning trackball...")
-                local pill_w, pill_h = 114, 20
-                local px = math.floor(cx - pill_w * 0.5)
-                local py = math.floor(cy - 30)
-
-                Theme.setColor(Theme.bg.window or { 0.1, 0.12, 0.15 }, 0.95)
-                love.graphics.rectangle("fill", px, py, pill_w, pill_h, 4)
-                Theme.setColor(Theme.border.soft or { 0.3, 0.4, 0.5 }, 0.9)
-                love.graphics.setLineWidth(1)
-                love.graphics.rectangle("line", px, py, pill_w, pill_h, 4)
-
-                -- Progress bar line along pill bottom
-                local fill_w = math.floor((pill_w - 4) * progress)
-                Theme.setColor(Theme.fg.heading, 0.95)
-                love.graphics.rectangle("fill", px + 2, py + pill_h - 3, fill_w, 2, 1)
-
-                -- Text label inside pill (ALWAYS active via fallback font)
-                local font = (fonts and (fonts.xs or fonts.sm)) or love.graphics.getFont()
-                if font then
-                    love.graphics.setFont(font)
-                    Theme.setColor(Theme.fg.heading or { 0.95, 0.95, 1.0 })
-                    love.graphics.printf("cleaning trackball...", px, py + math.floor((pill_h - 3 - font:getHeight()) * 0.5), pill_w, "center")
-                end
-            end
-        end
+        -- (the trackball-cleaning pause and its badge are gone: it was invisible)
     end
 
     -- Click ripples

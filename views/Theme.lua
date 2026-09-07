@@ -109,6 +109,22 @@ function Theme.embossFor(color)
     return { 0, 0, 0, 0.85 }
 end
 
+-- A colour token from data (data/catalog_pages.lua `tab`): "sem:heat",
+-- "gtype:zoom" (data/game_type_themes.lua chrome_color), "paper:ink".
+-- Unknown tokens fall back to the paper's tan so a typo is visible, not a
+-- crash.
+local GameTypeThemes = require("data.game_type_themes")
+function Theme.tabColor(token)
+    local kind, name = tostring(token or ""):match("^(%w+):([%w_]+)$")
+    if kind == "sem" then return Theme.semColor(name) or Theme.paper.sticker_counting end
+    if kind == "gtype" then
+        local gt = GameTypeThemes[name]
+        return (gt and gt.chrome_color) or Theme.paper.sticker_counting
+    end
+    if kind == "paper" then return Theme.paper[name] or Theme.paper.sticker_counting end
+    return Theme.paper.sticker_counting
+end
+
 -- Tint for drawing pixel-art assets. Reads the active palette's tint.world
 -- so a future "haunted" palette could route everything through a hue.
 function Theme.assetTint(alpha)

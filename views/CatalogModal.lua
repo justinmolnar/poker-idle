@@ -40,6 +40,7 @@ local Format       = require("utils.format")
 local Decal        = require("services.Decal")
 local TooltipSvc     = require("services.Tooltip")
 local HoverSvc       = require("services.HoverService")
+local AwardGlow      = require("views.AwardGlow")   -- the index tab's "something to peel" pulse
 local ShaderRegistry = require("services.ShaderRegistry")
 local CatalogReceipt = require("views.CatalogReceipt")
 
@@ -158,7 +159,7 @@ function CatalogModal:new(game, opts)
         _peel     = nil,
         -- Spread index (0 = front cover, 1 = pages 1-2, ..., max = back cover)
         spread_index   = 0,
-        -- Continue-button rect (built each :draw); click sets _resolved.
+        -- Back-cover CLOSE rect (built each :draw); click sets _resolved.
         _continue_rect = nil,
         _resolved      = false,
         -- The purchase manifest tucked behind the left page (its own view).
@@ -182,7 +183,7 @@ local function visibleItems(state)
     local out = {}
     for _, item in ipairs(Catalog) do
         local locked = item.requires and not owned[item.requires]
-        local skip = item.hidden
+        local skip = item.hidden or item.retired
                   or (locked and item.requires_hide)
                   or (item.requires_act3 and not state.shove_r2_won)
         if not skip then
@@ -279,7 +280,7 @@ function CatalogModal:_pages()
 
     local function visible(item)
         local locked = item.requires and not owned[item.requires]
-        if item.hidden then return false end
+        if item.hidden or item.retired then return false end
         if locked and item.requires_hide then return false end
         if item.requires_act3 and not state.shove_r2_won then return false end
         return true
@@ -299,7 +300,7 @@ function CatalogModal:_pages()
     -- title = nil and draw a bare header band, because a department running
     -- for three pages is what a catalog looks like — repeating the name on
     -- every page (or worse, "cont.") is noise.
-    local function addLeaves(title, list)
+    local function addLeaves(title, list, dept)
         local units = 0
         for _, it in ipairs(list) do units = units + math.min(it.slots or 1, LEAF_SLOTS) end
         if units == 0 then return end
@@ -310,7 +311,10 @@ function CatalogModal:_pages()
         local function flush()
             if #leaf == 0 then return end
             emitted = emitted + 1
-            pages[#pages + 1] = { title = (emitted == 1) and title or nil, items = leaf }
+            -- The first leaf also carries the department itself (id, tab
+            -- colours) so the index tabs can find where each shelf starts.
+            pages[#pages + 1] = { title = (emitted == 1) and title or nil, items = leaf,
+                                  dept = (emitted == 1) and dept or nil }
             units       = units - used
             leaves_left = math.max(1, leaves_left - 1)
             target      = math.ceil(units / leaves_left)
@@ -328,6 +332,9 @@ function CatalogModal:_pages()
         flush()
     end
 
+    -- An id may sit on two departments: Value Buys repeats one card from
+    -- every other shelf (data/catalog_pages.lua rule 4). `placed` only
+    -- keeps authored ids out of the "&c." leftovers.
     local placed = {}
     for _, dept in ipairs(CatalogPages) do
         local list = {}
@@ -336,7 +343,7 @@ function CatalogModal:_pages()
             placed[id] = true                       -- authored → never a leftover
             if it and visible(it) then list[#list + 1] = it end
         end
-        addLeaves(dept.title, list)
+        addLeaves(dept.title, list, dept)
     end
 
     -- Catch-all for any visible item the author forgot to place.
@@ -403,17 +410,31 @@ function CatalogModal:wheelmoved(_, dy)
     end
     if not dy or dy == 0 or self.flip_t then return end
     local step = (dy > 0) and -1 or 1
+    self:goToSpread(self.spread_index + step)
+end
+
+-- Turn to spread `n` (0 = front cover, max = back cover). One flip
+-- animation whatever the distance; a jump of more than one spread plays
+-- the flip lower, so it reads as several pages at once. Every way of
+-- turning the book (wheel, dog-ears, the index tabs) comes through here.
+-- The one page-turn path. A jump of more than one spread (an index tab)
+-- is still ONE move: grabbing a tab lifts every sheet between here and
+-- there as a block and turns it once. The flip draws the block as a single
+-- leaf (its front is the old right page, its back the new left page) and
+-- every sticker glued inside the block rides it across the spine.
+function CatalogModal:goToSpread(n)
+    if self.flip_t then return false end
     local pages = self:_pages()
     local max_spread = math.ceil(#pages / 2) + 1
-    local new_index = self.spread_index + step
-    if new_index >= 0 and new_index <= max_spread then
-        self.old_spread_index = self.spread_index
-        self.spread_index = new_index
-        self.flip_t = flipSecs()
-        self.flip_dir = step > 0 and "next" or "prev"
-        local SoundService = require("services.SoundService")
-        SoundService.playNamed("hole_card_flip")
-    end
+    if n < 0 or n > max_spread or n == self.spread_index then return false end
+    local dist = math.abs(n - self.spread_index)
+    self.old_spread_index = self.spread_index
+    self.spread_index = n
+    self.flip_t = flipSecs()
+    self.flip_dir = (n > self.old_spread_index) and "next" or "prev"
+    local SoundService = require("services.SoundService")
+    SoundService.playNamed("hole_card_flip", { pitch = dist > 1 and 0.85 or nil })
+    return true
 end
 
 -- Advance an in-progress peel from the live mouse position, and finish it when
@@ -462,11 +483,18 @@ end
 
 -- Page geometry, shared by :draw and :feltRect so the resting book's size
 -- is known before it has drawn once (the flyer lands clear of it).
+-- The blank strip along the top of every leaf where an index sticker's
+-- stuck-down half lives. The heading prints below it, so a sticker never
+-- covers a word. Half the sticker is on the page, half hangs off it.
+local function stickBand(s)
+    return math.floor(18 * s)
+end
+
 local function pageSize(fonts, s)
     local fl = math.floor
     local card_h = fonts.md:getHeight() + 3 * fonts.sm:getHeight() + fl(16 * s) + 8
     local page_w = fl(MODAL_W_BASE * s * 0.5)
-    local head_h = fonts.md:getHeight() + fl(16 * s)
+    local head_h = fonts.md:getHeight() + fl(16 * s) + stickBand(s)
     local page_h = fl(head_h + fl(8 * s) + LEAF_SLOTS * card_h
                       + (LEAF_SLOTS - 1) * fl(10 * s) + fonts.sm:getHeight() + fl(22 * s))
     return page_w, page_h, card_h
@@ -580,6 +608,18 @@ function CatalogModal:consumeMouse(mx, my, button)
     if self._enter_t < 1 then return false end
     if button ~= 1 then return false end
 
+    -- Index tabs first: they hang above the book's top edge, clear of the
+    -- manifest's stub. While the manifest is pulled out it sits on top of
+    -- everything, so it keeps the click.
+    if not (self.receipt and self.receipt:isOpen()) then
+        for _, tab in ipairs(self._tabs or {}) do
+            if mx >= tab.x and mx < tab.x + tab.w and my >= tab.y and my < tab.y + tab.h then
+                self:goToSpread(tab.spread)
+                return true
+            end
+        end
+    end
+
     -- The manifest: its stub takes the click when tucked; while pulled out
     -- it sits on top of everything, and even the tuck-away click is
     -- consumed so the host's close-on-unconsumed-click can't eat the book.
@@ -613,14 +653,7 @@ function CatalogModal:consumeMouse(mx, my, button)
     local pr = self._prev_rect
     if pr and mx >= pr.x and mx < pr.x + pr.w
        and my >= pr.y and my < pr.y + pr.h then
-        if self.spread_index > 0 and not self.flip_t then
-            self.old_spread_index = self.spread_index
-            self.spread_index = self.spread_index - 1
-            self.flip_t = flipSecs()
-            self.flip_dir = "prev"
-            local SoundService = require("services.SoundService")
-            SoundService.playNamed("hole_card_flip")
-        end
+        self:goToSpread(self.spread_index - 1)
         return true
     end
 
@@ -628,16 +661,7 @@ function CatalogModal:consumeMouse(mx, my, button)
     local nr = self._next_rect
     if nr and mx >= nr.x and mx < nr.x + nr.w
        and my >= nr.y and my < nr.y + nr.h then
-        local pages = self:_pages()
-        local max_spread = math.ceil(#pages / 2) + 1
-        if self.spread_index < max_spread and not self.flip_t then
-            self.old_spread_index = self.spread_index
-            self.spread_index = self.spread_index + 1
-            self.flip_t = flipSecs()
-            self.flip_dir = "next"
-            local SoundService = require("services.SoundService")
-            SoundService.playNamed("hole_card_flip")
-        end
+        self:goToSpread(self.spread_index + 1)
         return true
     end
 
@@ -655,12 +679,10 @@ function CatalogModal:consumeMouse(mx, my, button)
             return true   -- consumed even if not buyable (don't fall through)
         end
     end
-    -- Dead space. On the felt that means "put the book down".
-    if self.on_felt then
-        self:closeToFelt()
-        return true
-    end
-    return false
+    -- Dead space: put the book down. There is no close button; clicking
+    -- off the book is how it closes (the back cover's CLOSE and ESC too).
+    if self.on_felt then self:closeToFelt() else self._resolved = true end
+    return true
 end
 
 -- ─── Render ───────────────────────────────────────────────────────────
@@ -722,6 +744,15 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     if unlock_locked then
         Theme.setColor(Theme.paper.ink, 0.10)
         love.graphics.rectangle("fill", x, y, w, h)
+    end
+    -- The designer's refactor flag: a red wash and a stamp, so the flagged
+    -- set reads page by page in the book itself. Under everything else.
+    if item.refactor then
+        Theme.setColor(Theme.paper.refactor_wash)
+        love.graphics.rectangle("fill", x, y, w, h)
+        love.graphics.setFont(fonts.xs)
+        Theme.setColor(Theme.paper.stamp, 0.85)
+        love.graphics.print("REFACTOR", x + fl(4 * s), y + h - fonts.xs:getHeight() - fl(3 * s))
     end
 
     -- Vintage newsprint border for this ad
@@ -1353,6 +1384,200 @@ end
 -- only), its item cards packed into 3 vertical slot-units by each item's
 -- `slots` (1 default; 3 = a full-leaf hero card), and the page number. `page`
 -- is { title, items } or nil (a blank verso — draw bare paper only).
+-- One index sticker. `stuck` draws the half that is on the page too (the
+-- sticker's own leaf is in view); otherwise only the half poking up past
+-- the edge shows, the rest being on a page in one of the two stacks. `x`
+-- overrides the resting position: the leaf that owns the sticker passes
+-- its spine edge plus the sticker's offset, so the sticker rides the leaf.
+local function drawTabSticker(self, t, stuck, s, fonts, x)
+    local fl = math.floor
+    local xs = fonts.xs
+    local y, w = t.y, t.w
+    x = x or t.x
+    local h = t.h_up + (stuck and t.stick or 0)
+    local alpha = (stuck or t.hov) and 1 or 0.85
+    if stuck then
+        -- The stuck-down half throws a hair of shadow onto the paper.
+        Theme.setColor(Theme.paper.ink, 0.18)
+        love.graphics.rectangle("fill", x + 1, t.top, w, t.stick + 1)
+    end
+    local c1, c2 = t.c1, t.c2
+    if c2 then
+        local bands = 8
+        for b = 0, bands - 1 do
+            local t0 = b / bands
+            local col = { c1[1] + (c2[1] - c1[1]) * t0, c1[2] + (c2[2] - c1[2]) * t0, c1[3] + (c2[3] - c1[3]) * t0 }
+            Theme.setColor(col, alpha)
+            love.graphics.rectangle("fill", x + fl(w * t0), y, math.ceil(w / bands), h)
+        end
+    else
+        Theme.setColor(c1, alpha)
+        love.graphics.rectangle("fill", x, y, w, h)
+    end
+    Theme.setColor(Theme.paper.ink, 0.30)
+    love.graphics.rectangle("line", x, y, w, h)
+    -- The word, across the half that pokes up.
+    local mid = c2 and { (c1[1] + c2[1]) / 2, (c1[2] + c2[2]) / 2, (c1[3] + c2[3]) / 2 } or c1
+    love.graphics.setFont(xs)
+    Theme.setColor(Theme.contrastFor(mid), alpha)
+    love.graphics.print(t.label, x + t.pad, y + fl((t.h_up - xs:getHeight()) / 2))
+    -- The pulse and the "!" for a shelf with something to peel.
+    AwardGlow.draw(t.key, x, y, w, h)
+    if t.ready > 0 then
+        local breathe = Motion.at("ui", Motion.MEDIUM)
+                        and (1 + 0.10 * math.sin(((love.timer and love.timer.getTime()) or 0) * 5)) or 1
+        local r  = fl(6 * s) * breathe
+        local bx, by = x + w, y
+        Theme.setColor(Theme.paper.sticker_earned, alpha)
+        love.graphics.circle("fill", bx, by, r)
+        Theme.setColor(Theme.paper.vinyl, alpha)
+        love.graphics.circle("line", bx, by, r)
+        love.graphics.print("!", bx - fl(xs:getWidth("!") / 2), by - fl(xs:getHeight() / 2))
+    end
+end
+
+-- Index tabs: one coloured sticker per department along the book's TOP
+-- edge, like the staggered index tabs on a real binder. A sticker is glued
+-- to its shelf's right-hand leaf at a FIXED offset from the spine, in
+-- shelf order, and that leaf is the front face of one SHEET (sheet k has
+-- leaf 2k on its front and 2k+1 on its back). The sticker has exactly one
+-- owner: where its sheet is this frame. On the right stack it sits at
+-- `off` right of the spine, on the left stack at `off` left of it (a
+-- turned sheet keeps its distance from the spine), and while its sheet is
+-- turning it is squashed toward the spine by the same scale the leaf is.
+-- Stuck down (its band on the paper) only when its sheet is the top of a
+-- stack, i.e. an open page. Nothing else moves it.
+--
+-- Settled here before any leaf draws; drawn by _drawStickers after the
+-- static leaves (the stacks) and after the turning leaf (the block that
+-- is turning). Rebuilt every frame: a shelf can shrink or vanish with
+-- visibility. `old` and `progress` (1 -> 0) describe a turn in flight.
+function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_spread, cx, page_w, top, s, fonts)
+    local fl = math.floor
+    self._tabs = {}
+    self._tab_ready = self._tab_ready or {}
+    if self._enter_t < 1 then return end
+    local xs     = fonts.xs
+    local h_up   = xs:getHeight() + fl(10 * s)
+    local stick  = stickBand(s) - fl(4 * s)
+    local gap    = fl(3 * s)
+    local book_l = fl(cx - page_w)
+    local book_r = fl(cx + page_w)
+    local mx, my = love.mouse.getPosition()
+
+    -- Where sheet k is this frame: its side, the leaf's squash toward the
+    -- spine (1 = flat), whether it is turning, and whether it is a stack's
+    -- top. A turn from `old` to `idx` moves the sheets old..idx-1 (forward)
+    -- or idx..old-1 (back) as one block: first half squashing on the side
+    -- it leaves, second half opening on the side it lands. The stack tops
+    -- are the highest sheet on the right and the lowest on the left that
+    -- are NOT in the block; the back cover lies over the left stack.
+    local hi_s = math.max(idx, old or idx)
+    local lo_s = math.min(idx, old or idx)
+    local function pose(k)
+        if old then
+            local a = progress
+            if idx > old and k >= old and k < idx then
+                if a > 0.5 then return "right", (a - 0.5) * 2, true, k == old
+                else return "left", (0.5 - a) * 2, true, k == idx - 1 end
+            elseif idx < old and k >= idx and k < old then
+                if a > 0.5 then return "left", (a - 0.5) * 2, true, k == old - 1
+                else return "right", (0.5 - a) * 2, true, k == idx end
+            end
+        end
+        local side = (idx <= k) and "right" or "left"
+        local top_of_stack = (k == hi_s) or (k == lo_s - 1 and lo_s < max_spread)
+        return side, 1, false, top_of_stack
+    end
+
+    local function stickerReady(item)
+        local gated = item.unlock ~= nil or item.requires ~= nil
+        if not gated or owned[item.id] then return false end
+        if item.requires and not owned[item.requires] then return false end
+        if not catalogUnlocked(self.game, item, state) then return false end
+        return not isPeeled(state, item.id)
+    end
+
+    -- Measure every shelf. A sticker is glued to its shelf's RIGHT-hand
+    -- leaf (the second leaf of the spread, or the only one), so the open
+    -- shelf's sticker shows on the right page and turns with it.
+    local row = {}
+    for leaf_i, pg in ipairs(pages) do
+        if pg.dept and pg.dept.tab then
+            local dept  = pg.dept
+            local label = dept.label or (dept.title or ""):upper()
+            local ready, count, last = 0, 0, leaf_i
+            for k = leaf_i, #pages do
+                if k > leaf_i and pages[k].dept then break end
+                last = k
+                count = count + #pages[k].items
+                for _, it in ipairs(pages[k].items) do
+                    if stickerReady(it) then ready = ready + 1 end
+                end
+            end
+            local key = "catalog_tab:" .. tostring(dept.id)
+            if ready > (self._tab_ready[dept.id] or 0) then AwardGlow.flash(key) end
+            self._tab_ready[dept.id] = ready
+            local glued = math.min(last, leaf_i + 1)
+            row[#row + 1] = { leaf = glued, spread = math.ceil(leaf_i / 2), id = dept.id, key = key,
+                              label = label, tw = xs:getWidth(label), ready = ready, count = count,
+                              c1 = Theme.tabColor(dept.tab[1]),
+                              c2 = dept.tab[2] and Theme.tabColor(dept.tab[2]) or nil }
+        end
+    end
+
+    -- FIXED slots along ONE PAGE's top edge, in shelf order: `off` is the
+    -- sticker's offset from the SPINE, and it never changes.
+    -- Where the sticker shows on screen follows its leaf: open on the
+    -- right page, in the left stack once you are past it (over the left
+    -- page), in the right stack before you reach it (over the right page,
+    -- or the front cover). Padding tightens when the row will not fit a
+    -- page at full size; every shelf always gets its sticker.
+    local row_l = fl(10 * s)
+    local row_r = page_w - fl(10 * s)
+    local n, text_w = #row, 0
+    for _, t in ipairs(row) do text_w = text_w + t.tw end
+    local avail = row_r - row_l - math.max(0, n - 1) * gap
+    local pad   = fl(8 * s)
+    if n > 0 and text_w + n * pad * 2 > avail then
+        pad = math.max(fl(3 * s), fl((avail - text_w) / (n * 2)))
+    end
+    local off = row_l
+    for _, t in ipairs(row) do
+        local w = t.tw + pad * 2
+        local k = math.floor(t.leaf / 2)   -- the sheet; an odd glued leaf is a sheet's back
+        local side, sx, turning, stuck = pose(k)
+        local h = h_up + (stuck and stick or 0)
+        local x = (side == "left") and (cx - off - w) or (cx + off)
+        t.off, t.x, t.y, t.w, t.h = off, x, top - h_up, w, h
+        t.sx, t.turning, t.stuck = sx, turning, stuck
+        t.h_up, t.stick, t.top, t.pad = h_up, stick, top, pad
+        t.hov = HoverSvc.rest("button", t.key,
+            not turning and mx >= x and mx < x + w and my >= t.y and my < t.y + h, 0)
+        if t.hov then
+            local tip = ("%s: %d items"):format(t.label, t.count)
+            if t.ready > 0 then tip = tip .. (", %d to peel"):format(t.ready) end
+            TooltipSvc.set(tip, mx, my)
+        end
+        self._tabs[#self._tabs + 1] = t
+        off = off + w + gap
+    end
+end
+
+-- Draw the stickers of one group: "static" (both stacks, drawn after the
+-- static leaves and before the turning one so the turning paper covers
+-- their bands) or "turning" (the block in flight, drawn after it under
+-- the leaf's own squash, so they ride it exactly).
+function CatalogModal:_drawStickers(group, cx, s, fonts)
+    for _, t in ipairs(self._tabs or {}) do
+        if group == "turning" and t.turning then
+            drawFlipped(cx, t.sx, function() drawTabSticker(self, t, t.stuck, s, fonts) end)
+        elseif group == "static" and not t.turning then
+            drawTabSticker(self, t, t.stuck, s, fonts)
+        end
+    end
+end
+
 local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y, w, h, is_right, s, card_h)
     local fl = math.floor
     Theme.setColor(Theme.paper.page_light)
@@ -1366,14 +1591,16 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
 
     if not page then return end   -- blank verso
 
+
     local pad = fl(12 * s)
     -- Department heading — turns WITH the leaf. Only the first leaf of a
     -- department has one (see :_pages); continuation leaves keep the header
     -- band for the ledger and the rule, but print no name.
+    local band = stickBand(s)
     if page.title then
         Theme.setColor(Theme.paper.ink)
         love.graphics.setFont(fonts.md)
-        love.graphics.print(page.title:upper(), x + pad, y + fl(10 * s))
+        love.graphics.print(page.title:upper(), x + pad, y + band + fl(10 * s))
     end
     -- Chip ledger, right page only.
     --
@@ -1390,8 +1617,8 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
         local bx    = x + w - pad - (bal_w + gap + gsize)
         love.graphics.setFont(fonts.md)
         Theme.setColor(Theme.paper.stamp)
-        love.graphics.print(bal, bx, y + fl(10 * s))
-        Icons.drawChip(self.game, bx + bal_w + gap, y + fl(10 * s), gsize)
+        love.graphics.print(bal, bx, y + band + fl(10 * s))
+        Icons.drawChip(self.game, bx + bal_w + gap, y + band + fl(10 * s), gsize)
         -- {achip} beside it once Act 3 has begun: the corruption prices are
         -- in this currency, so the ledger has to show it.
         if state.shove_r2_won then
@@ -1400,11 +1627,11 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
             local ax     = bx - fl(14 * s) - (abal_w + gap + gsize)
             love.graphics.setFont(fonts.md)
             Theme.setColor(Theme.paper.corrupt_ink)
-            love.graphics.print(abal, ax, y + fl(10 * s))
-            Icons.drawAntiChip(self.game, ax + abal_w + gap, y + fl(10 * s), gsize)
+            love.graphics.print(abal, ax, y + band + fl(10 * s))
+            Icons.drawAntiChip(self.game, ax + abal_w + gap, y + band + fl(10 * s), gsize)
         end
     end
-    local head_h = fonts.md:getHeight() + fl(16 * s)
+    local head_h = fonts.md:getHeight() + fl(16 * s) + band
     Theme.setColor(Theme.paper.ink, 0.20)
     love.graphics.line(x + pad, y + head_h, x + w - pad, y + head_h)
 
@@ -1418,30 +1645,22 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
                              x + pad, y + head_h + fl(4 * s), w - pad * 2, "center")
     end
 
-    -- Lay the cards out top-down, dividing the leaf's full card area between
-    -- them in proportion to each item's slot cost. The leaf always fills:
-    -- three 1-slot cards come out exactly card_h each (unchanged), while a
-    -- leaf holding one 2-slot feature ad gives it the whole page instead of
-    -- leaving a third of the paper blank.
+    -- Lay the cards out top-down at their fixed slot height: a 1-slot card
+    -- is card_h, an n-slot card is n slots' worth. A leaf holding fewer
+    -- than LEAF_SLOTS units leaves the rest of the paper blank, so a shelf
+    -- with an open spot shows the spot.
     local cw    = w - 2 * pad
     local gapc  = fl(10 * s)
     local cy    = y + head_h + fl(8 * s)
-    local avail = LEAF_SLOTS * card_h + (LEAF_SLOTS - 1) * gapc
 
-    local units, shown = 0, {}
+    local units = 0
     for _, item in ipairs(page.items) do
         local sp = math.min(item.slots or 1, LEAF_SLOTS)
         if units + sp > LEAF_SLOTS then break end   -- guard; :_pages pre-fits
         units = units + sp
-        shown[#shown + 1] = { item = item, sp = sp }
-    end
-    if units <= 0 then units = 1 end
-
-    local card_area = avail - gapc * math.max(0, #shown - 1)
-    for _, e in ipairs(shown) do
-        local ch = fl(card_area * e.sp / units)
-        drawItemCard(self, e.item, owned, state, x + pad, cy, cw, ch, fonts, forcing,
-            CATALOG_ORD[e.item.id] or 0, e.sp >= 3)
+        local ch = card_h * sp + gapc * (sp - 1)
+        drawItemCard(self, item, owned, state, x + pad, cy, cw, ch, fonts, forcing,
+            CATALOG_ORD[item.id] or 0, sp >= 3)
         cy = cy + ch + gapc
     end
 
@@ -1655,7 +1874,22 @@ function CatalogModal:draw()
     local idx      = self.spread_index
     local old      = self.old_spread_index
     local flipping = self.flip_t ~= nil
-    local progress = flipping and (self.flip_t / 0.35) or 0   -- 1 -> 0
+    local progress = flipping and (self.flip_t / flipSecs()) or 0   -- 1 -> 0
+
+    -- Index stickers: settled before any leaf draws (see _layoutTabs).
+    -- The stacks' stickers go down before the turning leaf, the turning
+    -- block's after it, so `turn` wraps drawFlipped to slip the static
+    -- group in first.
+    self:_layoutTabs(pages, owned, state, idx, flipping and old or nil, progress,
+                     max_spread, cx, page_w, top, s, fonts)
+    local static_drawn = false
+    local function turn(hinge_x, sx, fn)
+        if not static_drawn then
+            static_drawn = true
+            self:_drawStickers("static", cx, s, fonts)
+        end
+        drawFlipped(hinge_x, sx, fn)
+    end
 
     -- leaf_idx indexes the pages list (1-based). Spread k shows leaves
     -- 2k-1 (left) and 2k (right); an out-of-range index draws a blank verso.
@@ -1683,16 +1917,19 @@ function CatalogModal:draw()
         -- left slot as page 1 (its inside face). Page 2 sits static in the right
         -- slot, revealed as the cover lifts. Only a single leaf is ever in
         -- motion — no double slide. q: 0 = closed, 1 = open. ──
-        local opening = (idx == 1)
+        -- `sp` is the spread on the other side of the cover: spread 1 from
+        -- the dog-ear, any spread from an index tab (the block turns once).
+        local opening = (idx ~= 0)
+        local sp = opening and idx or old
         local q = opening and (1 - progress) or progress
-        leaf(2, cx, true)                                  -- page 2, static right slot
+        leaf(sp * 2, cx, true)                             -- right page, static right slot
         if q < 0.5 then
-            drawFlipped(cx, 1 - q * 2, function()          -- cover flips to edge-on (right slot)
+            turn(cx, 1 - q * 2, function()          -- cover flips to edge-on (right slot)
                 drawFrontCover(self, cx, top, page_w, page_h, fonts, s)
             end)
         else
-            drawFlipped(cx, (q - 0.5) * 2, function()      -- page 1 opens flat (left slot)
-                leaf(1, cx - page_w, false)
+            turn(cx, (q - 0.5) * 2, function()      -- left page opens flat (left slot)
+                leaf(sp * 2 - 1, cx - page_w, false)
             end)
         end
 
@@ -1701,16 +1938,16 @@ function CatalogModal:draw()
         -- it starts as the back cover in the left slot, flips to edge-on, then
         -- lands flat in the right slot as the spread's right page. The left
         -- page sits static, revealed as the cover lifts. ──
-        local cs      = max_spread - 1
-        local opening = (idx == cs)
+        local opening = (idx ~= max_spread)
+        local cs      = opening and idx or old            -- the spread inside the cover
         local q = opening and (1 - progress) or progress
         leaf(cs * 2 - 1, cx - page_w, false)               -- left page, static left slot
         if q < 0.5 then
-            drawFlipped(cx, 1 - q * 2, function()          -- back cover flips to edge-on (left slot)
+            turn(cx, 1 - q * 2, function()          -- back cover flips to edge-on (left slot)
                 drawBackCover(self, cx - page_w, top, page_w, page_h, fonts, state, forcing, s, false)
             end)
         else
-            drawFlipped(cx, (q - 0.5) * 2, function()      -- right page opens flat (right slot)
+            turn(cx, (q - 0.5) * 2, function()      -- right page opens flat (right slot)
                 leaf(cs * 2, cx, true)
             end)
         end
@@ -1724,28 +1961,28 @@ function CatalogModal:draw()
             if a > 0.5 then
                 leaf(old * 2 - 1, cx - page_w, false)   -- old left stays
                 leaf(idx * 2, cx, true)                 -- new right revealed
-                drawFlipped(spine, (a - 0.5) * 2, function() leaf(old * 2, cx, true) end)
+                turn(spine, (a - 0.5) * 2, function() leaf(old * 2, cx, true) end)
             else
                 leaf(idx * 2, cx, true)                 -- new right
                 leaf(old * 2 - 1, cx - page_w, false)   -- old left (about to be covered)
-                drawFlipped(spine, (0.5 - a) * 2, function() leaf(idx * 2 - 1, cx - page_w, false) end)
+                turn(spine, (0.5 - a) * 2, function() leaf(idx * 2 - 1, cx - page_w, false) end)
             end
         else
             -- backward: old left leaf flips right across the spine
             if a > 0.5 then
                 leaf(old * 2, cx, true)                 -- old right stays
                 leaf(idx * 2 - 1, cx - page_w, false)   -- new left revealed
-                drawFlipped(spine, (a - 0.5) * 2, function() leaf(old * 2 - 1, cx - page_w, false) end)
+                turn(spine, (a - 0.5) * 2, function() leaf(old * 2 - 1, cx - page_w, false) end)
             else
                 leaf(idx * 2 - 1, cx - page_w, false)   -- new left
                 leaf(old * 2, cx, true)                 -- old right (about to be covered)
-                drawFlipped(spine, (0.5 - a) * 2, function() leaf(idx * 2, cx, true) end)
+                turn(spine, (0.5 - a) * 2, function() leaf(idx * 2, cx, true) end)
             end
         end
     end
 
     -- ── Corner controls. Book bounds are ALWAYS the full open-spread extent,
-    -- cover or spread, so the dog-ear corners and the close ✕ never move
+    -- cover or spread, so the dog-ear corners never move
     -- between views — that motion is what made the buttons annoying to hit.
     -- Non-interactive during a flip. ──
     local book_l = fl(cx - page_w)
@@ -1791,29 +2028,11 @@ function CatalogModal:draw()
         if not flipping then self._next_rect = { x = book_r - sz, y = book_b - sz, w = sz, h = sz } end
     end
 
-    -- Subtle close: a small muted ✕ in the margin just ABOVE the book's
-    -- top-right corner (on the dim backdrop) on every view except the back
-    -- cover (which owns the prominent CLOSE). Sits clear of the right page's
-    -- {chip} ledger, which lives inside that same corner. Suppressed while the
-    -- intro forces a poster purchase, and during a flip.
-    -- On the felt the ✕ shows on EVERY page, back cover included: closing
-    -- from anywhere is the point. The back cover's big CLOSE stays too.
-    if (self.on_felt or idx ~= max_spread) and not flipping and not forcing then
-        local cz   = fl(20 * s)
-        local cxr  = book_r - cz
-        local cyr  = math.max(fl(6 * s), top - cz - fl(6 * s))
-        local hovx = HoverSvc.rest("button", "catalog_close",
-            mx >= cxr and mx < cxr + cz and my >= cyr and my < cyr + cz, 0)
-        Theme.setColor(Theme.paper.ink, hovx and 0.85 or 0.40)
-        love.graphics.setLineWidth(fl(2 * s))
-        local xp = fl(5 * s)
-        love.graphics.line(cxr + xp, cyr + xp, cxr + cz - xp, cyr + cz - xp)
-        love.graphics.line(cxr + cz - xp, cyr + xp, cxr + xp, cyr + cz - xp)
-        love.graphics.setLineWidth(1)
-        self._continue_rect = { x = cxr, y = cyr, w = cz, h = cz }
-        Anchors.set("catalog:continue", cxr, cyr, cz, cz)
-        if hovx then TooltipSvc.set("Close catalog", mx, my) end
-    end
+
+    -- ── Index stickers: the stacks (if a turn did not already put them
+    -- down under the turning leaf), then the block in flight.
+    if not static_drawn then self:_drawStickers("static", cx, s, fonts) end
+    self:_drawStickers("turning", cx, s, fonts)
 
     -- Page-turn hint under an open spread.
     if idx ~= 0 and idx ~= max_spread then

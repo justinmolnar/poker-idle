@@ -72,10 +72,31 @@ local function matches(tbl, where)
     return true
 end
 
--- Trim a candidate list by `pick` and `max`. `rng` is the registry's
--- injected 0..1 roll — never love.math directly, so a seeded sim or test
--- harness stays deterministic.
+-- `like_source = { "stake_id", "game_type_id" }`: keep only tables whose
+-- named fields equal the source table's. `where` says a literal value; this
+-- says "the same as where it happened", which `where` cannot (the Energy
+-- Drink's same-stake, same-type spread). No source → nothing matches.
+local function likeSource(list, spec, event)
+    local fields = spec.like_source
+    if not fields then return list end
+    local src = event and event.source
+    if not src then return {} end
+    local out = {}
+    for _, t in ipairs(list) do
+        local ok = true
+        for _, f in ipairs(fields) do
+            if t[f] ~= src[f] then ok = false break end
+        end
+        if ok then out[#out + 1] = t end
+    end
+    return out
+end
+
+-- Trim a candidate list by `like_source`, `pick` and `max`. `rng` is the
+-- registry's injected 0..1 roll — never love.math directly, so a seeded
+-- sim or test harness stays deterministic.
 local function narrow(list, spec, rng, event)
+    list = likeSource(list, spec, event)
     if spec.pick == "random" and #list > 0 then
         -- `pick_n_field` names a ctx field that adds targets to the one
         -- random pick (Circuit Pro's ko_targets_add): sample that many
@@ -345,6 +366,14 @@ function TableProcs.registerAll(reg)
         -- patch for the controller's snapshot diff, which ran before the
         -- sweep and so never saw it.
         return true
+    end)
+
+    -- Put an idle target back to work (the Energy Drink's spread). The
+    -- controller's own guarded method, the same one the cascade uses for
+    -- empty tables; a busy or busted target is a miss.
+    reg:registerPayload("deal", function(_spec, target, event)
+        if not (target and event.ctrl and event.ctrl.dealIdleTable) then return false end
+        return event.ctrl:dealIdleTable(target)
     end)
 
     -- Hand a table's buy-in back. Rolls once, or once per event unit when

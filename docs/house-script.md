@@ -179,7 +179,7 @@ Fixed slots; an empty text is a silent slot.
 |---|---|---|
 | Before you head back, have a look at the catalog. Anything in here you keep. Buy it once, and it'll be delivered right to your room. | `catalog:book` | click |
 | That stamp's the price. Stickered ones aren't ready yet. | `catalog:price:first`, `catalog:sticker:first` | show: catalog open → click |
-| Close it when you're done and we'll set you back up. How fun. | `catalog:continue` | click |
+| Close it when you're done and we'll set you back up. How fun. | `catalog:book` | click |
 
 ### `the_loop` — grind. Trigger: has_shoved (the moment the felt is back; no table needed).
 | block | anchor | hold |

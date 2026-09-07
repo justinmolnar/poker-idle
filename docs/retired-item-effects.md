@@ -351,3 +351,100 @@ are recorded in the git history of `data/catalog.lua` rather than here.
 | `curved_monitor` | +1 focus capacity | KO heater |
 | `pc_tower` | hands 15% faster | KO tier mark |
 | `shredder` | losses 15% softer | KO buy-in refund |
+
+---
+
+## Retired 2026-09-07: the rack shelf's cuts
+
+The rack shelf had twelve items and a shelf is eight. The designer cut
+these four, keeping one of every family on the shelf (the Gift Box for
+starting money, the Fridge for the loss void, the Rebuy Note for rebuy
+money, the Bookshelf and Ring Binder for the rack). Each carries
+`retired = true` in `data/catalog.lua`: hidden from the book and the shelf
+lint, id and effects kept so a save that owns one still gets it and the
+object stays in the room. To bring one back, delete the flag and list it
+on a shelf. Recorded verbatim as they stood when cut.
+
+```lua
+    {
+        id          = "stash_box",
+        name        = "Stash Box",
+        effect_text = "+$5 starting bankroll.",
+        description = "Folded cash tucked away in a cardboard box.",
+        sprite      = "stash_box",
+        phase       = "mid",
+        cost_chip     = 6,
+        unlock = { kind = "total_chips_banked", threshold = 10, text = "{chip} {c:chip:banked}" },
+        effects     = {
+            { kind = "shove_rate_add",     value = 0.006 },
+            { kind = "start_bankroll_add", value = 5 },
+        },
+        corrupt = {
+            cost_achip = 3,
+            effects = { { kind = "start_bankroll_add", value = 100000 } },
+            effect_text = "+$100,000 starting bankroll.",
+        },
+    },
+    {
+        id          = "rubber_duck",
+        name        = "Rubber Duck",
+        effect_text = "Your run's first loss is voided.",
+        description = "Squeak. It never happened.",
+        sprite      = "rubber_duck",
+        phase       = "demo",
+        cost_chip     = 5,
+        effects     = {
+            { kind = "shove_rate_add", value = 0.005 },
+            { kind = "void_first_loss" },
+        },
+        unlock = { kind = "total_busts", threshold = 100, text = "tables {c:lost:busted}" },
+        corrupt = {
+            cost_achip = 2,
+            effects = { { kind = "loss_tier_shift", from = "small", to = "stack", chance = 1/3 } },
+            effect_text = "1 in 3 chance: {l:small} {arrow} {l:stack}.",
+        },
+    },
+    {
+        id          = "electric_kettle",
+        act         = 2,
+        name        = "Electric Kettle",
+        effect_text = "A table {c:lost:busts}: 30% of its buy-in comes back.",
+        description = "Boils fast. Whistles louder.",
+        sprite      = "electric_kettle",
+        phase       = "late",
+        cost_chip   = 11,
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.012 },
+            { kind = "bust_refund_pct",  value = 0.30 },
+        },
+        unlock = { kind = "total_busts", threshold = 300, text = "tables {c:lost:busted}" },
+        corrupt = {
+            cost_achip = 8,
+            effects = { { kind = "bust_refund_pct", value = 1.2 } },
+            effect_text = "A table {c:lost:busts}: 120% of its buy-in comes back.",
+        },
+    },
+    {
+        id          = "calculator",
+        name        = "Calculator",
+        effect_text = "{c:upgrade:Sharper_Reads}, {c:upgrade:Pot_Control} and {c:upgrade:Cursor_Speed} +15%.",
+        description = "Solar. Works under the desk lamp.",
+        sprite      = "calculator",
+        phase       = "mid",
+        cost_chip     = 7,
+        unlock = { kind = "total_upgrade_levels", threshold = 130, text = "{c:upgrade:upgrade} levels bought" },
+        effects     = {
+            { kind = "shove_rate_add",            value = 0.006 },
+            { kind = "run_upgrade_strength_mult", value = 0.15 },
+        },
+        corrupt = {
+            cost_achip = 4,
+            effects = { { kind = "run_upgrade_strength_mult", value = 1.5 } },
+            effect_text = "{c:upgrade:Sharper_Reads}, {c:upgrade:Pot_Control} and {c:upgrade:Cursor_Speed} +150%.",
+        },
+    },
+```
+
+Effect kinds left with no catalog user by these: `start_bankroll_add`,
+`void_first_loss`, `bust_refund_pct`, `run_upgrade_strength_mult`. Their
+applicators stay.

@@ -311,7 +311,7 @@ return {
                 { text = "That stamp's the price. Stickered ones aren't ready yet.",
                   anchor = { "catalog:price:first", "catalog:sticker:first" },
                   show   = { kind = "catalog_open" } },
-                { text = "Close it when you're done and we'll set you back up. How fun.", anchor = "catalog:continue" },
+                { text = "Close it when you're done and we'll set you back up. How fun.", anchor = "catalog:book" },
             },
         },
 

@@ -297,6 +297,11 @@ Theme.paper = {
     sticker_panel  = { 1.00, 0.97, 0.88 },
     sticker_earned = { 0.20, 0.58, 0.28 },
     sticker_counting = { 0.78, 0.62, 0.36 },    -- the paper's own tan while the count fills
+    -- A DESIGNER MARKER, not a signal: the wash on a catalog card whose item
+    -- is flagged `refactor = true`. The stamp's red, thinned. It breaks the
+    -- "no hue on paper" rule on purpose so the flagged set reads from across
+    -- the room; it goes when the flags go.
+    refactor_wash  = { 0.75, 0.20, 0.20, 0.14 },
     req_panel      = { 0.80, 0.87, 0.93 },
     req_fill       = { 0.42, 0.56, 0.72 },
     req_vinyl      = { 0.88, 0.93, 0.97 },

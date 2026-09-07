@@ -39,6 +39,13 @@
 --     readout     = { kind = "..." },
 --                                   -- optional: a live value the hover card
 --                                   -- prints (models/item_readouts.lua kinds)
+--     retired     = true,           -- optional: cut from the book and the shelf lint;
+--                                   -- id and effects kept for saves that own it
+--                                   -- (docs/retired-item-effects.md has the record)
+--     refactor    = true,           -- optional: the designer has flagged this
+--                                   -- item for a rewrite. The book washes the
+--                                   -- card red and stamps REFACTOR; nothing
+--                                   -- else reads it. Remove with the rewrite.
 --     sprite      = "sprite_name",          -- looked up via SpriteLoader
 --     cost_chip   = number,
 --     phase       = "demo" | "mid" | "late" | "system",
@@ -142,6 +149,7 @@ local items = {
 
     {
         id          = "wall_hanger",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Wall Hanger",
         effect_text = "{w:stack} {c:won:winnings} ×1.2.",
         description = "Sturdy wall hook for hanging your hat and gear.",
@@ -164,6 +172,7 @@ local items = {
     },
     {
         id          = "mirror",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Mirror",
         effect_text = "+10% {c:chance:odds} at {k:Heads-Up}.",
         description = "A nice big one. You should see yourself.",
@@ -225,7 +234,7 @@ local items = {
         -- first_heat). Tuned by the proc's `every`, nothing else.
         id          = "energy_drink",
         name        = "Energy Drink",
-        effect_text = "Play a hand: 1 in 25 chance a {k:Zoom} table catches a {c:heat:heater}.",
+        effect_text = "Deal a {k:Zoom} table: every {k:adjacent} {k:Zoom} table at the same stake deals too.",
         description = "Tastes terrible. Works fine.",
         sprite      = "energy_drink",
         phase       = "demo",
@@ -233,18 +242,19 @@ local items = {
         position    = { x = 200, y = 220 },
         effects     = {
             { kind = "shove_rate_add",  value = 0.008 },
-            { kind = "proc", proc = "energy_drink_caffeine" },
+            { kind = "proc", proc = "energy_drink_deal_spread" },
         },
         corrupt = {
             cost_achip = 2,
             effects = {
-                { kind = "proc", proc = "energy_drink_caffeine_corrupt" },
+                { kind = "proc", proc = "energy_drink_deal_spread_corrupt" },
             },
-            effect_text = "Play a hand: 1 in 10 chance a {k:Zoom} table catches a {c:heat:heater}.",
+            effect_text = "Deal a {k:Zoom} table: every {k:Zoom} table at the same stake deals too.",
         },
     },
     {
         id          = "corkboard",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Corkboard",
         effect_text = "+5% {c:chance:odds} at {k:every_table}.",
         description = "Pins, notes, one photo of a beach.",
@@ -266,6 +276,7 @@ local items = {
     },
     {
         id          = "stack_of_books",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Stack of Books",
         effect_text = "1 in 4 chance: {w:small} {arrow} {w:medium}.",
         description = "Pile of bestselling self-help guides.",
@@ -293,6 +304,7 @@ local items = {
     },
     {
         id          = "throw_pillow",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Throw Pillow",
         effect_text = "1 in 4 chance: {l:large} {arrow} {l:medium}.",
         description = "Soft plush pillow. Perfect for cushioning rough beats.",
@@ -345,6 +357,7 @@ local items = {
     },
     {
         id          = "lava_lamp",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Lava Lamp",
         effect_text = "1 in 6 chance: {w:medium} {arrow} {w:large}.",
         description = "Soothing to watch. Hypnotic, almost.",
@@ -367,6 +380,7 @@ local items = {
     },
     {
         id          = "comfort_bed",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Comfort Bed",
         effect_text = "1 in 6 chance: {l:stack} {arrow} {l:large}.",
         description = "Restful memory-foam bed to sleep off heavy {c:lost:losses}.",
@@ -398,6 +412,7 @@ local items = {
     },
     {
         id          = "yellow_sticky_note",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Yellow Sticky Note",
         effect_text = "{c:won:Winnings} ×1.25.",
         description = "A pad of yellow notes. Sticks to anything.",
@@ -418,6 +433,8 @@ local items = {
     },
     {
         id          = "rubber_duck",
+        retired             = true,   -- cut 2026-09-07; docs/retired-item-effects.md
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Rubber Duck",
         effect_text = "Your run's first loss is voided.",
         description = "Squeak. It never happened.",
@@ -447,6 +464,7 @@ local items = {
 
     {
         id          = "stash_box",
+        retired             = true,   -- cut 2026-09-07; docs/retired-item-effects.md
         name        = "Stash Box",
         effect_text = "+$5 starting bankroll.",
         description = "Folded cash tucked away in a cardboard box.",
@@ -499,6 +517,7 @@ local items = {
     },
     {
         id          = "calculator",
+        retired             = true,   -- cut 2026-09-07; docs/retired-item-effects.md
         name        = "Calculator",
         effect_text = "{c:upgrade:Sharper_Reads}, {c:upgrade:Pot_Control} and {c:upgrade:Cursor_Speed} +15%.",
         see_also    = { "runup:sharper_reads", "runup:pot_control" },
@@ -551,6 +570,7 @@ local items = {
     },
     {
         id          = "space_heater",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Space Heater",
         effect_text = "{c:lost:Losses} ×0.8.",
         description = "Hums all night. The cold stops mattering.",
@@ -638,6 +658,7 @@ local items = {
     },
     {
         id          = "desk_plant",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Desk Plant",
         effect_text = "+6% {c:chance:odds} at {k:6-Max}.",
         description = "Real. Someone waters it when you're not looking.",
@@ -737,6 +758,7 @@ local items = {
     },
     {
         id          = "headset",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Headset",
         effect_text = "+6% {c:chance:odds} at {k:Zoom}.",
         description = "Foam mic cover. Someone else's earwax.",
@@ -763,10 +785,10 @@ local items = {
     },
     {
         id          = "prize_vase",
-        -- Tournaments open with Act 2 (C.GTYPE_GATE.ko = shove_r1_won);
-        -- act = 2 keeps this out of the Act 1 book instead of sitting there
-        -- as a "???" the demo can never open.
-        act         = 2,
+        -- Tournaments open with Act 2 (C.GTYPE_GATE.ko = shove_r1_won). The
+        -- vase is Value Buys' tournament card, so it sits in the Act 1 book
+        -- as a "???" (the mystery below) and peels when Act 2 opens. In the
+        -- demo build it is a permanent "???": the tease is the point.
         name        = "Prize Vase",
         effect_text = "Win a {k:tournament}: +1% {c:chance:odds} at {k:every_table} for the run.",
         readout     = { kind = "run_ratchet", effect = "win_chance_shift", field = "amount" },
@@ -778,8 +800,8 @@ local items = {
             kind      = "total_ko_wins",
             threshold = 1,
             text      = "tournament {c:won:wins}",
-            -- "???" until they've actually sat in a tournament
-            mystery   = { kind = "total_hands_at_gtype", gtype = "ko", threshold = 1 },
+            -- "???" until Act 2 opens tournaments at all
+            mystery   = { kind = "shove_r1_won" },
         },
         position    = { x = 350, y = 300 },
         effects     = {
@@ -895,6 +917,7 @@ local items = {
     },
     {
         id          = "dusty_console",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Dusty Console",
         effect_text = "+3% {c:chance:odds} at {k:Heads-Up}.",
         description = "Two controllers. Built for one-on-one.",
@@ -914,6 +937,7 @@ local items = {
     },
     {
         id          = "handheld",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Handheld",
         effect_text = "+3% {c:chance:odds} at {k:Zoom}.",
         description = "Fits in a pocket. Fast games between fast games.",
@@ -933,6 +957,7 @@ local items = {
     },
     {
         id          = "red_rug",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Red Rug",
         effect_text = "+2% {c:chance:odds} at the top-left table.",
         description = "Really ties the room together. The top-left table sits on it.",
@@ -1076,7 +1101,9 @@ local items = {
     },
     {
         id          = "box_of_mice",
-        act         = 2,
+        -- Act 1, band B by price alone: 13 {chip} with no sticker, so
+        -- "this is automation" is visible from the first catalog and saving
+        -- for it is the player's call.
         name        = "Box of Mice",
         effect_text = "Opens the {c:upgrade:cursors} and the Cursor {c:upgrade:upgrade}.",
         description = "Cardboard storage box of mice.",
@@ -1085,11 +1112,6 @@ local items = {
         cost_chip     = 13,
         slots       = 1,  -- demoted from hero so the whole cursor chain fits one spread
         position    = { x = 100, y = 500 },
-        unlock = {
-            kind      = "total_hands_at_4plus",
-            threshold = 2000,   -- was 5000: idling has to arrive early in Act 2, not deep into it
-            text      = "hands at 4+ tables",
-        },
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
             { kind = "cursor_unlocked" },
@@ -1134,10 +1156,11 @@ local items = {
     },
     {
         id            = "desk_lamp",
+        refactor        = true,   -- flagged for refactor (designer tag); the book washes it red
         act           = 2,
         name          = "Desk Lamp",
-        effect_text   = "{c:upgrade:Cursors} never stop to clean.",
-        description   = "Optical sensors need light to work. No trackball, no cleaning.",
+        effect_text   = "Placeholder: this item is being rewritten.",
+        description   = "Optical sensors need light to work.",
         sprite        = "desk_lamp",
         phase         = "late",
         cost_chip     = 10,
@@ -1157,7 +1180,7 @@ local items = {
                 { kind = "cursor_optical_sensor" },
                 { kind = "cursor_speed_mult", value = 1.5 },
             },
-            effect_text = "Same, and {c:upgrade:cursor} speed ×1.5.",
+            effect_text = "{c:upgrade:Cursor} speed ×1.5.",
         },
     },
     {
@@ -1197,6 +1220,7 @@ local items = {
     },
     {
         id          = "electric_kettle",
+        retired             = true,   -- cut 2026-09-07; docs/retired-item-effects.md
         act         = 2,
         name        = "Electric Kettle",
         effect_text = "A table {c:lost:busts}: 30% of its buy-in comes back.",
@@ -1276,7 +1300,6 @@ local items = {
     },
     {
         id          = "nightstand",
-        act         = 2,
         name        = "Nightstand",
         effect_text = "{k:Rebuy}: 1 in 2 chance that table catches a {c:heat:heater}.",
         description = "One drawer. Lock included.",
@@ -1302,6 +1325,7 @@ local items = {
     },
     {
         id          = "receipt_printer",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         act         = 2,
         name        = "Receipt Printer",
         effect_text = "Win a {w:stack} anywhere: every {k:Zoom} table finishes its hand now.",
@@ -1382,6 +1406,7 @@ local items = {
     },
     {
         id          = "laminated_blueprint",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         act         = 2,
         name        = "Laminated Blueprint",
         effect_text = "The deck in play earns ×1.5 XP.",
@@ -1435,6 +1460,7 @@ local items = {
 
     {
         id          = "desk_speakers",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         act         = 2,
         name        = "Desk Speakers",
         effect_text = "+5% {c:chance:odds} at {k:tournaments}.",
@@ -1511,6 +1537,7 @@ local items = {
     },
     {
         id          = "copy_machine",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         act         = 2,
         name        = "Copy Machine",
         effect_text = "The Receipt Printer also deals the empty {k:Zoom} tables.",
@@ -1787,6 +1814,7 @@ local items = {
     },
     {
         id            = "cleaning_robot",
+        refactor        = true,   -- flagged for refactor (designer tag); the book washes it red
         act           = 2,
         name          = "Cleaning Robot",
         effect_text   = "Win a {w:stack}: {c:upgrade:cursor} speed ×2 for 10 seconds.",

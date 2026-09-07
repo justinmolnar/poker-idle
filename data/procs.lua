@@ -8,10 +8,15 @@
 --
 --   trigger  one of the keys GrindController fires:
 --              on_stack_win, on_stack_loss, on_ko,
---              on_tournament_win, on_tournament_miss
+--              on_tournament_win, on_tournament_miss, on_hand_played,
+--              on_hand_won, on_rebuy, on_table_open, on_deal (a player,
+--              cursor or cascade deal; never a tournament's or a punch's)
 --   target   { kind = "none" | "self" | "gtype" | "board_near" | "any_other",
---              radius, gtype, exclude_self, where, pick = "random", max }
---   payload  { kind = "apply_status" | "resolve_now" | "refund_buyin" | "ratchet", ... }
+--              radius, gtype, exclude_self, where, pick = "random", max,
+--              like_source = { "<field>", ... } (only tables whose named
+--              fields equal the source table's: stake_id, game_type_id) }
+--   payload  { kind = "apply_status" | "resolve_now" | "refund_buyin" | "ratchet"
+--              | "deal" (put an idle target back to work), ... }
 --   ghost    catalog item id whose sprite + sound plays when it fires
 --   impact   true if this is a BLOW: the source table shoves its one
 --            target, or drives a fist into the felt when it hits several
@@ -201,30 +206,29 @@ return {
     -- conversions. These teach "items fire on moments" and "moments can
     -- land on OTHER tables" before any engine item builds on that.
 
-    -- Energy Drink. THE ZOOM ITEM and the first heater in the game: every
-    -- 250 hands dealt anywhere, a table catches a heater. A global
-    -- counter (event.count = state.total_hands_played, lifetime, like
-    -- century), so Zoom's volume is what makes it fire. `every` is the
-    -- only tuning knob. (Heat itself is taught by story first_heat, which
-    -- fires on the first heater from any source.)
-    -- Fires OFTEN on purpose (every 25 hands): it is the first heater in
-    -- the game and the player has to tie the fire to the drink. Landing
-    -- only on Zoom keeps that cheap — a Zoom heater is the weakest kind
-    -- (short hands, small pots) — and fizzles when no Zoom table is open.
-    energy_drink_caffeine = {
-        trigger = "on_hand_played",
-        chance  = 1/25,
-        target  = { kind = "gtype", gtype = "zoom", pick = "random" },
-        payload = { kind = "apply_status", status = "heater",
-                    magnitude = 0.35, t = 8 },
+    -- Energy Drink. THE ZOOM ITEM: dealing a Zoom table deals every
+    -- adjacent table of the same stake and game type too. One click, a
+    -- whole row of Zoom, and the row deals as one. `on_deal` is announced
+    -- by the player's DEAL (a cursor's too) and by dealIdleTable, and the
+    -- dealt neighbours announce it again, so a connected block of Zoom
+    -- tables chains along one deal at a time (the bus enqueues while it
+    -- dispatches; MAX_FIRES_PER_FRAME caps a runaway board). Tournament
+    -- and punch auto-deals never announce it. `like_source` is the
+    -- same-stake-same-type filter (models/table_procs).
+    energy_drink_deal_spread = {
+        trigger = "on_deal",
+        source  = { gtype = "zoom" },
+        target  = { kind = "board_near", radius = 1, exclude_self = true,
+                    like_source = { "stake_id", "game_type_id" } },
+        payload = { kind = "deal" },
         ghost   = "energy_drink",
     },
-    energy_drink_caffeine_corrupt = {
-        trigger = "on_hand_played",
-        chance  = 1/10,
-        target  = { kind = "gtype", gtype = "zoom", pick = "random" },
-        payload = { kind = "apply_status", status = "heater",
-                    magnitude = 0.35, t = 8 },
+    -- Corrupt: every Zoom table at that stake, adjacent or not.
+    energy_drink_deal_spread_corrupt = {
+        trigger = "on_deal",
+        source  = { gtype = "zoom" },
+        target  = { kind = "same_stake", like_source = { "game_type_id" } },
+        payload = { kind = "deal" },
         ghost   = "energy_drink",
     },
 

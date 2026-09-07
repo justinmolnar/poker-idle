@@ -213,6 +213,9 @@ function CatalogReceipt.itemCard(game, item, corrupted)
     if now then
         tt[#tt + 1] = { text = now, style = "sm", color_token = "muted" }
     end
+    if item.refactor then
+        tt[#tt + 1] = { text = "Flagged for refactor", style = "sm", color_token = "stamp" }
+    end
     if item.description then
         tt[#tt + 1] = { text = item.description, style = "sm" }
     end

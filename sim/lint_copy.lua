@@ -408,6 +408,44 @@ for _, f in ipairs(Fields) do
     checkNoise(f)
 end
 
+-- ── the shelves (data/catalog_pages.lua rule 4) ───────────────────────
+-- Every visible item on exactly one shelf; Value Buys lists one id from
+-- every other shelf and nothing else; no other shelf repeats an id.
+do
+    local Pages   = require("data.catalog_pages")
+    local Catalog = require("data.catalog")
+    local vb, home, shelves = nil, {}, {}
+    for _, pg in ipairs(Pages) do
+        if pg.id == "value_buys" then vb = pg
+        else
+            shelves[pg.id] = pg
+            for _, id in ipairs(pg.items) do
+                if home[id] then err("pages " .. pg.id, ("%s is also on %s"):format(id, home[id].id)) end
+                home[id] = pg
+            end
+        end
+    end
+    for _, it in ipairs(Catalog) do
+        if not it.hidden and not it.retired and not it.gate and not home[it.id] then
+            err("pages", it.id .. " is on no shelf")
+        end
+        if it.retired and home[it.id] then err("pages", it.id .. " is retired but still on " .. home[it.id].id) end
+    end
+    if not vb then err("pages", "no value_buys department")
+    else
+        local seen = {}
+        for _, id in ipairs(vb.items) do
+            local h = home[id]
+            if not h then err("pages value_buys", id .. " has no home shelf")
+            elseif seen[h.id] then err("pages value_buys", ("two cards from %s (%s, %s)"):format(h.id, seen[h.id], id))
+            else seen[h.id] = id end
+        end
+        for sid in pairs(shelves) do
+            if not seen[sid] then err("pages value_buys", "no card from " .. sid) end
+        end
+    end
+end
+
 -- every chance in procs/routers is printable, whether or not an item prints it
 for id, p in pairs(Procs) do
     if type(p) == "table" and p.chance and not fraction(p.chance) then

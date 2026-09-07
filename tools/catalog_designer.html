@@ -118,6 +118,9 @@ body.no-detail #content { padding-right: 14px; }
 .badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border);
   color: var(--muted); white-space: nowrap; }
 .badge.lock { color: var(--warn); border-color: #4A3E1E; }
+.badge.refactor { color: #F26B6B; border-color: #5A2A2A; }
+.card.refactor { background: linear-gradient(rgba(191,51,51,.16), rgba(191,51,51,.16)), var(--panel, #1E1C19); border-color: #5A2A2A; }
+.tabsw { display: inline-block; width: 10px; height: 18px; border-radius: 2px; vertical-align: -3px; margin-right: 8px; border: 1px solid rgba(0,0,0,.4); }
 /* views/IconText pills and keywords, previewed */
 .pill { display: inline-block; padding: 0 3px; border-radius: 3px; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .pill-p { background: #5CC7BD; color: #26261F; }
@@ -350,6 +353,7 @@ td.delta-pos { color: var(--good); } td.delta-neg { color: var(--err); }
   <select id="f-dept"><option value="">dept: all</option></select>
   <span class="tagchips" id="f-tags"></span>
   <label style="font-size:11px;color:var(--muted)"><input type="checkbox" id="f-edited"> edited only</label>
+  <label style="font-size:11px;color:var(--muted)"><input type="checkbox" id="f-refactor"> refactor only</label>
   <span class="spacer"></span>
   <span id="f-count" class="faint"></span>
 </div>
@@ -387,6 +391,18 @@ const TIER_COUNT = { small: 1, medium: 2, large: 3, stack: 4 }; // views/TierGly
 // The colour code (data/theme.lua `sem`, room palette), for {c:<meaning>:<text>}.
 const SEM = { won: "#80C773", lost: "#D16B61", chip: "#EDBF4D", corrupt: "#A659F2",
               heat: "#FA8547", tilt: "#94A8D1", upgrade: "#B88594", chance: "#5CC7BD" };
+// Index-tab colour tokens (data/catalog_pages.lua `tab`): the four game-type
+// chrome colours (data/game_type_themes.lua) and the paper tokens (data/theme.lua).
+const GTYPE_CHROME = { six_max: "#4A3D2E", hu: "#422626", zoom: "#2E3340", ko: "#263D3D" };
+const PAPER = { ink: "#26261F", page: "#E6D9C2", sticker_counting: "#C79E5C", stamp: "#BF3333" };
+function tabColor(token) {
+  const m = String(token || "").match(/^(\w+):(\w+)$/);
+  if (!m) return PAPER.sticker_counting;
+  if (m[1] === "sem") return SEM[m[2]] || PAPER.sticker_counting;
+  if (m[1] === "gtype") return GTYPE_CHROME[m[2]] || PAPER.sticker_counting;
+  if (m[1] === "paper") return PAPER[m[2]] || PAPER.sticker_counting;
+  return PAPER.sticker_counting;
+}
 const TAG_PALETTE = ["#F25285","#F2B333","#73D973","#73A6D9","#BF73F2","#EDBF4D",
                      "#5ED9C3","#F2825E","#9CB35E","#D973B8"];
 const LS_EDITS = "catalog_designer_edits_v1";
@@ -1363,6 +1379,7 @@ function matchItem(it) {
   if (f.act === "2" && it.raw.act !== 2) return false;
   if (f.dept && S.model.deptOf.get(it.id) !== f.dept) return false;
   if (f.editedOnly && !isEdited(it.id)) return false;
+  if (f.refactorOnly && !it.raw.refactor) return false;
   if (f.tags.length) {
     const mine = itemTags(it.id);
     if (!f.tags.every(t => mine.includes(t))) return false;
@@ -1389,6 +1406,7 @@ function itemCard(it, opts) {
   const eff = effective(it);
   const card = el("div", { class: "card", "data-id": it.id });
   if (!matchItem(it)) card.classList.add("dimmed");
+  if (it.raw.refactor) card.classList.add("refactor");   // the game washes these red too
   const top = el("div", { class: "toprow" });
   const img = el("img", { class: "sprite", width: 32, height: 32, alt: "" });
   fillSpriteImg(img, it);
@@ -1423,6 +1441,8 @@ function itemCard(it, opts) {
     badges.appendChild(b);
   }
   if (it.raw.act === 2) badges.appendChild(el("span", { class: "badge act2" }, "ACT 2"));
+  if (it.raw.refactor) badges.appendChild(el("span", { class: "badge refactor" }, "REFACTOR"));
+  if (it.raw.retired) badges.appendChild(el("span", { class: "badge", title: "cut from the book; docs/retired-item-effects.md" }, "RETIRED"));
   if (it.raw.slots) badges.appendChild(el("span", { class: "badge" }, `${it.raw.slots} slots`));
   badges.appendChild(el("span", { class: "badge" }, esc(it.raw.phase)));
   if (isEdited(it.id)) badges.appendChild(el("span", { class: "dot edited", title: "has staged edits" }));
@@ -1466,7 +1486,13 @@ function viewCatalog(root) {
     if (!ids.length) continue;
     const cost = ids.reduce((a, it) => a + (it.ownable ? deriveCost(effective(it).cost_chip) : 0), 0);
     const sec = el("div", { class: "dept" });
-    sec.appendChild(el("h2", {}, `${esc(dept)} <small>${ids.length} items · ${cost} ${chipSvg(12, COLORS.chip, COLORS.chipRing)}</small>`));
+    // The page's index-tab colour(s) from data/catalog_pages.lua `tab`.
+    const page = (S.model.pages || []).find(p => p.title === dept);
+    const cols = (page && page.tab ? page.tab : []).map(tabColor);
+    const swatch = cols.length
+      ? `<span class="tabsw" style="background:${cols.length > 1 ? `linear-gradient(${cols[0]},${cols[1]})` : cols[0]}"></span>`
+      : "";
+    sec.appendChild(el("h2", {}, `${swatch}${esc(dept)} <small>${ids.length} items · ${cost} ${chipSvg(12, COLORS.chip, COLORS.chipRing)}</small>`));
     const grid = el("div", { class: "cardgrid" });
     for (const it of ids) grid.appendChild(itemCard(it));
     sec.appendChild(grid);
@@ -2364,6 +2390,7 @@ function bootUi() {
   $("#f-act").value = S.ui.filters.act || "";
   $("#f-search").value = S.ui.filters.search || "";
   $("#f-edited").checked = !!S.ui.filters.editedOnly;
+  $("#f-refactor").checked = !!S.ui.filters.refactorOnly;
   render();
 }
 
@@ -2407,6 +2434,7 @@ $("#f-phase").addEventListener("change", () => { S.ui.filters.phase = $("#f-phas
 $("#f-act").addEventListener("change", () => { S.ui.filters.act = $("#f-act").value; render(); });
 $("#f-dept").addEventListener("change", () => { S.ui.filters.dept = $("#f-dept").value; render(); });
 $("#f-edited").addEventListener("change", () => { S.ui.filters.editedOnly = $("#f-edited").checked; render(); });
+$("#f-refactor").addEventListener("change", () => { S.ui.filters.refactorOnly = $("#f-refactor").checked; render(); });
 $$("#tab-bar button").forEach(b => b.addEventListener("click", () => { S.ui.tab = b.dataset.tab; render(); }));
 $("#btn-tags").addEventListener("click", openTagManager);
 $("#btn-export").addEventListener("click", doExport);

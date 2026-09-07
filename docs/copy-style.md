@@ -79,6 +79,14 @@ glyph in front, the way `{chip}` is a coin. Nothing to write.
 A rule line carries at most two pills, three tints and three keywords. The
 lint warns past that; shorten the rule.
 
+### A card flagged for refactor
+
+`refactor = true` on a catalog item is the designer's marker: the book
+washes the card red and stamps REFACTOR, the hover card says "Flagged for
+refactor", the designer badges it. Its line may read exactly
+`Placeholder: this item is being rewritten.` when the old effect is gone
+(Desk Lamp). Remove the flag with the rewrite.
+
 ### Hover a word, see its card
 
 Inside any tooltip, a tinted word, keyword or icon opens the glossary

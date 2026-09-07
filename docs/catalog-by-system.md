@@ -1,3 +1,5 @@
+
+> **Stale since 2026-09-07.** Written before the shelf refactor: departments, several item effects and every effect line have changed since (data/catalog_pages.lua and data/catalog.lua are the source). Kept for the grouping analysis only.
 # Catalog items by game system
 
 Every catalog item (`data/catalog.lua`), grouped by the part of the game it
