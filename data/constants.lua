@@ -107,7 +107,8 @@ C.GAMEPLAY = {
     -- The old 0.90 shove-rate soft cap is gone. Shove rate now multi-
     -- plies catalog × bankroll-tier (see models/shove_rate.lua) with a
     -- single math-reality clamp at 1.0. The curve is the ceiling.
-    MAX_TABLES             = 32,       -- hard cap on concurrent tables (visual / sanity bound)
+    MAX_TABLES             = 36,       -- hard cap on concurrent tables: a FULL 6x6 board, the last shape
+                                       -- on models/table_grid's ladder (32 left four empty cells)
 
     -- Focus / efficiency mechanic. Multi-tabling beyond your capacity scales
     -- the per-hand $ delta down — split attention costs you value. Upgrades

@@ -129,10 +129,11 @@ return {
     -- The cursor swarm, root first: one spread holds the whole crew. The
     -- box is Act 1; the crew is Act 2, so the shelf closes the book. The
     -- tab wears the colour the word "cursor" wears in copy (sem.upgrade).
+    -- The partition chains off the lamp (a lit cursor), so it follows it.
     { id = "cursors", title = "Computer Accessories", label = "CURSORS", tab = { "sem:upgrade" },
       items = {
           "box_of_mice", "laptop_terminal", "gaming_keyboard", "wacom_tablet",
-          "desk_lamp", "telephone", "glass_partition", "cleaning_robot",
+          "desk_lamp", "glass_partition", "telephone", "cleaning_robot",
       } },
 
     -- The Ultra key is its own thing: on no shelf, so it falls to the

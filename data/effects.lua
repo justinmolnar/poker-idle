@@ -233,6 +233,17 @@ Effects.kinds = {
         value_shape = "number, e.g. 1.20 for +20% stack payouts",
         affects     = "ctx.stack_mult (multiplicative)",
     },
+    stack_loss_rerolls = {
+        description = "Standard: a stack loss is rerolled this many times and the smallest loss kept (OutcomeMath.sampleOutcome). One per deck level.",
+        value_shape = "integer, e.g. 1",
+        affects     = "ctx.stack_loss_rerolls",
+        scale       = "integer",
+    },
+    stack_loss_reroll_wins = {
+        description = "Flag perk — Standard's capstone: each reroll first rolls the win chance, and a win beats any loss.",
+        value_shape = "no field (presence sets ctx.stack_loss_reroll_wins = true)",
+        affects     = "ctx.stack_loss_reroll_wins",
+    },
 
     -- Additive percentage on starting bankroll (Lucky Coin = +50%). Sits
     -- next to start_bankroll_add: that's a flat $ add, this is a %.
@@ -326,15 +337,34 @@ Effects.kinds = {
         value_shape = "no field (presence sets ctx.cursor_memory_unlocked = true)",
         affects     = "ctx.cursor_memory_unlocked",
     },
-    cursor_collision_phasing = {
-        description = "Flag perk — cursors phase through each other without bumping or recoil.",
-        value_shape = "no field (presence sets ctx.cursor_collision_phasing = true)",
-        affects     = "ctx.cursor_collision_phasing",
+    -- The swarm's weather (2026-09-07). Two cursors CLASH whenever they
+    -- touch; nothing stops it. The clash rolls Balance.CURSOR_CLASH.chance
+    -- to punch the table under it. services/CursorPool reports, the
+    -- controller applies (GrindController:onCursorClash / onLitCursorDeal).
+    cursor_clash_status = {
+        description = "What a clash leaves on the table under it: \"tilt\" is the default, the Cleaning Robot says \"heater\".",
+        value_shape = "status = \"heater\" | \"tilt\"",
+        affects     = "ctx.cursor_clash_status",
     },
-    cursor_optical_sensor = {
-        description = "Flag perk — eliminates trackball cleaning pauses.",
-        value_shape = "no field (presence sets ctx.cursor_optical_sensor = true)",
-        affects     = "ctx.cursor_optical_sensor",
+    cursor_clash_chance = {
+        description = "How often a clash lands (max of owners; 1 = every clash, the robot's corrupt line). Absent = Balance.CURSOR_CLASH.chance.",
+        value_shape = "0..1",
+        affects     = "ctx.cursor_clash_chance",
+    },
+    cursor_ignite_chance = {
+        description = "A cursor entering a panel with a heater on it rolls this to catch fire; its next DEAL lights that table (the Desk Lamp).",
+        value_shape = "0..1, a printable fraction (1/4)",
+        affects     = "ctx.cursor_ignite_chance",
+    },
+    cursor_fire_persists = {
+        description = "Flag perk — a lit cursor stays lit after the deal that spends its fire (the lamp's corrupt line).",
+        value_shape = "no field (presence sets ctx.cursor_fire_persists = true)",
+        affects     = "ctx.cursor_fire_persists",
+    },
+    cursor_fire_spreads = {
+        description = "Flag perk — a lit cursor lights the cursor it clashes with (the Glass Partition).",
+        value_shape = "no field (presence sets ctx.cursor_fire_spreads = true)",
+        affects     = "ctx.cursor_fire_spreads",
     },
 
     -- ── Focus / efficiency mechanic ─────────────────────────────────────
@@ -343,6 +373,12 @@ Effects.kinds = {
         value_shape = "integer, e.g. 1 for +1 capacity",
         affects     = "ctx.focus_capacity",
         scale       = "integer",   -- run_upgrade_strength_mult leaves it alone
+    },
+    focus_level_worth = {
+        description = "The Swarm deck: each level of the Focus UPGRADE is worth this many MORE tables (GrindController:currentFocusCapacity adds level x worth).",
+        value_shape = "integer per deck level, e.g. 1",
+        affects     = "ctx.focus_level_worth",
+        scale       = "integer",
     },
     focus_penalty_reduce_mult = {
         description = "Multiplies the focus penalty per extra table (lower = softer curve).",

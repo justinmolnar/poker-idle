@@ -85,3 +85,64 @@ the dealer throws beside the catalog (`services/Throw` carries the arc both
 use), unfolding into the tiles and column; CONTINUE warns once when the
 deck in play is maxed. `views/DeckSelectModal` is gone; the story triggers
 are `deck_flyer_landed` / `deck_flyer_open`.
+
+## 2026-09-07 addendum: Standard's reroll, Nit → Swarm
+
+**Standard** keeps its XP rule and curve; the bonus and capstone were
+replaced. Old, verbatim:
+
+```lua
+        effects   = {
+            { kind = "earnings_mult", value = 1.5 },
+        },
+        capstone  = {
+            text    = "{w:stack} {c:won:winnings} ×2.",
+            effects = { { kind = "stack_mult", value = 2.0 } },
+        },
+        bonus       = { text = "+{n}% {c:won:winnings}", per_level = 50, compound = true },
+```
+
+New: a stack loss is rerolled once per level, keep the smallest
+(`stack_loss_rerolls`); capstone: the rerolls can land on a win
+(`stack_loss_reroll_wins`). `sim/standard_reroll.lua` prints the per-stake
+numbers; `--sample` Monte-Carlos the live sampleOutcome against them.
+
+**Nit** is retired: with the reroll its bonus was Maniac mirrored and its
+capstone a worse Standard L1. Its slot is the **Swarm** (id `swarm`; saved
+Nit levels and XP carry over through `data/id_migrations.lua`). Old,
+verbatim:
+
+```lua
+    {
+        id        = "nit",
+        name      = "Nit",
+        sprite    = "cards/backs/03-fish",
+        max_level = 5,
+        xp_curve  = { 1e6, 1e7, 1e8, 1e9, 1e10 },
+        xp_rule   = { kind = "money_lost" },
+        levels_on = "money lost",
+        effects   = {
+            { kind = "loss_dist_shift",
+              shift = { small = 0.18, medium = -0.06, large = -0.06, stack = -0.06 } },
+        },
+        capstone  = {
+            text    = "1 in 2 chance: {l:stack} {arrow} {l:large}.",
+            effects = { { kind = "loss_tier_shift", from = "stack", to = "large", chance = 1/2 } },
+        },
+        bonus       = { text = "{c:lost:Losses} lean {l:small}, +{n}%", per_level = 18 },
+        flavor_text = "Tight is right. Play safe, live to grind another day.",
+        unlock = {
+            kind      = "lifetime_money_lost",
+            threshold = 1e7,
+            text      = "money lost",
+            format    = "money",
+        },
+    },
+```
+
+Swarm: levels and opens on hands dealt by cursors (`cursor_deals`,
+`total_cursor_deals`); each level makes a Focus level worth one more table
+(`focus_level_worth`); capstone cursors ×2 speed. Focus itself went to five
+levels on a base of four the same day, and the board cap to a full 6x6 (36),
+so deck L5 plus the Second Monitor is the whole board.
+

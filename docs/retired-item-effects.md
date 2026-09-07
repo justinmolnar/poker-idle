@@ -448,3 +448,98 @@ on a shelf. Recorded verbatim as they stood when cut.
 Effect kinds left with no catalog user by these: `start_bankroll_add`,
 `void_first_loss`, `bust_refund_pct`, `run_upgrade_strength_mult`. Their
 applicators stay.
+
+## Retired 2026-09-07 (b): the cursors shelf repurposed
+
+The swarm got its own weather (two cursors clashing rolls a tilt on the
+table under them; see `Balance.CURSOR_CLASH`), and three items on the
+Cursors shelf were rewritten around it. **Ids, names, sprites and unlock
+gates stayed.** These are the entries as they were, verbatim.
+
+```lua
+    {
+        id            = "desk_lamp",
+        refactor        = true,   -- flagged for refactor (designer tag); the book washes it red
+        act           = 2,
+        name          = "Desk Lamp",
+        effect_text   = "Placeholder: this item is being rewritten.",
+        description   = "Optical sensors need light to work.",
+        sprite        = "desk_lamp",
+        phase         = "late",
+        cost_chip     = 10,
+        requires    = "box_of_mice",
+        unlock = {
+            kind      = "total_cursor_deals",
+            threshold = 3000,
+            text      = "hands dealt by {c:upgrade:cursors}",
+        },
+        effects       = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "cursor_optical_sensor" },
+        },
+        corrupt = {
+            cost_achip = 6,
+            effects = {
+                { kind = "cursor_optical_sensor" },
+                { kind = "cursor_speed_mult", value = 1.5 },
+            },
+            effect_text = "{c:upgrade:Cursor} speed ×1.5.",
+        },
+    },
+    {
+        id            = "glass_partition",
+        act           = 2,
+        name          = "Glass Partition",
+        effect_text   = "{c:upgrade:Cursors} pass through each other.",
+        description   = "Everyone gets a lane.",
+        sprite        = "glass_partition",
+        phase         = "late",
+        cost_chip     = 12,
+        requires    = "laptop_terminal",
+        effects       = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "cursor_collision_phasing" },
+        },
+    },
+    {
+        id            = "cleaning_robot",
+        refactor        = true,   -- flagged for refactor (designer tag); the book washes it red
+        act           = 2,
+        name          = "Cleaning Robot",
+        effect_text   = "Win a {w:stack}: {c:upgrade:cursor} speed ×2 for 10 seconds.",
+        allow_numbers = { 2, 10 },
+        description   = "Overdrive. It only speeds up after someone {c:won:wins} big. Nobody knows why.",
+        sprite        = "cleaning_robot",
+        phase         = "late",
+        cost_chip     = 24,
+        requires    = "gaming_keyboard",
+        unlock = {
+            kind      = "total_stacks",
+            threshold = 500,
+            text      = "{w:stack} {c:won:wins}",
+        },
+        effects       = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "proc", proc = "cleaning_robot_overdrive" },
+        },
+    },
+```
+
+The robot's proc, from `data/procs.lua`:
+
+```lua
+    cleaning_robot_overdrive = {
+        trigger = "on_stack_win",
+        target  = { kind = "none" },
+        payload = { kind = "timed_buff", buff = "cursor_speed_mult",
+                    value = 2.0, t = 10 },
+        ghost   = "cleaning_robot",
+    },
+```
+
+Effect kinds deleted with them (applicators removed from
+`models/poker_effects.lua`): `cursor_collision_phasing`,
+`cursor_optical_sensor`. Second Monitor's corrupt line went from
+`+6 FOCUS` to `+2 FOCUS and the penalty ×0.5` the same day (the board
+cap became a full 6x6, so +6 overshot it).
+

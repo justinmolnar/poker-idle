@@ -86,6 +86,24 @@ local EXPECT = {
     anti_award_mult           = function(e) return { "×" .. trim(e.value) } end,
     first_anti_mult           = function(e) return { "×" .. trim(e.value) } end,
     cursor_speed_mult         = function(e) return { "×" .. trim(e.value) } end,
+    focus_penalty_reduce_mult = function(e) return { "×" .. trim(e.value) } end,
+    -- the swarm's weather: a clash's status and the fire flags print no number;
+    -- "every clash lands" is chance 1 in words
+    cursor_clash_status       = function() return nil end,
+    cursor_clash_chance       = function(e, where, text)
+        if e.value == 1 then return nil end
+        local f = fraction(e.value)
+        if not f then err(where, ("chance %s is not a printable fraction"):format(tostring(e.value)), text) end
+        return { f or "?" }
+    end,
+    cursor_ignite_chance      = function(e, where, text)
+        local f = fraction(e.value)
+        if not f then err(where, ("chance %s is not a printable fraction"):format(tostring(e.value)), text) end
+        return { f or "?" }
+    end,
+    cursor_fire_persists      = function() return nil end,
+    cursor_fire_spreads       = function() return nil end,
+    stack_loss_reroll_wins    = function() return nil end,
     ratchet_gain_mult         = function() return nil end,   -- the Whiteboard states the Prize Vase's new number in words; allow_numbers carries it
     hand_pace_mult            = function(e) return { "×" .. trim(e.value) } end,
     pure_board_pace           = function(e) return { "×" .. trim(e.value) } end,
@@ -264,6 +282,8 @@ local PER_LEVEL = {
     pure_board_bonus     = function(e) return (e.earnings_mult - 1) * 100 end,
     earnings_per_tier    = function(e) return e.value * 100 end,
     ko_targets_add       = function(e) return e.value end,
+    stack_loss_rerolls   = function(e) return e.value end,
+    focus_level_worth    = function(e) return e.value end,
     win_dist_shift       = function(e)
         local m = 0
         for _, v in pairs(e.shift) do if v > m then m = v end end

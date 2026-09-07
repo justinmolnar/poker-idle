@@ -1044,9 +1044,10 @@ local items = {
         corrupt = {
             cost_achip = 6,
             effects = {
-                { kind = "focus_capacity_add", value = 6 },
+                { kind = "focus_capacity_add", value = 2 },
+                { kind = "focus_penalty_reduce_mult", value = 0.5 },
             },
-            effect_text = "+6 {c:upgrade:FOCUS}.",
+            effect_text = "+2 {c:upgrade:FOCUS}, and the {c:upgrade:FOCUS} penalty ×0.5.",
         },
     },
     {
@@ -1156,11 +1157,10 @@ local items = {
     },
     {
         id            = "desk_lamp",
-        refactor        = true,   -- flagged for refactor (designer tag); the book washes it red
         act           = 2,
         name          = "Desk Lamp",
-        effect_text   = "Placeholder: this item is being rewritten.",
-        description   = "Optical sensors need light to work.",
+        effect_text   = "A {c:upgrade:cursor} crosses a {c:heat:heater}: 1 in 4 chance it catches fire, and the next table it deals catches a {c:heat:heater}.",
+        description   = "Runs hot. So does anything under it.",
         sprite        = "desk_lamp",
         phase         = "late",
         cost_chip     = 10,
@@ -1172,15 +1172,15 @@ local items = {
         },
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "cursor_optical_sensor" },
+            { kind = "cursor_ignite_chance", value = 1/4 },   -- PLACEHOLDER chance
         },
         corrupt = {
             cost_achip = 6,
             effects = {
-                { kind = "cursor_optical_sensor" },
-                { kind = "cursor_speed_mult", value = 1.5 },
+                { kind = "cursor_ignite_chance", value = 1/4 },
+                { kind = "cursor_fire_persists" },
             },
-            effect_text = "{c:upgrade:Cursor} speed ×1.5.",
+            effect_text = "Same, and it stays lit after that deal.",
         },
     },
     {
@@ -1207,15 +1207,15 @@ local items = {
         id            = "glass_partition",
         act           = 2,
         name          = "Glass Partition",
-        effect_text   = "{c:upgrade:Cursors} pass through each other.",
-        description   = "Everyone gets a lane.",
+        effect_text   = "A lit {c:upgrade:cursor} clashes with another: it lights too.",
+        description   = "Everyone gets a lane. Fire doesn't care.",
         sprite        = "glass_partition",
         phase         = "late",
         cost_chip     = 12,
-        requires    = "laptop_terminal",
+        requires    = "desk_lamp",
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "cursor_collision_phasing" },
+            { kind = "cursor_fire_spreads" },
         },
     },
     {
@@ -1814,12 +1814,10 @@ local items = {
     },
     {
         id            = "cleaning_robot",
-        refactor        = true,   -- flagged for refactor (designer tag); the book washes it red
         act           = 2,
         name          = "Cleaning Robot",
-        effect_text   = "Win a {w:stack}: {c:upgrade:cursor} speed ×2 for 10 seconds.",
-        allow_numbers = { 2, 10 },
-        description   = "Overdrive. It only speeds up after someone {c:won:wins} big. Nobody knows why.",
+        effect_text   = "Two {c:upgrade:cursors} clash: the table under them catches a {c:heat:heater}, not a {c:tilt:tilt}.",
+        description   = "It runs into everything. It was built to.",
         sprite        = "cleaning_robot",
         phase         = "late",
         cost_chip     = 24,
@@ -1831,7 +1829,15 @@ local items = {
         },
         effects       = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "proc", proc = "cleaning_robot_overdrive" },
+            { kind = "cursor_clash_status", status = "heater" },
+        },
+        corrupt = {
+            cost_achip = 8,                           -- PLACEHOLDER
+            effects = {
+                { kind = "cursor_clash_status", status = "heater" },
+                { kind = "cursor_clash_chance", value = 1 },
+            },
+            effect_text = "Same, and every clash lands.",
         },
     },
     -- ═══ Act 3 — anti-{chip} corruption ═════════════════════════════════

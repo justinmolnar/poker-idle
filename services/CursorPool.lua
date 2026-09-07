@@ -6,16 +6,32 @@
 --
 -- Lifecycle:
 --   1. Each frame, the active state's update calls
---      CursorPool.update(dt, hit_boxes, ctx, dispatcher).
+--      CursorPool.update(dt, hit_boxes, ctx, dispatcher, panels, hooks).
 --   2. The pool sizes itself to ctx.cursor_count (gated by
 --      ctx.cursor_unlocked); each cursor's state machine advances; on
 --      click-arrival, dispatcher(hit_box) is invoked — the same path mouse
 --      clicks use.
---   3. The active view's draw calls CursorPool.draw() last so cursors
+--   3. The active view's draw calls CursorPool.draw(game) last so cursors
 --      render above panels and sidebars.
+--
+-- The swarm's weather (the cursors shelf), all decided here and reported
+-- through `hooks`, never applied here:
+--   • Two cursors CLASH whenever they touch. Always: no item stops it. The
+--     table panel under the clash goes to hooks.on_clash(panel); the
+--     controller rolls the tilt (or the Cleaning Robot's heater).
+--   • A cursor ENTERING a panel that carries a heater rolls
+--     ctx.cursor_ignite_chance (the Desk Lamp) and may catch fire: `lit`.
+--     It carries the fire until its next DEAL, which goes to
+--     hooks.on_lit_deal(hit_box); the fire is spent unless
+--     ctx.cursor_fire_persists.
+--   • With ctx.cursor_fire_spreads (the Glass Partition) a lit cursor
+--     lights the one it clashes with.
+-- `panels` is the view's list of table panel rects
+-- ({ x, y, w, h, idx, table_id, heater }), rebuilt each draw.
 
 local Cursor       = require("models.Cursor")
 local Theme        = require("views.Theme")
+local Icons        = require("views.Icons")
 local SoundService = require("services.SoundService")
 
 local Motion       = require("services.Motion")
@@ -48,10 +64,19 @@ function CursorPool.releaseAllTargets()
     end
 end
 
+-- The table panel containing a point, or nil.
+local function panelAt(panels, x, y)
+    for _, p in ipairs(panels or {}) do
+        if x >= p.x and x < p.x + p.w and y >= p.y and y < p.y + p.h then return p end
+    end
+    return nil
+end
+
 -- Per-frame update. dispatcher(hb) fires when a cursor reaches the center of claimed hit-box.
-function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
+function CursorPool.update(dt, hit_boxes, ctx, dispatcher, panels, hooks)
     local W, H = love.graphics.getDimensions()
     _last_W, _last_H = W, H
+    hooks = hooks or {}
 
     local unlocked = ctx and ctx.cursor_unlocked
     local desired  = (ctx and math.max(0, math.floor(ctx.cursor_count or 0))) or 0
@@ -103,10 +128,10 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
     -- Dynamic launch speed proportional to current cursor travel speed (min 600 px/sec floor)
     local launch_speed = math.max(600, speed_px * 3.8)
 
-    -- Pairwise mouse collision checks (unless ghost phasing is unlocked).
-    -- Allows flying stunned mice to ping-pong off other mice for chain reactions!
-    local phasing = ctx and ctx.cursor_collision_phasing
-    if not phasing and #_cursors > 1 then
+    -- Pairwise mouse collision checks. Always on: a clash is the swarm's
+    -- cost (and, with the robot, its weather). Flying stunned mice
+    -- ping-pong off other mice for chain reactions.
+    if #_cursors > 1 then
         for i = 1, #_cursors - 1 do
             local c1 = _cursors[i]
             do
@@ -143,6 +168,14 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
                                     t = love.timer.getTime(),
                                     angle = math.random() * math.pi,
                                 } end
+
+                                -- The clash: the table under the spark takes it.
+                                local under = panelAt(panels, mid_x, mid_y)
+                                if under and hooks.on_clash then hooks.on_clash(under) end
+                                -- Fire passes between them (the Glass Partition).
+                                if ctx and ctx.cursor_fire_spreads and (c1.lit or c2.lit) then
+                                    c1.lit, c2.lit = true, true
+                                end
                             end
                         end
                     end
@@ -151,6 +184,7 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
         end
     end
 
+    local ignite = (ctx and ctx.cursor_ignite_chance) or 0
     for _, c in ipairs(_cursors) do
         c:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher, ctx)
         if c._just_dispatched then
@@ -159,6 +193,24 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher)
                 _ripples[#_ripples + 1] = { x = c.x, y = c.y, t = love.timer.getTime() }
             end
             SoundService.playNamed("cursor_tap")
+            -- A lit cursor's deal lights the table (the Desk Lamp), and the
+            -- fire is spent unless the lamp's corrupt line keeps it.
+            local hb = c._last_hb
+            c._last_hb = nil
+            if c.lit and hb and hb.action == "deal" then
+                if hooks.on_lit_deal then hooks.on_lit_deal(hb) end
+                c.lit = (ctx and ctx.cursor_fire_persists) and true or false
+            end
+        end
+        -- Crossings: the frame a cursor ENTERS a panel decides whether it
+        -- catches fire there. Standing on one is not a second crossing.
+        local p  = panelAt(panels, c.x, c.y)
+        local id = p and p.table_id or nil
+        if id ~= c.over_id then
+            c.over_id = id
+            if p and p.heater and not c.lit and ignite > 0 and math.random() < ignite then
+                c.lit = true
+            end
         end
     end
 end
@@ -210,6 +262,7 @@ function CursorPool.draw(fonts_or_game)
     if Motion.level("cursors") <= Motion.NONE then return end
     local flourish = Motion.at("cursors", Motion.HIGH)
     local tnow = (love.timer and love.timer.getTime()) or 0
+    local game  = (type(fonts_or_game) == "table" and fonts_or_game.fonts) and fonts_or_game or nil
     local fonts = (type(fonts_or_game) == "table" and (fonts_or_game.fonts or fonts_or_game)) or nil
 
     if #_cursors > 0 then
@@ -221,6 +274,15 @@ function CursorPool.draw(fonts_or_game)
         love.graphics.setLineWidth(1)
         for _, c in ipairs(_cursors) do
             drawShape(c, "line")
+        end
+        -- A lit cursor wears the heater's own flame over its tip: the
+        -- status glyph, so what it carries is what it will leave.
+        for _, c in ipairs(_cursors) do
+            if c.lit then
+                local sz = 14
+                local flick = flourish and (1 + 0.08 * math.sin(tnow * 9 + c.x)) or 1
+                Icons.drawFlame(game, c.x - sz * 0.5, c.y - sz * flick - 2, sz * flick, 0.95)
+            end
         end
 
         -- Dizzy cartoon stars orbiting stunned flying mice

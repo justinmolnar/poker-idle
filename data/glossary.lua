@@ -61,6 +61,13 @@ return {
         text = "A table on a {c:tilt:tilt} {c:lost:loses} this hand and the next. It comes off the felt, not from me. Some things in the catalog move a tilt to a table adjacent to its target.",
     },
     {
+        id    = "clashes",
+        term  = "Clashes",
+        beat  = "first_cursors",
+        words = { "clash", "clashes" },
+        text  = "Two {c:upgrade:cursors} bumping. It shakes the table under them: a chance of a {c:tilt:tilt}. The robot on the shelf makes it a {c:heat:heater} instead.",
+    },
+    {
         id   = "beside",
         term = "Adjacent",
         beat = "first_heat",

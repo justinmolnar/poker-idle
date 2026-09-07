@@ -41,6 +41,7 @@ local COUNTER_KINDS = {
     "total_ko_wins",
     "total_chips_banked",
     "total_hands_at_4plus",
+    "total_cursor_deals",
 }
 
 function DeckUnlockRules.registerAll(reg)

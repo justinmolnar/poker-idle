@@ -310,7 +310,8 @@ end
 -- chips earned during the run were already banked to state.chips during play.
 function GameState:resetRun()
     self.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
-    self.loan_fresh          = true   -- the loan renews: the readout climbs from 0
+    self.loan_fresh          = true   -- the loan renews: the readout climbs from 0
+
     self.item_fires_run      = {}     -- the room's per-run fire counts start over
     self.current_stake_id    = "s001"
     self.run_upgrade_levels  = {}
@@ -573,6 +574,17 @@ function GameState:applySaved(saved)
         local umap = IdMigrations.run_upgrade or {}
         if next(umap) then
             remapKeys(self.run_upgrade_levels, umap, liveIds(require("data.run_upgrades")))
+        end
+        -- An upgrade whose fixed max_level was cut (Focus, 10 -> 5 on
+        -- 2026-09-07) clamps a saved level above it. Derived maxes are nil
+        -- here and skipped; a level is never raised.
+        if self.run_upgrade_levels then
+            for _, u in ipairs(require("data.run_upgrades")) do
+                local lvl = self.run_upgrade_levels[u.id]
+                if lvl and u.max_level and lvl > u.max_level then
+                    self.run_upgrade_levels[u.id] = u.max_level
+                end
+            end
         end
 
         -- Deck ids: the unlock list, the two progress tables, the active

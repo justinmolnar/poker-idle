@@ -34,6 +34,7 @@ return {
     },
     deck        = {
         cursor = "swarm",                               -- 2026-09: the deck is the Swarm
+        nit    = "swarm",                               -- 2026-09-07: Nit retired, its levels carry to the Swarm
     },
     tier        = {
         jackpot = "stack",                              -- 2026-09: the win tier is the Stack

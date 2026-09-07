@@ -76,10 +76,23 @@ Balance.UPGRADE_PRICE_SIG_FIGS = 2
 Balance.UPGRADE_REFERENCE = {
     low  = { tables = 4,  tables_ramp = true, decks = {}, gtypes = "cash" },
     mid  = { tables = 9,  decks = { standard = 5 }, gtypes = "cash" },
-    -- Act 3 is unbalanced; the high board holds Standard and Nit (the two
-    -- decks that make T6+ playable) until that pass.
-    high = { tables = 12, decks = { standard = 5, nit = 5 }, gtypes = "cash" },
+    -- Act 3 is unbalanced; the high board holds Standard (the deck that
+    -- makes T6+ playable: its reroll) until that pass.
+    high = { tables = 12, decks = { standard = 5 }, gtypes = "cash" },
 }
+
+-- ─── The cursor swarm's own weather ──────────────────────────────────
+-- Two cursors clashing rolls `chance` to punch the table under them: a
+-- tilt by default, a heater with the Cleaning Robot (ctx.cursor_clash_status).
+-- The punch numbers are the ones every heater/tilt proc in data/procs.lua
+-- uses. CURSOR_FIRE is what a lit cursor (the Desk Lamp) leaves on the
+-- table it deals. Read by GrindController:onCursorClash / onLitCursorDeal.
+Balance.CURSOR_CLASH = {
+    chance = 1/4,                                  -- PLACEHOLDER: the designer's number
+    tilt   = { magnitude = 0.35, t = 5 },
+    heater = { magnitude = 0.35, t = 6 },
+}
+Balance.CURSOR_FIRE = { magnitude = 0.35, t = 6 }
 
 -- The arithmetic that used to live here moved to
 -- models/catalog_loader.lua. data/ is tables: these are the authored taste

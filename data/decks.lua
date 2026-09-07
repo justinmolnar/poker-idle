@@ -68,17 +68,26 @@ local Decks = {
         name      = "Standard",
         sprite    = "cards/backs/04-patterns",
         max_level = 5,
-        xp_curve  = { 2e3, 2e4, 2e5, 2e6, 6e6 },
+        -- PLACEHOLDER curve (2026-09-07): sized by sim/deck_curve_check.lua so
+        -- L4 lands inside a T3 session and L5 inside the first T4 session
+        -- (nine capped T3 tables: L4 in ~1.3h; nine mid T4 tables: L5 in
+        -- ~1.4h). The old top (6e6) needed hours of T4.
+        xp_curve  = { 2e3, 2e4, 1e5, 3e5, 2e6 },
         xp_rule   = { kind = "money_won" },
         levels_on = "money won",
+        -- The deck that refuses to lose big: a stack loss is rerolled once
+        -- per level, keep the smallest (OutcomeMath.sampleOutcome). Low
+        -- stakes stop throwing stack losses at all, the top stakes about
+        -- 190x less on a full build (sim/standard_reroll.lua). Act 3's
+        -- anti ladder is what pushes back.
         effects   = {
-            { kind = "earnings_mult", value = 1.5 },
+            { kind = "stack_loss_rerolls", value = 1 },
         },
         capstone  = {
-            text    = "{w:stack} {c:won:winnings} ×2.",
-            effects = { { kind = "stack_mult", value = 2.0 } },
+            text    = "Those rerolls can land on a {c:won:win}.",
+            effects = { { kind = "stack_loss_reroll_wins" } },
         },
-        bonus       = { text = "+{n}% {c:won:winnings}", per_level = 50, compound = true },
+        bonus       = { text = "A {l:stack}: reroll it {n} times, keep the smallest.", per_level = 1 },
         flavor_text = "The classic back. Solid, reliable, honest.",
     },
 
@@ -244,31 +253,34 @@ local Decks = {
         },
     },
 
-    -- ── 8. Nit — loss shape ────────────────────────────────────────────────
-    -- Opens: $10M lost. Maxes: NL100M.
+    -- ── 8. Swarm — the cursors ─────────────────────────────────────────────
+    -- Opens: hands dealt by cursors. Levels on the same. Replaced Nit
+    -- 2026-09-07 (docs/deck-refactor-2026-09.md): Standard's reroll made
+    -- Nit's whole kit a worse Standard. Each level makes a Focus level
+    -- worth one more table (a 3x3 solo, the full 6x6 at L5 with the
+    -- Second Monitor); the capstone doubles cursor speed. Focus and the
+    -- swarm are one thing: nobody deals 30 tables by hand.
     {
-        id        = "nit",
-        name      = "Nit",
+        id        = "swarm",
+        name      = "Swarm",
         sprite    = "cards/backs/03-fish",
         max_level = 5,
-        xp_curve  = { 1e6, 1e7, 1e8, 1e9, 1e10 },
-        xp_rule   = { kind = "money_lost" },
-        levels_on = "money lost",
+        xp_curve  = { 500, 2000, 6000, 15000, 40000 },   -- PLACEHOLDER: cursor deals
+        xp_rule   = { kind = "cursor_deals" },
+        levels_on = "hands dealt by cursors",
         effects   = {
-            { kind = "loss_dist_shift",
-              shift = { small = 0.18, medium = -0.06, large = -0.06, stack = -0.06 } },
+            { kind = "focus_level_worth", value = 1 },
         },
         capstone  = {
-            text    = "1 in 2 chance: {l:stack} {arrow} {l:large}.",
-            effects = { { kind = "loss_tier_shift", from = "stack", to = "large", chance = 1/2 } },
+            text    = "{c:upgrade:Cursor} speed ×2.",
+            effects = { { kind = "cursor_speed_mult", value = 2 } },
         },
-        bonus       = { text = "{c:lost:Losses} lean {l:small}, +{n}%", per_level = 18 },
-        flavor_text = "Tight is right. Play safe, live to grind another day.",
+        bonus       = { text = "Each {c:upgrade:FOCUS} level is worth +{n} more.", per_level = 1 },
+        flavor_text = "Nobody deals thirty tables. Nobody has to.",
         unlock = {
-            kind      = "lifetime_money_lost",
-            threshold = 1e7,
-            text      = "money lost",
-            format    = "money",
+            kind      = "total_cursor_deals",
+            threshold = 3000,                         -- PLACEHOLDER
+            text      = "hands dealt by {c:upgrade:cursors}",
         },
     },
 

@@ -163,7 +163,9 @@ local RunUpgrades = {
     },
 
     -- ── 8. Focus — throughput ──────────────────────────────────────────
-    -- +1 focus capacity per level. Same effect kind as before. 10 levels.
+    -- +1 focus capacity per level. FIVE levels (2026-09-07): four plus five
+    -- is nine, a 3x3 board, and the swarm deck multiplies what each level is
+    -- worth (GrindController:currentFocusCapacity) up to the full 6x6.
     {
         id          = "focus",
         name        = "Focus",
@@ -173,7 +175,7 @@ local RunUpgrades = {
             "starts dropping.",
         },
         icon        = "focus",
-        max_level   = 10,
+        max_level   = 5,
         -- Derived like Cursor (see there). L5, the level that takes a board
         -- from four tables to nine, lands under $1k: end-of-Act-1 money.
         maxes_at    = "s005",

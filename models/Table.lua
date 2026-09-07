@@ -1117,6 +1117,15 @@ end
 local STATUS_CAP = 6   -- runaway guard; entries are keyed by kind, so the
                        -- real bound is the number of authored kinds.
 
+-- Is a status of this kind live on the table? (The cursor swarm asks
+-- for "heater": a cursor crossing a burning table can catch fire.)
+function Table:hasStatus(kind)
+    for _, e in ipairs(self.statuses or {}) do
+        if e.kind == kind then return true end
+    end
+    return false
+end
+
 function Table:applyStatus(kind, spec)
     local def = StatusData[kind]
     if not def or not spec then return false end

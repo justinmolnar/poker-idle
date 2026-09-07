@@ -463,6 +463,23 @@ function OutcomeMath.sampleOutcome(win_chance, win_dist, loss_dist, ctx, gtype, 
     end
     local tier = sampleDist(won and win_dist or loss_dist) or "small"
 
+    -- Standard: a stack loss is rerolled ctx.stack_loss_rerolls times and
+    -- the smallest loss is kept, so the chance one survives is the stake's
+    -- own stack share to that power (low stakes stop throwing them, high
+    -- stakes keep some). With the capstone a reroll first rolls the win
+    -- chance, and a win beats any loss. sim/standard_reroll.lua has the
+    -- numbers per stake.
+    if not won and tier == "stack" and ctx and (ctx.stack_loss_rerolls or 0) > 0 then
+        for _ = 1, ctx.stack_loss_rerolls do
+            if ctx.stack_loss_reroll_wins and love.math.random() < win_chance then
+                won, tier = true, sampleDist(win_dist) or "small"
+                break
+            end
+            local t = sampleDist(loss_dist) or "small"
+            if TIER_INDEX[t] < TIER_INDEX[tier] then tier = t end
+        end
+    end
+
     -- Deck-capstone tier rules clamp the sampled tier. Win side: floor
     -- (Standard "no Small wins"). Loss side: ceiling (the Nit bans stack
     -- "stack" losses by capping below stack).

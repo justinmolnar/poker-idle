@@ -218,7 +218,6 @@ function GrindState:update(dt)
     -- valid for the pool it was built against. The identity check in
     -- _handleHitBox covers whatever this ordering can't.
     local cursor_view = self.view
-    local state = self.game.state
     -- The House has the floor on a `pause` beat: the tables, the cursors
     -- and the status clocks stand still until the click. The view still
     -- runs its hover pass with no time.
@@ -226,16 +225,19 @@ function GrindState:update(dt)
         self.view:update(0)
         return
     end
-    CursorPool.update(dt, cursor_view.hit_boxes, self.controller.ctx,
+    local ctrl = self.controller
+    CursorPool.update(dt, cursor_view.hit_boxes, ctrl.ctx,
         function(hb)
-            -- Lifetime count of DEAL clicks the swarm makes: the cursor
-            -- catalog items gate on it (Gaming Keyboard, Desk Lamp,
-            -- Telephone), so idling itself is what opens more idling.
-            if hb and hb.action == "deal" then
-                state.total_cursor_deals = (state.total_cursor_deals or 0) + 1
-            end
+            -- A cursor's DEAL counts (the cursor items gate on it, the
+            -- Swarm deck levels on it), then it is a click like any other.
+            if hb and hb.action == "deal" then ctrl:onCursorDeal(hb) end
             cursor_view:_handleHitBox(hb)
-        end)
+        end,
+        cursor_view.table_panels,
+        {
+            on_clash    = function(panel) ctrl:onCursorClash(panel) end,
+            on_lit_deal = function(hb) ctrl:onLitCursorDeal(hb) end,
+        })
 
     self.controller:update(dt)
     self.view:update(dt)

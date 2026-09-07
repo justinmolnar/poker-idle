@@ -273,6 +273,15 @@ function PokerEffects.registerAll(reg)
     reg:register("stack_mult", function(e, ctx)
         ctx.stack_mult = (ctx.stack_mult or 1) * (e.value or 1)
     end)
+    -- Standard: a stack loss is rerolled this many times, keep the
+    -- smallest loss (OutcomeMath.sampleOutcome). One per deck level.
+    reg:register("stack_loss_rerolls", function(e, ctx)
+        ctx.stack_loss_rerolls = (ctx.stack_loss_rerolls or 0) + (e.value or 0)
+    end)
+    -- Standard's capstone: each reroll may come up a win instead.
+    reg:register("stack_loss_reroll_wins", function(_e, ctx)
+        ctx.stack_loss_reroll_wins = true
+    end)
 
     -- Percentage bonus on starting bankroll seed (Lucky Coin). Sits next
     -- to start_bankroll_add (flat $); both feed applyStartingPerks.
@@ -337,16 +346,40 @@ function PokerEffects.registerAll(reg)
     reg:register("cursor_memory_unlocked", function(_e, ctx)
         ctx.cursor_memory_unlocked = true
     end)
-    reg:register("cursor_collision_phasing", function(_e, ctx)
-        ctx.cursor_collision_phasing = true
+    -- The swarm's weather (services/CursorPool, GrindController:onCursorClash
+    -- / onLitCursorDeal; the base numbers are Balance.CURSOR_CLASH).
+    -- What a clash leaves on the table under it: "tilt" by default, the
+    -- Cleaning Robot says "heater".
+    reg:register("cursor_clash_status", function(e, ctx)
+        ctx.cursor_clash_status = e.status
     end)
-    reg:register("cursor_optical_sensor", function(_e, ctx)
-        ctx.cursor_optical_sensor = true
+    -- How often a clash lands (1 = every time, the robot's corrupt line).
+    reg:register("cursor_clash_chance", function(e, ctx)
+        ctx.cursor_clash_chance = math.max(ctx.cursor_clash_chance or 0, e.value or 0)
+    end)
+    -- The Desk Lamp: a cursor crossing a heater table rolls this to catch
+    -- fire; a lit cursor's next deal lights that table.
+    reg:register("cursor_ignite_chance", function(e, ctx)
+        ctx.cursor_ignite_chance = math.max(ctx.cursor_ignite_chance or 0, e.value or 0)
+    end)
+    -- A lit cursor stays lit after the deal (the lamp's corrupt line).
+    reg:register("cursor_fire_persists", function(_e, ctx)
+        ctx.cursor_fire_persists = true
+    end)
+    -- A lit cursor lights the cursor it clashes with (the Glass Partition).
+    reg:register("cursor_fire_spreads", function(_e, ctx)
+        ctx.cursor_fire_spreads = true
     end)
 
     -- ── Focus mechanic ──────────────────────────────────────────────────
     reg:register("focus_capacity_add", function(e, ctx)
         ctx.focus_capacity = (ctx.focus_capacity or 0) + e.value
+    end)
+    -- The Swarm deck: every level of the Focus upgrade is worth this many
+    -- MORE tables (GrindController:currentFocusCapacity multiplies the
+    -- upgrade's level by 1 + this).
+    reg:register("focus_level_worth", function(e, ctx)
+        ctx.focus_level_worth = (ctx.focus_level_worth or 0) + (e.value or 0)
     end)
     reg:register("focus_penalty_reduce_mult", function(e, ctx)
         ctx.focus_penalty_reduce_mult = (ctx.focus_penalty_reduce_mult or 1) * e.value

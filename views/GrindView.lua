@@ -4,7 +4,7 @@
 --   • Top bar (50px) — bankroll, chips, run stats
 --   • Left sidebar (Panel) — Tables tab with stake-add buttons + slot count.
 --                             Phase 5 will add a Catalog tab here.
---   • Center grid — up to MAX_TABLES tiled table panels (2 cols × 3 rows).
+--   • Center grid — up to MAX_TABLES tiled table panels (a full 6×6 board).
 --                   Each panel: stake header + [×] remove, last-N pill strip,
 --                   live stat line, and a [⤴ next-stake] button when the
 --                   next tier is unlocked + affordable.
@@ -1629,6 +1629,7 @@ function GrindView:_drawCenterGrid(W, H)
                 local dy = RollingValue.get("tbly:" .. tbl._id, ty, SLIDE_RATE, "tables")
                 TablePanel.draw(tbl, i, dx, dy, pw, ph,
                                 self.game, self.controller, self.hit_boxes)
+                self:_notePanel(tbl, i, dx, dy, pw, ph)
             end
         end
         -- Held panel renders from GrindView:draw (above the sidebars) —
@@ -1653,8 +1654,22 @@ function GrindView:_drawCenterGrid(W, H)
                 TablePanel.draw(tbl, i, dx, dy, pw, ph,
                                 self.game, self.controller, self.hit_boxes)
             end
+            self:_notePanel(tbl, i, dx, dy, pw, ph)
         end
     end
+end
+
+-- One entry per drawn table panel for the cursor swarm: where it is, which
+-- table it is, and whether a heater is burning on it (a crossing can light
+-- a cursor). Rebuilt every draw beside the hit boxes.
+function GrindView:_notePanel(tbl, i, x, y, w, h)
+    local list = self.table_panels
+    if not list then return end
+    list[#list + 1] = {
+        x = x, y = y, w = w, h = h,
+        idx = i, table_id = tbl._id,
+        heater = tbl.hasStatus and tbl:hasStatus("heater") or false,
+    }
 end
 
 -- ─── THE HOUSE (the captor's poster) ──────────────────────────────────
@@ -1999,8 +2014,11 @@ function GrindView:draw(overlay_fn)
     Theme.setColor(Theme.bg.window)
     love.graphics.rectangle("fill", 0, 0, W, H)
 
-    -- Reset hit boxes — they're rebuilt during this draw pass.
+    -- Reset hit boxes — they're rebuilt during this draw pass. The panel
+    -- list beside them is the cursor swarm's map of the board
+    -- (services/CursorPool: clashes and crossings).
     self.hit_boxes = {}
+    self.table_panels = {}
 
     -- The break: for BREAK_SECS after the underflow the whole screen
     -- shakes. Popped before the overlay; the flash goes on after.
@@ -2048,7 +2066,7 @@ function GrindView:draw(overlay_fn)
 
     -- Cursor swarm — drawn last so cursors are always on top, including
     -- on top of the press-fade ghost they just dispatched.
-    CursorPool.draw(self.game.fonts)
+    CursorPool.draw(self.game)
 
     if break_p then
         love.graphics.pop()

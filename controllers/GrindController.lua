@@ -35,6 +35,7 @@ local HandAnalytics  = require("services.HandAnalytics")
 local Format         = require("utils.format")
 local UpgradePricing = require("models.UpgradePricing")
 local CursorPool     = require("services.CursorPool")
+local Balance        = require("data.balance")
 
 
 -- Chip-bounty key: a (stake, game_type) combo locks one bounty per run.
@@ -603,9 +604,76 @@ end
 -- cheerfully offered "4 / 7.45 tables". You cannot watch 0.45 of a table. The
 -- fractional part still accumulates and pays out when it crosses a whole
 -- table, exactly like CursorPool already floors its swarm size.
+-- The Swarm deck makes each level of the Focus UPGRADE worth more tables
+-- (ctx.focus_level_worth, +1 per deck level): the upgrade's own +1 is in
+-- ctx.focus_capacity already, so the deck adds level x worth on top. Max
+-- Focus is five levels: nine tables solo, the full 6x6 at deck L5 with
+-- the Second Monitor.
 function GrindController:currentFocusCapacity()
     local base_cap = Constants.GAMEPLAY.FOCUS_BASE_CAPACITY
-    return base_cap + math.floor((self.ctx and self.ctx.focus_capacity) or 0)
+    local cap = base_cap + math.floor((self.ctx and self.ctx.focus_capacity) or 0)
+    local worth = self.ctx and self.ctx.focus_level_worth or 0
+    if worth > 0 then
+        local levels = self.game.state.run_upgrade_levels
+        cap = cap + (levels and levels.focus or 0) * math.floor(worth)
+    end
+    return cap
+end
+
+-- ─── The cursor swarm's weather ──────────────────────────────────────
+-- services/CursorPool decides WHAT happened on the felt (a clash, a lit
+-- cursor's deal) and reports it; the numbers and the punches live here,
+-- through the same Table:applyStatus every proc uses, so Dish Soap's
+-- resist, refresh-not-stack and the on_status_applied procs (Microwave,
+-- Fire Extinguisher) all see a clash like any other tilt.
+
+-- The live table a hit box or panel points at, by id (indices go stale
+-- between the draw that built the box and the frame that consumes it).
+local function tableFor(self, box)
+    if not box then return nil end
+    if box.table_id then
+        for _, t in ipairs(self.pool.tables) do
+            if t._id == box.table_id then return t end
+        end
+        return nil
+    end
+    return box.idx and self.pool:get(box.idx) or nil
+end
+
+-- A cursor clicked DEAL: the lifetime count the cursor items gate on
+-- (Gaming Keyboard, Desk Lamp, Telephone) and the Swarm deck's XP.
+function GrindController:onCursorDeal(hb)
+    local state = self.game.state
+    state.total_cursor_deals = (state.total_cursor_deals or 0) + 1
+    self:_grantDeckXp({ type = "cursor_deal" })
+end
+
+-- Two cursors clashed over this panel: roll the punch. A tilt by default
+-- (Balance.CURSOR_CLASH), a heater with the Cleaning Robot
+-- (ctx.cursor_clash_status), every time with its corrupt line
+-- (ctx.cursor_clash_chance = 1).
+function GrindController:onCursorClash(panel)
+    local t = tableFor(self, panel)
+    if not t or (t.stack or 0) <= 0 then return end
+    local ctx    = self.ctx or {}
+    local chance = ctx.cursor_clash_chance or Balance.CURSOR_CLASH.chance
+    if love.math.random() >= chance then return end
+    local status = ctx.cursor_clash_status or "tilt"
+    local punch  = Balance.CURSOR_CLASH[status]
+    if not punch then return end
+    t:applyStatus(status, {
+        magnitude = punch.magnitude,
+        t         = punch.t,
+        source    = (status ~= "tilt") and "cleaning_robot" or nil,
+    })
+end
+
+-- A lit cursor dealt this table: the fire it carried lands (the Desk Lamp).
+function GrindController:onLitCursorDeal(hb)
+    local t = tableFor(self, hb)
+    if not t or (t.stack or 0) <= 0 then return end
+    local fire = Balance.CURSOR_FIRE
+    t:applyStatus("heater", { magnitude = fire.magnitude, t = fire.t, source = "desk_lamp" })
 end
 
 -- Heartbeat for anything that is true only while a tournament is running.

@@ -43,6 +43,8 @@ function Cursor:new(x, y)
         stun_timer        = 0,                     -- timer for collision recoil/stun
         recoil_vx         = 0,                     -- recoil velocity x on collision
         recoil_vy         = 0,                     -- recoil velocity y on collision
+        lit               = false,                 -- carrying fire (the Desk Lamp); spent on its next deal
+        over_id           = nil,                   -- the table panel it is inside this frame, for crossings
     }, Cursor)
 end
 
@@ -323,6 +325,7 @@ function Cursor:update(dt, deal_hbs, claims, speed_px, W, H, dispatcher, ctx)
             if (dx * dx + dy * dy) <= (CLICK_RADIUS * CLICK_RADIUS) then
                 if dispatcher then dispatcher(hb) end
                 self._just_dispatched = true
+                self._last_hb = hb
                 self._hold = (ctx and ctx.cursor_zero_click_delay) and 0.0 or 0.22
                 if not allow_duplicate then
                     claims[self.target_idx] = nil

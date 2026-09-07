@@ -283,19 +283,6 @@ return {
     -- rung, and the decision that makes owning the Cool Towel interesting:
     -- cleansing a tilt early forfeits this payoff.
 
-    -- ─── Automation crossover ───────────────────────────────────────────
-
-    -- Cleaning Robot. A {stack} anywhere and the swarm goes into
-    -- overdrive: cursors travel double speed for a while. Nobody knows
-    -- why it speeds up. It knows.
-    cleaning_robot_overdrive = {
-        trigger = "on_stack_win",
-        target  = { kind = "none" },
-        payload = { kind = "timed_buff", buff = "cursor_speed_mult",
-                    value = 2.0, t = 10 },
-        ghost   = "cleaning_robot",
-    },
-
     -- ─── KO: the sustain ──────────────────────────────────────────────
 
     -- First Aid Kit. A knockout occasionally hands back the price of the

@@ -8,6 +8,9 @@
 --   lua sim/standard_reroll.lua            (the table)
 --   lua sim/standard_reroll.lua capstone   (rerolls draw from the whole
 --                                           outcome, keep the best)
+--   lua sim/standard_reroll.lua --sample   (Monte Carlo the LIVE
+--                                           sampleOutcome, 6-Max, against
+--                                           the analytic numbers)
 --
 -- A reroll redraws the loss tier from the stake's effective loss_dist, so
 -- the chance a stack loss survives N rerolls is stack^(N+1); with the
@@ -23,6 +26,47 @@ local Stakes      = require("data.stakes")
 local GameTypes   = require("data.game_types")
 
 local capstone = arg and arg[1] == "capstone"
+local sample   = arg and arg[1] == "--sample"
+
+-- The implementation against the arithmetic: roll sampleOutcome with the
+-- ctx the deck writes (stack_loss_rerolls, stack_loss_reroll_wins) and
+-- count stack losses per hand. Sampling noise on 40k hands is about
+-- +-0.3% at the top stakes; the low stakes read 0 either way.
+if sample then
+    local N = 40000
+    local gt
+    for _, g in ipairs(GameTypes) do if g.id == "six_max" then gt = g end end
+    local function fullCtx(levels)
+        local fill = { { strength = levels } }
+        return { win_chance_fills = fill, win_dist_fills = fill, loss_dist_fills = fill }
+    end
+    print(("Live sampleOutcome, six_max, %d hands per cell: stack-loss %% (analytic in brackets)"):format(N))
+    print(("%-5s %-6s %14s %14s %14s"):format("stake", "build", "L0", "L5", "L5+capstone"))
+    for _, st in ipairs(Stakes) do
+        if st.id ~= "s010" then
+            for _, build in ipairs{ "naked", "full" } do
+                local base = build == "full" and fullCtx(st.fill_window.complete) or {}
+                local wc, wd, ld = OutcomeMath.buildOutcome(build == "full" and base or nil, gt, st)
+                local cells = {}
+                for _, cfg in ipairs{ { 0, false }, { 5, false }, { 5, true } } do
+                    local ctx = { stack_loss_rerolls = cfg[1], stack_loss_reroll_wins = cfg[2] }
+                    local hits = 0
+                    for _ = 1, N do
+                        local won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ctx, gt)
+                        if not won and tier == "stack" then hits = hits + 1 end
+                    end
+                    local p_loss, p_stack = 1 - wc, ld.stack or 0
+                    local expect
+                    if cfg[2] then expect = p_loss * p_stack * ((p_loss * p_stack) ^ cfg[1])
+                    else expect = p_loss * (p_stack ^ (cfg[1] + 1)) end
+                    cells[#cells + 1] = ("%6.2f%% [%5.2f%%]"):format(hits / N * 100, expect * 100)
+                end
+                print(("%-5s %-6s %s"):format(st.id, build, table.concat(cells, " ")))
+            end
+        end
+    end
+    os.exit(0)
+end
 
 local gtypes = {}
 for _, gt in ipairs(GameTypes) do

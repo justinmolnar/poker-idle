@@ -155,6 +155,12 @@ function DeckXpRules.registerAll(reg)
         if not event or event.type ~= "table_rebuy" then return 0 end
         return 10 * buyInWeight(event)
     end)
+
+    -- Swarm XP rule: one per hand a cursor deals (GrindController:onCursorDeal).
+    reg:register("cursor_deals", function(_rule, event)
+        if not event or event.type ~= "cursor_deal" then return 0 end
+        return 1
+    end)
 end
 
 return DeckXpRules
