@@ -1642,7 +1642,8 @@ function GrindController:getRunUpgradeMaxLevel(upgrade)
     else
         max_lvl = upgrade.max_level or 1
     end
-    max_lvl = max_lvl + ((self.ctx and self.ctx.run_upgrade_bonus_levels) or 0)
+    -- Bonus levels (the Bookshelf) raise each stake's ceiling in
+    -- OutcomeMath.fillRatio; they never add a level to buy.
     return max_lvl
 end
 

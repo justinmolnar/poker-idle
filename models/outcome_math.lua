@@ -245,10 +245,16 @@ local function fillRatio(units, window, ctx)
     -- complete). buildOutcome then scales the gain by mult. Eating the
     -- warm-up without scaling the top is what made MAX land at level 9.
     local mult  = (ctx and ctx.run_upgrade_strength_mult) or 1
+    -- Bonus levels (the Bookshelf) raise every stake's ceiling by that
+    -- many levels WITHOUT adding a level to buy: the level after a stake's
+    -- window (level 6, which T2's window already sells) now counts for T1
+    -- too. Only levels the player owns count; nothing is free and nothing
+    -- extra is sold (GrindController:getRunUpgradeMaxLevel).
+    local bonus = (ctx and ctx.run_upgrade_bonus_levels) or 0
     local units_m = units * mult
     local span_m  = complete * mult - start
     if span_m <= 0 then span_m = span end
-    local r_max = (span_m + ((ctx and ctx.run_upgrade_bonus_levels) or 0) * mult) / span_m
+    local r_max = (span_m + bonus * mult) / span_m
     local r = (units_m - start) / span_m
     if r < 0 then return 0 elseif r > r_max then return r_max end
     return r

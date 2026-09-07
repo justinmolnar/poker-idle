@@ -34,6 +34,7 @@ local FlightSystem    = require("services.FlightSystem")
 local ChipPile        = require("views.ChipPile")
 local ClickFlash      = require("services.ClickFlash")
 local Tooltip         = require("services.Tooltip")
+local GlossaryPanel   = require("views.GlossaryPanel")   -- the tooltip's side cards
 local Ghosts          = require("services.Ghosts")
 local ItemGhosts      = require("views.ItemGhosts")
 local ItemFoley       = require("services.ItemFoley")
@@ -598,6 +599,14 @@ function love.update(dt)
     -- read them after.
     HoverService.clear()
     Tooltip.clear()
+    -- A word inside last frame's tooltip under the pointer opens its
+    -- glossary card beside the box (only once its beat has played).
+    do
+        local hmx, hmy = love.mouse.getPosition()
+        Tooltip.hover(hmx, hmy, function(span)
+            return GlossaryPanel.rowsForSpan(Game, span)
+        end)
+    end
     -- Per-frame budget for the notification spine, reset alongside the
     -- other per-frame state above.
     Game.event_bus:beginFrame()
@@ -798,7 +807,12 @@ function love.keypressed(key)
 end
 function love.keyreleased(key)   Game.input_dispatcher:dispatch("keyreleased",  key)         end
 
-function love.mousepressed(x, y, b)    local fx, fy = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousepressed",  fx, fy, b) end
+function love.mousepressed(x, y, b)
+    local fx, fy = unitsToFrame(x, y)
+    -- A click while a tooltip's side card is up pins it; the next click lets it go.
+    if b == 1 and Tooltip.click() then return end
+    Game.input_dispatcher:dispatch("mousepressed",  fx, fy, b)
+end
 function love.mousereleased(x, y, b)   local fx, fy = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousereleased", fx, fy, b) end
 function love.mousemoved(x, y, dx, dy) local fx, fy, k = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousemoved", fx, fy, dx / k, dy / k) end
 function love.textinput(text)    Game.input_dispatcher:dispatch("textinput",    text)        end

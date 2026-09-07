@@ -60,7 +60,9 @@
 -- penalty is lost-red). Controls do not either (DEAL wears its table's
 -- felt, lightened; SHOVE wears the chip's gold on its edge, never
 -- lost-red). Purple is corruption only. The only gold is the chip. There
--- is no amber, and there is no blue.
+-- is no amber, and the only blue is the teal that means a chance: the
+-- "1 in N" pill in copy (views/IconText), reserved so a roll is
+-- scannable on any card. It is never a fill, a ring or a status.
 --
 -- ─── Token namespaces ───────────────────────────────────────────────
 --
@@ -129,6 +131,7 @@ Theme.palettes = {
             heat      = { 0.98, 0.52, 0.28 },        -- = status_fx.heater
             tilt      = { 0.58, 0.66, 0.82 },        -- legible steel blue
             upgrade   = { 0.72, 0.52, 0.58 },        -- the rack's muted rose, as text
+            chance    = { 0.36, 0.78, 0.74 },        -- the "1 in N" pill, teal
         },
         -- Aliases kept for the widgets that say good/error (a hand's result).
         status = {
@@ -209,6 +212,7 @@ Theme.palettes = {
             heat      = { 1.00, 0.55, 0.25 },
             tilt      = { 0.58, 0.66, 0.82 },
             upgrade   = { 0.72, 0.52, 0.58 },
+            chance    = { 0.30, 0.88, 0.82 },
         },
         status = {
             good  = { 0.45, 0.85, 0.45 },

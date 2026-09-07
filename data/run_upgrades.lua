@@ -53,9 +53,9 @@ local RunUpgrades = {
     {
         id          = "sharper_reads",
         name        = "Sharper Reads",
-        description = "+win chance at every table",
+        description = "+{c:chance:odds} at {k:every_table}",
         tooltip_blurb = {
-            "Raises your win chance at every stake and",
+            "Raises your {c:chance:odds} at every stake and",
             "game type. The graph shows the next level.",
         },
         icon        = "sharper_reads",
@@ -85,7 +85,7 @@ local RunUpgrades = {
         description = "More {w:stack}, fewer {l:stack}.",
         tooltip_blurb = {
             "More {w:stack}, fewer {l:stack}, at every stake.",
-            "The graph shows the {w:stack} odds, the ones that pay {chip}.",
+            "The graph shows the {w:stack} {c:chance:odds}, the ones that pay {chip}.",
         },
         icon        = "pot_control",
         -- Drives a per-stake range tooltip (Stack rate, current → next level).
@@ -121,7 +121,7 @@ local RunUpgrades = {
         description   = "+1 {c:upgrade:cursor}. It deals for you.",
         tooltip_blurb = {
             "One more {c:upgrade:cursor}. It clicks DEAL for you,",
-            "and REBUY once the Wacom Tablet is owned.",
+            "and {k:REBUY} once the Wacom Tablet is owned.",
         },
         icon          = "cursor",
         requires      = "box_of_mice",
@@ -167,7 +167,7 @@ local RunUpgrades = {
     {
         id          = "focus",
         name        = "Focus",
-        description = "+1 table at full FOCUS",
+        description = "+1 {c:upgrade:FOCUS}",
         tooltip_blurb = {
             "One more table before FOCUS",
             "starts dropping.",

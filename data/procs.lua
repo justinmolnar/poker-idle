@@ -167,7 +167,7 @@ return {
     -- Wall Clock.
     wall_clock_century = {
         trigger = "on_hand_won",
-        every   = 100,
+        chance  = 1/100,
         target  = { kind = "any_other", pick = "random" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 8 },
@@ -181,7 +181,7 @@ return {
     -- once — heat, tilt, or nothing. Parked tables included, both ways.
     framed_diploma_century = {
         trigger = "on_hand_won",
-        every   = 100,
+        chance  = 1/100,
         target  = { kind = "all" },
         payload = { kind = "roll_status",
                     outcomes = { { status = "heater", weight = 1, magnitude = 0.35, t = 6 },
@@ -213,7 +213,7 @@ return {
     -- (short hands, small pots) — and fizzles when no Zoom table is open.
     energy_drink_caffeine = {
         trigger = "on_hand_played",
-        every   = 25,
+        chance  = 1/25,
         target  = { kind = "gtype", gtype = "zoom", pick = "random" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 8 },
@@ -221,7 +221,7 @@ return {
     },
     energy_drink_caffeine_corrupt = {
         trigger = "on_hand_played",
-        every   = 10,
+        chance  = 1/10,
         target  = { kind = "gtype", gtype = "zoom", pick = "random" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 8 },
@@ -234,14 +234,14 @@ return {
     -- a status, nothing to name. The gentlest possible cross-table proc.
     house_cat_nap = {
         trigger = "on_hand_won",
-        every   = 50,
+        chance  = 1/50,
         target  = { kind = "any_other", pick = "random" },
         payload = { kind = "next_win_tier_up" },
         ghost   = "house_cat",
     },
     house_cat_nap_corrupt = {
         trigger = "on_hand_won",
-        every   = 25,
+        chance  = 1/25,
         target  = { kind = "any_other", pick = "random" },
         payload = { kind = "next_win_tier_up" },
         ghost   = "house_cat",
@@ -445,12 +445,16 @@ return {
     -- Granted from a deck's capstone effects via { kind = "proc" }. No
     -- ghost: the deck cell is the thing that fired.
 
-    -- Firehose: a zoom Stack resolves every other zoom table now.
+    -- Firehose: a Zoom stack puts a heater on every other Zoom table. A
+    -- heater ends the hand in progress as a win and deals the next one,
+    -- so this is the Receipt Printer's finish-now plus a won hand each,
+    -- which is what makes a capstone stronger than a 12-chip item.
     firehose_cascade = {
         trigger = "on_stack_win",
         source  = { gtype = "zoom" },
-        target  = { kind = "gtype", gtype = "zoom", exclude_self = true },
-        payload = { kind = "resolve_now" },
+        target  = { kind = "gtype", gtype = "zoom" },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 6 },
     },
 
     -- Hot Hand: when a heater's forced hand finishes, 25% it jumps to a

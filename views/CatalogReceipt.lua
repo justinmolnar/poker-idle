@@ -155,18 +155,10 @@ local function dashRule(x, y, w, alpha)
     end
 end
 
--- Tooltip custom row: icon-marked text ({chip}, tier glyphs) in a color.
--- Exported: the room's item card is the receipt's hover card.
-function CatalogReceipt.iconRow(game, text, color)
-    return {
-        measure = function(fonts)
-            return IconText.measure(text, fonts.sm), fonts.sm:getHeight()
-        end,
-        render = function(x, y, fonts)
-            IconText.draw(game, text, x, y, fonts.sm, color)
-        end,
-    }
-end
+-- Tooltip custom row: icon-marked text ({chip}, tier glyphs, pills) in a
+-- color. The one builder lives in services/Tooltip; this name survives
+-- for the room screen, which calls it here.
+CatalogReceipt.iconRow = TooltipSvc.iconRow
 local iconRow = CatalogReceipt.iconRow
 
 -- ── The card ───────────────────────────────────────────────────────────

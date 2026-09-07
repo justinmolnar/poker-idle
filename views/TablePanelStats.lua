@@ -165,7 +165,7 @@ local function buildCashOverviewRenderRow(header, bb, ev_dollars, ev_bb, win_cha
         local ev2 = string.format("(%+.1f bb/h)", ev_bb)
         local ev_w = f_md:getWidth(ev1) + f_md:getWidth(ev2) + 8
 
-        local win_hdr = string.format("Win Rate: %s · Avg Win: %s", fmtPctClean(win_chance), fmtMoney(win_avg_dollars))
+        local win_hdr = string.format("Odds: %s · Avg winnings: %s", fmtPctClean(win_chance), fmtMoney(win_avg_dollars))
         local win_w = math.max(f_sm:getWidth(win_hdr), mixWidth(present_win, fonts))
 
         local loss_hdr = string.format("Loss Rate: %s · Avg Loss: %s", fmtPctClean(loss_chance), fmtMoney(loss_avg_dollars))
@@ -229,7 +229,7 @@ local function buildCashOverviewRenderRow(header, bb, ev_dollars, ev_bb, win_cha
         -- 3. WIN SECTION (Header on line 1, Chip icons on line 2)
         love.graphics.setFont(f_sm)
         Theme.setColor(Theme.sem.won)
-        local win_hdr_str = string.format("Win Rate: %s · Avg Win: %s", fmtPctClean(win_chance), fmtMoney(win_avg_dollars))
+        local win_hdr_str = string.format("Odds: %s · Avg winnings: %s", fmtPctClean(win_chance), fmtMoney(win_avg_dollars))
         love.graphics.print(win_hdr_str, x, cy)
         cy = cy + fh_sm + 2
 
@@ -338,7 +338,7 @@ local function buildKoLines(tbl, controller, stats)
         row(string.format("Expected: %s$%.2f / run (%+.1f%% ROI)", ev_sign, math.abs(net_ev), roi), "md", ev_color),
         row(string.format("EV/hand: %s/h (%+.1f bb/h) · Avg Run: %.1f hands", fmtMoneySigned(ev_hand), ev_bb, exp_hands), "sm", "muted"),
         row("", "xs"),
-        row(string.format("Per-hand win rate: %s · Stack-win: %.1f%%", fmtPctClean(p), stack_pct)),
+        row(string.format("Odds: %s per hand · {w:stack} odds: %.1f%%", fmtPctClean(p), stack_pct)),
         row("Finish position odds & payouts:", "sm", "muted"),
     }
 
@@ -423,7 +423,7 @@ local function buildLegacyKoLines(tbl, controller, stats)
         row(string.format("Expected cash: %s$%.2f per run", ev_sign, math.abs(net_ev)), "md", ev_color),
         row("", "xs"),
         row("Win hands in a row — one loss ends the run.", "sm", "muted"),
-        row("Win rate: " .. fmtPctClean(p) .. " per hand"),
+        row("Odds: " .. fmtPctClean(p) .. " per hand"),
         row("Payout · chance to finish there:", "sm", "muted"),
     }
     -- One row per win level: cash payout + the odds of finishing there. The top
@@ -476,8 +476,8 @@ local function fmtRatio(r, dollar_val)
         return "-"
     end
     if math.abs(r - 1) < 5e-4 then return "-" end
-    if r >= 10 or r <= 0.1 then return string.format("x%.0f", r) end
-    return string.format("x%.2f", r)
+    if r >= 10 or r <= 0.1 then return string.format("×%.0f", r) end
+    return string.format("×%.2f", r)
 end
 
 local function ratioColor(r)
@@ -655,7 +655,7 @@ local function buildGridRenderRow(game, bd)
             cy = cy + line_h + 4
         end
 
-        drawSubgrid("WINS MULTIPLIERS", "win", win_active, bd.total.win, Theme.sem.won)
+        drawSubgrid("WINNINGS MULTIPLIERS", "win", win_active, bd.total.win, Theme.sem.won)
         cy = cy + 4
         drawSubgrid("LOSSES MULTIPLIERS", "loss", loss_active, bd.total.loss, Theme.sem.lost)
     end

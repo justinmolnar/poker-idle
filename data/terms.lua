@@ -24,7 +24,7 @@ return {
     -- category → the words it owns (lower case; the lint matches whole
     -- words, case-insensitively, and knows simple plurals).
     words = {
-        won       = { "won", "win", "wins", "winning", "payout", "payouts", "spill", "spills" },
+        won       = { "won", "win", "wins", "winning", "winnings", "payout", "payouts", "spill", "spills" },
         -- "red" is the readout's colour when a table loses money; the word
         -- takes the colour it names.
         lost      = { "lost", "lose", "loss", "losses", "bust", "busted", "busts", "denied", "red" },
@@ -38,6 +38,21 @@ return {
         -- word is that same rose.
         upgrade   = { "upgrade", "upgrades", "the rack", "upgrade rack", "rack",
                       "sharper reads", "pot control", "focus", "cursor", "cursors", "cursor speed" },
+        -- The eighth meaning, teal: a roll. The "1 in N" pill wears it
+        -- (views/IconText finds the number itself); the word for the
+        -- probability a hand wins is "odds".
+        chance    = { "chance", "odds" },
+    },
+
+    -- Keywords: the condition nouns a rule line points at, embossed with
+    -- {k:<word>} (an underscore is a space). No hue; the word printed
+    -- four times a pixel out then once. Closed list: the lint refuses a
+    -- {k:…} that is not here and asks for one on a bare keyword in a rule
+    -- line. The House's own lines are never embossed.
+    keywords = {
+        "Zoom", "Heads-Up", "6-Max", "tournament", "tournaments",
+        "knockout", "knockouts", "rebuy", "adjacent",
+        "a random table", "every table", "first place",
     },
     -- The other UI nouns (catalog, deck, room, readout, stickers, glossary)
     -- are NOT tinted: paper and chrome, no colour of their own to lend.
@@ -51,15 +66,9 @@ return {
         "win", "wins", "winning", "won", "lose", "lost", "loss", "losses",
         "spill", "spills", "hot", "bank", "paid", "red",
         "focus",   -- also the verb and the FOCUS meter; tint only the upgrade
-
+        "chance",  -- the pill carries the teal; the word after it stays plain
     },
 
-    -- Words the lint must never ask to tint, even though they look like
-    -- mechanics: identity, not signal (rule 4).
-    never = {
-        "zoom", "heads-up", "6-max", "tournament", "tournaments", "stake", "stakes",
-        "table", "tables", "felt", "the house", "shove", "bankroll", "hand", "hands",
-    },
 
     -- ── The style sheet (docs/copy-style.md), enforced by sim/lint_copy.lua ──
 
@@ -79,21 +88,27 @@ return {
         -- the nouns
         ["tier"]          = "a glyph, or 'size'",
         ["tiers"]         = "glyphs, or 'sizes'",
-        ["nearby"]        = "the table beside it",
-        ["neighbour"]     = "the table beside it",
-        ["neighbor"]      = "the table beside it",
-        ["neighbouring"]  = "the table beside it",
-        ["neighboring"]   = "the table beside it",
+        ["nearby"]        = "adjacent",
+        ["neighbour"]     = "adjacent",
+        ["neighbor"]      = "adjacent",
+        ["neighbouring"]  = "adjacent",
+        ["neighboring"]   = "adjacent",
         ["another table"] = "a random table",
+        ["beside"]        = "adjacent",
         ["status"]        = "a heater or a tilt",
         ["statuses"]      = "heaters and tilts",
         ["ratchet"]       = "the plain rule: +1% win chance at every table for the run",
         ["ratchets"]      = "the plain rule",
-        ["sweep"]         = "settles",
-        ["resolves"]      = "settles",
-        ["cascade"]       = "settles",
+        ["sweep"]         = "finishes its hand now",
+        ["resolves"]      = "finishes its hand now",
+        ["cascade"]       = "finishes its hand now",
         ["unbanked"]      = "unpaid",
-        ["capacity"]      = "tables at full FOCUS",
+        ["capacity"]      = "FOCUS",
+        -- three words for three things: odds (a hand's probability),
+        -- a win (the hand), winnings (the money)
+        ["win chance"]    = "{c:chance:odds}",
+        ["win rate"]      = "{c:chance:odds}",
+        ["cash winnings"] = "{c:won:winnings}",
         ["heats"]         = "catches a heater",
         ["heats up"]      = "catches a heater",
         ["heat up"]       = "catches a heater",

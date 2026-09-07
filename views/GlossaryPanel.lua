@@ -70,29 +70,79 @@ function GlossaryPanel:update(dt)
     end
 end
 
--- The hover card: term as heading, then the entry text (string or list of
--- paragraph strings) wrapped beneath. Sits LEFT of the list so the rows
+-- ── One entry as card rows ──────────────────────────────────────────────
+-- The written-down lesson as Tooltip rows: the term as heading, then each
+-- paragraph wrapped. The panel's hover card, and the side card a tooltip
+-- opens beside a tinted word (Tooltip.hover), both draw these rows.
+local Tooltip = require("services.Tooltip")
+
+function GlossaryPanel.cardRows(game, entry, fonts)
+    local sm    = fonts.sm
+    local s     = game.ui_scale or 1
+    local max_w = math.floor(CARD_W_BASE * s)
+    local rows  = { Tooltip.iconRow(game, entry.term, Theme.fg.heading) }
+    local paras = entry.text
+    if type(paras) ~= "table" then paras = { paras } end
+    for i, para in ipairs(paras) do
+        local lines = HintView.wrapLines(para, sm, max_w)
+        for _, l in ipairs(lines) do
+            rows[#rows + 1] = Tooltip.iconRow(game, l, Theme.fg.primary)
+        end
+        if i < #paras then rows[#rows + 1] = { text = "", style = "xs" } end
+    end
+    return rows
+end
+
+-- Word → entry. An entry lists the words that open it (`words` in
+-- data/glossary.lua, lower case); the {chip} icon opens the chips card.
+local WORD_ENTRY = nil
+local function wordEntry(word)
+    if not WORD_ENTRY then
+        WORD_ENTRY = {}
+        for _, e in ipairs(Glossary) do
+            for _, w in ipairs(e.words or {}) do WORD_ENTRY[w:lower()] = e end
+        end
+    end
+    return WORD_ENTRY[word]
+end
+
+-- The side card for an IconText span ({x, w, kind, text, cat, token}), or
+-- nil: an unexposed entry shows nothing (the card is not the poster).
+function GlossaryPanel.rowsForSpan(game, span)
+    if not (span and game and game.state and game.fonts) then return nil end
+    local key
+    if span.kind == "icon" then key = span.token
+    elseif span.kind == "tint" or span.kind == "key" then key = (span.text or ""):lower()
+    end
+    if not key then return nil end
+    local entry = wordEntry(key)
+    if not entry then
+        -- plural / possessive tolerance, the lint's rule
+        entry = wordEntry((key:gsub("'s$", ""))) or wordEntry((key:gsub("s$", "")))
+    end
+    if not entry then return nil end
+    local seen = game.state.story_seen or {}
+    if not seen[entry.beat] then return nil end
+    return GlossaryPanel.cardRows(game, entry, game.fonts)
+end
+
+-- The hover card: the rows above in a box LEFT of the list so the rows
 -- stay readable under the cursor; clamped on screen.
 local function drawCard(game, entry, px, row_y, s)
     local fonts = game.fonts
-    local sm    = fonts.sm
     local fl    = math.floor
     local pad   = fl(10 * s)
-    local lh    = sm:getHeight()
-    local gap   = fl(6 * s)
-    local max_w = fl(CARD_W_BASE * s)
+    local rows  = GlossaryPanel.cardRows(game, entry, fonts)
 
-    local paras = entry.text
-    if type(paras) ~= "table" then paras = { paras } end
-    local blocks, text_w = {}, IconText.measure(entry.term, sm)
-    local text_h = lh + gap   -- the heading line
-    for _, para in ipairs(paras) do
-        local lines, w = HintView.wrapLines(para, sm, max_w)
-        blocks[#blocks + 1] = lines
+    local text_w, text_h = 0, 0
+    for _, r in ipairs(rows) do
+        local w, h
+        if r.measure then w, h = r.measure(fonts)
+        else w, h = 0, (fonts[r.style] or fonts.sm):getHeight() end
+        r._h = h
         text_w = math.max(text_w, w)
-        text_h = text_h + #lines * lh + gap
+        text_h = text_h + h + 2
     end
-    text_h = text_h - gap
 
     local cw = text_w + pad * 2
     local ch = text_h + pad * 2
@@ -106,16 +156,10 @@ local function drawCard(game, entry, px, row_y, s)
     Theme.setColor(Theme.border.strong)
     love.graphics.rectangle("line", cx, cy, cw, ch)
 
-    love.graphics.setFont(sm)
     local ty = cy + pad
-    IconText.draw(game, entry.term, cx + pad, ty, sm, Theme.fg.heading)
-    ty = ty + lh + gap
-    for _, lines in ipairs(blocks) do
-        for _, l in ipairs(lines) do
-            IconText.draw(game, l, cx + pad, ty, sm, Theme.fg.primary)
-            ty = ty + lh
-        end
-        ty = ty + gap
+    for _, r in ipairs(rows) do
+        if r.render then r.render(cx + pad, ty, fonts) end
+        ty = ty + r._h + 2
     end
 end
 

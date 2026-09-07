@@ -149,7 +149,7 @@ local function buttonW(comp, game)
     local best = 0
     for _, line in ipairs(comp.lines or {}) do
         local font = styleFont(line.style or "body", game)
-        local w = (line.text or ""):find("{", 1, true) and IconText.measure(line.text, font)
+        local w = (line.text or ""):find("{", 1, true) and IconText.measure(line.text, font, IconText.PLAIN)
                   or font:getWidth(line.text or "")
         if line.right then w = w + game.fonts.sm:getWidth(line.right) + 16 end
         w = w + lineIndent(line.style or "body") * 2 + 8
@@ -850,7 +850,7 @@ function CR._button(comp, px, pw, p, y, game)
                 left_printf_w = printf_w
             end
             if (line.text or ""):find("{", 1, true) then
-                IconText.draw(game, line.text, fx + indent, cursor, font, color)
+                IconText.draw(game, line.text, fx + indent, cursor, font, color, nil, IconText.PLAIN)
             elseif group then
                 love.graphics.print(line.text or "", group_x, cursor)
             else
@@ -860,7 +860,7 @@ function CR._button(comp, px, pw, p, y, game)
             -- line.text_anchor: the left text's rect, for story marks (a
             -- readout on a row).
             if line.text_anchor and line.text and line.text ~= "" then
-                local tw = (line.text):find("{", 1, true) and IconText.measure(line.text, font)
+                local tw = (line.text):find("{", 1, true) and IconText.measure(line.text, font, IconText.PLAIN)
                            or font:getWidth(line.text)
                 tw = math.min(tw, left_printf_w)
                 local ax = fx + indent

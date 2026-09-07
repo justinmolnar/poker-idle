@@ -478,14 +478,13 @@ function TableProcs.registerAll(reg)
     end)
 
     -- Waste Basket: the corner slot is the basket. A tilt aimed at a table
-    -- that is not a six-max lands on the corner table instead. Yields to
+    -- lands on the corner table instead (any target, 6-Max included). Yields to
     -- Anchor's taunt: when that router is owned and a live six-max sits
     -- beside the target, the tank takes it and the basket never rolls.
     reg:registerRouter("basket_corner", function(spec, d)
         local pool = d.event and d.event.pool
         local target = d.to
         if not (pool and target and d.status == "tilt") then return end
-        if target.game_type_id == "six_max" then return end
         local owned = (d.event.ctx and d.event.ctx.routers) or {}
         local anchor = false
         for _, id in ipairs(owned) do if id == "anchor_taunt" then anchor = true end end

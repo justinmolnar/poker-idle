@@ -71,7 +71,7 @@ return {
         ghost  = nil,   -- weather, not an event
     },
     -- Waste Basket: the corner slot is the basket. A tilt aimed anywhere
-    -- (not at a six-max) lands on the corner table instead, 1 in 3;
+    -- lands on the corner table instead, 1 in 3;
     -- corrupt 2 in 3. Anchor's taunt takes precedence when owned.
     basket_corner = {
         kind   = "basket_corner",

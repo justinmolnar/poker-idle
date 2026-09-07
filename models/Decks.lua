@@ -245,8 +245,13 @@ end
 
 local function fmtN(n) return string.format("%g", n) end
 
--- The bonus in play at `level`: {n} × level (levels 1-4 stack; the cap
--- applies the numeric block four times, so L5 reads as L4). At level 0
+-- The bonus in play at `level` (levels 1-4 stack; the cap applies the
+-- numeric block four times, so L5 reads as L4). An additive kind is
+-- {n} × level. A multiplicative kind (`compound = true` on the bonus:
+-- earnings_mult, hand_pace_mult, heater_win_mult, tilted_loss_mult…)
+-- applies its factor once per level, so the number shown is what the
+-- player actually has: +50% at L1 is +125% at L2, not +100%. A "-{n}%"
+-- text compounds downward (×0.8 per level → -36% at L2). At level 0
 -- nothing is in play yet, so the per-level line is shown instead.
 function Decks.bonusTextAt(spec, level)
     local b = spec and spec.bonus
@@ -254,7 +259,19 @@ function Decks.bonusTextAt(spec, level)
     if not b.per_level then return b.text or "" end
     level = level or 0
     if level <= 0 then return Decks.bonusTextPerLevel(spec) end
-    local n = b.per_level * math.min(level, 4)
+    local L = math.min(level, 4)
+    local n
+    if b.compound then
+        local p = b.per_level / 100
+        if b.text:find("-{n}", 1, true) then
+            n = (1 - (1 - p) ^ L) * 100
+        else
+            n = ((1 + p) ^ L - 1) * 100
+        end
+        n = math.floor(n * 10 + 0.5) / 10
+    else
+        n = b.per_level * L
+    end
     return (b.text:gsub("{n}", fmtN(n)))
 end
 

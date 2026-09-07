@@ -12,12 +12,9 @@
 --   run_ratchet    { effect = "<effect kind>" }
 --                  Sum of this run's ratchet entries of that kind (the
 --                  Prize Vase): "+3% win chance this run so far".
---   hands_to_next  {}  The item's proc has `every`; counts down on the
---                  proc trigger's running total: "12 hands won to the next".
 --   tourney_backing {}  The High Roller Pass: tournament seats finished at
 --                  each stake, from the live pool, times the per-seat value.
 
-local Procs = require("data.procs")
 
 local ItemReadouts = {}
 
@@ -26,10 +23,6 @@ local function trim(n)
     return s
 end
 
-local function corruptedEffects(state, item)
-    local corrupted = state.corrupted_items and state.corrupted_items[item.id]
-    return (corrupted and item.corrupt and item.corrupt.effects) or item.effects or {}
-end
 
 local KINDS = {}
 
@@ -43,29 +36,6 @@ KINDS.run_ratchet = function(spec, game, item)
     end
     if total <= 0 then return "Nothing banked this run yet" end
     return ("+%s%% win chance this run so far"):format(trim(total * 100))
-end
-
--- Which running total a trigger counts on (controllers/GrindController
--- announces these with `count = state.<field>`).
-local TRIGGER_COUNT = {
-    on_hand_played = { field = "total_hands_played", noun = "hands" },
-    on_hand_won    = { field = "total_hands_won",    noun = "hands won" },
-}
-
-KINDS.hands_to_next = function(_spec, game, item)
-    local state = game.state
-    for _, e in ipairs(corruptedEffects(state, item)) do
-        if e.kind == "proc" then
-            local p = Procs[e.proc]
-            local tc = p and p.every and TRIGGER_COUNT[p.trigger]
-            if tc then
-                local n = state[tc.field] or 0
-                local left = p.every - (n % p.every)
-                return ("%d %s to the next"):format(left, tc.noun)
-            end
-        end
-    end
-    return nil
 end
 
 KINDS.tourney_backing = function(_spec, game, _item)

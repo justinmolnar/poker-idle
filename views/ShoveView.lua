@@ -2119,9 +2119,9 @@ function ShoveView:draw()
         local line_y = sy + fonts.sm:getHeight()
         if n > 0 then
             local txt = string.format("{chip} %d", n)
-            local tw  = IconText.measure(txt, fonts.lg)
+            local tw  = IconText.measure(txt, fonts.lg, IconText.PLAIN)
             IconText.draw(self.game, txt, tcx - math.floor(tw / 2), line_y,
-                          fonts.lg, Theme.fg.heading, 1)
+                          fonts.lg, Theme.fg.heading, 1, IconText.PLAIN)
             line_y = line_y + fonts.lg:getHeight()
         end
         AnchorRegistry.set("shove:summary", tcx - 200, sy, 400, line_y - sy)

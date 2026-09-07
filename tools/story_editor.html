@@ -132,6 +132,11 @@ textarea { width: 100%; resize: vertical; font-family: inherit; line-height: 1.5
 .warnchip { font-size: 11px; color: var(--err); }
 .preview { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .preview .tok { color: var(--gold); font-family: var(--mono); }
+.preview .pill { display: inline-block; padding: 0 3px; border-radius: 3px; line-height: 1.15; }
+.preview .pill-p { background: #5CC7BD; color: #26261F; }
+.preview .pill-x { background: #E8E0D0; color: #26261F; }
+.preview .pill-q { border: 1px solid currentColor; padding: 0 2px; }
+.preview .kw { color: var(--fg); text-shadow: -1px 0 rgba(240,230,211,.45), 1px 0 rgba(240,230,211,.45), 0 -1px rgba(240,230,211,.45), 0 1px rgba(240,230,211,.45); }
 .insert-row { text-align: center; margin: -4px 0 10px; }
 .insert-row button { font-size: 11px; color: var(--faint); border-style: dashed; }
 .insert-row button:hover { color: var(--fg); }
@@ -276,7 +281,8 @@ function tokenizeLua(src) {
       line += (body.match(/\n/g) || []).length;
       toks.push({ t: "str", v: body, line }); i = end < 0 ? n : end + 2; continue;
     }
-    if ("{}[]=,;.".includes(c) && !(c === "." && /[0-9]/.test(src[i + 1] || ""))) {
+    // "/" and "*": the fraction chances (chance = 1/3) the style sheet writes.
+    if ("{}[]=,;./*".includes(c) && !(c === "." && /[0-9]/.test(src[i + 1] || ""))) {
       toks.push({ t: "punct", v: c, line }); i++; continue;
     }
     // An arithmetic operator between an expression and a number ("X - 1"):
@@ -315,7 +321,18 @@ function parseLua(src) {
     const t = peek();
     if (!t) err("unexpected EOF");
     if (t.t === "punct" && t.v === "{") return parseTable();
-    if (t.t === "str" || t.t === "num" || t.t === "bool" || t.t === "nil") { next(); return t.v; }
+    if (t.t === "num") {
+      next();
+      // a numeric expression: 1/3, 2/5, 0.35*2 (left to right, numbers only)
+      let v = t.v;
+      while (peek() && peek().t === "punct" && (peek().v === "/" || peek().v === "*")
+             && toks[p + 1] && toks[p + 1].t === "num") {
+        const op = next().v; const rhs = next().v;
+        v = op === "/" ? v / rhs : v * rhs;
+      }
+      return v;
+    }
+    if (t.t === "str" || t.t === "bool" || t.t === "nil") { next(); return t.v; }
     if (t.t === "ident") {
       // An expression the game evaluates (Constants.X.Y): kept as text.
       const chain = () => {
@@ -440,7 +457,7 @@ function condProse(c) {
 
 // The colour code (data/theme.lua `sem`, room palette), for {c:<meaning>:<text>}.
 const SEM = { won: "#80C773", lost: "#D16B61", chip: "#EDBF4D", corrupt: "#A659F2",
-              heat: "#FA8547", tilt: "#94A8D1", upgrade: "#B88594" };
+              heat: "#FA8547", tilt: "#94A8D1", upgrade: "#B88594", chance: "#5CC7BD" };
 
 /* ══════════════ state ══════════════ */
 const S = {
@@ -792,6 +809,12 @@ function copyWarnings(text) {
         if (bare.includes(phrase)) w.push(`retired spelling "${phrase}"`);
       }
     }
+    // {k:…} must name a listed keyword (data/terms.lua `keywords`)
+    const keywords = new Set((S.terms.keywords || []).map(x => x.toLowerCase()));
+    for (const m of text.matchAll(/\{k:([^}]*)\}/g)) {
+      const word = m[1].replace(/_/g, " ").toLowerCase();
+      if (!keywords.has(word)) w.push(`{k:${m[1]}} is not a listed keyword`);
+    }
     const optional = new Set((S.terms.optional || []).map(x => x.toLowerCase()));
     const owner = {};
     for (const [cat, words] of Object.entries(S.terms.words)) for (const wd of words) owner[wd.toLowerCase()] = cat;
@@ -813,11 +836,17 @@ function copyWarnings(text) {
 // The preview shows the block as it renders: tinted words in their colour,
 // other tokens as chips.
 function tokenPreview(text) {
-  if (!/\{[^}]*\}/.test(text)) return "";
+  if (!/\{[^}]*\}/.test(text) && !/(\d+ in \d+|×\d|[+\-]\$?\d)/.test(text)) return "";
+  const pillRe = /(^|[^\w\-.:+×$])(\d+ in \d+|×\d+(?:\.\d+)?|[+\-]\$?\d[\d,]*(?:\.\d+)?%?)(?![\w\-+:])/g;
   const html = esc(text).replace(/\{c:(\w+):?([^}]*)\}/g, (m, cat, word) => {
     const col = SEM[cat] || "var(--err)";
     return `<span style="color:${col};font-weight:600">${esc((word || cat).replace(/_/g, " "))}</span>`;
-  }).replace(/\{(?!c:)[^}]*\}/g, m => `<span class="tok">${m}</span>`);
+  }).replace(/\{k:([^}]*)\}/g, (m, word) => `<span class="kw">${esc(word.replace(/_/g, " "))}</span>`)
+    .replace(/\{(?!c:|k:)[^}]*\}/g, m => `<span class="tok">${m}</span>`)
+    .replace(pillRe, (m, pre, num) => {
+      const kind = num.startsWith("×") ? "x" : /\d in \d/.test(num) ? "p" : "q";
+      return `${pre}<span class="pill pill-${kind}">${num}</span>`;
+    });
   return `<div class="preview">${html}</div>`;
 }
 function wordCount(t) { return (t.trim().match(/\S+/g) || []).length; }

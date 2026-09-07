@@ -417,7 +417,7 @@ Effects.kinds = {
         affects     = "ctx.run_upgrade_strength_mult (additive from 1.0)",
     },
     run_upgrade_bonus_levels = {
-        description = "Adds extra purchasable levels to run upgrades (Investor capstone, Bookshelf). For the fill upgrades each extra level is one more level's worth of gain at every stake: 5 levels that added 25% become 6 that add 30%. Consumed in GrindController:getRunUpgradeMaxLevel (the shop) and outcome_math.fillRatio (the cap).",
+        description = "Raises every stake's ceiling on the fill upgrades (Sharper Reads, Pot Control) by N levels (Bookshelf): the level after a stake's window, which the next stake's window already sells, counts for this stake too. Only owned levels count; nothing is free and nothing extra is sold. Consumed in outcome_math.fillRatio (the ceiling) and GrindView's filled check.",
         value_shape = "integer, e.g. 1 for +1 level",
         affects     = "ctx.run_upgrade_bonus_levels (additive)",
     },

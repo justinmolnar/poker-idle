@@ -118,6 +118,17 @@ body.no-detail #content { padding-right: 14px; }
 .badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border);
   color: var(--muted); white-space: nowrap; }
 .badge.lock { color: var(--warn); border-color: #4A3E1E; }
+/* views/IconText pills and keywords, previewed */
+.pill { display: inline-block; padding: 0 3px; border-radius: 3px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.pill-p { background: #5CC7BD; color: #26261F; }
+.pill-x { background: currentColor; }
+.pill-x > span { color: #F0E6D3; }
+.pill-q { border: 1px solid currentColor; padding: 0 2px; }
+.kw { text-shadow: -1px 0 rgba(240,230,211,.45), 1px 0 rgba(240,230,211,.45), 0 -1px rgba(240,230,211,.45), 0 1px rgba(240,230,211,.45); }
+.card .desc { color: var(--muted); font-size: 11px; font-style: italic; margin-top: 2px; }
+#legend { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 4px 10px; font-size: 11px; color: var(--muted); border-bottom: 1px solid #2A2A24; }
+#legend b { color: var(--fg); font-weight: 600; }
+#legend .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-right: 3px; }
 .badge.req  { color: var(--blue); border-color: #1E304A; }
 .badge.corrupt { color: var(--violet); border-color: #3A1E4A; }
 .badge.act2 { color: var(--fg); background: #3A2E1E; }
@@ -301,6 +312,23 @@ td.delta-pos { color: var(--good); } td.delta-neg { color: var(--err); }
 </div>
 
 <div id="status-strip"></div>
+<div id="legend">
+  <b>copy</b>
+  <span><span class="sw" style="background:#80C773"></span>won</span>
+  <span><span class="sw" style="background:#D16B61"></span>lost</span>
+  <span><span class="sw" style="background:#EDBF4D"></span>chip</span>
+  <span><span class="sw" style="background:#A659F2"></span>corrupt</span>
+  <span><span class="sw" style="background:#FA8547"></span>heat</span>
+  <span><span class="sw" style="background:#94A8D1"></span>tilt</span>
+  <span><span class="sw" style="background:#B88594"></span>upgrade</span>
+  <span><span class="sw" style="background:#5CC7BD"></span>chance</span>
+  <span>·</span>
+  <span><span class="pill pill-p">1 in 4</span> roll</span>
+  <span><span class="pill pill-x"><span>×1.5</span></span> multiplier</span>
+  <span><span class="pill pill-q">+10%</span> quantity</span>
+  <span><span class="kw">Heads-Up</span> keyword {k:…}</span>
+  <span>docs/copy-style.md</span>
+</div>
 
 <div id="picker-zone">
   <h2>Open the poker-idle project</h2>
@@ -358,7 +386,7 @@ const COLORS = {
 const TIER_COUNT = { small: 1, medium: 2, large: 3, stack: 4 }; // views/TierGlyph.lua
 // The colour code (data/theme.lua `sem`, room palette), for {c:<meaning>:<text>}.
 const SEM = { won: "#80C773", lost: "#D16B61", chip: "#EDBF4D", corrupt: "#A659F2",
-              heat: "#FA8547", tilt: "#94A8D1", upgrade: "#B88594" };
+              heat: "#FA8547", tilt: "#94A8D1", upgrade: "#B88594", chance: "#5CC7BD" };
 const TAG_PALETTE = ["#F25285","#F2B333","#73D973","#73A6D9","#BF73F2","#EDBF4D",
                      "#5ED9C3","#F2825E","#9CB35E","#D973B8"];
 const LS_EDITS = "catalog_designer_edits_v1";
@@ -537,7 +565,8 @@ function tokenizeLua(src) {
       line += (body.match(/\n/g) || []).length;
       toks.push({ t: "str", v: body, line }); i = end < 0 ? n : end + 2; continue;
     }
-    if ("{}[]=,;".includes(c)) { toks.push({ t: "punct", v: c, line }); i++; continue; }
+    // "/" and "*": the fraction chances (chance = 1/3) the style sheet writes.
+    if ("{}[]=,;/*".includes(c)) { toks.push({ t: "punct", v: c, line }); i++; continue; }
     if (/[0-9]/.test(c) || (c === "-" && /[0-9.]/.test(src[i + 1] || "")) ||
         (c === "." && /[0-9]/.test(src[i + 1] || ""))) {
       let j = i + 1;
@@ -573,7 +602,18 @@ function parseLua(src) {
     const t = peek();
     if (!t) err("unexpected EOF");
     if (t.t === "punct" && t.v === "{") return parseTable();
-    if (t.t === "str" || t.t === "num" || t.t === "bool" || t.t === "nil") { next(); return t.v; }
+    if (t.t === "num") {
+      next();
+      // a numeric expression: 1/3, 2/5, 0.35*2 (left to right, numbers only)
+      let v = t.v;
+      while (peek() && peek().t === "punct" && (peek().v === "/" || peek().v === "*")
+             && toks[p + 1] && toks[p + 1].t === "num") {
+        const op = next().v; const rhs = next().v;
+        v = op === "/" ? v / rhs : v * rhs;
+      }
+      return v;
+    }
+    if (t.t === "str" || t.t === "bool" || t.t === "nil") { next(); return t.v; }
     err(`unexpected token '${t.v}'`);
   }
   function parseTable() {
@@ -978,8 +1018,22 @@ function setEdit(id, field, value) {
   else S.edits[id][field] = (field === "cost_chip" || field === "corrupt_cost_achip")
     ? Number(value) : value;
   if (!Object.keys(S.edits[id]).length) delete S.edits[id];
+  // Never write a stale copy over another tab's edits: fold this item's
+  // change into whatever is in storage right now, then adopt that as the
+  // live table. Only this item comes from memory; every other item comes
+  // from storage.
+  const stored = (lsGet(LS_EDITS, { edits: {} }).edits) || {};
+  if (S.edits[id]) stored[id] = S.edits[id]; else delete stored[id];
+  S.edits = stored;
   lsSet(LS_EDITS, { version: 1, edits: S.edits });
 }
+// Another tab saved: take its table and redraw, so this tab never holds
+// an older copy than storage.
+window.addEventListener("storage", (ev) => {
+  if (ev.key !== LS_EDITS) return;
+  S.edits = (lsGet(LS_EDITS, { edits: {} }).edits) || {};
+  if (typeof render === "function") { render(); if (S.detailId && typeof renderDetail === "function") renderDetail(); }
+});
 
 /* ══════════════ S6 · Meta store (tags + notes → tools/catalog_meta.json) ══════════════ */
 function emptyMeta() { return { tool: "catalog_designer", version: 1, updated_at: nowIso(),
@@ -993,6 +1047,7 @@ function loadMeta(sidecarSrc) {
   }
   const buffer = lsGet(LS_METABUF, null);
   S.meta = sidecar || emptyMeta();
+  S.meta_seen_updated_at = sidecar ? sidecar.updated_at : null;   // what this tab has folded in
   S.meta.tags = S.meta.tags || []; S.meta.assignments = S.meta.assignments || {};
   S.meta.notes = S.meta.notes || {}; S.meta.loadouts = S.meta.loadouts || {};
   // crash recovery: buffer newer than the sidecar
@@ -1074,16 +1129,49 @@ function metaChanged() {
   if (S.mode === "fs") { setSavePill("saving"); writeSidecar(); }
   else setSavePill("readonly");
 }
+// Fold what is on disk into this tab's meta before writing, so a tab that
+// loaded an older copy (or sat open while another tab tagged) can only ADD
+// to the file, never wipe what the other tab did. Unions: tags by name,
+// each item's tag list, notes and loadouts where this tab has none. A
+// deletion made in another tab can come back; a tag made there cannot be
+// lost. The previous file is kept beside it as catalog_meta.bak.json.
+function mergeMetaFromDisk(disk) {
+  if (!disk || typeof disk !== "object") return;
+  const m = S.meta;
+  m.tags = m.tags || []; m.assignments = m.assignments || {};
+  m.notes = m.notes || {}; m.loadouts = m.loadouts || {};
+  for (const t of (disk.tags || [])) if (!m.tags.some(x => x.name === t.name)) m.tags.push(t);
+  for (const [id, list] of Object.entries(disk.assignments || {})) {
+    const mine = m.assignments[id] || [];
+    for (const t of list) if (!mine.includes(t)) mine.push(t);
+    if (mine.length) m.assignments[id] = mine;
+  }
+  for (const [id, text] of Object.entries(disk.notes || {})) if (!m.notes[id]) m.notes[id] = text;
+  for (const [name, lo] of Object.entries(disk.loadouts || {})) if (!m.loadouts[name]) m.loadouts[name] = lo;
+}
 async function doWriteSidecar() {
   if (S.mode !== "fs" || !S.dirHandle) return;
   try {
     let dir = S.dirHandle;
     for (const seg of META_PATH.slice(0, -1))
       dir = await dir.getDirectoryHandle(seg, { create: true });
-    const fh = await dir.getFileHandle(META_PATH[META_PATH.length - 1], { create: true });
+    const name = META_PATH[META_PATH.length - 1];
+    const fh = await dir.getFileHandle(name, { create: true });
+    // What is on disk right now: merge it in, and keep it as the backup.
+    let onDisk = null;
+    try {
+      const txt = await (await fh.getFile()).text();
+      if (txt && txt.trim()) {
+        onDisk = JSON.parse(txt);
+        const bh = await dir.getFileHandle(name.replace(/\.json$/, ".bak.json"), { create: true });
+        const bw = await bh.createWritable(); await bw.write(txt); await bw.close();
+      }
+    } catch (e) { console.warn("meta: could not read/back up the sidecar before writing", e); }
+    if (onDisk && (onDisk.updated_at || "") !== (S.meta_seen_updated_at || "")) mergeMetaFromDisk(onDisk);
     const w = await fh.createWritable();
     await w.write(metaJson());
     await w.close();
+    S.meta_seen_updated_at = S.meta.updated_at;
     localStorage.removeItem(LS_METABUF);
     setSavePill("saved");
   } catch (e) {
@@ -1152,18 +1240,48 @@ function arrowSvg(size) {
     `<polygon points="${sw},${cy - hh} ${sw},${cy + hh} ${size},${cy}" fill="currentColor"/>` +
     `</svg>`;
 }
+// The status glyphs before a heat / tilt word (views/Icons.drawFlame / drawTilt).
+function flameSvg(size) {
+  const s = size;
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="vertical-align:-2px">` +
+    `<polygon points="${s*0.5},0 ${s*0.92},${s*0.62} ${s*0.7},${s} ${s*0.3},${s} ${s*0.08},${s*0.62} ${s*0.34},${s*0.42}" fill="${SEM.heat}"/>` +
+    `<polygon points="${s*0.5},${s*0.45} ${s*0.68},${s*0.78} ${s*0.5},${s} ${s*0.32},${s*0.78}" fill="#F0E6D3" opacity=".85"/></svg>`;
+}
+function tiltSvg(size) {
+  const s = size, bh = Math.max(1, Math.floor(s * 0.22)), bw = Math.floor(s * 0.62);
+  let bars = "";
+  for (let i = 0; i < 3; i++) {
+    const lean = Math.floor((2 - i) * s * 0.14);
+    bars += `<rect x="${lean}" y="${Math.floor(i * (s - bh) / 2)}" width="${bw}" height="${bh}" fill="${SEM.tilt}"/>`;
+  }
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="vertical-align:-2px">${bars}</svg>`;
+}
+// Numbers in the style sheet's three shapes become pills, found in plain
+// runs the way views/IconText does (a digit glued to a letter is not one).
+function pillRun(run) {
+  const re = /(^|[^\w\-.:+×$])(\d+ in \d+|×\d+(?:\.\d+)?|[+\-]\$?\d[\d,]*(?:\.\d+)?%?)(?![\w\-+:])/g;
+  return esc(run).replace(re, (m, pre, num) => {
+    const kind = num.startsWith("×") ? "x" : /\d in \d/.test(num) ? "p" : "q";
+    const inner = kind === "x" ? `<span>${num}</span>` : num;
+    return `${pre}<span class="pill pill-${kind}">${inner}</span>`;
+  });
+}
 // Token grammar from views/IconText.lua: {([%w_:]+)}; unknown → literal.
 function renderIconText(str, size) {
   size = size || 13;
   if (str == null) return "";
-  return String(str).replace(/\{([\w:]+)\}|[^{]+|\{/g, (m, token) => {
-    if (token === undefined) return esc(m);
+  return String(str).replace(/\{([\w:\-]+)\}|[^{]+|\{/g, (m, token) => {
+    if (token === undefined) return pillRun(m);
     // {c:<meaning>:<text>}: the word in its meaning's colour (views/IconText.lua)
     const cm = token.match(/^c:(\w+):?(.*)$/);
     if (cm && SEM[cm[1]]) {
       const word = (cm[2] || cm[1]).replace(/_/g, " ");
-      return `<span style="color:${SEM[cm[1]]}">${esc(word)}</span>`;
+      const glyph = cm[1] === "heat" ? flameSvg(size) + " " : cm[1] === "tilt" ? tiltSvg(size) + " " : "";
+      return `${glyph}<span style="color:${SEM[cm[1]]}">${esc(word)}</span>`;
     }
+    // {k:<text>}: an embossed keyword
+    const km = token.match(/^k:(.+)$/);
+    if (km) return `<span class="kw">${esc(km[1].replace(/_/g, " "))}</span>`;
     if (token === "chip") return chipSvg(size, COLORS.chip, COLORS.chipRing);
     if (token === "achip") return chipSvg(size, COLORS.achip, COLORS.achipRing);
     if (token === "arrow") return arrowSvg(size);
@@ -1284,6 +1402,7 @@ function itemCard(it, opts) {
   top.appendChild(cost);
   card.appendChild(top);
   card.appendChild(el("div", { class: "fx" }, renderIconText(eff.effect_text, 12)));
+  if (eff.description) card.appendChild(el("div", { class: "desc" }, renderIconText(eff.description, 11)));
 
   const badges = el("div", { class: "badges" });
   if (it.raw.unlock) {
@@ -1409,6 +1528,15 @@ function viewTable(root) {
       ? va - vb : String(va).localeCompare(String(vb));
     return cmp * S.ui.sort.dir || a.no - b.no;
   });
+  // Grouping gathers each group into one run (groups in order of first
+  // appearance, the column sort kept inside each). Without this a group
+  // whose members are interleaved by number got a header every time it
+  // reappeared, each claiming the whole group's count.
+  if (S.ui.groupBy) {
+    const order = new Map();
+    rows.forEach(r => { const g = groupKeyOf(r, S.ui.groupBy); if (!order.has(g)) order.set(g, order.size); });
+    rows.sort((a, b) => order.get(groupKeyOf(a, S.ui.groupBy)) - order.get(groupKeyOf(b, S.ui.groupBy)));
+  }
 
   const table = el("table", { class: "items" });
   const thead = el("thead"); const htr = el("tr");
@@ -1815,14 +1943,15 @@ function fieldRow(it, field, label, kind) {
     setEdit(it.id, field, kind === "number" ? Number(inp.value) : inp.value);
     renderDetail(); render();
   });
-  if (field === "effect_text" || field === "corrupt_effect_text") {
+  const previewed = field === "effect_text" || field === "corrupt_effect_text" || field === "description";
+  if (previewed) {
     inp.addEventListener("input", () => {
       const pv = wrap.querySelector(".fx-preview");
       if (pv) pv.innerHTML = renderIconText(inp.value, 13);
     });
   }
   wrap.appendChild(inp);
-  if (field === "effect_text" || field === "corrupt_effect_text")
+  if (previewed)
     wrap.appendChild(el("div", { class: "fx-preview" }, renderIconText(cur, 13)));
   return wrap;
 }

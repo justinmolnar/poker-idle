@@ -84,6 +84,31 @@ function Theme.semColor(name)
     return nil
 end
 
+-- Relative luminance of a colour token, 0..1.
+function Theme.luminance(token)
+    if not token then return 0 end
+    return 0.2126 * token[1] + 0.7152 * token[2] + 0.0722 * token[3]
+end
+
+-- Digits on a pill filled in `fill`: dark ink on a light fill, paper on a
+-- dark one. Which "dark" and "light" are the paper's, so a pill reads the
+-- same on the catalog and on the felt.
+function Theme.contrastFor(fill)
+    if Theme.luminance(fill) > 0.5 then return Theme.paper.ink end
+    return Theme.paper.page_light
+end
+
+-- The halo an embossed keyword is printed in, from the text colour it sits
+-- in: dark text (ink on paper) gets a faint copy of itself, light text (on
+-- the felt) gets the floater's black ring. Returns {r, g, b, a}.
+function Theme.embossFor(color)
+    color = color or Theme.fg.heading
+    if Theme.luminance(color) < 0.5 then
+        return { color[1], color[2], color[3], 0.30 }
+    end
+    return { 0, 0, 0, 0.85 }
+end
+
 -- Tint for drawing pixel-art assets. Reads the active palette's tint.world
 -- so a future "haunted" palette could route everything through a hue.
 function Theme.assetTint(alpha)

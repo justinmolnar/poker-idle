@@ -19,6 +19,11 @@ return {
     chip = { sprite = "ui/icons/chip", tint = nil },
     achip = { sprite = "ui/icons/achip", tint = nil },
 
+    -- The two statuses, as the glyph before their word in copy
+    -- (views/IconText). Procedural fallbacks in Icons.drawFlame / drawTilt.
+    heater = { sprite = "ui/icons/heater", tint = nil },
+    tilt   = { sprite = "ui/icons/tilt",   tint = nil },
+
     -- Top-bar jargon cells (icon hooks; silent until art lands).
     focus = { sprite = "ui/icons/focus", tint = "fg.heading" },
     shove = { sprite = "ui/icons/shove", tint = "sem.chip" },

@@ -209,7 +209,7 @@ Tilt is granted at run start (the hidden Tilt catalog entry), so the first one l
 | With so many players these take forever. Maybe you can speed them up somehow. | `gtype:six_max` | click |
 
 ### `first_tournament` — grind. Trigger: a tournament open.
-| A tournament. One buy-in, no rebuy, eight seats, ten blinds each, and it deals itself. Every seat it {c:lost:busts} is a knockout. Top three cash. Win it outright for the {chip}. Great business, tournaments. | `gtype:ko` | click |
+| A tournament. One buy-in, no rebuy, eight seats, ten blinds each, and it deals itself. Each player it knocks out is a knockout. Top three cash. Win it outright for the {chip}. Great business, tournaments. | `gtype:ko` | click |
 | Not for you of course, cash games pay better. They do have their place though, they can improve your other tables. | `gtype:ko` | click |
 
 ### `first_cursors` — grind. Trigger: owns box_of_mice.

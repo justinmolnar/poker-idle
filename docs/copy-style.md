@@ -20,7 +20,7 @@ there and both lints see it. Why the sheet exists: docs/copy-audit-2026-09.md.
 | A roll that happens or not | `1 in N chance` (`2 in 3`, `2 in 5` allowed) | 25%, half the time, a third, may, sometimes |
 | An additive quantity (win chance, a lean, a bankroll add, a level) | `+N%`, `-N%`, `+$N`, `+N` | N% more, N% less, N% stronger, softer, heavier |
 | A multiplier | `×N` (`×2`, `×1.2`, `×0.8`) | double, quadruple, twice, N× bigger, 5.0× |
-| A cadence | `Every N hands won:` | |
+| A roll on every hand | `Play a hand: 1 in 100 chance …`, `Win a hand: 1 in 50 chance …` | Every N hands (a counter nobody can see) |
 | A share of something | `N% of the buy-in` | |
 
 A lean (Maniac, Nit, Pot Control) is a quantity, not a roll: `+10% each`.
@@ -28,10 +28,62 @@ A step is a roll: `1 in 4 chance`. Both can sit in one line.
 
 Chance values in data are the fraction they print, written as a Lua
 expression (`chance = 1/3`). Allowed denominators: 2, 3, 4, 5, 6, 8, 10, 12,
-plus 2/3 and 2/5. The lint refuses anything else, in effects, procs and
+plus 20, 25, 50, 100 for per-hand rolls, plus 2/3 and 2/5. The lint refuses anything else, in effects, procs and
 routers alike. That is what lets "1 in N" stay honest.
 
 The `×` is the real multiplication sign (U+00D7). IconText prints it.
+
+### Numbers wear their operation (views/IconText)
+
+No markup: the renderer finds the three shapes in plain text and draws
+each as a pill sized from the font's ink height.
+
+| Shape | Pill |
+|---|---|
+| `1 in N` | filled in the chance teal (`Theme.sem.chance`), the one blue in the game |
+| `×N` | filled in the text colour, digits in the paper's contrast |
+| `+N%` `-N%` `+$N` `+N` | a one-pixel outline in the text colour |
+
+A digit glued to a letter, `-`, `+` or `:` is never a pill (6-Max, NL2,
+4+ tables, 12:00). `lua sim/iconize_check.lua` runs the parser over every
+copy field and refuses a missing or extra pill.
+
+### Three words for three things
+
+| Meaning | Word | Tint |
+|---|---|---|
+| the probability a hand wins | odds | `{c:chance:odds}` (teal) |
+| a single winning hand | a win, wins (a count) | `{c:won:win}` (green) |
+| the money | winnings | `{c:won:winnings}` (green) |
+
+Never "win chance", "win rate" or "cash winnings". The word "chance" after
+a pill stays plain: the pill carries the colour.
+
+### Keywords: the nouns a rule points at
+
+`{k:Heads-Up}`, `{k:adjacent}` (an underscore is a space). The
+word is embossed: printed four times a pixel out in a halo, then once in
+the text colour. No hue. The closed list is `keywords` in data/terms.lua:
+Zoom, Heads-Up, 6-Max, tournament(s), knockout(s), rebuy, adjacent, a
+random table, every table, first place. A rule line must wrap every
+keyword it uses; the House's lines and flavour never emboss. The lint
+refuses a `{k:…}` not on the list.
+
+### Glyphs
+
+A heat or tilt word (`{c:heat:heater}`, `{c:tilt:tilt}`) draws its status
+glyph in front, the way `{chip}` is a coin. Nothing to write.
+
+### The noise cap
+
+A rule line carries at most two pills, three tints and three keywords. The
+lint warns past that; shorten the rule.
+
+### Hover a word, see its card
+
+Inside any tooltip, a tinted word, keyword or icon opens the glossary
+card that lists it (`words` in data/glossary.lua), once its beat has
+played. A click pins the card. Nothing to write in copy.
 
 ## Nouns: one word each, and the taught word wins
 
@@ -42,14 +94,14 @@ The `×` is the real multiplication sign (U+00D7). IconText prints it.
 | The good status | a `{c:heat:heater}`; a table **catches** one | heat (noun), heats, heats up, running hot, burnt-out; "on fire" and "hot" are story-only |
 | The bad status | a `{c:tilt:tilt}`; a table **takes** one; a redirected one **lands on** X **instead** | spent, runs its course, absorbed |
 | Either status | a heater or a tilt | status |
-| Adjacent table | the table beside it | nearby, neighbour, neighbouring |
+| Adjacent table | adjacent (sharing a side, any direction) | nearby, neighbour, neighbouring, beside |
 | Any other table | a random table | another table |
 | A seat busted in a tournament | a knockout (taught in the glossary) | tournament finish |
 | Tournament outcomes | win (first place), cash (top three), bust | finish, place |
-| Zoom mass-resolve | settles ("every other Zoom table settles now") | sweep, resolves, cascade |
+| Zoom mass-resolve | finishes its hand now ("every Zoom table finishes its hand now") | sweep, resolves, cascade, settles |
 | Prize Vase's run bonus | the plain rule: `+1% win chance at every table for the run` | ratchet, lifts |
 | A table that has paid its chip | paid / unpaid | unbanked |
-| Focus headroom | `+2 tables at full FOCUS` | focus capacity |
+| Focus | `+2 FOCUS` | focus capacity, tables before FOCUS drops |
 | Win chance scope | `at Heads-Up`, `at Zoom`, `at 6-Max`, `at tournaments`, `at every table` | "tables" suffix, bare "Heads-Up", "at all tables" |
 | Game types | Heads-Up, Zoom, 6-Max, tournament | 6-max |
 | Money kept from the shove | `{c:chip:banked}` | |
@@ -58,7 +110,7 @@ The `×` is the real multiplication sign (U+00D7). IconText prints it.
 Trigger nouns, closed set: `Win a {w:stack}`, `Win a tournament`, `A
 knockout`, `Rebuy`, `Bust`, `Open your first table at a stake`, `A
 {c:tilt:tilt} lands on`, `A {c:tilt:tilt} ends`, `A 6-Max catches a
-{c:heat:heater}`, `Every N hands won`.
+{c:heat:heater}`, `Play a hand`, `Win a hand`.
 
 Scope words, closed set: `for the run`, `each run`, `this hand`, `the next
 hand`, `while it runs`, `for 10 seconds` (real time is what the cursors do).
@@ -73,12 +125,12 @@ hand`, `while it runs`, `for 10 seconds` (real time is what the cursors do).
 | Any-size step | `1 in N chance a {c:won:win} lands one size up.` | Chrome Toaster, Maniac |
 | Trigger, roll, effect | `<Trigger>: 1 in N chance <effect>.` | `Win a {w:stack}: 1 in 4 chance that table catches a {c:heat:heater}.` |
 | Trigger, certain effect | `<Trigger>: <effect>.` | `Rebuy: that table catches a {c:heat:heater}.` |
-| Cadence | `Every N hands won: <effect>.` | `Every 50 hands won: a table's next {c:won:win} lands one size up.` |
+| Per-hand roll | `Win a hand: 1 in N chance <effect>.` | `Win a hand: 1 in 50 chance a random table's next {c:won:win} lands one size up.` |
 | Redirect | `A {c:tilt:tilt} aimed at <X>: 1 in N chance it lands on <Y> instead.` | Dish Soap, Waste Basket |
 | Start of run | `Start each run with <thing>.` | |
 | An on/off | `Opens <thing>.` | `Opens 6-Max.` |
 | Corrupt line | the full corrupted rule in the same skeleton; a pure penalty is `Same, and <penalty>.` | `Same, and {c:lost:Losses} ×1.5.` |
-| Deck bonus | the rule with `{n}` where the number goes, under eight words | `+{n}% {c:won:wins}` |
+| Deck bonus | the rule with `{n}` where the number goes, under eight words; `compound = true` when the effect multiplies once per level, so the tooltip shows the real total | `+{n}% {c:won:winnings}` |
 | Deck capstone | one sentence in the family skeleton | `First place: every table catches a {c:heat:heater}.` |
 | Unlock sticker | lowercase noun phrase the counter completes | `0 / 3,000 Zoom hands` |
 
@@ -110,7 +162,7 @@ The effect line is the rule and nothing else. Metaphor and jokes live in
 | Half your wins read a tier bigger, the other half pay double. | {c:won:Wins}: 1 in 2 chance one size up, else ×2. |
 | {c:lost:Losses} 20% softer. | {c:lost:Losses} ×0.8. |
 | Heads-Up bounties pay double {chip}. | Heads-Up {c:chip:bounties} pay ×2 {chip}. |
-| Knockouts have a 20% chance to heat a nearby table. | A knockout: 1 in 5 chance the table beside it catches a {c:heat:heater}. |
-| A 6-max may take a status aimed at the table beside it. | A {c:heat:heater} or {c:tilt:tilt} aimed beside a 6-Max: 1 in 2 chance it lands on the 6-Max instead. |
+| Knockouts have a 20% chance to heat a nearby table. | A knockout: 1 in 5 chance the adjacent table catches a {c:heat:heater}. |
+| A 6-max may take a status aimed at the table beside it. | A {c:heat:heater} or {c:tilt:tilt} aimed adjacent to a 6-Max: 1 in 2 chance the 6-Max takes it instead. |
 | +5% {w:stack} chance at unbanked tables | +{n}% {w:stack} chance at unpaid tables |
 | +7.5% cash winnings per table tier | +{n}% {c:won:wins} per stake |

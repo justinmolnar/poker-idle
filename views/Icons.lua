@@ -106,4 +106,52 @@ function Icons.drawGear(game, x, y, size, color)
     love.graphics.circle("fill", cx, cy, r_hole)
 end
 
+-- The status glyphs that sit before a tinted heat or tilt word in copy
+-- (views/IconText). Art from data/icons `heater` / `tilt` when it ships; a
+-- procedural glyph until then, the chip's rule. Both fill a `size` box.
+
+-- A flame: a wide base tongue with a narrower one rising off-centre.
+function Icons.drawFlame(game, x, y, size, alpha)
+    local spec  = IconData.heater
+    local atlas = spec and spriteReady(game, spec.sprite)
+    if atlas then
+        SpriteRenderer.draw(atlas, spec.sprite, x, y, size, size, resolveTint(spec.tint))
+        return
+    end
+    local s = size
+    Theme.setColor(Theme.sem.heat, alpha)
+    love.graphics.polygon("fill",
+        x + s * 0.50, y,
+        x + s * 0.92, y + s * 0.62,
+        x + s * 0.70, y + s,
+        x + s * 0.30, y + s,
+        x + s * 0.08, y + s * 0.62,
+        x + s * 0.34, y + s * 0.42)
+    Theme.setColor(Theme.paper.page_light, (alpha or 1) * 0.85)
+    love.graphics.polygon("fill",
+        x + s * 0.50, y + s * 0.45,
+        x + s * 0.68, y + s * 0.78,
+        x + s * 0.50, y + s,
+        x + s * 0.32, y + s * 0.78)
+end
+
+-- Tilt: three short bars leaning right, the top one furthest, a stack
+-- about to go over.
+function Icons.drawTilt(game, x, y, size, alpha)
+    local spec  = IconData.tilt
+    local atlas = spec and spriteReady(game, spec.sprite)
+    if atlas then
+        SpriteRenderer.draw(atlas, spec.sprite, x, y, size, size, resolveTint(spec.tint))
+        return
+    end
+    local s  = size
+    local bh = math.max(1, math.floor(s * 0.22))
+    local bw = math.floor(s * 0.62)
+    Theme.setColor(Theme.sem.tilt, alpha)
+    for i = 0, 2 do
+        local lean = math.floor((2 - i) * s * 0.14)
+        love.graphics.rectangle("fill", x + lean, y + math.floor(i * (s - bh) / 2), bw, bh)
+    end
+end
+
 return Icons

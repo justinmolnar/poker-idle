@@ -48,7 +48,7 @@ end
 -- ── numbers ───────────────────────────────────────────────────────────
 local EPS = 1e-6
 local FRACTIONS = {}
-for _, m in ipairs({ 2, 3, 4, 5, 6, 8, 10, 12 }) do FRACTIONS[#FRACTIONS + 1] = { 1, m } end
+for _, m in ipairs({ 2, 3, 4, 5, 6, 8, 10, 12, 20, 25, 50, 100 }) do FRACTIONS[#FRACTIONS + 1] = { 1, m } end
 FRACTIONS[#FRACTIONS + 1] = { 2, 3 }
 FRACTIONS[#FRACTIONS + 1] = { 2, 5 }
 
@@ -86,7 +86,7 @@ local EXPECT = {
     anti_award_mult           = function(e) return { "×" .. trim(e.value) } end,
     first_anti_mult           = function(e) return { "×" .. trim(e.value) } end,
     cursor_speed_mult         = function(e) return { "×" .. trim(e.value) } end,
-    ratchet_gain_mult         = function(e) return { "×" .. trim(e.value) } end,
+    ratchet_gain_mult         = function() return nil end,   -- the Whiteboard states the Prize Vase's new number in words; allow_numbers carries it
     hand_pace_mult            = function(e) return { "×" .. trim(e.value) } end,
     pure_board_pace           = function(e) return { "×" .. trim(e.value) } end,
     win_chance_shift          = function(e) return { signedPct(e.amount) } end,
@@ -96,9 +96,11 @@ local EXPECT = {
     run_upgrade_cost_mult     = function(e) return { signedPct(e.value - 1) } end,
     rebuy_discount            = function(e) return { signedPct(-e.value) } end,
     bust_refund_pct           = function(e) return { pct(e.value) .. "%" } end,
+    -- the bankroll is multiplied by (1 + value): a value under 1 prints as
+    -- the percentage added, a value of 1 or more as the whole multiplier
     start_bankroll_pct        = function(e)
         if e.value < 1 then return { signedPct(e.value) } end
-        return { "×" .. trim(e.value) }
+        return { "×" .. trim(1 + e.value) }
     end,
     start_bankroll_add        = function(e) return { money(e.value) } end,
     stack_chip_add            = function(e) return { "+" .. trim(e.value) } end,
@@ -247,7 +249,11 @@ local function checkNumbers(where, text, effects, allow, inherit)
     end
 end
 
--- deck bonus: per_level in the printed unit
+-- deck bonus: per_level in the printed unit. A kind that multiplies once
+-- per level must carry `compound = true` on the bonus (models/Decks
+-- compounds the shown number), an additive kind must not.
+local COMPOUND_KINDS = { earnings_mult = true, hand_pace_mult = true, heater_win_mult = true,
+                         tilted_loss_mult = true, pure_board_bonus = true }
 local PER_LEVEL = {
     earnings_mult        = function(e) return (e.value - 1) * 100 end,
     hand_pace_mult       = function(e) return (e.value - 1) * 100 end,
@@ -298,6 +304,52 @@ local function checkBanned(where, text)
     end
 end
 
+-- ── keywords ({k:…}) ──────────────────────────────────────────────────
+-- A {k:…} must name a listed keyword; a rule line must not carry a listed
+-- keyword bare (the House's lines and flavour are left alone).
+local KEYWORDS, KEYWORD_LIST = {}, {}
+for _, k in ipairs(Terms.keywords or {}) do
+    KEYWORDS[k:lower()] = k
+    KEYWORD_LIST[#KEYWORD_LIST + 1] = k:lower()
+end
+table.sort(KEYWORD_LIST, function(a, b) return #a > #b end)   -- longest first
+
+local function checkKeywords(f)
+    local text = f.text
+    for word in text:gmatch("{k:([^}]*)}") do
+        local w = word:gsub("_", " "):lower()
+        if not KEYWORDS[w] then
+            err(f.where, ("{k:%s} is not a listed keyword (data/terms.lua keywords)"):format(word), text)
+        end
+    end
+    if f.kind ~= "rule" then return end
+    local bare = text:gsub("{[^}]*}", " "):lower()
+    for _, k in ipairs(KEYWORD_LIST) do
+        local pat = "%f[%w]" .. k:gsub("%-", "%%-") .. "%f[%W]"
+        if bare:find(pat) then
+            err(f.where, ("bare keyword %q in a rule line (write {k:%s})"):format(k, KEYWORDS[k]:gsub(" ", "_")), text)
+            bare = bare:gsub(pat, " ")   -- one report per keyword
+        end
+    end
+end
+
+-- The noise guard: a rule line carries at most two pills, three tints and
+-- three keywords.
+local function checkNoise(f)
+    if f.kind ~= "rule" then return end
+    local text = f.text
+    local pills = 0
+    for _ in text:gmatch("%d+ in %d+") do pills = pills + 1 end
+    for _ in text:gmatch("×%d") do pills = pills + 1 end
+    for _ in text:gmatch("[%+%-]%$?%d") do pills = pills + 1 end
+    local tints, keys = 0, 0
+    for _ in text:gmatch("{c:") do tints = tints + 1 end
+    for _ in text:gmatch("{k:") do keys = keys + 1 end
+    if pills > 2 or tints > 3 or keys > 3 then
+        warn(f.where, ("loud: %d pills, %d tints, %d keywords"):format(pills, tints, keys), text)
+    end
+end
+
 -- ── skeleton hints ────────────────────────────────────────────────────
 local IMPERATIVES = { Play = 1, Win = 1, Bank = 1, Hit = 1, Catch = 1, Take = 1, Lose = 1, Earn = 1, Max = 1, Make = 1 }
 local function checkSkeleton(f)
@@ -325,10 +377,17 @@ for _, f in ipairs(Fields) do
     elseif f.item and f.slot == "bonus" then
         local d = f.item
         if d.bonus.per_level then
-            local got
+            local got, kind
             for _, e in ipairs(d.effects or {}) do
                 local fn = PER_LEVEL[e.kind]
-                if fn then got = fn(e) break end
+                if fn then got = fn(e) kind = e.kind break end
+            end
+            if kind then
+                local wants = COMPOUND_KINDS[kind] or false
+                if (d.bonus.compound or false) ~= wants then
+                    err(f.where, ("effect %s is %s per level, so bonus.compound must be %s"):format(
+                        kind, wants and "multiplied" or "added", tostring(wants)), f.text)
+                end
             end
             if not got then
                 err(f.where, "lint has no per_level rule for this deck's effects", f.text)
@@ -345,6 +404,8 @@ for _, f in ipairs(Fields) do
         end
     end
     checkSkeleton(f)
+    checkKeywords(f)
+    checkNoise(f)
 end
 
 -- every chance in procs/routers is printable, whether or not an item prints it

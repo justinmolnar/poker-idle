@@ -8,16 +8,22 @@
 --
 -- Filled bg rect, strong border, light text. Auto-sizes to content. Keeps
 -- inside the screen via edge-clamping near the mouse cursor.
+--
+-- Rows go through views/IconText when they carry markup or a number in
+-- one of the style sheet's shapes, so tier glyphs, tinted words, pills and
+-- keywords render the same in every tooltip. A tinted word, keyword or
+-- icon inside the box can open a SIDE CARD (Tooltip.hover; the host hands
+-- in a resolver, typically the glossary).
 
 local Theme     = require("views.Theme")
 local Constants = require("data.constants")
+local IconText  = require("views.IconText")
 
 local Tooltip = {}
 
 -- Module-private: the current tooltip (lines + anchor) or nil.
 local _t       = nil
 local _padding = 6
-local _line_h  = 14   -- font row height; matches ui_small in Theme.font
 
 -- Pointer-rest gate: a tooltip appears only after the pointer has been
 -- STILL (within a few px) over a tooltip target for Constants.HOVER.DWELL
@@ -84,6 +90,19 @@ local function intersects(x, y, w, h, r)
        and y < r.y + r.h and y + h > r.y
 end
 
+-- A custom row: icon-marked text ({chip}, tier glyphs, pills) in a colour.
+-- The one row builder every card uses (the receipt, the room, the glossary).
+function Tooltip.iconRow(game, text, color)
+    return {
+        measure = function(fonts)
+            return IconText.measure(text, fonts.sm), fonts.sm:getHeight()
+        end,
+        render = function(x, y, fonts)
+            IconText.draw(game, text, x, y, fonts.sm, color)
+        end,
+    }
+end
+
 -- Per-line resolve: string lines render in the default font; table
 -- lines pick up font / color from their style tag (resolved against
 -- the fonts table when one is passed).
@@ -106,8 +125,6 @@ local function resolveLine(line, fonts, default_font)
     }
 end
 
-local IconText = require("views.IconText")
-
 -- A colour by name: the seven meanings, their aliases, and the fg names.
 local function tokenColor(token)
     if not token then return nil end
@@ -118,15 +135,135 @@ local function tokenColor(token)
         or nil
 end
 
--- Rows whose text carries {…} markers (a tier glyph, a tinted word) lay
--- out and draw through IconText; plain rows keep love's own wrap.
-local function hasMarkers(text) return type(text) == "string" and text:find("{", 1, true) ~= nil end
+-- Rows whose text carries {…} markers (a tier glyph, a tinted word) or a
+-- number in one of the style sheet's shapes (×2, +10%, 1 in 4) lay out
+-- and draw through IconText, so pills appear in every tooltip with no
+-- per-site work; plain rows keep love's own wrap.
+local hasMarkers = IconText.hasMarkup
+
+-- Resolve and measure a list of lines. Returns rows, box_w, box_h.
+local function layout(lines, fonts, default_font, max_w)
+    local rows = {}
+    for i, line in ipairs(lines) do
+        rows[i] = resolveLine(line, fonts, default_font)
+    end
+    local widest, total_h = 0, 0
+    for _, r in ipairs(rows) do
+        local w, h
+        if r.render then
+            w, h = 0, default_font:getHeight()
+            if r.measure and fonts then w, h = r.measure(fonts) end
+        elseif hasMarkers(r.text) then
+            r._lines = IconText.wrap(r.text, r.font, max_w)
+            w = 0
+            for _, l in ipairs(r._lines) do w = math.max(w, IconText.measure(l, r.font)) end
+            h = #r._lines * r.font:getHeight()
+        else
+            local wrapw, wlines = r.font:getWrap(r.text, max_w)
+            w = wrapw
+            h = math.max(1, #wlines) * r.font:getHeight()
+        end
+        r._h = h
+        if w > widest then widest = w end
+        total_h = total_h + h + 2
+    end
+    return rows, widest + _padding * 2, _padding * 2 + total_h
+end
+
+-- Draw laid-out rows in a box at (x, y). `placed` collects each IconText
+-- line's spot for the word hit-test.
+local function drawBox(rows, x, y, box_w, box_h, fonts, max_w, placed)
+    Theme.setColor(Theme.bg.window, 0.95)
+    love.graphics.rectangle("fill", x, y, box_w, box_h, Theme.space.radius)
+    Theme.setColor(Theme.border.strong)
+    love.graphics.rectangle("line", x, y, box_w, box_h, Theme.space.radius)
+
+    local cy = y + _padding
+    for _, r in ipairs(rows) do
+        if r.render then
+            if fonts then r.render(x + _padding, cy, fonts) end
+        elseif r._lines then
+            local color = tokenColor(r.color) or Theme.fg.heading
+            local ly = cy
+            for _, l in ipairs(r._lines) do
+                IconText.draw(nil, l, x + _padding, ly, r.font, color)
+                if placed then placed[#placed + 1] = { x = x + _padding, y = ly, font = r.font, text = l } end
+                ly = ly + r.font:getHeight()
+            end
+        else
+            love.graphics.setFont(r.font)
+            local color = tokenColor(r.color) or Theme.fg.heading
+            Theme.setColor(color)
+            love.graphics.printf(r.text, x + _padding, cy, max_w, "left")
+        end
+        cy = cy + (r._h or 0) + 2
+    end
+end
+
+-- ── The side card ──────────────────────────────────────────────────────
+-- Hover a tinted word, a keyword or an icon inside the tooltip and a
+-- second card opens beside it: what the glossary says about that word.
+-- `resolve(span)` is handed in by the host (main.lua → GlossaryPanel), so
+-- this service never reaches into the views; it returns rows or nil.
+-- Called from update, against LAST frame's box. A click pins the card
+-- until the tooltip goes away.
+
+-- The last box drawn: its rect and each text row's place. nil when
+-- nothing was drawn last frame.
+Tooltip.last = nil
+
+local _side, _side_key, _side_since, _side_pinned = nil, nil, 0, false
+
+function Tooltip.hover(mx, my, resolve)
+    local last = Tooltip.last
+    if not last or (now() - last.at) > 0.1 then
+        _side, _side_key, _side_pinned = nil, nil, false
+        return
+    end
+    if _side_pinned then return end
+    local hit_key, hit_span
+    for _, r in ipairs(last.rows) do
+        local h = r.font:getHeight()
+        if my >= r.y and my < r.y + h and mx >= r.x then
+            for _, sp in ipairs(IconText.spans(r.text, r.font)) do
+                if sp.kind ~= "pill" and mx >= r.x + sp.x and mx < r.x + sp.x + sp.w then
+                    hit_key  = (sp.kind or "") .. ":" .. (sp.text or sp.token or "")
+                    hit_span = sp
+                    break
+                end
+            end
+        end
+        if hit_span then break end
+    end
+    if not hit_span then _side, _side_key = nil, nil return end
+    if hit_key ~= _side_key then
+        _side_key, _side_since = hit_key, now()
+        _side = nil
+    end
+    if not _side and (now() - _side_since) >= Constants.HOVER.DWELL then
+        _side = resolve and resolve(hit_span) or false
+    end
+end
+
+-- A click while a side card shows keeps it up; a click anywhere else
+-- lets it go. Returns true when the click was spent on the card.
+function Tooltip.click()
+    if _side and not _side_pinned then _side_pinned = true return true end
+    if _side_pinned then _side, _side_key, _side_pinned = nil, nil, false end
+    return false
+end
+
+-- Whether a side card is up.
+function Tooltip.sideShowing() return _side ~= nil and _side ~= false end
 
 -- font_or_fonts: either a single Font object (legacy) or a fonts table
 -- like game.fonts ({ sm = Font, md = Font, lg = Font }). Structured
 -- lines use the table to pick per-line sizing.
 function Tooltip.draw(font_or_fonts)
-    if not _t then return end
+    if not _t then
+        if not _side_pinned then Tooltip.last = nil end
+        return
+    end
     local fonts, default_font
     if type(font_or_fonts) == "table" then
         fonts        = font_or_fonts
@@ -141,47 +278,7 @@ function Tooltip.draw(font_or_fonts)
     local MAX_W = math.floor(math.min(default_font:getHeight() * 20,
                                       love.graphics.getWidth() * 0.45))
 
-    -- Resolve every line to a concrete font/color so layout can measure.
-    local rows = {}
-    for i, line in ipairs(_t.lines) do
-        rows[i] = resolveLine(line, fonts, default_font)
-    end
-
-    -- Measure content (per-row line height = that row's font height, or the
-    -- custom row's self-reported size).
-    local max_w  = 0
-    local total_h = 0
-    for _, r in ipairs(rows) do
-        local w, h
-        if r.render then
-            w, h = 0, default_font:getHeight()
-            if r.measure and fonts then w, h = r.measure(fonts) end
-        elseif hasMarkers(r.text) then
-            r._lines = IconText.wrap(r.text, r.font, MAX_W)
-            w = 0
-            for _, l in ipairs(r._lines) do w = math.max(w, IconText.measure(l, r.font)) end
-            h = #r._lines * r.font:getHeight()
-        elseif hasMarkers(r.text) then
-            r._lines = IconText.wrap(r.text, r.font, MAX_W)
-            w = 0
-            for _, l in ipairs(r._lines) do w = math.max(w, IconText.measure(l, r.font)) end
-            h = #r._lines * r.font:getHeight()
-        elseif hasMarkers(r.text) then
-            r._lines = IconText.wrap(r.text, r.font, MAX_W)
-            w = 0
-            for _, l in ipairs(r._lines) do w = math.max(w, IconText.measure(l, r.font)) end
-            h = #r._lines * r.font:getHeight()
-        else
-            local wrapw, wlines = r.font:getWrap(r.text, MAX_W)
-            w = wrapw
-            h = math.max(1, #wlines) * r.font:getHeight()
-        end
-        r._h = h
-        if w > max_w then max_w = w end
-        total_h = total_h + h + 2
-    end
-    local box_w = max_w + _padding * 2
-    local box_h = _padding * 2 + total_h
+    local rows, box_w, box_h = layout(_t.lines, fonts, default_font, MAX_W)
 
     -- Anchor near cursor; flip to the left if the right edge would clip,
     -- and clamp to screen bounds.
@@ -197,30 +294,22 @@ function Tooltip.draw(font_or_fonts)
     end
     if y < 4 then y = 4 end
 
-    Theme.setColor(Theme.bg.window, 0.95)
-    love.graphics.rectangle("fill", x, y, box_w, box_h, Theme.space.radius)
-    Theme.setColor(Theme.border.strong)
-    love.graphics.rectangle("line", x, y, box_w, box_h, Theme.space.radius)
+    local placed = {}
+    drawBox(rows, x, y, box_w, box_h, fonts, MAX_W, placed)
 
-    local cy = y + _padding
-    for _, r in ipairs(rows) do
-        if r.render then
-            if fonts then r.render(x + _padding, cy, fonts) end
-        elseif r._lines then
-            local color = tokenColor(r.color) or Theme.fg.heading
-            local ly = cy
-            for _, l in ipairs(r._lines) do
-                IconText.draw(nil, l, x + _padding, ly, r.font, color)
-                ly = ly + r.font:getHeight()
-            end
-        else
-            love.graphics.setFont(r.font)
-            local color = tokenColor(r.color) or Theme.fg.heading
-            Theme.setColor(color)
-            love.graphics.printf(r.text, x + _padding, cy, MAX_W, "left")
-        end
-        cy = cy + (r._h or 0) + 2
+    -- The side card, beside the box: right of it, or left when the right
+    -- would leave the screen. Its own rows are not hit-tested (one hop).
+    if _side then
+        local srows, sw, sh = layout(_side, fonts, default_font, MAX_W)
+        local sx = x + box_w + 6
+        if sx + sw > screen_w then sx = x - sw - 6 end
+        if sx < 4 then sx = 4 end
+        local sy = math.min(y, screen_h - sh - 4)
+        if sy < 4 then sy = 4 end
+        drawBox(srows, sx, sy, sw, sh, fonts, MAX_W, nil)
     end
+
+    Tooltip.last = { x = x, y = y, w = box_w, h = box_h, rows = placed, at = now() }
 
     -- Consume on draw: main.lua now draws the tooltip once per frame above
     -- the story layer, and the modals (catalog, settings) still draw their

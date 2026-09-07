@@ -75,10 +75,10 @@ local Decks = {
             { kind = "earnings_mult", value = 1.5 },
         },
         capstone  = {
-            text    = "{w:stack} {c:won:wins} ×2.",
+            text    = "{w:stack} {c:won:winnings} ×2.",
             effects = { { kind = "stack_mult", value = 2.0 } },
         },
-        bonus       = { text = "+{n}% {c:won:wins}", per_level = 50 },
+        bonus       = { text = "+{n}% {c:won:winnings}", per_level = 50, compound = true },
         flavor_text = "The classic back. Solid, reliable, honest.",
     },
 
@@ -96,10 +96,10 @@ local Decks = {
             { kind = "hand_pace_mult", value = 1.15, gtype = "zoom" },
         },
         capstone  = {
-            text    = "Win a Zoom {w:stack}: every other Zoom table settles now.",
+            text    = "Win a {w:stack} at {k:Zoom}: every {k:Zoom} table catches a {c:heat:heater}.",
             effects = { { kind = "proc", proc = "firehose_cascade" } },
         },
-        bonus       = { text = "Zoom deal speed +{n}%", per_level = 15 },
+        bonus       = { text = "{k:Zoom} deal speed +{n}%", per_level = 15, compound = true },
         flavor_text = "Hands are hands. Open the valve.",
         unlock = {
             kind      = "hands_at_gtype",
@@ -123,10 +123,10 @@ local Decks = {
             { kind = "win_chance_shift", amount = 0.03, gtype = "hu" },
         },
         capstone  = {
-            text    = "At Heads-Up, 1 in 2 chance: {l:stack} {arrow} {l:large}.",
+            text    = "At {k:Heads-Up}, 1 in 2 chance: {l:stack} {arrow} {l:large}.",
             effects = { { kind = "loss_tier_shift", from = "stack", to = "large", chance = 1/2, gtype = "hu" } },
         },
-        bonus       = { text = "+{n}% win chance Heads-Up", per_level = 3 },
+        bonus       = { text = "+{n}% {c:chance:odds} at {k:Heads-Up}", per_level = 3 },
         flavor_text = "One opponent. One stack. Take it.",
         unlock = {
             kind      = "hands_at_gtype",
@@ -153,7 +153,7 @@ local Decks = {
             text    = "+1 {chip} on every {c:chip:bounty}.",
             effects = { { kind = "stack_chip_add", value = 1 } },
         },
-        bonus       = { text = "+{n}% {w:stack} chance at unpaid tables", per_level = 5 },
+        bonus       = { text = "+{n}% {w:stack} {c:chance:odds} at unpaid tables", per_level = 5 },
         flavor_text = "Every lane has a price on it. Collect.",
         unlock = {
             kind      = "total_chips_banked",
@@ -179,7 +179,7 @@ local Decks = {
             text    = "One-game board deal speed ×1.25.",
             effects = { { kind = "pure_board_pace", value = 1.25 } },
         },
-        bonus       = { text = "+{n}% {c:won:wins} when every table is one game", per_level = 20 },
+        bonus       = { text = "+{n}% {c:won:winnings} when {k:every_table} is one game", per_level = 20, compound = true },
         flavor_text = "One game. Every table. Perfect execution.",
         unlock = {
             kind      = "total_hands_at_4plus",
@@ -202,10 +202,10 @@ local Decks = {
             { kind = "heater_win_mult", value = 1.25 },
         },
         capstone  = {
-            text    = "A {c:heat:heater} ends: 1 in 4 chance the table beside it catches one.",
+            text    = "A {c:heat:heater} ends: 1 in 4 chance a table {k:adjacent} to it catches one.",
             effects = { { kind = "proc", proc = "hot_hand_spread" } },
         },
-        bonus       = { text = "+{n}% on a {c:heat:heater}'s {c:won:wins}", per_level = 25 },
+        bonus       = { text = "+{n}% on the hand a {c:heat:heater} deals for you", per_level = 25, compound = true },
         flavor_text = "Run good. Then run gooder.",
         unlock = {
             kind      = "total_heaters",
@@ -229,7 +229,7 @@ local Decks = {
               shift = { small = -0.10, medium = -0.10, large = 0.10, stack = 0.10 } },
         },
         capstone  = {
-            text    = "{c:won:Wins}: 1 in 2 chance one size up, else ×2.",
+            text    = "Each {c:won:win}: 1 in 2 chance one size up, and 1 in 2 chance ×2.",
             effects = {
                 { kind = "win_tier_bump_chance",     value = 1/2 },
                 { kind = "win_payout_double_chance", value = 1/2 },
@@ -290,10 +290,10 @@ local Decks = {
             { kind = "tilted_loss_mult", value = 0.8, gtype = "six_max" },
         },
         capstone  = {
-            text    = "A 6-Max takes a {c:tilt:tilt}: the table beside it catches a {c:heat:heater}.",
+            text    = "A {c:tilt:tilt} on a {k:6-Max} ends: a table {k:adjacent} to it catches a {c:heat:heater}.",
             effects = { { kind = "proc", proc = "anchor_convert" } },
         },
-        bonus       = { text = "-{n}% on {c:tilt:tilted} 6-Max {c:lost:losses}", per_level = 20 },
+        bonus       = { text = "-{n}% on {c:tilt:tilted} {k:6-Max} {c:lost:losses}", per_level = 20, compound = true },
         flavor_text = "Somebody has to take the hit. Sit them at the big table.",
         unlock = {
             kind      = "total_tilts",
@@ -316,10 +316,10 @@ local Decks = {
             { kind = "ko_targets_add", value = 1 },
         },
         capstone  = {
-            text    = "First place: every table catches a {c:heat:heater}.",
+            text    = "{k:First_place}: {k:every_table} catches a {c:heat:heater}.",
             effects = { { kind = "proc", proc = "circuit_pro_final" } },
         },
-        bonus       = { text = "Each knockout reaches {n} more table", per_level = 1 },
+        bonus       = { text = "Each {k:knockout} reaches {n} more table", per_level = 1 },
         flavor_text = "The tournament pays the room.",
         unlock = {
             kind      = "total_ko_wins",
@@ -342,10 +342,10 @@ local Decks = {
             { kind = "earnings_per_tier", value = 0.075 },
         },
         capstone  = {
-            text    = "{c:won:Wins} scale with your BANK multiplier, up to ×3.",
+            text    = "{c:won:Winnings} scale with your BANK multiplier, up to ×3.",
             effects = { { kind = "earnings_scale_by_bankroll", wins_only = true, cap = 3 } },
         },
-        bonus       = { text = "+{n}% {c:won:wins} per stake", per_level = 7.5 },
+        bonus       = { text = "+{n}% {c:won:winnings} per stake", per_level = 7.5 },
         flavor_text = "Earnings grow with stakes. Watch the capital accumulate.",
         unlock = {
             kind      = "lifetime_money_won",

@@ -377,8 +377,8 @@ function TitleView:_drawMenu(W, H, s, st)
         rects[#rects + 1] = { id = it.id, x = x, y = y, w = btn_w, h = btn_h }
         y = y + btn_h + gap
         if it.id == "continue" and summary then
-            local sw = IconText.measure(summary, fonts.sm)
-            IconText.draw(self.game, summary, math.floor((W - sw) * 0.5), y, fonts.sm, Theme.fg.muted, 1)
+            local sw = IconText.measure(summary, fonts.sm, IconText.PLAIN)
+            IconText.draw(self.game, summary, math.floor((W - sw) * 0.5), y, fonts.sm, Theme.fg.muted, 1, IconText.PLAIN)
             y = y + fonts.sm:getHeight() + math.floor(6 * s)
         end
     end

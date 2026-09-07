@@ -539,6 +539,8 @@ local function _capped(ctx, fill_key, gt, stake)
     local window = stake.fill_window
     if not window then return false end
     local _, complete = OutcomeMath.effectiveWindow(window, ctx)
+    -- The Bookshelf raises the ceiling: a stake keeps gaining from the
+    -- levels past its window until the bonus is used up.
     return OutcomeMath.sumFills(ctx[fill_key], gt)
            >= complete + (ctx.run_upgrade_bonus_levels or 0)
 end
@@ -560,7 +562,7 @@ local function _winChanceRows(view, ctx, nextctx)
     end
 
     local col  = name_w + math.floor(f:getHeight() * 1.4)
-    local rows = { { text = "Win chance, next level:", style = "sm", color_token = "muted" } }
+    local rows = { { text = "Odds, next level:", style = "sm", color_token = "muted" } }
     for _, e in ipairs(data) do
         local name, txt = e.name, e.txt
         local dim = (txt == "MAX" or txt == "-")
@@ -1801,7 +1803,7 @@ function GrindView:_drawFloatingText()
                 for line in (t.text .. "\n"):gmatch("(.-)\n") do
                     if line ~= "" then
                         local tw = line:find("{", 1, true)
-                                   and IconText.measure(line, font)
+                                   and IconText.measure(line, font, IconText.PLAIN)
                                    or font:getWidth(line)
                         if tw > widest then widest = tw end
                     end
@@ -1857,7 +1859,7 @@ function GrindView:_drawFloatingText()
             for line in (t.text .. "\n"):gmatch("(.-)\n") do
                 if line ~= "" then
                     local tw = line:find("{", 1, true)
-                               and IconText.measure(line, font)
+                               and IconText.measure(line, font, IconText.PLAIN)
                                or font:getWidth(line)
                     if tw > widest then widest = tw end
                 end
@@ -1882,8 +1884,8 @@ function GrindView:_drawFloatingText()
         for line in (t.text .. "\n"):gmatch("(.-)\n") do
             if line:find("{", 1, true) then
                 -- Inline icons (e.g. "+1 {chip}") — IconText, no stroke ring.
-                local tw = IconText.measure(line, font)
-                IconText.draw(self.game, line, -tw * 0.5, ly, font, color, alpha)
+                local tw = IconText.measure(line, font, IconText.PLAIN)
+                IconText.draw(self.game, line, -tw * 0.5, ly, font, color, alpha, IconText.PLAIN)
             elseif line ~= "" then
                 local tw = font:getWidth(line)
                 -- Dark stroke ring for legibility against any felt color.
