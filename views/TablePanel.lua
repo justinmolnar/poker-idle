@@ -2310,7 +2310,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
             local ev = L.bottom.ev
             love.graphics.setFont(fonts.xs)
             Theme.setColor(Theme.sem.won, 0.9)
-            love.graphics.print(("%dx"):format(tbl._combo), ev.x, ev.y + math.floor((ev.h - fonts.xs:getHeight()) / 2))
+            -- the slot is { x, y, w, show }: y is the text top (views/FeltLayout)
+            love.graphics.print(("%dx"):format(tbl._combo), ev.x, ev.y)
         end
     end
 

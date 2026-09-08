@@ -36,7 +36,7 @@ local ClickFlash      = require("services.ClickFlash")
 local Tooltip         = require("services.Tooltip")
 local GlossaryPanel   = require("views.GlossaryPanel")   -- the tooltip's side cards
 local Ghosts          = require("services.Ghosts")
-local ItemGhosts      = require("views.ItemGhosts")
+local ItemStream      = require("views.ItemStream")
 local ItemFoley       = require("services.ItemFoley")
 local AnchorRegistry  = require("services.AnchorRegistry")
 local ShaderRegistry  = require("services.ShaderRegistry")
@@ -274,9 +274,9 @@ local function buildGame()
             st.item_fires_run[e.item_id]  = (st.item_fires_run[e.item_id]  or 0) + 1
             st.item_fires_life[e.item_id] = (st.item_fires_life[e.item_id] or 0) + 1
         end
-        -- ...and seen: the item's sprite pops over the table that fired it,
-        -- because most of the foley reads alike.
-        ItemGhosts.spawn(g, e.item_id, e.x, e.y, e.pw, e.ph)
+        -- ...and seen: the item's sprite floats up the table area like a
+        -- heart on a live stream, one icon per fire (views/ItemStream).
+        ItemStream.spawn(g, e.item_id, e.x, e.y, e.pw, e.ph)
     end)
     g.animations      = AnimationSystem
     g.floating_text   = FloatingText
@@ -654,7 +654,7 @@ function love.update(dt)
     ChipPile.update(dt)
     ClickFlash.update(dt)
     Ghosts.update(dt)
-    ItemGhosts.update(dt)
+    ItemStream.update(dt)
 
     -- Periodic auto-save. Skip the menu-class states (title/credits) so
     -- we don't churn disk while the player sits at a static screen. Also

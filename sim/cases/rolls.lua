@@ -122,10 +122,11 @@ return function(T)
     -- Trophy Shelf: a bounty pays double 1 in 4 (the live bountyAward).
     if wanted("item:trophy_shelf") then
         local w = T.world(); w:own("trophy_shelf")
-        local award = w.ctrl:bountyAward("s001", "hu")
         local single = H.Lookups.findById(H.Stakes, "s001").chip_award or 1
-        local hits = E.rate(function() return w.ctrl:bountyAward("s001", "hu") >= single * 2 end, 20000, 0.25, 0.01, "bounty doubles")
-        check("item:trophy_shelf", "double", math.abs(hits - 0.25) <= 0.01,
-            ("a NL2 Heads-Up bounty (%d) paid x2 on %.1f%% of awards (1 in 4)"):format(single, hits * 100))
+        local hits = E.rate(function() return w.ctrl:bountyAward("s001", "hu", { roll = true }) >= single * 2 end, 20000, 0.25, 0.01, "bounty doubles")
+        local shown = 0
+        for _ = 1, 2000 do if w.ctrl:bountyAward("s001", "hu") >= single * 2 then shown = shown + 1 end end
+        check("item:trophy_shelf", "double", math.abs(hits - 0.25) <= 0.01 and shown == 0,
+            ("a NL2 Heads-Up bounty (%d) paid x2 on %.1f%% of awards (1 in 4); the sidebar's display read never doubles (%d of 2000)"):format(single, hits * 100, shown))
     end
 end

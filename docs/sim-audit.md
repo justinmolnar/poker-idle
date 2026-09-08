@@ -9,6 +9,7 @@
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; odds_per_stake_seated -> ctx.odds_per_stake_seated = 0.01
 - odds: +1% odds per stake seated: 3 stakes = +3.00% everywhere, 0 stakes = +0.00%
 - count: the controller counts 3 stakes seated (NL2 twice, NL10, NL100 = 3)
+- gate: unlocks at total_hands_played >= 50: closed at 49, open at 50
 
 ### item:mirror — PASS
 - copy: Each {k:Heads-Up} table open: +2% {w:stack} {c:chance:odds} at {k:Heads-Up}.
@@ -20,7 +21,7 @@
 - copy: {k:Heads-Up} {c:chip:bounties} pay ×2 {chip}.
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; bounty_gtype_mult -> ctx.bounty_gtype_mult = table(1)
 - bounty: a NL2 Heads-Up bounty pays 2 with the poster (1 without); Zoom's stays 1
-- gate: unlocks at lifetime_chips_banked >= 1: closed at 0, open at 1
+- gate: unlocks at total_chips_banked >= 1: closed at 0, open at 1
 
 ### item:energy_drink — PASS
 - copy: Deal a {k:Zoom} table: every {k:adjacent} {k:Zoom} table at the same stake deals too.
@@ -54,6 +55,7 @@
 - copy: The table in your hand: +10% {c:chance:odds} while you hold it.
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; held_odds -> ctx.held_odds = 0.1
 - odds: the held table dealt at +10.0% odds; the table not in hand at +0.0%
+- gate: unlocks at total_hands_won >= 400: closed at 399, open at 400
 
 ### item:comfort_bed — PASS
 - copy: A {k:6-Max} counts as an empty space.
@@ -66,12 +68,14 @@
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; odds_per_empty_adjacent -> ctx.odds_per_empty_adjacent = 0.05
 - stamps: empty cells beside a table: (0,1) sees 1 (the hole at (1,1)), the corner (0,0) sees 0, (2,1) sees 2 (the hole and (2,2)); past the board's edge never counts
 - odds: +5% odds per empty cell adjacent: the table with two saw +10.0% on its deal
+- gate: unlocks at total_hands_at_4plus >= 100: closed at 99, open at 100
 
 ### item:cutting_board — PASS
 - copy: {c:won:Wins} in a row on hands you deal yourself: {c:won:winnings} ×1.1 per win, up to ×2. A {c:lost:loss} you dealt ends it.
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; manual_combo -> ctx.manual_combo = table(2)
 - streak: three wins dealt by hand: streak 3, the third paid x1.20 the first (1 + 0.1 x 2)
 - cursor: a cursor's win left the streak at 3; a loss dealt by hand reset it to 0
+- gate: unlocks at total_hands_won >= 1200: closed at 1199, open at 1200
 
 ### item:dogs_playing_poker — PASS
 - copy: Win a {w:stack}: 1 in 4 chance that table catches a {c:heat:heater}.
@@ -165,7 +169,8 @@
 ### item:trophy_shelf — PASS
 - copy: A {c:chip:bounty} pays: 1 in 4 chance it pays ×2.
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; bounty_double_chance -> ctx.bounty_double_chance = 0.25
-- double: a NL2 Heads-Up bounty (1) paid x2 on 25.3% of awards (1 in 4)
+- double: a NL2 Heads-Up bounty (1) paid x2 on 25.1% of awards (1 in 4); the sidebar's display read never doubles (0 of 2000)
+- gate: unlocks at total_stacks >= 150: closed at 149, open at 150
 
 ### item:dusty_console — PASS
 - copy: {w:stack} {c:won:winnings} ×1.5.
@@ -213,8 +218,6 @@
 - gate: unlocks at total_cursor_deals >= 1000: closed at 999, open at 1000
 
 ### item:box_of_mice — PASS
-- copy: Opens the {c:upgrade:cursors} and the Cursor {c:upgrade:upgrade}.
-- rollup: shove_rate_add -> ctx.shove_rate = 0.01; cursor_unlocked -> ctx.cursor_unlocked = true
 - opens: three Cursor levels put 0 cursors on the felt without the box, 3 with it
 
 ### item:wacom_tablet — PASS
@@ -290,6 +293,7 @@
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; zoom_combo_pace -> ctx.zoom_combo_pace = table(2)
 - combo: ten wins in a row read combo 10; a loss reset it to 0
 - pace: the hand dealt at combo 10 ran at x1.500 the pace of the first (1 + 0.05 x 10, capped x1.5)
+- gate: unlocks at total_hands_at_gtype@zoom >= 4000: closed at 3999, open at 4000
 
 ### item:laminated_blueprint — PASS
 - copy: Every game open on the board: a {c:won:win} at {k:6-Max}: {k:a_random_table} catches a {c:heat:heater}.
@@ -1200,10 +1204,10 @@
 - runs: two minutes of a full board threw nothing
 - board: 36 tables open (the whole 36-table board) with Focus capacity 36
 - swarm: 13 cursors on the felt (Cursor L12 + the Laptop)
-- money: bankroll after two minutes: 1.0000004196874e+15
-- hands: 1701 hands played across the board, hands-played counter at 2566
+- money: bankroll after two minutes: 1.0000004573115e+15
+- hands: 1737 hands played across the board, hands-played counter at 2684
 - statuses: only tilt and heater ever sat on a table
-- pace: the board's hands-per-second stamp peaked at 38
+- pace: the board's hands-per-second stamp peaked at 44
 
 ## Uncovered
 

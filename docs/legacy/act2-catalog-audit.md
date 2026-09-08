@@ -1,3 +1,5 @@
+> **Legacy (moved 2026-09-07). Snapshot of 2026-09-04, wrong since.** The book was repriced to `Balance.CATALOG_CHIP_BUDGET` (Act 1 shelves 225, Act 2 shelves 575) with a cost ladder per shelf and in-shelf chains, checked by `sim/lint_catalog_economy.lua`; the shove-spread complaint below was already moot (the loader forces 1% per item). Current rules: docs/catalog-economy.md.
+
 # Act 2 catalog audit — 2026-09-04
 
 Scope: the 36 catalog items with `act = 2` (575 chips). Numbers come from

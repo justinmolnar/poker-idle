@@ -16,10 +16,14 @@ local Catalog   = require("data.catalog")
 local ShoveRate = require("models.shove_rate")
 
 
+local ACT2_ONLY = { total_ko_wins = true, decks_unlocked_count = true, shove_r1_won = true }
+
 local function simulateAct1()
     local owned_set = {}
     local owned_count = 0
-    local total_catalog_items = Balance.ACT1_ITEM_COUNT -- bands A+B (33)
+    -- The Act 1 shelves: every ownable card without `act = 2` (derived,
+    -- never authored; data/catalog_pages.lua rule 7).
+    local total_catalog_items = CatalogLoader.act1Count(Catalog)
     local chips_banked = 0
     local elapsed_minutes = 0
     
@@ -97,8 +101,14 @@ local function simulateAct1()
                 local gate_open = not item.unlock
                     or (item.unlock.threshold or 0)
                        <= (ACT1_REACH[item.unlock.kind] or 25)
+                -- Act 2 cards are in the book in Act 1 and buyable once
+                -- their chain's intro is owned (the game does not filter
+                -- `act = 2`); only a gate that cannot open before the R1
+                -- win (rule 7) keeps one out.
+                local act2_gate = item.unlock and (ACT2_ONLY[item.unlock.kind]
+                                  or item.unlock.kind:match("^lifetime_"))
                 if CatalogLoader.isOwnable(item)
-                   and gate_open
+                   and gate_open and not act2_gate
                    and (not item.requires or owned_set[item.requires]) then
                     if not owned_set[item.id] then
                         local cost = item.cost_chip or 0

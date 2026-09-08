@@ -891,7 +891,7 @@ function GrindController:update(dt)
                     -- Same award math as the cash stack path (incl.
                     -- chip_award_mult AND Pen's flat bonus — this used to
                     -- hand-roll the formula and dropped the Pen add).
-                    award = self:bountyAward(t.stake_id, t.game_type_id)
+                    award = self:bountyAward(t.stake_id, t.game_type_id, { roll = true })
                     if award > 0 then
                         -- Dogs Playing Poker: the run's first bounty pays +bonus.
                         if not state.first_bounty_this_run then
@@ -917,7 +917,7 @@ function GrindController:update(dt)
                     if self.ctx and self.ctx.copy_first_denied and not state.denied_copied_this_run then
                         state.denied_copied_this_run = true
                         self:itemFired("copy_first_denied", t)
-                        local cp = self:bountyAward(t.stake_id, t.game_type_id)
+                        local cp = self:bountyAward(t.stake_id, t.game_type_id, { roll = true })
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
                             state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
@@ -1347,7 +1347,7 @@ function GrindController:update(dt)
                 if count < cap then
                     state.stakes_won_this_run[key] = count + 1
                     state.hands_since_last_bank = 0
-                    local award = self:bountyAward(tbl.stake_id, tbl.game_type_id)
+                    local award = self:bountyAward(tbl.stake_id, tbl.game_type_id, { roll = true })
                     if award > 0 then
                         -- Dogs Playing Poker: the run's first bounty pays +bonus.
                         if not state.first_bounty_this_run then
@@ -1387,7 +1387,7 @@ function GrindController:update(dt)
                         state.denied_copied_this_run = true
                         self:itemFired("copy_first_denied", tbl)
                         self:itemFired("copy_denied_chance", tbl)
-                        local cp = self:bountyAward(tbl.stake_id, tbl.game_type_id)
+                        local cp = self:bountyAward(tbl.stake_id, tbl.game_type_id, { roll = true })
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
                             state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
@@ -1740,7 +1740,11 @@ function GrindController:itemFired(kind, tbl)
     end
 end
 
-function GrindController:bountyAward(stake_id, gtype_id)
+-- `opts.roll`: this call PAYS the bounty, so the Trophy Shelf's 1-in-4
+-- double is rolled (and reported). Without it the number is the plain,
+-- deterministic award: the sidebar's "+N" badge reads it every frame, and
+-- a display must never roll dice or fire an item.
+function GrindController:bountyAward(stake_id, gtype_id, opts)
     local stake = Lookups.findById(Stakes,stake_id)
     if not stake then return 0 end
     local mult  = (self.ctx and self.ctx.chip_award_mult) or 1
@@ -1751,7 +1755,7 @@ function GrindController:bountyAward(stake_id, gtype_id)
     end
     local bonus = (self.ctx and self.ctx.stack_chip_add) or 0
     -- The Trophy Shelf: a bounty sometimes pays double, the whole thing.
-    local dbl = self.ctx and self.ctx.bounty_double_chance
+    local dbl = opts and opts.roll and self.ctx and self.ctx.bounty_double_chance
     if dbl and dbl > 0 and love.math.random() < dbl then
         self:itemFired("bounty_double_chance", nil)
         return (math.floor((stake.chip_award or 0) * mult + 0.5) + bonus) * 2

@@ -1,7 +1,7 @@
 -- utils/easing.lua
 --
 -- Shared easing curves + frame-rate-independent damping. These lived as
--- private per-view copies (ItemGhosts, Button, ShoveView) before the
+-- private per-view copies (ItemStream, Button, ShoveView) before the
 -- table-drag work needed a fourth; consolidated here instead.
 --
 -- Pure functions, no deps, engine-agnostic. All curves take t in [0, 1]

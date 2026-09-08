@@ -50,12 +50,26 @@ function CatalogLoader.itemShoveRate(item)
     return Balance.K_SHOVE_PER_ITEM
 end
 
--- Chips a run has to produce to stay on the Act 1 pacing curve. Used by
--- the sims rather than the game.
-function CatalogLoader.chipsPerRun(act1_spend)
-    local total_spend = act1_spend or 223   -- bands A+B (data/catalog.lua header)
-    return math.ceil((total_spend * ((Balance.RUN_MINUTES or 20) / 20.0))
-                     / Balance.ACT1_RUNS_TO_CLEAR)
+-- The book by act, after deriveAll: the Act 1 shelves are the ownable
+-- items without `act = 2`, the Act 2 shelves the ones with it. The sims
+-- measure Act 1 completion against act1_items, and
+-- sim/lint_catalog_economy.lua holds the sums to Balance.CATALOG_CHIP_BUDGET.
+function CatalogLoader.actSums(items)
+    local r = { act1 = 0, act2 = 0, act1_items = 0, act2_items = 0 }
+    for _, item in ipairs(items) do
+        if CatalogLoader.isOwnable(item) and not item.retired and not item.hidden then
+            if item.act == 2 then
+                r.act2, r.act2_items = r.act2 + (item.cost_chip or 0), r.act2_items + 1
+            else
+                r.act1, r.act1_items = r.act1 + (item.cost_chip or 0), r.act1_items + 1
+            end
+        end
+    end
+    return r
+end
+
+function CatalogLoader.act1Count(items)
+    return CatalogLoader.actSums(items).act1_items
 end
 
 -- On the base block the derived rate WINS: the value is not authored, only

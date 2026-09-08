@@ -792,7 +792,7 @@ else {
 R.push(`\n### Code findings (from the exploration that preceded this sweep — not changed by the script)\n`);
 R.push(`- \`data/statuses.lua\`: heater and tilt have \`effects = {}\`; their \`magnitude\` and \`t\` are inert everywhere except tilt's visual lean. So \`curved_monitor_heater.escalate\` (busted_total × 0.12) and every authored \`t = 4/5/6/8\` do nothing.`);
 R.push(`- \`controllers/GrindController.lua\` gates bounty / cascade / stack counters on \`not r.flipped\`: a heater-manufactured stack never pays a {chip} and never triggers on_stack_win procs.`);
-R.push(`- \`data/balance.lua\`: \`ACT1_ITEM_COUNT = 67\` is the whole catalog, but it feeds \`ITEMS_AT_WIN\` and sim/run.lua's Act-1 completion % (Act 1 = bands A+B = 33 items). \`catalog_loader.chipsPerRun\` defaults \`act1_spend = 111\` vs the 237 the header sums.`);
+R.push(`- The Act 1 item count is derived (\`CatalogLoader.act1Count\`: every ownable card without \`act = 2\`) and the book is held to \`Balance.CATALOG_CHIP_BUDGET\` by \`sim/lint_catalog_economy.lua\`.`);
 R.push(`- \`data/run_upgrades.lua\` header says the full lineup costs "$38M cumulative"; the arrays now sum to ~$85B for Pot Control alone.`);
 R.push(`- \`every = N\` procs count lifetime wins across all tables and never reset on prestige (ProcRegistry:123 reads \`state.total_hands_won\`).\n`);
 

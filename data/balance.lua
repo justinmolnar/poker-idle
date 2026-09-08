@@ -23,22 +23,18 @@ Balance.ACT1_COMPLETION_AT_WIN = 0.40     -- fraction of the Act 1 catalog owned
 Balance.ACT1_SHOVE_TARGET      = 0.40     -- win chance on the big hand around run 4-5
 Balance.T3_MULT                = 3
 
--- Act 1's catalog is bands A+B (data/catalog.lua header), not the whole
--- book; the sims measure Act 1 completion against this.
-Balance.ACT1_ITEM_COUNT        = 33
-
--- ─── Derived Math ────────────────────────────────────────────────────────────
--- Target catalog R1 contribution for Act 1 (raw1 = (catalog + deck) * mult)
-Balance.CATALOG_TARGET_ACT1    = Balance.ACT1_SHOVE_TARGET / Balance.T3_MULT            -- 0.80 / 3 = 0.2666...
-
--- Number of items owned at expected Act 1 win
-Balance.ITEMS_AT_WIN           = Balance.ACT1_ITEM_COUNT * Balance.ACT1_COMPLETION_AT_WIN  -- 25 * 0.70 = 17.5
+-- The catalog's {chip} budget: what the Act 1 shelves (no `act = 2`) and
+-- the Act 2 shelves sum to after CatalogLoader.deriveAll, ±tol. The whole
+-- book is 800. Income per run: Act 1 banks 18 (24 with Fight Night), Act 2
+-- 84, Act 3 180. `lua sim/lint_catalog_economy.lua` checks the sums; the
+-- Act 1 item count is derived from the catalog (CatalogLoader.act1Count),
+-- never authored here.
+Balance.CATALOG_CHIP_BUDGET    = { act1 = 225, act2 = 575, tol = 6 }
 
 -- Shove rate added per catalog item. A FLAT 1%: one item, one point of
--- shove. The pacing model above prices items (getItemCost); it no longer
--- sets what they are worth, because a derived 0.78% per item was a number
--- nobody could read off the card. (The derived value is kept for reference.)
-Balance.K_SHOVE_PER_ITEM_DERIVED = Balance.CATALOG_TARGET_ACT1 / Balance.ITEMS_AT_WIN
+-- shove. The budget above prices items; it does not set what they are
+-- worth, because a derived 0.78% per item was a number nobody could read
+-- off the card.
 Balance.K_SHOVE_PER_ITEM         = 0.01
 
 -- ─── Run-upgrade pricing (models/UpgradePricing.lua) ─────────────────────────

@@ -43,6 +43,19 @@
 --    appears on two pages. sim/lint_copy.lua checks this.
 --    Exempt: a `gate` item (the Ultra key, on the back page by itself) and
 --    a `retired` item (cut from the book; docs/retired-item-effects.md).
+-- 5. A SHELF IS A LADDER: down a shelf, cost_chip never decreases, and the
+--    shelf's capstone is its last card. Value Buys reads the same way. A
+--    chain has to be contiguous AND ascending, so a chain's prices climb.
+-- 6. NOTHING IS NAKED: every card has an unlock, a requires, or is a Value
+--    Buys intro. Price alone is not a gate.
+-- 7. A GATE THAT CANNOT OPEN IN ACT 1 (a tournament win, decks unlocked,
+--    the R1 flag, a lifetime_* counter) carries `act = 2`, or a `mystery`
+--    so the demo shows a "???" teaser that peels when Act 2 opens.
+-- 8. THE TIERS price a card by its role on the shelf, then the two acts
+--    are summed to data/balance.lua CATALOG_CHIP_BUDGET (225 / 575):
+--        Act 1  intro 4-5 (a key 8-9) · core 5-10 · capstone 12-14
+--        Act 2  cheap 8-10 · core 12-16 · chain link 12-18 · capstone 18-22
+--    Rules 5-8 and the sums: `lua sim/lint_catalog_economy.lua`.
 --
 -- Fields:
 --   id     the system ("value_buys", "zoom", "hu", "mental", "rack", "stats",
@@ -72,7 +85,7 @@ return {
     -- introduces (the lint checks one per shelf).
     { id = "value_buys", title = "Value Buys", label = "VALUE BUYS", tab = { "sem:chip" },
       items = {
-          "corkboard", "starter_gift_box", "fight_night_poster", "energy_drink",
+          "corkboard", "starter_gift_box", "energy_drink", "fight_night_poster",
           "bonsai", "prize_vase", "nightstand", "box_of_mice",
       },
       shelf_of = {
@@ -87,8 +100,8 @@ return {
     -- Cheap and Act 1, so first.
     { id = "stats", title = "Memberships & Vouchers", label = "STATS", tab = { "paper:sticker_counting" },
       items = {
-          "wall_hanger", "stack_of_books", "throw_pillow", "yellow_sticky_note",
-          "comfort_bed", "lava_lamp", "cutting_board", "chrome_toaster",
+          "wall_hanger", "throw_pillow", "stack_of_books", "yellow_sticky_note",
+          "lava_lamp", "comfort_bed", "cutting_board", "chrome_toaster",
       } },
 
     -- The run and the rack: what a run starts with (the Gift Box is the
@@ -98,8 +111,8 @@ return {
     -- repeat and the shelf had eight again.)
     { id = "rack", title = "Desk & Stationery", label = "THE RACK", tab = { "sem:upgrade" },
       items = {
-          "desk", "cereal_shelf", "compact_fridge", "rebuy_sticky_note",
-          "ring_binder", "calculator", "bookshelf", "second_monitor",
+          "desk", "ring_binder", "calculator", "rebuy_sticky_note",
+          "compact_fridge", "second_monitor", "bookshelf", "cereal_shelf",
       } },
 
     -- THE TABLES, together, in the order a run opens them.
@@ -107,8 +120,8 @@ return {
     -- pay more, and the Mirror throttles how hard the duel hits stacks.
     { id = "hu", title = "Game Room", label = "HEADS-UP", tab = { "gtype:hu" },
       items = {
-          "dogs_playing_poker", "gaming_chair", "candle", "pencil_holder",
-          "tip_jar", "trophy_shelf", "mirror", "dusty_console",
+          "mirror", "dusty_console", "dogs_playing_poker", "candle",
+          "trophy_shelf", "pencil_holder", "gaming_chair", "tip_jar",
       } },
 
     -- Zoom: speed. The Energy Drink (the intro) spreads deals; the clock
@@ -118,8 +131,8 @@ return {
     -- deal faster, hands per second feed the odds.
     { id = "zoom", title = "Kitchen & Appliances", label = "ZOOM", tab = { "gtype:zoom" },
       items = {
-          "wall_clock", "house_cat", "handheld", "headset",
-          "receipt_printer", "copy_machine", "washing_machine", "framed_diploma",
+          "handheld", "headset", "house_cat", "wall_clock",
+          "framed_diploma", "receipt_printer", "copy_machine", "washing_machine",
       } },
 
     -- 6-Max: the tank. The Bonsai (the intro) opens the room. The money
@@ -128,8 +141,8 @@ return {
     -- house when every game is on the board.
     { id = "six_max", title = "Den & Houseplants", label = "6-MAX", tab = { "gtype:six_max" },
       items = {
-          "desk_plant", "red_rug", "floor_plant", "console_television",
-          "space_heater", "fire_extinguisher", "blackout_curtains", "laminated_blueprint",
+          "desk_plant", "red_rug", "space_heater", "floor_plant",
+          "laminated_blueprint", "fire_extinguisher", "blackout_curtains", "console_television",
       } },
 
     -- Tournaments: the Act 2 table, the support. The vase (the intro) and
@@ -137,8 +150,8 @@ return {
     -- tournament's block, the poster brings a busted neighbour back.
     { id = "ko", title = "Awards & Trophy Wall", label = "TOURNAMENTS", tab = { "gtype:ko" },
       items = {
-          "whiteboard", "high_roller_pass", "window", "curved_monitor",
-          "tower_upgrade", "shredder", "first_aid_kit", "medical_poster",
+          "medical_poster", "first_aid_kit", "curved_monitor", "tower_upgrade",
+          "shredder", "whiteboard", "high_roller_pass", "window",
       } },
 
     -- The mental game: heat and tilt. The Nightstand (rebuy, heater) is
@@ -148,8 +161,8 @@ return {
     -- burning table take a tilt and keep its fire.
     { id = "mental", title = "Bed & Bath", label = "HEAT & TILT", tab = { "sem:heat", "sem:tilt" },
       items = {
-          "rolled_vouchers", "dish_soap", "waste_basket", "cool_towel",
-          "microwave_oven", "desk_speakers", "gas_stove", "cast_iron_pan",
+          "rolled_vouchers", "dish_soap", "cool_towel", "waste_basket",
+          "desk_speakers", "cast_iron_pan", "microwave_oven", "gas_stove",
       } },
 
     -- The cursor swarm (its root, the Box of Mice, is the Value Buys intro).
@@ -159,8 +172,8 @@ return {
     -- items close the shelf.
     { id = "cursors", title = "Computer Accessories", label = "CURSORS", tab = { "sem:upgrade" },
       items = {
-          "laptop_terminal", "gaming_keyboard", "wacom_tablet", "desk_lamp",
-          "glass_partition", "telephone", "old_keyboard", "cleaning_robot",
+          "laptop_terminal", "old_keyboard", "telephone", "wacom_tablet",
+          "desk_lamp", "glass_partition", "gaming_keyboard", "cleaning_robot",
       } },
 
     -- The Ultra key is its own thing: on no shelf, so it falls to the

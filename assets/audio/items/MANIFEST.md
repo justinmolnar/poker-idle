@@ -1,6 +1,6 @@
 # Item sounds manifest and attribution
 
-51 sounds from Pixabay (the Reserved Seat Card became the Desk on 2026-08-25; its sound was dropped, the desk has none yet) (Content License: free for commercial use, no attribution required; credited anyway). One per catalog item, downloaded 2026-08-25. Files are named by catalog id; the original upload name, artist and Pixabay asset id are kept here for credit. Not wired into the game yet.
+51 sounds from Pixabay (the Reserved Seat Card became the Desk on 2026-08-25; its sound was dropped, the desk has none yet) (Content License: free for commercial use, no attribution required; credited anyway). One per catalog item, downloaded 2026-08-25; reassigned 2026-09-07 with the reskin (see the notes under the table). Files are named by catalog id; the original upload name, artist and Pixabay asset id are kept here for credit. Not wired into the game yet.
 
 | # | catalog id | item | file | artist | original title | pixabay id |
 |---|---|---|---|---|---|---|
@@ -14,48 +14,46 @@
 | 8 | `lava_lamp` | Lava Lamp | `lava_lamp.mp3` | freesound_community | low hum | 14645 |
 | 9 | `comfort_bed` | Comfort Bed | `comfort_bed.mp3` | freesound_community | air_mattress_squeeze | 64385 |
 | 10 | `yellow_sticky_note` | Yellow Sticky Note | `yellow_sticky_note.mp3` | freesound_community | sticky note | 43933 |
-| 11 | `rubber_duck` | Rubber Duck | `rubber_duck.mp3` | magiaz | duck | 405695 |
-| 12 | `stash_box` | Stash Box | `stash_box.mp3` | freesound_community | drawer | 41055 |
-| 13 | `dogs_playing_poker` | Dogs Playing Poker | `dogs_playing_poker.mp3` | freesound_community | handling picture frame | 54598 |
-| 14 | `calculator` | Calculator | `calculator.mp3` | dragon-studio | single key press | 393908 |
-| 15 | `ring_binder` | Ring Binder | `ring_binder.mp3` | freesound_community | closing a binder | 84633 |
-| 16 | `space_heater` | Space Heater | `space_heater.mp3` | freesound_community | switch on water heater | 65792 |
-| 17 | `pencil_holder` | Pencil Holder | `pencil_holder.mp3` | soundreality | pen click | 411629 |
-| 18 | `desk_plant` | Desk Plant | `desk_plant.mp3` | freesound_community | moving plant | 75923 |
-| 20 | `rebuy_sticky_note` | Rebuy Sticky Note | `rebuy_sticky_note.mp3` | freesound_community | sticky note | 43933 |
-| 21 | `gaming_chair` | Gaming Chair | `gaming_chair.mp3` | freesound_community | squeaking office chair | 67137 |
-| 22 | `headset` | Headset | `headset.mp3` | freesound_community | headphones jack pugged out | 41879 |
-| 23 | `prize_vase` | Prize Vase | `prize_vase.mp3` | freesound_community | ceramic plate set down | 71330 |
-| 24 | `fridge` | Compact Fridge | `compact_fridge.mp3` | u_1u3ikv3y0r | slamming fridge door | 441147 |
-| 25 | `wall_clock` | Wall Clock | `wall_clock.mp3` | freesound_community | ticking clock_1 | 27477 |
-| 26 | `vouchers` | Rolled Vouchers | `rolled_vouchers.mp3` | tanweraman | paper rip fast | 252617 |
-| 27 | `second_monitor` | Second Monitor | `second_monitor.mp3` | edr | old pc monitor switch on and degaussing | 8576 |
-| 28 | `laptop` | Laptop Terminal | `laptop_terminal.mp3` | dragon-studio | mouse click | 346047 |
-| 29 | `gaming_keyboard` | Gaming Keyboard | `gaming_keyboard.mp3` | freesound_community | mech keyboard 02 | 102918 |
-| 30 | `box_of_mice` | Box of Mice | `box_of_mice.mp3` | dragon-studio | mouse click sfx | 444806 |
-| 31 | `wacom_tablet` | Wacom Tablet | `wacom_tablet.mp3` | freesound_community | screen tap | 38717 |
-| 32 | `kettle` | Electric Kettle | `electric_kettle.mp3` | mohammedalobaidi | electric kettle sound effect | 162642 |
-| 33 | `toaster` | Chrome Toaster | `chrome_toaster.mp3` | freesound_community | toaster | 37635 |
-| 34 | `first_aid_kit` | First Aid Kit | `first_aid_kit.mp3` | freesound_community | opening and closing latches | 78365 |
-| 35 | `nightstand` | Nightstand | `nightstand.mp3` | freesound_community | close drawer | 104761 |
-| 36 | `receipt_printer` | Receipt Printer | `receipt_printer.mp3` | freesound_community | receipt printer 01 | 43872 |
-| 37 | `microwave` | Microwave Oven | `microwave_oven.mp3` | freesound_community | microwave button | 82493 |
-| 38 | `diploma` | Framed Diploma | `framed_diploma.mp3` | freesound_community | tapping on glass | 31920 |
-| 39 | `blueprint` | Laminated Blueprint | `laminated_blueprint.mp3` | freesound_community | flexing a piece of resonating copper sheet metal | 29593 |
-| 40 | `console_television` | Console Television | `console_television.mp3` | freesound_community | old desktop pc booting | 24280 |
-| 41 | `high_roller_pass` | High Roller Pass | `high_roller_pass.mp3` | oxidvideos | taking playing card 2 | 522516 |
-| 42 | `window` | Window | `window.mp3` | freesound_community | knocking on window | 99754 |
-| 43 | `bookshelf` | Bookshelf | `bookshelf.mp3` | oxidvideos | book closing | 466850 |
-| 44 | `cereal_shelf` | Cereal Shelf | `cereal_shelf.mp3` | freesound_community | cereal box | 101352 |
-| 45 | `fire_extinguisher` | Fire Extinguisher | `fire_extinguisher.mp3` | freesound_community | fire extinguisher pin fall | 43270 |
-| 46 | `blackout_curtains` | Blackout Curtains | `blackout_curtains.mp3` | freesound_community | curtain | 82308 |
-| 47 | `tip_jar` | Tip Jar | `tip_jar.mp3` | freesound_community | coins in a jar | 36681 |
-| 48 | `tower_upgrade` | Tower Upgrade | `tower_upgrade.mp3` | freesound_community | 8bit computer startup | 66972 |
-| 49 | `curved_monitor` | Curved Monitor | `curved_monitor.mp3` | u_s026io00zm | beep | 401570 |
-| 50 | `desk_speakers` | Desk Speakers | `desk_speakers.mp3` | freesound_community | speaker buzz | 82989 |
-| 51 | `shredder` | Shredder | `shredder.mp3` | freesound_community | shredder | 105938 |
-| 52 | `ultra_stake` | Ultra Stake | `ultra_stake.mp3` | oxidvideos | placing poker chips | 522515 |
+| 11 | `dogs_playing_poker` | Dogs Playing Poker | `dogs_playing_poker.mp3` | freesound_community | handling picture frame | 54598 |
+| 12 | `calculator` | Calculator | `calculator.mp3` | dragon-studio | single key press | 393908 |
+| 13 | `ring_binder` | Ring Binder | `ring_binder.mp3` | freesound_community | closing a binder | 84633 |
+| 14 | `space_heater` | Space Heater | `space_heater.mp3` | freesound_community | switch on water heater | 65792 |
+| 15 | `pencil_holder` | Pencil Holder | `pencil_holder.mp3` | soundreality | pen click | 411629 |
+| 16 | `desk_plant` | Desk Plant | `desk_plant.mp3` | freesound_community | moving plant | 75923 |
+| 17 | `rebuy_sticky_note` | Rebuy Sticky Note | `rebuy_sticky_note.mp3` | freesound_community | sticky note | 43933 |
+| 18 | `gaming_chair` | Gaming Chair | `gaming_chair.mp3` | freesound_community | squeaking office chair | 67137 |
+| 19 | `headset` | Headset | `headset.mp3` | freesound_community | headphones jack pugged out | 41879 |
+| 20 | `prize_vase` | Prize Vase | `prize_vase.mp3` | freesound_community | ceramic plate set down | 71330 |
+| 21 | `compact_fridge` | Compact Fridge | `compact_fridge.mp3` | u_1u3ikv3y0r | slamming fridge door | 441147 |
+| 22 | `wall_clock` | Wall Clock | `wall_clock.mp3` | freesound_community | ticking clock_1 | 27477 |
+| 23 | `second_monitor` | Second Monitor | `second_monitor.mp3` | edr | old pc monitor switch on and degaussing | 8576 |
+| 24 | `laptop_terminal` | Laptop Terminal | `laptop_terminal.mp3` | dragon-studio | mouse click | 346047 |
+| 25 | `gaming_keyboard` | Gaming Keyboard | `gaming_keyboard.mp3` | freesound_community | mech keyboard 02 | 102918 |
+| 26 | `box_of_mice` | Box of Mice | `box_of_mice.mp3` | dragon-studio | mouse click sfx | 444806 |
+| 27 | `wacom_tablet` | Wacom Tablet | `wacom_tablet.mp3` | freesound_community | screen tap | 38717 |
+| 28 | `nightstand` | Chrome Toaster | `nightstand.mp3` | freesound_community | chrome_toaster | 37635 |
+| 29 | `first_aid_kit` | First Aid Kit | `first_aid_kit.mp3` | freesound_community | opening and closing latches | 78365 |
+| 30 | `chrome_toaster` | Nightstand | `chrome_toaster.mp3` | freesound_community | close drawer | 104761 |
+| 31 | `receipt_printer` | Receipt Printer | `receipt_printer.mp3` | freesound_community | receipt printer 01 | 43872 |
+| 32 | `microwave_oven` | Microwave Oven | `microwave_oven.mp3` | freesound_community | microwave button | 82493 |
+| 33 | `laminated_blueprint` | Laminated Blueprint | `laminated_blueprint.mp3` | freesound_community | flexing a piece of resonating copper sheet metal | 29593 |
+| 34 | `console_television` | Console Television | `console_television.mp3` | freesound_community | old desktop pc booting | 24280 |
+| 35 | `window` | Window | `window.mp3` | freesound_community | knocking on window | 99754 |
+| 36 | `bookshelf` | Bookshelf | `bookshelf.mp3` | oxidvideos | book closing | 466850 |
+| 37 | `cereal_shelf` | Cereal Shelf | `cereal_shelf.mp3` | freesound_community | cereal box | 101352 |
+| 38 | `fire_extinguisher` | Fire Extinguisher | `fire_extinguisher.mp3` | freesound_community | fire extinguisher pin fall | 43270 |
+| 39 | `blackout_curtains` | Blackout Curtains | `blackout_curtains.mp3` | freesound_community | curtain | 82308 |
+| 40 | `tip_jar` | Tip Jar | `tip_jar.mp3` | freesound_community | coins in a jar | 36681 |
+| 41 | `desk_speakers` | Desk Speakers | `desk_speakers.mp3` | freesound_community | speaker buzz | 82989 |
+| 42 | `ultra_stake` | Ultra Stake | `ultra_stake.mp3` | oxidvideos | placing poker chips | 522515 |
+| 43 | `whiteboard` | Rubber Duck | `whiteboard.mp3` | magiaz | duck | 405695 |
+| 44 | `cool_towel` | Electric Kettle | `cool_towel.mp3` | mohammedalobaidi | electric kettle sound effect | 162642 |
+| 45 | `glass_partition` | Beige Tower | `glass_partition.mp3` | freesound_community | 8bit computer startup | 66972 |
+| 46 | `desk` | Desk | `desk.mp3` | freesound_community | drawer | 41055 |
 
+Unassigned (2026-09-07 reskin, kept in `unassigned/`): `rolled_vouchers` (paper rip fast), `framed_diploma` (tapping on glass), `high_roller_pass` (taking playing card 2), `curved_monitor` (beep), `shredder` (shredder).
+
+Reskin notes (2026-09-07): the Nightstand and Chrome Toaster ids swapped names, sprites, sounds and room cells; the retired Rubber Duck, Electric Kettle, Tower Upgrade (8-bit boot) and Stash Box (drawer) sounds now belong to `whiteboard`, `cool_towel`, `glass_partition` and `desk`. Every item plays its OWN file; nothing shares.
 ## Credits (by artist)
 
 - **dragon-studio**: single key press (393908), mouse click (346047), mouse click sfx (444806)

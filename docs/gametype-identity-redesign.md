@@ -132,8 +132,8 @@ buy-in reclaim, chip mult) x durations.
 
 - Demo/early items stay flat and legible; mid/late items go proc-shaped.
   The catalog phases already support this arc.
-- The item ghost system is the delivery mechanism: every proc pops its
-  sprite over the table it touched.
+- The item stream (views/ItemStream) is the delivery mechanism: every proc
+  floats its sprite up the table area, one icon per fire.
 
 ## Formations (spatial layer)
 

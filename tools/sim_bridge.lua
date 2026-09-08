@@ -311,7 +311,8 @@ function Bridge.info(_)
             RUN_MINUTES = Balance.RUN_MINUTES, K_SHOVE_PER_ITEM = Balance.K_SHOVE_PER_ITEM,
             ACT1_RUNS_TO_CLEAR = Balance.ACT1_RUNS_TO_CLEAR,
             ACT1_SHOVE_TARGET = Balance.ACT1_SHOVE_TARGET,
-            ACT1_ITEM_COUNT = Balance.ACT1_ITEM_COUNT,
+            ACT1_ITEM_COUNT = require("models.catalog_loader").act1Count(Catalog),
+            CATALOG_CHIP_BUDGET = Balance.CATALOG_CHIP_BUDGET,
         },
         focus = {
             base_capacity = Constants.GAMEPLAY.FOCUS_BASE_CAPACITY,
