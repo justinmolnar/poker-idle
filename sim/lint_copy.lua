@@ -107,6 +107,25 @@ local EXPECT = {
     odds_per_heater           = function(e) return { signedPct(e.value) } end,
     punch_extra_hands         = function() return nil end,   -- "one more hand" is words
     heat_shrugs_tilt          = function() return nil end,
+    tilted_loss_dist_shift    = function() return nil end,   -- "smaller losses": no number
+    tank_absorb_bumps         = function() return nil end,
+    loss_reroll_chance        = function(e, where, text)
+        local f = fraction(e.value)
+        if not f then err(where, ("chance %s is not a printable fraction"):format(tostring(e.value)), text) end
+        return { f or "?" }
+    end,
+    odds_per_stake_seated     = function(e) return { signedPct(e.value) } end,
+    lonely_winnings_mult      = function(e) return { "×" .. trim(e.value) } end,
+    odds_per_empty_adjacent   = function(e) return { signedPct(e.value) } end,
+    six_max_counts_empty      = function() return nil end,
+    held_odds                 = function(e) return { signedPct(e.value) } end,
+    manual_combo              = function(e) return { "×" .. trim(1 + e.value), "×" .. trim(e.cap) } end,
+    zoom_fast_fold            = function() return nil end,
+    zoom_tilt_one_hand        = function() return nil end,
+    zoom_hands_count_twice    = function() return nil end,   -- "as two" is words
+    zoom_block_pace           = function(e) return { "×" .. trim(1 + e.value) } end,
+    zoom_combo_pace           = function(e) return { "×" .. trim(1 + e.value), "×" .. trim(1 + e.cap) } end,
+    odds_per_hand_per_second  = function(e) return { signedPct(e.value) } end,
     hu_stack_odds_per_hu_table = function(e) return { signedPct(e.value) } end,
     bounty_double_chance      = function(e, where, text)
         local f = fraction(e.value)
@@ -188,9 +207,9 @@ local EXPECT = {
 }
 -- kinds that print nothing
 for _, k in ipairs({ "void_first_loss", "void_first_stack_loss", "six_max_unlocked", "cursor_unlocked",
-                     "cursor_instant_click", "cursor_rebuy_unlocked", "cursor_optical_sensor",
-                     "cursor_memory_unlocked", "cursor_sync_unlocked", "cursor_collision_phasing",
-                     "cascade_deals_empty", "start_biggest_pot", "ultra_unlock_effect",
+                     "cursor_instant_click", "cursor_rebuy_unlocked",
+                     "cursor_memory_unlocked", "cursor_sync_unlocked",
+                     "start_biggest_pot", "ultra_unlock_effect",
                      "shove_base_per_deck_level" }) do
     EXPECT[k] = function() return nil end
 end

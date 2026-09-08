@@ -645,3 +645,453 @@ Iron Pan (a tilt landing on a heater counts but the heater keeps its hand).
 The rule "no deck lengthens a punch" in data/decks.lua's header was an
 earlier pass's, not the designer's; struck.
 
+## Retired 2026-09-07 (e): the 6-Max shelf's four flat cards
+
+The tank's shelf had three cards about absorbing and converting punishment
+and four flat stats that said nothing about 6-Max. The four became the
+money half and the role half of the tank (Desk Plant: a tilt's hands lose
+smaller; Red Rug: a large 6-Max win is sometimes the family pot; Space
+Heater: tanking pays the neighbour; Laminated Blueprint: with every game
+on the board a 6-Max win lights a table) and the Floor Plant joined (a
+6-Max stack spills a size-up onto every neighbour). **Ids, names, sprites
+and unlock gates stayed.** Verbatim:
+
+```lua
+    {
+        id          = "desk_plant",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Desk Plant",
+        effect_text = "+6% {c:chance:odds} at {k:6-Max}.",
+        description = "Real. Someone waters it when you're not looking.",
+        sprite      = "desk_plant",
+        phase       = "mid",
+        cost_chip   = 8,
+        requires    = "bonsai",
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.010 },
+            { kind = "win_chance_shift", amount = 0.06, gtype = "six_max" },
+        },
+        corrupt = {
+            cost_achip = 5,
+            effects = {
+                { kind = "win_chance_shift", amount = 0.35, gtype = "six_max" },
+            },
+            effect_text = "+35% {c:chance:odds} at {k:6-Max}.",
+        },
+    },
+    {
+        id          = "red_rug",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Red Rug",
+        effect_text = "+2% {c:chance:odds} at the top-left table.",
+        description = "Really ties the room together. The top-left table sits on it.",
+        sprite      = "red_rug",
+        phase       = "mid",
+        cost_chip   = 8,
+        unlock = {
+            kind      = "total_hands_played",
+            threshold = 6500,
+            text      = "hands played",
+        },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "corner_win_chance", value = 0.02 },
+        },
+    },
+    {
+        id          = "space_heater",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Space Heater",
+        effect_text = "{c:lost:Losses} ×0.8.",
+        description = "Hums all night. The cold stops mattering.",
+        sprite      = "space_heater",
+        phase       = "mid",
+        cost_chip     = 8,
+        position    = { x = 280, y = 200 },
+        unlock = {
+            kind      = "total_stack_losses",
+            threshold = 225,
+            text      = "{l:stack} {c:lost:losses} taken",
+        },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.008 },
+            { kind = "loss_mult",      value = 0.80 },
+        },
+        corrupt = {
+            cost_achip = 8,
+            effects = {
+                { kind = "loss_mult", value = 3.0 },
+            },
+            effect_text = "{c:lost:Losses} ×3.",
+        },
+    },
+    {
+        id          = "laminated_blueprint",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        act         = 2,
+        name        = "Laminated Blueprint",
+        effect_text = "The deck in play earns ×1.5 XP.",
+        description = "Wall blueprint chart for systematic study.",
+        sprite      = "laminated_blueprint",
+        phase       = "late",
+        cost_chip   = 19,
+        effects     = {
+            { kind = "shove_rate_add", value = 0.014 },
+            { kind = "deck_xp_mult",   value = 1.50 },
+        },
+        unlock = {
+            kind      = "decks_unlocked_count",
+            threshold = 5,
+            text      = "decks unlocked",
+            -- "???" until decks exist (Act 2)
+            mystery   = { kind = "shove_r1_won" },
+        },
+        corrupt = {
+            cost_achip = 10,
+            effects = {
+                { kind = "deck_xp_mult", value = 8.0 },
+            },
+            effect_text = "The deck in play earns ×8 XP.",
+        },
+    },
+```
+
+Effect kinds left with no catalog user: `corner_win_chance`, `deck_xp_mult`.
+Their applicators stay.
+
+## Retired 2026-09-07 (f): the Zoom shelf
+
+Zoom is the firehose: six times 6-Max's hands, tiny pots, a stack rate
+capped near 4%, new opponents every deal. Four flat or cascade cards and
+the Diploma's 1-in-100 board roll became fast-fold (Handheld: a loss deals
+the next hand now; Headset: a tilt does not follow to the next hand),
+volume as progression (Copy Machine: a Zoom hand counts as two), and the
+speed loop (Receipt Printer: faster per adjacent Zoom; Washing Machine,
+new: wins in a row deal faster; Framed Diploma: hands per second feed
+Zoom's odds). **Ids, names, sprites and unlock gates stayed.** Verbatim:
+
+```lua
+    {
+        id          = "handheld",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Handheld",
+        effect_text = "+3% {c:chance:odds} at {k:Zoom}.",
+        description = "Fits in a pocket. Fast games between fast games.",
+        sprite      = "handheld",
+        phase       = "mid",
+        cost_chip   = 5,
+        unlock = {
+            kind      = "total_hands_at_gtype",
+            gtype     = "zoom",
+            threshold = 1200,
+            text      = "Zoom hands",
+        },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "win_chance_shift", amount = 0.03, gtype = "zoom" },
+        },
+    },
+    {
+        id          = "headset",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Headset",
+        effect_text = "+6% {c:chance:odds} at {k:Zoom}.",
+        description = "Foam mic cover. Someone else's earwax.",
+        sprite      = "headset",
+        phase       = "mid",
+        cost_chip   = 6,
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.010 },
+            { kind = "win_chance_shift", amount = 0.06, gtype = "zoom" },
+        },
+        unlock = {
+            kind      = "total_hands_at_gtype",
+            gtype     = "zoom",
+            threshold = 2600,
+            text      = "Zoom hands",
+        },
+        corrupt = {
+            cost_achip = 5,
+            effects = {
+                { kind = "win_chance_shift", amount = 0.35, gtype = "zoom" },
+            },
+            effect_text = "+35% {c:chance:odds} at {k:Zoom}.",
+        },
+    },
+    {
+        id          = "copy_machine",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        act         = 2,
+        name        = "Copy Machine",
+        effect_text = "The Receipt Printer also deals the empty {k:Zoom} tables.",
+        see_also    = { "receipt_printer" },
+        description = "The printer's big sibling.",
+        sprite      = "copy_machine",
+        phase       = "mid",
+        cost_chip   = 19,
+        requires    = "receipt_printer",
+        effects     = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "cascade_deals_empty" },
+        },
+    },
+    {
+        id          = "receipt_printer",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        act         = 2,
+        name        = "Receipt Printer",
+        effect_text = "Win a {w:stack} anywhere: every {k:Zoom} table finishes its hand now.",
+        description = "Chatters out a slip for every table. Feed it more paper.",
+        sprite      = "receipt_printer",
+        phase       = "mid",
+        cost_chip   = 19,
+        -- Late-Act-1 machine at a late-Act-1 price: 1,100 stacks ≈
+        -- shove seven at the measured ~155/shove (see the Candle's note).
+        unlock = {
+            kind      = "total_stacks",
+            threshold = 1100,
+            text      = "{w:stack} {c:won:wins}",
+        },
+        position    = { x = 330, y = 400 },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.014 },
+            { kind = "proc", proc = "receipt_printer_cascade" },
+        },
+        corrupt = {
+            cost_achip = 9,
+            effects = {
+                { kind = "proc", proc = "receipt_printer_cascade_corrupt" },
+            },
+            effect_text = "Win a {w:stack} anywhere: {k:every_table} finishes its hand now.",
+        },
+    },
+    {
+        id          = "framed_diploma",
+        act         = 2,
+        name        = "Framed Diploma",
+        effect_text = "Win a hand: 1 in 100 chance {k:every_table} rolls 1 in 3 each for a {c:heat:heater}, a {c:tilt:tilt}, or nothing.",
+        allow_numbers = { 1, 3 },   -- the roll's thirds are proc weights, not a chance field
+        description = "Wall-mounted certificate. Handsome on the wall.",
+        sprite      = "framed_diploma",
+        phase       = "late",
+        cost_chip     = 18,
+        -- Millennium IS century, bigger — lesson two of the counter items.
+        requires    = "wall_clock",
+        position    = { x = 450, y = 400 },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.014 },
+            { kind = "proc", proc = "framed_diploma_century" },
+        },
+        corrupt = {
+            cost_achip = 9,
+            effects = {
+                { kind = "proc",          proc = "framed_diploma_century" },
+                { kind = "earnings_mult", value = 0.70 },
+            },
+            effect_text = "Same, and {c:won:Winnings} ×0.7.",
+        },
+    },
+```
+
+Their procs, from `data/procs.lua`:
+
+```lua
+    receipt_printer_cascade = {
+        trigger = "on_stack_win",
+        target  = { kind = "gtype", gtype = "zoom", exclude_self = true },
+        payload = { kind = "resolve_now" },
+        ghost   = "receipt_printer",
+    },
+    receipt_printer_cascade_corrupt = {
+        trigger = "on_stack_win",
+        target  = { kind = "any_other" },
+        payload = { kind = "resolve_now" },
+        ghost   = "receipt_printer",
+    },
+    framed_diploma_century = {
+        trigger = "on_hand_won",
+        chance  = 1/100,
+        target  = { kind = "all" },
+        payload = { kind = "roll_status",
+                    outcomes = { { status = "heater", weight = 1, magnitude = 0.35, t = 6 },
+                                 { status = "tilt",   weight = 1, magnitude = 0.35, t = 5 },
+                                 { weight = 1 } } },
+        ghost   = "framed_diploma",
+    },
+```
+
+Effect kind deleted with them: `cascade_deals_empty` (and its branch in
+the `resolve_now` payload). `resolve_now` itself stays.
+
+## Retired 2026-09-07 (g): the Stats shelf
+
+The plain build, six cheap flat numbers, became numbers on conditions the
+player arranges: stakes seated (Wall Hanger), a loss's d6 (Stack of
+Books), the table in your hand (Lava Lamp), a table with nothing beside it
+(Throw Pillow), a 6-Max reading as empty (Comfort Bed), empty cells beside
+a table (Yellow Sticky Note), and the Cutting Board (new): the player's
+own win streak. The Corkboard stays the flat intro; the Chrome Toaster
+stays. **Ids, names, sprites and unlock gates stayed.** Verbatim:
+
+```lua
+    {
+        id          = "wall_hanger",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Wall Hanger",
+        effect_text = "{w:stack} {c:won:winnings} ×1.2.",
+        description = "Sturdy wall hook for hanging your hat and gear.",
+        sprite      = "wall_hanger",
+        phase       = "demo",
+        cost_chip     = 2,
+        position    = { x = 120, y = 220 },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.012 },
+            { kind = "stack_mult",   value = 1.20 },
+        },
+        corrupt = {
+            cost_achip = 2,
+            effects = {
+                { kind = "shove_rate_add", value = 0.15 },
+                { kind = "stack_mult",   value = 5.00 },
+            },
+            effect_text = "{w:stack} {c:won:winnings} ×5.",
+        },
+    },
+    {
+        id          = "stack_of_books",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Stack of Books",
+        effect_text = "1 in 4 chance: {w:small} {arrow} {w:medium}.",
+        description = "Pile of bestselling self-help guides.",
+        sprite      = "stack_of_books",
+        phase       = "demo",
+        cost_chip     = 4,
+        position    = { x = 280, y = 220 },
+        unlock = {
+            kind      = "total_hands_won",
+            threshold = 250,
+            text      = "hands won",
+        },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.012 },
+            { kind = "win_tier_shift",
+              from = "small", to = "medium", chance = 0.25 },
+        },
+        corrupt = {
+            cost_achip = 3,
+            effects = {
+                { kind = "win_tier_shift", from = "small", to = "medium", chance = 1/2 },
+            },
+            effect_text = "1 in 2 chance: {w:small} {arrow} {w:medium}.",
+        },
+    },
+    {
+        id          = "lava_lamp",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Lava Lamp",
+        effect_text = "1 in 6 chance: {w:medium} {arrow} {w:large}.",
+        description = "Soothing to watch. Hypnotic, almost.",
+        sprite      = "lava_lamp",
+        phase       = "demo",
+        cost_chip   = 5,
+        position    = { x = 400, y = 220 },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.012 },
+            { kind = "win_tier_shift",
+              from = "medium", to = "large", chance = 1/6 },
+        },
+        corrupt = {
+            cost_achip = 3,
+            effects = {
+                { kind = "win_tier_shift", from = "medium", to = "large", chance = 1/2 },
+            },
+            effect_text = "1 in 2 chance: {w:medium} {arrow} {w:large}.",
+        },
+    },
+    {
+        id          = "throw_pillow",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Throw Pillow",
+        effect_text = "1 in 4 chance: {l:large} {arrow} {l:medium}.",
+        description = "Soft plush pillow. Perfect for cushioning rough beats.",
+        sprite      = "throw_pillow",
+        phase       = "demo",
+        cost_chip     = 4,
+        position    = { x = 320, y = 220 },
+        unlock = {
+            kind      = "total_stack_losses",
+            threshold = 1,
+            text      = "{l:stack} {c:lost:losses} taken",
+        },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.014 },
+            { kind = "loss_tier_shift",
+              from = "large", to = "medium", chance = 0.25 },
+        },
+        corrupt = {
+            cost_achip = 2,
+            effects = {
+                { kind = "loss_tier_shift", from = "large", to = "stack", chance = 2/5 },
+            },
+            effect_text = "2 in 5 chance: {l:large} {arrow} {l:stack}.",
+        },
+    },
+    {
+        id          = "comfort_bed",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Comfort Bed",
+        effect_text = "1 in 6 chance: {l:stack} {arrow} {l:large}.",
+        description = "Restful memory-foam bed to sleep off heavy {c:lost:losses}.",
+        sprite      = "comfort_bed",
+        phase       = "demo",
+        cost_chip     = 4,
+        position    = { x = 440, y = 220 },
+        -- 4-tier note: spec called this "15% Big loss → Medium". The code's
+        -- outcome model has 4 tiers (small/medium/large/stack — no Big).
+        -- Repointed to Stack loss → Large so the catastrophic-loss-
+        -- insurance reading is preserved. Pairs with Stress Ball's
+        -- large-loss cushion.
+        effects     = {
+            { kind = "shove_rate_add", value = 0.014 },
+            { kind = "loss_tier_shift", from = "stack", to = "large", chance = 1/6 },
+        },
+        unlock = {
+            kind      = "total_stack_losses",
+            threshold = 110,
+            text      = "{l:stack} {c:lost:losses} taken",
+        },
+        corrupt = {
+            cost_achip = 2,
+            effects = {
+                { kind = "anti_award_mult", value = 2.0 },
+            },
+            effect_text = "{l:stack} {c:lost:losses} pay ×2 {achip}.",
+        },
+    },
+    {
+        id          = "yellow_sticky_note",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Yellow Sticky Note",
+        effect_text = "{c:won:Winnings} ×1.25.",
+        description = "A pad of yellow notes. Sticks to anything.",
+        sprite      = "yellow_sticky_note",
+        phase       = "demo",
+        cost_chip   = 5,
+        effects     = {
+            { kind = "shove_rate_add", value = 0.008 },
+            { kind = "earnings_mult",  value = 1.25 },
+        },
+        corrupt = {
+            cost_achip = 4,
+            effects = {
+                { kind = "earnings_mult", value = 4.0 },
+            },
+            effect_text = "{c:won:Winnings} ×4.",
+        },
+    },
+```
+
+Effect kinds left with no catalog user: `loss_tier_shift`
+(Closer's capstone still uses it), `earnings_mult` (decks and corrupt
+lines still use it). Their applicators stay.
+

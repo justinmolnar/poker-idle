@@ -81,6 +81,9 @@ C.WINDOW = {
 }
 
 C.DEBUG = {
+    -- The catalog treats every `requires` chain as met: no "SEE No." slips,
+    -- every card readable. A reading aid for copy passes; never ship on.
+    CATALOG_NO_CHAINS = true,
     -- Set to true to boot directly into the shove screen.
     -- The MVP plan calls for shove to be prototyped first; this lets the
     -- skeleton route there immediately without needing a state-switch hotkey.

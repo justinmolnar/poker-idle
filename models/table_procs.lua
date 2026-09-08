@@ -345,20 +345,12 @@ function TableProcs.registerAll(reg)
     -- forced hand gets bounties, counters, floaters and analytics through
     -- exactly the same code an ordinary hand does.
     --
-    -- With the Copy Machine owned (ctx.cascade_deals_empty), a table the
-    -- sweep finds EMPTY is put back to work instead of skipped: the sweep
-    -- deals it. That is the cascade's one upgrade — more live hands for
-    -- the next stack to find.
+    -- An idle target is a miss (the old Copy Machine dealt it; that item
+    -- is something else now).
     reg:registerPayload("resolve_now", function(_spec, target, event)
         if not (target and event.out) then return false end
         local r = target:forceResolve(event.ctx)
-        if not r then
-            if event.ctx and event.ctx.cascade_deals_empty
-               and event.ctrl and event.ctrl.dealIdleTable then
-                return event.ctrl:dealIdleTable(target)
-            end
-            return false
-        end
+        if not r then return false end
         r.table = target
         event.out[#event.out + 1] = r
         -- No sound poke here any more: the table announces its own move to
@@ -459,6 +451,12 @@ function TableProcs.registerAll(reg)
             end
         end
         if best then
+            -- Space Heater: a tilt taken for a neighbour pays that neighbour.
+            local ctrl = d.event.ctrl
+            if d.status == "tilt" and ctrl and ctrl.ctx and ctrl.ctx.tank_absorb_bumps then
+                target._next_win_tier_up = true
+                if ctrl.itemFired then ctrl:itemFired("tank_absorb_bumps", target) end
+            end
             d.to = best
             return best
         end
@@ -496,6 +494,11 @@ function TableProcs.registerAll(reg)
             local ctrl = d.event.ctrl
             if ctrl and ctrl._grantDeckXp then
                 ctrl:_grantDeckXp({ type = "tilt_absorbed", n = 1 })
+            end
+            -- Space Heater: the table the tank took it for gets something.
+            if ctrl and ctrl.ctx and ctrl.ctx.tank_absorb_bumps then
+                target._next_win_tier_up = true
+                if ctrl.itemFired then ctrl:itemFired("tank_absorb_bumps", target) end
             end
             return best
         end

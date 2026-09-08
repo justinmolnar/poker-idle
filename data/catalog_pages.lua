@@ -81,12 +81,14 @@ return {
           nightstand = "mental", box_of_mice = "cursors",
       } },
 
-    -- The flat numbers: odds, sizes, winnings. Cheap and Act 1, so first.
-    -- Every one but the Toaster is a refactor slot.
+    -- The numbers, each on a condition the player arranges: how many
+    -- stakes, the gaps on the board, the table in your hand, the hands you
+    -- pick yourself. The Corkboard (the intro) is the one flat card.
+    -- Cheap and Act 1, so first.
     { id = "stats", title = "Memberships & Vouchers", label = "STATS", tab = { "paper:sticker_counting" },
       items = {
-          "chrome_toaster", "wall_hanger", "stack_of_books",
-          "lava_lamp", "throw_pillow", "comfort_bed", "yellow_sticky_note",
+          "wall_hanger", "stack_of_books", "throw_pillow", "yellow_sticky_note",
+          "comfort_bed", "lava_lamp", "cutting_board", "chrome_toaster",
       } },
 
     -- The run and the rack: what a run starts with (the Gift Box is the
@@ -109,19 +111,25 @@ return {
           "tip_jar", "trophy_shelf", "mirror", "dusty_console",
       } },
 
-    -- Zoom: speed. The printer pair is here as a refactor slot.
+    -- Zoom: speed. The Energy Drink (the intro) spreads deals; the clock
+    -- and the cat turn volume into weather; then what fast-fold means (a
+    -- loss deals the next hand, a tilt does not follow), volume as
+    -- progression, and the loop: the block deals faster, wins in a row
+    -- deal faster, hands per second feed the odds.
     { id = "zoom", title = "Kitchen & Appliances", label = "ZOOM", tab = { "gtype:zoom" },
       items = {
-          "wall_clock", "house_cat", "framed_diploma",
-          "receipt_printer", "copy_machine", "headset", "handheld",
+          "wall_clock", "house_cat", "handheld", "headset",
+          "receipt_printer", "copy_machine", "washing_machine", "framed_diploma",
       } },
 
-    -- 6-Max: the tank. Bonsai opens the room, root first. The last three
-    -- are refactor slots parked here for the shelf's three open spots.
+    -- 6-Max: the tank. The Bonsai (the intro) opens the room. The money
+    -- half first (the family pot, the spill), then the role: what it takes
+    -- for the block, what it costs it, what it turns it into, and the full
+    -- house when every game is on the board.
     { id = "six_max", title = "Den & Houseplants", label = "6-MAX", tab = { "gtype:six_max" },
       items = {
-          "desk_plant", "console_television", "fire_extinguisher",
-          "blackout_curtains", "red_rug", "space_heater", "laminated_blueprint",
+          "desk_plant", "red_rug", "floor_plant", "console_television",
+          "space_heater", "fire_extinguisher", "blackout_curtains", "laminated_blueprint",
       } },
 
     -- Tournaments: the Act 2 table, the support. The vase (the intro) and

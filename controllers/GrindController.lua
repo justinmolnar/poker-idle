@@ -73,6 +73,9 @@ function GrindController:new(game)
         -- :invalidateEffects. Deliberately NOT persisted — a ten-second
         -- buff doesn't survive a reload, and that's fine.
         timed_buffs = {},
+        -- Cutting Board: wins in a row on hands the player dealt. Not
+        -- persisted; a streak is a session thing.
+        manual_combo = 0,
     }, GrindController)
     -- Compute effects first so the initial pool rebuild gets ctx (matters
     -- for Cold Read and other start-of-table catalog perks).
@@ -620,6 +623,19 @@ function GrindController:currentFocusCapacity()
     return cap
 end
 
+-- Is every game type seated somewhere on the board? (The Laminated
+-- Blueprint's condition, carried on the on_hand_won event as `all_games`.)
+function GrindController:_allGamesOpen()
+    local seen, n = {}, 0
+    for _, t in ipairs(self.pool.tables) do
+        if t.game_type_id and not seen[t.game_type_id] then
+            seen[t.game_type_id] = true
+            n = n + 1
+        end
+    end
+    return n >= #GameTypes
+end
+
 -- ─── The cursor swarm's weather ──────────────────────────────────────
 -- services/CursorPool decides WHAT happened on the felt (a clash, a lit
 -- cursor's deal) and reports it; the numbers and the punches live here,
@@ -709,6 +725,64 @@ function GrindController:update(dt)
         end
         self.ctx.hu_table_count = n
         self.ctx.heater_count   = burning
+        -- The Receipt Printer: each Zoom's count of adjacent Zooms.
+        if self.ctx.zoom_block_pace then
+            local cells = {}
+            for _, t in ipairs(self.pool.tables) do
+                if t.game_type_id == "zoom" then cells[t.slot or -1] = true end
+            end
+            for _, t in ipairs(self.pool.tables) do
+                if t.game_type_id == "zoom" then
+                    local r, c = TableGrid.unpack(t.slot or 0)
+                    local k = 0
+                    for _, d in ipairs{ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
+                        if cells[TableGrid.pack(r + d[1], c + d[2])] then k = k + 1 end
+                    end
+                    t._zoom_neighbours = k
+                end
+            end
+        end
+        -- The stats shelf's board reads: stakes seated (Wall Hanger), and
+        -- per table the empty cells beside it (Yellow Sticky Note) and
+        -- whether nothing sits on any side (Throw Pillow). A 6-Max reads
+        -- as empty with the Comfort Bed. Empty means an unoccupied cell
+        -- INSIDE the board's bounds; past the edge is nothing, which counts
+        -- for "nothing adjacent" but never as elbow room.
+        do
+            local stakes, occupied, tables = {}, {}, self.pool.tables
+            local six_empty = self.ctx.six_max_counts_empty
+            for _, t in ipairs(tables) do
+                stakes[t.stake_id or ""] = true
+                occupied[t.slot or -1] = t
+            end
+            local n_stakes = 0
+            for _ in pairs(stakes) do n_stakes = n_stakes + 1 end
+            self.ctx.stakes_seated = n_stakes
+            local slots = {}
+            for _, t in ipairs(tables) do slots[#slots + 1] = t.slot or 0 end
+            local cols, rows = TableGrid.bounds(slots)
+            for _, t in ipairs(tables) do
+                local r, c = TableGrid.unpack(t.slot or 0)
+                local empties, neighbours = 0, 0
+                for _, d in ipairs{ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
+                    local rr, cc = r + d[1], c + d[2]
+                    local o = occupied[TableGrid.pack(rr, cc)]
+                    local counts_empty = (o == nil) or (six_empty and o.game_type_id == "six_max")
+                    if not counts_empty then neighbours = neighbours + 1 end
+                    local inside = rr >= 0 and rr < rows and cc >= 0 and cc < cols
+                    if inside and counts_empty then empties = empties + 1 end
+                end
+                t._empty_adjacent = empties
+                t._lonely = (neighbours == 0)
+            end
+        end
+        -- The Framed Diploma: hands the board finished in the last second.
+        local times = self._hand_times
+        if times then
+            local now = love.timer.getTime()
+            while times[1] and now - times[1] > 1 do table.remove(times, 1) end
+            self.ctx.hands_per_second = #times
+        end
     end
     self:_tickGtypeUnlocks()
     self:_tickTimedBuffs(dt)
@@ -1371,8 +1445,14 @@ function GrindController:update(dt)
         local n_tables = self.pool:count()
         local gtype_id = tbl and tbl.game_type_id
         local focus_cap = self:currentFocusCapacity()
+        -- Copy Machine: a Zoom hand counts as two, everywhere a hand is
+        -- counted (and in the hand-based deck XP rules, via hand_units).
+        local hand_units = (gtype_id == "zoom" and self.ctx and self.ctx.zoom_hands_count_twice) and 2 or 1
+        -- Framed Diploma: the board's hands per second.
+        self._hand_times = self._hand_times or {}
+        self._hand_times[#self._hand_times + 1] = love.timer.getTime()
 
-        state.total_hands_played = (state.total_hands_played or 0) + 1
+        state.total_hands_played = (state.total_hands_played or 0) + hand_units
         if state.total_hands_played == 1 and state.first_hand_delta == nil then
             state.first_hand_delta = r.delta or 0
             state.first_hand_tier  = r.tier or "small"
@@ -1382,6 +1462,30 @@ function GrindController:update(dt)
         self:_announce("on_hand_played", {
             table = tbl, count = state.total_hands_played, out = resolutions,
         })
+        -- Cutting Board: only a hand the player dealt moves the streak.
+        if tbl and tbl._dealt_by_player then
+            tbl._dealt_by_player = nil
+            tbl._hand_mult = nil
+            if self.ctx and self.ctx.manual_combo then
+                if r.won then
+                    self.manual_combo = (self.manual_combo or 0) + 1
+                    if self.manual_combo >= 2 and self.game.floating_text then
+                        local pos = AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
+                        if pos then
+                            self.game.floating_text.emit(("COMBO x%d"):format(self.manual_combo),
+                                pos[1] + (pos[3] or 0) * 0.5, pos[2], { color_token = "won" })
+                        end
+                    end
+                else
+                    self.manual_combo = 0
+                end
+            end
+        end
+        -- Handheld (ctx.zoom_fast_fold): a loss at Zoom deals the next
+        -- hand now. Real Zoom: fold, and you are at the next table.
+        if not r.won and gtype_id == "zoom" and self.ctx and self.ctx.zoom_fast_fold and tbl then
+            if self:dealIdleTable(tbl) then self:itemFired("zoom_fast_fold", tbl) end
+        end
         if r.won then
             state.total_hands_won = (state.total_hands_won or 0) + 1
             -- Carries the running total, because a counter proc decides
@@ -1390,6 +1494,7 @@ function GrindController:update(dt)
             -- a reload cannot desync it.
             self:_announce("on_hand_won", {
                 table = tbl, count = state.total_hands_won, out = resolutions,
+                all_games = self:_allGamesOpen(),
             })
         end
         if r.tier == "large" or r.tier == "stack" then
@@ -1415,15 +1520,15 @@ function GrindController:update(dt)
             end
         end
         if n_tables >= 4 then
-            state.total_hands_at_4plus = (state.total_hands_at_4plus or 0) + 1
+            state.total_hands_at_4plus = (state.total_hands_at_4plus or 0) + hand_units
         end
         if n_tables > focus_cap then
-            state.total_hands_overwhelmed = (state.total_hands_overwhelmed or 0) + 1
+            state.total_hands_overwhelmed = (state.total_hands_overwhelmed or 0) + hand_units
         end
         if gtype_id then
             state.total_hands_by_gtype = state.total_hands_by_gtype or {}
             state.total_hands_by_gtype[gtype_id] =
-                (state.total_hands_by_gtype[gtype_id] or 0) + 1
+                (state.total_hands_by_gtype[gtype_id] or 0) + hand_units
         end
         if stake then
             local idx = Lookups.indexById(Stakes, stake.id) or 0
@@ -1445,7 +1550,7 @@ function GrindController:update(dt)
             -- rest fire on their conditional events. Bumped BEFORE
             -- checkPendingUnlocks so any threshold crossed by this hand
             -- unlocks immediately.
-            state.lifetime_hands_played = (state.lifetime_hands_played or 0) + 1
+            state.lifetime_hands_played = (state.lifetime_hands_played or 0) + hand_units
             if r.delta > 0 then
                 state.lifetime_money_won = (state.lifetime_money_won or 0) + r.delta
             elseif r.delta < 0 then
@@ -1458,7 +1563,7 @@ function GrindController:update(dt)
                 state.lifetime_ko_hands_won = (state.lifetime_ko_hands_won or 0) + 1
             end
             if n_tables >= 4 then
-                state.lifetime_hands_at_4plus_tables = (state.lifetime_hands_at_4plus_tables or 0) + 1
+                state.lifetime_hands_at_4plus_tables = (state.lifetime_hands_at_4plus_tables or 0) + hand_units
             end
 
             -- XP grant for the active deck. Event carries everything the
@@ -1469,7 +1574,7 @@ function GrindController:update(dt)
             -- Hands played while OVER the focus cap — matches the Multitasker
             -- deck's overwhelmed identity (its unlock, mirroring its XP rule).
             if n_tables > focus_cap then
-                state.lifetime_hands_overwhelmed = (state.lifetime_hands_overwhelmed or 0) + 1
+                state.lifetime_hands_overwhelmed = (state.lifetime_hands_overwhelmed or 0) + hand_units
             end
             self:_grantDeckXp({
                 won            = r.won and true or false,
@@ -1482,6 +1587,7 @@ function GrindController:update(dt)
                 bankroll       = state.bankroll,
                 board_pure     = (self.ctx and self.ctx.board_pure_gtype) ~= nil,
                 n_tables       = n_tables,
+                hand_units     = hand_units,
                 focus_capacity = focus_cap,
             })
 
@@ -2305,6 +2411,16 @@ function GrindController:dealHand(idx)
     end
     local ok = t:deal(self.ctx)
     if ok then
+        -- Cutting Board: a hand the player dealt (not a cursor's click)
+        -- carries the streak's multiplier, fixed now, and reports back
+        -- when it resolves.
+        t._dealt_by_player = not self._deal_by_cursor
+        local mc = self.ctx and self.ctx.manual_combo
+        if t._dealt_by_player and mc then
+            t._hand_mult = math.min(mc.cap or 2, 1 + (mc.value or 0) * (self.manual_combo or 0))
+        else
+            t._hand_mult = nil
+        end
         -- New hand, new pile: clear any spent detonation so the pot draws
         -- again. Set here rather than in Table:deal because these are view
         -- FX fields.

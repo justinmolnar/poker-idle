@@ -402,6 +402,18 @@ function OutcomeMath.buildOutcome(ctx, gtype, stake)
         win_chance = win_chance + ctx.odds_per_heater * ctx.heater_count
     end
 
+    -- 5b2. Wall Hanger: every stake the player sits at lifts every table.
+    if ctx and ctx.odds_per_stake_seated and (ctx.stakes_seated or 0) > 0 then
+        win_chance = win_chance + ctx.odds_per_stake_seated * ctx.stakes_seated
+    end
+
+    -- 5c. Framed Diploma: hands per second the board plays lift Zoom's
+    --     win chance. Live count from GrindController; the sims leave it nil.
+    if gtype and gtype.id == "zoom" and ctx and ctx.odds_per_hand_per_second
+       and (ctx.hands_per_second or 0) > 0 then
+        win_chance = win_chance + ctx.odds_per_hand_per_second * ctx.hands_per_second
+    end
+
     -- 6. Per-gtype WC shift — gives modes a real win-rate identity (Zoom
     --    higher, HU lower) instead of only shaping dists. Treated as
     --    additive on top of catalog shifts so HU Specialist still works.
@@ -478,6 +490,16 @@ function OutcomeMath.sampleOutcome(win_chance, win_dist, loss_dist, ctx, gtype, 
         end
     end
     local tier = sampleDist(won and win_dist or loss_dist) or "small"
+
+    -- Stack of Books: a loss sometimes rolls the whole outcome again and
+    -- keeps the better, a win beating any loss. Before Standard's reroll,
+    -- which only ever sees a stack loss that survived this one.
+    if not won and ctx and (ctx.loss_reroll_chance or 0) > 0
+       and love.math.random() < ctx.loss_reroll_chance then
+        local won2  = love.math.random() < win_chance
+        local tier2 = sampleDist(won2 and win_dist or loss_dist) or "small"
+        if won2 or TIER_INDEX[tier2] < TIER_INDEX[tier] then won, tier = won2, tier2 end
+    end
 
     -- Standard: a stack loss is rerolled ctx.stack_loss_rerolls times and
     -- the smallest loss is kept, so the chance one survives is the stake's

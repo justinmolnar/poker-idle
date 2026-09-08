@@ -231,7 +231,11 @@ function GrindState:update(dt)
             -- A cursor's DEAL counts (the cursor items gate on it, the
             -- Swarm deck levels on it), then it is a click like any other.
             if hb and hb.action == "deal" then ctrl:onCursorDeal(hb) end
+            -- The Cutting Board's streak is the player's own: a cursor's
+            -- click is marked so dealHand knows it was not a hand you picked.
+            ctrl._deal_by_cursor = true
             cursor_view:_handleHitBox(hb)
+            ctrl._deal_by_cursor = nil
         end,
         cursor_view.table_panels,
         {

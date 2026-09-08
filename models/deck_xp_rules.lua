@@ -40,8 +40,10 @@ local DeckXpRules = {}
 -- Helper: what one counted event is worth — the table's BUY-IN in
 -- dollars. NL2 pays 2, NL10 pays 10, NL10K pays 10,000. No floor, no
 -- special case; the ladder is the whole rule.
+-- A hand's weight is its buy-in, times the hands it counts as (the Copy
+-- Machine counts a Zoom hand as two).
 local function buyInWeight(event)
-    return (event and event.stake_buy_in) or 0
+    return ((event and event.stake_buy_in) or 0) * ((event and event.hand_units) or 1)
 end
 
 -- Helper: tier-bounds check for the money_won rule's tier filters.

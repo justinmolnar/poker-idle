@@ -4,7 +4,7 @@
 -- text runs interleaved with inline procedural icons, so data strings
 -- (catalog effect_text, floaters) read with REAL icons instead of jargon.
 --
--- Tokens (a token holds only word characters, "_" and ":"):
+-- Tokens (a token holds only word characters, "_", "-" and ":"):
 --   {chip} {achip}                   → the Gold Chip / anti-chip glyphs
 --   {arrow}                          → a right-pointing "becomes" arrow
 --   {small} {medium} {large} {stack} → outcome-tier glyphs via TierGlyph; a
@@ -159,7 +159,7 @@ local function parse(str, pills)
         if pills then splitRun(seg, els) else els[#els + 1] = { kind = "text", s = seg } end
     end
     while i <= n do
-        local s, e, token = str:find("{([%w_:]+)}", i)
+        local s, e, token = str:find("{([%w_:%-]+)}", i)   -- "-" for 6-Max, Heads-Up
         if not s then run(str:sub(i)) break end
         if s > i then run(str:sub(i, s - 1)) end
         local word, tint, cat = tintedWord(token)

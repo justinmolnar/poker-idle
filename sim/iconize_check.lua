@@ -6,6 +6,7 @@
 --
 --   ERROR  a "1 in N", "×N" or "+N%" in the text with no matching pill span
 --   ERROR  a pill span that swallowed a letter (6-Max, NL2, 4+ tables)
+--   ERROR  a {token} the parser left as literal text
 --   ERROR  the parser threw on a field
 --
 --   lua sim/iconize_check.lua      (exit 1 on any ERROR)
@@ -74,6 +75,18 @@ for _, f in ipairs(Fields) do
         end
         for _, extra in ipairs(found) do
             err(f.where, ("unexpected pill %q"):format(extra), f.text)
+        end
+        -- every {token} must have become an element: a token the parser
+        -- did not recognise prints literally on the card ({k:6-Max} did,
+        -- before "-" joined the token class)
+        -- ({n} and {dyn:…} are substituted before the renderer sees them)
+        local braces, tokens = 0, 0
+        for tok in f.text:gmatch("{([^}]*)}") do
+            if tok ~= "n" and not tok:match("^dyn:") then braces = braces + 1 end
+        end
+        for _, sp in ipairs(spans) do if sp.kind ~= "pill" then tokens = tokens + 1 end end
+        if tokens < braces then
+            err(f.where, ("%d token(s) print literally"):format(braces - tokens), f.text)
         end
         -- a measure must equal the sum of its parts
         local total = IconText.measure(f.text, Font)

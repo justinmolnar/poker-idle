@@ -205,8 +205,80 @@ function PokerEffects.registerAll(reg)
 
     -- The Copy Machine: the zoom cascade DEALS the empty tables it finds
     -- instead of skipping them. Flag consumed by the `resolve_now` payload.
-    reg:register("cascade_deals_empty", function(_e, ctx)
-        ctx.cascade_deals_empty = true
+    -- ── The stats shelf: numbers on conditions ──────────────────────
+    -- Stack of Books: a loss rolls the whole outcome again this often and
+    -- keeps the better (OutcomeMath.sampleOutcome).
+    reg:register("loss_reroll_chance", function(e, ctx)
+        ctx.loss_reroll_chance = math.max(ctx.loss_reroll_chance or 0, e.value or 0)
+    end)
+    -- Wall Hanger: every stake with a table adds this to every table's win
+    -- chance (buildOutcome x ctx.stakes_seated, live from the controller).
+    reg:register("odds_per_stake_seated", function(e, ctx)
+        ctx.odds_per_stake_seated = (ctx.odds_per_stake_seated or 0) + (e.value or 0)
+    end)
+    -- Throw Pillow: a table with no table on any side pays this much more
+    -- (the controller stamps t._lonely; Table:deal reads it).
+    reg:register("lonely_winnings_mult", function(e, ctx)
+        ctx.lonely_winnings_mult = (ctx.lonely_winnings_mult or 1) * (e.value or 1)
+    end)
+    -- Yellow Sticky Note: each empty cell beside a table adds this to that
+    -- table's win chance (t._empty_adjacent, stamped per frame).
+    reg:register("odds_per_empty_adjacent", function(e, ctx)
+        ctx.odds_per_empty_adjacent = (ctx.odds_per_empty_adjacent or 0) + (e.value or 0)
+    end)
+    -- Comfort Bed: a 6-Max reads as an empty cell to the two above.
+    reg:register("six_max_counts_empty", function(_e, ctx)
+        ctx.six_max_counts_empty = true
+    end)
+    -- Lava Lamp: the table in your hand (t._held, stamped by the view) has
+    -- this much more win chance while held.
+    reg:register("held_odds", function(e, ctx)
+        ctx.held_odds = (ctx.held_odds or 0) + (e.value or 0)
+    end)
+    -- Cutting Board: wins in a row on hands the player dealt multiply the
+    -- next player-dealt hand's winnings by 1 + value x streak, up to cap.
+    reg:register("manual_combo", function(e, ctx)
+        local cur = ctx.manual_combo
+        if cur then
+            cur.value = cur.value + (e.value or 0)
+            cur.cap   = math.max(cur.cap, e.cap or 1)
+        else
+            ctx.manual_combo = { value = e.value or 0, cap = e.cap or 2 }
+        end
+    end)
+
+    -- ── Zoom: the firehose ──────────────────────────────────────────
+    -- Handheld: a loss at Zoom deals the next hand now (fast fold).
+    reg:register("zoom_fast_fold", function(_e, ctx)
+        ctx.zoom_fast_fold = true
+    end)
+    -- Headset: a tilt that ends a Zoom hand does not follow to the next.
+    reg:register("zoom_tilt_one_hand", function(_e, ctx)
+        ctx.zoom_tilt_one_hand = true
+    end)
+    -- Copy Machine: a Zoom hand counts as two in every hand counter.
+    reg:register("zoom_hands_count_twice", function(_e, ctx)
+        ctx.zoom_hands_count_twice = true
+    end)
+    -- Receipt Printer: a Zoom deals this much faster per Zoom neighbour.
+    reg:register("zoom_block_pace", function(e, ctx)
+        ctx.zoom_block_pace = (ctx.zoom_block_pace or 0) + (e.value or 0)
+    end)
+    -- Washing Machine: wins in a row at Zoom deal `value` faster each,
+    -- up to `cap`.
+    reg:register("zoom_combo_pace", function(e, ctx)
+        local cur = ctx.zoom_combo_pace
+        if cur then
+            cur.value = cur.value + (e.value or 0)
+            cur.cap   = math.max(cur.cap, e.cap or 0)
+        else
+            ctx.zoom_combo_pace = { value = e.value or 0, cap = e.cap or 0.5 }
+        end
+    end)
+    -- Framed Diploma: every hand per second the board plays adds this to
+    -- Zoom tables' win chance (buildOutcome x ctx.hands_per_second).
+    reg:register("odds_per_hand_per_second", function(e, ctx)
+        ctx.odds_per_hand_per_second = (ctx.odds_per_hand_per_second or 0) + (e.value or 0)
     end)
 
     -- The Red Rug: the table sitting in the board's top-left cell plays a
@@ -279,6 +351,19 @@ function PokerEffects.registerAll(reg)
     reg:register("hu_stack_odds_per_hu_table", function(e, ctx)
         ctx.stack_odds_per_hu_table = (ctx.stack_odds_per_hu_table or 0) + (e.value or 0)
     end)
+    -- ── The tank (6-Max) ────────────────────────────────────────────
+    -- Desk Plant: a tilt's forced hands at this game type sample a loss
+    -- dist pushed this way (Table:deal). Additive shapes, like the gtype's.
+    reg:register("tilted_loss_dist_shift", function(e, ctx)
+        ctx.tilted_loss_dist_shifts = ctx.tilted_loss_dist_shifts or {}
+        table.insert(ctx.tilted_loss_dist_shifts, { shift = e.shift, gtype = e.gtype })
+    end)
+    -- Space Heater: when a 6-Max takes a tilt for a neighbour (the taunt
+    -- and intercept routers), that neighbour's next win reads one size up.
+    reg:register("tank_absorb_bumps", function(_e, ctx)
+        ctx.tank_absorb_bumps = true
+    end)
+
     -- ── The mental game's weather ───────────────────────────────────
     -- Desk Speakers: every heater burning on the board adds this to every
     -- table's win chance (buildOutcome x ctx.heater_count, kept live by

@@ -59,24 +59,6 @@
 
 return {
 
-    -- Chunk 2's cascade, now expressed as data. A {stack} anywhere makes
-    -- every Zoom table settle on the spot.
-    receipt_printer_cascade = {
-        trigger = "on_stack_win",
-        target  = { kind = "gtype", gtype = "zoom", exclude_self = true },
-        payload = { kind = "resolve_now" },
-        ghost   = "receipt_printer",
-        -- Nobody is being hit. The printer runs and those hands finish;
-        -- what you should see is the ghost and the tables settling.
-    },
-    -- Corrupt: every other table, not just the Zoom ones.
-    receipt_printer_cascade_corrupt = {
-        trigger = "on_stack_win",
-        target  = { kind = "any_other" },
-        payload = { kind = "resolve_now" },
-        ghost   = "receipt_printer",
-    },
-
     -- The aura. A knockout heats a neighbouring table.
     curved_monitor_heater = {
         trigger = "on_ko",
@@ -112,6 +94,31 @@ return {
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "refund_buyin", chance = 1.0 },
         ghost   = "shredder",
+    },
+
+    -- ─── 6-Max: the tank ──────────────────────────────────────────────
+
+    -- Laminated Blueprint. With every game on the board, a 6-Max win
+    -- lights a random table. `all_games` rides the on_hand_won event
+    -- (GrindController:_allGamesOpen).
+    laminated_blueprint_full_house = {
+        trigger = "on_hand_won",
+        source  = { gtype = "six_max" },
+        when    = { all_games = true },
+        target  = { kind = "any_other", pick = "random" },
+        payload = { kind = "apply_status", status = "heater",
+                    magnitude = 0.35, t = 6 },
+        ghost   = "laminated_blueprint",
+    },
+
+    -- Floor Plant. The family pot spills: every neighbour's next win reads
+    -- one size up. No chance: a 6-Max stack is rare by nature.
+    floor_plant_spill = {
+        trigger = "on_stack_win",
+        source  = { gtype = "six_max" },
+        target  = { kind = "board_near", radius = 1, exclude_self = true },
+        payload = { kind = "next_win_tier_up" },
+        ghost   = "floor_plant",
     },
 
     -- Medical Poster. A knockout brings a busted cash neighbour back for
@@ -188,22 +195,6 @@ return {
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 8 },
         ghost   = "wall_clock",
-    },
-
-    -- Framed Diploma. A thousand hands is a long haul, so it pays into the
-    -- run rather than into a moment: the shift is permanent until reset,
-    -- and it stacks with every thousand after it.
-    -- The 33/33/33: every 100 hands won, every table on the board rolls
-    -- once — heat, tilt, or nothing. Parked tables included, both ways.
-    framed_diploma_century = {
-        trigger = "on_hand_won",
-        chance  = 1/100,
-        target  = { kind = "all" },
-        payload = { kind = "roll_status",
-                    outcomes = { { status = "heater", weight = 1, magnitude = 0.35, t = 6 },
-                                 { status = "tilt",   weight = 1, magnitude = 0.35, t = 5 },
-                                 { weight = 1 } } },
-        ghost   = "framed_diploma",
     },
 
     -- The Diploma's other half. "For the run" has to include zoom tables

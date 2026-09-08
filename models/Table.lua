@@ -486,6 +486,32 @@ function Table:deal(ctx)
         -- these; tournaments shape difficulty via the plan instead.
         local ec = self:effectiveCtx(ctx)
         local wc, wd, ld = OutcomeMath.buildOutcome(ec, gtype, stake)
+        -- Desk Plant (ctx.tilted_loss_dist_shifts): a tilt's forced hand
+        -- loses smaller here. Only the hand a tilt decides, only at the
+        -- shape's game type; the shape is additive and renormalised.
+        if self._forced_next_won == false and ec.tilted_loss_dist_shifts then
+            local shifted = false
+            for _, sh in ipairs(ec.tilted_loss_dist_shifts) do
+                if OutcomeMath.shiftApplies(sh, gtype) then
+                    OutcomeMath.distAddInPlace(ld, sh.shift)
+                    shifted = true
+                end
+            end
+            if shifted then OutcomeMath.distClampAndNormalize(ld) end
+        end
+        -- The stats shelf's per-table odds: empty cells beside this table
+        -- (Yellow Sticky Note; a 6-Max counts with the Comfort Bed) and
+        -- the table in the player's hand (Lava Lamp). The controller
+        -- stamps _empty_adjacent, the view stamps _held. Capped like the
+        -- rollup's own shifts.
+        do
+            local bonus = 0
+            if ec.odds_per_empty_adjacent and (self._empty_adjacent or 0) > 0 then
+                bonus = bonus + ec.odds_per_empty_adjacent * self._empty_adjacent
+            end
+            if ec.held_odds and self._held then bonus = bonus + ec.held_odds end
+            if bonus > 0 then wc = math.min(OutcomeMath.WC_ABSOLUTE_CAP, wc + bonus) end
+        end
         -- The Red Rug: whoever sits in the board's top-left cell plays a
         -- little better. Slot 0 is the packed (row 0, col 0) cell; this is
         -- the one place that knows both the rolled ctx and the table's cell.
@@ -585,6 +611,12 @@ function Table:deal(ctx)
         earnings_mult = earnings_mult * (1.0 + ectx.earnings_per_tier * tier_idx)
     end
     local loss_mult     = ectx.loss_mult     or 1
+    -- Throw Pillow: nothing on any side of this table, it pays more.
+    if self._lonely and ectx.lonely_winnings_mult then
+        earnings_mult = earnings_mult * ectx.lonely_winnings_mult
+    end
+    -- Cutting Board: the player's own streak, fixed at this hand's deal.
+    if self._hand_mult then earnings_mult = earnings_mult * self._hand_mult end
     -- Anchor: the tilt's forced hand on a table of the deck's game type
     -- loses less. `_tilt_spent_pending` was latched above when this deal
     -- consumed a forced loss.
@@ -996,6 +1028,19 @@ function Table:_update(dt, ctx)
     -- Game-type scoped pace (Firehose): this table's own entry.
     local by_g = pace_ctx and pace_ctx.hand_pace_mult_by_gtype
     if by_g and by_g[self.game_type_id] then ctx_pace = ctx_pace * by_g[self.game_type_id] end
+    if self.game_type_id == "zoom" and pace_ctx then
+        -- Receipt Printer: a Zoom in a block of Zooms deals faster per
+        -- Zoom neighbour (the controller stamps the count each frame).
+        local block = pace_ctx.zoom_block_pace
+        if block and (self._zoom_neighbours or 0) > 0 then
+            ctx_pace = ctx_pace * (1 + block * self._zoom_neighbours)
+        end
+        -- Washing Machine: wins in a row spin the table faster, capped.
+        local combo = pace_ctx.zoom_combo_pace
+        if combo and (self._combo or 0) > 0 then
+            ctx_pace = ctx_pace * (1 + math.min(combo.cap or 0.5, (combo.value or 0) * self._combo))
+        end
+    end
     local effective_dt = (dt or 0) * pace_mult * ctx_pace
     -- Script time runs at this multiple of wall time. Published so the
     -- view can convert a gap between script events into the real seconds
@@ -1496,6 +1541,7 @@ function Table:interrupt(want_win, ctx, landed_kind)
     if not last or last.kind ~= "pot_push" then return true end
 
     self._interrupted = true
+    self._interrupt_kind = landed_kind
 
     -- Flip the side, and make the cards say so.
     if self.outcome_won ~= want_win then
@@ -1599,6 +1645,19 @@ function Table:_finalizeHand()
         table.remove(self.last_results, 1)
     end
     self.hands_played  = self.hands_played + 1
+    -- Wins in a row (the Washing Machine's combo; drawn on the panel).
+    self._combo = self.outcome_won and ((self._combo or 0) + 1) or 0
+    -- Headset (ctx.zoom_tilt_one_hand): at Zoom a tilt that ended THIS
+    -- hand does not follow to the next. New table, new people. The tilt
+    -- has run its course here, so its "spent" beat fires now.
+    if self._interrupt_kind == "tilt" and self._forced_next_won == false
+       and self.game_type_id == "zoom"
+       and self._last_ctx and self._last_ctx.zoom_tilt_one_hand then
+        self._forced_next_won = nil
+        self:_expirePunchStatuses()
+        self._tilt_spent_pending = true
+    end
+    self._interrupt_kind = nil
     -- Per-hand latch: the next hand may be interrupted in its own right.
     self._interrupted  = false
     -- Gas Stove (ctx.punch_extra_hands): the punch that just spent its

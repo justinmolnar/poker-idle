@@ -1523,6 +1523,10 @@ function GrindView:_drawCenterGrid(W, H)
         end
     end
 
+    -- The table in the player's hand (the Lava Lamp reads it; its cell is
+    -- empty to the board reads while held).
+    for i, t in ipairs(tables) do t._held = (i == held_i) or nil end
+
     -- The board's shape comes from the tables themselves: each owns a
     -- cell, so the board is the bounding box of what's occupied. Interior
     -- holes stay only while the table count needs a board this size

@@ -99,10 +99,70 @@ Effects.kinds = {
     },
 
     -- The zoom cascade deals the empty tables it finds (Copy Machine).
-    cascade_deals_empty = {
-        description = "Flag perk — forced settles deal idle Zoom tables instead of skipping them.",
-        value_shape = "no field (presence sets ctx.cascade_deals_empty = true)",
-        affects     = "ctx.cascade_deals_empty",
+    loss_reroll_chance = {
+        description = "Stack of Books: a loss rolls the whole outcome again this often and keeps the better (a win beats any loss; sampleOutcome).",
+        value_shape = "0..1, a printable fraction (1/6)",
+        affects     = "ctx.loss_reroll_chance",
+    },
+    odds_per_stake_seated = {
+        description = "Wall Hanger: every stake with a table open adds this to every table's win chance (buildOutcome x ctx.stakes_seated).",
+        value_shape = "fraction per stake, e.g. 0.01",
+        affects     = "ctx.odds_per_stake_seated",
+    },
+    lonely_winnings_mult = {
+        description = "Throw Pillow: a table with no table on any side (t._lonely, stamped per frame) multiplies its winnings by this.",
+        value_shape = "number, e.g. 1.5",
+        affects     = "ctx.lonely_winnings_mult",
+    },
+    odds_per_empty_adjacent = {
+        description = "Yellow Sticky Note: each empty cell inside the board beside a table adds this to that table's win chance (t._empty_adjacent).",
+        value_shape = "fraction per empty cell, e.g. 0.05",
+        affects     = "ctx.odds_per_empty_adjacent",
+    },
+    six_max_counts_empty = {
+        description = "Flag perk — Comfort Bed: a 6-Max table reads as an empty cell to the empty-space items.",
+        value_shape = "no field (presence sets ctx.six_max_counts_empty = true)",
+        affects     = "ctx.six_max_counts_empty",
+    },
+    held_odds = {
+        description = "Lava Lamp: the table in the player's hand (t._held, stamped by GrindView while dragging) has this much more win chance.",
+        value_shape = "fraction, e.g. 0.10",
+        affects     = "ctx.held_odds",
+    },
+    manual_combo = {
+        description = "Cutting Board: wins in a row on hands the player dealt (not a cursor, not a punch) multiply the next player-dealt hand's winnings by 1 + value x streak, capped at cap (GrindController.manual_combo).",
+        value_shape = "value = fraction per win, cap = the multiplier's ceiling",
+        affects     = "ctx.manual_combo",
+    },
+    zoom_fast_fold = {
+        description = "Flag perk — Handheld: a loss at Zoom deals the next hand now (the controller's resolution loop).",
+        value_shape = "no field (presence sets ctx.zoom_fast_fold = true)",
+        affects     = "ctx.zoom_fast_fold",
+    },
+    zoom_tilt_one_hand = {
+        description = "Flag perk — Headset: a tilt that ends a Zoom hand does not latch the next one (Table:_finalizeHand).",
+        value_shape = "no field (presence sets ctx.zoom_tilt_one_hand = true)",
+        affects     = "ctx.zoom_tilt_one_hand",
+    },
+    zoom_hands_count_twice = {
+        description = "Flag perk — Copy Machine: a Zoom hand counts as two in every hand counter and hand-based deck XP rule.",
+        value_shape = "no field (presence sets ctx.zoom_hands_count_twice = true)",
+        affects     = "ctx.zoom_hands_count_twice",
+    },
+    zoom_block_pace = {
+        description = "Receipt Printer: a Zoom table deals this much faster per adjacent Zoom table (the controller stamps t._zoom_neighbours).",
+        value_shape = "fraction per neighbour, e.g. 0.10",
+        affects     = "ctx.zoom_block_pace",
+    },
+    zoom_combo_pace = {
+        description = "Washing Machine: wins in a row at a Zoom table deal `value` faster each, up to `cap` (Table:update; t._combo).",
+        value_shape = "value = fraction per win, cap = fraction",
+        affects     = "ctx.zoom_combo_pace",
+    },
+    odds_per_hand_per_second = {
+        description = "Framed Diploma: every hand per second the board plays adds this to Zoom tables' win chance (buildOutcome x ctx.hands_per_second).",
+        value_shape = "fraction per hand/s, e.g. 0.02",
+        affects     = "ctx.odds_per_hand_per_second",
     },
 
     -- The board's top-left cell plays better (Red Rug). Consumed in
@@ -242,6 +302,16 @@ Effects.kinds = {
         description = "A bounty rolls this to pay x2 (max of owners; GrindController:bountyAward).",
         value_shape = "0..1, a printable fraction (1/4)",
         affects     = "ctx.bounty_double_chance",
+    },
+    tilted_loss_dist_shift = {
+        description = "Desk Plant: a tilt's forced hands at `gtype` sample a loss dist with this shape added (Table:deal); 'smaller losses' with no number.",
+        value_shape = "shift = { small, medium, large, stack } deltas, gtype = id",
+        affects     = "ctx.tilted_loss_dist_shifts (list)",
+    },
+    tank_absorb_bumps = {
+        description = "Flag perk — Space Heater: a table a 6-Max took a tilt for (taunt / intercept routers) gets its next win one size up.",
+        value_shape = "no field (presence sets ctx.tank_absorb_bumps = true)",
+        affects     = "ctx.tank_absorb_bumps",
     },
     odds_per_heater = {
         description = "Desk Speakers: every heater burning on the board adds this to every table's win chance (buildOutcome x ctx.heater_count).",

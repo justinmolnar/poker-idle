@@ -2303,6 +2303,15 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     if L.bottom and L.bottom.ev.show and not is_tournament then
         Stats.drawEvReadout(tbl, L.bottom.ev, controller, fonts, hit_boxes,
             "ev:" .. idx)
+        -- The Washing Machine's combo: wins in a row, at the row's left
+        -- edge (the EV text takes the right). Only where it does anything.
+        local combo = controller and controller.ctx and controller.ctx.zoom_combo_pace
+        if combo and tbl.game_type_id == "zoom" and (tbl._combo or 0) >= 2 and fonts.xs then
+            local ev = L.bottom.ev
+            love.graphics.setFont(fonts.xs)
+            Theme.setColor(Theme.sem.won, 0.9)
+            love.graphics.print(("%dx"):format(tbl._combo), ev.x, ev.y + math.floor((ev.h - fonts.xs:getHeight()) / 2))
+        end
     end
 
     -- Showdown emphasis — dim the losing/unused cards, grow + pop the winning

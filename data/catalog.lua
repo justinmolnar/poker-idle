@@ -148,10 +148,10 @@ local items = {
     -- ═══ BAND A — Act 1 early (T1-T2) · 12 items · 47 {chip} ════════════
 
     {
+        -- Spread: diversify across stakes and the whole board pays.
         id          = "wall_hanger",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Wall Hanger",
-        effect_text = "{w:stack} {c:won:winnings} ×1.2.",
+        effect_text = "Each stake you sit at: +1% {c:chance:odds} at {k:every_table}.",
         description = "Sturdy wall hook for hanging your hat and gear.",
         sprite      = "wall_hanger",
         phase       = "demo",
@@ -159,15 +159,7 @@ local items = {
         position    = { x = 120, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.012 },
-            { kind = "stack_mult",   value = 1.20 },
-        },
-        corrupt = {
-            cost_achip = 2,
-            effects = {
-                { kind = "shove_rate_add", value = 0.15 },
-                { kind = "stack_mult",   value = 5.00 },
-            },
-            effect_text = "{w:stack} {c:won:winnings} ×5.",
+            { kind = "odds_per_stake_seated", value = 0.01 },   -- PLACEHOLDER
         },
     },
     {
@@ -277,10 +269,10 @@ local items = {
         },
     },
     {
+        -- The d6: a loss rolls again and keeps the better, wins included.
         id          = "stack_of_books",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Stack of Books",
-        effect_text = "1 in 4 chance: {w:small} {arrow} {w:medium}.",
+        effect_text = "A {c:lost:loss}: 1 in 6 chance it rerolls, keep the better.",
         description = "Pile of bestselling self-help guides.",
         sprite      = "stack_of_books",
         phase       = "demo",
@@ -293,22 +285,15 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.012 },
-            { kind = "win_tier_shift",
-              from = "small", to = "medium", chance = 0.25 },
-        },
-        corrupt = {
-            cost_achip = 3,
-            effects = {
-                { kind = "win_tier_shift", from = "small", to = "medium", chance = 1/2 },
-            },
-            effect_text = "1 in 2 chance: {w:small} {arrow} {w:medium}.",
+            { kind = "loss_reroll_chance", value = 1/6 },   -- PLACEHOLDER
         },
     },
     {
+        -- Quiet: a table with nothing on any side. A 6-Max beside it counts
+        -- as nothing with the Comfort Bed.
         id          = "throw_pillow",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Throw Pillow",
-        effect_text = "1 in 4 chance: {l:large} {arrow} {l:medium}.",
+        effect_text = "A table with nothing {k:adjacent}: {c:won:winnings} ×1.5.",
         description = "Soft plush pillow. Perfect for cushioning rough beats.",
         sprite      = "throw_pillow",
         phase       = "demo",
@@ -321,15 +306,7 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "loss_tier_shift",
-              from = "large", to = "medium", chance = 0.25 },
-        },
-        corrupt = {
-            cost_achip = 2,
-            effects = {
-                { kind = "loss_tier_shift", from = "large", to = "stack", chance = 2/5 },
-            },
-            effect_text = "2 in 5 chance: {l:large} {arrow} {l:stack}.",
+            { kind = "lonely_winnings_mult", value = 1.5 },   -- PLACEHOLDER
         },
     },
     {
@@ -358,10 +335,11 @@ local items = {
         },
     },
     {
+        -- In hand: the table you are holding plays better, and its cell is
+        -- empty for everything that reads empties while you hold it.
         id          = "lava_lamp",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Lava Lamp",
-        effect_text = "1 in 6 chance: {w:medium} {arrow} {w:large}.",
+        effect_text = "The table in your hand: +10% {c:chance:odds} while you hold it.",
         description = "Soothing to watch. Hypnotic, almost.",
         sprite      = "lava_lamp",
         phase       = "demo",
@@ -369,68 +347,60 @@ local items = {
         position    = { x = 400, y = 220 },
         effects     = {
             { kind = "shove_rate_add", value = 0.012 },
-            { kind = "win_tier_shift",
-              from = "medium", to = "large", chance = 1/6 },
-        },
-        corrupt = {
-            cost_achip = 3,
-            effects = {
-                { kind = "win_tier_shift", from = "medium", to = "large", chance = 1/2 },
-            },
-            effect_text = "1 in 2 chance: {w:medium} {arrow} {w:large}.",
+            { kind = "held_odds", value = 0.10 },   -- PLACEHOLDER
         },
     },
     {
+        -- Takes no thought: the tank is the quiet neighbour, for everything
+        -- on this shelf that reads empty spaces.
         id          = "comfort_bed",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Comfort Bed",
-        effect_text = "1 in 6 chance: {l:stack} {arrow} {l:large}.",
-        description = "Restful memory-foam bed to sleep off heavy {c:lost:losses}.",
+        effect_text = "A {k:6-Max} counts as an empty space.",
+        description = "Restful memory-foam bed. Nothing to think about.",
         sprite      = "comfort_bed",
         phase       = "demo",
         cost_chip     = 4,
         position    = { x = 440, y = 220 },
-        -- 4-tier note: spec called this "15% Big loss → Medium". The code's
-        -- outcome model has 4 tiers (small/medium/large/stack — no Big).
-        -- Repointed to Stack loss → Large so the catastrophic-loss-
-        -- insurance reading is preserved. Pairs with Stress Ball's
-        -- large-loss cushion.
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "loss_tier_shift", from = "stack", to = "large", chance = 1/6 },
+            { kind = "six_max_counts_empty" },
         },
         unlock = {
             kind      = "total_stack_losses",
             threshold = 110,
             text      = "{l:stack} {c:lost:losses} taken",
         },
-        corrupt = {
-            cost_achip = 2,
-            effects = {
-                { kind = "anti_award_mult", value = 2.0 },
-            },
-            effect_text = "{l:stack} {c:lost:losses} pay ×2 {achip}.",
-        },
     },
     {
+        -- Elbow room: a gap beside a table is worth odds there. Gaps are
+        -- the cells the board's shape leaves open; where they sit is the
+        -- player's to arrange.
         id          = "yellow_sticky_note",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Yellow Sticky Note",
-        effect_text = "{c:won:Winnings} ×1.25.",
+        effect_text = "Each empty space {k:adjacent} to a table: +5% {c:chance:odds} there.",
         description = "A pad of yellow notes. Sticks to anything.",
         sprite      = "yellow_sticky_note",
         phase       = "demo",
         cost_chip   = 5,
         effects     = {
             { kind = "shove_rate_add", value = 0.008 },
-            { kind = "earnings_mult",  value = 1.25 },
+            { kind = "odds_per_empty_adjacent", value = 0.05 },   -- PLACEHOLDER
         },
-        corrupt = {
-            cost_achip = 4,
-            effects = {
-                { kind = "earnings_mult", value = 4.0 },
-            },
-            effect_text = "{c:won:Winnings} ×4.",
+    },
+    {
+        -- Hand-picked: the active combo. Only hands you deal yourself
+        -- build or break it, so you keep it alive by choosing the right
+        -- table each click; the swarm's deals never touch it.
+        id          = "cutting_board",
+        name        = "Cutting Board",
+        effect_text = "{c:won:Wins} in a row on hands you deal yourself: {c:won:winnings} ×1.1 per win, up to ×2. A {c:lost:loss} you dealt ends it.",
+        description = "Pick your spots.",
+        sprite      = "cutting_board",
+        phase       = "mid",
+        cost_chip   = 6,                              -- PLACEHOLDER
+        effects     = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "manual_combo", value = 0.10, cap = 2.0 },   -- PLACEHOLDER
         },
     },
     {
@@ -570,10 +540,11 @@ local items = {
         },
     },
     {
+        -- Tanking pays: the table the tank took a tilt for gets its next
+        -- win one size up (the two tilt-taking routers, models/table_procs).
         id          = "space_heater",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Space Heater",
-        effect_text = "{c:lost:Losses} ×0.8.",
+        effect_text = "A {k:6-Max} takes a {c:tilt:tilt} aimed {k:adjacent} to it: that table's next {c:won:win} is one size up.",
         description = "Hums all night. The cold stops mattering.",
         sprite      = "space_heater",
         phase       = "mid",
@@ -586,14 +557,7 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.008 },
-            { kind = "loss_mult",      value = 0.80 },
-        },
-        corrupt = {
-            cost_achip = 8,
-            effects = {
-                { kind = "loss_mult", value = 3.0 },
-            },
-            effect_text = "{c:lost:Losses} ×3.",
+            { kind = "tank_absorb_bumps" },
         },
     },
     {
@@ -658,25 +622,21 @@ local items = {
         },
     },
     {
+        -- Armour: the tank's tilted hands lose small. A skew on the forced
+        -- hands' loss tiers (Table:deal, tilted_loss_dist_shift), so
+        -- taunting costs blinds, not stacks.
         id          = "desk_plant",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Desk Plant",
-        effect_text = "+6% {c:chance:odds} at {k:6-Max}.",
+        effect_text = "A {c:tilt:tilt} on a {k:6-Max}: smaller {c:lost:losses}.",
         description = "Real. Someone waters it when you're not looking.",
         sprite      = "desk_plant",
         phase       = "mid",
         cost_chip   = 8,
         requires    = "bonsai",
         effects     = {
-            { kind = "shove_rate_add",   value = 0.010 },
-            { kind = "win_chance_shift", amount = 0.06, gtype = "six_max" },
-        },
-        corrupt = {
-            cost_achip = 5,
-            effects = {
-                { kind = "win_chance_shift", amount = 0.35, gtype = "six_max" },
-            },
-            effect_text = "+35% {c:chance:odds} at {k:6-Max}.",
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "tilted_loss_dist_shift", gtype = "six_max",
+              shift = { small = 0.30, medium = 0.00, large = -0.15, stack = -0.15 } },   -- PLACEHOLDER
         },
     },
     {
@@ -758,30 +718,24 @@ local items = {
         },
     },
     {
+        -- New table, new people: a tilt that ends a Zoom hand does not
+        -- follow to the next one (Table:_finalizeHand).
         id          = "headset",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Headset",
-        effect_text = "+6% {c:chance:odds} at {k:Zoom}.",
+        effect_text = "{k:Zoom} shakes off a {c:tilt:tilt} after one hand.",
         description = "Foam mic cover. Someone else's earwax.",
         sprite      = "headset",
         phase       = "mid",
         cost_chip   = 6,
         effects     = {
-            { kind = "shove_rate_add",   value = 0.010 },
-            { kind = "win_chance_shift", amount = 0.06, gtype = "zoom" },
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "zoom_tilt_one_hand" },
         },
         unlock = {
             kind      = "total_hands_at_gtype",
             gtype     = "zoom",
             threshold = 2600,
             text      = "Zoom hands",
-        },
-        corrupt = {
-            cost_achip = 5,
-            effects = {
-                { kind = "win_chance_shift", amount = 0.35, gtype = "zoom" },
-            },
-            effect_text = "+35% {c:chance:odds} at {k:Zoom}.",
         },
     },
     {
@@ -951,10 +905,11 @@ local items = {
         },
     },
     {
+        -- Fast fold, the real Zoom: lose, and you are already at the next
+        -- table (GrindController's resolution loop deals it).
         id          = "handheld",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Handheld",
-        effect_text = "+3% {c:chance:odds} at {k:Zoom}.",
+        effect_text = "A {c:lost:loss} at {k:Zoom}: the next hand deals now.",
         description = "Fits in a pocket. Fast games between fast games.",
         sprite      = "handheld",
         phase       = "mid",
@@ -967,15 +922,15 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "win_chance_shift", amount = 0.03, gtype = "zoom" },
+            { kind = "zoom_fast_fold" },
         },
     },
     {
+        -- The family pot: the tank's big hand, more often.
         id          = "red_rug",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Red Rug",
-        effect_text = "+2% {c:chance:odds} at the top-left table.",
-        description = "Really ties the room together. The top-left table sits on it.",
+        effect_text = "A {w:large} {c:won:win} at {k:6-Max}: 1 in 3 chance it's a {w:stack}.",
+        description = "Really ties the room together.",
         sprite      = "red_rug",
         phase       = "mid",
         cost_chip   = 8,
@@ -986,7 +941,7 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "corner_win_chance", value = 0.02 },
+            { kind = "win_tier_shift", from = "large", to = "stack", chance = 1/3, gtype = "six_max" },   -- PLACEHOLDER
         },
     },
     {
@@ -1380,17 +1335,16 @@ local items = {
         },
     },
     {
+        -- The block: a row of Zooms is the firehose. Per table, per Zoom
+        -- neighbour (GrindController stamps the count, Table:update reads it).
         id          = "receipt_printer",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         act         = 2,
         name        = "Receipt Printer",
-        effect_text = "Win a {w:stack} anywhere: every {k:Zoom} table finishes its hand now.",
+        effect_text = "Each {k:Zoom} table {k:adjacent} to a {k:Zoom} table: its deal speed ×1.1.",
         description = "Chatters out a slip for every table. Feed it more paper.",
         sprite      = "receipt_printer",
         phase       = "mid",
         cost_chip   = 19,
-        -- Late-Act-1 machine at a late-Act-1 price: 1,100 stacks ≈
-        -- shove seven at the measured ~155/shove (see the Candle's note).
         unlock = {
             kind      = "total_stacks",
             threshold = 1100,
@@ -1399,14 +1353,7 @@ local items = {
         position    = { x = 330, y = 400 },
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "proc", proc = "receipt_printer_cascade" },
-        },
-        corrupt = {
-            cost_achip = 9,
-            effects = {
-                { kind = "proc", proc = "receipt_printer_cascade_corrupt" },
-            },
-            effect_text = "Win a {w:stack} anywhere: {k:every_table} finishes its hand now.",
+            { kind = "zoom_block_pace", value = 0.10 },   -- PLACEHOLDER
         },
     },
     {
@@ -1435,44 +1382,55 @@ local items = {
         },
     },
     {
+        -- Hands per second: the board's live throughput feeds the Zoom
+        -- tables' odds (GrindController keeps a one-second count; the
+        -- outcome model reads it). Only a Zoom-heavy board registers.
         id          = "framed_diploma",
         act         = 2,
         name        = "Framed Diploma",
-        effect_text = "Win a hand: 1 in 100 chance {k:every_table} rolls 1 in 3 each for a {c:heat:heater}, a {c:tilt:tilt}, or nothing.",
-        allow_numbers = { 1, 3 },   -- the roll's thirds are proc weights, not a chance field
+        effect_text = "Each hand per second the board plays: +2% {c:chance:odds} at {k:Zoom}.",
         description = "Wall-mounted certificate. Handsome on the wall.",
         sprite      = "framed_diploma",
         phase       = "late",
         cost_chip     = 18,
-        -- Millennium IS century, bigger — lesson two of the counter items.
         requires    = "wall_clock",
         position    = { x = 450, y = 400 },
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "proc", proc = "framed_diploma_century" },
-        },
-        corrupt = {
-            cost_achip = 9,
-            effects = {
-                { kind = "proc",          proc = "framed_diploma_century" },
-                { kind = "earnings_mult", value = 0.70 },
-            },
-            effect_text = "Same, and {c:won:Winnings} ×0.7.",
+            { kind = "odds_per_hand_per_second", value = 0.02 },   -- PLACEHOLDER
         },
     },
     {
+        -- The combo: wins in a row spin the table faster, a loss stops the
+        -- drum. Zoom's win chance and pace are what make streaks happen.
+        id          = "washing_machine",
+        act         = 2,
+        name        = "Washing Machine",
+        effect_text = "{c:won:Wins} in a row at {k:Zoom}: deal speed ×1.05 per win, up to ×1.5. A {c:lost:loss} ends it.",
+        description = "Spin cycle. It only gets louder.",
+        sprite      = "washing_machine",
+        phase       = "late",
+        cost_chip   = 16,                             -- PLACEHOLDER
+        effects     = {
+            { kind = "shove_rate_add", value = 0.012 },
+            { kind = "zoom_combo_pace", value = 0.05, cap = 0.50 },   -- PLACEHOLDER
+        },
+    },
+    {
+        -- The full house: with every game on the board, the tank's wins
+        -- light the room. Scoped to 6-Max wins because they are the slow,
+        -- rare ones; the condition means you are running tournaments too.
         id          = "laminated_blueprint",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         act         = 2,
         name        = "Laminated Blueprint",
-        effect_text = "The deck in play earns ×1.5 XP.",
-        description = "Wall blueprint chart for systematic study.",
+        effect_text = "Every game open on the board: a {c:won:win} at {k:6-Max}: {k:a_random_table} catches a {c:heat:heater}.",
+        description = "Wall blueprint chart. Every room, in use.",
         sprite      = "laminated_blueprint",
         phase       = "late",
         cost_chip   = 19,
         effects     = {
             { kind = "shove_rate_add", value = 0.014 },
-            { kind = "deck_xp_mult",   value = 1.50 },
+            { kind = "proc", proc = "laminated_blueprint_full_house" },
         },
         unlock = {
             kind      = "decks_unlocked_count",
@@ -1481,12 +1439,22 @@ local items = {
             -- "???" until decks exist (Act 2)
             mystery   = { kind = "shove_r1_won" },
         },
-        corrupt = {
-            cost_achip = 10,
-            effects = {
-                { kind = "deck_xp_mult", value = 8.0 },
-            },
-            effect_text = "The deck in play earns ×8 XP.",
+    },
+    {
+        -- The spill: the family pot spills into the block. Rare by nature,
+        -- so it hits every neighbour with no chance on it.
+        id          = "floor_plant",
+        act         = 2,
+        name        = "Floor Plant",
+        effect_text = "A {w:stack} at {k:6-Max}: each table {k:adjacent} to it gets its next {c:won:win} one size up.",
+        description = "Too big for the desk. It gets everywhere.",
+        sprite      = "floor_plant",
+        phase       = "late",
+        cost_chip   = 18,                             -- PLACEHOLDER
+        requires    = "bonsai",
+        effects     = {
+            { kind = "shove_rate_add", value = 0.012 },
+            { kind = "proc", proc = "floor_plant_spill" },
         },
     },
     {
@@ -1645,12 +1613,12 @@ local items = {
         },
     },
     {
+        -- Carbon copy: volume into progression. Every counter that counts
+        -- hands (stickers, gates, deck XP) counts a Zoom hand as two.
         id          = "copy_machine",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         act         = 2,
         name        = "Copy Machine",
-        effect_text = "The Receipt Printer also deals the empty {k:Zoom} tables.",
-        see_also    = { "receipt_printer" },
+        effect_text = "A {k:Zoom} hand counts as two.",
         description = "The printer's big sibling.",
         sprite      = "copy_machine",
         phase       = "mid",
@@ -1658,7 +1626,7 @@ local items = {
         requires    = "receipt_printer",
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "cascade_deals_empty" },
+            { kind = "zoom_hands_count_twice" },
         },
     },
     {

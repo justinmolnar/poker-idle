@@ -25,6 +25,14 @@
 local Anchors        = require("services.AnchorRegistry")
 local Theme        = require("views.Theme")
 local Constants    = require("data.constants")
+
+-- Is an item's `requires` chain satisfied? The CATALOG_NO_CHAINS debug
+-- flag says every chain is (a copy-reading aid: no prerequisite slips).
+local function reqMet(owned, item)
+    if not item.requires then return true end
+    if Constants.DEBUG and Constants.DEBUG.CATALOG_NO_CHAINS then return true end
+    return owned[item.requires] == true
+end
 local Catalog      = require("data.catalog")
 local CatalogPages = require("data.catalog_pages")
 local LabelButton  = require("views.widgets.LabelButton")
@@ -182,7 +190,7 @@ local function visibleItems(state)
 
     local out = {}
     for _, item in ipairs(Catalog) do
-        local locked = item.requires and not owned[item.requires]
+        local locked = not reqMet(owned, item)
         local skip = item.hidden or item.retired
                   or (locked and item.requires_hide)
                   or (item.requires_act3 and not state.shove_r2_won)
@@ -279,7 +287,7 @@ function CatalogModal:_pages()
     for _, id in ipairs(state.owned_items) do owned[id] = true end
 
     local function visible(item)
-        local locked = item.requires and not owned[item.requires]
+        local locked = not reqMet(owned, item)
         if item.hidden or item.retired then return false end
         if locked and item.requires_hide then return false end
         if item.requires_act3 and not state.shove_r2_won then return false end
@@ -706,7 +714,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- both) puts the COMING SOON sticker on the card, with a row per
     -- gate; when everything is satisfied it flips to PEEL TO OPEN.
     local has_gate   = item.unlock ~= nil
-    local req_locked = (item.requires ~= nil) and (not owned[item.requires])
+    local req_locked = not reqMet(owned, item)
     local gated      = has_gate or (item.requires ~= nil)
     local cond_met   = (not has_gate) or catalogUnlocked(self.game, item, state)
     local met        = cond_met and (not req_locked)
@@ -1493,7 +1501,7 @@ function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_s
     local function stickerReady(item)
         local gated = item.unlock ~= nil or item.requires ~= nil
         if not gated or owned[item.id] then return false end
-        if item.requires and not owned[item.requires] then return false end
+        if not reqMet(owned, item) then return false end
         if not catalogUnlocked(self.game, item, state) then return false end
         return not isPeeled(state, item.id)
     end
