@@ -273,6 +273,35 @@ function PokerEffects.registerAll(reg)
     reg:register("stack_mult", function(e, ctx)
         ctx.stack_mult = (ctx.stack_mult or 1) * (e.value or 1)
     end)
+    -- The Mirror: every Heads-Up table open adds this to the stack cell of
+    -- every Heads-Up table's win dist (OutcomeMath.buildOutcome reads
+    -- ctx.hu_table_count, which the controller keeps live).
+    reg:register("hu_stack_odds_per_hu_table", function(e, ctx)
+        ctx.stack_odds_per_hu_table = (ctx.stack_odds_per_hu_table or 0) + (e.value or 0)
+    end)
+    -- ── The mental game's weather ───────────────────────────────────
+    -- Desk Speakers: every heater burning on the board adds this to every
+    -- table's win chance (buildOutcome x ctx.heater_count, kept live by
+    -- GrindController:update).
+    reg:register("odds_per_heater", function(e, ctx)
+        ctx.odds_per_heater = (ctx.odds_per_heater or 0) + (e.value or 0)
+    end)
+    -- Gas Stove: a punch of this kind buys itself `value` more forced
+    -- hands before it expires (Table:_finalizeHand).
+    reg:register("punch_extra_hands", function(e, ctx)
+        ctx.punch_extra_hands = ctx.punch_extra_hands or {}
+        local k = e.status or "heater"
+        ctx.punch_extra_hands[k] = (ctx.punch_extra_hands[k] or 0) + (e.value or 0)
+    end)
+    -- Cast Iron Pan: a tilt landing on a burning table counts but never
+    -- takes it (Table:applyStatus).
+    reg:register("heat_shrugs_tilt", function(_e, ctx)
+        ctx.heat_shrugs_tilt = true
+    end)
+    -- The Trophy Shelf: a bounty rolls this to pay double (GrindController:bountyAward).
+    reg:register("bounty_double_chance", function(e, ctx)
+        ctx.bounty_double_chance = math.max(ctx.bounty_double_chance or 0, e.value or 0)
+    end)
     -- Standard: a stack loss is rerolled this many times, keep the
     -- smallest loss (OutcomeMath.sampleOutcome). One per deck level.
     reg:register("stack_loss_rerolls", function(e, ctx)
@@ -369,6 +398,10 @@ function PokerEffects.registerAll(reg)
     -- A lit cursor lights the cursor it clashes with (the Glass Partition).
     reg:register("cursor_fire_spreads", function(_e, ctx)
         ctx.cursor_fire_spreads = true
+    end)
+    -- A clash deals the table under it (the Old Keyboard).
+    reg:register("cursor_clash_deals", function(_e, ctx)
+        ctx.cursor_clash_deals = true
     end)
 
     -- ── Focus mechanic ──────────────────────────────────────────────────

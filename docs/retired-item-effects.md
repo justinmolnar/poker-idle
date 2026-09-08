@@ -446,8 +446,12 @@ on a shelf. Recorded verbatim as they stood when cut.
 ```
 
 Effect kinds left with no catalog user by these: `start_bankroll_add`,
-`void_first_loss`, `bust_refund_pct`, `run_upgrade_strength_mult`. Their
-applicators stay.
+`void_first_loss`, `bust_refund_pct`. Their applicators stay.
+
+**The Calculator came back on 2026-09-07 (later the same day)**: the Value
+Buys card stopped being a repeat of a shelf card, so the Rack had a free
+slot, and the Stash Box and Kettle are covered by other rack items. Its
+entry above is what is live again.
 
 ## Retired 2026-09-07 (b): the cursors shelf repurposed
 
@@ -542,4 +546,102 @@ Effect kinds deleted with them (applicators removed from
 `cursor_optical_sensor`. Second Monitor's corrupt line went from
 `+6 FOCUS` to `+2 FOCUS and the penalty ×0.5` the same day (the board
 cap became a full 6x6, so +6 overshot it).
+
+## Retired 2026-09-07 (c): the Heads-Up odds cards
+
+Heads-Up is the chip engine. Its two flat win-chance cards became the
+engine's own dials (the Mirror throttles stack odds per Heads-Up table
+open, the Dusty Console pays stacks more) and the shelf gained the Trophy
+Shelf (a bounty sometimes pays double). **Ids, names, sprites and unlock
+gates stayed.** Verbatim:
+
+```lua
+    {
+        id          = "mirror",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Mirror",
+        effect_text = "+10% {c:chance:odds} at {k:Heads-Up}.",
+        description = "A nice big one. You should see yourself.",
+        sprite      = "mirror",
+        phase       = "demo",
+        cost_chip     = 3,
+        requires    = "wall_hanger",
+        position    = { x = 160, y = 220 },
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.010 },
+            { kind = "win_chance_shift", amount = 0.10, gtype = "hu" },
+        },
+        corrupt = {
+            cost_achip = 2,
+            effects = {
+                { kind = "win_chance_shift", amount = 0.35, gtype = "hu" },
+            },
+            effect_text = "+35% {c:chance:odds} at {k:Heads-Up}.",
+        },
+    },
+    {
+        id          = "dusty_console",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        name        = "Dusty Console",
+        effect_text = "+3% {c:chance:odds} at {k:Heads-Up}.",
+        description = "Two controllers. Built for one-on-one.",
+        sprite      = "dusty_console",
+        phase       = "mid",
+        cost_chip   = 5,
+        unlock = {
+            kind      = "total_hands_at_gtype",
+            gtype     = "hu",
+            threshold = 1000,
+            text      = "Heads-Up hands",
+        },
+        effects     = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "win_chance_shift", amount = 0.03, gtype = "hu" },
+        },
+    },
+```
+
+## Retired 2026-09-07 (d): Desk Speakers
+
+The Heat & Tilt shelf's one flat odds card became the room-runs-hot card
+(every heater burning lifts every table). **Id, name, sprite and unlock
+gate stayed.** Verbatim:
+
+```lua
+    {
+        id          = "desk_speakers",
+        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
+        act         = 2,
+        name        = "Desk Speakers",
+        effect_text = "+5% {c:chance:odds} at {k:tournaments}.",
+        description = "Two small ones. The bass is all wall.",
+        sprite      = "desk_speakers",
+        phase       = "mid",
+        cost_chip   = 10,
+        unlock = {
+            kind      = "total_chips_banked",
+            threshold = 160,
+            text      = "{chip} {c:chip:banked}",
+        },
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.010 },
+            { kind = "win_chance_shift", amount = 0.05, gtype = "ko" },
+        },
+        corrupt = {
+            cost_achip = 6,
+            effects = {
+                { kind = "win_chance_shift", amount = 0.30, gtype = "ko" },
+                { kind = "win_chance_shift", amount = -0.10, gtype = "six_max" },
+            },
+            effect_text = "+30% {c:chance:odds} at {k:tournaments}, -10% at {k:6-Max}.",
+        },
+    },
+```
+
+The same day the shelf's Value Buys intro changed from Dish Soap (a
+router, nothing to teach) to the Nightstand (rebuy, heater), and two new
+items joined it: the Gas Stove (a heater wins one more hand) and the Cast
+Iron Pan (a tilt landing on a heater counts but the heater keeps its hand).
+The rule "no deck lengthens a punch" in data/decks.lua's header was an
+earlier pass's, not the designer's; struck.
 

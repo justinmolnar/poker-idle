@@ -43,6 +43,7 @@ local COUNTER_KINDS = {
     "total_chips_banked",
     "total_ko_wins",
     "total_tilts",
+    "total_heaters",
     "total_cursor_deals",
     "highest_stake_idx",
 }

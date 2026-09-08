@@ -114,6 +114,17 @@ return {
         ghost   = "shredder",
     },
 
+    -- Medical Poster. A knockout brings a busted cash neighbour back for
+    -- nothing. No chance: a busted table sitting beside a tournament is
+    -- the whole play, and it only fires while one is there.
+    medical_poster_revive = {
+        trigger = "on_ko",
+        target  = { kind = "board_near", radius = 1, pick = "random", pick_n_field = "ko_targets_add",
+                    exclude_self = true, where = { chip_stack_table = false, stack = 0 } },
+        payload = { kind = "free_rebuy" },
+        ghost   = "medical_poster",
+    },
+
     -- The ratchet. Winning a tournament lifts every table for the rest of
     -- the run. Self-limiting: a tournament takes a while and costs a
     -- buy-in, so this needs no cap.

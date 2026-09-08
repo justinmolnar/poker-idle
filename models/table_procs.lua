@@ -393,6 +393,18 @@ function TableProcs.registerAll(reg)
         return true
     end)
 
+    -- Seat a busted target again for nothing: the controller's own rebuy
+    -- path (deck XP, on_rebuy, the counters, the chip burst) with the
+    -- price waived. A live target is a miss.
+    reg:registerPayload("free_rebuy", function(_spec, target, event)
+        if not (target and event.ctrl and event.pool) then return false end
+        if (target.stack or 0) > 0 then return false end
+        for i, t in ipairs(event.pool.tables) do
+            if t == target then return event.ctrl:rebuyTable(i, { free = true }) end
+        end
+        return false
+    end)
+
     -- Hand back the price of the most expensive seat you are sitting in.
     -- Reads the RAW buy-in, matching refund_buyin: discounts are applied
     -- where a seat is CHARGED for, never where one is paid out.

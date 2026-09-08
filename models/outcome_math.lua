@@ -333,6 +333,15 @@ function OutcomeMath.buildOutcome(ctx, gtype, stake)
         distAddInPlace(loss_dist, gtype.dist_shifts.loss_dist)
     end
 
+    -- 4a. The Mirror: every Heads-Up table open pushes every Heads-Up
+    --     table's stack cell up. The count is live on the ctx
+    --     (GrindController:update); the sims leave it nil, so they see the
+    --     shelf without it. Renormalised at step 8 like every other shape.
+    if gtype and gtype.id == "hu" and ctx and ctx.stack_odds_per_hu_table
+       and (ctx.hu_table_count or 0) > 0 then
+        win_dist.stack = (win_dist.stack or 0) + ctx.stack_odds_per_hu_table * ctx.hu_table_count
+    end
+
     -- 4b. Catalog ctx.loss_dist_shifts — additive shape on the loss
     --     distribution (mirror of gtype dist_shifts on the loss side).
     --     Used by the no-poster handicap to skew Run-0 losses toward
@@ -384,6 +393,13 @@ function OutcomeMath.buildOutcome(ctx, gtype, stake)
                 win_chance = win_chance + (shift.amount or 0)
             end
         end
+    end
+
+    -- 5b. Desk Speakers: the room runs hot. Every heater burning on the
+    --     board (ctx.heater_count, live from GrindController:update; the
+    --     sims leave it nil) lifts every table's win chance.
+    if ctx and ctx.odds_per_heater and (ctx.heater_count or 0) > 0 then
+        win_chance = win_chance + ctx.odds_per_heater * ctx.heater_count
     end
 
     -- 6. Per-gtype WC shift — gives modes a real win-rate identity (Zoom

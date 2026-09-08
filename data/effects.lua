@@ -233,6 +233,31 @@ Effects.kinds = {
         value_shape = "number, e.g. 1.20 for +20% stack payouts",
         affects     = "ctx.stack_mult (multiplicative)",
     },
+    hu_stack_odds_per_hu_table = {
+        description = "The Mirror: each Heads-Up table open adds this to the stack share of every Heads-Up table's win dist (buildOutcome x ctx.hu_table_count).",
+        value_shape = "fraction per table, e.g. 0.02",
+        affects     = "ctx.stack_odds_per_hu_table",
+    },
+    bounty_double_chance = {
+        description = "A bounty rolls this to pay x2 (max of owners; GrindController:bountyAward).",
+        value_shape = "0..1, a printable fraction (1/4)",
+        affects     = "ctx.bounty_double_chance",
+    },
+    odds_per_heater = {
+        description = "Desk Speakers: every heater burning on the board adds this to every table's win chance (buildOutcome x ctx.heater_count).",
+        value_shape = "fraction per heater, e.g. 0.01",
+        affects     = "ctx.odds_per_heater",
+    },
+    punch_extra_hands = {
+        description = "Gas Stove: a punch status of `status` buys itself this many more forced hands before it expires (Table:_finalizeHand).",
+        value_shape = "status = \"heater\" | \"tilt\", value = integer",
+        affects     = "ctx.punch_extra_hands[status]",
+    },
+    heat_shrugs_tilt = {
+        description = "Flag perk — Cast Iron Pan: a tilt landing on a table on a heater is announced and counted but never applied; the heater keeps its hand.",
+        value_shape = "no field (presence sets ctx.heat_shrugs_tilt = true)",
+        affects     = "ctx.heat_shrugs_tilt",
+    },
     stack_loss_rerolls = {
         description = "Standard: a stack loss is rerolled this many times and the smallest loss kept (OutcomeMath.sampleOutcome). One per deck level.",
         value_shape = "integer, e.g. 1",
@@ -365,6 +390,11 @@ Effects.kinds = {
         description = "Flag perk — a lit cursor lights the cursor it clashes with (the Glass Partition).",
         value_shape = "no field (presence sets ctx.cursor_fire_spreads = true)",
         affects     = "ctx.cursor_fire_spreads",
+    },
+    cursor_clash_deals = {
+        description = "Flag perk — a clash deals the idle table under it, before the clash's punch rolls (the Old Keyboard).",
+        value_shape = "no field (presence sets ctx.cursor_clash_deals = true)",
+        affects     = "ctx.cursor_clash_deals",
     },
 
     -- ── Focus / efficiency mechanic ─────────────────────────────────────

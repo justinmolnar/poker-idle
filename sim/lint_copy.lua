@@ -103,6 +103,16 @@ local EXPECT = {
     end,
     cursor_fire_persists      = function() return nil end,
     cursor_fire_spreads       = function() return nil end,
+    cursor_clash_deals        = function() return nil end,
+    odds_per_heater           = function(e) return { signedPct(e.value) } end,
+    punch_extra_hands         = function() return nil end,   -- "one more hand" is words
+    heat_shrugs_tilt          = function() return nil end,
+    hu_stack_odds_per_hu_table = function(e) return { signedPct(e.value) } end,
+    bounty_double_chance      = function(e, where, text)
+        local f = fraction(e.value)
+        if not f then err(where, ("chance %s is not a printable fraction"):format(tostring(e.value)), text) end
+        return { f or "?", "×2" }
+    end,
     stack_loss_reroll_wins    = function() return nil end,
     ratchet_gain_mult         = function() return nil end,   -- the Whiteboard states the Prize Vase's new number in words; allow_numbers carries it
     hand_pace_mult            = function(e) return { "×" .. trim(e.value) } end,
@@ -428,40 +438,44 @@ for _, f in ipairs(Fields) do
     checkNoise(f)
 end
 
--- ── the shelves (data/catalog_pages.lua rule 4) ───────────────────────
--- Every visible item on exactly one shelf; Value Buys lists one id from
--- every other shelf and nothing else; no other shelf repeats an id.
+-- ── the pages (data/catalog_pages.lua rule 4) ─────────────────────────
+-- Every visible item on exactly ONE page; Value Buys is one intro per other
+-- shelf (its `shelf_of` map), nothing else, and those items live only there.
 do
     local Pages   = require("data.catalog_pages")
     local Catalog = require("data.catalog")
     local vb, home, shelves = nil, {}, {}
     for _, pg in ipairs(Pages) do
-        if pg.id == "value_buys" then vb = pg
-        else
-            shelves[pg.id] = pg
-            for _, id in ipairs(pg.items) do
-                if home[id] then err("pages " .. pg.id, ("%s is also on %s"):format(id, home[id].id)) end
-                home[id] = pg
-            end
+        if pg.id == "value_buys" then vb = pg else shelves[pg.id] = pg end
+        for _, id in ipairs(pg.items) do
+            if home[id] then err("pages " .. pg.id, ("%s is also on %s"):format(id, home[id].id)) end
+            home[id] = pg
         end
     end
     for _, it in ipairs(Catalog) do
         if not it.hidden and not it.retired and not it.gate and not home[it.id] then
-            err("pages", it.id .. " is on no shelf")
+            err("pages", it.id .. " is on no page")
         end
         if it.retired and home[it.id] then err("pages", it.id .. " is retired but still on " .. home[it.id].id) end
     end
     if not vb then err("pages", "no value_buys department")
     else
         local seen = {}
+        local of = vb.shelf_of or {}
         for _, id in ipairs(vb.items) do
-            local h = home[id]
-            if not h then err("pages value_buys", id .. " has no home shelf")
-            elseif seen[h.id] then err("pages value_buys", ("two cards from %s (%s, %s)"):format(h.id, seen[h.id], id))
-            else seen[h.id] = id end
+            local sid = of[id]
+            if not sid then err("pages value_buys", id .. " names no shelf in shelf_of")
+            elseif not shelves[sid] then err("pages value_buys", ("%s introduces %s, which is not a shelf"):format(id, sid))
+            elseif seen[sid] then err("pages value_buys", ("two intros for %s (%s, %s)"):format(sid, seen[sid], id))
+            else seen[sid] = id end
+        end
+        for id in pairs(of) do
+            local listed = false
+            for _, v in ipairs(vb.items) do if v == id then listed = true end end
+            if not listed then err("pages value_buys", id .. " is in shelf_of but not on the page") end
         end
         for sid in pairs(shelves) do
-            if not seen[sid] then err("pages value_buys", "no card from " .. sid) end
+            if not seen[sid] then err("pages value_buys", "no intro for " .. sid) end
         end
     end
 end

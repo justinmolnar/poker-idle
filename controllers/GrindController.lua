@@ -656,6 +656,10 @@ function GrindController:onCursorClash(panel)
     local t = tableFor(self, panel)
     if not t or (t.stack or 0) <= 0 then return end
     local ctx    = self.ctx or {}
+    -- The Old Keyboard: the clash is a keystroke, the table deals if it is
+    -- idle. Before the punch, so a heater from the robot lands ON the hand
+    -- the clash just dealt.
+    if ctx.cursor_clash_deals then self:dealIdleTable(t) end
     local chance = ctx.cursor_clash_chance or Balance.CURSOR_CLASH.chance
     if love.math.random() >= chance then return end
     local status = ctx.cursor_clash_status or "tilt"
@@ -693,6 +697,19 @@ end
 function GrindController:update(dt)
     -- Proc budget is per frame too (services/ProcRegistry).
     if self.game.procs then self.game.procs:beginFrame() end
+    -- The Mirror reads how many Heads-Up tables are open when a hand is
+    -- dealt (OutcomeMath.buildOutcome); kept live on the ctx rather than
+    -- baked into the rollup, so opening a table needs no rebuild.
+    -- Desk Speakers read how many heaters are burning the same way.
+    if self.ctx then
+        local n, burning = 0, 0
+        for _, t in ipairs(self.pool.tables) do
+            if t.game_type_id == "hu" then n = n + 1 end
+            if t.hasStatus and t:hasStatus("heater") then burning = burning + 1 end
+        end
+        self.ctx.hu_table_count = n
+        self.ctx.heater_count   = burning
+    end
     self:_tickGtypeUnlocks()
     self:_tickTimedBuffs(dt)
     self:_tickTournamentAuras(dt)
@@ -1612,6 +1629,12 @@ function GrindController:bountyAward(stake_id, gtype_id)
         mult = mult * gmults[gtype_id]
     end
     local bonus = (self.ctx and self.ctx.stack_chip_add) or 0
+    -- The Trophy Shelf: a bounty sometimes pays double, the whole thing.
+    local dbl = self.ctx and self.ctx.bounty_double_chance
+    if dbl and dbl > 0 and love.math.random() < dbl then
+        self:itemFired("bounty_double_chance", nil)
+        return (math.floor((stake.chip_award or 0) * mult + 0.5) + bonus) * 2
+    end
     return math.floor((stake.chip_award or 0) * mult + 0.5) + bonus
 end
 
@@ -2490,14 +2513,16 @@ end
 -- Refill a busted table's stack to a fresh 100bb buy-in by spending from
 -- bankroll. No-op if the table isn't actually busted, or if the player
 -- can't afford the rebuy.
-function GrindController:rebuyTable(idx)
+-- `opts.free` waives the price (the Medical Poster's knockout revive).
+function GrindController:rebuyTable(idx, opts)
     local t = self.pool:get(idx)
     if not t then return false end
     if (t.stack or 0) > 0 then return false end
     local stake = Lookups.findById(Stakes,t.stake_id)
     local buy_in = (stake and stake.buy_in) or 0
     local cost   = self:rebuyCostFor(idx)
-    if self.ctx then
+    if opts and opts.free then cost = 0 end
+    if self.ctx and cost > 0 then
         local free_chance = self.ctx.free_rebuy_chance or 0
         if free_chance > 0 and love.math.random() < free_chance then
             cost = 0

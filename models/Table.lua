@@ -1139,6 +1139,17 @@ function Table:applyStatus(kind, spec)
             return false
         end
     end
+    -- Cast Iron Pan (ctx.heat_shrugs_tilt): a tilt landing on a table that
+    -- is on a heater STILL LANDS — it is announced like any tilt, so it
+    -- counts, the converters react to it and the Anchor absorbs it — but
+    -- it never becomes this table's status and never interrupts: the
+    -- heater keeps its hand. (Heat over tilt needs nothing: the last punch
+    -- to land takes the next hand, see :interrupt.)
+    if kind == "tilt" and self._last_ctx and self._last_ctx.heat_shrugs_tilt
+       and self:hasStatus("heater") then
+        self:_announceStatus(kind, spec.magnitude or 0, spec.source, false)
+        return true
+    end
     -- A punch status IS its interrupt. An application that opts out of
     -- interrupting (`no_interrupt`, ambient sources) would leave an
     -- eternal decoration — a fire that never had a punch to spend and so
@@ -1261,6 +1272,26 @@ function Table:_announceStatus(kind, magnitude, source, was_refresh)
         table = self, status = kind, magnitude = magnitude,
         source = source, was_refresh = was_refresh,
     })
+end
+
+-- Gas Stove: the live punch status buys itself one more forced hand, up
+-- to ctx.punch_extra_hands[kind] times, by re-latching its side. Returns
+-- true when it did, so _finalizeHand keeps the status lit and holds the
+-- "spent" beats; :update's idle path then auto-deals the extra hand and
+-- :deal arms _punch_live for it, so its finish comes back through here.
+function Table:_extendPunch()
+    local extra = self._last_ctx and self._last_ctx.punch_extra_hands
+    if not extra or not self.statuses then return false end
+    for _, e in ipairs(self.statuses) do
+        local def = StatusData[e.kind]
+        local n   = def and def.lifetime == "punch" and extra[e.kind] or 0
+        if n > 0 and (e.extended or 0) < n then
+            e.extended = (e.extended or 0) + 1
+            self._forced_next_won = (def.interrupt == "win")
+            return true
+        end
+    end
+    return false
 end
 
 -- Drop every punch-lifetime status (heater/tilt): the punch is spent —
@@ -1570,12 +1601,17 @@ function Table:_finalizeHand()
     self.hands_played  = self.hands_played + 1
     -- Per-hand latch: the next hand may be interrupted in its own right.
     self._interrupted  = false
+    -- Gas Stove (ctx.punch_extra_hands): the punch that just spent its
+    -- hand may buy itself one more. Decided first, because an extended
+    -- punch has not run its course yet: neither "spent" beat announces and
+    -- the status stays lit for the hand it latches.
+    local extended = self._punch_live and self:_extendPunch() or false
     -- The tilt's forced loss has fully run its course. Announced at the
     -- END of that hand, not at deal, so a converter (Waste Basket) reacts
     -- to the beat being over rather than to it starting.
     if self._tilt_spent_pending then
         self._tilt_spent_pending = nil
-        if self.bus then
+        if self.bus and not extended then
             self.bus:publish("on_tilt_spent", { table = self })
         end
     end
@@ -1583,7 +1619,7 @@ function Table:_finalizeHand()
     -- listens: the moment the fire goes out is when it can jump).
     if self._heat_hand then
         self._heat_hand = nil
-        if self.bus then
+        if self.bus and not extended then
             self.bus:publish("on_heat_spent", { table = self, won = self.outcome_won })
         end
     end
@@ -1595,7 +1631,7 @@ function Table:_finalizeHand()
     -- hand after landing).
     if self._punch_live then
         self._punch_live = nil
-        self:_expirePunchStatuses()
+        if not extended then self:_expirePunchStatuses() end
     end
     -- Snapshot the finished hand before the clears below destroy it. The
     -- felt keeps drawing this (desaturated) until the next :deal removes

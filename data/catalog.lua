@@ -172,10 +172,12 @@ local items = {
     },
     {
         id          = "mirror",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Mirror",
-        effect_text = "+10% {c:chance:odds} at {k:Heads-Up}.",
-        description = "A nice big one. You should see yourself.",
+        -- The chip engine's throttle: every Heads-Up table open makes every
+        -- Heads-Up table hit stacks more. The player picks how hard to lean
+        -- on the duel. Heads-Up only: Zoom's stack cell is capped on purpose.
+        effect_text = "Each {k:Heads-Up} table open: +2% {w:stack} {c:chance:odds} at {k:Heads-Up}.",
+        description = "A nice big one. You should see yourself. And yourself.",
         sprite      = "mirror",
         phase       = "demo",
         cost_chip     = 3,
@@ -187,14 +189,14 @@ local items = {
         position    = { x = 160, y = 220 },
         effects     = {
             { kind = "shove_rate_add",   value = 0.010 },
-            { kind = "win_chance_shift", amount = 0.10, gtype = "hu" },
+            { kind = "hu_stack_odds_per_hu_table", value = 0.02 },   -- PLACEHOLDER
         },
         corrupt = {
             cost_achip = 2,
             effects = {
-                { kind = "win_chance_shift", amount = 0.35, gtype = "hu" },
+                { kind = "hu_stack_odds_per_hu_table", value = 0.05 },
             },
-            effect_text = "+35% {c:chance:odds} at {k:Heads-Up}.",
+            effect_text = "Each {k:Heads-Up} table open: +5% {w:stack} {c:chance:odds} at {k:Heads-Up}.",
         },
     },
     {
@@ -517,7 +519,6 @@ local items = {
     },
     {
         id          = "calculator",
-        retired             = true,   -- cut 2026-09-07; docs/retired-item-effects.md
         name        = "Calculator",
         effect_text = "{c:upgrade:Sharper_Reads}, {c:upgrade:Pot_Control} and {c:upgrade:Cursor_Speed} +15%.",
         see_also    = { "runup:sharper_reads", "runup:pot_control" },
@@ -916,10 +917,24 @@ local items = {
         },
     },
     {
+        -- A Heads-Up item that Zoom is glad to own: stacks come from the
+        -- duel, and they pay more everywhere.
+        id          = "trophy_shelf",
+        name        = "Trophy Shelf",
+        effect_text = "A {c:chip:bounty} pays: 1 in 4 chance it pays ×2.",
+        description = "Room for one more. There is always room for one more.",
+        sprite      = "trophy_shelf",
+        phase       = "mid",
+        cost_chip   = 8,                              -- PLACEHOLDER
+        effects     = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "bounty_double_chance", value = 1/4 },   -- PLACEHOLDER
+        },
+    },
+    {
         id          = "dusty_console",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Dusty Console",
-        effect_text = "+3% {c:chance:odds} at {k:Heads-Up}.",
+        effect_text = "{w:stack} {c:won:winnings} ×1.5.",
         description = "Two controllers. Built for one-on-one.",
         sprite      = "dusty_console",
         phase       = "mid",
@@ -932,7 +947,7 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add", value = 0.010 },
-            { kind = "win_chance_shift", amount = 0.03, gtype = "hu" },
+            { kind = "stack_mult",     value = 1.5 },   -- PLACEHOLDER
         },
     },
     {
@@ -1204,6 +1219,26 @@ local items = {
         },
     },
     {
+        -- Every clash is a keystroke: the table under two clashing cursors
+        -- deals. Turns the swarm's cost into volume with or without the
+        -- robot (with it, the same clash deals AND heats). The DEAL goes
+        -- through dealIdleTable like a cursor's own click, so on_deal procs
+        -- (the Energy Drink) see it and a busy table is a miss.
+        id            = "old_keyboard",
+        act           = 2,
+        name          = "Old Keyboard",
+        effect_text   = "Two {c:upgrade:cursors} clash: the table under them deals.",
+        description   = "Every key sticks. Every bump is a keystroke.",
+        sprite        = "old_keyboard",
+        phase         = "late",
+        cost_chip     = 12,                           -- PLACEHOLDER
+        requires    = "laptop_terminal",
+        effects       = {
+            { kind = "shove_rate_add", value = 0.010 },
+            { kind = "cursor_clash_deals" },
+        },
+    },
+    {
         id            = "glass_partition",
         act           = 2,
         name          = "Glass Partition",
@@ -1296,6 +1331,27 @@ local items = {
                 { kind = "earnings_mult", value = 0.70 },
             },
             effect_text = "Same, and {c:won:Winnings} ×0.7.",
+        },
+    },
+    {
+        -- Support in the plainest sense: the tournament keeps its block
+        -- seated. Park a busted table beside one and wait for a knockout.
+        id            = "medical_poster",
+        act           = 2,
+        name          = "Medical Poster",
+        effect_text   = "A {k:knockout}: a {c:lost:busted} cash table {k:adjacent} to the {k:tournament} rebuys for free.",
+        description   = "Get back in there.",
+        sprite        = "medical_poster",
+        phase         = "late",
+        cost_chip     = 15,                           -- PLACEHOLDER
+        unlock = {
+            kind      = "total_busts",
+            threshold = 100,                          -- PLACEHOLDER
+            text      = "tables {c:lost:busted}",
+        },
+        effects       = {
+            { kind = "shove_rate_add", value = 0.012 },
+            { kind = "proc", proc = "medical_poster_revive" },
         },
     },
     {
@@ -1459,12 +1515,13 @@ local items = {
     },
 
     {
+        -- The room runs hot: every heater burning anywhere lifts every
+        -- table. Scales with the board and with the swarm's fire.
         id          = "desk_speakers",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         act         = 2,
         name        = "Desk Speakers",
-        effect_text = "+5% {c:chance:odds} at {k:tournaments}.",
-        description = "Two small ones. The bass is all wall.",
+        effect_text = "Each {c:heat:heater} burning: +1% {c:chance:odds} at {k:every_table}.",
+        description = "Two small ones. Turn it up and the whole room feels it.",
         sprite      = "desk_speakers",
         phase       = "mid",
         cost_chip   = 10,
@@ -1474,16 +1531,68 @@ local items = {
             text      = "{chip} {c:chip:banked}",
         },
         effects     = {
-            { kind = "shove_rate_add",   value = 0.010 },
-            { kind = "win_chance_shift", amount = 0.05, gtype = "ko" },
+            { kind = "shove_rate_add",  value = 0.010 },
+            { kind = "odds_per_heater", value = 0.01 },   -- PLACEHOLDER
         },
         corrupt = {
             cost_achip = 6,
             effects = {
-                { kind = "win_chance_shift", amount = 0.30, gtype = "ko" },
-                { kind = "win_chance_shift", amount = -0.10, gtype = "six_max" },
+                { kind = "odds_per_heater", value = 0.03 },
             },
-            effect_text = "+30% {c:chance:odds} at {k:tournaments}, -10% at {k:6-Max}.",
+            effect_text = "Each {c:heat:heater} burning: +3% {c:chance:odds} at {k:every_table}.",
+        },
+    },
+    {
+        -- Longer fire: a heater's forced hand buys one more (Table:_finalizeHand,
+        -- punch_extra_hands). The late strong item of the mental game.
+        id          = "gas_stove",
+        act         = 2,
+        name        = "Gas Stove",
+        effect_text = "A {c:heat:heater} wins one more hand.",
+        description = "Four burners. None of them turn off.",
+        sprite      = "gas_stove",
+        phase       = "late",
+        cost_chip   = 24,                             -- PLACEHOLDER
+        unlock = {
+            kind      = "total_heaters",
+            threshold = 200,                          -- PLACEHOLDER
+            text      = "{c:heat:heaters} caught",
+        },
+        effects     = {
+            { kind = "shove_rate_add",    value = 0.012 },
+            { kind = "punch_extra_hands", status = "heater", value = 1 },
+        },
+        corrupt = {
+            cost_achip = 8,
+            effects = {
+                { kind = "punch_extra_hands", status = "heater", value = 1 },
+                { kind = "punch_extra_hands", status = "tilt",   value = 1 },
+            },
+            effect_text = "Same, and a {c:tilt:tilt} loses one more too.",
+        },
+    },
+    {
+        -- Fire holds: a tilt landing on a burning table still LANDS (it
+        -- counts, the converters see it, the Anchor absorbs it) but never
+        -- takes the table; the heater keeps its hand (Table:applyStatus).
+        -- Heat already overrides tilt the other way: the last punch to
+        -- land takes the next hand.
+        id          = "cast_iron_pan",
+        act         = 2,
+        name        = "Cast Iron Pan",
+        effect_text = "A {c:tilt:tilt} lands on a {c:heat:heater}: it still counts, the {c:heat:heater} wins.",
+        description = "Holds heat. Takes a beating.",
+        sprite      = "cast_iron_pan",
+        phase       = "late",
+        cost_chip   = 16,                             -- PLACEHOLDER
+        unlock = {
+            kind      = "total_tilts",
+            threshold = 60,                           -- PLACEHOLDER
+            text      = "{c:tilt:tilts} taken",
+        },
+        effects     = {
+            { kind = "shove_rate_add",   value = 0.010 },
+            { kind = "heat_shrugs_tilt" },
         },
     },
     {

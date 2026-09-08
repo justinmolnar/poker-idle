@@ -29,14 +29,18 @@
 --    poker concept. (The id and the tab colour carry the system.)
 -- 2. A CHAIN IS A SHELF: every `requires` chain sits contiguous, root first,
 --    so requires-order = reading-order and the card's red "Stocked after
---    No. NNN, the X." line always points at a neighbouring card. Chain
---    adjacency outranks fiction when the two fight.
+--    No. NNN, the X." line points at a neighbouring card. The one exception
+--    is a chain whose root is the shelf's Value Buys intro (Bonsai, the
+--    Prize Vase, the Box of Mice): the root is on page one, the rest sit
+--    contiguous on the shelf. Chain adjacency outranks fiction when the
+--    two fight.
 -- 3. Size to 8 (a spread) or 4 (a page). No 9s. A shelf that has more than
 --    eight keeps its keeps and gets a second page of four.
--- 4. VALUE BUYS lists exactly ONE item from every other department, and is
---    the only department allowed to repeat an id: an identity's Value Buys
---    card is its ninth slot, a cheap early taste of the shelf. Everything
---    else appears on exactly one shelf. sim/lint_copy.lua checks this.
+-- 4. EVERY ITEM IS ON EXACTLY ONE PAGE. An identity is NINE unique items:
+--    one on VALUE BUYS, its intro (a cheap early taste of the system), and
+--    eight on its shelf. Value Buys lists exactly one intro per other
+--    department, named in its `shelf_of` map, and nothing else; no id
+--    appears on two pages. sim/lint_copy.lua checks this.
 --    Exempt: a `gate` item (the Ultra key, on the back page by itself) and
 --    a `retired` item (cut from the book; docs/retired-item-effects.md).
 --
@@ -59,46 +63,56 @@
 
 return {
 
-    -- One card from every shelf, in shelf order, cheap, and the first page
-    -- the player sees: a table of contents. The cursor box is priced, not
+    -- One intro card per shelf, in shelf order, cheap, and the first page
+    -- the player sees. These items live ONLY here: each is its identity's
+    -- ninth item, never a repeat of one. The cursor box is priced, not
     -- stickered, so "this is automation" is visible from the jump; the
-    -- vase reads "???" through Act 1; the corkboard is the stats shelf's
-    -- card until it is rewritten.
+    -- vase reads "???" through Act 1; the corkboard is the stats intro
+    -- until it is rewritten. `shelf_of` names the identity each card
+    -- introduces (the lint checks one per shelf).
     { id = "value_buys", title = "Value Buys", label = "VALUE BUYS", tab = { "sem:chip" },
       items = {
           "corkboard", "starter_gift_box", "fight_night_poster", "energy_drink",
-          "bonsai", "prize_vase", "dish_soap", "box_of_mice",
+          "bonsai", "prize_vase", "nightstand", "box_of_mice",
+      },
+      shelf_of = {
+          corkboard = "stats", starter_gift_box = "rack", fight_night_poster = "hu",
+          energy_drink = "zoom", bonsai = "six_max", prize_vase = "ko",
+          nightstand = "mental", box_of_mice = "cursors",
       } },
 
     -- The flat numbers: odds, sizes, winnings. Cheap and Act 1, so first.
     -- Every one but the Toaster is a refactor slot.
     { id = "stats", title = "Memberships & Vouchers", label = "STATS", tab = { "paper:sticker_counting" },
       items = {
-          "chrome_toaster", "wall_hanger", "corkboard", "stack_of_books",
+          "chrome_toaster", "wall_hanger", "stack_of_books",
           "lava_lamp", "throw_pillow", "comfort_bed", "yellow_sticky_note",
       } },
 
-    -- The run and the rack: what a run starts with and what the upgrades
-    -- cost and reach. (Stash Box, Rubber Duck, Electric Kettle and the
-    -- Calculator were cut to fit the spread: docs/retired-item-effects.md.)
+    -- The run and the rack: what a run starts with (the Gift Box is the
+    -- intro) and what the upgrades cost and reach. (Stash Box, Rubber Duck
+    -- and Electric Kettle were cut to fit: docs/retired-item-effects.md.
+    -- The Calculator came back the same day when the intro stopped being a
+    -- repeat and the shelf had eight again.)
     { id = "rack", title = "Desk & Stationery", label = "THE RACK", tab = { "sem:upgrade" },
       items = {
-          "starter_gift_box", "desk", "cereal_shelf", "compact_fridge",
-          "rebuy_sticky_note", "ring_binder", "bookshelf", "second_monitor",
+          "desk", "cereal_shelf", "compact_fridge", "rebuy_sticky_note",
+          "ring_binder", "calculator", "bookshelf", "second_monitor",
       } },
 
     -- THE TABLES, together, in the order a run opens them.
-    -- Heads-Up first: stacks feed things, and the {chip} bounties.
+    -- Heads-Up first: the chip engine. Stacks feed heaters, the bounties
+    -- pay more, and the Mirror throttles how hard the duel hits stacks.
     { id = "hu", title = "Game Room", label = "HEADS-UP", tab = { "gtype:hu" },
       items = {
-          "fight_night_poster", "dogs_playing_poker", "gaming_chair", "candle",
-          "pencil_holder", "tip_jar", "mirror", "dusty_console",
+          "dogs_playing_poker", "gaming_chair", "candle", "pencil_holder",
+          "tip_jar", "trophy_shelf", "mirror", "dusty_console",
       } },
 
     -- Zoom: speed. The printer pair is here as a refactor slot.
     { id = "zoom", title = "Kitchen & Appliances", label = "ZOOM", tab = { "gtype:zoom" },
       items = {
-          "energy_drink", "wall_clock", "house_cat", "framed_diploma",
+          "wall_clock", "house_cat", "framed_diploma",
           "receipt_printer", "copy_machine", "headset", "handheld",
       } },
 
@@ -106,34 +120,39 @@ return {
     -- are refactor slots parked here for the shelf's three open spots.
     { id = "six_max", title = "Den & Houseplants", label = "6-MAX", tab = { "gtype:six_max" },
       items = {
-          "bonsai", "desk_plant", "console_television", "fire_extinguisher",
+          "desk_plant", "console_television", "fire_extinguisher",
           "blackout_curtains", "red_rug", "space_heater", "laminated_blueprint",
       } },
 
-    -- Tournaments: the Act 2 table. The vase and everything that chains
-    -- off it.
+    -- Tournaments: the Act 2 table, the support. The vase (the intro) and
+    -- everything that chains off it; the knockout items hand things to the
+    -- tournament's block, the poster brings a busted neighbour back.
     { id = "ko", title = "Awards & Trophy Wall", label = "TOURNAMENTS", tab = { "gtype:ko" },
       items = {
-          "prize_vase", "whiteboard", "high_roller_pass", "window",
-          "curved_monitor", "tower_upgrade", "shredder", "first_aid_kit",
+          "whiteboard", "high_roller_pass", "window", "curved_monitor",
+          "tower_upgrade", "shredder", "first_aid_kit", "medical_poster",
       } },
 
-    -- The mental game: heat and tilt. Mostly Act 2. Desk Speakers is a
-    -- refactor slot; one slot is open.
+    -- The mental game: heat and tilt. The Nightstand (rebuy, heater) is
+    -- the intro. Sources, then the tilt routers and converters, then how
+    -- long and how much the weather is worth: the speakers scale with the
+    -- heaters burning, the stove makes a heater last, the pan lets a
+    -- burning table take a tilt and keep its fire.
     { id = "mental", title = "Bed & Bath", label = "HEAT & TILT", tab = { "sem:heat", "sem:tilt" },
       items = {
-          "nightstand", "rolled_vouchers", "dish_soap", "cool_towel",
-          "waste_basket", "microwave_oven", "desk_speakers",
+          "rolled_vouchers", "dish_soap", "waste_basket", "cool_towel",
+          "microwave_oven", "desk_speakers", "gas_stove", "cast_iron_pan",
       } },
 
-    -- The cursor swarm, root first: one spread holds the whole crew. The
-    -- box is Act 1; the crew is Act 2, so the shelf closes the book. The
-    -- tab wears the colour the word "cursor" wears in copy (sem.upgrade).
-    -- The partition chains off the lamp (a lit cursor), so it follows it.
+    -- The cursor swarm (its root, the Box of Mice, is the Value Buys intro).
+    -- The crew is Act 2, so the shelf closes the book. The tab wears the
+    -- colour the word "cursor" wears in copy (sem.upgrade). The partition
+    -- chains off the lamp (a lit cursor), so it follows it; the two clash
+    -- items close the shelf.
     { id = "cursors", title = "Computer Accessories", label = "CURSORS", tab = { "sem:upgrade" },
       items = {
-          "box_of_mice", "laptop_terminal", "gaming_keyboard", "wacom_tablet",
-          "desk_lamp", "glass_partition", "telephone", "cleaning_robot",
+          "laptop_terminal", "gaming_keyboard", "wacom_tablet", "desk_lamp",
+          "glass_partition", "telephone", "old_keyboard", "cleaning_robot",
       } },
 
     -- The Ultra key is its own thing: on no shelf, so it falls to the

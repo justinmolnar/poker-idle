@@ -15,7 +15,7 @@
 -- zoom is the sustain (Firehose), heads-up the burst (Closer), six-max
 -- the tank (Anchor), tournaments the support (Circuit Pro), heat and
 -- chips their own systems (Hot Hand, Bounty Hunter). Rules kept: a
--- status is a punch and no deck lengthens one; chip awards are immutable
+-- status is a punch (the Gas Stove may lengthen one); chip awards are immutable
 -- (Bounty Hunter changes odds, not size); every "never" is a percentage.
 --
 -- Defines:
