@@ -9,8 +9,8 @@ Built:
 - Sounds are discovered like sprites (`services/SoundLoader`): a file under
   `assets/audio/` pairs with whatever shares its name; presets in
   `data/sounds.lua` still win when they exist.
-- One sound per catalog item (52, `assets/audio/items`, credited in its
-  MANIFEST): played in the room count, and again when the item fires in play
+- One sound per catalog item (46 of 72 as of 2026-09-08, `assets/audio/items`, credited in its
+  MANIFEST; the tick list in docs/sound-checklist.md section 6): played in the room count, and again when the item fires in play
   through the `item_fired` event (`GrindController:itemFired` reads
   `ctx.sources` from `computeEffects`). Discrete triggers are wired (voids,
   refunds, free rebuys, bounties, run start); the per-hand distribution

@@ -1555,6 +1555,12 @@ function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_s
         local w = t.tw + pad * 2
         local k = math.floor(t.leaf / 2)   -- the sheet; an odd glued leaf is a sheet's back
         local side, sx, turning, stuck = pose(k)
+        -- A sticker is glued to the FRONT of its sheet, and a front faces
+        -- right: the stuck-down half is on the page only while that sheet
+        -- is open on the right. On the left stack the visible face is the
+        -- sheet's back, so the sticker there is a tab over the edge and
+        -- nothing more.
+        stuck = stuck and side == "right"
         local h = h_up + (stuck and stick or 0)
         local x = (side == "left") and (cx - off - w) or (cx + off)
         t.off, t.x, t.y, t.w, t.h = off, x, top - h_up, w, h

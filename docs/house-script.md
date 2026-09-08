@@ -141,7 +141,7 @@ count); the ROOM button on the grind appears only after that shove.
 | block | anchor | hold |
 |---|---|---|
 | Everything you've got, in one pile. I'll match it if you win and you can walk right out. I love this part. | `shove:pot` | show: the pour has landed → click |
-| This bar is your odds at beating me. I'm pretty good though. | `shove:readout` | show: phase running → click |
+| This bar is your shot at beating me. I'm pretty good though. | `shove:readout` | show: phase running → click |
 | ...Am I reading that right? 0%? Bad luck. | `shove:readout` | click (the runout deals after it) |
 
 ### `shove_result` — shove. **PAUSE.** Trigger: result hold.
@@ -192,7 +192,7 @@ Fixed slots; an empty text is a silent slot.
 | block | anchor | hold |
 |---|---|---|
 | Everything you bought from the catalog, delivered as promised. These never reset. | `room:items` | click |
-| Your odds on the SHOVE: Items in your room, multiplied by your total bankroll. | | click |
+| Your shot on the SHOVE: items in your room, multiplied by your total bankroll. | | click |
 | So it's about {chip} now. Every table pays one. Collect, then shove. You'll get it. Next time. | `room:play` | click |
 
 ## Rooms and tools, as they first exist

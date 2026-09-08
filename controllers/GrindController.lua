@@ -302,6 +302,7 @@ function GrindController:_fireProcs(trigger, source_tbl, extra)
             magnitude   = extra and extra.magnitude,
             first_at_stake = extra and extra.first_at_stake,
             all_games      = extra and extra.all_games,   -- the Laminated Blueprint's `when`
+            spread         = (extra and extra.spread) or false,   -- a deal a spread made (the Energy Drink's `when`)
         }
         local touched, hit = reg:fire(entry.def, event)
         if touched > 0 then
@@ -493,13 +494,17 @@ end
 -- cursor's. The Copy Machine's cascade upgrade calls this for zoom tables
 -- the sweep finds empty; the guards mirror what a cursor checks before
 -- clicking DEAL.
-function GrindController:dealIdleTable(t)
+-- A deal is a moment procs can fire on. Every deal announces, so anything
+-- listening for a deal sees this one; `opts.spread` marks a deal that a
+-- proc's payload made (the Energy Drink dealing a neighbour), and the
+-- event carries it so the spread itself can decline to spread again: a
+-- block of Zoom tables must not chain end to end off one click. It is a
+-- deal in every other sense.
+function GrindController:dealIdleTable(t, opts)
     if not t or t.state ~= "idle" or t.pending_close then return false end
     if (t.stack or 0) <= 0 then return false end
     if not t:deal(self.ctx) then return false end
-    -- A deal is a moment procs can fire on (the Energy Drink's spread). A
-    -- cascade's deal announces it too, so a block of Zoom tables chains.
-    self:_announce("on_deal", { table = t })
+    self:_announce("on_deal", { table = t, spread = (opts and opts.spread) or false })
     return true
 end
 
@@ -2449,7 +2454,7 @@ function GrindController:dealHand(idx)
         t.pot_exploded, t.pot_explode_pending = nil, nil
         -- The player's (or a cursor's) deal is a moment procs fire on: the
         -- Energy Drink deals the same-stake Zoom tables beside this one.
-        self:_announce("on_deal", { table = t })
+        self:_announce("on_deal", { table = t, spread = false })
     end
     return ok
 end

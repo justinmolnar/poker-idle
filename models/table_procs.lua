@@ -363,9 +363,12 @@ function TableProcs.registerAll(reg)
     -- Put an idle target back to work (the Energy Drink's spread). The
     -- controller's own guarded method, the same one the cascade uses for
     -- empty tables; a busy or busted target is a miss.
+    -- A payload's deal is a deal like any other (it announces, anything
+    -- listening sees it), marked `spread` so a spreading proc can decline
+    -- to spread again off it (`when = { spread = false }`).
     reg:registerPayload("deal", function(_spec, target, event)
         if not (target and event.ctrl and event.ctrl.dealIdleTable) then return false end
-        return event.ctrl:dealIdleTable(target)
+        return event.ctrl:dealIdleTable(target, { spread = true })
     end)
 
     -- Hand a table's buy-in back. Rolls once, or once per event unit when

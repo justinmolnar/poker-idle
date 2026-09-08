@@ -156,11 +156,16 @@ return function(T)
         local z1 = w:open("s001", "zoom", { 0, 1 })   -- adjacent, same stake
         local z2 = w:open("s002", "zoom", { 1, 0 })   -- adjacent, other stake
         local h  = w:open("s001", "hu",   { 1, 1 })   -- not zoom
+        local z3 = w:open("s001", "zoom", { 0, 2 })   -- same stake, two cells away (adjacent to z1, not z0)
+        local zd = w:open("s001", "zoom", { 2, 2 })   -- same stake, on a diagonal of nothing dealt
         w:own("energy_drink"); w:tick(0.05)
         w.ctrl:dealHand(w:find(z0))
         check(key("energy_drink_deal_spread"), "lands",
             z1.state ~= "idle" and z2.state == "idle" and h.state == "idle",
             "dealing a Zoom table deals the adjacent same-stake Zoom (dealt), not the other-stake Zoom (idle) nor the Heads-Up (idle)")
+        check(key("energy_drink_deal_spread"), "no chain",
+            z3.state == "idle" and zd.state == "idle",
+            "the spread stops at the neighbours: the Zoom two cells along (adjacent only to the one the spread dealt) stays idle, and so does the one across a diagonal")
     end)
 
     case("fire_extinguisher_compress", function()

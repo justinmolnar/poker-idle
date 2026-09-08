@@ -209,16 +209,17 @@ return {
     -- land on OTHER tables" before any engine item builds on that.
 
     -- Energy Drink. THE ZOOM ITEM: dealing a Zoom table deals every
-    -- adjacent table of the same stake and game type too. One click, a
-    -- whole row of Zoom, and the row deals as one. `on_deal` is announced
-    -- by the player's DEAL (a cursor's too) and by dealIdleTable, and the
-    -- dealt neighbours announce it again, so a connected block of Zoom
-    -- tables chains along one deal at a time (the bus enqueues while it
-    -- dispatches; MAX_FIRES_PER_FRAME caps a runaway board). Tournament
-    -- and punch auto-deals never announce it. `like_source` is the
-    -- same-stake-same-type filter (models/table_procs).
+    -- adjacent table of the same stake and game type too. One click, its
+    -- neighbours deal with it, and it stops there: `on_deal` is announced
+    -- by every deal (the player's, a cursor's, dealIdleTable's, the
+    -- neighbours' too), but a deal the spread itself made carries
+    -- `spread = true` and `when` skips it, so a block of Zoom tables never
+    -- chains end to end off one click. Tournament and punch auto-deals
+    -- never announce it. `like_source` is the same-stake-same-type filter
+    -- (models/table_procs).
     energy_drink_deal_spread = {
         trigger = "on_deal",
+        when    = { spread = false },
         source  = { gtype = "zoom" },
         target  = { kind = "board_near", radius = 1, exclude_self = true,
                     like_source = { "stake_id", "game_type_id" } },
@@ -228,6 +229,7 @@ return {
     -- Corrupt: every Zoom table at that stake, adjacent or not.
     energy_drink_deal_spread_corrupt = {
         trigger = "on_deal",
+        when    = { spread = false },
         source  = { gtype = "zoom" },
         target  = { kind = "same_stake", like_source = { "game_type_id" } },
         payload = { kind = "deal" },

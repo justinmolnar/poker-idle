@@ -53,7 +53,7 @@
 --    so the demo shows a "???" teaser that peels when Act 2 opens.
 -- 8. THE TIERS price a card by its role on the shelf, then the two acts
 --    are summed to data/balance.lua CATALOG_CHIP_BUDGET (225 / 575):
---        Act 1  intro 4-5 (a key 8-9) · core 5-10 · capstone 12-14
+--        Act 1  intro 2-5 (a key 8-13) · core 5-10 · capstone 12-14
 --        Act 2  cheap 8-10 · core 12-16 · chain link 12-18 · capstone 18-22
 --    Rules 5-8 and the sums: `lua sim/lint_catalog_economy.lua`.
 --
@@ -86,7 +86,7 @@ return {
     { id = "value_buys", title = "Value Buys", label = "VALUE BUYS", tab = { "sem:chip" },
       items = {
           "corkboard", "starter_gift_box", "energy_drink", "fight_night_poster",
-          "bonsai", "prize_vase", "nightstand", "box_of_mice",
+          "nightstand", "bonsai", "prize_vase", "box_of_mice",
       },
       shelf_of = {
           corkboard = "stats", starter_gift_box = "rack", fight_night_poster = "hu",

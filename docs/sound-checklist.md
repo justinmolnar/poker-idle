@@ -1,7 +1,7 @@
 # Sound checklist
 
 Every sound the build wants, one line each, so they can be sourced in one
-sitting. Cross-referenced 2026-09-04 against `data/sounds.lua` (the named
+sitting. Cross-referenced 2026-09-04 (items and the room rechecked 2026-09-08) against `data/sounds.lua` (the named
 presets), every `playNamed` / timeline beat / `arrival_sound` in the code,
 `assets/audio/` on disk, and the catalog's item ids. Companion to
 `docs/audio-audit.md` (the why).
@@ -89,30 +89,46 @@ now.
 
 ## 6. Per-item foley
 
-Each item plays the file named after its id: in the room count, and again
-when it fires in play. 52 are in (`assets/audio/items`, credited in its
-MANIFEST). Still to find, for the items added since:
+Each item plays the file named after its id (`assets/audio/items/<id>.ogg`):
+in the room count, and again when it fires in play. Every item has its OWN
+file; nothing shares. 46 of the 72 live items are in (credited in the
+folder's MANIFEST). Rechecked 2026-09-08 after the reskin: the ids are the
+frozen save keys, the names are what the card says now.
 
-- [ ] `bonsai` | leaves brushed, a snip | count only
-- [ ] `candle` | a match strike, short | a Stack win lights a heater
-- [ ] `cleaning_robot` | a small motor whir | a Stack win sends the cursors into overdrive
-- [ ] `cool_towel` | wet cloth wrung once | a tilt ending heats the table
-- [ ] `copy_machine` | copier feed, one sheet | the printer's sweep deals a Zoom table
-- [ ] `desk` | a hand set down on wood | count only (run start is silent)
-- [ ] `desk_lamp` | a lamp switch, click | count only
-- [ ] `dish_soap` | a squeeze bottle, short | a tilt slides to the next table
-- [ ] `dusty_console` | a cartridge blown on, a click | count only
-- [ ] `fight_night_poster` | a bell, one strike | a Heads-Up bounty pays double
-- [ ] `glass_partition` | a knuckle on glass | count only
-- [ ] `handheld` | a handheld's power tone / button click | count only
-- [ ] `house_cat` | one short meow | every 50 hands won, a tier bump
-- [ ] `red_rug` | a rug shaken out, one flap | count only
-- [ ] `telephone` | a receiver set down | count only
-- [ ] `waste_basket` | paper into a bin | a tilt lands in the corner
-- [ ] `whiteboard` | a marker squeak, short | count only
+- [ ] `fight_night_poster` | Fight Night Poster | a bell, one strike | count only
+- [ ] `cutting_board` | Tally Book | a pencil scratch, one stroke | count only
+- [ ] `bonsai` | Bonsai | leaves brushed, a snip | count only
+- [ ] `house_cat` | House Cat | one short meow | 1 in 50 hands won, a random table's next win bumps
+- [ ] `candle` | Candle | a match strike, short | a Stack win lights a random table
+- [ ] `trophy_shelf` | Trophy Shelf | a small cup set down on wood | a bounty pays double
+- [ ] `dusty_console` | Dusty Console | a cartridge blown on, a click | count only
+- [ ] `handheld` | Handheld | a handheld's power tone or button click | a Zoom loss deals the next hand
+- [ ] `red_rug` | Red Rug | a rug shaken out, one flap | count only
+- [ ] `dish_soap` | Dish Soap | a squeeze bottle, short | a tilt slides to the next table
+- [ ] `rolled_vouchers` | Bottle of Wine | a cork | the first table at a stake catches a heater
+- [ ] `desk_lamp` | Desk Lamp | a lamp switch, click | count only
+- [ ] `telephone` | Telephone | a receiver set down | count only
+- [ ] `old_keyboard` | Old Keyboard | one stuck key | count only
+- [ ] `medical_poster` | Medical Poster | paper pressed flat on a wall | a knockout revives a busted neighbour
+- [ ] `framed_diploma` | Hybrid Console | a dock click | count only
+- [ ] `washing_machine` | Washing Machine | the spin, short | count only
+- [ ] `floor_plant` | Floor Plant | big leaves, brushed | a 6-Max Stack bumps its neighbours
+- [ ] `gas_stove` | Gas Stove | an igniter click | count only
+- [ ] `cast_iron_pan` | Cast Iron Pan | a pan set on a burner, clang | count only
+- [ ] `curved_monitor` | Hot Bath | water, a tap run for a second | a knockout's steam heats a neighbour
+- [ ] `tower_upgrade` | Fresh Towel | a towel snap | a knockout bumps a neighbour's next win
+- [ ] `copy_machine` | Replay TV | tape whir, a deck loading | count only
+- [ ] `high_roller_pass` | Shower Head | a shower running, short | count only
+- [ ] `shredder` | Box of Tissues | one tissue pulled | a knockout refunds a neighbour's buy-in
+- [ ] `waste_basket` | Kitchen Bin | a bin lid | a tilt lands in the corner
+- [ ] `cleaning_robot` | Cleaning Robot | a small motor whir | count only
+
+In `assets/audio/items/unassigned/`, five files whose items became something
+else on 2026-09-07 (a beep, a glass tap, a paper rip, a shredder, a card
+draw): free to reuse under a new name, or delete.
 
 (`tilt` and `snake_case_unique` are a hidden system entry and the authoring
-template; no sound.)
+template; `ultra_stake` has its file; no sound for the first two.)
 
 ## 7. Paper: the catalog and the pamphlet
 
@@ -143,6 +159,50 @@ cursors; the click flash is silent.
 - [x] title key-up | the radio open, static only, no words | the intercom keys up while the title idles
 - [ ] credits (wire) | silence, or the clean loop | the credits
 
+## 9. The room: items with no cell
+
+Every item is placed once, in the room editor, into `data/room_layout.lua`
+(`gx, gy` on the 5x5 grid, `align` for a wall). 26 of the 72 live items have
+no entry, so they do not appear in the room when owned and the shove's count
+skips past them. Rechecked 2026-09-08.
+
+- [ ] `fight_night_poster` | Fight Night Poster
+- [ ] `cutting_board` | Tally Book
+- [ ] `bonsai` | Bonsai
+- [ ] `house_cat` | House Cat
+- [ ] `candle` | Candle
+- [ ] `trophy_shelf` | Trophy Shelf
+- [ ] `dusty_console` | Dusty Console
+- [ ] `handheld` | Handheld
+- [ ] `red_rug` | Red Rug
+- [ ] `dish_soap` | Dish Soap
+- [ ] `desk_lamp` | Desk Lamp
+- [ ] `telephone` | Telephone
+- [ ] `old_keyboard` | Old Keyboard
+- [ ] `medical_poster` | Medical Poster
+- [ ] `washing_machine` | Washing Machine
+- [ ] `floor_plant` | Floor Plant
+- [ ] `gas_stove` | Gas Stove
+- [ ] `cast_iron_pan` | Cast Iron Pan
+- [ ] `curved_monitor` | Hot Bath
+- [ ] `tower_upgrade` | Fresh Towel
+- [ ] `copy_machine` | Replay TV
+- [ ] `high_roller_pass` | Shower Head
+- [ ] `window` | Window
+- [ ] `blackout_curtains` | Blackout Curtains
+- [ ] `waste_basket` | Kitchen Bin
+- [ ] `cleaning_robot` | Cleaning Robot
+
+Placed, but the cell was tuned for the sprite the id used to wear (the
+2026-09-07 reskin moved the entry with the sound); each wants a look in
+the editor:
+
+- [ ] `nightstand` (now the Chrome Toaster, in the old toaster's cell)
+- [ ] `chrome_toaster` (now the Nightstand, in the old nightstand's cell)
+- [ ] `whiteboard` (now the Rubber Duck, in the retired duck's cell)
+- [ ] `cool_towel` (now the Electric Kettle, in the retired kettle's cell)
+- [ ] `glass_partition` (now the Beige Tower, in the old tower's cell)
+
 ## Totals
 
 | section | in | stand-in | to find |
@@ -152,11 +212,12 @@ cursors; the click flash is silent.
 | room count and cut | 2 | 4 | 2 |
 | felt | 1 | 7 | 1 |
 | grind | 0 | 12 | 13 |
-| items | 52 | 0 | 17 |
+| items | 46 | 0 | 27 |
 | paper | 0 | 1 | 10 |
 | interface | 2 | 1 | 6 |
+| room cells | 46 | 5 to retune | 26 |
 
-**58 to find, 24 stand-ins worth replacing; 39 lines need a hook in the
-code before a file does anything (marked wire).** The wiring is one
+**68 sounds to find, 24 stand-ins worth replacing; 39 lines need a hook in the
+code before a file does anything (marked wire). 26 room cells to place, 5 to retune.** The wiring is one
 `playNamed` per line; ask and I'll add the hooks in a batch so every name
 here pairs with a file the moment it lands in `assets/audio/`.

@@ -174,9 +174,9 @@ local items = {
         sprite      = "mirror",
         phase       = "demo",
         cost_chip     = 4,
-        -- The book's prerequisite teacher: the blue "SEE No." slip points at
-        -- the Fight Night Poster, the Heads-Up intro on page one, resolved by
-        -- that 4-{chip} purchase — never a wall, and it
+        -- The blue "SEE No." slip points at the Fight Night Poster, the
+        -- Heads-Up intro on page one, resolved by that 4-{chip} purchase —
+        -- never a wall (page one's own Gift Box teaches the slip first), and it
         -- keeps the first post-shove catalog down to ONE ready-to-peel
         -- (the Gift Box). The old hu_unlocked gate was long-met by then.
         requires    = "fight_night_poster",
@@ -203,7 +203,7 @@ local items = {
         description = "A duel draws a crowd. The crowd pays.",
         sprite      = "fight_night_poster",
         phase       = "demo",
-        cost_chip   = 5,
+        cost_chip   = 4,
         unlock = {
             kind      = "total_chips_banked",
             threshold = 1,
@@ -234,7 +234,7 @@ local items = {
         description = "Tastes terrible. Works fine.",
         sprite      = "energy_drink",
         phase       = "demo",
-        cost_chip     = 4,
+        cost_chip     = 3,
         position    = { x = 200, y = 220 },
         effects     = {
             { kind = "shove_rate_add" },
@@ -256,7 +256,7 @@ local items = {
         description = "Pins, notes, one photo of a beach.",
         sprite      = "corkboard",
         phase       = "demo",
-        cost_chip     = 4,
+        cost_chip     = 2,
         position    = { x = 240, y = 220 },
         effects     = {
             { kind = "shove_rate_add" },
@@ -318,7 +318,10 @@ local items = {
         description = "A wrapped gift box for starting fresh.",
         sprite      = "starter_gift_box",
         phase       = "demo",
-        cost_chip   = 4,
+        cost_chip   = 3,
+        -- Page one's chain teacher: the first "SEE No." slip in the book points
+        -- at the Corkboard, two cards to the left, and the 2-{chip} buy clears it.
+        requires    = "corkboard",
         position    = { x = 360, y = 220 },
         unlock = {
             kind      = "has_shoved",
@@ -1100,7 +1103,7 @@ local items = {
         description = "Cardboard storage box of mice.",
         sprite      = "box_of_mice",
         phase       = "late",
-        cost_chip     = 9,
+        cost_chip     = 13,
         slots       = 1,  -- demoted from hero so the whole cursor chain fits one spread
         position    = { x = 100, y = 500 },
         effects     = {
@@ -1336,7 +1339,7 @@ local items = {
         description = "Two slots. One setting. Pops without warning.",
         sprite      = "nightstand",
         phase       = "late",
-        cost_chip   = 9,
+        cost_chip   = 5,
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "proc", proc = "nightstand_rested" },

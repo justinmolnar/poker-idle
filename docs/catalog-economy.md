@@ -33,7 +33,7 @@ budget:
 
 | act | intro | core | chain link | capstone |
 |---|---|---|---|---|
-| Act 1 | 4-5 (a key 8-9) | 5-10 | | 12-14 |
+| Act 1 | 2-5 (a key 8-13) | 5-10 | | 12-14 |
 | Act 2 | cheap tier 8-10 | 12-16 | 12-18 | 18-22 |
 
 Act 2 has a cheap tier on purpose: the 2026-09-04 audit found nothing
@@ -58,7 +58,7 @@ under 9 chips there.
 
 ## The shelves, in reading order
 
-Value Buys 4 · 4 · 4 · 5 · 8 · 8 · 9 · 9 — Stats 3 · 4 · 5 · 6 · 6 · 7 · 7 · 14 — Rack 6 · 7 · 8 · 8 · 8 · 12 · 20 · 22 — Heads-Up 4 · 6 · 6 · 6 · 8 · 8 · 8 · 22 — Zoom 6 · 6 · 8 · 8 · 14 · 16 · 17 · 18 — 6-Max 6 · 8 · 8 · 14 · 16 · 18 · 20 · 22 — Tournaments 12 · 13 · 14 · 15 · 16 · 17 · 18 · 20 — Mental 8 · 8 · 12 · 13 · 14 · 15 · 16 · 18 — Cursors 10 · 11 · 12 · 12 · 13 · 15 · 16 · 20. (`lua sim/lint_catalog_economy.lua` prints the live list with ids.)
+Value Buys 2 · 3 · 3 · 4 · 5 · 8 · 8 · 13 — Stats 3 · 4 · 5 · 6 · 6 · 7 · 7 · 14 — Rack 6 · 7 · 8 · 8 · 8 · 12 · 20 · 22 — Heads-Up 4 · 6 · 6 · 6 · 8 · 8 · 8 · 22 — Zoom 6 · 6 · 8 · 8 · 14 · 16 · 17 · 18 — 6-Max 6 · 8 · 8 · 14 · 16 · 18 · 20 · 22 — Tournaments 12 · 13 · 14 · 15 · 16 · 17 · 18 · 20 — Mental 8 · 8 · 12 · 13 · 14 · 15 · 16 · 18 — Cursors 10 · 11 · 12 · 12 · 13 · 15 · 16 · 20. (`lua sim/lint_catalog_economy.lua` prints the live list with ids.)
 
 ## What changed on 2026-09-07
 

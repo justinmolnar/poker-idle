@@ -264,7 +264,7 @@ return {
                 { text = "Everything you've got, in one pile. I'll match it if you win and you can walk right out. I love this part.",
                   anchor = "shove:pot",
                   show   = { kind = "shove_pot_landed" } },
-                { text = "This bar is your {c:chance:odds} at beating me. I'm pretty good though.",
+                { text = "This bar is your shot at beating me. I'm pretty good though.",
                   anchor = "shove:readout",
                   show   = { kind = "shove_phase", phase = "running" } },
                 { text = "...Am I reading that right? 0%? Bad luck.",
@@ -345,7 +345,7 @@ return {
             lines = {
                 { text = "Everything you bought from the catalog, delivered as promised. These never reset.",
                   anchor = "room:items" },
-                { text = "Your {c:chance:odds} on the SHOVE: Items in your room, multiplied by your total bankroll." },
+                { text = "Your shot on the SHOVE: items in your room, multiplied by your total bankroll." },
                 { text = "So it's about {chip} now. Every table pays one. Collect, then shove. You'll get it. Next time.",
                   anchor = "room:play" },
             },
