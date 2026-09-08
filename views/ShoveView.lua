@@ -449,6 +449,7 @@ end
 function ShoveView:onGauntletBegin(milestone, chips_banked)
     local g = self.ss.gauntlet
     if not g or not g.result then return end
+    self._fade_run = (self._fade_run or 0) + 1
     self.milestone    = milestone
     self.chips_banked = chips_banked or 0
 
@@ -475,8 +476,17 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
 
     local function startAnim(key, preset)
         return function()
-            self.card_anims[key] = anims:create(preset, {}, "cards")
-            self.card_anims[key]:start()
+            local a = anims:create(preset, {}, "cards")
+            -- Stable ids, so the Motion.fade keys below are built once per
+            -- card instead of formatting the animation's table address into
+            -- a fresh string every frame it draws. The run counter keeps
+            -- them unique per gauntlet: a fade abandoned half-done by a
+            -- reset must not tell the next run's card it has already faded.
+            local run = self._fade_run or 0
+            a._fade_deal = "shove_deal:" .. run .. ":" .. key
+            a._fade_turn = "shove_turn:" .. run .. ":" .. key
+            self.card_anims[key] = a
+            a:start()
         end
     end
 
@@ -1651,9 +1661,13 @@ end
 
 -- Which readouts the dealer has buried. Keyed off the cheat cards having
 -- actually been dealt, so the numbers and the cards can never disagree.
+-- Reused: read every frame by the readout, and it is two booleans.
 function ShoveView:_coveredRuns()
-    return { base = self.card_anims.board_6 ~= nil,
-             mult = self.card_anims.board_7 ~= nil }
+    local c = self._covered
+    if not c then c = {}; self._covered = c end
+    c.base = self.card_anims.board_6 ~= nil
+    c.mult = self.card_anims.board_7 ~= nil
+    return c
 end
 
 -- The dealer's cheat cards: board cards 6 and 7, dealt UPRIGHT into row
@@ -1780,7 +1794,7 @@ function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key, side)
     slot_x, slot_y, rot, dp = dealPos(deal_anim, slot_x, slot_y,
                                       tableCenterX(love.graphics.getWidth()))
     local deal_alpha = dealAlpha(dp) * self:_sideAlpha(side)
-                       * Motion.fade("cards", "shove_deal:" .. tostring(deal_anim))
+                       * Motion.fade("cards", deal_anim._fade_deal)
 
     if not flip_anim then
         drawCardSprite(sl, back, slot_x, slot_y, CARD_W, CARD_H, 1, deal_alpha, nil, nil, rot)
@@ -1793,7 +1807,7 @@ function ShoveView:_drawHoleCard(card, slot_x, slot_y, deal_key, side)
         drawCardSprite(sl, back, slot_x, slot_y, CARD_W, CARD_H, sx, deal_alpha, nil, nil, rot)
     else
         local sx = 2 * p - 1
-        deal_alpha = deal_alpha * Motion.fade("cards", "shove_turn:" .. tostring(flip_anim) .. deal_key)
+        deal_alpha = deal_alpha * Motion.fade("cards", flip_anim._fade_turn .. deal_key)
         local result = self.ss.gauntlet and self.ss.gauntlet.result
         local eval = result and result.evals[self:_revealedRunoutIdx()]
         drawCardSprite(sl, front, slot_x, slot_y, CARD_W, CARD_H, sx, deal_alpha,
@@ -1814,7 +1828,7 @@ function ShoveView:_drawBoardCard(i, x, y)
 
     local rot, dp
     x, y, rot, dp = dealPos(anim, x, y, tableCenterX(love.graphics.getWidth()))
-    local alpha = dealAlpha(dp) * Motion.fade("cards", "shove_deal:" .. tostring(anim))
+    local alpha = dealAlpha(dp) * Motion.fade("cards", anim._fade_deal)
     local eval = result.evals[self:_revealedRunoutIdx()]
     local v = self:_verdictFor(card, eval)
     if v == "lose" then alpha = alpha * (Style.cards.loser_alpha or 1) end
@@ -1887,9 +1901,15 @@ function ShoveView:_drawShoveStatus(W, H)
     local pr = math.floor(CARD_W * Style.pot.scale * 0.5)
     AnchorRegistry.set("shove:pot", pot_cx - pr, pot_cy - pr, pr * 2, pr * 2)
     if not self.pot_gone and self.buildup_chips and #self.buildup_chips > 0 then
-        local chip_indices = {}
-        for i, c in ipairs(self.buildup_chips) do
-            chip_indices[i] = c.denom_idx
+        -- Built once with the chips, not rebuilt per frame: the list is
+        -- fixed from beginBuildup until the pot leaves.
+        local chip_indices = self._pot_indices
+        if not chip_indices or #chip_indices ~= #self.buildup_chips then
+            chip_indices = {}
+            for i, c in ipairs(self.buildup_chips) do
+                chip_indices[i] = c.denom_idx
+            end
+            self._pot_indices = chip_indices
         end
         self:_drawPot(chip_indices)
     end
@@ -1901,8 +1921,12 @@ end
 function ShoveView:_potTo(who)
     if self.pot_gone or not self.buildup_chips then return end
     local W = love.graphics.getWidth()
-    local denoms = {}
-    for i, c in ipairs(self.buildup_chips) do denoms[i] = c.denom_idx end
+    local denoms = self._pot_indices
+    if not denoms or #denoms ~= #self.buildup_chips then
+        denoms = {}
+        for i, c in ipairs(self.buildup_chips) do denoms[i] = c.denom_idx end
+        self._pot_indices = denoms
+    end
     local px, py = self:_potPos()
     local src = { px, py - math.floor(CARD_H * 0.3) }
     -- On a loss the pile is pushed UP and off the top of the felt, toward
@@ -2095,7 +2119,11 @@ function ShoveView:draw()
     -- In-flight chips and confetti. FlightSystem is drawn in exactly one
     -- other place, the grind view; without this line a flight emitted here
     -- ticks invisibly and pops into existence back on the grind.
-    FlightSystem.draw()
+    --
+    -- Skipped while the ending runs: that path draws this same layer again
+    -- after the pile (a card still in the air belongs above it), so doing it
+    -- here as well rendered every in-flight entity twice.
+    if not self.ending then FlightSystem.draw() end
 
     -- There is no WIN / LOSS strip. It said the same thing as the cards a
     -- third time, in a red box, and it was the ugliest thing on the screen.
@@ -2134,7 +2162,6 @@ function ShoveView:draw()
     -- included; the cards still in the air stay on top of the pile.
     if self.ending then
         self:_drawPile()
-        FlightSystem.draw()
     end
 
     -- Leaving is a deliberate act on a button, never a stray click on the

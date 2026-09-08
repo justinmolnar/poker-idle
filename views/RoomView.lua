@@ -315,9 +315,9 @@ function RoomView:new(game)
     local floors_seen = {}
     local walls_seen = {}
 
-    if game.sprite_loader and game.sprite_loader.sprites then
+    if game.sprite_loader and game.sprite_loader.paths then
         local sprite_names = {}
-        for name, _ in pairs(game.sprite_loader.sprites) do
+        for name, _ in pairs(game.sprite_loader.paths) do
             if name:sub(1, 10) == "isometric/" or name:sub(1, 15) == "TinyHouse_0.17(" then
                 sprite_names[#sprite_names + 1] = name
             end
@@ -608,6 +608,27 @@ end
 --
 -- The full-screen framing every caller shares (data/room_layout __meta.view):
 -- zoom, and dy as a fraction of the height. Pass H to get dy in pixels.
+-- Did any input that decides where the floor/wall tiles land change since
+-- this slot last asked? Each batch keeps its own record, so the walls and
+-- the floor track independently. Zoom and pan are deliberately absent: they
+-- live in the transform the batches are drawn under, not in the tile
+-- coordinates, so moving the camera reuses the batch.
+function RoomView:_tileGeoDirty(slot, cx, cy, tw, th, k, courses, flip)
+    local prev = self[slot]
+    if not prev then prev = {}; self[slot] = prev end
+    if prev.cx == cx and prev.cy == cy and prev.tw == tw and prev.th == th
+       and prev.k == k and prev.courses == courses and prev.flip == flip
+       and prev.size == self.room_size and prev.set == self.tile_set
+       and prev.wall_idx == self.wall_idx and prev.floor_idx == self.floor_idx then
+        return false
+    end
+    prev.cx, prev.cy, prev.tw, prev.th = cx, cy, tw, th
+    prev.k, prev.courses, prev.flip    = k, courses, flip
+    prev.size, prev.set                = self.room_size, self.tile_set
+    prev.wall_idx, prev.floor_idx      = self.wall_idx, self.floor_idx
+    return true
+end
+
 function RoomView:frameOpts(H)
     local fr = self.frame or { zoom = 1.9, dy = 0.06 }
     return fr.zoom, math.floor(H * fr.dy)
@@ -649,14 +670,20 @@ function RoomView:draw(full_screen, opts)
     cy = fl(cy + 0.5)
 
     local state = game.state
-    local owned_set = {}
-    local corrupted_set = {}
-    for _, id in ipairs(state.corrupted_items or {}) do corrupted_set[id] = true end
-    if state.owned_items then
-        for _, id in ipairs(state.owned_items) do
-            owned_set[id] = true
-        end
+    -- Both sets were rebuilt from the save's lists every frame. They move
+    -- only when the player buys or corrupts something, which bumps
+    -- owned_rev (models/GameState.markCatalogDirty).
+    local owned_rev = state.owned_rev or 0
+    if self._sets_rev ~= owned_rev then
+        local owned, corrupt = {}, {}
+        for _, id in ipairs(state.corrupted_items or {}) do corrupt[id] = true end
+        for _, id in ipairs(state.owned_items or {}) do owned[id] = true end
+        self._owned_set, self._corrupt_set = owned, corrupt
+        self._sets_rev  = owned_rev
+        self._render_rev = nil        -- the resolve below reads these
     end
+    local owned_set     = self._owned_set
+    local corrupted_set = self._corrupt_set
 
     local tw, th, tile_k = tileMetrics(s)
     local wh = WALL_H * s
@@ -673,9 +700,14 @@ function RoomView:draw(full_screen, opts)
     local _, by1 = gridToScreen(0, 0, cx, cy, tw, th)
     local _, by2 = gridToScreen(n, n, cx, cy, tw, th)
     by1 = by1 - wh
-    self._view = { cx = cx, cy = cy, zoom = zoom, dy = oy,
-                   bounds = { x1 = bx1, y1 = by1, x2 = bx2, y2 = by2,
-                              cx = (bx1 + bx2) * 0.5, cy = (by1 + by2) * 0.5 } }
+    -- Written in place: two tables a frame, read by the lighting pass, the
+    -- shove's room count and every hit test.
+    local view = self._view
+    if not view then view = { bounds = {} }; self._view = view end
+    view.cx, view.cy, view.zoom, view.dy = cx, cy, zoom, oy
+    local b = view.bounds
+    b.x1, b.y1, b.x2, b.y2 = bx1, by1, bx2, by2
+    b.cx, b.cy = (bx1 + bx2) * 0.5, (by1 + by2) * 0.5
     love.graphics.push()
     love.graphics.translate(cx, cy + oy)
     love.graphics.scale(zoom, zoom)
@@ -727,21 +759,41 @@ function RoomView:draw(full_screen, opts)
         local side_a = flip and A.wall_r or A.wall_l
         local wsx = flip and -wk or wk
 
+        -- Batched. Two runs of room_size x courses draws (about 40 at the
+        -- default 10x2, and they never change while the room sits still)
+        -- become one draw call per wall. The batch is in the pre-zoom space
+        -- the transform above establishes, so panning and zooming reuse it;
+        -- only the room's shape, theme, flips, courses or scale rebuild it.
+        local dirty = self:_tileGeoDirty("_wall_geo", cx, cy, tw, th, wk, WALL_COURSES, flip)
+        if dirty or not self._wall_back or not self._wall_side
+           or self._wall_back:getTexture() ~= back_sprite
+           or self._wall_side:getTexture() ~= side_sprite then
+            if not self._wall_back or self._wall_back:getTexture() ~= back_sprite then
+                self._wall_back = love.graphics.newSpriteBatch(back_sprite, 128)
+            end
+            if not self._wall_side or self._wall_side:getTexture() ~= side_sprite then
+                self._wall_side = love.graphics.newSpriteBatch(side_sprite, 128)
+            end
+            self._wall_back:clear()
+            self._wall_side:clear()
+            for x = 0, self.room_size - 1 do
+                local wx, wy = gridToScreen(x, 0, cx, cy, tw, th)
+                for level = 0, WALL_COURSES - 1 do
+                    self._wall_back:add(wx, wy - level * course_dy,
+                        0, wsx, wk, back_a.ox, back_a.oy)
+                end
+            end
+            for y = 0, self.room_size - 1 do
+                local wx, wy = gridToScreen(0, y, cx, cy, tw, th)
+                for level = 0, WALL_COURSES - 1 do
+                    self._wall_side:add(wx, wy - level * course_dy,
+                        0, wsx, wk, side_a.ox, side_a.oy)
+                end
+            end
+        end
         love.graphics.setColor(1, 1, 1, 1)
-        for x = 0, self.room_size - 1 do
-            local wx, wy = gridToScreen(x, 0, cx, cy, tw, th)
-            for level = 0, WALL_COURSES - 1 do
-                love.graphics.draw(back_sprite, wx, wy - level * course_dy,
-                    0, wsx, wk, back_a.ox, back_a.oy)
-            end
-        end
-        for y = 0, self.room_size - 1 do
-            local wx, wy = gridToScreen(0, y, cx, cy, tw, th)
-            for level = 0, WALL_COURSES - 1 do
-                love.graphics.draw(side_sprite, wx, wy - level * course_dy,
-                    0, wsx, wk, side_a.ox, side_a.oy)
-            end
-        end
+        love.graphics.draw(self._wall_back)
+        love.graphics.draw(self._wall_side)
     else
         -- Left-back wall fallback polygon
         local lx1, ly1 = gridToScreen(0, 0, cx, cy, tw, th)
@@ -791,12 +843,35 @@ function RoomView:draw(full_screen, opts)
     local fk  = tile_k * 64 / floor_set
     local fsx = self.floor_flip and -fk or fk
 
+    -- The floor is room_size squared draws of one sprite — 100 at the
+    -- default size — and it is the same 100 every frame. Batched on the same
+    -- key as the walls; the fallback checkerboard and the editor's grid
+    -- overlay stay immediate below.
+    if floor_sprite then
+        local fdirty = self:_tileGeoDirty("_floor_geo", cx, cy, tw, th, fk,
+                                          self.room_size, self.floor_flip)
+        if fdirty or not self._floor_batch
+           or self._floor_batch:getTexture() ~= floor_sprite then
+            if not self._floor_batch or self._floor_batch:getTexture() ~= floor_sprite then
+                self._floor_batch = love.graphics.newSpriteBatch(floor_sprite, 512)
+            end
+            self._floor_batch:clear()
+            for x = 0, self.room_size - 1 do
+                for y = 0, self.room_size - 1 do
+                    local tx1, ty1 = gridToScreen(x, y, cx, cy, tw, th)
+                    self._floor_batch:add(tx1, ty1, 0, fsx, fk, FA.floor.ox, FA.floor.oy)
+                end
+            end
+        end
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(self._floor_batch)
+    end
+
     for x = 0, self.room_size - 1 do
         for y = 0, self.room_size - 1 do
             local tx1, ty1 = gridToScreen(x, y, cx, cy, tw, th)
             if floor_sprite then
-                love.graphics.setColor(1, 1, 1, 1)
-                love.graphics.draw(floor_sprite, tx1, ty1, 0, fsx, fk, FA.floor.ox, FA.floor.oy)
+                -- drawn in the batch above
             else
                 -- Checkerboard floor pattern fallback
                 if (x + y) % 2 == 0 then
@@ -826,48 +901,71 @@ function RoomView:draw(full_screen, opts)
     -- set in play; in the editor, everything in the room minus the anchors
     -- ticked off. Each entry drawn is the RESOLVED fields with __src
     -- pointing at the placed entry itself.
-    local resolve_set = self:_resolveSet(owned_set)
-    self._resolved = RoomPlacement.resolveAll(self.placed, resolve_set)
-    local render_list = {}
-    for _, obj in ipairs(self.placed) do
-        local r = self._resolved[obj]
-        local fields = r.fields
-        local show
-        if self.editor_mode then
-            -- the eye in the layers panel; an anchor ticked off is gone
-            show = not obj.hidden and not (self.anchors_off and self.anchors_off[obj.id])
-        else
-            -- Catalog items (and numbered copies of them) need owning;
-            -- flavor is the room itself and is always there.
-            local needs = self:_catalogBase(obj)
-            show = (needs == nil or owned_set[needs]) and r.shown
+    -- Gated on a revision: resolveAll walks every entry's home chain and
+    -- copies its fields, the filter allocates a list, and the sort below
+    -- recomputes depth on every comparison — all of it per frame, for an
+    -- answer that moves only when the layout, the owned set or the editor's
+    -- selection changes. The geometry (where it lands on screen) is NOT part
+    -- of this and is still recomputed below, so panning and zooming stay live.
+    --
+    -- Only in play. In the editor every keystroke can move, hide, reparent
+    -- or delete something, and chasing all of those invalidations would be
+    -- a standing bug source for a dev-only screen whose frame budget does
+    -- not matter. So the editor always re-solves, and play — where the room
+    -- is a static set of owned things — solves once.
+    local cacheable   = not self.editor_mode
+    local render_list = cacheable and self._render_list or nil
+    if not render_list or self._render_rev ~= owned_rev then
+        self._render_rev = cacheable and owned_rev or nil
+        local resolve_set = self:_resolveSet(owned_set)
+        self._resolved = RoomPlacement.resolveAll(self.placed, resolve_set)
+        render_list = {}
+        for _, obj in ipairs(self.placed) do
+            local r = self._resolved[obj]
+            local fields = r.fields
+            local show
+            if self.editor_mode then
+                -- the eye in the layers panel; an anchor ticked off is gone
+                show = not obj.hidden and not (self.anchors_off and self.anchors_off[obj.id])
+            else
+                -- Catalog items (and numbered copies of them) need owning;
+                -- flavor is the room itself and is always there.
+                local needs = self:_catalogBase(obj)
+                show = (needs == nil or owned_set[needs]) and r.shown
+            end
+            if show then
+                fields.__src   = obj
+                fields.__ghost = (self.editor_mode and not r.shown) or false
+                render_list[#render_list + 1] = fields
+            end
         end
-        if show then
-            fields.__src   = obj
-            fields.__ghost = (self.editor_mode and not r.shown) or false
-            render_list[#render_list + 1] = fields
-        end
-    end
 
-    -- 4. Depth sort (Painter's algorithm: sort back-to-front by center index)
-    -- `layer` (Z / X on the thing in hand) overrides depth: higher draws
-    -- over everything on a lower layer, whatever its position.
-    table.sort(render_list, function(a, b)
-        local la, lb = a.layer or 0, b.layer or 0
-        if la ~= lb then return la < lb end
-        local depth_a = (a.gx + a.w * 0.5) + (a.gy + a.h * 0.5)
-        local depth_b = (b.gx + b.w * 0.5) + (b.gy + b.h * 0.5)
-        if math.abs(depth_a - depth_b) < 0.001 then
-            -- Tie-breaker: draw wall attachments (z_offset > 0) behind floor attachments
-            return (a.z_offset or 0) < (b.z_offset or 0)
-        end
-        return depth_a < depth_b
-    end)
+        -- 4. Depth sort (Painter's algorithm: sort back-to-front by center index)
+        -- `layer` (Z / X on the thing in hand) overrides depth: higher draws
+        -- over everything on a lower layer, whatever its position.
+        table.sort(render_list, function(a, b)
+            local la, lb = a.layer or 0, b.layer or 0
+            if la ~= lb then return la < lb end
+            local depth_a = (a.gx + a.w * 0.5) + (a.gy + a.h * 0.5)
+            local depth_b = (b.gx + b.w * 0.5) + (b.gy + b.h * 0.5)
+            if math.abs(depth_a - depth_b) < 0.001 then
+                -- Tie-breaker: draw wall attachments (z_offset > 0) behind floor attachments
+                return (a.z_offset or 0) < (b.z_offset or 0)
+            end
+            return depth_a < depth_b
+        end)
+        self._render_list = cacheable and render_list or nil
+    end
 
     -- 5. Draw the items. Their on-screen rects are kept (room space, in
     -- draw order) so move mode can grab what the mouse is actually on.
-    self._hit_rects = {}
-    self._draw_order = {}
+    -- Pooled: one rect (with its nested draw record) per item, reused across
+    -- frames instead of two fresh tables per item per frame. The tail past
+    -- n_rects is trimmed after the loop so a removed item leaves nothing.
+    local rects = self._hit_rects
+    if not rects then rects = {}; self._hit_rects = rects end
+    local n_rects = 0
+    self._draw_order = self._draw_order or {}
     for i, f in ipairs(render_list) do self._draw_order[i] = f.__src end
     local zmx0, zmy0 = self:_unzoom(love.mouse.getX(), love.mouse.getY(), cx, cy)
     for _, obj in ipairs(render_list) do
@@ -929,12 +1027,20 @@ function RoomView:draw(full_screen, opts)
             local py = sy - (obj.z_offset or 0) * s
 
             local asx = math.abs(draw_scale_x)
-            local rect = { obj = obj.__src or obj, x = px - ox * asx, y = py - oy * draw_scale_y,
-                           w = sprite:getWidth() * asx, h = sprite:getHeight() * draw_scale_y,
-                           -- exactly how it was drawn, so an overlay can redraw it in place
-                           draw = { sprite = sprite, px = px, py = py, sx = draw_scale_x, sy = draw_scale_y, ox = ox, oy = oy,
-                                    animated = animated or nil } }
-            self._hit_rects[#self._hit_rects + 1] = rect
+            n_rects = n_rects + 1
+            local rect = rects[n_rects]
+            if not rect then rect = { draw = {} }; rects[n_rects] = rect end
+            rect.obj = obj.__src or obj
+            rect.x   = px - ox * asx
+            rect.y   = py - oy * draw_scale_y
+            rect.w   = sprite:getWidth()  * asx
+            rect.h   = sprite:getHeight() * draw_scale_y
+            -- exactly how it was drawn, so an overlay can redraw it in place
+            local d = rect.draw
+            d.sprite, d.px, d.py   = sprite, px, py
+            d.sx, d.sy             = draw_scale_x, draw_scale_y
+            d.ox, d.oy             = ox, oy
+            d.animated             = animated or nil
 
             local tint = opts.item_tint and opts.item_tint(obj)
             if tint then
@@ -1013,6 +1119,10 @@ function RoomView:draw(full_screen, opts)
         end
     end
 
+
+    -- Trim what a shorter room left behind, so _hit_rects still reads as a
+    -- dense list of exactly what was drawn.
+    for i = #rects, n_rects + 1, -1 do rects[i] = nil end
     love.graphics.pop()
 
     -- The lighting pass: the room so far times a lightmap (the fixture,

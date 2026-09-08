@@ -1075,12 +1075,29 @@ function GrindView:_roomThumb()
     if not (rv and love.graphics.newCanvas) then return nil end
     local st   = self.game.state
     local W, H = love.graphics.getDimensions()
-    local key  = table.concat({ #(st.owned_items or {}), #(st.corrupted_items or {}),
-                                rv.fixture_off and 1 or 0, #(st.room_unseen or {}), W, H }, ":")
+    -- One persistent canvas, reallocated only when the frame resizes. This
+    -- used to build a key STRING every frame just to compare, and on a miss
+    -- allocate a fresh full-screen canvas while dropping the old one on the
+    -- floor — a steady VRAM leak every time the player bought something.
     local t = self._room_thumb
-    if t and t.key == key then return t.canvas, t.box end
-    local ok, canvas = pcall(love.graphics.newCanvas, W, H, { dpiscale = 1 })
-    if not ok then return nil end
+    if not t then t = {}; self._room_thumb = t end
+    local dirty = t.owned  ~= (st.owned_rev or 0)
+               or t.lights ~= (rv.fixture_off and 1 or 0)
+               or t.unseen ~= #(st.room_unseen or {})
+               or t.w ~= W or t.h ~= H
+    if not dirty and t.canvas then return t.canvas, t.box end
+
+    local canvas = t.canvas
+    if not canvas or t.w ~= W or t.h ~= H then
+        local ok, fresh = pcall(love.graphics.newCanvas, W, H, { dpiscale = 1 })
+        if not ok then return nil end
+        if canvas and canvas.release then pcall(canvas.release, canvas) end
+        canvas = fresh
+    end
+    t.owned  = st.owned_rev or 0
+    t.lights = rv.fixture_off and 1 or 0
+    t.unseen = #(st.room_unseen or {})
+    t.w, t.h = W, H
     local prev = love.graphics.getCanvas()
     love.graphics.push("all")
     love.graphics.origin()
@@ -1099,7 +1116,7 @@ function GrindView:_roomThumb()
         box.x1 = math.min(box.x1, u.x1); box.y1 = math.min(box.y1, u.y1)
         box.x2 = math.max(box.x2, u.x2); box.y2 = math.max(box.y2, u.y2)
     end
-    self._room_thumb = { key = key, canvas = canvas, box = box }
+    t.canvas, t.box = canvas, box
     return canvas, box
 end
 

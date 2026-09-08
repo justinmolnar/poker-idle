@@ -134,6 +134,9 @@ local function buildBackChain(image)
 end
 
 function SpriteLoader:init()
+    -- sprite name -> file path, filled by the scan. A key here is what
+    -- hasSprite answers from; the Image behind it may not be decoded yet.
+    self.paths = {}
     self.sprites = {}
     self.animations = {}
     self.animation_paths = {}   -- name -> { sprite key per frame } (file-per-frame groups only)
@@ -177,6 +180,57 @@ function SpriteLoader:_sliceStrip(data)
     return frames
 end
 
+-- Decode one sprite and file it. Returns the Image, or nil when the file
+-- is missing or unreadable. Decodes ONCE: the strip test needs the pixels
+-- and so does the Image.
+function SpriteLoader:_loadSprite(sprite_name)
+    local cached = self.sprites[sprite_name]
+    if cached ~= nil then return cached end
+    local item_path = self.paths[sprite_name]
+    if not item_path then return nil end   -- false = set by setSprite
+
+    local is_card = sprite_name:sub(1, #CARD_PREFIX) == CARD_PREFIX
+    local ok_data, data = pcall(love.image.newImageData, item_path)
+    if not ok_data then data = nil end
+
+    local frames = (not is_card) and data and self:_sliceStrip(data) or nil
+    if frames then
+        -- A strip (Door_2_Brown.png is 5 cells of 128x128): the cells are
+        -- the frames. _buildAnimations turns them into a sequence, so the
+        -- room, the catalog and the frame/anim keys all see a normal
+        -- animated sprite instead of the whole strip.
+        self.strips[sprite_name]     = frames
+        self.sprites[sprite_name]    = frames[1]
+        self.animations[sprite_name] = frames
+        return frames[1]
+    end
+
+    local image
+    if data then
+        local ok
+        ok, image = pcall(love.graphics.newImage, data)
+        if not ok then image = nil end
+    end
+    if image then
+        if is_card then
+            image = self:_conditionCard(sprite_name, image)
+        else
+            pcall(image.setFilter, image, "nearest", "nearest")
+        end
+        self.sprites[sprite_name] = image
+    end
+    return image
+end
+
+-- The on-demand accessor every read goes through.
+function SpriteLoader:_ensure(sprite_name)
+    if not sprite_name then return nil end
+    local img = self.sprites[sprite_name]
+    if img ~= nil then return img end
+    if not self.paths[sprite_name] then return nil end
+    return self:_loadSprite(sprite_name)
+end
+
 function SpriteLoader:_scan(rel_dir)
     local full_dir = joinPath(SPRITE_DIR, rel_dir)
     local items = love.filesystem.getDirectoryItems(full_dir)
@@ -190,39 +244,12 @@ function SpriteLoader:_scan(rel_dir)
                 if info.type == "directory" then
                     count = count + self:_scan(rel_path)
                 elseif info.type == "file" and isSupported(item) then
-                    local sprite_name = stripExt(rel_path)
-                    local is_card = sprite_name:sub(1, #CARD_PREFIX) == CARD_PREFIX
-                    -- Decode ONCE. The strip test needs the pixels and so
-                    -- does the Image, and this was decoding the file twice
-                    -- for every non-card sprite in the tree.
-                    local ok_data, data = pcall(love.image.newImageData, item_path)
-                    if not ok_data then data = nil end
-                    local frames = (not is_card) and data
-                                   and self:_sliceStrip(data) or nil
-                    if frames then
-                        -- A strip (Door_2_Brown.png is 5 cells of 128x128):
-                        -- the cells are the frames. _buildAnimations turns
-                        -- them into a sequence, so the room, the catalog
-                        -- and the frame/anim keys all see a normal
-                        -- animated sprite instead of the whole strip.
-                        self.strips[sprite_name] = frames
-                        self.sprites[sprite_name] = frames[1]
-                        count = count + 1
-                    else
-                        local ok, image = false, nil
-                        if data then
-                            ok, image = pcall(love.graphics.newImage, data)
-                        end
-                        if ok and image then
-                            if is_card then
-                                image = self:_conditionCard(sprite_name, image)
-                            else
-                                pcall(image.setFilter, image, "nearest", "nearest")
-                            end
-                            self.sprites[sprite_name] = image
-                            count = count + 1
-                        end
-                    end
+                    -- Record where it lives. The pixels are decoded when
+                    -- something first asks for the sprite (_ensure): most of
+                    -- the furniture kit is never placed, and decoding all of
+                    -- it spent the whole boot on art nothing draws.
+                    self.paths[stripExt(rel_path)] = item_path
+                    count = count + 1
                 end
             end
         end
@@ -265,7 +292,7 @@ function SpriteLoader:_buildAnimations()
     self.animations = {}
     local groups = {}
 
-    for key, img in pairs(self.sprites) do
+    for key in pairs(self.paths) do
         if not key:find("cards/") then
             local base_prefix, frame_num = key:match("^(.-)[%-_]Frame[%-_]?(%d+)$")
             if not frame_num then
@@ -281,22 +308,20 @@ function SpriteLoader:_buildAnimations()
             if base_prefix and frame_num then
                 local num = tonumber(frame_num) or frame_num:byte()
                 groups[base_prefix] = groups[base_prefix] or {}
-                table.insert(groups[base_prefix], { num = num, key = key, img = img })
+                table.insert(groups[base_prefix], { num = num, key = key })
             end
         end
     end
 
     local anim_count = 0
-    for name, frames in pairs(self.strips or {}) do
-        self.animations[name] = frames
-        anim_count = anim_count + 1
-    end
     for base_prefix, frames in pairs(groups) do
         if #frames >= 2 then
             table.sort(frames, function(a, b) return a.num < b.num end)
-            local seq = {}
+            -- A sequence of NAMES; the frames are decoded on first draw
+            -- (getSprite resolves each through _ensure).
+            local seq = { _lazy = true }
             for _, f in ipairs(frames) do
-                table.insert(seq, f.img)
+                table.insert(seq, f.key)
             end
 
             self.animations[base_prefix] = seq
@@ -335,9 +360,42 @@ end
 -- Inject a runtime-generated Image under a sprite name (procedural art
 -- baked at boot, e.g. views/HouseArt's wall poster). Loads the disk
 -- sprites first so a later lazy loadAll can't clobber the injection.
+-- Decode a named set up front. Everything else waits for its first draw,
+-- but the art that is on screen the moment a screen opens must not hitch
+-- into view — the cards, the icons, the tiles, and whatever the catalog and
+-- the room layout name. The caller supplies the list; this service knows
+-- nothing about game data.
+function SpriteLoader:preload(names, prefix)
+    if not self.loaded then self:loadAll() end
+    local n = 0
+    if prefix then
+        for name in pairs(self.paths) do
+            if name:sub(1, #prefix) == prefix and self:_ensure(name) then
+                n = n + 1
+            end
+        end
+    end
+    for _, name in ipairs(names or {}) do
+        local resolved = _resolve(self, name)
+        if self:_ensure(resolved) then n = n + 1 end
+        -- An animated name resolves to a frame sequence, not a file.
+        local anim = self.animations[resolved]
+        if anim and anim._lazy then
+            for i = 1, #anim do
+                if self:_ensure(anim[i]) then n = n + 1 end
+            end
+        end
+    end
+    return n
+end
+
 function SpriteLoader:setSprite(name, image)
     if not self.loaded then self:loadAll() end
     self.sprites[name] = image
+    -- A baked sprite (the light switch, the House's wall speaker) has no
+    -- file; make sure hasSprite still finds it and _ensure never tries to
+    -- decode over the top of it.
+    self.paths[name] = self.paths[name] or false
 end
 
 function SpriteLoader:loadAliases()
@@ -380,12 +438,18 @@ function SpriteLoader:getSprite(sprite_name, time, fps, frame)
     local resolved = _resolve(self, sprite_name)
     local anim = self.animations[resolved] or self.animations[sprite_name]
 
+    local function frameAt(list, idx)
+        local v = list[idx]
+        if list._lazy then return self:_ensure(v) end
+        return v
+    end
+
     if time == false then
         if anim and #anim > 0 then
             local static_idx = math.max(1, math.min(#anim, math.floor(frame or 1)))
-            return anim[static_idx]
+            return frameAt(anim, static_idx)
         end
-        return self.sprites[resolved]
+        return self:_ensure(resolved)
     end
 
     if anim and #anim > 0 then
@@ -399,10 +463,10 @@ function SpriteLoader:getSprite(sprite_name, time, fps, frame)
             fps = fps or (item_fps and (item_fps[sprite_name] or item_fps[resolved])) or default_fps
 
             local frame_idx = (math.floor(time * fps) % #anim) + 1
-            return anim[frame_idx]
+            return frameAt(anim, frame_idx)
         end
     end
-    return self.sprites[resolved]
+    return self:_ensure(resolved)
 end
 
 -- Lookup that knows about mip chains: hands back the smallest level still at
@@ -453,6 +517,7 @@ end
 function SpriteLoader:getSpriteFor(sprite_name, target_w, time, fps, frame)
     if not self.loaded then self:loadAll() end
     local resolved = _resolve(self, sprite_name)
+    self:_ensure(resolved)          -- the LOD chain is built by the decode
     local levels = self.lods[resolved]
     if not levels then return self:getSprite(sprite_name, time, fps, frame) end
     for i = #levels, 1, -1 do
@@ -464,7 +529,9 @@ end
 function SpriteLoader:hasSprite(sprite_name)
     if not self.loaded then self:loadAll() end
     local resolved = _resolve(self, sprite_name)
-    return self.sprites[resolved] ~= nil or self.animations[resolved] ~= nil
+    return self.paths[resolved] ~= nil
+        or self.sprites[resolved] ~= nil
+        or self.animations[resolved] ~= nil
 end
 
 return SpriteLoader

@@ -36,6 +36,7 @@
 -- what it replaced, not richer, because anything else is mud.
 
 local ChipData    = require("data.chips")
+local Constants   = require("data.constants")
 local Theme       = require("views.Theme")
 local FontService = require("services.FontService")
 local Perf        = require("services.Perf")
@@ -201,6 +202,20 @@ local _glyph_colors = { nil, nil }   -- reused { body, ring } pair
 
 local IDENTITY_TINT = { 1, 1, 1 }
 
+-- Baked chip faces (see "The baked faces" below, next to paintChip).
+-- Declared here because setScale and configureFont, defined above the
+-- bakers, have to be able to drop them.
+local _bake_half = nil
+local _bakes     = {}
+local _bake_gen  = 0
+
+-- A resize changes the chip radius and re-rasterizes the label font, so
+-- every bake is stale. Dropping the table is enough; the canvases go with it.
+local function invalidateBakes()
+    _bake_gen = _bake_gen + 1
+    _bakes    = {}
+end
+
 -- ── Frame counters (dev HUD) ────────────────────────────────────────
 -- Chip piles are the highest-count repeated element in the game and
 -- nothing else in the codebase measures draw volume, so the renderer
@@ -257,6 +272,7 @@ local _fit_dirty = true
 function Chips.configureFont(fonts)
     _font      = fonts and (fonts.sm or fonts.xs) or nil
     _fit_dirty = true
+    invalidateBakes()
 end
 
 -- Rescale chip rendering against the live ui_scale. main.lua calls
@@ -268,6 +284,7 @@ function Chips.setScale(s)
     STACK_OFFSET_Y = -math.max(2, math.floor(CHIP_RADIUS * STACK_OVERLAP))
     COL_GAP        = math.max(2, math.floor(CHIP_RADIUS * COL_GAP_FRAC))
     _fit_dirty     = true
+    invalidateBakes()
 end
 
 -- Current scaled chip radius. A pile's base chip is CENTERED on the `y` passed
@@ -364,7 +381,143 @@ end
 -- on both counts. Turning the spots costs nothing — it is one addition to
 -- their starting angle — and it is the only part that needs to differ from
 -- one chip to the next.
-local function paintChip(r, spec, alpha, detail, band_hw, spot_cap, rot, escale)
+-- The denomination plate and its label.
+--
+-- Module level rather than a closure over paintChip's locals, because the
+-- baked path below draws it live: it must not rotate with the rim, and its
+-- label is printed at 1/escale so it lands unscaled whatever size the chip
+-- is. Neither of those survives being baked into a texture.
+--
+-- One decision, not two. The plate exists to carry the number; drawn
+-- without it you get a blank white bar stamped across the chip, which is
+-- worse than no plate at all. So the fit is worked out first and either
+-- both are drawn or neither is.
+local function paintStamp(spec, alpha, band_hw, escale)
+    if not (band_hw and _font and spec.label) then return end
+    if #_plate_fill == 0 then return end
+
+    local bh    = _band_hh
+    local es    = escale or 1
+    local fw    = _font:getWidth(spec.label)
+    local fh    = _font:getHeight()
+    -- Ink, not line box: this face's digits are 1.25em tall inside a
+    -- 2.625em line box (see the band constants above).
+    local ink_h = fh * INK_OF_LINE
+
+    -- Will the label land on the plate at native size? Piles are drawn
+    -- inside love.graphics.scale(card_scale), card_scale being any
+    -- fraction from 0.3 to 1.5, and a pixel font rendered at a
+    -- fraction puts its stems between pixels — which is exactly why
+    -- chip labels came out crisp in the bankroll band (drawn at 1.0)
+    -- and mush on every table panel. There is no fractional fix: this
+    -- face is sharp at 1x, 2x, 3x and nowhere in between.
+    --
+    -- So the label lands on whole screen pixels or the chip goes bare,
+    -- and a short label survives to a smaller chip than a long one.
+    -- Measured against the chord at the label's own height: the plate
+    -- curves in at the top and bottom, so its midline width would
+    -- overstate the room.
+    if fw * 0.5 + LABEL_PAD > _band_chord * es then return end
+    if ink_h * 0.5 + LABEL_PAD > bh * es then return end
+
+    -- The plate is ONE size for every denomination and scales with the
+    -- chip, so a row of chips never looks like it is breathing. It is
+    -- always light, so the ink on it is always dark — which retires
+    -- the old luminance flip that put light text on exactly the
+    -- mid-tone bodies (the 25c green, the 5c red) where it vanished.
+    Theme.setColor(_inlay, alpha)
+    love.graphics.polygon("fill", _plate_fill)
+    -- A real bezel, at full strength. On a pale chip (the 1c is nearly
+    -- white) a light plate on a light body has no edge at all, and the
+    -- whole chip reads as one blank disc.
+    love.graphics.setLineWidth(1)
+    Theme.setColor(_bezel, alpha)
+    love.graphics.polygon("line", _plate_fill)
+
+    love.graphics.push()
+    if es ~= 1 then love.graphics.scale(1 / es, 1 / es) end
+    Theme.setColor(_ink, alpha)
+    local prev = love.graphics.getFont()
+    love.graphics.setFont(_font)
+    -- Centred on the LINE box, the same convention every other view
+    -- uses (views/Panel, views/CatalogModal and views/GrindView all
+    -- centre with `- font:getHeight() * 0.5`).
+    love.graphics.print(spec.label,
+                        math.floor(-fw * 0.5), math.floor(-fh * 0.5))
+    if prev then love.graphics.setFont(prev) end
+    love.graphics.pop()
+end
+
+-- ─── The baked faces ───────────────────────────────────────────────────
+-- A full-detail chip is about twenty immediate-mode primitives — outline,
+-- rim, eight pie arcs, face, five dome discs, two line arcs, plate, ring —
+-- and none of them batch. A full board plus the bankroll pile puts
+-- thousands of those in a frame.
+--
+-- So each variant is painted ONCE into two small canvases and thereafter
+-- drawn as two textured quads:
+--
+--   rim  — outline + rim + spots. Rotated at draw time by the slot angle,
+--          which is exact: all three are radially symmetric about the centre.
+--   face — face + dome + the light and shadow arcs + the inner ring. Never
+--          rotated, because the light comes from a fixed direction.
+--
+-- The plate and label stay live on top (see paintStamp). Buried, edge and
+-- flat chips stay vector: they are few, and already cheap.
+--
+-- `_bake_half` is read inside paintChip to select which half it is
+-- painting. nil is the ordinary, un-baked path.
+local paintChip            -- forward declaration; the bakers call it
+
+local function bakeKey(denom_idx, tint, shade, spot_cap)
+    local t = tint or IDENTITY_TINT
+    return string.format("%d|%.3f,%.3f,%.3f|%.3f|%s", denom_idx,
+                         t[1], t[2], t[3], shade or 1,
+                         spot_cap and tostring(spot_cap) or "-")
+end
+
+local function bakeHalf(which, r, spec, spot_cap, half_px)
+    if not (love.graphics and love.graphics.newCanvas) then return nil end
+    local ok, canvas = pcall(love.graphics.newCanvas, half_px * 2, half_px * 2)
+    if not ok or not canvas then return nil end
+    canvas:setFilter("linear", "linear")
+    local prev = love.graphics.getCanvas()
+    love.graphics.push("all")
+    love.graphics.origin()
+    love.graphics.setScissor()
+    love.graphics.setShader()
+    love.graphics.setBlendMode("alpha", "alphamultiply")
+    love.graphics.setCanvas(canvas)
+    love.graphics.clear(0, 0, 0, 0)
+    love.graphics.translate(half_px, half_px)
+    _bake_half = which
+    -- alpha 1 and rot 0: the caller's alpha multiplies the finished quad,
+    -- and the rim half is rotated when it is drawn.
+    paintChip(r, spec, 1, "full", nil, spot_cap, 0, 1)
+    _bake_half = nil
+    love.graphics.setCanvas(prev)
+    love.graphics.pop()
+    return canvas
+end
+
+-- The pair for this variant, baked on first use. nil means canvases are
+-- unavailable and the caller should paint the chip the old way.
+local function bakedChip(denom_idx, spec, r, spot_cap, tint, shade)
+    local key = bakeKey(denom_idx, tint, shade, spot_cap)
+    local b = _bakes[key]
+    if b and b.gen == _bake_gen then return b end
+    -- The light arcs stroke at r*0.14 centred on r*R_LIGHT, so their ink
+    -- reaches a little past the outline.
+    local half = math.ceil(r + math.max(2, r * 0.14)) + 1
+    local rim  = bakeHalf("rim",  r, spec, spot_cap, half)
+    local face = bakeHalf("face", r, spec, spot_cap, half)
+    if not (rim and face) then return nil end
+    b = { rim = rim, face = face, half = half, gen = _bake_gen }
+    _bakes[key] = b
+    return b
+end
+
+function paintChip(r, spec, alpha, detail, band_hw, spot_cap, rot, escale)
     local n     = spec.spots or 6
     if spot_cap and n > spot_cap then n = spot_cap end
     local step  = (2 * math.pi) / n
@@ -421,6 +574,7 @@ local function paintChip(r, spec, alpha, detail, band_hw, spot_cap, rot, escale)
         return
     end
 
+    if _bake_half ~= "face" then
     Theme.setColor(_out, alpha)
     love.graphics.circle("fill", 0, 0, r)
     Theme.setColor(_rim, alpha)
@@ -449,6 +603,8 @@ local function paintChip(r, spec, alpha, detail, band_hw, spot_cap, rot, escale)
             local a = phase + i * step
             love.graphics.arc("fill", "pie", 0, 0, r * R_RIM, a - half, a + half)
         end
+        if _bake_half == "rim" then return end
+    end
     end
 
     -- Face. Also what turns the spot pies into rim segments.
@@ -490,62 +646,7 @@ local function paintChip(r, spec, alpha, detail, band_hw, spot_cap, rot, escale)
     --
     -- Its own function so that bailing out of it doesn't skip the lip
     -- below — every chip at this detail level has a lip, labelled or not.
-    local function stamp()
-        if not (band_hw and _font and spec.label) then return end
-        if #_plate_fill == 0 then return end
-
-        local bh    = _band_hh
-        local es    = escale or 1
-        local fw    = _font:getWidth(spec.label)
-        local fh    = _font:getHeight()
-        -- Ink, not line box: this face's digits are 1.25em tall inside a
-        -- 2.625em line box (see the band constants above).
-        local ink_h = fh * INK_OF_LINE
-
-        -- Will the label land on the plate at native size? Piles are drawn
-        -- inside love.graphics.scale(card_scale), card_scale being any
-        -- fraction from 0.3 to 1.5, and a pixel font rendered at a
-        -- fraction puts its stems between pixels — which is exactly why
-        -- chip labels came out crisp in the bankroll band (drawn at 1.0)
-        -- and mush on every table panel. There is no fractional fix: this
-        -- face is sharp at 1x, 2x, 3x and nowhere in between.
-        --
-        -- So the label lands on whole screen pixels or the chip goes bare,
-        -- and a short label survives to a smaller chip than a long one.
-        -- Measured against the chord at the label's own height: the plate
-        -- curves in at the top and bottom, so its midline width would
-        -- overstate the room.
-        if fw * 0.5 + LABEL_PAD > _band_chord * es then return end
-        if ink_h * 0.5 + LABEL_PAD > bh * es then return end
-
-        -- The plate is ONE size for every denomination and scales with the
-        -- chip, so a row of chips never looks like it is breathing. It is
-        -- always light, so the ink on it is always dark — which retires
-        -- the old luminance flip that put light text on exactly the
-        -- mid-tone bodies (the 25c green, the 5c red) where it vanished.
-        Theme.setColor(_inlay, alpha)
-        love.graphics.polygon("fill", _plate_fill)
-        -- A real bezel, at full strength. On a pale chip (the 1c is nearly
-        -- white) a light plate on a light body has no edge at all, and the
-        -- whole chip reads as one blank disc.
-        love.graphics.setLineWidth(1)
-        Theme.setColor(_bezel, alpha)
-        love.graphics.polygon("line", _plate_fill)
-
-        love.graphics.push()
-        if es ~= 1 then love.graphics.scale(1 / es, 1 / es) end
-        Theme.setColor(_ink, alpha)
-        local prev = love.graphics.getFont()
-        love.graphics.setFont(_font)
-        -- Centred on the LINE box, the same convention every other view
-        -- uses (views/Panel, views/CatalogModal and views/GrindView all
-        -- centre with `- font:getHeight() * 0.5`).
-        love.graphics.print(spec.label,
-                            math.floor(-fw * 0.5), math.floor(-fh * 0.5))
-        if prev then love.graphics.setFont(prev) end
-        love.graphics.pop()
-    end
-    stamp()
+    if not _bake_half then paintStamp(spec, alpha, band_hw, escale) end
 
     -- ── The lip, LAST — over the plate and over the label ──────────────
     -- On a real chip the inlay is set into the face and the moulded ring
@@ -616,6 +717,39 @@ function Chips.drawChip(x, y, denom_idx, alpha, with_label, tint, shade, depth, 
 
     -- Spots below ~1.5px wide are an arc apiece for nothing.
     local spot_cap = (eff < 10) and 6 or nil
+
+    -- Two textured quads plus, when it fits, the live plate and label.
+    -- Falls through to the vector path if canvases are unavailable, and the
+    -- whole thing is off when C.FEATURES.CHIP_ATLAS is false.
+    if Constants.FEATURES.CHIP_ATLAS and detail == "full" then
+        local b = bakedChip(denom_idx, d, r, spot_cap, tint, shade)
+        if b then
+            local half = b.half
+            love.graphics.push()
+            love.graphics.translate(x, y)
+            -- Baked under ordinary alpha blending, so it composites back
+            -- premultiplied — the idiom the title's menu fade and the hint
+            -- dim already use.
+            love.graphics.setBlendMode("alpha", "premultiplied")
+            love.graphics.setColor(1, 1, 1, alpha)
+            if rot and rot ~= 0 then
+                love.graphics.push()
+                love.graphics.rotate(rot)
+                love.graphics.draw(b.rim, -half, -half)
+                love.graphics.pop()
+            else
+                love.graphics.draw(b.rim, -half, -half)
+            end
+            love.graphics.draw(b.face, -half, -half)
+            love.graphics.setBlendMode("alpha")
+            if band_hw then
+                setupColors(d, tint, shade)   -- the bakers left the scratch dirty
+                paintStamp(d, alpha, band_hw, es)
+            end
+            love.graphics.pop()
+            return
+        end
+    end
 
     if x == 0 and y == 0 then
         paintChip(r, d, alpha, detail, band_hw, spot_cap, rot, es)

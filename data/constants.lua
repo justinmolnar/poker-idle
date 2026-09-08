@@ -23,6 +23,14 @@ C.DEMO = false
 -- Per-feature flags derived from C.DEMO; override an individual entry
 -- below the assignment if you need a non-default mix for testing.
 C.FEATURES = {
+    -- Chip faces are painted once into two small canvases per variant and
+    -- drawn as textured quads thereafter (views/Chips): a full-detail chip
+    -- goes from about twenty un-batchable primitives to two quads plus its
+    -- live plate and label. This is the one change in the optimization pass
+    -- that is not pixel-identical — the rim's spot edges become raster
+    -- rather than vector arcs — so it has a switch. False restores the
+    -- original vector painting exactly.
+    CHIP_ATLAS  = true,
     -- The demo cut. Hard-stops the gauntlet at the cliffhanger with the
     -- demo-end modal; suppresses the R2/R3 cinematic; collapses the
     -- result-chip strip to a single slot; keeps the act flags and the

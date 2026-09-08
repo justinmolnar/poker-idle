@@ -562,6 +562,47 @@ function love.load()
     -- frame away and not guaranteed for a same-size setMode.
     love.resize()
     Game.sprite_loader:loadAll()
+    -- The loader indexes every file but decodes none of them: most of the
+    -- furniture kit is never placed. Decode up front only what is on screen
+    -- the moment a screen opens, so nothing pops in — every card (their
+    -- back also builds a mip chain here), and whatever the catalog, the
+    -- room layout, the icons and the tile kits name.
+    do
+        local wanted = {}
+        local function want(n) if type(n) == "string" then wanted[#wanted + 1] = n end end
+        for _, item in ipairs(Catalog) do want(item.sprite or item.id) end
+        for id, info in pairs(require("data.room_layout")) do
+            if id ~= "__meta" then
+                want(id)
+                if type(info) == "table" then want(info.sprite) end
+            end
+        end
+        for _, spec in pairs(require("data.icons")) do
+            if type(spec) == "table" then want(spec.sprite) end
+        end
+        -- The tiles the room actually opens with, by name from the layout's
+        -- own meta rather than a guess: the kit's themes are things like
+        -- "ArmyGreen" and "BeigeYellow", so an invented name would preload
+        -- nothing and the floor would pop in.
+        local Tiles  = require("data.room_tiles")
+        local meta   = (require("data.room_layout").__meta) or {}
+        local set    = meta.tile_set or Tiles.default_set
+        local folder = string.format(Tiles.folder, set)
+        -- Floor and wall themes are separate namespaces in the kit: there
+        -- is a Floor_128_BrownDark and a Wall_L_128_Bone, and no crossing.
+        if meta.floor_theme and meta.floor_theme ~= "Default" then
+            want(folder .. string.format(Tiles.floor_name, set, meta.floor_theme))
+        end
+        if meta.wall_theme and meta.wall_theme ~= "Default" then
+            want(folder .. string.format(Tiles.wall_l_name, set, meta.wall_theme))
+            want(folder .. string.format(Tiles.wall_r_name, set, meta.wall_theme))
+        end
+        for _, spec in ipairs(require("data.decks") or {}) do
+            if type(spec) == "table" then want(spec.sprite) end
+        end
+        local n = Game.sprite_loader:preload(wanted, "cards/")
+        print("[SpriteLoader] Preloaded " .. n .. " sprites; the rest load on first draw")
+    end
     -- Bake THE HOUSE's wall portrait (procedural, views/HouseArt) into
     -- the sprite pool so the room draws it like any other wall item.
     require("views.HouseArt").bake(Game.sprite_loader)

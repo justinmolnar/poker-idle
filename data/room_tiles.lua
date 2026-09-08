@@ -1,7 +1,8 @@
 -- data/room_tiles.lua
 --
 -- The floor and wall tile kits under
--- assets/sprites/isometric/Floor_Wall_Tiles_<size>/. The three sizes are
+-- assets/sprites/TinyHouse_0.17(@Pixel_Salvaje)/Floor_Wall_Tiles_<size>/.
+-- The three sizes are
 -- the same designs at three pixel densities (roughly 2x steps), but not
 -- exact scales of each other, so each set carries its own anchors,
 -- measured from the art (opaque bounds of the WoodHard tiles).
@@ -24,7 +25,11 @@ return {
     default_set = 64,
     default_courses = 2,
     max_courses = 4,
-    folder = "isometric/Floor_Wall_Tiles_%d/",
+    -- The tiles live in the TinyHouse kit alongside the furniture. There
+    -- used to be a second, byte-identical copy of the whole pack under
+    -- assets/sprites/isometric/ that existed only for this line, and the
+    -- loader decoded all 1,095 of its files at boot for nothing.
+    folder = "TinyHouse_0.17(@Pixel_Salvaje)/Floor_Wall_Tiles_%d/",
     floor_name = "Floor_%d_%s",
     wall_l_name = "Wall_L_%d_%s",
     wall_r_name = "Wall_R_%d_%s",
