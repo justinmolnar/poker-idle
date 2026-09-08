@@ -25,6 +25,7 @@
 -- Pure presentation; state:setActiveDeck is the one guarded write.
 
 local Anchors     = require("services.AnchorRegistry")
+local Paper       = require("views.widgets.Paper")
 local Theme       = require("views.Theme")
 local Sticker     = require("views.widgets.Sticker")
 local Decal       = require("services.Decal")
@@ -571,15 +572,7 @@ end
 -- ─── The spread ──────────────────────────────────────────────────────
 
 -- Horizontal scale about a hinge (the catalog's page-turn trick).
-local function hinged(hinge_x, sx, fn)
-    if sx <= 0.02 then return end
-    love.graphics.push()
-    love.graphics.translate(hinge_x, 0)
-    love.graphics.scale(sx, 1)
-    love.graphics.translate(-hinge_x, 0)
-    fn()
-    love.graphics.pop()
-end
+local hinged = Paper.hinge
 
 -- A tile leaf (1 or 2): stock and its two columns of three. `register` =
 -- the hit rects are live (only once the spread is fully open).
@@ -640,6 +633,10 @@ function DeckFlyer:draw()
 
     if self.on_felt and not self._open then
         self:_drawClosedOnFelt(W, H, fonts, s)
+        -- _alpha is a FILE local, not per-instance: leaving it set here
+        -- tinted whatever drew next (and would cross-talk between two
+        -- flyers in one frame). Restore it on this path too.
+        _alpha = 1
         return
     end
 

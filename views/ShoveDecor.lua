@@ -33,10 +33,7 @@ local _glow  = nil      -- love.Image | nil, built by configure()
 
 -- Multiply a colour toward black. Returns a plain {r,g,b} so it can go through
 -- Theme.setColor like any token. Same helper views/FeltDecor uses.
-local function darken(c, k)
-    if not c then return nil end
-    return { (c[1] or 0) * k, (c[2] or 0) * k, (c[3] or 0) * k }
-end
+local darken = Theme.darken
 
 -- DI hook, same convention as views/FeltDecor.configure and
 -- views/CardSprites.configure. Wired in main.lua at boot and on resize.

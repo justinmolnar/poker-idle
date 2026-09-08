@@ -712,6 +712,7 @@ function love.update(dt)
     -- The music layer: jazz through the intercom until the player owns
     -- speakers; cut by the House's voice, the gauntlet, and the menus.
     MusicDirector.update(dt, Game)
+    if Game.save_service.drainResults then Game.save_service:drainResults() end
     Game.floating_text.update(dt)
     FlightSystem.update(dt)
     ChipPile.update(dt)
@@ -965,7 +966,9 @@ local function flushSave()
     local current = Game.state_machine and Game.state_machine:current()
     if current == "grind" or current == "shove" or current == "room" then
         local state = Game.state
-        Game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
+        -- sync: the writer thread would still be holding this when the
+        -- process ended.
+        Game.save_service:saveAll(state:serializeMeta(), state:serializeRun(), true)
         return true
     end
     return false

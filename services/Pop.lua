@@ -20,7 +20,7 @@ local Pop = {}
 
 local DEFAULT_DURATION = 0.28
 
-local function now() return (love.timer and love.timer.getTime()) or 0 end
+local function now() return (love and love.timer and love.timer.getTime()) or 0 end
 
 local _fired = {}   -- id -> trigger timestamp (shared clock)
 

@@ -127,14 +127,7 @@ local function resolveLine(line, fonts, default_font)
 end
 
 -- A colour by name: the seven meanings, their aliases, and the fg names.
-local function tokenColor(token)
-    if not token then return nil end
-    if type(token) == "table" then return token end
-    return Theme.semColor and Theme.semColor(token)
-        or (Theme.status and Theme.status[token])
-        or (Theme.fg and Theme.fg[token])
-        or nil
-end
+local tokenColor = Theme.color
 
 -- Rows whose text carries {…} markers (a tier glyph, a tinted word) or a
 -- number in one of the style sheet's shapes (×2, +10%, 1 in 4) lay out

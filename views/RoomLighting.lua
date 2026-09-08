@@ -39,9 +39,7 @@ function RoomLighting.fixtureLevel(cfg, t)
     return 1
 end
 
-local function scaled(color, k)
-    return { color[1] * k, color[2] * k, color[3] * k }
-end
+local scaled = Theme.darken   -- the same channel multiply, one definition
 
 function RoomLighting.draw(room_view, L, W, H)
     if not (love and love.graphics and love.graphics.newCanvas) then return end

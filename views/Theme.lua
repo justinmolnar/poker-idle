@@ -139,4 +139,50 @@ end
 -- underflow glow. One list, no per-frame allocation.
 Theme.HALO_OFFSETS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 
+-- ─── One colour resolver ───────────────────────────────────────────────
+-- There were five of these, each with a slightly different chain, and one
+-- of them ran a pattern match per call per effect per frame. This is the
+-- union of what they all accepted:
+--
+--   a table              -> itself (callers hand it live colours)
+--   "won" / "heat" / …   -> Theme.sem, through the good/error aliases
+--   "heading" / "muted"  -> Theme.fg, then Theme.paper
+--   "status_fx.heater"   -> Theme[group][key], the dotted form
+--   "sem:heat"           -> the same, colon form (data/catalog_pages tabs)
+--
+-- `fallback` is returned when nothing matches, so a caller can stop writing
+-- `or Theme.fg.heading` after every call.
+function Theme.color(token, fallback)
+    if token == nil then return fallback end
+    if type(token) == "table" then return token end
+
+    local direct = Theme.semColor(token)
+    if direct then return direct end
+    if Theme.status and Theme.status[token] then return Theme.status[token] end
+
+    local group, key = token:match("^([%w_]+)[%.:]([%w_]+)$")
+    if group then
+        local t = Theme[group]
+        if t and t[key] then return t[key] end
+    end
+    return fallback
+end
+
+-- Multiply a colour's channels, keeping its alpha. `dst`, when given, is
+-- written into rather than allocating — the button chrome and the felt
+-- decor call this per widget per frame.
+--
+-- NOTE the sense of `f`: it is the fraction KEPT, so 0.5 is half as bright.
+-- views/widgets/Sticker had its own darken(c, k) where k was the amount
+-- REMOVED; those call sites pass 1 - k here.
+function Theme.darken(c, f, dst)
+    if not c then return nil end
+    dst = dst or {}
+    dst[1] = (c[1] or 0) * f
+    dst[2] = (c[2] or 0) * f
+    dst[3] = (c[3] or 0) * f
+    dst[4] = c[4]
+    return dst
+end
+
 return Theme

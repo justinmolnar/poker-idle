@@ -379,13 +379,7 @@ local function statW(comp, game)
     end
     return w + SP.stat_pad
 end
-local function tokenColor(tok, fallback)
-    if not tok then return fallback end
-    return Theme.semColor(tok)
-        or (Theme.status and Theme.status[tok])
-        or (Theme.fg and Theme.fg[tok])
-        or fallback
-end
+local tokenColor = Theme.color
 function CR._stat(comp, px, pw, p, y, game)
     local fonts = game.fonts
     local sm    = fonts.sm

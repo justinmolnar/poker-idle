@@ -214,13 +214,7 @@ local function strongestWith(tbl, field)
 end
 
 -- Resolve a "status_fx.heater"-style token string to a colour.
-local function tokenColor(token)
-    if not token then return nil end
-    local group, key = token:match("^([%w_]+)%.([%w_]+)$")
-    if not group then return nil end
-    local t = Theme[group]
-    return t and t[key] or nil
-end
+local tokenColor = Theme.color
 
 -- Warm halo for a heater. Reuses the stack glow's shader with a
 -- different colour — no new shader, no new compile. Absent (not shrunk)

@@ -23,6 +23,7 @@
 -- controller is the layer the view talks to).
 
 local Anchors        = require("services.AnchorRegistry")
+local Paper          = require("views.widgets.Paper")
 local Theme        = require("views.Theme")
 local Constants    = require("data.constants")
 
@@ -1378,15 +1379,7 @@ end
 
 -- Horizontal-scale flip around a vertical hinge: draws `fn` squished toward
 -- hinge_x by factor sx (1 = flat/full, 0 = edge-on). Turns a whole leaf.
-local function drawFlipped(hinge_x, sx, fn)
-    if sx <= 0.02 then return end
-    love.graphics.push()
-    love.graphics.translate(hinge_x, 0)
-    love.graphics.scale(sx, 1)
-    love.graphics.translate(-hinge_x, 0)
-    fn()
-    love.graphics.pop()
-end
+local drawFlipped = Paper.hinge
 
 -- One complete page leaf: paper, its authored title, chip ledger (right page
 -- only), its item cards packed into 3 vertical slot-units by each item's

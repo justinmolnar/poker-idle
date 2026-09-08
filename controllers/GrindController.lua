@@ -1352,11 +1352,6 @@ function GrindController:update(dt)
         -- losses to red (cash and KO both).
         local intensity_for_floater = FeedbackIntensity[r.tier] or FeedbackIntensity.small
         local floater_opts = intensity_for_floater.floater
-        if floater_opts_override then
-            floater_opts = {}
-            for k, v in pairs(intensity_for_floater.floater) do floater_opts[k] = v end
-            for k, v in pairs(floater_opts_override) do floater_opts[k] = v end
-        end
         -- Spawn at the panel center if the anchor exists; falls back to
         -- (r.x, r.y) which is the panel's top-left corner. The center
         -- read sells the float as "above this hand" instead of off in
@@ -1367,8 +1362,16 @@ function GrindController:update(dt)
         -- Skip the winning hand's per-hand float — the TOURNAMENT WON banner
         -- from the payout-drain block stands in for it (avoids the pile-up).
         if not ko_final then
-            local opts_copy = {}
+            -- One merge, into a table reused across resolutions: the
+            -- intensity preset, then the tier override, then the per-table
+            -- settle. This was two full copies of the preset per hand.
+            local opts_copy = self._floater_opts
+            if not opts_copy then opts_copy = {}; self._floater_opts = opts_copy end
+            for k in pairs(opts_copy) do opts_copy[k] = nil end
             for k, v in pairs(floater_opts) do opts_copy[k] = v end
+            if floater_opts_override then
+                for k, v in pairs(floater_opts_override) do opts_copy[k] = v end
+            end
             opts_copy.table = tbl
             -- Pop-then-settle: the number pops at the panel center at
             -- full celebration size (no slow drift — arc killed), holds

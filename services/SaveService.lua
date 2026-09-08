@@ -31,6 +31,13 @@ local json      = require("lib.json")
 
 local VERSION = Constants.SAVE.VERSION
 
+-- The two slots that carry progress. A failed write to either latches
+-- load_failed; the settings file is not worth refusing a session over.
+local function isProgressSlot(filename)
+    return filename == Constants.SAVE.META_FILE
+        or filename == Constants.SAVE.RUN_FILE
+end
+
 -- JSON decode produces string keys for all object fields; Lua sometimes wants
 -- integer-keyed tables. Walks decoded data and coerces integer-ish string keys
 -- back to numbers. Lifted from CC's SaveService.
@@ -52,8 +59,65 @@ local function coerceIntKeys(t, seen)
     end
 end
 
+-- ─── The writer thread ─────────────────────────────────────────────────
+-- The autosave fires every 10 s, and a full board's payload is sixteen
+-- parallel arrays; encoding, writing, reading back and committing it all
+-- sat on the frame. The encode stays here (it is cheap now the JSON is
+-- compact) and the disk work moves to services/save_worker.
+--
+-- Desktop only. The web build has no threads, and the quit path always
+-- writes inline so nothing can still be in flight when the process ends.
+local _is_web = false
+do
+    local ok = pcall(require, "ffi")
+    if not ok then _is_web = true end
+end
+
+local function threadsAvailable()
+    return love.thread ~= nil and not _is_web
+end
+
 function SaveService:new()
     return setmetatable({ load_failed = false }, { __index = self })
+end
+
+-- Started on the first threaded save, not at boot: a session that never
+-- saves never pays for it.
+function SaveService:_worker()
+    if not threadsAvailable() then return nil end
+    if self._worker_thread then return self._worker_thread end
+    local ok, thread = pcall(love.thread.newThread, "services/save_worker.lua")
+    if not ok or not thread then return nil end
+    self._jobs    = love.thread.getChannel("poker_save_jobs")
+    self._results = love.thread.getChannel("poker_save_results")
+    thread:start()
+    self._worker_thread = thread
+    return thread
+end
+
+-- Report anything the writer finished since the last look. Called once a
+-- frame from love.update; a failure latches load_failed exactly as the
+-- inline path does, so a bad disk stops the next save from overwriting.
+function SaveService:drainResults()
+    local ch = self._results
+    if not ch then return end
+    while true do
+        local r = ch:pop()
+        if not r then break end
+        if not r.ok then
+            print("SaveService: " .. tostring(r.filename) .. " — " .. tostring(r.err))
+            if isProgressSlot(r.filename) then self.load_failed = true end
+        end
+    end
+    local t = self._worker_thread
+    if t then
+        local err = t:getError()
+        if err then
+            print("SaveService: writer thread died (" .. tostring(err)
+                  .. "); saves fall back to the main thread")
+            self._worker_thread, self._jobs, self._results = nil, nil, nil
+        end
+    end
 end
 
 -- One raw read attempt against one filename. Returns (data, version) or
@@ -114,21 +178,12 @@ end
 -- Encode + write + verify `<file>.tmp`. Returns true when the staged file
 -- is confirmed readable. Never touches the real file.
 function SaveService:_stage(filename, payload)
-    local wrapper = {
-        version   = VERSION,
-        timestamp = os.time(),
-        data      = payload,
-    }
-    -- Compact, not pretty-printed. The autosave runs every 10 s on the main
-    -- thread and a board of 36 tables writes sixteen parallel arrays; the
-    -- indentation was roughly doubling the bytes to encode, write, read back
-    -- and re-parse, for a file no human reads in place (the tools all work
-    -- from the repo, not the save directory).
-    local ok_enc, encoded = pcall(json.encode, wrapper)
-    if not ok_enc then
-        print("SaveService: encode failed for " .. filename .. ": " .. tostring(encoded))
-        return false
-    end
+    -- Compact, not pretty-printed. A board of 36 tables writes sixteen
+    -- parallel arrays; the indentation was roughly doubling the bytes to
+    -- encode, write, read back and re-parse, for a file no human reads in
+    -- place (the tools all work from the repo, not the save directory).
+    local encoded = self:_encode(filename, payload)
+    if not encoded then return false end
     local tmp = filename .. ".tmp"
     local ok, err = love.filesystem.write(tmp, encoded)
     if not ok then
@@ -175,11 +230,6 @@ function SaveService:_commit(filename)
     return true
 end
 
-local function isProgressSlot(filename)
-    return filename == Constants.SAVE.META_FILE
-        or filename == Constants.SAVE.RUN_FILE
-end
-
 -- Write a save slot. `payload` is the model-serialized table.
 function SaveService:write(filename, payload)
     if self.load_failed and isProgressSlot(filename) then
@@ -209,11 +259,44 @@ end
 -- before either commits, so a crash between the two writes can't leave
 -- meta and run describing different moments (a torn pair let a banked
 -- {chip} bounty survive while its once-per-run lock rolled back).
-function SaveService:saveAll(meta_payload, run_payload)
+-- Encode one payload for the writer. Returns the string, or nil on a
+-- failure that has already been reported.
+function SaveService:_encode(filename, payload)
+    local wrapper = { version = VERSION, timestamp = os.time(), data = payload }
+    local ok, encoded = pcall(json.encode, wrapper)
+    if not ok then
+        print("SaveService: encode failed for " .. filename .. ": " .. tostring(encoded))
+        return nil
+    end
+    return encoded
+end
+
+-- The autosave path. On desktop the disk work is handed to the writer
+-- thread and this returns immediately; `sync` (the quit and crash paths)
+-- forces the inline write so nothing is in flight when the process ends.
+function SaveService:saveAll(meta_payload, run_payload, sync)
     if self.load_failed then
         print("SaveService: refusing to save after a failed load")
         return false
     end
+
+    if not sync and self:_worker() then
+        self:drainResults()
+        local jobs = self._jobs
+        local queued = true
+        if meta_payload then
+            local enc = self:_encode(Constants.SAVE.META_FILE, meta_payload)
+            if enc then jobs:push({ filename = Constants.SAVE.META_FILE, encoded = enc })
+            else queued = false end
+        end
+        if run_payload then
+            local enc = self:_encode(Constants.SAVE.RUN_FILE, run_payload)
+            if enc then jobs:push({ filename = Constants.SAVE.RUN_FILE, encoded = enc })
+            else queued = false end
+        end
+        return queued
+    end
+
     local meta_ok = meta_payload and self:_stage(Constants.SAVE.META_FILE, meta_payload)
     local run_ok  = run_payload  and self:_stage(Constants.SAVE.RUN_FILE,  run_payload)
     if meta_ok then self:_commit(Constants.SAVE.META_FILE) end

@@ -516,9 +516,7 @@ end
 -- ─── Drawing helpers ───
 
 -- Helper: darken a color slightly
-local function darken(c, f)
-    return { c[1] * f, c[2] * f, c[3] * f, c[4] }
-end
+local darken = Theme.darken
 
 -- Helper: Draw a shaded isometric cube/slab
 local function drawIsoBox(x, y, w, h, z, sh, color, tw, th, cx, cy, s, scale, flip_x)

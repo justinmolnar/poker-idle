@@ -86,9 +86,40 @@ local _static_i  = 0
 -- purchase blooms open); the room is a CUT — walking through a door is
 -- instant, so _echo snaps to its target the frame the screen changes.
 local _grime, _grime_t = 1, 1
+local _grime_sent, _echo_sent = nil, nil
 local _echo,  _echo_t  = 0, 0
 local _speakers_cached = nil
 local _owned_count     = -1
+
+-- ─── The decoder thread ────────────────────────────────────────────────
+-- Desktop only. The per-sample filter below is the hot loop; on a host with
+-- threads it runs in services/music_worker and this file only pops finished
+-- SoundData and queues it. The QueueableSource stays here — audio objects
+-- belong to one thread — and the inline path below is kept verbatim for the
+-- web build, which has no threads.
+local _is_web = false
+do
+    local ok = pcall(require, "ffi")
+    if not ok then _is_web = true end
+end
+
+local _thread, _ctl, _chunks, _tstate = nil, nil, nil, nil
+local _threaded   = false
+local _t_track    = nil     -- path the worker is playing
+local _t_pending  = 0       -- chunks asked for but not yet arrived
+
+local function startWorker()
+    if _threaded then return true end
+    if _is_web or not love.thread then return false end
+    local ok, th = pcall(love.thread.newThread, "services/music_worker.lua")
+    if not ok or not th then return false end
+    _ctl     = love.thread.getChannel("poker_music_ctl")
+    _chunks  = love.thread.getChannel("poker_music_chunks")
+    _tstate  = love.thread.getChannel("poker_music_state")
+    th:start()
+    _thread, _threaded = th, true
+    return true
+end
 
 -- ── Setup ──────────────────────────────────────────────────────────────
 
@@ -158,6 +189,17 @@ local function nextTrack()
     end
     local path = _playlist[_pl_i]
     _last_path = path
+
+    if _threaded then
+        -- The worker opens it and answers with the format; the source is
+        -- built when that lands (drainWorker below).
+        _t_track, _t_pending = path, 0
+        while _chunks:pop() do end          -- drop the old track's tail
+        _ctl:push({ cmd = "track", path = path })
+        _pos = 0
+        return
+    end
+
     local ok = pcall(function()
         _dec = love.sound.newDecoder(path, 8192)
         _rate     = _dec:getSampleRate()
@@ -259,6 +301,7 @@ function MusicDirector.update(dt, game)
     if not _init then
         _init = true
         if not (love and love.audio and love.filesystem) then return end
+        startWorker()
         local ok = pcall(scan)
         if ok and #_playlist > 0 then
             loadStatic()
@@ -269,7 +312,34 @@ function MusicDirector.update(dt, game)
             _silence_until = love.timer.getTime() + START_GRACE
         end
     end
-    if not (_dec and _src and game) then return end
+    if _threaded then
+        while true do
+            local ev = _tstate:pop()
+            if not ev then break end
+            if ev.event == "opened" then
+                local depth = (love.system and love.system.getOS() == "Web") and 10 or 4
+                _rate, _channels = ev.rate, ev.channels
+                local ok = pcall(function()
+                    _src = love.audio.newQueueableSource(ev.rate, ev.depth,
+                                                         ev.channels, depth)
+                end)
+                if not ok then _src = nil end
+                _t_pending = 0
+            elseif ev.event == "ended" or ev.event == "failed" then
+                nextTrack()
+            end
+        end
+        local err = _thread and _thread:getError()
+        if err then
+            pcall(print, "[music] worker died (" .. tostring(err)
+                  .. "); falling back to the main thread")
+            _threaded, _thread = false, nil
+            nextTrack()
+        end
+    end
+
+    if not (_src and game) then return end
+    if not _threaded and not _dec then return end
 
     local now = love.timer.getTime()
     local sm  = game.state_machine
@@ -309,6 +379,19 @@ function MusicDirector.update(dt, game)
 
     -- The room is a door, not a fade: snap the distance treatment.
     _echo = _echo_t
+    if _threaded then
+        if _grime_sent ~= _grime_t then
+            _grime_sent = _grime_t
+            _ctl:push({ cmd = "grime", value = _grime_t })
+        end
+        if _echo_sent ~= _echo_t then
+            _echo_sent = _echo_t
+            _ctl:push({ cmd = "echo", value = _echo_t })
+        end
+        -- The volume curve reads _grime, which the worker now eases. Track
+        -- it here at the same rate so the level moves with the sound.
+        _grime = _grime + (_grime_t - _grime) * math.min(1, (dt or 0) / EASE_SECS)
+    end
 
     if not want then
         if not _cut_at then
@@ -323,13 +406,41 @@ function MusicDirector.update(dt, game)
         local silent = now - _cut_at
         _cut_at = nil
         local target = _pos / _rate + silent
-        local ok = pcall(function() _dec:seek(target) end)
-        if ok then _pos = math.floor(target * _rate) end
+        if _threaded then
+            _ctl:push({ cmd = "seek", pos = target })
+            _pos = math.floor(target * _rate)
+        else
+            local ok = pcall(function() _dec:seek(target) end)
+            if ok then _pos = math.floor(target * _rate) end
+        end
     end
 
     pcall(function() _src:setVolume(volume()) end)
 
     -- Feed. Each drained buffer gets decoded, dirtied, and queued back.
+    if _threaded then
+        -- Pop whatever the worker finished and hand it to the source. No
+        -- decoding and no filtering on this thread.
+        local free = _src:getFreeBufferCount()
+        while free > 0 do
+            local item = _chunks:pop()
+            if not item then break end
+            _t_pending = math.max(0, _t_pending - 1)
+            _pos = item.pos or _pos
+            if not pcall(function() _src:queue(item.data) end) then return end
+            _src:play()
+            free = free - 1
+        end
+        -- Ask for enough to keep the queue full, counting what is already
+        -- in flight so the request does not pile up.
+        local want = free - _t_pending
+        if want > 0 then
+            _ctl:push({ cmd = "want", n = want })
+            _t_pending = _t_pending + want
+        end
+        return
+    end
+
     local guard = 0
     while _src:getFreeBufferCount() > 0 and guard < 16 do
         guard = guard + 1

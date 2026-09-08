@@ -1843,12 +1843,7 @@ function GrindView:_drawFloatingText()
     -- Resolve a controller-supplied color_token through Theme palettes.
     -- Keeps the controller free of view imports while still letting it
     -- name colors symbolically (e.g., "amber" for streak callouts).
-    local function resolveToken(tok)
-        if not tok then return nil end
-        return Theme.semColor(tok)
-            or (Theme.status and Theme.status[tok])
-            or nil
-    end
+    local resolveToken = Theme.color
     for _, t in ipairs(self.game.floating_text.getTexts()) do
         -- Color priority: explicit RGB override > color_token lookup > auto.
         local color = t.color or resolveToken(t.color_token)

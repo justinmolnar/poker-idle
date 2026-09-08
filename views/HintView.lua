@@ -30,6 +30,7 @@ local Theme       = require("views.Theme")
 local IconText    = require("views.IconText")
 local Anchors     = require("services.AnchorRegistry")
 local HintMarks   = require("views.HintMarks")
+local Scratch     = require("services.ScratchCanvas")
 
 local Motion  = require("services.Motion")
 local HintView = {}
@@ -63,7 +64,8 @@ function HintView:new(game)
     return setmetatable({
         game        = game,
         bubble_rect = nil,   -- active sticky hint's bubble, for hit-test
-        _dim_canvas = nil,   -- lazily built full-screen scratch canvas
+        -- The dim's compositing target is borrowed per pass from
+        -- services/ScratchCanvas, not owned here.
     }, HintView)
 end
 
@@ -235,17 +237,24 @@ function HintView:_drawDim(holes, alpha_scale)
         return
     end
 
-    if not self._dim_canvas
-       or self._dim_canvas:getWidth()  ~= W
-       or self._dim_canvas:getHeight() ~= H then
-        self._dim_canvas = love.graphics.newCanvas(W, H)
+    -- Borrowed, not owned: this is composed and blitted inside this one
+    -- pass, so it can share the frame's scratch target with the title's
+    -- menu fade rather than holding a second full-screen canvas forever.
+    local scratch = Scratch.acquire(W, H)
+    if not scratch then
+        -- No canvas to be had: fall back to the flat dim, which is what
+        -- the no-holes path draws anyway.
+        Theme.setColor(Theme.debug.hud_bg, dim)
+        love.graphics.rectangle("fill", 0, 0, W, H)
+        Theme.setColor(WHITE)
+        return
     end
 
     local s    = self.game.ui_scale or 1
     local fl   = math.floor
     local prev = love.graphics.getCanvas()
 
-    love.graphics.setCanvas(self._dim_canvas)
+    love.graphics.setCanvas(scratch)
     love.graphics.clear(0, 0, 0, 0)
     Theme.setColor(Theme.debug.hud_bg, dim)
     love.graphics.rectangle("fill", 0, 0, W, H)
@@ -275,8 +284,9 @@ function HintView:_drawDim(holes, alpha_scale)
 
     love.graphics.setBlendMode("alpha", "premultiplied")
     Theme.setColor(WHITE)
-    love.graphics.draw(self._dim_canvas, 0, 0)
+    love.graphics.draw(scratch, 0, 0)
     love.graphics.setBlendMode("alpha")
+    Scratch.release()
 end
 
 -- ── Rendering ────────────────────────────────────────────────────────

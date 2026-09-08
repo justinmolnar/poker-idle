@@ -19,7 +19,7 @@ local Motion = require("services.Motion")
 local RATE = 8
 local SNAP = 0.005
 
-local function now() return (love.timer and love.timer.getTime()) or 0 end
+local function now() return (love and love.timer and love.timer.getTime()) or 0 end
 
 local _v = {}   -- id -> { curr = number, t = last query time }
 
