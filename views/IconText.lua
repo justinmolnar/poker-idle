@@ -45,6 +45,7 @@ local Icons       = require("views.Icons")
 local TierGlyph   = require("views.TierGlyph")
 local Theme       = require("views.Theme")
 local FontService = require("services.FontService")
+local Perf        = require("services.Perf")
 
 local IconText = {}
 
@@ -69,7 +70,7 @@ local WORD_GLYPH = { heat = "heater", tilt = "tilt" }
 
 -- The four one-pixel offsets of the emboss (cardinal; a pixel font's
 -- strokes are axis-aligned, so diagonals only thicken the corners).
-local EMBOSS = { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } }
+local EMBOSS = Theme.HALO_OFFSETS
 
 -- ── Parsing ────────────────────────────────────────────────────────────
 
@@ -151,7 +152,8 @@ end
 
 -- `str` → a list of elements. Pure; no love calls. `pills` false leaves
 -- numbers as text (the chrome, the floaters: readouts, not prose).
-local function parse(str, pills)
+local function parseUncached(str, pills)
+    Perf.count("icontext_parse")
     str = str or ""
     local els = {}
     local i, n = 1, #str
@@ -184,9 +186,43 @@ local function parse(str, pills)
     return els
 end
 
+-- ── Caches ─────────────────────────────────────────────────────────────
+-- Nearly every string here is measured and then drawn in the same frame,
+-- and most are drawn again next frame unchanged — so parsing was running
+-- two to four times per string per frame, allocating an element list each
+-- time. These caches make that once.
+--
+-- Bounded by a cap and a wipe rather than by weak tables: floaters and
+-- money readouts mint genuinely new strings forever, so an unbounded cache
+-- would be a slow leak. The cap is far above a frame's working set, so a
+-- wipe is rare and costs one re-parse of whatever is on screen.
+--
+-- The element lists handed out are SHARED and must be treated as read-only;
+-- walk() only reads them.
+local PARSE_CAP = 1024
+local _parse_pills, _parse_plain, _parse_n = {}, {}, 0
+
+local function parse(str, pills)
+    local cache = pills and _parse_pills or _parse_plain
+    local hit = cache[str]
+    if hit then return hit end
+    local els = parseUncached(str, pills)
+    if _parse_n >= PARSE_CAP then
+        _parse_pills, _parse_plain, _parse_n = {}, {}, 0
+        cache = pills and _parse_pills or _parse_plain
+    end
+    cache[str]  = els
+    _parse_n = _parse_n + 1
+    return els
+end
+
 -- ── Metrics ────────────────────────────────────────────────────────────
 
-local function metrics(font)
+-- Derived purely from the font, and a fresh table per walk() call before
+-- this. Weak keys so a font rebuilt on resize drops its entry.
+local _metrics_cache = setmetatable({}, { __mode = "k" })
+
+local function metricsUncached(font)
     local size = font:getHeight()
     local ink  = math.floor(FontService.inkHeight(font) + 0.5)
     return {
@@ -198,6 +234,15 @@ local function metrics(font)
         pad_y  = math.max(1, math.floor(size * 0.08)),
         glyph  = math.max(4, ink),                         -- a status glyph's box
     }
+end
+
+local function metrics(font)
+    local m = _metrics_cache[font]
+    if not m then
+        m = metricsUncached(font)
+        _metrics_cache[font] = m
+    end
+    return m
 end
 
 local function elementWidth(el, font, m)
@@ -322,8 +367,41 @@ function IconText.draw(game, str, x, y, font, color, alpha, opts)
 end
 
 -- Total rendered width of `str` in `font`, without drawing.
+--
+-- Cached per (font, pills, string). This is the single hottest call in the
+-- text pipeline: the wrapper below asks for it once per word per candidate
+-- line, and the component renderer, the tooltips and the floaters all
+-- measure strings they are about to draw. Same cap-and-wipe as the parse
+-- cache; a font rebuilt on resize drops its entry with the weak key.
+local _measure_cache = setmetatable({}, { __mode = "k" })
+local MEASURE_CAP    = 2048
+local _measure_n     = 0
+
 function IconText.measure(str, font, opts)
-    return walk(nil, str, 0, 0, font, nil, 1, false, nil, opts)
+    if type(str) ~= "string" then
+        return walk(nil, str, 0, 0, font, nil, 1, false, nil, opts)
+    end
+    local per_font = _measure_cache[font]
+    if not per_font then
+        per_font = { pills = {}, plain = {} }
+        _measure_cache[font] = per_font
+    end
+    local bucket = (opts and opts.pills == false) and per_font.plain
+                                                   or per_font.pills
+    local hit = bucket[str]
+    if hit then return hit end
+    local w = walk(nil, str, 0, 0, font, nil, 1, false, nil, opts)
+    if _measure_n >= MEASURE_CAP then
+        _measure_cache = setmetatable({}, { __mode = "k" })
+        _measure_n = 0
+        per_font = { pills = {}, plain = {} }
+        _measure_cache[font] = per_font
+        bucket = (opts and opts.pills == false) and per_font.plain
+                                                  or per_font.pills
+    end
+    bucket[str] = w
+    _measure_n  = _measure_n + 1
+    return w
 end
 
 -- Every non-text element of `str` with its x offset and width:
@@ -337,7 +415,40 @@ end
 -- Greedy word wrap to `max_w`, measured through IconText so an inline icon
 -- counts at its drawn width. Markers never contain spaces, so splitting on
 -- them never splits a {token}; a chance pill ("1 in 4") is kept whole.
+-- Cached per (font, width, pills, string). Wrapping is O(words) measures
+-- and the tooltip layout re-wraps its whole body every frame it is on
+-- screen. The returned line list is SHARED — callers iterate it, none
+-- mutate it.
+local _wrap_cache = setmetatable({}, { __mode = "k" })
+local WRAP_CAP    = 512
+local _wrap_n     = 0
+
 function IconText.wrap(str, font, max_w, opts)
+    local key = (type(str) == "string") and str or nil
+    if key then
+        local per_font = _wrap_cache[font]
+        if not per_font then per_font = {}; _wrap_cache[font] = per_font end
+        local per_w = per_font[max_w]
+        if not per_w then per_w = { pills = {}, plain = {} }; per_font[max_w] = per_w end
+        local bucket = (opts and opts.pills == false) and per_w.plain or per_w.pills
+        local hit = bucket[key]
+        if hit then return hit end
+        local lines = IconText.wrapUncached(str, font, max_w, opts)
+        if _wrap_n >= WRAP_CAP then
+            _wrap_cache = setmetatable({}, { __mode = "k" })
+            _wrap_n = 0
+            per_font = {}; _wrap_cache[font] = per_font
+            per_w = { pills = {}, plain = {} }; per_font[max_w] = per_w
+            bucket = (opts and opts.pills == false) and per_w.plain or per_w.pills
+        end
+        bucket[key] = lines
+        _wrap_n = _wrap_n + 1
+        return lines
+    end
+    return IconText.wrapUncached(str, font, max_w, opts)
+end
+
+function IconText.wrapUncached(str, font, max_w, opts)
     local words = {}
     for word in tostring(str or ""):gmatch("%S+") do words[#words + 1] = word end
     local units, i = {}, 1

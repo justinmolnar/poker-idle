@@ -451,6 +451,7 @@ function GameState:wipeAll()
     self.first_hand_tier  = nil
     -- resetRun incremented shove_count to 1; wipeAll is shove 0 (first run).
     self.shove_count = 0
+    self:markCatalogDirty()
 end
 
 -- Apply both meta and run payloads. Called from SaveService:loadAll wrapper
@@ -829,6 +830,7 @@ function GameState:applySaved(saved)
     self.first_anti_this_run              = self.first_anti_this_run or false
     self.run_ratchets                     = self.run_ratchets or {}
     self.zoom_sharp_banked                = self.zoom_sharp_banked or 0
+    self:markCatalogDirty()
 end
 
 -- Drop unknown deck ids from unlocked_decks / deck_levels / deck_xp and
@@ -1138,11 +1140,31 @@ end
 -- Spend chips on a catalog item: validates affordability + non-duplicate +
 -- requires-prereq, applies the mutation, invalidates the effects cache.
 -- Whether an owned item is corrupted (corrupted_items is an array of ids).
+-- Bumped whenever the catalog side of the save changes (bought, corrupted,
+-- peeled, wiped, loaded). Views and caches that are keyed on "what the
+-- player owns" read it instead of re-deriving sets every frame; the
+-- corrupted lookup below invalidates off the same event.
+function GameState:markCatalogDirty()
+    self.owned_rev      = (self.owned_rev or 0) + 1
+    self._corrupted_set = nil
+end
+
+-- Was a linear scan of corrupted_items, called from the frame: per catalog
+-- card, per room item, per item-stream spawn. The set is derived lazily and
+-- rebuilt when the list's length moves or markCatalogDirty fires, so a
+-- missed invalidation upstream still cannot serve a stale answer for a
+-- list that grew.
 function GameState:isCorrupted(id)
-    for _, cid in ipairs(self.corrupted_items or {}) do
-        if cid == id then return true end
+    local list = self.corrupted_items
+    if not list then return false end
+    local set = self._corrupted_set
+    if not set or self._corrupted_n ~= #list then
+        set = {}
+        for _, cid in ipairs(list) do set[cid] = true end
+        self._corrupted_set = set
+        self._corrupted_n   = #list
     end
-    return false
+    return set[id] == true
 end
 
 -- The things you own, in the order you bought them: every owned catalog
@@ -1150,7 +1172,19 @@ end
 -- is not removed by something else you own. #list is the number the
 -- shove's count reaches and the room screen prints. `catalog` is the
 -- data/catalog list (the model does not require data).
+-- Cached on the catalog revision: the room screen prints this count every
+-- frame, and deriving it walks the whole catalog building two maps and then
+-- scans every owned item's effects.
 function GameState:countedItems(catalog)
+    local rev = self.owned_rev or 0
+    local c = self._counted_cache
+    if c and c.rev == rev and c.catalog == catalog then return c.ids end
+    local ids = self:_buildCountedItems(catalog)
+    self._counted_cache = { rev = rev, catalog = catalog, ids = ids }
+    return ids
+end
+
+function GameState:_buildCountedItems(catalog)
     local by_id = {}
     for _, item in ipairs(catalog or {}) do by_id[item.id] = item end
     local owned_set = {}
@@ -1191,6 +1225,7 @@ function GameState:tryBuyCatalogItem(item)
     self.room_unseen = self.room_unseen or {}
     self.room_unseen[#self.room_unseen + 1] = item.id   -- delivered on the next room visit
     self.effects_cache = nil
+    self:markCatalogDirty()
     return true
 end
 
@@ -1214,6 +1249,7 @@ function GameState:tryCorruptItem(item)
     self.anti_chips = self.anti_chips - item.corrupt.cost_achip
     self.corrupted_items[#self.corrupted_items + 1] = item.id
     self.effects_cache = nil
+    self:markCatalogDirty()
     return true
 end
 

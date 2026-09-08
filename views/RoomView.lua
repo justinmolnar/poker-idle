@@ -2528,22 +2528,45 @@ end
 
 -- A placed item's catalog id: numbered copies ("lava_lamp_2") count as
 -- their base. Flavour entries (poster, mirror, a sprite path) return nil.
+-- Memoized on the entry itself (`false` records a known non-catalog piece,
+-- so the pattern match runs once per object rather than once per call).
+-- Called per placed item per frame from the hover walk, the manifest's
+-- drawn set and the item stream; an entry's id is fixed once the layout has
+-- loaded and migrated, so the answer cannot change under the cache.
 function RoomView:catalogIdOf(obj)
     if not obj then return nil end
+    local cached = obj._cat_id
+    if cached ~= nil then return cached or nil end
     local id = obj.id
-    if self.catalog_by_id[id] then return id end
-    local base = id:match("^(.-)_%d+$")
-    if base and self.catalog_by_id[base] then return base end
-    return nil
+    local found
+    if self.catalog_by_id[id] then
+        found = id
+    else
+        local base = id:match("^(.-)_%d+$")
+        if base and self.catalog_by_id[base] then found = base end
+    end
+    obj._cat_id = found or false
+    return found
 end
 
 -- The layout's entry for a catalog id (the first copy), drawn or not: the
 -- manifest draws an item exactly as the room does, overrides included.
+--
+-- Indexed: the item stream asks for this on every proc that fires, and it
+-- was a scan of every placed object with a pattern match apiece.
 function RoomView:layoutEntry(id)
-    for _, o in ipairs(self.placed or {}) do
-        if self:catalogIdOf(o) == id then return o end
+    local placed = self.placed or {}
+    local index  = self._entry_index
+    if not index or self._entry_index_n ~= #placed then
+        index = {}
+        for _, o in ipairs(placed) do
+            local cid = self:catalogIdOf(o)
+            if cid and index[cid] == nil then index[cid] = o end
+        end
+        self._entry_index   = index
+        self._entry_index_n = #placed
     end
-    return nil
+    return index[id]
 end
 
 -- The first drawn copy of a catalog item this frame, or nil (not placed,
@@ -2634,6 +2657,7 @@ function RoomView:duplicatePlaced(obj)
     local copy = {}
     for k, v in pairs(obj) do copy[k] = v end
     copy.id = new_id
+    copy._cat_id = nil        -- the memo belongs to the original's id
     copy.sprite = obj.sprite or obj.id
     copy.color = { obj.color[1], obj.color[2], obj.color[3] }
     copy.gx = math.min(self.room_size - obj.w, obj.gx + 0.25)

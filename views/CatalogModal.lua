@@ -1366,7 +1366,7 @@ function CatalogModal:_drawCorruptLine(item, text, x, y, fonts)
     -- Glow: the text again, offset, low alpha, more while unsettled.
     local glow_a = 0.10 + 0.30 * unrest
     local glow   = { 0.70, 0.35, 1.00 }
-    for _, o in ipairs{ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
+    for _, o in ipairs(Theme.HALO_OFFSETS) do
         IconText.draw(self.game, shown, x + o[1], y + o[2], f, glow, glow_a)
     end
     -- Contrast that breathes while it resolves, steady once it has.

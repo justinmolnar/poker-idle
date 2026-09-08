@@ -47,6 +47,12 @@ function InputController:wire()
         function(key) return key == "f4" end,
         function()
             game.debug.perf = not game.debug.perf
+            -- The meters only tick while the HUD is up (they are free
+            -- otherwise), and the chip counter has been accumulating
+            -- unread since the last time it was open — clear both so the
+            -- first frame back reads this frame.
+            require("services.Perf").setEnabled(game.debug.perf)
+            require("views.Chips").frameStats()
         end)
 
     -- ── Save debug hotkeys ────────────────────────────────────────────

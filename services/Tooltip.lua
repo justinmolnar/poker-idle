@@ -18,6 +18,7 @@
 local Theme     = require("views.Theme")
 local Constants = require("data.constants")
 local IconText  = require("views.IconText")
+local Perf      = require("services.Perf")
 
 local Tooltip = {}
 
@@ -142,7 +143,32 @@ end
 local hasMarkers = IconText.hasMarkup
 
 -- Resolve and measure a list of lines. Returns rows, box_w, box_h.
+-- Cached on the lines table's identity. A tooltip re-laid-out its whole
+-- body every frame it was on screen — wrapping every row, measuring every
+-- markup string. The expensive tooltips now hand back one stable table
+-- (services/Memo), so this hits across frames as well as within one.
+--
+-- Weak keys: a caller that still builds fresh lines each frame simply
+-- misses and its entry is collected.
+local _layout_cache = setmetatable({}, { __mode = "k" })
+
+-- Forward declaration: `layout` closes over the uncached builder defined
+-- just below it.
+local layoutUncached
+
 local function layout(lines, fonts, default_font, max_w)
+    local hit = _layout_cache[lines]
+    if hit and hit.font == default_font and hit.max_w == max_w
+       and hit.fonts == fonts then
+        return hit.rows, hit.w, hit.h
+    end
+    local rows, w, h = layoutUncached(lines, fonts, default_font, max_w)
+    _layout_cache[lines] = { font = default_font, max_w = max_w, fonts = fonts,
+                             rows = rows, w = w, h = h }
+    return rows, w, h
+end
+
+function layoutUncached(lines, fonts, default_font, max_w)
     local rows = {}
     for i, line in ipairs(lines) do
         rows[i] = resolveLine(line, fonts, default_font)
@@ -159,6 +185,7 @@ local function layout(lines, fonts, default_font, max_w)
             for _, l in ipairs(r._lines) do w = math.max(w, IconText.measure(l, r.font)) end
             h = #r._lines * r.font:getHeight()
         else
+            Perf.count("getWrap")
             local wrapw, wlines = r.font:getWrap(r.text, max_w)
             w = wrapw
             h = math.max(1, #wlines) * r.font:getHeight()

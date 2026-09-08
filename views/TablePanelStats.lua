@@ -24,6 +24,8 @@ local PayoutBreakdown = require("models.payout_breakdown")
 local IconText    = require("views.IconText")
 local Anchors     = require("services.AnchorRegistry")
 local RollingValue = require("services.RollingValue")
+local Memo         = require("services.Memo")
+local TableModel   = require("models.Table")
 
 -- Canonical tier order (internal keys). Rendered as glyphs via TierGlyph.
 local TIER_ORDER  = { "small", "medium", "large", "stack" }
@@ -951,14 +953,33 @@ local function breakdownFromStats(controller, stats)
 end
 
 local function buildEvBreakdownLines(tbl, controller)
-    return breakdownFromStats(controller, tbl:debugStats(controller and controller.ctx))
+    return breakdownFromStats(controller,
+        controller and controller:tableDebugStats(tbl))
 end
 
 -- Public: EV breakdown rows for a hypothetical (stake, gtype) — lets the
 -- stake-add buttons show the exact tooltip you get hovering a live table.
+--
+-- Memoized per (stake, gtype) on the controller's display revision: the
+-- sidebar asks for one of these per visible stake EVERY frame purely to
+-- hang it off a button as a tooltip, and the lines only change when the
+-- rollup does. The returned table is shared, so callers must not mutate it
+-- — which is why the debug payout breakdown (appendPayoutLines, which
+-- appends) bypasses the memo entirely.
+local _breakdown_memo = Memo.new("ev_breakdown")
+
+local function buildBreakdownFor(controller, stake, gtype)
+    return breakdownFromStats(controller, controller:evStats(stake, gtype))
+end
+
 function TablePanelStats.breakdownLinesFor(controller, stake, gtype)
-    return breakdownFromStats(controller,
-        OutcomeMath.evStats(controller and controller.ctx, gtype, stake))
+    if not (controller and stake and gtype) then return nil end
+    local dbg = controller.game and controller.game.debug
+    if dbg and (dbg.payout_shape or 0) > 0 then
+        return breakdownFromStats(controller, controller:evStats(stake, gtype))
+    end
+    return _breakdown_memo:get2(stake.id, gtype.id, controller.display_rev or 0,
+                                buildBreakdownFor, controller, stake, gtype)
 end
 
 -- Public: the per-hand EV for a (stake, gtype), matching the readout below
@@ -966,7 +987,7 @@ end
 -- bb-normalized value, which stays the sign/color threshold so the
 -- good/bad cutoff doesn't shift with stake size.
 function TablePanelStats.evPerHand(controller, stake, gtype)
-    local s = OutcomeMath.evStats(controller and controller.ctx, gtype, stake)
+    local s = controller and controller:evStats(stake, gtype)
     if not s then return nil end
     local bb = (stake and stake.bb) or 1
     if bb <= 0 then bb = 1 end
@@ -986,7 +1007,7 @@ end
 -- are no stats yet.
 local function evMetrics(tbl, controller, font)
     if not (tbl and tbl.estimateStats) then return nil end
-    local stats = tbl:estimateStats(controller and controller.ctx)
+    local stats = controller and controller:tableStats(tbl)
     if not stats then return nil end
     local stake = Lookups.findById(Stakes, tbl.stake_id)
     local bb = (stake and stake.bb) or 1
@@ -996,10 +1017,11 @@ local function evMetrics(tbl, controller, font)
     -- top-bar money) so an upgrade purchase sweeps the readout instead
     -- of snapping it. Color derives from the ROLLED value so the tint
     -- never disagrees with the number on screen.
-    local id        = tbl._id or 0
-    local ev        = RollingValue.get("table_ev:" .. id,
+    -- Keys built once per table (models/Table.rollingKey) rather than
+    -- concatenated three times per panel per frame.
+    local ev        = RollingValue.get(TableModel.rollingKey(tbl, "table_ev"),
                                        stats.ev_per_hand or 0)
-    local stack_pct = RollingValue.get("table_stackpct:" .. id,
+    local stack_pct = RollingValue.get(TableModel.rollingKey(tbl, "table_stackpct"),
                           ((stats.win_chance or 0)
                            * ((stats.win_dist and stats.win_dist.stack) or 0))
                            * 100)
@@ -1023,7 +1045,7 @@ local function evMetrics(tbl, controller, font)
     local total_w   = bb_w + gap + r * 2 + glyph_pad + font:getWidth(stack_label)
 
     if show_loss then
-        loss_pct = RollingValue.get("table_losspct:" .. id,
+        loss_pct = RollingValue.get(TableModel.rollingKey(tbl, "table_losspct"),
                       ((1.0 - (stats.win_chance or 0))
                        * ((stats.loss_dist and stats.loss_dist.stack) or 0))
                        * 100)
@@ -1049,17 +1071,20 @@ end
 function TablePanelStats.measureEvReadout(tbl, controller, fonts)
     local m = evMetrics(tbl, controller, fonts.sm)
     if not m then return 0, 0 end
-    return m.total_w, m.money_w
+    return m.total_w, m.money_w, m
 end
 
 -- Draw the readout left-anchored at the layout slot `ev = { x, y, w, show }`
 -- (TablePanel only calls this when ev.show is true). Pushes the breakdown
 -- hover hit_box. `anchor_key` (optional, e.g. "ev:1") registers the drawn
 -- rect as a hint-anchor.
-function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, anchor_key)
+-- `metrics` is the table measureEvReadout already built this frame; the
+-- panel measures before it lays out and draws after, and recomputing was
+-- a second pass over the same numbers per table per frame.
+function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, anchor_key, metrics)
     if not ev then return end
     local font = fonts.sm
-    local m = evMetrics(tbl, controller, font)
+    local m = metrics or evMetrics(tbl, controller, font)
     if not m then return end
 
     -- `ev.parts` is the layout's shed decision: "money" means the row was too
@@ -1101,16 +1126,19 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
         love.graphics.print(m.loss_label, lx + m.r * 2 + m.glyph_pad, ty)
     end
 
+    -- Lazy: only the box under the pointer resolves its lines (see
+    -- GrindView's hover walk). Building this eagerly meant every open table
+    -- constructed a full EV breakdown, with its render closures, every
+    -- frame — for a tooltip at most one of them can be showing.
     if hit_boxes then
-        local lines = buildEvBreakdownLines(tbl, controller)
-        if lines then
-            local pad = TablePanelStats.EV_READOUT_HIT_PAD
-            hit_boxes[#hit_boxes + 1] = {
-                x = tx - pad, y = ty - pad,
-                w = drawn_w + pad * 2, h = m.text_h + pad * 2,
-                tooltip = lines,
-            }
-        end
+        local pad = TablePanelStats.EV_READOUT_HIT_PAD
+        hit_boxes[#hit_boxes + 1] = {
+            x = tx - pad, y = ty - pad,
+            w = drawn_w + pad * 2, h = m.text_h + pad * 2,
+            tooltip_fn   = buildEvBreakdownLines,
+            tooltip_arg1 = tbl,
+            tooltip_arg2 = controller,
+        }
     end
 end
 

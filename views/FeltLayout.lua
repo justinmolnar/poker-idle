@@ -49,7 +49,20 @@ local function ifloor(v) return math.floor(v) end
 local function scaled(v, s) return math.max(1, ifloor(v * (s or 1))) end
 
 -- Panel-relative base card sizes (sourced from data/felt_layout's fractions).
+-- Memoized by panel width: the panel asks for this every frame and the
+-- answer is a pure function of one integer. Bounded by the handful of
+-- distinct cell widths a board can produce.
+local _size_cache = {}
+
 function FeltLayout.cardSizes(panel_w)
+    local hit = _size_cache[panel_w]
+    if hit then return hit end
+    local sizes = FeltLayout.cardSizesUncached(panel_w)
+    _size_cache[panel_w] = sizes
+    return sizes
+end
+
+function FeltLayout.cardSizesUncached(panel_w)
     local f  = Data.card_frac
     local pw = ifloor(panel_w * f.player)
     local cw = ifloor(panel_w * f.community)
@@ -98,6 +111,47 @@ end
 --                                      per band, same reason as .plate)
 --   • seat plates      → the NAME flag (L.opponents.seats[i].plate_rect)
 --   • dealer button    → its diameter (L.button)
+-- ─── The layout memo ───────────────────────────────────────────────────
+-- compute() allocates around fifteen tables (sizes, band rects, seats, the
+-- rail, the button) and re-solves the band stack. It runs once per panel
+-- per frame, and its inputs only move when the board is resized, a hand
+-- changes the readout's width, or a seat comes and goes. So the answer is
+-- kept per panel and re-solved only when one of those inputs actually
+-- differs.
+--
+-- The returned table is SHARED with the previous frame's caller, so
+-- TablePanel must treat it as read-only — it does; it only reads L.
+local LAYOUT_KEYS = {
+    "felt_x", "felt_y", "felt_w", "felt_h", "hu", "n_opps", "sizes", "s",
+    "sm_h", "md_h", "xs_h", "ev_w", "ev_money_w", "tied_w", "tied_short_w",
+    "name_ch_w", "pile_r", "bottom_extra",
+}
+local _layout_cache = setmetatable({}, { __mode = "k" })
+
+function FeltLayout.computeCached(owner, p)
+    if not owner then return FeltLayout.compute(p) end
+    local e = _layout_cache[owner]
+    if e then
+        local same = true
+        local prev = e.p
+        for i = 1, #LAYOUT_KEYS do
+            local k = LAYOUT_KEYS[i]
+            if prev[k] ~= p[k] then same = false; break end
+        end
+        if same then return e.L end
+    else
+        e = { p = {} }
+        _layout_cache[owner] = e
+    end
+    local prev = e.p
+    for i = 1, #LAYOUT_KEYS do
+        local k = LAYOUT_KEYS[i]
+        prev[k] = p[k]
+    end
+    e.L = FeltLayout.compute(p)
+    return e.L
+end
+
 function FeltLayout.compute(p)
     local sp       = Data.space
     local pile_cfg = Data.pile

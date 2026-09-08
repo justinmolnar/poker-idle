@@ -187,12 +187,36 @@ function TablePool:rebuildFromState(ctx)
     self:_syncStateList()
 end
 
+-- Bumped here rather than in each mutator because every path that changes
+-- the pool — open, close, move, restake, rebuild, and the mute toggles —
+-- already ends in a sync. Erring toward over-bumping is safe for the caches
+-- that read it: a spurious bump costs one rebuild, a missed one shows stale
+-- numbers.
 function TablePool:_syncStateList()
-    local specs, mutes, rebuy_mutes = {}, {}, {}
-    local hands, finishes, last_fins, mstate, ko_plans = {}, {}, {}, {}, {}
-    local seat_stacks, seat_busted = {}, {}
-    local p_seats, b_seats, b_orders, stack_vals = {}, {}, {}, {}
-    local slots, statuses = {}, {}
+    self.rev = (self.rev or 0) + 1
+    -- Written into the arrays the state already holds rather than into
+    -- sixteen fresh ones. This runs on every hand that resolves and again
+    -- for every proc that touches a table, so at a busy board it was
+    -- sixteen throwaway tables several times a frame. The tail past the
+    -- current table count is cleared below, so a closed table leaves
+    -- nothing behind for the serializer to pick up.
+    local st = self.state
+    local specs       = st.active_table_specs         or {}
+    local mutes       = st.active_table_mutes         or {}
+    local rebuy_mutes = st.active_table_rebuy_mutes   or {}
+    local hands       = st.active_table_ko_hands_won  or {}
+    local finishes    = st.active_table_ko_finishes   or {}
+    local last_fins   = st.active_table_last_finish   or {}
+    local mstate      = st.active_table_ko_state      or {}
+    local ko_plans    = st.active_table_ko_plans      or {}
+    local seat_stacks = st.active_table_seat_stacks   or {}
+    local seat_busted = st.active_table_seat_busted   or {}
+    local p_seats     = st.active_table_player_seat   or {}
+    local b_seats     = st.active_table_button_seat   or {}
+    local b_orders    = st.active_table_bust_order    or {}
+    local stack_vals  = st.active_table_stack         or {}
+    local slots       = st.active_table_slot          or {}
+    local statuses    = st.active_table_statuses      or {}
     for i, t in ipairs(self.tables) do
         slots[i] = t.slot or 0
         -- A REFERENCE to the live list, not a copy: the entries tick down
@@ -214,22 +238,32 @@ function TablePool:_syncStateList()
         b_orders[i]     = t.bust_order
         stack_vals[i]   = t.stack
     end
-    self.state.active_table_specs         = specs
-    self.state.active_table_mutes         = mutes
-    self.state.active_table_rebuy_mutes   = rebuy_mutes
-    self.state.active_table_ko_hands_won = hands
-    self.state.active_table_ko_finishes  = finishes
-    self.state.active_table_last_finish   = last_fins
-    self.state.active_table_ko_state     = mstate
-    self.state.active_table_ko_plans     = ko_plans
-    self.state.active_table_seat_stacks   = seat_stacks
-    self.state.active_table_seat_busted   = seat_busted
-    self.state.active_table_player_seat   = p_seats
-    self.state.active_table_button_seat   = b_seats
-    self.state.active_table_bust_order    = b_orders
-    self.state.active_table_stack         = stack_vals
-    self.state.active_table_slot          = slots
-    self.state.active_table_statuses      = statuses
+    -- Clear the tail: whatever the previous, longer board left behind.
+    local n = #self.tables
+    local lists = { specs, mutes, rebuy_mutes, hands, finishes, last_fins,
+                    mstate, ko_plans, seat_stacks, seat_busted, p_seats,
+                    b_seats, b_orders, stack_vals, slots, statuses }
+    for k = 1, #lists do
+        local list = lists[k]
+        for i = #list, n + 1, -1 do list[i] = nil end
+    end
+
+    st.active_table_specs        = specs
+    st.active_table_mutes        = mutes
+    st.active_table_rebuy_mutes  = rebuy_mutes
+    st.active_table_ko_hands_won = hands
+    st.active_table_ko_finishes  = finishes
+    st.active_table_last_finish  = last_fins
+    st.active_table_ko_state     = mstate
+    st.active_table_ko_plans     = ko_plans
+    st.active_table_seat_stacks  = seat_stacks
+    st.active_table_seat_busted  = seat_busted
+    st.active_table_player_seat  = p_seats
+    st.active_table_button_seat  = b_seats
+    st.active_table_bust_order   = b_orders
+    st.active_table_stack        = stack_vals
+    st.active_table_slot         = slots
+    st.active_table_statuses     = statuses
 end
 
 function TablePool:count() return #self.tables end

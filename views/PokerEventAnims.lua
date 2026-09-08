@@ -170,8 +170,16 @@ end
 -- Returns the dests list and the player's committed chips, which the
 -- caller needs to size the burst: winning gets you your own contribution
 -- BACK on top of the net delta, and the two land in different piles.
+-- A destination is read again when the chip LANDS (ChipFlight's gather
+-- leg, ~1.7 s after launch), so the coords are copied out of the anchor
+-- rather than aliased: an anchor entry is rewritten in place every frame,
+-- and a live alias would make settled chips chase a shaking panel.
+local function frozenXY(a)
+    return a and { a[1], a[2] } or nil
+end
+
 local function potDestinations(tbl, seat_pos)
-    local you = { key = Table.anchorKey(tbl, "you"), xy = seat_pos }
+    local you = { key = Table.anchorKey(tbl, "you"), xy = frozenXY(seat_pos) }
     local ps        = tbl.playback_state
     local seat      = ps and ps.player_seat
     local committed = (seat and ps.per_seat_total and ps.per_seat_total[seat]) or 0
@@ -186,7 +194,7 @@ local function potDestinations(tbl, seat_pos)
 
     local bank_xy = Anchors.get("bankroll")
     if not bank_xy then return { you }, committed end
-    return { you, { key = "bankroll", xy = bank_xy } }, committed
+    return { you, { key = "bankroll", xy = frozenXY(bank_xy) } }, committed
 end
 
 local PokerEventAnims = {

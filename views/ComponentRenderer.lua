@@ -26,6 +26,7 @@ local IconText    = require("views.IconText")
 local AwardGlow   = require("views.AwardGlow")
 local Anchors     = require("services.AnchorRegistry")
 local MiniButton  = require("views.widgets.MiniButton")
+local Perf        = require("services.Perf")
 
 -- Icon row sizes — recomputed by CR.setScale at boot/resize.
 local ICON_SIZE_BASE    = 64
@@ -42,8 +43,13 @@ local ICON_ROW_H   = ICON_SIZE + 20
 -- often tighter than the eye expects with chunky pixel fonts.
 local LINE_H = { body = 28, small = 22, heading = 28, muted = 22 }
 
+-- Bumped whenever the fonts change (a resize rebuilds them), so the
+-- per-line height memo below cannot survive a relayout.
+CR.layout_gen = 0
+
 function CR.configureFromFonts(fonts)
     if not (fonts and fonts.md and fonts.sm) then return end
+    CR.layout_gen = CR.layout_gen + 1
     -- Just the font's natural line height — no extra padding. Pixel
     -- fonts already include leading inside getHeight() so anything
     -- more produces visible empty space between rows.
@@ -91,7 +97,22 @@ end
 -- Subtracts the right-segment's width (rendered in fonts.sm) from the
 -- available wrap width so a heading + right badge that overflows wraps
 -- into multiple visual rows and the button allocates the right height.
+-- Memoized on the line itself. Every button line was being wrapped three
+-- to four times per frame — once for the hit test's height, once for the
+-- draw's total height, once to centre the block, once to advance the
+-- cursor — and font:getWrap allocates a table of lines each time. The
+-- components are rebuilt per frame, so this is a within-frame memo; the
+-- width and the font generation guard it against a relayout.
 local function lineRenderedHeight(line, game, content_w)
+    if line._rh and line._rh_w == content_w and line._rh_gen == CR.layout_gen then
+        return line._rh
+    end
+    local h = CR._lineRenderedHeight(line, game, content_w)
+    line._rh, line._rh_w, line._rh_gen = h, content_w, CR.layout_gen
+    return h
+end
+
+function CR._lineRenderedHeight(line, game, content_w)
     local style  = line.style or "body"
     local font   = styleFont(style, game)
     -- Icon-bearing lines render single-line via IconText (no wrapping).
@@ -110,6 +131,7 @@ local function lineRenderedHeight(line, game, content_w)
         if line.right2_icon then right_w = right_w + game.fonts.sm:getHeight() + 4 end
     end
     local wrap_w = math.max(1, content_w - indent - 4 - right_w)
+    Perf.count("getWrap")
     local _, wrapped = font:getWrap(line.text or "", wrap_w)
     local n  = math.max(1, #wrapped)
     local fh = font:getHeight()
@@ -434,7 +456,7 @@ function CR._stat(comp, px, pw, p, y, game)
     end
     if comp.value_glow_color then
         Theme.setColor(comp.value_glow_color, 0.22)
-        for _, o in ipairs{ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
+        for _, o in ipairs(Theme.HALO_OFFSETS) do
             love.graphics.print(value, vx + o[1], cy + o[2])
         end
     end

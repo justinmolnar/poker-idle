@@ -102,6 +102,21 @@ local TIDY_FACTOR     = 2      -- tidy once the pile exceeds N× its tier target
 local EPS             = 1e-9
 
 -- ── Helpers ─────────────────────────────────────────────────────────
+-- ─── The layout revision ───────────────────────────────────────────────
+-- ChipPile.draw was re-solving every pile's stack layout every frame:
+-- building a denomination list, grouping it, sorting the groups, and
+-- allocating a table per placed chip — for a bankroll pile of 120 chips,
+-- 36 pot piles and 36 stack piles. The layout only moves when the chips or
+-- the layout-shaping place fields change, so both bump this and the solve
+-- is reused until then.
+--
+-- Deliberately NOT bumped by place.x / place.y: the solve is in local
+-- coordinates and the screen offset is applied at draw, so a pile that is
+-- merely moving (a dragged panel, a shaking table) keeps its cached layout.
+local function touch(e)
+    e.rev = (e.rev or 0) + 1
+end
+
 local function denomValue(d)
     local e = ChipData.denominations[d]
     return (e and e.value) or 0
@@ -266,6 +281,7 @@ local function finishSettle(e)
     if not e.settle then return end
     e.chips  = e.settle.chips
     e.settle = nil
+    touch(e)
 end
 
 -- ── Public: layout for callers with no pile ─────────────────────────
@@ -296,18 +312,30 @@ function ChipPile.place(key, x, y, opts)
     if not key then return end
     local e = entry(key)
     opts = opts or {}
-    e.place = {
-        x = x, y = y,
-        align = opts.align or "center",
-        max_w = opts.max_w,
-        scale = opts.scale or 1,
-        -- How wide/deep this pile may grow, in columns. The caller knows
-        -- what its pile would run into; the pile does not.
-        max_cols = opts.max_cols,
-        max_rows = opts.max_rows,
-        -- false = no denomination labels, ever (see layoutLocal).
-        labels   = opts.labels,
-    }
+    -- Written in place: this is called once per pile per frame from the
+    -- draw path, and a fresh table each time was pure garbage. Only a
+    -- change to a field the SOLVE depends on bumps the revision — x and y
+    -- are applied at draw, so moving a pile does not re-solve it.
+    local p = e.place
+    if not p then
+        p = {}
+        e.place = p
+        touch(e)
+    end
+    local align = opts.align or "center"
+    local scale = opts.scale or 1
+    if p.align ~= align or p.max_w ~= opts.max_w or p.scale ~= scale
+       -- How wide/deep this pile may grow, in columns. The caller knows
+       -- what its pile would run into; the pile does not.
+       or p.max_cols ~= opts.max_cols or p.max_rows ~= opts.max_rows
+       -- false = no denomination labels, ever (see layoutLocal).
+       or p.labels ~= opts.labels then
+        p.align, p.max_w, p.scale  = align, opts.max_w, scale
+        p.max_cols, p.max_rows     = opts.max_cols, opts.max_rows
+        p.labels                   = opts.labels
+        touch(e)
+    end
+    p.x, p.y      = x, y
     e.tint        = opts.tint
     e.since_place = 0
 end
@@ -367,6 +395,7 @@ function ChipPile.sync(key, value, opts)
        and e.since_take > TAKE_LOCKOUT then
         e.chips = ChipPile.compose(value, e.palette, e.tier)
         e.wrong_t = 0
+        touch(e)
     end
 end
 
@@ -485,6 +514,7 @@ function ChipPile.tidy(key, value, opts)
         e.chips = target
         return
     end
+    touch(e)
 
     if not e.place or opts.instant then
         e.chips = target
@@ -599,6 +629,7 @@ local function breakChip(e, chip)
             for j = 1, ni do
                 table.insert(e.chips, i + j - 1, { d = next_d })
             end
+            touch(e)
             return true
         end
     end
@@ -654,6 +685,7 @@ function ChipPile.take(key, amount)
     end
     e.wrong_t    = 0
     e.since_take = 0
+    touch(e)
     if #taken == 0 then return nil end
     return taken
 end
@@ -716,6 +748,7 @@ function ChipPile.reserve(key, denom_indices)
     end
     e.n_air   = e.n_air + #refs
     e.wrong_t = 0
+    touch(e)
 
     -- Measured against the FULL layout: an arriving chip aims for where
     -- it will sit once everything in the air has landed, so it doesn't
@@ -744,6 +777,7 @@ function ChipPile.accept(key, chip)
     chip.air = nil
     e.n_air  = math.max(0, e.n_air - 1)
     e.idle   = 0
+    touch(e)
 end
 
 -- ── Draw ────────────────────────────────────────────────────────────
@@ -757,11 +791,12 @@ function ChipPile.freeze(key)
     local e = _piles[key]
     if not e then return end
     e.frozen = denomList(e, true)
+    touch(e)
 end
 
 function ChipPile.thaw(key)
     local e = _piles[key]
-    if e then e.frozen = nil end
+    if e then e.frozen = nil; touch(e) end
 end
 
 function ChipPile.draw(key)
@@ -821,7 +856,12 @@ function ChipPile.draw(key)
     -- always a solid stack — never a stack with slots punched out of it
     -- waiting to be filled. It shifts a little when an arrival tips a
     -- column over its limit, which reads as the stack making room.
-    local placed = layoutLocal(denomList(e, true), place)
+    local placed = e.layout
+    if not placed or e.layout_rev ~= e.rev then
+        placed        = layoutLocal(denomList(e, true), place)
+        e.layout      = placed
+        e.layout_rev  = e.rev
+    end
     for _, p in ipairs(placed) do
         if p.col_base then drawShadowLocal(place, p.x, p.y, 1) end
     end
@@ -842,6 +882,7 @@ function ChipPile.update(dt)
         if e.settle then
             e.settle.t = e.settle.t + dt
             if e.settle.t >= e.settle.dur then
+                touch(e)
                 e.chips  = e.settle.chips
                 e.settle = nil
             end
@@ -857,7 +898,7 @@ function ChipPile.update(dt)
             for _, c in ipairs(e.chips) do
                 if c.air then
                     c.ttl = (c.ttl or AIR_TTL) - dt
-                    if c.ttl <= 0 then c.air = nil else still = still + 1 end
+                    if c.ttl <= 0 then c.air = nil; touch(e) else still = still + 1 end
                 end
             end
             e.n_air = still
@@ -867,7 +908,7 @@ function ChipPile.update(dt)
         -- only for a pile something is still drawing.
         if e.want and e.want_age <= SYNC_FRESH and e.n_air == 0 and not e.settle then
             if e.want <= 0 then
-                if #e.chips > 0 then e.chips = {} end
+                if #e.chips > 0 then e.chips = {}; touch(e) end
                 e.wrong_t = 0
             elseif #e.chips == 0 then
                 -- An empty pile fills in one step; there is nothing to
@@ -876,6 +917,7 @@ function ChipPile.update(dt)
                 -- has not caught up yet.
                 if e.since_take > TAKE_LOCKOUT then
                     e.chips = ChipPile.compose(e.want, e.palette, e.tier)
+                    touch(e)
                 end
                 e.wrong_t = 0
             else
@@ -945,6 +987,7 @@ function ChipPile.clear(key)
     e.gen        = e.gen + 1
     e.settle     = nil
     e.wrong_t    = 0
+    touch(e)
     -- An explicit clear is a statement that the pile is empty AND quiet,
     -- so the next value it is synced to can fill it in one step.
     e.since_take = math.huge

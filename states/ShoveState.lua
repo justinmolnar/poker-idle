@@ -162,7 +162,12 @@ end
 -- The things you own (GameState:countedItems: the rule the room screen's
 -- count shares), shuffled. #list is the BASE integer.
 function ShoveState:_countedItems()
-    local ids = self.game.state:countedItems(Catalog)
+    -- Copied before shuffling: countedItems hands back a cached list that
+    -- the room screen's counter also reads, and shuffling it in place would
+    -- reorder someone else's data.
+    local source = self.game.state:countedItems(Catalog)
+    local ids = {}
+    for i = 1, #source do ids[i] = source[i] end
     -- A different order every shove: the room is counted, not read.
     local rnd = (love.math and love.math.random) or math.random
     for i = #ids, 2, -1 do

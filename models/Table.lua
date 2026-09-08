@@ -86,8 +86,39 @@ local LAST_RESULTS_CAP = 10
 -- Build the AnchorRegistry key for a slot ("you", "pot", "center",
 -- "opp_<i>") on a given table. Centralized so the view (writer) and the
 -- controller (reader) can't drift on the format.
+-- The key a per-table rolling display value is stored under
+-- (services/RollingValue). Same reasoning and same lifetime as anchorKey
+-- below: built once per table, read every frame.
+function Table.rollingKey(t, name)
+    local keys = t._rolling_keys
+    if not keys then
+        keys = {}
+        t._rolling_keys = keys
+    end
+    local key = keys[name]
+    if not key then
+        key = name .. ":" .. (t._id or 0)
+        keys[name] = key
+    end
+    return key
+end
+
+-- Cached per table: a panel builds ~30 of these per frame (every seat,
+-- every board card, the pot, the pile, the readouts), and the string was
+-- being concatenated fresh each time. The id never changes, so the whole
+-- set is built once per table, on demand, and read thereafter.
 function Table.anchorKey(t, slot)
-    return "table_" .. (t._id or 0) .. "_" .. slot
+    local keys = t._anchor_keys
+    if not keys then
+        keys = {}
+        t._anchor_keys = keys
+    end
+    local key = keys[slot]
+    if not key then
+        key = "table_" .. (t._id or 0) .. "_" .. slot
+        keys[slot] = key
+    end
+    return key
 end
 
 -- (The old per-(gtype, tier) cinematic timeline is gone: hand length is
@@ -1839,7 +1870,22 @@ function Table:_endTournament(finish_position, n_seats)
 end
 
 -- Read-only summary the view header pulls each frame.
+-- Cached: the header reads this every frame and it is a pure function of
+-- the table's stake, game type and seat count, all of which change only
+-- when the table is opened or restaked.
 function Table:liveStats(_ctx)
+    local c = self._live_stats
+    if c and c.stake_id == self.stake_id and c.gtype_id == self.game_type_id
+       and c.n_opps == #self.opponents then
+        return c.value
+    end
+    local value = self:_buildLiveStats()
+    self._live_stats = { stake_id = self.stake_id, gtype_id = self.game_type_id,
+                         n_opps = #self.opponents, value = value }
+    return value
+end
+
+function Table:_buildLiveStats()
     local stake = Lookups.findById(StakesData,self.stake_id)
     local gtype = Lookups.findById(GameTypesData,self.game_type_id)
     if not stake then return nil end

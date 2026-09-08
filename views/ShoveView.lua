@@ -1662,11 +1662,12 @@ end
 --
 -- Under FEATURES.DEMO_CUT the timeline never creates board_6 / board_7, so this
 -- draws nothing and needs no flag of its own.
+local CHEAT_SLOTS = { 6, 7 }   -- the two board slots a cheat card lands in
 function ShoveView:_drawCheatCards(result, eval)
     if not (Style.cheat.enabled and result) then return end
     local origin = rowOriginFor(love.graphics.getWidth())
 
-    for _, i in ipairs{ 6, 7 } do
+    for _, i in ipairs(CHEAT_SLOTS) do
         local anim = self.card_anims["board_" .. i]
         local card = result.board[i]
         if anim and card then

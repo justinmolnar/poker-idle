@@ -38,6 +38,7 @@
 local ChipData    = require("data.chips")
 local Theme       = require("views.Theme")
 local FontService = require("services.FontService")
+local Perf        = require("services.Perf")
 
 local Chips = {}
 
@@ -853,6 +854,7 @@ end
 -- showcase chip (when present) renders as its own group at the front,
 -- so it visually sits on its own short column at the left end.
 function Chips.stackLayout(x, y, chip_indices, options)
+    Perf.count("stack_layout")
     local placed = {}
     if not chip_indices or #chip_indices == 0 then return placed end
     options = options or {}

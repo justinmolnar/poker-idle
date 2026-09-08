@@ -119,7 +119,12 @@ function SaveService:_stage(filename, payload)
         timestamp = os.time(),
         data      = payload,
     }
-    local ok_enc, encoded = pcall(json.encode, wrapper, true)
+    -- Compact, not pretty-printed. The autosave runs every 10 s on the main
+    -- thread and a board of 36 tables writes sixteen parallel arrays; the
+    -- indentation was roughly doubling the bytes to encode, write, read back
+    -- and re-parse, for a file no human reads in place (the tools all work
+    -- from the repo, not the save directory).
+    local ok_enc, encoded = pcall(json.encode, wrapper)
     if not ok_enc then
         print("SaveService: encode failed for " .. filename .. ": " .. tostring(encoded))
         return false
@@ -130,10 +135,14 @@ function SaveService:_stage(filename, payload)
         print("SaveService: stage write failed for " .. tmp .. ": " .. tostring(err))
         return false
     end
-    -- Verify the bytes that actually landed decode before they are allowed
-    -- to replace the real file.
-    local staged = tryRead(tmp)
-    if not staged then
+    -- Verify the bytes that actually landed, without paying for a second
+    -- full parse of the save we just built. The failure this guards against
+    -- is a SHORT write — a full disk, a killed process, Emscripten's IDBFS
+    -- flushing badly — and that is exactly what a length-and-terminator
+    -- check catches. A file that is the right length and ends in the
+    -- closing brace is the string we encoded.
+    local back = love.filesystem.read(tmp)
+    if not back or #back ~= #encoded or back:sub(-1) ~= "}" then
         print("SaveService: staged " .. tmp .. " failed verification, keeping the old save")
         return false
     end

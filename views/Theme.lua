@@ -132,4 +132,11 @@ function Theme.assetTint(alpha)
     love.graphics.setColor(t[1], t[2], t[3], alpha or 1)
 end
 
+-- The four cardinal 1px offsets a haloed / embossed string is printed at
+-- before the string itself. Four callers had their own copy of this list,
+-- each rebuilding it inside a draw — the emboss in IconText, the stat glow
+-- in ComponentRenderer, the corrupt line in CatalogModal, and the rail's
+-- underflow glow. One list, no per-frame allocation.
+Theme.HALO_OFFSETS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+
 return Theme

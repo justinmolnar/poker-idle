@@ -42,6 +42,7 @@ local PotTiers      = require("data.pot_tiers")
 local KoFinishDist = require("data.ko_finish_dist")
 local KoPayouts    = require("data.ko_payouts")
 local KoHandCount  = require("data.ko_hand_count")
+local Perf         = require("services.Perf")
 
 local OutcomeMath = {}
 
@@ -300,6 +301,7 @@ OutcomeMath.lerpDist = lerpDist
 -- table, given the player ctx. Returns three fresh values; caller may
 -- mutate the dist tables freely.
 function OutcomeMath.buildOutcome(ctx, gtype, stake)
+    Perf.count("buildOutcome")
     -- Stake's 1-based tier index (T1..T6) — used both by tier-scoped fill
     -- descriptors here and by the win_dist_shift bounds at step 4c.
     local tier_idx = stake and Lookups.indexById(StakesData, stake.id) or nil
@@ -770,6 +772,7 @@ end
 -- runs against. A readout built on the raw buildOutcome dists reports a
 -- Stack rate the player never experiences.
 function OutcomeMath.evStats(ctx, gtype, stake, opts)
+    Perf.count("evStats")
     if not stake or not gtype then return nil end
     ctx = ctx or {}
     local wc, wd, ld = OutcomeMath.resolvedOutcome(ctx, gtype, stake)

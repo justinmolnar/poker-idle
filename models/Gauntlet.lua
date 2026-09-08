@@ -62,6 +62,11 @@ function Gauntlet:new(game, rates, realism)
         player_hole = nil,             -- {Card, Card}
         dealer_hole = nil,             -- {Card, Card}
         board       = nil,             -- list, grows 5 → 6 → 7
+        -- Reused by the board search so the inner loop allocates nothing.
+        _scratch_p  = {},
+        _scratch_d  = {},
+        _cand_buf   = {},
+        _c7_buf     = {},
         outcomes    = { nil, nil, nil },
         natural     = { nil, nil, nil },
         evals       = { nil, nil, nil },
@@ -118,15 +123,32 @@ end
 -- Player vs dealer on the current board: 1 the player wins, -1 the
 -- dealer wins, 0 a tie. Also returns both rank tuples so callers that
 -- need the categories (the plausibility floors) don't re-evaluate.
+-- Player vs dealer through HandEval.score: one number each, no combination
+-- walk and no allocation. The search runs this tens of thousands of times
+-- per constructed hand; the rank TUPLES are still built, once per runout,
+-- by _evaluateRunout below, which is what the view reads.
+--
+-- Returns the comparison plus both scores, whose leading base-15 digit is
+-- the hand category (what the plausibility floors want).
+local CAT_DIVISOR = 759375
+
 function Gauntlet:_compare()
-    local p_cards, d_cards = {}, {}
-    for _, c in ipairs(self.player_hole)  do table.insert(p_cards, c) end
-    for _, c in ipairs(self.board)        do table.insert(p_cards, c) end
-    for _, c in ipairs(self.dealer_hole)  do table.insert(d_cards, c) end
-    for _, c in ipairs(self.board)        do table.insert(d_cards, c) end
-    local p_rank = HandEval.bestFiveOfN(p_cards)
-    local d_rank = HandEval.bestFiveOfN(d_cards)
-    return HandEval.compare(p_rank, d_rank), p_rank, d_rank
+    local p, d  = self._scratch_p, self._scratch_d
+    local hp, hd, board = self.player_hole, self.dealer_hole, self.board
+    p[1], p[2] = hp[1], hp[2]
+    d[1], d[2] = hd[1], hd[2]
+    local n = #board
+    for i = 1, n do
+        local c = board[i]
+        p[2 + i] = c
+        d[2 + i] = c
+    end
+    local n_cards = 2 + n
+    local ps = HandEval.score(p, n_cards)
+    local ds = HandEval.score(d, n_cards)
+    if ps > ds then return  1, ps, ds end
+    if ps < ds then return -1, ps, ds end
+    return 0, ps, ds
 end
 
 -- Whether the player STRICTLY beats the dealer. Draw = loss.
@@ -139,8 +161,8 @@ end
 -- tie matches nothing, so the search keeps looking: the winner wins.
 -- Stashes the two rank tuples for the plausibility check that follows.
 function Gauntlet:_shows(outcome)
-    local c, p_rank, d_rank = self:_compare()
-    self._last_p_rank, self._last_d_rank = p_rank, d_rank
+    local c, p_score, d_score = self:_compare()
+    self._last_p_score, self._last_d_score = p_score, d_score
     if outcome then return c > 0 end
     return c < 0
 end
@@ -165,9 +187,10 @@ function Gauntlet:_r1Plausible(relax)
         floor = self.outcomes[1] and pol.r1_win_cat_floor
                                   or pol.r1_loss_cat_floor
     end
-    local rank = self.outcomes[1] and self._last_p_rank or self._last_d_rank
-    if not rank then return true end
-    return rank[1] >= (floor or 1)
+    local score = self.outcomes[1] and self._last_p_score or self._last_d_score
+    if not score then return true end
+    local category = math.floor(score / CAT_DIVISOR)
+    return category >= (floor or 1)
 end
 
 -- Classify every candidate runner: appended to the board, does it keep
@@ -177,11 +200,14 @@ end
 -- a survival card. Bails out (returns nil) the moment the rob count
 -- exceeds `rob_cap`: past the band there is no acceptable pick, so the
 -- rest of the scan is wasted work.
-function Gauntlet:_classifyRunnerCards(cands, rob_cap)
+-- `n_cands` lets the caller pass a reused buffer whose tail is stale, so
+-- the candidate list costs no allocation per attempt.
+function Gauntlet:_classifyRunnerCards(cands, rob_cap, n_cands)
     local safe, rob = {}, {}
     local board = self.board
     local slot  = #board + 1
-    for _, c in ipairs(cands) do
+    for i = 1, (n_cands or #cands) do
+        local c = cands[i]
         board[slot] = c
         local cmp = self:_compare()
         board[slot] = nil
@@ -217,8 +243,9 @@ function Gauntlet:_planCheatCards(relax)
 
     -- ── Runout 2: robbed at c6 ──
     if self.outcomes[2] == false then
-        local _, rob6 = self:_classifyRunnerCards(self.deck:remaining(),
-                                                  rob_band[2])
+        local n_cands = self.deck:remainingInto(self._cand_buf)
+        local _, rob6 = self:_classifyRunnerCards(self._cand_buf,
+                                                  rob_band[2], n_cands)
         if not rob6 or #rob6 < rob_band[1] then return false end
         self._outs_c6 = #rob6
         local c6 = rob6[love.math.random(#rob6)]
@@ -228,8 +255,9 @@ function Gauntlet:_planCheatCards(relax)
     end
 
     -- ── Runout 2 survives: c6 must be safe, dealer outs within the sweat cap ──
-    local safe6, rob6 = self:_classifyRunnerCards(self.deck:remaining(),
-                                                  max_sweat)
+    local n_cands = self.deck:remainingInto(self._cand_buf)
+    local safe6, rob6 = self:_classifyRunnerCards(self._cand_buf,
+                                                  max_sweat, n_cands)
     if not safe6 or #safe6 == 0 then return false end
     self._outs_c6 = #rob6
     shuffle(safe6)
@@ -237,14 +265,16 @@ function Gauntlet:_planCheatCards(relax)
     for i = 1, c6_tries do
         local c6 = safe6[i]
         self.board[#self.board + 1] = c6
-        local c7_cands = {}
-        for _, c in ipairs(self.deck:remaining()) do
-            if c ~= c6 then c7_cands[#c7_cands + 1] = c end
+        local c7_cands = self._c7_buf
+        local n_c7 = 0
+        for k = 1, n_cands do
+            local c = self._cand_buf[k]
+            if c ~= c6 then n_c7 = n_c7 + 1; c7_cands[n_c7] = c end
         end
         if self.outcomes[3] == false then
             -- Robbed at c7. This is also the Act-3-locked path (an R2 win
             -- with Act 3 closed rolls outcomes[3] = false): contract kept.
-            local _, rob7 = self:_classifyRunnerCards(c7_cands, rob_band[2])
+            local _, rob7 = self:_classifyRunnerCards(c7_cands, rob_band[2], n_c7)
             if rob7 and #rob7 >= rob_band[1] then
                 self._outs_c7 = #rob7
                 local c7 = rob7[love.math.random(#rob7)]
@@ -255,7 +285,7 @@ function Gauntlet:_planCheatCards(relax)
             end
         else
             -- Full win: c7 safe too.
-            local safe7, rob7 = self:_classifyRunnerCards(c7_cands, max_sweat)
+            local safe7, rob7 = self:_classifyRunnerCards(c7_cands, max_sweat, n_c7)
             if safe7 and #safe7 > 0 then
                 self._outs_c7 = #rob7
                 local c7 = safe7[love.math.random(#safe7)]

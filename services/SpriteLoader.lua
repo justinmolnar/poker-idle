@@ -159,9 +159,11 @@ end
 -- nested call, etc.
 -- A sheet of N square cells laid side by side (width = N * height, N >= 3)
 -- is a strip; returns its cells as Images, or nil for a plain sprite.
-function SpriteLoader:_sliceStrip(item_path)
-    local ok, data = pcall(love.image.newImageData, item_path)
-    if not ok or not data then return nil end
+-- `data` is an already-decoded ImageData, so the caller pays for exactly
+-- one PNG decode per file. Returns nil when the image is not a strip, and
+-- the caller then builds a plain Image from the same data.
+function SpriteLoader:_sliceStrip(data)
+    if not data then return nil end
     local w, h = data:getWidth(), data:getHeight()
     if h <= 0 or w % h ~= 0 or w / h < 3 then return nil end
     local frames = {}
@@ -190,7 +192,13 @@ function SpriteLoader:_scan(rel_dir)
                 elseif info.type == "file" and isSupported(item) then
                     local sprite_name = stripExt(rel_path)
                     local is_card = sprite_name:sub(1, #CARD_PREFIX) == CARD_PREFIX
-                    local frames = (not is_card) and self:_sliceStrip(item_path) or nil
+                    -- Decode ONCE. The strip test needs the pixels and so
+                    -- does the Image, and this was decoding the file twice
+                    -- for every non-card sprite in the tree.
+                    local ok_data, data = pcall(love.image.newImageData, item_path)
+                    if not ok_data then data = nil end
+                    local frames = (not is_card) and data
+                                   and self:_sliceStrip(data) or nil
                     if frames then
                         -- A strip (Door_2_Brown.png is 5 cells of 128x128):
                         -- the cells are the frames. _buildAnimations turns
@@ -201,7 +209,10 @@ function SpriteLoader:_scan(rel_dir)
                         self.sprites[sprite_name] = frames[1]
                         count = count + 1
                     else
-                        local ok, image = pcall(love.graphics.newImage, item_path)
+                        local ok, image = false, nil
+                        if data then
+                            ok, image = pcall(love.graphics.newImage, data)
+                        end
                         if ok and image then
                             if is_card then
                                 image = self:_conditionCard(sprite_name, image)

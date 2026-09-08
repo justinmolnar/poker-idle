@@ -23,8 +23,24 @@ function Card:new(suit, rank)
     return setmetatable({ suit = suit, rank = rank }, Card)
 end
 
+-- Every (suit, rank) name, built once at load. Cards are drawn every frame
+-- (up to 19 per table panel) and this was a two-part concatenation per card
+-- per draw; the table is 52 strings and never changes. Built here rather
+-- than stamped onto each Card because the gauntlet's search allocates
+-- hundreds of decks, and those must stay as cheap as they are.
+local SPRITE_NAMES = {}
+for _, suit in ipairs(SUITS) do
+    local by_rank = {}
+    for _, rank in ipairs(RANKS) do
+        by_rank[rank] = "cards/fronts/" .. suit .. "/" .. rank
+    end
+    SPRITE_NAMES[suit] = by_rank
+end
+
 function Card:spriteName()
-    return "cards/fronts/" .. self.suit .. "/" .. self.rank
+    local by_rank = SPRITE_NAMES[self.suit]
+    return by_rank and by_rank[self.rank]
+        or ("cards/fronts/" .. self.suit .. "/" .. self.rank)
 end
 
 function Card:rankValue()

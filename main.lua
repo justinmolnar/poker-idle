@@ -41,6 +41,7 @@ local ItemFoley       = require("services.ItemFoley")
 local AnchorRegistry  = require("services.AnchorRegistry")
 local ShaderRegistry  = require("services.ShaderRegistry")
 local HandAnalytics   = require("services.HandAnalytics")
+local Perf            = require("services.Perf")
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
@@ -169,10 +170,24 @@ end
 love.graphics.getDimensions = function() return BASE_W, BASE_H end
 love.graphics.getWidth      = function() return BASE_W end
 love.graphics.getHeight     = function() return BASE_H end
+-- The frame-space pointer, computed at most once per phase.
+--
+-- Panels, hit tests, hover and the component renderer all ask for the mouse
+-- during a single update or draw — dozens of calls a frame, each of which
+-- was three window queries (pixel dims twice, unit dims once) plus the fit
+-- maths. The pointer cannot move inside a phase, so it is computed on first
+-- ask and reused until something says otherwise: the start of update, the
+-- start of draw, and every input callback, all of which mark it stale. Worst
+-- case is a handful of real computations per frame instead of dozens.
+local _mx, _my       = 0, 0
+local _mouse_stale   = true
+local function markMouseStale() _mouse_stale = true end
 love.mouse.getPosition = function()
-    local x, y = _realGetPos()
-    local fx, fy = unitsToFrame(x, y)
-    return fx, fy
+    if _mouse_stale then
+        _mx, _my = unitsToFrame(_realGetPos())
+        _mouse_stale = false
+    end
+    return _mx, _my
 end
 -- getX/getY go through the same fit (a few views read them directly).
 love.mouse.getX = function() local x = love.mouse.getPosition(); return x end
@@ -591,8 +606,15 @@ function love.load()
 end
 
 function love.update(dt)
+    -- Perf's frame boundary is here, before anything else runs, so the
+    -- counters a frame reports belong to that frame (F4; free when off).
+    Perf.beginFrame(dt)
+    Perf.enter("update")
+    markMouseStale()
     -- Follow Windows' default audio output (LÖVE 12; inert on 11).
+    Perf.enter("audio_device")
     AudioDevice.tick(dt)
+    Perf.exit("audio_device")
     -- Reset per-frame hover + tooltip state before any hit-tests run. Things
     -- that own hoverable regions (Panel:updateHover, ComponentRenderer.hitTest,
     -- GrindView's hit_box walk) write to these during this update; draws
@@ -677,11 +699,14 @@ function love.update(dt)
             if autosave_timer >= AUTOSAVE_INTERVAL then
                 autosave_timer = 0
                 local state = Game.state
+                Perf.enter("save")
                 Game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
                 HandAnalytics.flush(state, Game.settings and Game.settings.analytics_consent)
+                Perf.exit("save")
             end
         end
     end
+    Perf.exit("update")
 end
 
 -- Dev perf HUD (F4). Read the stats BEFORE drawing anything here, so the
@@ -699,28 +724,57 @@ local function drawPerfHud()
     local prev = love.graphics.getFont()
     if font then love.graphics.setFont(font) end
 
-    local lines = {
-        string.format("fps           %d", love.timer.getFPS()),
-        string.format("draw calls    %d", st.drawcalls or 0),
-        string.format("batched       %d", st.drawcallsbatched or 0),
-        string.format("chips         %d", n_chips),
-        string.format("chip scale    %.2f - %.2f", s_min, s_max),
-        string.format("texture mem   %.1f MB", (st.texturememory or 0) / 1048576),
-    }
+    local lines = {}
+    local function row(label, fmt, ...)
+        lines[#lines + 1] = { label, string.format(fmt, ...) }
+    end
+    local function gap() lines[#lines + 1] = false end
+
+    local avg, worst = Perf.frameTimes()
+    row("fps",        "%d", love.timer.getFPS())
+    row("frame avg",  "%.1f ms", avg * 1000)
+    row("frame worst","%.1f ms", worst * 1000)
+    row("update",     "%.2f ms", Perf.scopeMs("update"))
+    row("draw",       "%.2f ms", Perf.scopeMs("draw"))
+    gap()
+    row("heap",       "%.1f MB", Perf.heapKB() / 1024)
+    row("heap/frame", "%.0f KB", Perf.heapDeltaKB())
+    gap()
+    row("draw calls", "%d", st.drawcalls or 0)
+    row("batched",    "%d", st.drawcallsbatched or 0)
+    row("chips",      "%d", n_chips)
+    row("chip scale", "%.2f - %.2f", s_min, s_max)
+    row("texture mem","%.1f MB", (st.texturememory or 0) / 1048576)
+    gap()
+    -- The optimization meters: each is a call the audit wants driven to
+    -- (near) zero at rest. See docs/optimization-plan-2026-09.md.
+    row("evStats",    "%d", Perf.counter("evStats"))
+    row("buildOutcome","%d", Perf.counter("buildOutcome"))
+    row("anchors",    "%d", Perf.counter("anchor_set"))
+    row("text parse", "%d", Perf.counter("icontext_parse"))
+    row("text wrap",  "%d", Perf.counter("getWrap"))
+    row("pile layout","%d", Perf.counter("stack_layout"))
 
     local lh = font and font:getHeight() or 10
-    local w, h = 190, lh * #lines + 12
+    local w, h = 210, lh * #lines + 12
     local x, y = 8, 8
     love.graphics.setColor(0, 0, 0, 0.78)
     love.graphics.rectangle("fill", x, y, w, h, 3)
-    love.graphics.setColor(0.55, 0.85, 1.00, 1)
     for i, line in ipairs(lines) do
-        love.graphics.print(line, x + 6, y + 6 + (i - 1) * lh)
+        if line then
+            local ly = y + 6 + (i - 1) * lh
+            love.graphics.setColor(0.55, 0.85, 1.00, 1)
+            love.graphics.print(line[1], x + 6, ly)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.print(line[2], x + 108, ly)
+        end
     end
     if prev then love.graphics.setFont(prev) end
 end
 
 function love.draw()
+    Perf.enter("draw")
+    markMouseStale()
     if not _frameCanvas then
         -- dpiscale 1: exactly BASE_W × BASE_H pixels whatever the desktop's
         -- scale, so an 8 px glyph is 8 px in the frame.
@@ -778,6 +832,9 @@ function love.draw()
     -- the avoid rect.
     Tooltip.setAvoid(Game.story_view.band_rect)
     Tooltip.draw(Game.fonts)
+    -- The game's own draw ends here; the HUD and the blit that follow are
+    -- overhead the "draw" meter must not charge to the frame.
+    Perf.exit("draw")
     if Game.debug and Game.debug.perf then drawPerfHud() end
     love.graphics.setCanvas()
 
@@ -808,15 +865,16 @@ end
 function love.keyreleased(key)   Game.input_dispatcher:dispatch("keyreleased",  key)         end
 
 function love.mousepressed(x, y, b)
+    markMouseStale()
     local fx, fy = unitsToFrame(x, y)
     -- A click while a tooltip's side card is up pins it; the next click lets it go.
     if b == 1 and Tooltip.click() then return end
     Game.input_dispatcher:dispatch("mousepressed",  fx, fy, b)
 end
-function love.mousereleased(x, y, b)   local fx, fy = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousereleased", fx, fy, b) end
-function love.mousemoved(x, y, dx, dy) local fx, fy, k = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousemoved", fx, fy, dx / k, dy / k) end
+function love.mousereleased(x, y, b)   markMouseStale(); local fx, fy = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousereleased", fx, fy, b) end
+function love.mousemoved(x, y, dx, dy) markMouseStale(); local fx, fy, k = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousemoved", fx, fy, dx / k, dy / k) end
 function love.textinput(text)    Game.input_dispatcher:dispatch("textinput",    text)        end
-function love.wheelmoved(x, y)   Game.input_dispatcher:dispatch("wheelmoved",   x, y)        end
+function love.wheelmoved(x, y)   markMouseStale(); Game.input_dispatcher:dispatch("wheelmoved",   x, y)        end
 
 function love.resize(w, h)
     if not Game then return end

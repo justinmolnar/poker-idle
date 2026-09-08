@@ -44,6 +44,17 @@ function Deck:remaining()
     return copy
 end
 
+-- The same list written into a buffer the caller owns, returning its
+-- length. The gauntlet's search asks for the remaining cards on every
+-- attempt and every cheat-card try; allocating a 43-entry table each time
+-- was pure churn. Entries past the returned count are left as they were.
+function Deck:remainingInto(buf)
+    local cards = self.cards
+    local n = #cards
+    for i = 1, n do buf[i] = cards[i] end
+    return n
+end
+
 function Deck:removeCard(card)
     for i, c in ipairs(self.cards) do
         if c == card then

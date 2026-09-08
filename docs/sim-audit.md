@@ -35,7 +35,7 @@
 ### item:stack_of_books — PASS
 - copy: A {c:lost:loss}: 1 in 6 chance it rerolls, keep the better.
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; loss_reroll_chance -> ctx.loss_reroll_chance = 0.16666666666667
-- d6: NL10 6-Max stack-loss rate per hand: 3.84% without, 3.27% with (expected 3.28%: a sixth of losses reroll and keep the better)
+- d6: NL10 6-Max stack-loss rate per hand: 4.08% without, 3.28% with (expected 3.28%: a sixth of losses reroll and keep the better)
 - gate: unlocks at total_hands_won >= 250: closed at 249, open at 250
 
 ### item:throw_pillow — PASS
@@ -169,7 +169,7 @@
 ### item:trophy_shelf — PASS
 - copy: A {c:chip:bounty} pays: 1 in 4 chance it pays ×2.
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; bounty_double_chance -> ctx.bounty_double_chance = 0.25
-- double: a NL2 Heads-Up bounty (1) paid x2 on 25.1% of awards (1 in 4); the sidebar's display read never doubles (0 of 2000)
+- double: a NL2 Heads-Up bounty (1) paid x2 on 25.3% of awards (1 in 4); the sidebar's display read never doubles (0 of 2000)
 - gate: unlocks at total_stacks >= 150: closed at 149, open at 150
 
 ### item:dusty_console — PASS
@@ -218,6 +218,8 @@
 - gate: unlocks at total_cursor_deals >= 1000: closed at 999, open at 1000
 
 ### item:box_of_mice — PASS
+- copy: Opens the {c:upgrade:cursors} and the Cursor {c:upgrade:upgrade}.
+- rollup: shove_rate_add -> ctx.shove_rate = 0.01; cursor_unlocked -> ctx.cursor_unlocked = true
 - opens: three Cursor levels put 0 cursors on the felt without the box, 3 with it
 
 ### item:wacom_tablet — PASS
@@ -229,14 +231,14 @@
 ### item:desk_lamp — PASS
 - copy: A {c:upgrade:cursor} crosses a {c:heat:heater}: 1 in 4 chance it catches fire, and the next table it deals catches a {c:heat:heater}.
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; cursor_ignite_chance -> ctx.cursor_ignite_chance = 0.25
-- ignite: a cursor entering a heater's panel caught fire 25.8% of the time (1 in 4)
+- ignite: a cursor entering a heater's panel caught fire 24.7% of the time (1 in 4)
 - lit deal: a lit cursor's deal lit the table (heater true) and spent the fire (lit false)
 - gate: unlocks at total_cursor_deals >= 3000: closed at 2999, open at 3000
 
 ### item:telephone — PASS
 - copy: No two {c:upgrade:cursors} head for the same table.
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; cursor_sync_unlocked -> ctx.cursor_sync_unlocked = true
-- sync: two cursors, two tables, 200 fresh spawns: both chose the same table 96 times without the phone, 0 with it
+- sync: two cursors, two tables, 200 fresh spawns: both chose the same table 94 times without the phone, 0 with it
 - gate: unlocks at total_cursor_deals >= 6000: closed at 5999, open at 6000
 
 ### item:old_keyboard — PASS
@@ -253,7 +255,7 @@
 - copy: 1 in 12 chance a {c:won:win} lands one size up.
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; win_tier_bump_chance -> ctx.win_tier_bump_chance = 0.083333333333333
 - bump: 1 in 12 of wins land one size up: small share 0.300 -> 0.275 (x 11/12), stack share 0.220 -> 0.243
-- roll: bump chance on the ctx rolls true 8.22% of the time (1 in 12 = 8.33%)
+- roll: bump chance on the ctx rolls true 8.24% of the time (1 in 12 = 8.33%)
 - gate: unlocks at total_stacks >= 1600: closed at 1599, open at 1600
 
 ### item:first_aid_kit — PASS
@@ -347,6 +349,8 @@
 - xp: the hand's deck XP event carried hand_units = 2
 
 ### item:whiteboard — PASS
+- copy: A {k:tournament} win pays +2% {c:chance:odds} at {k:every_table} for the run.
+- rollup: shove_rate_add -> ctx.shove_rate = 0.01; ratchet_gain_mult -> ctx.ratchet_gain_mult = 2.0
 - ratchet x2: with the Whiteboard a tournament win banks +0.02 odds (double the vase's 1%)
 
 ### item:high_roller_pass — PASS
@@ -400,7 +404,7 @@
 ### item:cleaning_robot — PASS
 - copy: Two {c:upgrade:cursors} clash: the table under them catches a {c:heat:heater}, not a {c:tilt:tilt}.
 - rollup: shove_rate_add -> ctx.shove_rate = 0.01; cursor_clash_status -> ctx.cursor_clash_status = heater
-- clash: a clash lands a tilt 24.9% of the time bare (1 in 4) and a heater 25.6% with the robot, never a tilt
+- clash: a clash lands a tilt 25.1% of the time bare (1 in 4) and a heater 25.3% with the robot, never a tilt
 - panel: two cursors touching over the second table: one clash, reported with that table's panel, both cursors stunned
 - gate: unlocks at total_stacks >= 500: closed at 499, open at 500
 
@@ -749,7 +753,7 @@
 ### deck:standard:1 — PASS
 - rollup: stack_loss_rerolls -> ctx.stack_loss_rerolls = 1
 - rerolls: Standard L1: a stack loss rerolls 1 time(s)
-- reroll: NL10 Heads-Up naked: stack losses 3.20% of hands with 1 reroll(s) (expected 3.20%; 16.00% with no deck)
+- reroll: NL10 Heads-Up naked: stack losses 3.21% of hands with 1 reroll(s) (expected 3.20%; 16.00% with no deck)
 - unlock: no unlock condition: the deck is open from the start
 - xp: levels on money won: the counted event earns 100 XP (rule money_won); at 2000.0 XP the deck turns L1; a loss earns 0
 
@@ -775,7 +779,7 @@
 ### deck:standard:capstone — PASS
 - copy: Those rerolls can land on a {c:won:win}.
 - rollup: stack_loss_reroll_wins -> ctx.stack_loss_reroll_wins = true; absent at level 4
-- wins: with the capstone a stack loss can reroll into a win: win rate 19.47% at L4, 29.43% at L5 (NL10 Heads-Up naked)
+- wins: with the capstone a stack loss can reroll into a win: win rate 19.50% at L4, 29.41% at L5 (NL10 Heads-Up naked)
 
 ### deck:firehose:1 — PASS
 - rollup: hand_pace_mult -> ctx.hand_pace_mult_by_gtype = table(1)
@@ -789,7 +793,7 @@
 
 ### deck:firehose:3 — PASS
 - rollup: hand_pace_mult -> ctx.hand_pace_mult_by_gtype = table(1)
-- pace: a Zoom hand took 1.25s with no deck, 0.90s at Firehose L3 (1.15^3 = x1.52)
+- pace: a Zoom hand took 1.35s with no deck, 0.90s at Firehose L3 (1.15^3 = x1.52)
 
 ### deck:firehose:4 — PASS
 - rollup: hand_pace_mult -> ctx.hand_pace_mult_by_gtype = table(1)
@@ -827,7 +831,7 @@
 ### deck:closer:capstone — PASS
 - copy: At {k:Heads-Up}, 1 in 2 chance: {l:stack} {arrow} {l:large}.
 - rollup: loss_tier_shift -> ctx.loss_tier_shifts = table(1); absent at level 4
-- shift: Heads-Up stack losses 56.52% -> 28.72% (half); Zoom untouched at 42.66%
+- shift: Heads-Up stack losses 56.52% -> 28.73% (half); Zoom untouched at 42.68%
 
 ### deck:bounty_hunter:1 — PASS
 - rollup: unbanked_stack_shift -> ctx.unbanked_stack_shift = 0.05
@@ -931,7 +935,7 @@
 - copy: Each {c:won:win}: 1 in 2 chance one size up, and 1 in 2 chance ×2.
 - rollup: win_tier_bump_chance -> ctx.win_tier_bump_chance = 0.5; win_payout_double_chance -> ctx.win_payout_double_chance = 0.5; absent at level 4
 - kinds: bump chance 0.50, double chance 0.50 on the ctx
-- double: 34 of 60 won hands paid double (expected about half)
+- double: 33 of 60 won hands paid double (expected about half)
 
 ### deck:swarm:1 — PASS
 - rollup: focus_level_worth -> ctx.focus_level_worth = 1
@@ -992,7 +996,10 @@
 - rollup: proc -> ctx.procs = table(3); absent at level 4
 
 ### deck:circuit_pro:1 — PASS
+- rollup: ko_targets_add -> ctx.ko_targets_add = 1
 - reach: Circuit Pro L1 (+1 table per knockout): the same knockout lights both neighbours (2 of 2)
+- unlock: the deck unlocks at total_ko_wins >= 3: locked at 2, unlocked at 3
+- xp: levels on knockouts: the counted event earns 2 XP (rule knockouts); at 20 XP the deck turns L1
 
 ### deck:circuit_pro:2 — PASS
 - rollup: ko_targets_add -> ctx.ko_targets_add = 2 = 2 after 2 applications
@@ -1200,10 +1207,10 @@
 - runs: two minutes of a full board threw nothing
 - board: 36 tables open (the whole 36-table board) with Focus capacity 36
 - swarm: 13 cursors on the felt (Cursor L12 + the Laptop)
-- money: bankroll after two minutes: 1.0000004573115e+15
-- hands: 1737 hands played across the board, hands-played counter at 2684
+- money: bankroll after two minutes: 1.0000004502859e+15
+- hands: 1725 hands played across the board, hands-played counter at 2637
 - statuses: only tilt and heater ever sat on a table
-- pace: the board's hands-per-second stamp peaked at 44
+- pace: the board's hands-per-second stamp peaked at 39
 
 ## Uncovered
 

@@ -55,6 +55,14 @@ end
 -- use; a beat this slow is free and imperceptible.
 local TOURNEY_TICK = 0.5
 
+-- The four orthogonal neighbours of a board cell. Hoisted: this used to
+-- be a table literal INSIDE the per-table loops, so a 36-table board
+-- built 360 throwaway tables every frame just to look sideways.
+local NEIGHBOUR_DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+
+-- Returned for a combo with no tables open. Read-only.
+local EMPTY_SUMMARY = { open = 0, deal = 0, rebuy = 0, pending = 0 }
+
 local GrindController = {}
 GrindController.__index = GrindController
 
@@ -168,6 +176,29 @@ end
 -- happened; whether any proc cares is decided by the data. Adding a trigger
 -- is an edit to that file plus somewhere in the game that publishes the
 -- name, and no code in this controller changes at all.
+-- Whether the owned proc/router id lists differ from the ones the current
+-- subscriptions were built from. The rollup runs on every bounty, deck
+-- level and tournament payout, but the SET of owned procs changes only when
+-- the player buys or corrupts something — and resubscribing means dropping
+-- and rebuilding a closure per trigger and re-sorting each subscriber list
+-- on the bus. So the index is rebuilt every time (it is cheap and reflects
+-- the live ctx) and the bus is touched only when the ids actually moved.
+local function sameIdList(prev, list)
+    if not prev then return false end
+    local n = #list
+    if #prev ~= n then return false end
+    for i = 1, n do
+        if prev[i] ~= list[i] then return false end
+    end
+    return true
+end
+
+local function copyIdList(list)
+    local out = {}
+    for i = 1, #list do out[i] = list[i] end
+    return out
+end
+
 function GrindController:_rebuildProcIndex()
     local index = {}
     -- Each id once: a deck grants its proc per level (applyN), and an
@@ -202,6 +233,20 @@ function GrindController:_rebuildProcIndex()
 
     local bus = self.game and self.game.event_bus
     if not bus then return end
+
+    -- Nothing owned changed: the standing subscriptions already point at
+    -- this controller and read self.proc_index / self.router_list live, so
+    -- they keep working against the index just rebuilt above.
+    local proc_ids   = (self.ctx and self.ctx.procs)   or {}
+    local router_ids = (self.ctx and self.ctx.routers) or {}
+    if self._proc_tokens
+       and sameIdList(self._proc_ids_seen, proc_ids)
+       and sameIdList(self._router_ids_seen, router_ids) then
+        return
+    end
+    self._proc_ids_seen   = copyIdList(proc_ids)
+    self._router_ids_seen = copyIdList(router_ids)
+
     -- Drop the old subscriptions before taking new ones, or every rollup
     -- would stack another copy and a proc would fire once per rollup.
     for _, tok in ipairs(self._proc_tokens or {}) do bus:unsubscribe(tok) end
@@ -508,6 +553,130 @@ function GrindController:dealIdleTable(t, opts)
     return true
 end
 
+-- ─── The display revision ──────────────────────────────────────────────
+-- One strictly-increasing number meaning "something a readout derives from
+-- has changed". The EV cache below and every memoized tooltip key on it, so
+-- the whole derived-UI layer refreshes exactly when it must and never
+-- otherwise. Bumped by: the effect rollup (invalidateEffects), the live ctx
+-- fields (_setCtxField), and — checked once per frame in update — the table
+-- pool, the owned-catalog set, and the debug payout shape.
+function GrindController:_bumpDisplay()
+    self.display_rev = (self.display_rev or 0) + 1
+end
+
+-- The per-frame half of the above: three counters this controller does not
+-- own, folded in with one comparison each.
+function GrindController:_pollDisplayInputs()
+    local state = self.game.state
+    local pool_rev  = (self.pool and self.pool.rev) or 0
+    local owned_rev = state.owned_rev or 0
+    local shape     = (self.game.debug and self.game.debug.payout_shape) or 0
+    if pool_rev  ~= self._seen_pool_rev
+    or owned_rev ~= self._seen_owned_rev
+    or shape     ~= self._seen_payout_shape then
+        self._seen_pool_rev      = pool_rev
+        self._seen_owned_rev     = owned_rev
+        self._seen_payout_shape  = shape
+        self:_bumpDisplay()
+    end
+end
+
+-- ─── The EV cache ──────────────────────────────────────────────────────
+-- OutcomeMath.evStats is ~20 µs and was called from the draw path three
+-- times per open table per frame (measure, draw, tooltip) plus twice per
+-- visible stake in the sidebar — roughly 130 calls a frame at a full board,
+-- all of them recomputing an answer that only moves when the rollup does.
+--
+-- Two levels of plain table so a hit allocates nothing. The whole cache is
+-- dropped when the display revision moves; nothing here is ever mutated by
+-- a caller (the readouts and the tooltip builders only read).
+function GrindController:evStats(stake, gtype)
+    if not (stake and gtype) then return nil end
+    local rev   = self.display_rev or 0
+    local cache = self._ev_cache
+    if not cache or self._ev_cache_rev ~= rev then
+        cache = {}
+        self._ev_cache, self._ev_cache_rev = cache, rev
+    end
+    local by_gtype = cache[stake.id]
+    if not by_gtype then by_gtype = {}; cache[stake.id] = by_gtype end
+    local hit = by_gtype[gtype.id]
+    if hit == nil then
+        hit = OutcomeMath.evStats(self.ctx, gtype, stake) or false
+        by_gtype[gtype.id] = hit
+    end
+    return hit or nil
+end
+
+-- The per-table variant. A table's numbers also move with its own statuses
+-- (Table:effectiveCtx layers them over the ctx) and its seat count, so those
+-- ride in the validity check alongside the display revision.
+function GrindController:tableStats(tbl)
+    if not (tbl and tbl.estimateStats) then return nil end
+    local rev   = self.display_rev or 0
+    local cache = self._tbl_stats
+    if not cache or self._tbl_stats_rev ~= rev then
+        cache = {}
+        self._tbl_stats, self._tbl_stats_rev = cache, rev
+    end
+    local slot = cache[tbl._id]
+    local status_rev = tbl._status_rev or 0
+    local n_opps     = #tbl.opponents
+    if slot and slot.status_rev == status_rev and slot.n_opps == n_opps
+       and slot.stake_id == tbl.stake_id and slot.gtype_id == tbl.game_type_id then
+        return slot.value or nil
+    end
+    local value = tbl:estimateStats(self.ctx) or false
+    if slot then
+        slot.status_rev, slot.n_opps = status_rev, n_opps
+        slot.stake_id, slot.gtype_id = tbl.stake_id, tbl.game_type_id
+        slot.value = value
+    else
+        cache[tbl._id] = { status_rev = status_rev, n_opps = n_opps,
+                           stake_id = tbl.stake_id, gtype_id = tbl.game_type_id,
+                           value = value }
+    end
+    return value or nil
+end
+
+-- The full EV breakdown a table's debug readout wants, same validity rules.
+function GrindController:tableDebugStats(tbl)
+    if not (tbl and tbl.debugStats) then return nil end
+    local rev   = self.display_rev or 0
+    local cache = self._tbl_debug
+    if not cache or self._tbl_debug_rev ~= rev then
+        cache = {}
+        self._tbl_debug, self._tbl_debug_rev = cache, rev
+    end
+    local key = tbl._id
+    local slot = cache[key]
+    local status_rev = tbl._status_rev or 0
+    if slot and slot.status_rev == status_rev
+       and slot.stake_id == tbl.stake_id and slot.gtype_id == tbl.game_type_id then
+        return slot.value or nil
+    end
+    local value = tbl:debugStats(self.ctx) or false
+    cache[key] = { status_rev = status_rev, stake_id = tbl.stake_id,
+                   gtype_id = tbl.game_type_id, value = value }
+    return value or nil
+end
+
+-- ─── The ctx revision ──────────────────────────────────────────────────
+-- Everything downstream that derives from the effect rollup — the EV
+-- readouts, the sidebar's per-stake numbers, the tooltips — is expensive
+-- and changes rarely. `ctx_rev` is the one number those caches key on: it
+-- moves when the rollup is rebuilt, and when one of the handful of live
+-- fields update() keeps on the ctx actually changes value. Writing the same
+-- number back every frame must NOT count as a change, or the caches never
+-- hit; hence this instead of a plain assignment.
+function GrindController:_setCtxField(key, value)
+    local ctx = self.ctx
+    if not ctx or ctx[key] == value then return end
+    ctx[key]     = value
+    self.ctx_rev = (self.ctx_rev or 0) + 1
+    self:_bumpDisplay()
+end
+
 function GrindController:invalidateEffects()
     local n_tables = self.pool and self.pool:count() or 0
     -- Board transients the deck kinds read: a pure board (every open
@@ -572,6 +741,12 @@ function GrindController:invalidateEffects()
             end
         end
     end
+    -- A fresh rollup invalidates every cache keyed on the ctx. The banked
+    -- set is re-read too: a run reset clears it without passing through the
+    -- award sites.
+    self.ctx_rev    = (self.ctx_rev or 0) + 1
+    self.banked_rev = (self.banked_rev or 0) + 1
+    self:_bumpDisplay()
     self:_rebuildProcIndex()
 end
 
@@ -719,6 +894,8 @@ end
 function GrindController:update(dt)
     -- Proc budget is per frame too (services/ProcRegistry).
     if self.game.procs then self.game.procs:beginFrame() end
+    self:_pollDisplayInputs()
+    self:_rebuildPoolSummary()
     -- The Mirror reads how many Heads-Up tables are open when a hand is
     -- dealt (OutcomeMath.buildOutcome); kept live on the ctx rather than
     -- baked into the rollup, so opening a table needs no rebuild.
@@ -740,8 +917,8 @@ function GrindController:update(dt)
                 t._fast_fold_pending = nil
             end
         end
-        self.ctx.hu_table_count = n
-        self.ctx.heater_count   = burning
+        self:_setCtxField("hu_table_count", n)
+        self:_setCtxField("heater_count", burning)
         -- The Receipt Printer: each Zoom's count of adjacent Zooms.
         if self.ctx.zoom_block_pace then
             local cells = {}
@@ -752,7 +929,7 @@ function GrindController:update(dt)
                 if t.game_type_id == "zoom" then
                     local r, c = TableGrid.unpack(t.slot or 0)
                     local k = 0
-                    for _, d in ipairs{ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
+                    for _, d in ipairs(NEIGHBOUR_DIRS) do
                         if cells[TableGrid.pack(r + d[1], c + d[2])] then k = k + 1 end
                     end
                     t._zoom_neighbours = k
@@ -774,14 +951,14 @@ function GrindController:update(dt)
             end
             local n_stakes = 0
             for _ in pairs(stakes) do n_stakes = n_stakes + 1 end
-            self.ctx.stakes_seated = n_stakes
+            self:_setCtxField("stakes_seated", n_stakes)
             local slots = {}
             for _, t in ipairs(tables) do slots[#slots + 1] = t.slot or 0 end
             local cols, rows = TableGrid.bounds(slots)
             for _, t in ipairs(tables) do
                 local r, c = TableGrid.unpack(t.slot or 0)
                 local empties, neighbours = 0, 0
-                for _, d in ipairs{ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
+                for _, d in ipairs(NEIGHBOUR_DIRS) do
                     local rr, cc = r + d[1], c + d[2]
                     local o = occupied[TableGrid.pack(rr, cc)]
                     local counts_empty = (o == nil) or (six_empty and o.game_type_id == "six_max")
@@ -798,7 +975,7 @@ function GrindController:update(dt)
         if times then
             local now = love.timer.getTime()
             while times[1] and now - times[1] > 1 do table.remove(times, 1) end
-            self.ctx.hands_per_second = #times
+            self:_setCtxField("hands_per_second", #times)
         end
     end
     self:_tickGtypeUnlocks()
@@ -892,6 +1069,7 @@ function GrindController:update(dt)
                 local award = 0
                 if count < cap then
                     state.stakes_won_this_run[key] = count + 1
+                    self.banked_rev = (self.banked_rev or 0) + 1
                     state.hands_since_last_bank = 0
                     -- Same award math as the cash stack path (incl.
                     -- chip_award_mult AND Pen's flat bonus — this used to
@@ -1351,6 +1529,7 @@ function GrindController:update(dt)
                 end
                 if count < cap then
                     state.stakes_won_this_run[key] = count + 1
+                    self.banked_rev = (self.banked_rev or 0) + 1
                     state.hands_since_last_bank = 0
                     local award = self:bountyAward(tbl.stake_id, tbl.game_type_id, { roll = true })
                     if award > 0 then
@@ -2009,6 +2188,7 @@ function GrindController:peelCatalogSticker(item_id)
         if id == item_id then return false end
     end
     state.peeled_items[#state.peeled_items + 1] = item_id
+    state:markCatalogDirty()
     self:_playNamed("hole_card_flip")
     return true
 end
@@ -2368,7 +2548,63 @@ end
 -- per-table [x] shows — and clears itself as the closes finalise. A second
 -- click on that [x] reaches removeTable on the still-pending tables, which
 -- is the force-leave path.
+-- ─── The pool summary ──────────────────────────────────────────────────
+-- The sidebar asks "how many of this combo are open, and how many of those
+-- have their cursors muted?" once per visible stake, every frame, and each
+-- question was a full pass over the table list — roughly 800 iterations a
+-- frame at a full board. One pass per frame in update() answers all of
+-- them. Rebuilt in place, so a steady state allocates nothing.
+function GrindController:_rebuildPoolSummary()
+    local sum = self._pool_summary
+    if not sum then
+        sum = { by_stake = {}, total = { open = 0, deal = 0, rebuy = 0, pending = 0 } }
+        self._pool_summary = sum
+    end
+    for _, by_gtype in pairs(sum.by_stake) do
+        for _, e in pairs(by_gtype) do
+            e.open, e.deal, e.rebuy, e.pending = 0, 0, 0, 0
+        end
+    end
+    local tot = sum.total
+    tot.open, tot.deal, tot.rebuy, tot.pending = 0, 0, 0, 0
+
+    for _, t in ipairs(self.pool.tables) do
+        local by_gtype = sum.by_stake[t.stake_id]
+        if not by_gtype then by_gtype = {}; sum.by_stake[t.stake_id] = by_gtype end
+        local e = by_gtype[t.game_type_id]
+        if not e then
+            e = { open = 0, deal = 0, rebuy = 0, pending = 0 }
+            by_gtype[t.game_type_id] = e
+        end
+        e.open, tot.open = e.open + 1, tot.open + 1
+        if t.cursor_muted == true then
+            e.deal, tot.deal = e.deal + 1, tot.deal + 1
+        end
+        if t.cursor_rebuy_muted == true then
+            e.rebuy, tot.rebuy = e.rebuy + 1, tot.rebuy + 1
+        end
+        if t.pending_close then
+            e.pending, tot.pending = e.pending + 1, tot.pending + 1
+        end
+    end
+end
+
+-- The summary bucket for a combo, or nil when the caller passes a shape the
+-- summary does not index (one id but not the other) — those fall back to the
+-- scan below, so tableMatches stays the single definition of "matches".
+function GrindController:_summaryFor(stake_id, gtype_id)
+    local sum = self._pool_summary
+    if not sum then return nil end
+    if stake_id == nil and gtype_id == nil then return sum.total end
+    if stake_id == nil or gtype_id == nil then return nil end
+    local by_gtype = sum.by_stake[stake_id]
+    local e = by_gtype and by_gtype[gtype_id]
+    return e or EMPTY_SUMMARY
+end
+
 function GrindController:typePendingCloses(stake_id, gtype_id)
+    local e = self:_summaryFor(stake_id, gtype_id)
+    if e then return e.pending end
     local n = 0
     for _, t in ipairs(self.pool.tables) do
         if t.pending_close and tableMatches(t, stake_id, gtype_id) then
@@ -2383,6 +2619,8 @@ end
 -- with nothing to act on, the second to decide whether the toggle reads as
 -- ON or OFF for the group.
 function GrindController:typeCursorState(stake_id, gtype_id)
+    local e = self:_summaryFor(stake_id, gtype_id)
+    if e then return e.open, e.deal, e.rebuy end
     local total, deal_muted, rebuy_muted = 0, 0, 0
     for _, t in ipairs(self.pool.tables) do
         if tableMatches(t, stake_id, gtype_id) then

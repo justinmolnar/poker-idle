@@ -200,6 +200,211 @@ function HandEval.bestFiveOfN(cards)
     return best_rank, best_combo
 end
 
+-- ─── Fast scoring (no allocation, no combination walk) ─────────────────
+--
+-- `score(cards, n)` returns ONE number that orders hands exactly as
+-- compare(bestFiveOfN(a), bestFiveOfN(b)) does, without enumerating the
+-- C(n,5) combinations or allocating anything.
+--
+-- Why: the gauntlet's board search calls this tens of thousands of times to
+-- construct one hand, and bestFiveOfN was 126 rank() calls apiece, each
+-- allocating six tables. rank()/bestFiveOfN are still the source of truth
+-- for anything that needs the tuple or the five cards making the hand (the
+-- showdown label, the highlighted combo) — this is for the search, where
+-- only the ordering matters.
+--
+-- Encoding: base-15 digits, most significant first — category, then the
+-- same tiebreakers rank() would emit, zero-padded to five. Every value is
+-- ≤ 14, so the encoding is faithful and exact in a double.
+--
+--   score = cat·15⁵ + t1·15⁴ + t2·15³ + t3·15² + t4·15 + t5
+--
+-- Scratch state is file-local and reused; score() is not reentrant, which
+-- is fine — nothing calls it from inside itself.
+
+-- Presence arrays rather than bitmasks: LOVE runs LuaJIT (Lua 5.1), which
+-- has no bitwise operators. Indexed 2..14 plus slot 1 for the ace playing
+-- low, so the wheel needs no special case.
+-- Straight from data/the Card model rather than through c:rankValue(),
+-- to keep the inner loop a table index. Card requires nothing, so this
+-- pulls in no cycle.
+local RANK_VALUES = require("models.Card").RANK_VALUES
+local SUIT_INDEX  = { clubs = 1, diamonds = 2, hearts = 3, spades = 4 }
+
+local _rank_count = {}
+local _suit_count = {}
+local _suit_has   = { {}, {}, {}, {} }
+local _has        = {}
+
+local P1 = 15
+local P2 = 225
+local P3 = 3375
+local P4 = 50625
+local P5 = 759375
+
+local function encode(cat, t1, t2, t3, t4, t5)
+    return cat * P5 + (t1 or 0) * P4 + (t2 or 0) * P3
+                    + (t3 or 0) * P2 + (t4 or 0) * P1 + (t5 or 0)
+end
+
+-- Highest card of a straight in `has` (has[v] = rank v present), or nil.
+-- has[1] is the ace playing low, so the wheel falls out of the same loop
+-- instead of needing detectStraight's special case.
+local function straightHigh(has)
+    for high = 14, 5, -1 do
+        if has[high] and has[high - 1] and has[high - 2]
+           and has[high - 3] and has[high - 4] then
+            return high
+        end
+    end
+    return nil
+end
+
+function HandEval.score(cards, n)
+    n = n or #cards
+
+    local has = _has
+    for v = 1, 14 do
+        _rank_count[v] = 0
+        has[v] = false
+    end
+    for s = 1, 4 do
+        _suit_count[s] = 0
+        local sh = _suit_has[s]
+        for v = 1, 14 do sh[v] = false end
+    end
+
+    for i = 1, n do
+        local c = cards[i]
+        local v = RANK_VALUES[c.rank]
+        local s = SUIT_INDEX[c.suit]
+        _rank_count[v] = _rank_count[v] + 1
+        has[v] = true
+        if v == 14 then has[1] = true end          -- the ace, playing low
+        if s then
+            _suit_count[s] = _suit_count[s] + 1
+            local sh = _suit_has[s]
+            sh[v] = true
+            if v == 14 then sh[1] = true end
+        end
+    end
+
+    -- Flush, and the straight flush that may live inside it. Ten cards
+    -- would be needed for two suits to both reach five, so at most one.
+    local flush_suit
+    for s = 1, 4 do
+        if _suit_count[s] >= 5 then flush_suit = s; break end
+    end
+
+    if flush_suit then
+        local sf = straightHigh(_suit_has[flush_suit])
+        if sf then return encode(STRAIGHT_FLUSH, sf) end
+    end
+
+    -- Rank groups, best first: by count, then by value — the same ordering
+    -- rank() gets from its sort.
+    local q1v, q1c = 0, 0       -- best group
+    local q2v, q2c = 0, 0       -- second best
+    for v = 14, 2, -1 do
+        local c = _rank_count[v]
+        if c > 0 then
+            if c > q1c then
+                q2v, q2c = q1v, q1c
+                q1v, q1c = v, c
+            elseif c > q2c then
+                q2v, q2c = v, c
+            end
+        end
+    end
+
+    if q1c == 4 then
+        local kicker = 0
+        for v = 14, 2, -1 do
+            if v ~= q1v and _rank_count[v] > 0 then kicker = v; break end
+        end
+        return encode(QUADS, q1v, kicker)
+    end
+
+    -- The boat's pair is the highest-VALUE partner, not the next group by
+    -- count: with seven or more cards a second set of trips can sit BELOW a
+    -- plain pair (JJJ 777 88 is Jacks full of EIGHTS), and picking by count
+    -- would take the sevens. rank() never sees this — five cards cannot hold
+    -- two trips — so the reference only disagrees at the sizes the gauntlet
+    -- actually searches.
+    if q1c >= 3 then
+        local pair_v = 0
+        for v = 14, 2, -1 do
+            if v ~= q1v and _rank_count[v] >= 2 then pair_v = v; break end
+        end
+        if pair_v > 0 then return encode(FULL_HOUSE, q1v, pair_v) end
+    end
+
+    if flush_suit then
+        local sh = _suit_has[flush_suit]
+        local a, b, c, d, e = 0, 0, 0, 0, 0
+        local got = 0
+        for v = 14, 2, -1 do
+            if sh[v] then
+                got = got + 1
+                if     got == 1 then a = v
+                elseif got == 2 then b = v
+                elseif got == 3 then c = v
+                elseif got == 4 then d = v
+                elseif got == 5 then e = v; break end
+            end
+        end
+        return encode(FLUSH, a, b, c, d, e)
+    end
+
+    local st = straightHigh(has)
+    if st then return encode(STRAIGHT, st) end
+
+    if q1c == 3 then
+        local k1, k2 = 0, 0
+        for v = 14, 2, -1 do
+            if v ~= q1v and _rank_count[v] > 0 then
+                if k1 == 0 then k1 = v
+                else k2 = v; break end
+            end
+        end
+        return encode(TRIPS, q1v, k1, k2)
+    end
+
+    if q1c == 2 and q2c == 2 then
+        local kicker = 0
+        for v = 14, 2, -1 do
+            if v ~= q1v and v ~= q2v and _rank_count[v] > 0 then kicker = v; break end
+        end
+        return encode(TWO_PAIR, q1v, q2v, kicker)
+    end
+
+    if q1c == 2 then
+        local k1, k2, k3 = 0, 0, 0
+        for v = 14, 2, -1 do
+            if v ~= q1v and _rank_count[v] > 0 then
+                if     k1 == 0 then k1 = v
+                elseif k2 == 0 then k2 = v
+                else   k3 = v; break end
+            end
+        end
+        return encode(PAIR, q1v, k1, k2, k3)
+    end
+
+    local a, b, c, d, e = 0, 0, 0, 0, 0
+    local got = 0
+    for v = 14, 2, -1 do
+        if _rank_count[v] > 0 then
+            got = got + 1
+            if     got == 1 then a = v
+            elseif got == 2 then b = v
+            elseif got == 3 then c = v
+            elseif got == 4 then d = v
+            elseif got == 5 then e = v; break end
+        end
+    end
+    return encode(HIGH_CARD, a, b, c, d, e)
+end
+
 -- Showdown label for one 2-card hole + a 5-card board. Returns the
 -- describe() string AND the best-5 combo (the cards making the hand), or
 -- (nil, nil) when the inputs aren't a complete 2 + 5 deal. Used by

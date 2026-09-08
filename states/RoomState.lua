@@ -470,6 +470,7 @@ function RoomState:keypressed(key)
             print("[debug] Reset owned catalog items and decks to none")
         end
         state.effects_cache = nil
+        state:markCatalogDirty()
         if self.game.grind and self.game.grind.invalidateEffects then
             self.game.grind:invalidateEffects()
         end

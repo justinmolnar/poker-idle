@@ -959,7 +959,7 @@ local function drawPotLabel(tbl, pot, fonts)
     end
 
     if tbl.state == "idle" then
-        RollingValue.reset("table_pot:" .. (tbl._id or 0))
+        RollingValue.reset(Table.rollingKey(tbl, "table_pot"))
         -- Next hand gets its pile back.
         tbl.pot_exploded       = nil
         tbl.pot_explode_pending = nil
@@ -992,7 +992,7 @@ local function drawPotLabel(tbl, pot, fonts)
     local pile_val = potval
 
     local held_pot   = tbl._pot_hold and tbl._pot_hold.value
-    local rolled_pot = RollingValue.get("table_pot:" .. (tbl._id or 0), held_pot or potval)
+    local rolled_pot = RollingValue.get(Table.rollingKey(tbl, "table_pot"), held_pot or potval)
     -- NB: no early-out on a near-zero rolled_pot here. The pile below has
     -- to be told the pot is empty — that's the call that ends its hand —
     -- and the rolling value lags behind the real one, so bailing on it
@@ -1131,19 +1131,33 @@ end
 -- the finish — flush with a boundary if you locked that place, short of
 -- one if you busted before it. Green while it's money, ash when the run
 -- died outside it.
-local function drawTournamentLadder(tbl, gtype, ctx, band, fonts)
-    local n_seats     = (gtype.seats or 0) + 1
-    local total_units = n_seats - 1
-    if total_units <= 0 then return end
-    local boost        = (ctx and ctx.ko_payout_boost) or 0
+-- Paying finishes, worst place first (3rd, 2nd, 1st), per (boost, seats).
+-- Built and sorted once instead of every frame per tournament panel; the
+-- payout tables are static data and the seat count comes from the game type.
+local _ladder_finishes = {}
+
+local function ladderFinishes(boost, n_seats)
+    local per_boost = _ladder_finishes[boost]
+    if not per_boost then per_boost = {}; _ladder_finishes[boost] = per_boost end
+    local hit = per_boost[n_seats]
+    if hit then return hit end
     local payout_table = KoPayouts[boost] or KoPayouts[0]
-    -- Paying finishes, worst place first (3rd, 2nd, 1st).
     local finishes = {}
     for k, mult in pairs(payout_table) do
         finishes[#finishes + 1] = { finish = n_seats - k + 1, mult = mult }
     end
-    if #finishes == 0 then return end
     table.sort(finishes, function(a, b) return a.finish > b.finish end)
+    per_boost[n_seats] = finishes
+    return finishes
+end
+
+local function drawTournamentLadder(tbl, gtype, ctx, band, fonts)
+    local n_seats     = (gtype.seats or 0) + 1
+    local total_units = n_seats - 1
+    if total_units <= 0 then return end
+    local boost       = (ctx and ctx.ko_payout_boost) or 0
+    local finishes    = ladderFinishes(boost, n_seats)
+    if #finishes == 0 then return end
 
     -- Opponent knockouts so far. The player's own bust ends the run and
     -- advances nothing.
@@ -1170,7 +1184,7 @@ local function drawTournamentLadder(tbl, gtype, ctx, band, fonts)
     local over   = tbl.last_finish ~= nil
     local paid   = over and tbl.last_finish <= finishes[1].finish
     local target = math.min(kos, total_units) * unit_w
-    local fill_w = RollingValue.get("ko_knockouts:" .. tostring(tbl._id or 0), target, 6)
+    local fill_w = RollingValue.get(Table.rollingKey(tbl, "ko_knockouts"), target, 6)
     if fill_w > 0.5 then
         if over and not paid then
             Theme.setColor(Theme.fg.disabled, 0.9)
@@ -1256,7 +1270,7 @@ end
 -- draw. RollingValue eases by wall-clock delta, so the second call in a frame
 -- advances by ~0 and returns the value the first one measured.
 local function tiedText(tbl, parts)
-    local rolled = RollingValue.get("table_tied:" .. (tbl._id or 0), displayStack(tbl))
+    local rolled = RollingValue.get(Table.rollingKey(tbl, "table_tied"), displayStack(tbl))
     local money  = Format.money(rolled)
     if parts == "short" then return money end
     return "Tied up  " .. money
@@ -2068,7 +2082,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- The caller measures text widths so FeltLayout stays pure geometry. The
     -- bottom row holds two edge-anchored strings on ONE line with no smaller
     -- font to fall back on, so the layout needs every form it might shed to.
-    local ev_w, ev_money_w = Stats.measureEvReadout(tbl, controller, fonts)
+    local ev_w, ev_money_w, ev_metrics = Stats.measureEvReadout(tbl, controller, fonts)
     ev_w, ev_money_w = ev_w or 0, ev_money_w or 0
     local tied_w       = fonts.sm:getWidth(tiedText(tbl, "full"))
     local tied_short_w = fonts.sm:getWidth(tiedText(tbl, "short"))
@@ -2081,7 +2095,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- HAND counter + payout ladder as a single row in it. No game type gets a
     -- taller band, so cards/opponents/community/hole are identical everywhere
     -- and stay full-size. (bottom_extra/card_bottom default to the thin row.)
-    local L = FeltLayout.compute({
+    local L = FeltLayout.computeCached(tbl, {
         felt_x = felt_x, felt_y = felt_y, felt_w = felt_w, felt_h = felt_h,
         hu = (tbl.game_type_id == "hu"), n_opps = #tbl.opponents,
         sizes = sizes, s = s, sm_h = sm_h2, md_h = md_h, xs_h = xs_h,
@@ -2302,7 +2316,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- there's no room for it (L.bottom.ev.show).
     if L.bottom and L.bottom.ev.show and not is_tournament then
         Stats.drawEvReadout(tbl, L.bottom.ev, controller, fonts, hit_boxes,
-            "ev:" .. idx)
+            "ev:" .. idx, ev_metrics)
         -- The Washing Machine's combo: wins in a row, at the row's left
         -- edge (the EV text takes the right). Only where it does anything.
         local combo = controller and controller.ctx and controller.ctx.zoom_combo_pace

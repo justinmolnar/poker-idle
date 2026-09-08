@@ -25,6 +25,7 @@ local TableModel     = require("models.Table")
 local GameTypeThemes = require("data.game_type_themes")
 local Pop            = require("services.Pop")
 local RollingValue   = require("services.RollingValue")
+local Memo           = require("services.Memo")
 local Motion         = require("services.Motion")
 local HouseArt       = require("views.HouseArt")
 local CursorPool     = require("services.CursorPool")
@@ -247,6 +248,10 @@ function GrindView:_buildPanels()
         priority = 0,
         build    = function() return self:_buildRailComponents() end,
     })
+
+    -- The three panels as one list, so the per-frame hover walk stops
+    -- rebuilding a throwaway table to iterate them.
+    self._panels = { self.left_panel, self.right_panel, self.rail }
 end
 -- ─── Panel content builders (called every frame by Panel:draw) ────────────
 
@@ -665,7 +670,22 @@ end
 -- grid when the upgrade carries one. Maxed upgrades show the blurb + "MAX";
 -- the grid builders drop non-changing stakes so the table only shows what the
 -- next level actually moves. Returns nil only when there's nothing to show.
+-- The upgrade tooltips that show "what the next level buys you" run
+-- OutcomeMath.buildOutcome for every visible stake × every game type,
+-- twice (now and next level) — about 110 of them. That was happening every
+-- frame, for every upgrade in the sidebar, to fill a tooltip nobody was
+-- necessarily hovering. Memoized per upgrade on the display revision; the
+-- rows only move when the rollup or the upgrade's level does, and both
+-- bump it.
+local _range_memo = Memo.new("range_tooltip")
+
 function GrindView:_buildRangeTooltip(up)
+    if not up then return nil end
+    return _range_memo:get(up.id, self.controller.display_rev or 0,
+                           self._buildRangeTooltipUncached, self, up)
+end
+
+function GrindView:_buildRangeTooltipUncached(up)
     local rows = {}
 
     local blurb = up.tooltip_blurb
@@ -863,6 +883,40 @@ function GrindView:tweenChrome(dt)
     self.displayed_tied     = tweenNumber(self.displayed_tied,     self.controller:tiedUp(),  dt)
 end
 
+-- Chip-bounty fanfare: the moment a (stake, gtype) bounty first banks this
+-- run, pulse its add-table button gold — or, if the player isn't on that
+-- game type's sub-tab (the button isn't shown), pulse the game-type tab
+-- instead so the cue still lands. Swept across every combo so it fires
+-- exactly when the chip is earned.
+--
+-- The sweep itself only runs when the banked set has actually moved: it is
+-- 44 combos building two key strings apiece, to notice something that
+-- happens a handful of times a run.
+function GrindView:_sweepBountyGlow()
+    local banked_rev = self.controller.banked_rev or 0
+    if banked_rev == self._bounty_glow_rev then return end
+    self._bounty_glow_rev  = banked_rev
+    self._bounty_glow_seen = self._bounty_glow_seen or {}
+
+    local seen  = self._bounty_glow_seen
+    local prime = not self._bounty_glow_primed   -- first sweep only syncs
+    for _, stake in ipairs(Stakes) do
+        for _, gt in ipairs(GameTypes) do
+            local key    = stake.id .. ":" .. gt.id
+            local banked = self.controller:bountyBanked(stake.id, gt.id)
+            if banked and not prime and not seen[key] then
+                if gt.id == self.selected_gtype then
+                    AwardGlow.flash("add_table:" .. key)
+                else
+                    AwardGlow.flash("gtype:" .. gt.id)
+                end
+            end
+            seen[key] = banked
+        end
+    end
+    self._bounty_glow_primed = true
+end
+
 function GrindView:update(dt)
     local mx, my = love.mouse.getPosition()
     self.left_panel:update(my)
@@ -881,32 +935,11 @@ function GrindView:update(dt)
         end
     end
 
-    -- Chip-bounty fanfare: the moment a (stake, gtype) bounty first banks
-    -- this run, pulse its add-table button gold — or, if the player isn't on
-    -- that game type's sub-tab (the button isn't shown), pulse the game-type
-    -- tab instead so the cue still lands. Swept across every combo so it fires
-    -- exactly when the chip is earned.
-    self._bounty_glow_seen = self._bounty_glow_seen or {}
-    local prime = not self._bounty_glow_primed   -- first sweep only syncs
-    for _, stake in ipairs(Stakes) do
-        for _, gt in ipairs(GameTypes) do
-            local key    = stake.id .. ":" .. gt.id
-            local banked = self.controller:bountyBanked(stake.id, gt.id)
-            if banked and not prime and not self._bounty_glow_seen[key] then
-                if gt.id == self.selected_gtype then
-                    AwardGlow.flash("add_table:" .. key)
-                else
-                    AwardGlow.flash("gtype:" .. gt.id)
-                end
-            end
-            self._bounty_glow_seen[key] = banked
-        end
-    end
-    self._bounty_glow_primed = true
+    self:_sweepBountyGlow()
 
     -- Hit-test components for hover (writes "button" namespace into
     -- HoverService AND stashes any comp.tooltip via Tooltip.set).
-    for _, panel in ipairs({ self.left_panel, self.right_panel, self.rail }) do
+    for _, panel in ipairs(self._panels) do
         local comps = panel:getComponents()
         if comps then
             local cy = panel:toContentY(my)
@@ -934,6 +967,11 @@ function GrindView:update(dt)
             end
             if hb.tooltip then
                 TooltipSvc.set(hb.tooltip, mx, my)
+            elseif hb.tooltip_fn then
+                -- Resolved here and only here: the box under the pointer is
+                -- the only one whose lines are worth building.
+                TooltipSvc.set(hb.tooltip_fn(hb.tooltip_arg1, hb.tooltip_arg2),
+                               mx, my)
             end
         end
     end
@@ -2007,7 +2045,7 @@ end
 function GrindView:_brokenGlow(str, font, x, y)
     love.graphics.setFont(font)
     Theme.setColor(Theme.currency.achip, 0.22)
-    for _, o in ipairs{ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } } do
+    for _, o in ipairs(Theme.HALO_OFFSETS) do
         love.graphics.print(str, x + o[1], y + o[2])
     end
 end

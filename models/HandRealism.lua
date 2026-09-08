@@ -82,6 +82,20 @@ local function rank7(scratch, hole, board)
     return HandEval.bestFiveOfN(scratch)
 end
 
+-- The same seven cards as one comparable number (HandEval.score): no
+-- combination walk, no allocation. The construction loops below reject most
+-- of the boards they deal, so they ask the cheap question first and only
+-- build rank tuples for a board that has already passed it.
+local function score7(scratch, hole, board)
+    scratch[1], scratch[2] = hole[1], hole[2]
+    scratch[3], scratch[4], scratch[5] = board[1], board[2], board[3]
+    scratch[6], scratch[7] = board[4], board[5]
+    return HandEval.score(scratch, 7)
+end
+
+-- Scratch for the legacy fallback, which carries no state of its own.
+local _legacy_p, _legacy_o = {}, {}
+
 -- Partial Fisher-Yates over `pool`: shuffles `count` cards into the front
 -- positions and leaves them there. HandClass.remainingCards hands back a
 -- deck in a fixed suit-then-rank order, so every draw from it has to go
@@ -134,15 +148,10 @@ function HandRealism.legacyConstructHand(want_win, cap)
         o_hole = { deck:draw(), deck:draw() }
         board  = { deck:draw(), deck:draw(), deck:draw(), deck:draw(), deck:draw() }
 
-        local p_cards, o_cards = {}, {}
-        for _, c in ipairs(p_hole) do table.insert(p_cards, c) end
-        for _, c in ipairs(board)  do table.insert(p_cards, c) end
-        for _, c in ipairs(o_hole) do table.insert(o_cards, c) end
-        for _, c in ipairs(board)  do table.insert(o_cards, c) end
-
-        local p_rank = HandEval.bestFiveOfN(p_cards)
-        local o_rank = HandEval.bestFiveOfN(o_cards)
-        local p_wins = HandEval.compare(p_rank, o_rank) > 0
+        -- One comparable number each (HandEval.score) instead of two
+        -- best-of-seven walks over freshly built card lists.
+        local p_wins = score7(_legacy_p, p_hole, board)
+                     > score7(_legacy_o, o_hole, board)
         if p_wins == want_win then
             return p_hole, o_hole, board, true
         end
@@ -179,9 +188,8 @@ function HandRealism.constructWeightedNatural(won, pol)
             board[1], board[2], board[3] = pool[3], pool[4], pool[5]
             board[4], board[5] = pool[6], pool[7]
 
-            local p_rank = rank7(scratch_p, p_hole, board)
-            local o_rank = rank7(scratch_o, o_hole, board)
-            if (HandEval.compare(p_rank, o_rank) > 0) == won then
+            if (score7(scratch_p, p_hole, board)
+                > score7(scratch_o, o_hole, board)) == won then
                 return p_hole, o_hole,
                        { board[1], board[2], board[3], board[4], board[5] },
                        true
@@ -253,15 +261,22 @@ function HandRealism.constructShowdownHand(won, tier, deps)
 
                 for _ = 1, n_boards do
                     dealBoard(pool, n_pool, board)
-                    local p_rank = rank7(scratch_p, p_hole, board)
-                    local o_rank = rank7(scratch_o, o_hole, board)
-                    local cmp = HandEval.compare(p_rank, o_rank)
+                    local p_score = score7(scratch_p, p_hole, board)
+                    local o_score = score7(scratch_o, o_hole, board)
                     -- Ties are rejected outright here: a split pot that
                     -- pays a full stack reads as a bug, not a cooler.
-                    if cmp ~= 0 and (cmp > 0) == won then
-                        if not enforce_floors
-                           or passesFloors(floors, distinct,
-                                           p_rank, o_rank, won) then
+                    if p_score ~= o_score and (p_score > o_score) == won then
+                        -- Only now is the board worth its tuples: the floors
+                        -- read categories, and distinct_labels compares the
+                        -- describe() strings.
+                        local ok = not enforce_floors
+                        if not ok then
+                            ok = passesFloors(floors, distinct,
+                                              rank7(scratch_p, p_hole, board),
+                                              rank7(scratch_o, o_hole, board),
+                                              won)
+                        end
+                        if ok then
                             return p_hole, o_hole,
                                    { board[1], board[2], board[3],
                                      board[4], board[5] },
@@ -313,14 +328,16 @@ function HandRealism.redealOpponent(p_hole, board, want_win, deps)
     if n_avail < 2 then return nil, false end
 
     local scratch_p, scratch_o = {}, {}
-    local p_rank = rank7(scratch_p, p_hole, board)
+    -- Scores, not tuples: this walks up to 200 sampled opponents and, in the
+    -- exhaustive fallback, every one of the ~990 remaining pairs.
+    local p_score = score7(scratch_p, p_hole, board)
 
     -- Score one candidate pair against the board.
-    local function oppRank(ca, cb)
+    local function oppScore(ca, cb)
         scratch_o[1], scratch_o[2] = ca, cb
         scratch_o[3], scratch_o[4], scratch_o[5] = board[1], board[2], board[3]
         scratch_o[6], scratch_o[7] = board[4], board[5]
-        return HandEval.bestFiveOfN(scratch_o)
+        return HandEval.score(scratch_o, 7)
     end
     local function weightOf(ca, cb)
         return PreflopEquity.eqVsRandom(HandClass.classIndex(ca, cb)) ^ exp
@@ -329,7 +346,7 @@ function HandRealism.redealOpponent(p_hole, board, want_win, deps)
     -- Does the player merely play the board? Then nobody can be behind
     -- them, and a win is unreachable — skip straight to the chop search.
     local plays_board = want_win
-        and HandEval.compare(p_rank, HandEval.rank(board)) == 0
+        and p_score == HandEval.score(board, 5)
 
     if not plays_board then
         local w_max = PreflopEquity.maxEqVsRandom() ^ exp
@@ -339,7 +356,7 @@ function HandRealism.redealOpponent(p_hole, board, want_win, deps)
             local j = love.math.random(n_avail - 1)
             if j >= i then j = j + 1 end
             local ca, cb = avail[i], avail[j]
-            if (HandEval.compare(p_rank, oppRank(ca, cb)) > 0) == want_win then
+            if (p_score > oppScore(ca, cb)) == want_win then
                 local w = weightOf(ca, cb)
                 if love.math.random() * w_max <= w then
                     return { ca, cb }, true
@@ -370,7 +387,7 @@ function HandRealism.redealOpponent(p_hole, board, want_win, deps)
             local j = love.math.random(n_avail - 1)
             if j >= i then j = j + 1 end
             local ca, cb = avail[i], avail[j]
-            if HandEval.compare(p_rank, oppRank(ca, cb)) == 0 then
+            if p_score == oppScore(ca, cb) then
                 return { ca, cb }, false
             end
         end
@@ -386,7 +403,9 @@ function HandRealism.redealOpponent(p_hole, board, want_win, deps)
         local ca = avail[a]
         for b = a + 1, n_avail do
             local cb = avail[b]
-            local cmp = HandEval.compare(p_rank, oppRank(ca, cb))
+            local o_score = oppScore(ca, cb)
+            local cmp = (p_score > o_score) and 1
+                     or (p_score < o_score) and -1 or 0
             -- Legacy semantics exactly: a tie is "the player does not win".
             if (cmp > 0) == want_win then
                 local w = weightOf(ca, cb)

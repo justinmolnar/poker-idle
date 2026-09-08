@@ -25,7 +25,9 @@ local function stackOdds(game, gtype_id)
     local stake = Lookups.findById(Stakes,
         game.state.current_stake_id or "s001")
     local gtype = Lookups.findById(GameTypes, gtype_id)
-    local s = OutcomeMath.evStats(game.grind and game.grind.ctx, gtype, stake)
+    local grind = game.grind
+    local s = grind and grind:evStats(stake, gtype)
+             or OutcomeMath.evStats(nil, gtype, stake)
     local pct = (s.pool.win_chance or 0)
               * ((s.pool.win_dist and s.pool.win_dist.stack) or 0) * 100
     return string.format("%.1f%%", pct)

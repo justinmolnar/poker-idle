@@ -15,6 +15,8 @@
 --
 -- Engine-agnostic: anchor names are opaque strings.
 
+local Perf = require("services.Perf")
+
 local AnchorRegistry = {}
 
 local _anchors = {}
@@ -26,7 +28,22 @@ function AnchorRegistry.tick()
     _frame = _frame + 1
 end
 
+-- Rewrites the existing entry in place rather than allocating a fresh one:
+-- a 36-table board sets ~1000 anchors per frame, and this was ~1000 tables
+-- per frame straight into the GC.
+--
+-- The contract that makes that safe: an entry read from :get is valid for
+-- THIS frame only. Anything that holds a position past the frame it read
+-- it (a chip flight's landing point) copies the numbers out — see
+-- views/PokerEventAnims frozenXY.
 function AnchorRegistry.set(name, x, y, w, h)
+    Perf.count("anchor_set")
+    local a = _anchors[name]
+    if a then
+        a[1], a[2], a[3], a[4] = x, y, w, h
+        a.frame = _frame
+        return
+    end
     _anchors[name] = { x, y, w, h, frame = _frame }
 end
 

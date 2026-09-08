@@ -106,19 +106,24 @@ end
 -- visible footprint when lifted). Caller draws this BEFORE pushing the
 -- lift transform so the shadow stays in fixed screen-space while the
 -- panel translates up off it.
+local _shadow_layers = { { spread = 0, alpha = 0 }, { spread = 0, alpha = 0 }, { spread = 0, alpha = 0 } }
 function Effects.drawHoverShadow(tbl, x, y, w, h)
     local lift = tbl.lift_t or 0
     local r = Theme.space.radius
 
     -- Three layers. Outermost is biggest + most transparent for a soft
     -- edge feel; innermost is densest. Stacked behind the panel.
-    local layers = {
-        { spread = 8 + lift * 6,  alpha = 0.10 + lift * 0.05 },
-        { spread = 4 + lift * 4,  alpha = 0.18 + lift * 0.08 },
-        { spread = 0,             alpha = 0.45 + lift * 0.10 },
-    }
+    --
+    -- Written into a reused table rather than a fresh one per call: this
+    -- runs once per panel per frame (twice while a panel is held), so at a
+    -- full board it was ~150 throwaway tables a frame for three rectangles.
+    local layers = _shadow_layers
+    layers[1].spread, layers[1].alpha = 8 + lift * 6, 0.10 + lift * 0.05
+    layers[2].spread, layers[2].alpha = 4 + lift * 4, 0.18 + lift * 0.08
+    layers[3].spread, layers[3].alpha = 0,            0.45 + lift * 0.10
 
-    for _, L in ipairs(layers) do
+    for i = 1, 3 do
+        local L = layers[i]
         Theme.setColor(SHADOW_COLOR, L.alpha)
         love.graphics.rectangle(
             "fill",
