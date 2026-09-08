@@ -271,9 +271,13 @@ local Decks = {
         effects   = {
             { kind = "focus_level_worth", value = 1 },
         },
+        -- Level 5 is the capstone (Decks.applyEffects applies the per-level
+        -- block four times), so the fifth "+1 worth" rides the capstone:
+        -- that is what puts max Focus at 34 and the full board at 36 with
+        -- the Second Monitor. sim/test_everything.lua measures it.
         capstone  = {
             text    = "{c:upgrade:Cursor} speed ×2.",
-            effects = { { kind = "cursor_speed_mult", value = 2 } },
+            effects = { { kind = "cursor_speed_mult", value = 2 }, { kind = "focus_level_worth", value = 1 } },
         },
         bonus       = { text = "Each {c:upgrade:FOCUS} level is worth +{n} more.", per_level = 1 },
         flavor_text = "Nobody deals thirty tables. Nobody has to.",

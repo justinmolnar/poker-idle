@@ -68,7 +68,7 @@ Effects.kinds = {
     hand_pace_mult = {
         description = "Multiplies the hand-cinematic pace (composes with gtype.pace_mult).",
         value_shape = "number >1 for faster, e.g. 1.25 for +25% pace",
-        affects     = "ctx.hand_pace_mult (multiplicative)",
+        affects     = "ctx.hand_pace_mult (multiplicative), or ctx.hand_pace_mult_by_gtype[gtype] when the effect names a gtype (Firehose)",
     },
 
     -- High Roller Pass. The value is win chance per completed tournament,
@@ -725,6 +725,16 @@ Effects.kinds = {
         description = "Stack share up (Small down) on wins at lanes whose {chip} bounty is unbanked this run (ctx.unbanked, a controller transient). Bounty Hunter.",
         value_shape = "{ value = 0..1 }",
         affects     = "ctx.unbanked_stack_shift (additive)",
+    },
+    six_max_unlocked = {
+        description = "Flag perk — the Bonsai: opens the 6-Max game type (the controller latches it into state.six_max_unlocked; Constants.GTYPE_GATE).",
+        value_shape = "no field (presence sets ctx.six_max_unlocked = true)",
+        affects     = "ctx.six_max_unlocked",
+    },
+    bounty_gtype_mult = {
+        description = "Per-game-type bounty multiplier (Fight Night: Heads-Up bounties pay double). GrindController:bountyAward multiplies by the entry for the table's game type.",
+        value_shape = "{ value = number, gtype = id }",
+        affects     = "ctx.bounty_gtype_mult[gtype] (multiplicative)",
     },
 
 }

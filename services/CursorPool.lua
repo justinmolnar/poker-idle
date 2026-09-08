@@ -46,6 +46,11 @@ local _sparks  = {}               -- {x, y, t, angle} collision starbursts
 -- Speed expressed as a fraction of screen diagonal per second
 local BASE_CURSOR_SPEED = 0.10
 
+-- The live cursor list, read-only by contract. The headless sims read
+-- positions and place cursors for clash and crossing tests
+-- (sim/test_everything.lua); the game never calls this.
+function CursorPool.cursors() return _cursors end
+
 -- Wipe pool. Called on fullReset and prestige.
 function CursorPool.reset()
     _cursors = {}

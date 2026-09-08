@@ -210,7 +210,10 @@ for _, k in ipairs({ "void_first_loss", "void_first_stack_loss", "six_max_unlock
                      "cursor_instant_click", "cursor_rebuy_unlocked",
                      "cursor_memory_unlocked", "cursor_sync_unlocked",
                      "start_biggest_pot", "ultra_unlock_effect",
-                     "shove_base_per_deck_level" }) do
+                     "shove_base_per_deck_level",
+                     -- Swarm's capstone carries the ladder's fifth +1 worth
+                     -- silently (the bonus line already prints the ladder)
+                     "focus_level_worth" }) do
     EXPECT[k] = function() return nil end
 end
 

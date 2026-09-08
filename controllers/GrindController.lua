@@ -301,6 +301,7 @@ function GrindController:_fireProcs(trigger, source_tbl, extra)
             was_refresh = extra and extra.was_refresh,
             magnitude   = extra and extra.magnitude,
             first_at_stake = extra and extra.first_at_stake,
+            all_games      = extra and extra.all_games,   -- the Laminated Blueprint's `when`
         }
         local touched, hit = reg:fire(entry.def, event)
         if touched > 0 then
@@ -722,6 +723,17 @@ function GrindController:update(dt)
         for _, t in ipairs(self.pool.tables) do
             if t.game_type_id == "hu" then n = n + 1 end
             if t.hasStatus and t:hasStatus("heater") then burning = burning + 1 end
+            -- Handheld: a Zoom loss latched a fast fold; deal it the
+            -- moment the felt is clear (a punch's own auto-deal wins:
+            -- the latch is dropped when the table dealt itself).
+            if t._fast_fold_pending and t.state == "idle" then
+                t._fast_fold_pending = nil
+                if self.ctx.zoom_fast_fold and self:dealIdleTable(t) then
+                    self:itemFired("zoom_fast_fold", t)
+                end
+            elseif t._fast_fold_pending and t.state ~= "settling" then
+                t._fast_fold_pending = nil
+            end
         end
         self.ctx.hu_table_count = n
         self.ctx.heater_count   = burning
@@ -1483,8 +1495,11 @@ function GrindController:update(dt)
         end
         -- Handheld (ctx.zoom_fast_fold): a loss at Zoom deals the next
         -- hand now. Real Zoom: fold, and you are at the next table.
+        -- The resolution arrives while the table is still settling (it
+        -- goes idle 0.4 s later), so the fold is latched here and dealt
+        -- by update() on the first idle frame.
         if not r.won and gtype_id == "zoom" and self.ctx and self.ctx.zoom_fast_fold and tbl then
-            if self:dealIdleTable(tbl) then self:itemFired("zoom_fast_fold", tbl) end
+            tbl._fast_fold_pending = true
         end
         if r.won then
             state.total_hands_won = (state.total_hands_won or 0) + 1
@@ -2409,18 +2424,21 @@ function GrindController:dealHand(idx)
     if Constants.DEBUG.HAND_ANALYTICS then
         t._hand_start_t = love.timer.getTime()
     end
+    -- Cutting Board: a hand the player dealt (not a cursor's click)
+    -- carries the streak's multiplier, fixed now, and reports back when
+    -- it resolves. Stamped BEFORE :deal, which prices the hand (the
+    -- payout is computed at the deal, Table:deal reads _hand_mult there).
+    t._dealt_by_player = not self._deal_by_cursor
+    local mc = self.ctx and self.ctx.manual_combo
+    if t._dealt_by_player and mc then
+        t._hand_mult = math.min(mc.cap or 2, 1 + (mc.value or 0) * (self.manual_combo or 0))
+    else
+        t._hand_mult = nil
+    end
     local ok = t:deal(self.ctx)
-    if ok then
-        -- Cutting Board: a hand the player dealt (not a cursor's click)
-        -- carries the streak's multiplier, fixed now, and reports back
-        -- when it resolves.
-        t._dealt_by_player = not self._deal_by_cursor
-        local mc = self.ctx and self.ctx.manual_combo
-        if t._dealt_by_player and mc then
-            t._hand_mult = math.min(mc.cap or 2, 1 + (mc.value or 0) * (self.manual_combo or 0))
-        else
-            t._hand_mult = nil
-        end
+    if not ok then
+        t._dealt_by_player, t._hand_mult = nil, nil
+    else
         -- New hand, new pile: clear any spent detonation so the pot draws
         -- again. Set here rather than in Table:deal because these are view
         -- FX fields.
