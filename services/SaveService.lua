@@ -271,6 +271,18 @@ function SaveService:_encode(filename, payload)
     return encoded
 end
 
+-- One already-encoded file through the writer thread: the analytics log
+-- rides with the saves. Returns false when there is no worker, so the
+-- caller writes inline itself. The worker stages, verifies the length and
+-- the closing brace, and commits, exactly as for a save.
+function SaveService:writeAsync(filename, encoded)
+    if self.load_failed then return false end
+    if not self:_worker() then return false end
+    self:drainResults()
+    self._jobs:push({ filename = filename, encoded = encoded })
+    return true
+end
+
 -- The autosave path. On desktop the disk work is handed to the writer
 -- thread and this returns immediately; `sync` (the quit and crash paths)
 -- forces the inline write so nothing is in flight when the process ends.

@@ -21,11 +21,20 @@ local FloatingTextSystem = {}
 local Motion         = require("services.Motion")
 local Constants      = require("data.constants")
 local AnchorRegistry = require("services.AnchorRegistry")
+local FeltData       = require("data.felt_layout")
 
 local _texts = {}
 
 function FloatingTextSystem.emit(text, x, y, opts)
     opts = opts or {}
+    -- A crowded board's table floaters are not spawned (data/felt_layout
+    -- anims): views/TablePanel stamps the board's table count on each
+    -- table every draw.
+    local owner = opts.table or opts.fit_table
+    if owner and owner.board_n then
+        local min_n = (FeltData.anims and FeltData.anims.floaters_min_tables) or math.huge
+        if owner.board_n >= min_n then return end
+    end
     -- Motion: None shows nothing; Low fades in place, briefly; Medium
     -- doesn't drift.
     local lvl = Motion.level("text")

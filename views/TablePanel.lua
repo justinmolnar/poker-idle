@@ -50,6 +50,7 @@ local Motion        = require("services.Motion")
 local Effects       = require("views.TablePanelEffects")
 local ShaderRegistry = require("services.ShaderRegistry")
 local FeltStyle     = require("data.felt_style")
+local FeltData      = require("data.felt_layout")
 
 -- ── Felt = the stake's chip, leashed to the card room ───────────────────
 -- Every felt starts from the same classic green (Theme.bg.felt) and is
@@ -252,7 +253,40 @@ end
 -- draws empty; while it turns, the back squashes to edge-on and the face
 -- opens out (the shove's flip). Live hands only — residue never gates.
 -- Returns nil (draw normally), "hidden", or "flip", p.
+-- Names built from an index, once each: "cards_opp_3_1", "table:12",
+-- "tied:12". The first read of an index builds and keeps the string; every
+-- read after is a lookup. Table.anchorKey memoizes on the slot string, so
+-- building the slot per seat per frame was defeating it; the panel-index
+-- names ("table:N", "tied:N") cannot use anchorKey at all, because
+-- data/hints.lua targets them by index. Bounded by the board: 36 cells,
+-- 9 seats, 5 board slots.
+local function named(build)
+    return setmetatable({}, { __index = function(t, i)
+        local s = build(i)
+        rawset(t, i, s)
+        return s
+    end })
+end
+local OPP_CARD_1 = named(function(i) return "cards_opp_" .. i .. "_1" end)
+local OPP_CARD_2 = named(function(i) return "cards_opp_" .. i .. "_2" end)
+local OPP_SLOT   = named(function(i) return "opp_" .. i end)
+local SEAT_NAME  = named(function(i) return "Seat " .. i end)
+local BOARD_SLOT = named(function(i) return "board_" .. i end)
+local TABLE_KEY  = named(function(i) return "table:" .. i end)
+local TIED_KEY   = named(function(i) return "tied:" .. i end)
+local STACK_KEY  = named(function(i) return "stack:" .. i end)
+local EV_KEY     = named(function(i) return "ev:" .. i end)
+-- Two levels: ACTION_KEY.deal[3] is "deal:3".
+local ACTION_KEY = named(function(action)
+    return named(function(i) return action .. ":" .. i end)
+end)
+
 local _deal_back = nil   -- this frame's back sprite, for the turn's first half
+-- The dealer button, parked by the seat that holds it and drawn by
+-- TablePanel.draw after the cards are released from their batch: it
+-- straddles a card's corner, so drawn in the seat it would sit under the
+-- replayed card. `d` is nil when no seat parked one this panel.
+local _dealer_btn = { x = 0, y = 0, d = nil, alpha = 1 }
 local function dealGate(tbl, key)
     local fx = tbl._deal_fx
     if not fx or tbl.state == "idle" then return nil end
@@ -274,11 +308,20 @@ end
 
 -- A card turning face-up in its slot: back squashing to edge-on, then the
 -- face opening out. Same squash the shove uses.
-local function drawCardTurn(sl, card, x, y, w, h, p, shadow)
+-- `back_plate` is the band's decision for its backs: the closing half shows
+-- the plate at the squashed width rather than the art, so a card on a small
+-- felt does not flash its pattern for a tenth of a second mid-turn.
+local function drawCardTurn(sl, card, x, y, w, h, p, shadow, back_plate)
     if p < 0.5 then
         local sx = 1 - 2 * p
         CardSprites.shadow(x + (w - w * sx) / 2, y, w * sx, h, 1, shadow)
-        if _deal_back then CardSprites.sprite(sl, _deal_back, x, y, w, h, sx, 1) end
+        if _deal_back then
+            if back_plate then
+                CardSprites.backPlate(sl, _deal_back, x + (w - w * sx) / 2, y, w * sx, h, 1)
+            else
+                CardSprites.sprite(sl, _deal_back, x, y, w, h, sx, 1)
+            end
+        end
     else
         local sx = 2 * p - 1
         CardSprites.shadow(x + (w - w * sx) / 2, y, w * sx, h, 1, shadow)
@@ -316,14 +359,12 @@ local CARD_BACK = Constants.GAUNTLET and Constants.GAUNTLET.CARD_BACK_SPRITE
 local LEVELUP_FLASH_SECS = 0.6
 local _back_pulse = 0
 
-local function drawCardBack(sl, back, x, y, w, h, alpha, shadow)
+-- `plate` is the band's back_plate decision (views/FeltLayout). The
+-- level-up pulse rides along as CardSprites.back's `flash`, so it is drawn
+-- with the back and stays on top of it when backs are held for a batch.
+local function drawCardBack(sl, back, x, y, w, h, alpha, shadow, plate)
     CardSprites.shadow(x, y, w, h, alpha, shadow)
-    CardSprites.back(sl, back or CARD_BACK, x, y, w, h, alpha)
-    if _back_pulse > 0 then
-        local gold = Theme.currency and Theme.currency.chip or Theme.fg.heading
-        Theme.setColor(gold, _back_pulse * 0.55 * (alpha or 1))
-        love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
-    end
+    CardSprites.back(sl, back or CARD_BACK, x, y, w, h, alpha, plate, _back_pulse)
 end
 
 -- Fronts take the layout's FORCED small-card decision, not a per-call size
@@ -447,9 +488,13 @@ end
 
 local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, cursor_on, rebuy_cursor_on, s, ui_s)
     local stats = tbl:liveStats() or {}
-    local header_text = stats.stake_display or "?"
-    if stats.game_type_short and stats.game_type_short ~= "" then
-        header_text = header_text .. " · " .. stats.game_type_short
+    -- Memoized on the table: neither part changes for a table's life.
+    local sd, gs = stats.stake_display or "?", stats.game_type_short
+    local header_text = tbl._header_str
+    if not header_text or tbl._header_sd ~= sd or tbl._header_gs ~= gs then
+        header_text = sd
+        if gs and gs ~= "" then header_text = sd .. " · " .. gs end
+        tbl._header_str, tbl._header_sd, tbl._header_gs = header_text, sd, gs
     end
     -- Per-stake header chrome: T1 dim grey, T6 near-black with a gold
     -- accent. Falls back to default Theme.bg.chrome.
@@ -480,7 +525,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     local rb_fill       = pending_close and Theme.border.strong
                           or (can_remove and Theme.bg.widget_hover or Theme.bg.sunken)
     do
-        local rid     = "remove_table:" .. tbl._id
+        local rid     = Table.rollingKey(tbl, "remove_table")
         local hovered = can_remove and Hover.is("hit", rid)
         local press   = can_remove and ClickFlash.alpha("hit", rid) or 0
         Button.draw(rb_x, rb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, {
@@ -521,7 +566,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
         local cb_x = next_btn_x
         local cb_y = y + 3
         local muted = tbl.cursor_muted == true
-        local cid     = "toggle_cursor:" .. tbl._id
+        local cid     = Table.rollingKey(tbl, "toggle_cursor")
         local hovered = Hover.is("hit", cid)
         local press   = ClickFlash.alpha("hit", cid)
         local active_color = Theme.fg.heading        -- DEAL is lit, not green (green is a hand won)
@@ -560,7 +605,7 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
         local rcb_x = next_btn_x
         local rcb_y = y + 3
         local rmuted = tbl.cursor_rebuy_muted == true
-        local rcid     = "toggle_rebuy_cursor:" .. tbl._id
+        local rcid     = Table.rollingKey(tbl, "toggle_rebuy_cursor")
         local rhovered = Hover.is("hit", rcid)
         local rpress   = ClickFlash.alpha("hit", rcid)
         local r_active_color = Theme.sem.lost        -- REBUY follows a loss and spends money
@@ -618,7 +663,7 @@ end
 
 local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
                                 cards_y_offset, back_sprite, show_names, plate,
-                                shadow, plate_rect, felt_color, button)
+                                shadow, plate_rect, felt_color, button, back_plate)
     if not opp then return end
 
     local gtype = Lookups.findById(GameTypes,tbl.game_type_id)
@@ -644,7 +689,7 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     -- The data file flips the flag; the view consumes it. Reroll-flash
     -- adds a brief fade-in so the player visibly sees the swap each hand.
     local anonymous = gtype and gtype.anonymous_opponents
-    local raw_name  = anonymous and ("Seat " .. opp_idx)
+    local raw_name  = anonymous and SEAT_NAME[opp_idx]
                       or (opp.name or "?")
 
     -- Pixel-width truncation, MEMOIZED on the opp object. The naive
@@ -809,9 +854,9 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     -- guard a folded opp could flip face-up if opponent_idx pointed at them.
     local hd = handData(tbl)
     -- Card slots, for the deal's flights to land on.
-    Anchors.set(Table.anchorKey(tbl, "cards_opp_" .. opp_idx .. "_1"), cards_x, cards_y, card_w, card_h)
-    Anchors.set(Table.anchorKey(tbl, "cards_opp_" .. opp_idx .. "_2"), cards_x + card_w + card_gap, cards_y, card_w, card_h)
-    local gate, gp_seat = dealGate(tbl, "opp_" .. opp_idx)
+    Anchors.set(Table.anchorKey(tbl, OPP_CARD_1[opp_idx]), cards_x, cards_y, card_w, card_h)
+    Anchors.set(Table.anchorKey(tbl, OPP_CARD_2[opp_idx]), cards_x + card_w + card_gap, cards_y, card_w, card_h)
+    local gate, gp_seat = dealGate(tbl, OPP_SLOT[opp_idx])
     local face_up = opponentFaceUp(tbl) and hd.opponent_idx == opp_idx
     if face_up and ss_fold and ss_fold.player_seat and ss_fold.in_seats then
         local ps = ss_fold.player_seat
@@ -845,9 +890,10 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
             drawOne(cards_x, cards_y, card_w, card_h, seat_alpha)
             drawOne(cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
         else
-            drawCardBack(sl, back_sprite, cards_x, cards_y, card_w, card_h, seat_alpha, shadow)
+            drawCardBack(sl, back_sprite, cards_x, cards_y, card_w, card_h, seat_alpha, shadow,
+                         back_plate)
             drawCardBack(sl, back_sprite, cards_x + card_w + card_gap, cards_y, card_w, card_h,
-                         seat_alpha, shadow)
+                         seat_alpha, shadow, back_plate)
         end
     end
 
@@ -867,8 +913,10 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     local btn_seat = ss_fold and ss_fold.button_visual_seat
     if button and btn_seat and opp_idx == btn_seat then
         local br = button.d * 0.5
-        FeltDecor.drawButton(math.max(x + br, cards_x),
-                             cards_y + card_h, button.d, seat_alpha)
+        _dealer_btn.x     = math.max(x + br, cards_x)
+        _dealer_btn.y     = cards_y + card_h
+        _dealer_btn.d     = button.d
+        _dealer_btn.alpha = seat_alpha
     end
 
     -- Chip-stack tournament: render the seat's current bb stack below
@@ -880,8 +928,12 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
         local bb_val       = (stake_for_bb and stake_for_bb.bb) or 0
         if tbl.seat_stacks and bb_val > 0 then
             local label_y = cards_y + card_h + 2
-            local txt = string.format("%dbb",
-                math.floor((tbl.seat_stacks[script_seat] or 0) / bb_val + 0.5))
+            -- Memoized on the seat: rebuilt only when the rounded bb changes.
+            local bb_n = math.floor((tbl.seat_stacks[script_seat] or 0) / bb_val + 0.5)
+            if opp._bb_n ~= bb_n then
+                opp._bb_n, opp._bb_str = bb_n, string.format("%dbb", bb_n)
+            end
+            local txt = opp._bb_str
             -- Same rule as the seat name: a label that doesn't fit its
             -- seat is dropped rather than clipped mid-glyph.
             love.graphics.setFont(fonts.sm)
@@ -903,11 +955,12 @@ local function drawCommunity(tbl, comm, sl, plate)
 
     for i = 1, 5 do
         local cx = row_x + (i - 1) * (comm.card_w + comm.gap)
-        Anchors.set(Table.anchorKey(tbl, "board_" .. i), cx, comm.y, comm.card_w, comm.card_h)
-        local gate, gp = dealGate(tbl, "board_" .. i)
+        Anchors.set(Table.anchorKey(tbl, BOARD_SLOT[i]), cx, comm.y, comm.card_w, comm.card_h)
+        local gate, gp = dealGate(tbl, BOARD_SLOT[i])
         if i <= count and hd.community and hd.community[i] and gate ~= "hidden" then
             if gate == "flip" then
-                drawCardTurn(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h, gp, comm.shadow)
+                drawCardTurn(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h, gp,
+                             comm.shadow, comm.back_plate)
             else
                 drawCardFront(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h,
                               (gate == "fade") and gp or 1, plate, comm.shadow)
@@ -926,7 +979,7 @@ end
 --
 -- `allow_chips` is false once the felt is too short for a chip bigger than a
 -- dot. The pot is then the number alone.
-local function drawPotLabel(tbl, pot, fonts)
+local function drawPotLabel(tbl, pot, fonts, anims_on)
     local pot_key = Table.anchorKey(tbl, "pot")
     -- Record the pile's spot before any early-out. The first bet of a hand
     -- is reserved into this pile on a frame where the pot is still empty
@@ -947,6 +1000,8 @@ local function drawPotLabel(tbl, pot, fonts)
             scale = pot.chip_scale or 1,
             tint  = stake_theme_pot and stake_theme_pot.chip_tint,
             labels = not is_tourney,
+            -- The layout's size decision: chips, or columns on a small felt.
+            detail = pot.detail,
         })
     else
         -- Felt too short for a chip that isn't a dot, so the pot is the number
@@ -1066,7 +1121,12 @@ local function drawPotLabel(tbl, pot, fonts)
         -- With poker theater on this never fires: the script's pot_push
         -- handler detonates at the moment the pot is pushed and sets
         -- pot_exploded itself. This is the legacy build's path.
-        if tbl.pot_explode_pending and not tbl.pot_exploded then
+        if tbl.pot_explode_pending and not tbl.pot_exploded and not anims_on then
+            -- No theater at this size: the pot is simply gone.
+            tbl.pot_explode_pending = nil
+            tbl.pot_exploded = true
+            ChipPile.clear(pot_key)
+        elseif tbl.pot_explode_pending and not tbl.pot_exploded then
             tbl.pot_explode_pending = nil
             local debris = ChipPile.takeAll(pot_key)
             if debris then
@@ -1108,11 +1168,21 @@ local function drawPotLabel(tbl, pot, fonts)
             local stake = Lookups.findById(Stakes, tbl.stake_id)
             local bb    = (stake and stake.bb) or 0
             if bb > 0 then
-                label = string.format("Pot %dbb",
-                                      math.floor(rolled_pot / bb + 0.5))
+                local n = math.floor(rolled_pot / bb + 0.5)
+                if tbl._potbb_n ~= n then
+                    tbl._potbb_n, tbl._potbb_str = n, string.format("Pot %dbb", n)
+                end
+                label = tbl._potbb_str
             end
         end
-        label = label or ("Pot: " .. Format.money(rolled_pot))
+        if not label then
+            -- Rebuilt only when the displayed cents change.
+            local cents = math.floor(rolled_pot * 100 + 0.5)
+            if tbl._pot_c ~= cents then
+                tbl._pot_c, tbl._pot_str = cents, "Pot: " .. Format.money(rolled_pot)
+            end
+            label = tbl._pot_str
+        end
         love.graphics.printf(label, pot.text_x, pot.text_y, pot.text_w, "center")
     end
 end
@@ -1271,9 +1341,16 @@ end
 -- advances by ~0 and returns the value the first one measured.
 local function tiedText(tbl, parts)
     local rolled = RollingValue.get(Table.rollingKey(tbl, "table_tied"), displayStack(tbl))
-    local money  = Format.money(rolled)
-    if parts == "short" then return money end
-    return "Tied up  " .. money
+    -- Both forms rebuilt together, only when the displayed cents change:
+    -- this runs three times per table per frame and most tables are at
+    -- rest.
+    local cents = math.floor(rolled * 100 + 0.5)
+    if tbl._tied_c ~= cents then
+        local money = Format.money(rolled)
+        tbl._tied_c, tbl._tied_short, tbl._tied_full = cents, money, "Tied up  " .. money
+    end
+    if parts == "short" then return tbl._tied_short end
+    return tbl._tied_full
 end
 
 -- Renders the player seat into the layout `hole` rect (centered hole cards +
@@ -1283,7 +1360,8 @@ end
 -- single row in the bottom band (bottom.band). `tied_anchor_key` (e.g.
 -- "tied:1") registers the "Tied up $X" label as a hint-anchor.
 local self_stack_anchor = nil   -- handed from the pile to the label within one drawPlayerSeat
-local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key, button)
+local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, idx, button)
+    local tied_anchor_key = idx and TIED_KEY[idx]
     local card_w  = hole.card_w
     local card_h  = hole.card_h
     local cards_w = card_w * 2 + hole.gap
@@ -1298,8 +1376,10 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
         drawCardSlot(cards_x, cards_y, card_w, card_h)
         drawCardSlot(cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1)
     elseif gate == "flip" and hd.player_hole then
-        drawCardTurn(sl, hd.player_hole[1], cards_x, cards_y, card_w, card_h, gp, hole.shadow)
-        drawCardTurn(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, gp, hole.shadow)
+        drawCardTurn(sl, hd.player_hole[1], cards_x, cards_y, card_w, card_h, gp, hole.shadow,
+                     hole.back_plate)
+        drawCardTurn(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, gp,
+                     hole.shadow, hole.back_plate)
     elseif holeVisible(tbl) and hd.player_hole then
         local a = (gate == "fade") and gp or 1
         drawCardFront(sl, hd.player_hole[1], cards_x, cards_y, card_w, card_h, a,
@@ -1373,7 +1453,10 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
                 counter_label = "PAID"
             end
         else
-            counter_label = string.format("%d KO", kos)
+            if tbl._ko_n ~= kos then
+                tbl._ko_n, tbl._ko_str = kos, string.format("%d KO", kos)
+            end
+            counter_label = tbl._ko_str
         end
 
         -- Tournament chips aren't reclaimable cash, so not "Tied up" —
@@ -1385,8 +1468,12 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
             if bb_val > 0 and tbl.seat_stacks and tbl.player_seat_fixed then
                 local chips = tbl.seat_stacks[tbl.player_seat_fixed] or 0
                 local bb    = math.floor(chips / bb_val + 0.5)
-                depth_short = string.format("%dbb", bb)
-                depth_full  = "Depth  " .. depth_short
+                if tbl._depth_n ~= bb then
+                    tbl._depth_n     = bb
+                    tbl._depth_short = string.format("%dbb", bb)
+                    tbl._depth_full  = "Depth  " .. tbl._depth_short
+                end
+                depth_short, depth_full = tbl._depth_short, tbl._depth_full
             end
         end
 
@@ -1438,6 +1525,7 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
     ChipPile.place(you_key, bottom.chips.x, pile_y, {
         align = "left", max_w = bottom.chips.max_w, scale = cs, tint = tint,
         max_cols = bottom.chips.max_cols, max_rows = bottom.chips.max_rows,
+        detail = bottom.detail,
     })
     -- "medium" target (~12 chips) keeps the pile compact regardless of stake.
     ChipPile.sync(you_key, display_stack, { palette = palette, tier = "medium" })
@@ -1458,7 +1546,7 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, tied_anchor_key
         local fw, fh = Chips.stackFootprint(ChipPile.denominations(you_key))
         local pad    = math.floor(4 * (cs or 1))
         self_stack_anchor = {
-            key = (tied_anchor_key:gsub("^tied:", "stack:")),
+            key = STACK_KEY[idx],
             x   = bottom.chips.x - pad,
             y   = pile_y - Chips.radius() * cs - math.max(0, fh * cs - Chips.radius() * cs * 2) - pad,
             w   = fw * cs + pad * 2,
@@ -1586,14 +1674,14 @@ local function drawFeltButton(x, y, w, h, fonts, hit_boxes, idx, label, action, 
     -- complete on the click that hides it. "rebuy:any" aliases whichever
     -- busted table drew last, so a hint can point at "a" rebuy button
     -- without knowing the panel index.
-    Anchors.set(action .. ":" .. idx, bx, by, btn_w, btn_h)
+    Anchors.set(ACTION_KEY[action][idx], bx, by, btn_w, btn_h)
     if action == "rebuy" then
         Anchors.set("rebuy:any", bx, by, btn_w, btn_h)
     end
     -- Hover/flash key: table_id when provided (reorder-proof; matches the
     -- writers in GrindView). The hint ANCHOR above stays index-keyed on
     -- purpose — data/hints.lua targets "deal:1" literally.
-    local fid     = action .. ":" .. (table_id or idx)
+    local fid     = ACTION_KEY[action][table_id or idx]
     -- Dwell, not instant: the whole felt is the hover target, so a mouse
     -- sweeping across the board would light every table it crosses. The
     -- wash waits for the pointer to actually rest here.
@@ -1862,6 +1950,14 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- corner instead of over the table that produced them.
     tbl.x = x
     tbl.y = y
+    -- The panel's width and the board's table count, for anything off the
+    -- panel that decides by density: services/FloatingTextSystem drops a
+    -- crowded board's floaters.
+    tbl.panel_w = w
+    local n_tables = (controller and controller.pool and controller.pool:count()) or 0
+    tbl.board_n = n_tables
+    -- The hand's theater exists only below data/felt_layout anims.min_tables.
+    local anims_on = n_tables < ((FeltData.anims and FeltData.anims.min_tables) or math.huge)
 
     -- Per-table FX transform stack. Ordered: lift+slam (vertical hover/
     -- punch) → shake (random shudder on top). All sub-elements (chrome,
@@ -1933,7 +2029,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- The same panel as a proper RECT anchor (top-left + dims) for
     -- hint/story marks — the center anchors above are centre-point
     -- convention and a highlight ring would draw half-offset.
-    Anchors.set("table:" .. idx, x, y, w, h)
+    Anchors.set(TABLE_KEY[idx], x, y, w, h)
     -- Shared names for "the table that ...", for story marks: the panel
     -- whose (stake, game type) has banked its bounty this run, and the
     -- panel with heat on it right now. Last drawn wins when several do.
@@ -1974,9 +2070,12 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     if tbl.script and tbl.playback_state then
         local cursor = tbl.view_event_cursor or 0
         local idx    = tbl.script_idx or 0
+        -- Below the theater width the events are consumed and nothing is
+        -- drawn for them: no flights, mucks or thrown cards. The model
+        -- resets _deal_fx and swept_hand itself each hand, so nothing waits.
         for i = cursor + 1, idx do
             local ev = tbl.script[i]
-            if ev then
+            if ev and anims_on then
                 local fn = PokerEventAnims[ev.kind]
                 if fn then fn(ev, tbl, game) end
             end
@@ -2179,6 +2278,11 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- Residue: opp cards are dead material, so the row draws desaturated
     -- (the winning five come back in color via the emphasis pass).
     desatOn()
+    -- Cards are held until the band is done so every shadow lands before
+    -- any card and the backs batch (views/CardSprites.batchBegin). The
+    -- dealer button is parked, not drawn, for the same reason.
+    CardSprites.batchBegin()
+    _dealer_btn.d = nil
     if L.opponents then
         local ob = L.opponents
         for i, seat in ipairs(ob.seats) do
@@ -2187,8 +2291,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
                 drawOpponentSeat(opp, i, tbl, seat.x, ob.y, seat.w, ob.h,
                     sl, fonts, L.sizes, ob.cards_y_offset, back_sprite,
                     ob.show_names, ob.plate, ob.shadow,
-                    seat.plate_rect, felt_color, L.button)
-                Anchors.set(Table.anchorKey(tbl, "opp_" .. i),
+                    seat.plate_rect, felt_color, L.button, ob.back_plate)
+                Anchors.set(Table.anchorKey(tbl, OPP_SLOT[i]),
                     seat.x + seat.w * 0.5, ob.anchor_y)
             end
         end
@@ -2198,6 +2302,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- so the chips -- which by design overlap the community cards -- sit on top
     -- of the dim/grow overlay instead of getting painted over by it.
     if L.community then drawCommunity(tbl, L.community, sl, L.community.plate) end
+    CardSprites.batchEnd()
+    if _dealer_btn.d then
+        FeltDecor.drawButton(_dealer_btn.x, _dealer_btn.y, _dealer_btn.d, _dealer_btn.alpha)
+    end
     desatOff()
 
     -- Default chip-flight anchors — re-stamped each frame; drawPlayerSeat /
@@ -2217,19 +2325,19 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     local ctx = controller and controller.ctx
     -- Residue: hole cards and the stack pile are dead material too.
     desatOn()
-    drawPlayerSeat(tbl, L.hole, L.bottom, sl, fonts, ctx, "tied:" .. idx, L.button)
+    drawPlayerSeat(tbl, L.hole, L.bottom, sl, fonts, ctx, idx, L.button)
     desatOff()
     -- The stack box takes in the parked result readout above the pile
     -- (registered by the floater renderer last frame) while it is there,
     -- so "the readout, tied up and the chips" is one mark.
     do
-        local sa = Anchors.get("stack:" .. idx)
-        local rk = "result:" .. tostring(tbl._id)
+        local sa = Anchors.get(STACK_KEY[idx])
+        local rk = Table.rollingKey(tbl, "result")
         local ra = Anchors.get(rk)
         if sa and ra and Anchors.age(rk) <= 2 then
             local x1 = math.min(sa[1], ra[1]);            local y1 = math.min(sa[2], ra[2])
             local x2 = math.max(sa[1] + sa[3], ra[1] + ra[3]); local y2 = math.max(sa[2] + sa[4], ra[2] + ra[4])
-            Anchors.set("stack:" .. idx, x1, y1, x2 - x1, y2 - y1)
+            Anchors.set(STACK_KEY[idx], x1, y1, x2 - x1, y2 - y1)
             sa = { x1, y1, x2 - x1, y2 - y1 }
         end
         -- The same box under a shared name on the table whose (stake, game
@@ -2316,7 +2424,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- there's no room for it (L.bottom.ev.show).
     if L.bottom and L.bottom.ev.show and not is_tournament then
         Stats.drawEvReadout(tbl, L.bottom.ev, controller, fonts, hit_boxes,
-            "ev:" .. idx, ev_metrics)
+            EV_KEY[idx], ev_metrics)
         -- The Washing Machine's combo: wins in a row, at the row's left
         -- edge (the EV text takes the right). Only where it does anything.
         local combo = controller and controller.ctx and controller.ctx.zoom_combo_pace
@@ -2339,7 +2447,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- the dim/grow overlay (the pile is meant to overlap the community cards).
     -- Chips are dead material in the residue.
     desatOn()
-    if L.pot then drawPotLabel(tbl, L.pot, fonts) end
+    if L.pot then drawPotLabel(tbl, L.pot, fonts, anims_on) end
     desatOff()
 
     -- Legacy KO: the binary-outcome pot is always empty, so the felt-center

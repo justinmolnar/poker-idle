@@ -21,10 +21,15 @@
 -- at and the plate is a last resort, so a front keeps its art well past the
 -- point where its rank stops being readable.
 --
--- BACKS never plate, at any size. The deck a player picked and levelled is
--- bought content and has to be visible on every table, so services/SpriteLoader
--- keeps a mip chain for backs and hands back a level sized for the draw:
--- ugly-but-recognisable beats hidden.
+-- BACKS plate only when the layout says so (`card.back_plate_below_w`, a
+-- separate threshold, published per band as `back_plate`), and the plate is
+-- the colour the deck's art reads as from afar, taken off the pixels once
+-- at load by services/SpriteLoader. The deck a player picked and levelled
+-- stays on screen as its colour where the pattern was a few pixels of
+-- noise. Above the threshold the mip chain still hands back a level sized
+-- for the draw.
+-- A back called with no decision never plates, so flights and the deck
+-- flyer draw art at any size.
 --
 -- Callers may FORCE a front's decision with the trailing `plate` argument.
 -- views/TablePanel does: its showdown pass redraws the winning cards up to
@@ -52,6 +57,12 @@ local RED_SUIT = { hearts = true, diamonds = true }
 local SHADOW_COLOR = { 0, 0, 0 }
 local SHADOW_ALPHA = (FeltStyle.shadow and FeltStyle.shadow.alpha) or 0.3
 
+-- The white tint every sprite draw hands SpriteRenderer, with the alpha
+-- written in: one table, not one per card per frame. SpriteRenderer reads
+-- it at once and keeps no reference.
+local _tint = { 1, 1, 1, 1 }
+local function tintAlpha(a) _tint[4] = a; return _tint end
+
 -- Set by CardSprites.configure at boot / resize. Nil until then, in which
 -- case a plate draws its suit bar and skips the rank glyph.
 local _font = nil
@@ -78,15 +89,19 @@ local function plateRadius(w, h)
     return math.min(Theme.space.radius, math.floor(math.min(w, h) / 4))
 end
 
--- The shared plate body: fill + 1px outline. Returns nothing; callers add
+-- The shared plate body: an edge-coloured rect with the fill inset one
+-- pixel, which reads as fill + 1px outline. Two fills rather than a fill
+-- and a "line" rect: line mode tessellates joins and does not batch, and
+-- a 36-table board draws hundreds of these. Returns nothing; callers add
 -- whatever mark goes on top.
 local function plateBody(x, y, w, h, fill, edge, alpha)
     local r = plateRadius(w, h)
-    Theme.setColor(fill, alpha)
-    love.graphics.rectangle("fill", x, y, w, h, r)
-    love.graphics.setLineWidth(1)
     Theme.setColor(edge, alpha)
-    love.graphics.rectangle("line", x, y, w, h, r)
+    love.graphics.rectangle("fill", x, y, w, h, r)
+    if w > 2 and h > 2 then
+        Theme.setColor(fill, alpha)
+        love.graphics.rectangle("fill", x + 1, y + 1, w - 2, h - 2, math.max(0, r - 1))
+    end
 end
 
 -- Face-up plate: bone card, suit-coloured edge, rank glyph in the suit
@@ -152,22 +167,93 @@ function CardSprites.folded(x, y, w, h, alpha)
     plateBody(x, y, w, h, Theme.bg.sunken, Theme.border.soft, alpha or 1)
 end
 
--- Card back. ALWAYS the deck's art, however small the card gets -- the deck is
--- something the player picked and levelled, so it stays on screen even when
--- it is nine pixels wide. services/SpriteLoader keeps a mip chain for backs so
--- those nine pixels are an average of the art rather than one sampled texel.
+-- ── Held cards: every shadow first, then every card ─────────────────
+-- A band draws shadow, card, shadow, card, and every untextured rect
+-- between two sprites breaks the sprite batch, so ten backs on one texture
+-- were ten draw calls. While a batch is open, `back` and `front` record
+-- their arguments instead of drawing and `batchEnd` replays them in call
+-- order; the shadows, drawn immediately by the callers, all land first.
+-- Deferring the cards rather than hoisting the shadows means no caller has
+-- to repeat the state logic (folded, dealt, mid-flip, revealed) that
+-- decides which cards exist this frame.
+--
+-- Records are pooled by index and overwritten, so a steady frame allocates
+-- nothing here. The replay clears the flag FIRST so a replayed call cannot
+-- re-enqueue itself.
+local _batching = false
+local _q, _qn = {}, 0
+
+local function enqueue(kind, atlas, what, x, y, w, h, alpha, plate, flash)
+    _qn = _qn + 1
+    local r = _q[_qn]
+    if not r then r = {}; _q[_qn] = r end
+    r.kind, r.atlas, r.what = kind, atlas, what
+    r.x, r.y, r.w, r.h = x, y, w, h
+    r.alpha, r.plate, r.flash = alpha, plate, flash
+end
+
+function CardSprites.batchBegin()
+    _batching = true
+    _qn = 0
+end
+
+function CardSprites.batchEnd()
+    if not _batching then return end
+    _batching = false
+    local n = _qn
+    _qn = 0
+    for i = 1, n do
+        local r = _q[i]
+        if r.kind == "back" then
+            CardSprites.back(r.atlas, r.what, r.x, r.y, r.w, r.h, r.alpha, r.plate, r.flash)
+        else
+            CardSprites.front(r.atlas, r.what, r.x, r.y, r.w, r.h, r.alpha, r.plate)
+        end
+        -- Nothing pinned past the frame.
+        r.atlas, r.what = nil, nil
+    end
+end
+
+-- The back as a plate: the deck's distance colour with a darker edge of
+-- the same hue. What a narrow back draws (see the header), and what the deal
+-- flip's first half draws at the squashed width so a card does not turn
+-- from a plate into art mid-turn.
+local _edge = {}
+function CardSprites.backPlate(atlas, sprite_name, x, y, w, h, alpha)
+    local fill = atlas and atlas.backColor and atlas:backColor(sprite_name)
+                 or Theme.bg.sunken
+    plateBody(x, y, w, h, fill, Theme.darken(fill, 0.6, _edge), alpha or 1)
+end
+
+-- Card back. The deck's art through the mip chain, or its plate when the
+-- layout has decided this band is too narrow for art (`plate == true`;
+-- nil and false both draw art, so a caller with no layout decision gets
+-- what it always got). `flash` is the deck level-up pulse, 0..1: a gold
+-- wash over the back, drawn here so it stays on top when backs are held
+-- for a batch (batchBegin below).
 --
 -- Atlas-missing fallback is a dark sunken rect with a default-border outline
 -- so the table still reads as "cards in a slot."
-function CardSprites.back(atlas, sprite_name, x, y, w, h, alpha)
+function CardSprites.back(atlas, sprite_name, x, y, w, h, alpha, plate, flash)
     alpha = alpha or 1
-    if atlas then
-        SpriteRenderer.draw(atlas, sprite_name, x, y, w, h, { 1, 1, 1, alpha })
+    if _batching then
+        enqueue("back", atlas, sprite_name, x, y, w, h, alpha, plate, flash)
+        return
+    end
+    if plate == true then
+        CardSprites.backPlate(atlas, sprite_name, x, y, w, h, alpha)
+    elseif atlas then
+        SpriteRenderer.draw(atlas, sprite_name, x, y, w, h, tintAlpha(alpha))
     else
         Theme.setColor(Theme.bg.sunken, alpha)
         love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
         Theme.setColor(Theme.border.default, alpha)
         love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+    end
+    if flash and flash > 0 then
+        local gold = Theme.currency and Theme.currency.chip or Theme.fg.heading
+        Theme.setColor(gold, flash * 0.55 * alpha)
+        love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
     end
 end
 
@@ -175,12 +261,16 @@ end
 function CardSprites.front(atlas, card, x, y, w, h, alpha, plate)
     if not card then return end
     alpha = alpha or 1
+    if _batching then
+        enqueue("front", atlas, card, x, y, w, h, alpha, plate, nil)
+        return
+    end
     if usePlate(w, plate) then
         frontPlate(card, x, y, w, h, alpha)
         return
     end
     if atlas then
-        SpriteRenderer.draw(atlas, card:spriteName(), x, y, w, h, { 1, 1, 1, alpha })
+        SpriteRenderer.draw(atlas, card:spriteName(), x, y, w, h, tintAlpha(alpha))
     else
         Theme.setColor(Theme.bg.widget_hover, alpha)
         love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
@@ -211,11 +301,11 @@ function CardSprites.sprite(atlas, sprite_name, x, y, w, h, scale_x, alpha, rot)
         love.graphics.translate(cx, cy)
         love.graphics.rotate(rot)
         love.graphics.translate(-cx, -cy)
-        SpriteRenderer.draw(atlas, sprite_name, actual_x, y, effective_w, h, { 1, 1, 1, alpha })
+        SpriteRenderer.draw(atlas, sprite_name, actual_x, y, effective_w, h, tintAlpha(alpha))
         love.graphics.pop()
         return
     end
-    SpriteRenderer.draw(atlas, sprite_name, actual_x, y, effective_w, h, { 1, 1, 1, alpha })
+    SpriteRenderer.draw(atlas, sprite_name, actual_x, y, effective_w, h, tintAlpha(alpha))
 end
 
 -- A card with a letter on it: the plate body (bone face, black edge) and

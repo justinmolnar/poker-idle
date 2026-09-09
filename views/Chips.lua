@@ -469,11 +469,24 @@ end
 -- painting. nil is the ordinary, un-baked path.
 local paintChip            -- forward declaration; the bakers call it
 
-local function bakeKey(denom_idx, tint, shade, spot_cap)
+-- The bake cache is nested tables, not a formatted string: this lookup
+-- runs once per full-detail chip per frame, and a six-field string.format
+-- here was the busiest allocation in the game. Tint tables come from
+-- data/stake_themes and are stable, so they key by identity. The shade is
+-- bucketed to a thousandth, which is exactly what the old "%.3f" did: a
+-- settling pile passes an interpolated shade every frame, and a raw float
+-- key would bake a fresh canvas pair per frame for the whole settle.
+-- Returns the leaf table and the key into it.
+local function bakeSlot(denom_idx, tint, shade, spot_cap)
+    local by_tint = _bakes[denom_idx]
+    if not by_tint then by_tint = {}; _bakes[denom_idx] = by_tint end
     local t = tint or IDENTITY_TINT
-    return string.format("%d|%.3f,%.3f,%.3f|%.3f|%s", denom_idx,
-                         t[1], t[2], t[3], shade or 1,
-                         spot_cap and tostring(spot_cap) or "-")
+    local by_shade = by_tint[t]
+    if not by_shade then by_shade = {}; by_tint[t] = by_shade end
+    local sk = math.floor((shade or 1) * 1000 + 0.5)
+    local by_cap = by_shade[sk]
+    if not by_cap then by_cap = {}; by_shade[sk] = by_cap end
+    return by_cap, spot_cap or false
 end
 
 local function bakeHalf(which, r, spec, spot_cap, half_px)
@@ -503,8 +516,8 @@ end
 -- The pair for this variant, baked on first use. nil means canvases are
 -- unavailable and the caller should paint the chip the old way.
 local function bakedChip(denom_idx, spec, r, spot_cap, tint, shade)
-    local key = bakeKey(denom_idx, tint, shade, spot_cap)
-    local b = _bakes[key]
+    local slot, ck = bakeSlot(denom_idx, tint, shade, spot_cap)
+    local b = slot[ck]
     if b and b.gen == _bake_gen then return b end
     -- The light arcs stroke at r*0.14 centred on r*R_LIGHT, so their ink
     -- reaches a little past the outline.
@@ -513,7 +526,7 @@ local function bakedChip(denom_idx, spec, r, spot_cap, tint, shade)
     local face = bakeHalf("face", r, spec, spot_cap, half)
     if not (rim and face) then return nil end
     b = { rim = rim, face = face, half = half, gen = _bake_gen }
-    _bakes[key] = b
+    slot[ck] = b
     return b
 end
 
@@ -759,6 +772,44 @@ function Chips.drawChip(x, y, denom_idx, alpha, with_label, tint, shade, depth, 
         paintChip(r, d, alpha, detail, band_hw, spot_cap, rot, es)
         love.graphics.pop()
     end
+end
+
+-- A whole column as one shape: the pill of its body in the rim colour, the
+-- top chip's disc on it, and an outline. What a pile draws below
+-- data/felt_layout's pile.micro_below_d, where views/ChipPile hands it
+-- through as detail = "micro".
+--
+-- Why: at 36 tables a pot chip is ~12px across and every chip but the top
+-- of each column is buried, and a buried chip is painted as a cylinder
+-- wall with seven tessellated arcs for a sliver a pixel tall. Half of
+-- everything a small panel drew was those arcs. Three primitives here, no
+-- shadow, and nothing the eye could read at that size is gone.
+--
+-- `n_above` is how many chips sit on the base one: the base entry's
+-- `depth` from stackLayout, so the column top is that many STACK_OFFSET_Y
+-- steps up. Called the way drawChip is, at (x, y) or at the origin under
+-- the caller's scale, with `escale` the scale applied so the 1px outline
+-- can stay a screen pixel.
+function Chips.drawColumn(x, y, denom_idx, n_above, alpha, tint, escale)
+    local d = ChipData.denominations[denom_idx]
+    if not d then return end
+    alpha = alpha or 1
+    setupColors(d, tint, 1)
+    local r   = CHIP_RADIUS
+    local es  = escale or 1
+    local top = y + (n_above or 0) * STACK_OFFSET_Y
+    _n_chips = _n_chips + 1
+    if es < _scale_min then _scale_min = es end
+    if es > _scale_max then _scale_max = es end
+
+    -- Three fills and no line mode: the outline is the body disc inset a
+    -- screen pixel inside the outline disc.
+    Theme.setColor(_rim, alpha)
+    love.graphics.rectangle("fill", x - r, top - r, 2 * r, (y - top) + 2 * r, r)
+    Theme.setColor(_out, alpha)
+    love.graphics.circle("fill", x, top, r)
+    Theme.setColor(_body, alpha)
+    love.graphics.circle("fill", x, top, math.max(1, r - 1 / es))
 end
 
 -- A chip seen edge-on. Its own entry point rather than another flag on

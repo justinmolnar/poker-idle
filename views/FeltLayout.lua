@@ -309,10 +309,20 @@ function FeltLayout.compute(p)
     -- threshold from plate to art mid-animation.
     local plate_below = (Data.card and Data.card.plate_below_w) or 0
     local function platedAt(card_w) return card_w < plate_below end
+    -- Backs decide separately: a back carries no rank, only the deck's
+    -- pattern, and it plates in the deck's colour (views/CardSprites.back).
+    local back_plate_below = (Data.card and Data.card.back_plate_below_w) or 0
+    local function backPlatedAt(card_w) return card_w < back_plate_below end
     local function chipScale(d)
         if base_d <= 0 then return card_scale end
         return d / base_d
     end
+    -- Pile detail: "full" draws chips, "micro" draws columns (a bar with
+    -- a disc on top, views/Chips.drawColumn). Decided from the chip
+    -- DIAMETER the pile will draw at, the way shadowAt decides from a
+    -- card's width, so both piles on a felt agree.
+    local micro_below = (Data.pile and Data.pile.micro_below_d) or 0
+    local function pileDetail(d) return (d < micro_below) and "micro" or "full" end
 
     -- Card drop shadows, decided per band for exactly the same reason `plate`
     -- is: the showdown pop redraws the winning cards up to 1.26x larger, and a
@@ -434,6 +444,7 @@ function FeltLayout.compute(p)
             -- HU's duel seat draws at card_mult, so it crosses the plate
             -- threshold later than the per-seat boxes do.
             plate  = platedAt(opp_draw_w),
+            back_plate = backPlatedAt(opp_draw_w),
             shadow = shadowAt(opp_draw_w),
             cards_y_offset = name_band,
             anchor_y = oy + name_band + ifloor(opp_card_h / 2),
@@ -463,7 +474,7 @@ function FeltLayout.compute(p)
     L.community = {
         x = fx, y = cb_y, w = fw,
         card_w = sz.comm_w, card_h = sz.comm_h, gap = cgap,
-        plate  = platedAt(sz.comm_w),
+        plate  = platedAt(sz.comm_w), back_plate = backPlatedAt(sz.comm_w),
         shadow = shadowAt(sz.comm_w),
         plate_rect = comm_plate_rect,
     }
@@ -491,6 +502,7 @@ function FeltLayout.compute(p)
         allow_chips = has_pile,
         chip_d      = pot_chip_d,
         chip_scale  = chipScale(pot_chip_d),
+        detail      = pileDetail(pot_chip_d),
     }
 
     -- Hole-card band (rects[4]).
@@ -500,7 +512,7 @@ function FeltLayout.compute(p)
         L.hole = {
             x = fx, y = fy + r.y, w = fw,
             card_w = sz.player_w, card_h = sz.player_h, gap = scaled(sp.hole_gap, p.s),
-            plate  = platedAt(sz.player_w),
+            plate  = platedAt(sz.player_w), back_plate = backPlatedAt(sz.player_w),
             shadow = shadowAt(sz.player_w),
             hand_name_y = below_y,
             below_y = below_y,
@@ -557,6 +569,7 @@ function FeltLayout.compute(p)
         -- chip art's own base radius.
         chip_scale = chipScale(you_chip_d),
         chip_d     = you_chip_d,
+        detail     = pileDetail(you_chip_d),
         band  = { x = fx, y = fy + bot.y, w = fw, h = bot.h },
         -- Chips raised just above the tied-up line so the pile sits on top of it.
         chips = { x = fx + edge, y = text_top - name_gap, align = "left",

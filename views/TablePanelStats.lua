@@ -53,6 +53,14 @@ local function binomCoeff(n, k)
     return c
 end
 
+-- "ev:<idx>" -> "stack_pct:<idx>", derived once per key rather than a gsub
+-- per table per frame. Bounded by the board's 36 cells.
+local _pct_key = setmetatable({}, { __index = function(t, k)
+    local s = (k:gsub("^ev:", "stack_pct:"))
+    rawset(t, k, s)
+    return s
+end })
+
 local function fmtMoney(n)
     n = n or 0
     if math.abs(n) >= 1000 then return Format.money(n) end
@@ -1026,8 +1034,19 @@ local function evMetrics(tbl, controller, font)
                            * ((stats.win_dist and stats.win_dist.stack) or 0))
                            * 100)
     local ev_bb       = ev / bb
-    local label       = TablePanelStats.evLabel(ev)
-    local stack_label = string.format("%.1f%%", stack_pct)
+    -- The strings rebuild only when their displayed digits change, memoized
+    -- on the table: a rolling value still rebuilds per frame, a resting one
+    -- (most tables, most of the time) never does.
+    local ev_c = math.floor(ev * 100 + 0.5)
+    if tbl._ev_c ~= ev_c then
+        tbl._ev_c, tbl._ev_str = ev_c, TablePanelStats.evLabel(ev)
+    end
+    local label = tbl._ev_str
+    local pct_t = math.floor(stack_pct * 10 + 0.5)
+    if tbl._pct_t ~= pct_t then
+        tbl._pct_t, tbl._pct_str = pct_t, string.format("%.1f%%", stack_pct)
+    end
+    local stack_label = tbl._pct_str
 
     local state = controller and controller.game and controller.game.state
     local show_loss = state and state.shove_r2_won
@@ -1049,7 +1068,11 @@ local function evMetrics(tbl, controller, font)
                       ((1.0 - (stats.win_chance or 0))
                        * ((stats.loss_dist and stats.loss_dist.stack) or 0))
                        * 100)
-        loss_label = string.format("%.1f%%", loss_pct)
+        local loss_t = math.floor(loss_pct * 10 + 0.5)
+        if tbl._loss_t ~= loss_t then
+            tbl._loss_t, tbl._loss_str = loss_t, string.format("%.1f%%", loss_pct)
+        end
+        loss_label = tbl._loss_str
         total_w = total_w + gap + r * 2 + glyph_pad + font:getWidth(loss_label)
     end
 
@@ -1057,12 +1080,15 @@ local function evMetrics(tbl, controller, font)
                    or (ev_bb < -0.05 and Theme.sem.lost)
                    or Theme.fg.muted
 
-    return {
-        label = label, stack_label = stack_label, color = color,
-        total_w = total_w, money_w = money_w, text_h = text_h, r = r, gap = gap,
-        glyph_pad = glyph_pad, bb_w = bb_w,
-        show_loss = show_loss, loss_label = loss_label,
-    }
+    -- One metrics table per table, rewritten in place: it is measured and
+    -- drawn within the frame and never held.
+    local m = tbl._ev_metrics
+    if not m then m = {}; tbl._ev_metrics = m end
+    m.label, m.stack_label, m.color = label, stack_label, color
+    m.total_w, m.money_w, m.text_h, m.r, m.gap = total_w, money_w, text_h, r, gap
+    m.glyph_pad, m.bb_w = glyph_pad, bb_w
+    m.show_loss, m.loss_label = show_loss, loss_label
+    return m
 end
 
 -- Pixel widths the readout can occupy: the full form, and the money-only form
@@ -1110,7 +1136,7 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
         Theme.setColor(m.color)
         love.graphics.print(m.stack_label, sx + m.r * 2 + m.glyph_pad, ty)
         if anchor_key then
-            Anchors.set((anchor_key:gsub("^ev:", "stack_pct:")), sx, ty,
+            Anchors.set(_pct_key[anchor_key], sx, ty,
                 m.r * 2 + m.glyph_pad + font:getWidth(m.stack_label), m.text_h)
         end
     end

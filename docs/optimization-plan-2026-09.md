@@ -336,6 +336,12 @@ Listed so nobody re-audits them.
 
 1. `lua sim/lint_copy.lua`, `lua sim/lint_terms.lua`, `lua sim/lint_catalog_economy.lua`, `lua sim/test_everything.lua`,
    plus `lua sim/verify_save_migration.lua` for Phases 6 and 7 and `lua sim/verify_showdown_realism.lua` for Phase 5.
+1b. `lua sim/smoke_boot.lua`, added after this pass shipped a boot crash past every check above. The engine suite
+   never loads a view or a service, so a file that compiles and dies the moment `love.load` calls it had no
+   coverage at all. It scans every file for a local read before its declaration (the exact shape that crashed:
+   legal Lua, silent under `luac -p`, nil at run time), requires every module under `core/ controllers/ data/
+   models/ services/ states/ utils/ views/`, then scans the real sprite tree and runs the boot preload against
+   it. Run it before claiming a change is safe.
 2. `lua sim/bench_perf.lua` diffed against the previous phase's row.
 3. In game with F4: the HUD rows at 1 / 12 / 36 tables at rest and during a swarm burst; one full shove; the room;
    the catalog open over the grind.
@@ -416,3 +422,61 @@ consumption, identical balance.
 - Small items skipped on purpose: the rail's four `face_fn` closures, `itemCard` memoization (its fire counter
   is live, and caching it would freeze a number the player watches), `Decks.checkPendingUnlocks` batching (it
   would reorder unlock announcements), the update loop's four scratch tables, the hands-per-second front-shift.
+
+---
+
+## Size-driven detail on the felt (2026-09-08)
+
+At 36 tables with everything unlocked the board ran at ~29 fps with the whole cost in draw: a panel cost
+the same at 165x125 as at 1040x780, because the panel scale only multiplied sizes and skipped nothing.
+Four changes, all gated by the per-element flags `views/FeltLayout` already publishes:
+
+1. **Chip piles take a detail level.** `pile.micro_below_d` (data/felt_layout.lua) → `L.pot.detail` /
+   `L.bottom.detail` → `ChipPile.place{detail}` → `Chips.drawColumn`: one pill, one disc, one outline per
+   column and no shadow, in place of ~7 arcs per buried chip. Draw-only; it never re-solves the layout.
+2. **Card backs plate in the deck's primary colour.** `card.back_plate_below_w` → `back_plate` on every
+   card band → `CardSprites.back(..., plate)`; the colour is `SpriteLoader:dominantColor(name)`, read off
+   the art once at load (fullest histogram bucket of the inner 80%, so a checker is red or blue, not
+   purple). A back called with no decision never plates, so flights and the deck flyer are unchanged.
+3. **Shadows before cards.** `CardSprites.batchBegin/batchEnd` hold `back`/`front` calls and replay them
+   after the band, so every shadow rect lands first and the backs batch. The dealer button is parked by
+   its seat and drawn after the replay so it stays above its card.
+4. **No strings on the per-table draw path.** The bake cache is nested tables (shade bucketed to a
+   thousandth, as `%.3f` did); slot and index names are built once (`named` in TablePanel); money, EV,
+   pct, pot, tied-up and header strings memoize on the table by their displayed digits; floater text is
+   split once per floater. Nothing visible changes.
+
+Thresholds were set from the solved layout at 1600x900: the player's pile is 34px at 12 tables, 26 at 16,
+20 at 24 and 12 at 36, and the pot pile is 22 at 12 and 17 at 16 (dropped from 24 up); an opponent card
+is 22, 16, 12 and 6 px. So 12 tables and fewer draw exactly as before; 16 draws its pot as columns; 24
+plates its opponent backs and draws both piles as columns; 36 plates every back.
+
+Two corrections from the first run in game, and a fifth change:
+
+- **The plate colour is the mean, not the dominant colour.** The backs are pixel art in pure CGA
+  primaries with black outlines; the biggest single colour of a blue-and-red checker is a pure red that
+  looks nothing like the card, and by raw count the outline won on half the decks. The mean of the inner
+  80% is what the mip chain was already showing at six pixels. `SpriteLoader:backColor(name)`.
+- **Backs keep their art until they are specks.** `card.back_plate_below_w` is 10, not 16: at 13 tables
+  the art still reads, so only 36 tables plates. Plates and columns also lost every line-mode primitive
+  (fill + inset fill instead), since line mode tessellates joins and never batches.
+- **5. No theater below a panel width.** `anims.min_panel_w` (350) and `anims.floaters_min_panel_w`
+  (200) in `data/felt_layout.lua`. Below the first, `TablePanel.draw` consumes the hand's script events
+  without dispatching them to `PokerEventAnims` (no chip flights, mucks, thrown cards) and the pot
+  detonation becomes a clear. Below the second, `FloatingTextSystem.emit` drops floaters whose table
+  is that small (`tbl.panel_w`, stamped per draw). Low motion was already reaching the 50s at 36 tables
+  where Full sat in the 30s, which is what said the theater was the remaining cost.
+  **Then re-keyed on table count** (`anims.min_tables = 20`, `anims.floaters_min_tables = 30`): the board
+  packs six wide in reading order, so 13 and 36 tables share a panel width, and the designer's "nothing
+  until 20+" is a count. `TablePanel` stamps `tbl.board_n` each draw for `FloatingTextSystem`.
+- **6. The periodic stall was the analytics log.** `Constants.DEBUG.HAND_ANALYTICS` is on by default;
+  every hand on every table appended a record to an uncapped list, and each 10 s autosave `json.encode`d
+  the whole file (every hand of up to 50 kept shoves) and wrote it synchronously on the main thread. At
+  36 tables that is ~1,000 hands a minute, 20,000 hands encode in ~250 ms of plain Lua and make a 4 MB
+  file, and it grew for the whole session. `services/HandAnalytics` now encodes each hand once when it is
+  recorded, holds every earlier shove as one string, caps a run at 20,000 newest hands (`hands_dropped`
+  in the file), assembles the file by `table.concat`, and hands the write to the save worker through
+  `SaveService:writeAsync`. Same file shape. The quit path still writes inline.
+ Knobs: `card.plate_below_w`, `card.back_plate_below_w`,
+`pile.micro_below_d`. Checks: `sim/smoke_views.lua` (column, detail-no-resolve, held queue, bake bucket)
+and `sim/smoke_boot.lua` (dominant colour).

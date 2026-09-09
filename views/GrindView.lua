@@ -1684,8 +1684,8 @@ function GrindView:_drawCenterGrid(W, H)
                 local tbl = tables[i]
                 local target = (tbl._id == swap_id) and held_slot or tbl.slot
                 local tx, ty = cellXY(target)
-                local dx = RollingValue.get("tblx:" .. tbl._id, tx, SLIDE_RATE, "tables")
-                local dy = RollingValue.get("tbly:" .. tbl._id, ty, SLIDE_RATE, "tables")
+                local dx = RollingValue.get(TableModel.rollingKey(tbl, "tblx"), tx, SLIDE_RATE, "tables")
+                local dy = RollingValue.get(TableModel.rollingKey(tbl, "tbly"), ty, SLIDE_RATE, "tables")
                 TablePanel.draw(tbl, i, dx, dy, pw, ph,
                                 self.game, self.controller, self.hit_boxes)
                 self:_notePanel(tbl, i, dx, dy, pw, ph)
@@ -1699,11 +1699,11 @@ function GrindView:_drawCenterGrid(W, H)
         for i = 1, n do
             local tbl = tables[i]
             local tx, ty = cellXY(tbl.slot or 0)
-            local dx = RollingValue.get("tblx:" .. tbl._id, tx, SLIDE_RATE, "tables")
-            local dy = RollingValue.get("tbly:" .. tbl._id, ty, SLIDE_RATE, "tables")
+            local dx = RollingValue.get(TableModel.rollingKey(tbl, "tblx"), tx, SLIDE_RATE, "tables")
+            local dy = RollingValue.get(TableModel.rollingKey(tbl, "tbly"), ty, SLIDE_RATE, "tables")
             -- Post-drop settle: a tiny scale bump as the panel lands,
             -- recentered so it grows in place.
-            local pp = Pop.progress("tbl_settle:" .. tbl._id)
+            local pp = Pop.progress(TableModel.rollingKey(tbl, "tbl_settle"))
             if pp > 0 then
                 local sc = Pop.scale(pp, 1, 0.04)
                 local gw, gh = pw * sc, ph * sc
@@ -1838,6 +1838,34 @@ local FLOATER_STROKE_OFFSETS = {
 }
 local FLOATER_STROKE_COLOR = { 0, 0, 0 }
 
+-- A floater's text is fixed for its life, so it is split once and its
+-- widest line measured once per font, instead of three gmatch passes per
+-- floater per frame (and every idle table keeps a parked one).
+local function floaterLines(t)
+    local lines = t._lines
+    if not lines then
+        lines = {}
+        for line in (t.text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
+        t._lines = lines
+    end
+    return lines
+end
+
+local function floaterWidest(t, font)
+    if t._widest_font == font then return t._widest end
+    local widest = 0
+    for _, line in ipairs(floaterLines(t)) do
+        if line ~= "" then
+            local tw = line:find("{", 1, true)
+                       and IconText.measure(line, font, IconText.PLAIN)
+                       or font:getWidth(line)
+            if tw > widest then widest = tw end
+        end
+    end
+    t._widest, t._widest_font = widest, font
+    return widest
+end
+
 function GrindView:_drawFloatingText()
     local fonts = self.game.fonts
     -- Resolve a controller-supplied color_token through Theme palettes.
@@ -1868,15 +1896,7 @@ function GrindView:_drawFloatingText()
             local c = AnchorRegistry.get(TableModel.anchorKey(fit, "center"))
             local panel_w = c and c[3]
             if panel_w and panel_w > 24 then
-                local widest = 0
-                for line in (t.text .. "\n"):gmatch("(.-)\n") do
-                    if line ~= "" then
-                        local tw = line:find("{", 1, true)
-                                   and IconText.measure(line, font, IconText.PLAIN)
-                                   or font:getWidth(line)
-                        if tw > widest then widest = tw end
-                    end
-                end
+                local widest = floaterWidest(t, font)
                 if widest > 0 then
                     scale = math.min(scale, (panel_w - 12) / widest)
                 end
@@ -1913,8 +1933,8 @@ function GrindView:_drawFloatingText()
         -- the whole block on t.y (it used to stack downward from t.y, dropping a
         -- win banner's payout lines well below the table center). The renderer
         -- owns the layout, so callers emit ONE float for a whole block.
-        local n_lines = 1
-        for _ in t.text:gmatch("\n") do n_lines = n_lines + 1 end
+        local lines   = floaterLines(t)
+        local n_lines = #lines
 
         love.graphics.push()
         love.graphics.translate(t.x, t.y)
@@ -1924,21 +1944,13 @@ function GrindView:_drawFloatingText()
         -- happens to be there — plate them like the hand-name pill so the
         -- number is readable on any ground (red on green was not).
         if t.has_persisted then
-            local widest = 0
-            for line in (t.text .. "\n"):gmatch("(.-)\n") do
-                if line ~= "" then
-                    local tw = line:find("{", 1, true)
-                               and IconText.measure(line, font, IconText.PLAIN)
-                               or font:getWidth(line)
-                    if tw > widest then widest = tw end
-                end
-            end
+            local widest = floaterWidest(t, font)
             if widest > 0 then
                 local block_h = (n_lines - 1) * step + line_h
                 -- The parked readout's plate, in screen space, for story
                 -- marks: views/TablePanel folds it into the stack box.
                 if t.table and t.table._id then
-                    AnchorRegistry.set("result:" .. tostring(t.table._id),
+                    AnchorRegistry.set(TableModel.rollingKey(t.table, "result"),
                         t.x + (-widest * 0.5 - 6) * scale, t.y + (ly - 3) * scale,
                         (widest + 12) * scale, (block_h + 6) * scale)
                 end
@@ -1950,7 +1962,7 @@ function GrindView:_drawFloatingText()
                     widest + 12, block_h + 6, Theme.space.radius)
             end
         end
-        for line in (t.text .. "\n"):gmatch("(.-)\n") do
+        for _, line in ipairs(lines) do
             if line:find("{", 1, true) then
                 -- Inline icons (e.g. "+1 {chip}") — IconText, no stroke ring.
                 local tw = IconText.measure(line, font, IconText.PLAIN)

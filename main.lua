@@ -215,6 +215,11 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 px) {
 -- Persisted in love.update; reset whenever a save fires.
 local autosave_timer = 0
 local AUTOSAVE_INTERVAL = 10  -- seconds
+-- The analytics file goes to the save worker with the saves; the quit path
+-- passes no writer and writes inline so nothing is in flight at exit.
+local function analyticsWriter(filename, encoded)
+    return Game and Game.save_service and Game.save_service:writeAsync(filename, encoded)
+end
 
 local function buildGame()
     local g = {
@@ -567,42 +572,9 @@ function love.load()
     -- the moment a screen opens, so nothing pops in — every card (their
     -- back also builds a mip chain here), and whatever the catalog, the
     -- room layout, the icons and the tile kits name.
-    do
-        local wanted = {}
-        local function want(n) if type(n) == "string" then wanted[#wanted + 1] = n end end
-        for _, item in ipairs(Catalog) do want(item.sprite or item.id) end
-        for id, info in pairs(require("data.room_layout")) do
-            if id ~= "__meta" then
-                want(id)
-                if type(info) == "table" then want(info.sprite) end
-            end
-        end
-        for _, spec in pairs(require("data.icons")) do
-            if type(spec) == "table" then want(spec.sprite) end
-        end
-        -- The tiles the room actually opens with, by name from the layout's
-        -- own meta rather than a guess: the kit's themes are things like
-        -- "ArmyGreen" and "BeigeYellow", so an invented name would preload
-        -- nothing and the floor would pop in.
-        local Tiles  = require("data.room_tiles")
-        local meta   = (require("data.room_layout").__meta) or {}
-        local set    = meta.tile_set or Tiles.default_set
-        local folder = string.format(Tiles.folder, set)
-        -- Floor and wall themes are separate namespaces in the kit: there
-        -- is a Floor_128_BrownDark and a Wall_L_128_Bone, and no crossing.
-        if meta.floor_theme and meta.floor_theme ~= "Default" then
-            want(folder .. string.format(Tiles.floor_name, set, meta.floor_theme))
-        end
-        if meta.wall_theme and meta.wall_theme ~= "Default" then
-            want(folder .. string.format(Tiles.wall_l_name, set, meta.wall_theme))
-            want(folder .. string.format(Tiles.wall_r_name, set, meta.wall_theme))
-        end
-        for _, spec in ipairs(require("data.decks") or {}) do
-            if type(spec) == "table" then want(spec.sprite) end
-        end
-        local n = Game.sprite_loader:preload(wanted, "cards/")
-        print("[SpriteLoader] Preloaded " .. n .. " sprites; the rest load on first draw")
-    end
+    local n = Game.sprite_loader:preload(
+        require("models.sprite_manifest").onScreenAtBoot(), "cards/")
+    print("[SpriteLoader] Preloaded " .. n .. " sprites; the rest load on first draw")
     -- Bake THE HOUSE's wall portrait (procedural, views/HouseArt) into
     -- the sprite pool so the room draws it like any other wall item.
     require("views.HouseArt").bake(Game.sprite_loader)
@@ -743,7 +715,8 @@ function love.update(dt)
                 local state = Game.state
                 Perf.enter("save")
                 Game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
-                HandAnalytics.flush(state, Game.settings and Game.settings.analytics_consent)
+                HandAnalytics.flush(state, Game.settings and Game.settings.analytics_consent,
+                                    analyticsWriter)
                 Perf.exit("save")
             end
         end

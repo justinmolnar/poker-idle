@@ -70,6 +70,37 @@ local BACK_MIN_W     = 14      -- smallest chain level. The tightest the felt
                                -- ever gets is a ~9px opponent card at 32
                                -- tables, which this level serves at 1.6:1
 
+-- The colour a card back reads as from a distance, taken off its pixels
+-- once at load: the MEAN of the inner 80% (every back has a pale border),
+-- outlines included. Not a dominant colour: the backs are pixel art in
+-- pure primaries with black outlines, and the biggest single colour of a
+-- blue-and-red checker is a pure red or a pure blue that looks nothing
+-- like the card, while its mean is the purple the mip chain was already
+-- showing at six pixels. Every third pixel, ~3,000 reads for a 144x192
+-- back. views/CardSprites draws a narrow back as a plate in this colour.
+-- nil when the data cannot be read (a fake in the headless checks, an
+-- image depth getPixel refuses).
+local function backColorOf(data)
+    if not (data and data.getPixel) then return nil end
+    local w, h = data:getWidth(), data:getHeight()
+    if w < 4 or h < 4 then return nil end
+    local x0, x1 = math.floor(w * 0.1), math.ceil(w * 0.9) - 1
+    local y0, y1 = math.floor(h * 0.1), math.ceil(h * 0.9) - 1
+    local n, sr, sg, sb = 0, 0, 0, 0
+    for y = y0, y1, 3 do
+        for x = x0, x1, 3 do
+            local r, g, b, a = data:getPixel(x, y)
+            if (a or 1) >= 0.5 then
+                n = n + 1
+                sr, sg, sb = sr + r, sg + g, sb + b
+            end
+        end
+    end
+    if n == 0 then return nil end
+    return { sr / n, sg / n, sb / n }
+end
+SpriteLoader.backColorOf = backColorOf
+
 local function applyCardFilter(image)
     -- (min, mag): linear down, nearest up.
     pcall(image.setFilter, image, "linear", "nearest")
@@ -146,6 +177,9 @@ function SpriteLoader:init()
     -- sprite name -> { Image, ... } largest first. Only card backs build one;
     -- getSpriteFor falls back to the plain sprite for everything else.
     self.lods = {}
+    -- sprite name -> { r, g, b }, what a card back reads as from afar
+    -- (backColorOf), filled as each back is decoded.
+    self.colors = {}
 end
 
 local function isSupported(filename)
@@ -213,6 +247,10 @@ function SpriteLoader:_loadSprite(sprite_name)
     end
     if image then
         if is_card then
+            if sprite_name:sub(1, #BACK_PREFIX) == BACK_PREFIX then
+                local okc, color = pcall(backColorOf, data)
+                if okc and color then self.colors[sprite_name] = color end
+            end
             image = self:_conditionCard(sprite_name, image)
         else
             pcall(image.setFilter, image, "nearest", "nearest")
@@ -357,9 +395,15 @@ function SpriteLoader:loadAll()
     self.loaded = true
 end
 
--- Inject a runtime-generated Image under a sprite name (procedural art
--- baked at boot, e.g. views/HouseArt's wall poster). Loads the disk
--- sprites first so a later lazy loadAll can't clobber the injection.
+-- aliases.json remaps one lookup name onto another sprite's. Declared here,
+-- above preload, because every reader below resolves through it.
+local function _resolve(self, sprite_name)
+    if self.aliases and self.aliases[sprite_name] then
+        return self.aliases[sprite_name]
+    end
+    return sprite_name
+end
+
 -- Decode a named set up front. Everything else waits for its first draw,
 -- but the art that is on screen the moment a screen opens must not hitch
 -- into view — the cards, the icons, the tiles, and whatever the catalog and
@@ -389,6 +433,9 @@ function SpriteLoader:preload(names, prefix)
     return n
 end
 
+-- Inject a runtime-generated Image under a sprite name (procedural art
+-- baked at boot, e.g. views/HouseArt's wall poster). Loads the disk
+-- sprites first so a later lazy loadAll can't clobber the injection.
 function SpriteLoader:setSprite(name, image)
     if not self.loaded then self:loadAll() end
     self.sprites[name] = image
@@ -422,13 +469,6 @@ function SpriteLoader:_conditionCard(sprite_name, image)
     end
     applyCardFilter(image)
     return image
-end
-
-local function _resolve(self, sprite_name)
-    if self.aliases and self.aliases[sprite_name] then
-        return self.aliases[sprite_name]
-    end
-    return sprite_name
 end
 
 function SpriteLoader:getSprite(sprite_name, time, fps, frame)
@@ -524,6 +564,16 @@ function SpriteLoader:getSpriteFor(sprite_name, target_w, time, fps, frame)
         if levels[i]:getWidth() >= (target_w or 0) then return levels[i] end
     end
     return levels[1]
+end
+
+-- What a card back reads as from afar, or nil for anything that is not
+-- one (or whose pixels could not be read). Keyed by sprite name, which is
+-- what models/Decks hands out, so two decks sharing one file share it.
+function SpriteLoader:backColor(sprite_name)
+    if not self.loaded then self:loadAll() end
+    local resolved = _resolve(self, sprite_name)
+    self:_ensure(resolved)
+    return self.colors[resolved]
 end
 
 function SpriteLoader:hasSprite(sprite_name)

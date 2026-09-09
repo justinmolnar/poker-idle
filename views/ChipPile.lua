@@ -267,6 +267,23 @@ local function drawChipLocal(place, tint, lx, ly, d, alpha, label, shade, depth,
     end
 end
 
+-- A whole column as one shape (views/Chips.drawColumn), for a pile placed
+-- with detail = "micro". Same transform rule as drawChipLocal: the scale
+-- goes on the stack AND into the call, so the outline stays a screen pixel.
+local function drawColumnLocal(place, tint, lx, ly, d, alpha, n_above)
+    local s = place.scale or 1
+    local sx, sy = toScreen(place, lx, ly)
+    if s == 1 then
+        Chips.drawColumn(sx, sy, d, n_above, alpha, tint, 1)
+    else
+        love.graphics.push()
+        love.graphics.translate(sx, sy)
+        love.graphics.scale(s, s)
+        Chips.drawColumn(0, 0, d, n_above, alpha, tint, s)
+        love.graphics.pop()
+    end
+end
+
 -- Cast shadow under a column base, in the pile's own placement space.
 local function drawShadowLocal(place, lx, ly, alpha)
     local s = place.scale or 1
@@ -336,6 +353,9 @@ function ChipPile.place(key, x, y, opts)
         touch(e)
     end
     p.x, p.y      = x, y
+    -- Draw-only, like x and y: the layout does not read it, so a tier flip
+    -- (the grid repacking) must not throw the solved layout away.
+    p.detail      = opts.detail
     e.tint        = opts.tint
     e.since_place = 0
 end
@@ -804,9 +824,21 @@ function ChipPile.draw(key)
     if not e or not e.place then return end
     e.idle = 0
     local place, tint = e.place, e.tint
+    -- "micro": one shape per column and no shadows. The column is drawn
+    -- from its BASE entry, whose depth is the number of chips above it;
+    -- every other entry in that column is skipped.
+    local micro = place.detail == "micro"
 
     if e.frozen then
         local placed = layoutLocal(e.frozen, place)
+        if micro then
+            for _, p in ipairs(placed) do
+                if p.col_base then
+                    drawColumnLocal(place, tint, p.x, p.y, p.idx, 1, p.depth)
+                end
+            end
+            return
+        end
         for _, p in ipairs(placed) do
             if p.col_base then drawShadowLocal(place, p.x, p.y, 1) end
         end
@@ -828,24 +860,37 @@ function ChipPile.draw(key)
             if p.mode == "out" then return 1 - ease end
             return 1
         end
-        for _, p in ipairs(e.settle.parts) do
-            local a = partAlpha(p)
-            -- A shadow at full strength under a chip fading out is a
-            -- smudge with nothing on top of it.
-            if p.base and a > 0.01 then
-                drawShadowLocal(place,
-                                p.x0 + (p.x1 - p.x0) * ease,
-                                p.y0 + (p.y1 - p.y0) * ease, a)
+        if not micro then
+            for _, p in ipairs(e.settle.parts) do
+                local a = partAlpha(p)
+                -- A shadow at full strength under a chip fading out is a
+                -- smudge with nothing on top of it.
+                if p.base and a > 0.01 then
+                    drawShadowLocal(place,
+                                    p.x0 + (p.x1 - p.x0) * ease,
+                                    p.y0 + (p.y1 - p.y0) * ease, a)
+                end
             end
         end
         for _, p in ipairs(e.settle.parts) do
             local a = partAlpha(p)
             if a > 0.01 then
-                local sh = (p.sh0 or 1) + ((p.sh1 or 1) - (p.sh0 or 1)) * ease
-                drawChipLocal(place, tint,
-                              p.x0 + (p.x1 - p.x0) * ease,
-                              p.y0 + (p.y1 - p.y0) * ease,
-                              p.d, a, p.label, sh, p.depth, p.rot)
+                if micro then
+                    -- A settling column rides its base part; a bet is
+                    -- exactly when the per-chip cost would matter most.
+                    if p.base then
+                        drawColumnLocal(place, tint,
+                                        p.x0 + (p.x1 - p.x0) * ease,
+                                        p.y0 + (p.y1 - p.y0) * ease,
+                                        p.d, a, p.depth)
+                    end
+                else
+                    local sh = (p.sh0 or 1) + ((p.sh1 or 1) - (p.sh0 or 1)) * ease
+                    drawChipLocal(place, tint,
+                                  p.x0 + (p.x1 - p.x0) * ease,
+                                  p.y0 + (p.y1 - p.y0) * ease,
+                                  p.d, a, p.label, sh, p.depth, p.rot)
+                end
             end
         end
         return
@@ -861,6 +906,14 @@ function ChipPile.draw(key)
         placed        = layoutLocal(denomList(e, true), place)
         e.layout      = placed
         e.layout_rev  = e.rev
+    end
+    if micro then
+        for _, p in ipairs(placed) do
+            if p.col_base then
+                drawColumnLocal(place, tint, p.x, p.y, p.idx, 1, p.depth)
+            end
+        end
+        return
     end
     for _, p in ipairs(placed) do
         if p.col_base then drawShadowLocal(place, p.x, p.y, 1) end

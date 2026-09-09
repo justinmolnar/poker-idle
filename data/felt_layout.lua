@@ -59,6 +59,18 @@ return {
         -- Below this diameter a chip is a featureless dot, so the pot drops
         -- its pile entirely and the felt shows only "Pot: $X".
         min_chip_d   = 12,
+        -- Below this diameter a pile is drawn one COLUMN at a time (a bar
+        -- with a disc on top, views/Chips.drawColumn) instead of one chip
+        -- at a time. At that size a buried chip is a sliver a pixel tall,
+        -- and the seven shading arcs it is painted with were the dearest
+        -- thing on a 36-table board. Measured at 1600x900: the player's
+        -- pile is 34px at 12 tables, 26 at 16, 20 at 24 and 12 at 36 (the
+        -- pot pile is 22 at 12 tables and 17 at 16, and dropped by
+        -- min_chip_d from 24 up). At 17 nothing changes through 16 tables
+        -- or at 24; only the 12px stack at 36 draws as columns, which is
+        -- where the chips were slivers anyway. One number; raise it to
+        -- switch to columns sooner.
+        micro_below_d = 17,
     },
 
     -- Opponent seats. The name is pure flavor, and there is no font smaller
@@ -78,12 +90,33 @@ return {
     -- readable, and the plate only takes over where the card is too few pixels
     -- to be anything at all.
     --
-    -- Card BACKS ignore this entirely and always draw the deck's art -- decks
-    -- are bought content and belong on screen at every table size.
-    -- services/SpriteLoader keeps a mip chain for them so the small ones
-    -- average the art instead of sampling one texel of it.
+    -- Backs have their own threshold. Below it a back is a flat plate in the
+    -- deck's PRIMARY colour (services/SpriteLoader reads it off the art once
+    -- at load), so the deck a player picked still shows as its colour on a
+    -- 36-table board, where the pattern itself was a few pixels of noise
+    -- costing a sprite draw, a mip lookup and a shadow apiece. Lower than
+    -- the fronts' threshold: the designer wants the art wherever it is still
+    -- art, and at 13 tables it still is. Measured at 1600x900 an opponent
+    -- card is 22px at 12 tables, 16 at 16, 12 at 24 (all art) and 6 at 36
+    -- (plate); the community and hole cards never cross it.
     card = {
-        plate_below_w = 16,
+        plate_below_w      = 16,
+        back_plate_below_w = 10,
+    },
+
+    -- Per-hand animation, by how many tables are open. From `min_tables`
+    -- up a table's hand plays with no theater at all: chips do not fly into
+    -- the pot, folds do not muck, deals do not throw cards, the pot does not
+    -- detonate on a stack win. From `floaters_min_tables` up the table's
+    -- floating text ("+$0.04", the hand name) is not spawned either. At
+    -- that density none of it reads as anything, and at 36 tables it was
+    -- most of the frame; the hand still plays and its result still lands
+    -- in the readouts. Counted, not measured: the board packs six wide in
+    -- reading order, so 13 and 36 tables share a panel width and only the
+    -- count says how busy the screen is.
+    anims = {
+        min_tables          = 20,
+        floaters_min_tables = 30,
     },
 
     -- Heads-up duel seat: the single opponent gets a bigger seat than the
