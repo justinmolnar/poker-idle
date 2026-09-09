@@ -466,7 +466,8 @@ Two corrections from the first run in game, and a fifth change:
   detonation becomes a clear. Below the second, `FloatingTextSystem.emit` drops floaters whose table
   is that small (`tbl.panel_w`, stamped per draw). Low motion was already reaching the 50s at 36 tables
   where Full sat in the 30s, which is what said the theater was the remaining cost.
-  **Then re-keyed on table count** (`anims.min_tables = 20`, `anims.floaters_min_tables = 30`): the board
+  **Then re-keyed on table count** (`anims.min_tables = 20`; the floaters stay at every count, the
+  designer wants to see them always, `anims.floaters_min_tables` is the unset knob): the board
   packs six wide in reading order, so 13 and 36 tables share a panel width, and the designer's "nothing
   until 20+" is a count. `TablePanel` stamps `tbl.board_n` each draw for `FloatingTextSystem`.
 - **6. The periodic stall was the analytics log.** `Constants.DEBUG.HAND_ANALYTICS` is on by default;

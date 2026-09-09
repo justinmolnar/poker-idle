@@ -107,16 +107,17 @@ return {
     -- Per-hand animation, by how many tables are open. From `min_tables`
     -- up a table's hand plays with no theater at all: chips do not fly into
     -- the pot, folds do not muck, deals do not throw cards, the pot does not
-    -- detonate on a stack win. From `floaters_min_tables` up the table's
-    -- floating text ("+$0.04", the hand name) is not spawned either. At
-    -- that density none of it reads as anything, and at 36 tables it was
-    -- most of the frame; the hand still plays and its result still lands
-    -- in the readouts. Counted, not measured: the board packs six wide in
-    -- reading order, so 13 and 36 tables share a panel width and only the
-    -- count says how busy the screen is.
+    -- detonate on a stack win. At that density none of it reads as
+    -- anything, and at 36 tables it was most of the frame; the hand still
+    -- plays and its result still lands in the readouts. Counted, not
+    -- measured: the board packs six wide in reading order, so 13 and 36
+    -- tables share a panel width and only the count says how busy the
+    -- screen is. The floating text ("+$0.04", the hand name) is the one
+    -- piece of theater that stays at every count: the designer wants to
+    -- see it always. `floaters_min_tables` is the knob if that changes;
+    -- absent, it never fires.
     anims = {
-        min_tables          = 20,
-        floaters_min_tables = 30,
+        min_tables = 20,
     },
 
     -- Heads-up duel seat: the single opponent gets a bigger seat than the
