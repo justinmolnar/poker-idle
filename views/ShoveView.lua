@@ -528,12 +528,27 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
         add(at, function() self:_potTo(who) end, sound)
     end
 
+    -- Where the ending's settle lands (the clear path has no summary beat
+    -- to hang it on). Set when _scheduleEnding runs.
+    local t_settle = 0
+
     -- `robbed` is sticky once set: the generic summary that precedes every
     -- result hold must not un-rob a shove the panic already marked.
     local function summary(at, robbed)
         add(at, function()
             self.summary_shown = true
             if robbed then self.robbed = true end
+        end)
+    end
+
+    -- The run is over and the player has seen why. Everything after this
+    -- beat is presentation: the book, the flyer, the hold. So this is where
+    -- the run banks, resets and SAVES — quit after it and the next launch
+    -- opens on the new run in the grind; quit before it and the same shove
+    -- replays from the buildup, with the same pre-rolled result.
+    local function settle(at)
+        add(at, function()
+            if self.ss and self.ss.settleRun then self.ss:settleRun() end
         end)
     end
 
@@ -684,6 +699,7 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
                 potTo(t + 0.10, "player", "chip_land_you")
                 add(t + 0.40, function() self:_confetti() end)
                 add(t + 0.90, function() self:_confetti() end)
+                t_settle = t + 1.0
                 t = self:_scheduleEnding(t, add, say)
             else
                 light(t + 0.05, "dealer")
@@ -706,11 +722,14 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     -- the hold. Nothing arrives at the same instant as anything else.
     if self.ending then
         -- No summary, no catalog, no hold: the ending carries itself to
-        -- credits. `t` is the end of the curtain.
+        -- credits. `t` is the end of the curtain. The run still settles —
+        -- at the top of the burial, while the felt is still readable.
+        settle(t_settle)
         self.total_duration = t
         return
     end
     summary(t + 2.6)
+    settle(t + 2.7)
     throwCatalog(t + 3.4)
     throwFlyer(t + 3.55)
     hold(t + 3.75, "result")

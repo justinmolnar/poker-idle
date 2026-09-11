@@ -125,7 +125,7 @@ for _, it in ipairs(Catalog) do
             err("naked", it.id .. " has no unlock, no requires, and is not a Value Buys intro")
         end
         local k = it.unlock and it.unlock.kind
-        if k and (ACT2_ONLY_GATE[k] or k:match("^lifetime_")) and it.act ~= 2 and not it.unlock.mystery then
+        if k and ACT2_ONLY_GATE[k] and it.act ~= 2 and not it.unlock.mystery then
             err("act", ("%s gates on %s, which cannot be met before the R1 win, but is not act = 2 (or a mystery teaser)"):format(it.id, k))
         end
     end

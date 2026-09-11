@@ -1,28 +1,31 @@
 -- services/SaveService.lua
 --
--- Dual-slot persistence:
---   meta.save  — persistent slot. Survives a run reset.
---   run.save   — per-run slot. Wiped by clearRun().
+-- One save file, plus a settings file.
 --
--- The two slots are saved separately so a run reset is just `delete run.save`
--- without touching meta. The save format is JSON; GameState:serializeMeta /
--- :serializeRun build the payloads by hand (see models/GameState.lua), this
--- service handles the file layer.
+--   save.json      the game. { version, saved_at, meta = {...}, run = {...} }
+--   settings.save  volumes, display, motion, consent. Same wrapper shape.
 --
--- Save schema (per slot):
---   {
---     version   = number,
---     timestamp = number (os.time),
---     data      = <table from GameState:serializeMeta()/serializeRun()>,
---   }
+-- The two halves of the game live in ONE file because they describe one
+-- moment. The old two-slot layout staged and committed meta and run
+-- separately, so a crash (or a quit racing the writer thread) between the
+-- two commits left a save whose halves disagreed — a banked bounty in meta
+-- with its once-per-run lock rolled back in run. One file, one commit, no
+-- torn pair.
 --
--- Write safety: every write stages to `<file>.tmp`, verifies the staged
--- bytes decode, then commits over the real file — a crash mid-write can
--- no longer truncate the only copy, and `read` recovers from a leftover
--- good tmp. If a slot EXISTS but cannot be read, `load_failed` latches
--- and further meta/run writes are refused so the unreadable file is never
--- overwritten by fresh-game state; starting a new game (clearAll) is the
--- explicit way out.
+-- Write safety, in order: encode → write `save.json.tmp` → verify the bytes
+-- that landed → rename the live file to `save.json.bak` → rename the tmp
+-- over the live file. A crash at any point leaves at least one readable
+-- copy, and `load()` tries all three in newest-first order.
+--
+-- Version: a file whose version is not VERSION is REFUSED, not migrated.
+-- `load()` returns nil and `refused` is set; the file is left on disk and
+-- nothing overwrites it until the player starts a new game. There are no
+-- field-level migrations anywhere any more — models/GameState is an
+-- explicit key list, and an old save is simply not this game.
+--
+-- The `load_failed` latch is for `save.json` alone: a settings file that
+-- will not parse is not worth refusing a session over, and it used to
+-- suspend every progress save for the whole session.
 
 local SaveService = {}
 
@@ -30,17 +33,11 @@ local Constants = require("data.constants")
 local json      = require("lib.json")
 
 local VERSION = Constants.SAVE.VERSION
+local FILE    = Constants.SAVE.FILE
 
--- The two slots that carry progress. A failed write to either latches
--- load_failed; the settings file is not worth refusing a session over.
-local function isProgressSlot(filename)
-    return filename == Constants.SAVE.META_FILE
-        or filename == Constants.SAVE.RUN_FILE
-end
-
--- JSON decode produces string keys for all object fields; Lua sometimes wants
--- integer-keyed tables. Walks decoded data and coerces integer-ish string keys
--- back to numbers. Lifted from CC's SaveService.
+-- JSON decode produces string keys for all object fields; Lua wants the
+-- integer-keyed ones back (a table's `seat_stacks` and `in_seats` go sparse
+-- the moment a seat folds, and sparse arrays encode as objects).
 local function coerceIntKeys(t, seen)
     if type(t) ~= "table" then return end
     seen = seen or {}
@@ -59,14 +56,11 @@ local function coerceIntKeys(t, seen)
     end
 end
 
--- ─── The writer thread ─────────────────────────────────────────────────
--- The autosave fires every 10 s, and a full board's payload is sixteen
--- parallel arrays; encoding, writing, reading back and committing it all
--- sat on the frame. The encode stays here (it is cheap now the JSON is
--- compact) and the disk work moves to services/save_worker.
---
--- Desktop only. The web build has no threads, and the quit path always
--- writes inline so nothing can still be in flight when the process ends.
+-- ── The writer thread ──────────────────────────────────────────────────
+-- Desktop hands the disk work to services/save_worker. The encode stays
+-- here; a string crosses the channel, not the payload tables (pushing a
+-- table deep-copies it, which would cost about what the encode does on the
+-- thread we are trying to keep free).
 local _is_web = false
 do
     local ok = pcall(require, "ffi")
@@ -78,7 +72,13 @@ local function threadsAvailable()
 end
 
 function SaveService:new()
-    return setmetatable({ load_failed = false }, { __index = self })
+    return setmetatable({
+        load_failed = false,
+        refused     = nil,   -- "old" when the file on disk is another version
+        has_save    = nil,   -- cached; hasSave() must not hit the disk per frame
+        _pushed     = 0,
+        _reported   = 0,
+    }, { __index = self })
 end
 
 -- Started on the first threaded save, not at boot: a session that never
@@ -96,17 +96,17 @@ function SaveService:_worker()
 end
 
 -- Report anything the writer finished since the last look. Called once a
--- frame from love.update; a failure latches load_failed exactly as the
--- inline path does, so a bad disk stops the next save from overwriting.
+-- frame from love.update, and in a loop by flushWorker.
 function SaveService:drainResults()
     local ch = self._results
     if not ch then return end
     while true do
         local r = ch:pop()
         if not r then break end
+        self._reported = self._reported + 1
         if not r.ok then
             print("SaveService: " .. tostring(r.filename) .. " — " .. tostring(r.err))
-            if isProgressSlot(r.filename) then self.load_failed = true end
+            if r.filename == FILE then self.load_failed = true end
         end
     end
     local t = self._worker_thread
@@ -116,12 +116,39 @@ function SaveService:drainResults()
             print("SaveService: writer thread died (" .. tostring(err)
                   .. "); saves fall back to the main thread")
             self._worker_thread, self._jobs, self._results = nil, nil, nil
+            self._reported = self._pushed
         end
     end
 end
 
--- One raw read attempt against one filename. Returns (data, version) or
--- (nil, reason). Does not consult tmps and does not touch load_failed.
+-- Wait for every queued write to report. The quit path calls this before
+-- its own inline write, so a queued autosave cannot commit older bytes
+-- over the final save after we have gone.
+function SaveService:flushWorker(timeout)
+    if not self._results then return true end
+    local deadline = (love.timer and love.timer.getTime() or 0) + (timeout or 2.0)
+    self:drainResults()
+    while self._reported < self._pushed do
+        if not self._results:demand(0.1) then
+            -- demand consumed nothing within the slice; drain and re-check
+            -- so a result that arrived between the pop and the demand counts.
+            self:drainResults()
+        else
+            -- demand popped one for us; put the count straight.
+            self._reported = self._reported + 1
+            self:drainResults()
+        end
+        if love.timer and love.timer.getTime() > deadline then
+            print("SaveService: writer did not finish within the flush window")
+            return false
+        end
+    end
+    return true
+end
+
+-- ── Reading ────────────────────────────────────────────────────────────
+
+-- One raw read attempt. Returns (wrapper, nil) or (nil, reason).
 local function tryRead(filename)
     if not love.filesystem.getInfo(filename) then
         return nil, "no save"
@@ -132,70 +159,90 @@ local function tryRead(filename)
     if type(decoded) ~= "table" then
         return nil, "decode failed: " .. tostring(derr)
     end
-    if type(decoded.data) ~= "table" then
-        return nil, "no data"
-    end
-    if decoded.version ~= VERSION then
-        -- Version drift no longer refuses the save: returning nil here
-        -- read as "fresh game" to every caller, which made the first
-        -- VERSION bump a silent wipe of every existing player. All real
-        -- migrations are field-level in GameState:applySaved; the file's
-        -- version rides along for any future one that needs to branch.
-        print(string.format("SaveService: %s is v%s (current v%s), applying with field-level migration",
-            filename, tostring(decoded.version), tostring(VERSION)))
-    end
-    coerceIntKeys(decoded.data)
-    return decoded.data, decoded.version
+    return decoded, nil
 end
 
--- Read a save slot. Returns the `data` field (model payload) or nil.
--- A leftover `<file>.tmp` (crash between stage and commit) is the newest
--- good copy and is recovered from; a slot that exists but cannot be read
--- latches `load_failed` so nothing overwrites it.
-function SaveService:read(filename)
-    local data, ver = tryRead(filename)
-    if data then return data, ver end
-    local reason = ver
-
-    local tdata, tver = tryRead(filename .. ".tmp")
-    if tdata then
-        print("SaveService: recovered " .. filename .. " from its staged .tmp (" .. tostring(reason) .. ")")
-        return tdata, tver
+-- The game file. Returns the payload `{ meta = , run = }`, or nil plus a
+-- reason: "no save", "old" (another version, left alone), or a read error
+-- (which latches load_failed).
+--
+-- Tries the live file, then a `.tmp` left by a crash between stage and
+-- commit, then the `.bak` kept from the previous good commit.
+function SaveService:load()
+    self.refused = nil
+    local sources = { FILE, FILE .. ".tmp", FILE .. ".bak" }
+    local first_reason = nil
+    for i, name in ipairs(sources) do
+        local wrapper, reason = tryRead(name)
+        if wrapper then
+            if wrapper.version ~= VERSION then
+                -- Another version of the game wrote this. Refuse it, keep
+                -- it, and say so; New Game is the way past.
+                print(string.format("SaveService: %s is v%s, this build reads v%s — refusing it",
+                    name, tostring(wrapper.version), tostring(VERSION)))
+                self.refused  = "old"
+                self.has_save = false
+                return nil, "old"
+            end
+            if i > 1 then
+                print("SaveService: recovered the save from " .. name)
+            end
+            local payload = {
+                meta = type(wrapper.meta) == "table" and wrapper.meta or nil,
+                run  = type(wrapper.run) == "table" and wrapper.run or nil,
+            }
+            coerceIntKeys(payload)
+            self.has_save = true
+            return payload
+        end
+        first_reason = first_reason or reason
     end
 
-    if reason ~= "no save" then
-        -- The file is there and unreadable. Never let an autosave replace
-        -- it with fresh-game state — the bytes may still be recoverable.
+    if first_reason ~= "no save" then
+        -- The file is there and unreadable, and neither backup helped.
+        -- Never let an autosave replace it with fresh-game state.
         self.load_failed = true
-        print("SaveService: LOAD FAILED for " .. filename .. " (" .. tostring(reason)
+        print("SaveService: LOAD FAILED (" .. tostring(first_reason)
             .. ") — saves suspended until a new game is started")
     end
-    return nil, reason
+    self.has_save = false
+    return nil, first_reason
 end
 
--- ── Staged writes ───────────────────────────────────────────────────────
+-- Is there a loadable save? Answered from the last load/save/clear, so the
+-- title screen can ask every frame without touching the disk.
+function SaveService:hasSave()
+    if self.has_save == nil then self:load() end
+    return self.has_save == true
+end
 
--- Encode + write + verify `<file>.tmp`. Returns true when the staged file
--- is confirmed readable. Never touches the real file.
-function SaveService:_stage(filename, payload)
-    -- Compact, not pretty-printed. A board of 36 tables writes sixteen
-    -- parallel arrays; the indentation was roughly doubling the bytes to
-    -- encode, write, read back and re-parse, for a file no human reads in
-    -- place (the tools all work from the repo, not the save directory).
-    local encoded = self:_encode(filename, payload)
-    if not encoded then return false end
+-- ── Writing ────────────────────────────────────────────────────────────
+
+function SaveService:_encode(payload)
+    -- Compact, not pretty-printed: no human reads the save in place (the
+    -- tools all work from the repo), and the indentation roughly doubled
+    -- every byte we encode, write, read back and verify.
+    local wrapper = { version = VERSION, saved_at = os.time(),
+                      meta = payload.meta, run = payload.run }
+    local ok, encoded = pcall(json.encode, wrapper)
+    if not ok or type(encoded) ~= "string" then
+        print("SaveService: encode failed: " .. tostring(encoded))
+        return nil
+    end
+    return encoded
+end
+
+-- Write `<file>.tmp` and verify the bytes that landed. Never touches the
+-- live file. The failure this guards is a SHORT write — a full disk, a
+-- killed process, Emscripten's IDBFS flushing badly — so a length and
+-- terminator check is exactly the right test and far cheaper than a parse.
+local function stage(filename, encoded)
     local tmp = filename .. ".tmp"
     local ok, err = love.filesystem.write(tmp, encoded)
     if not ok then
         print("SaveService: stage write failed for " .. tmp .. ": " .. tostring(err))
         return false
     end
-    -- Verify the bytes that actually landed, without paying for a second
-    -- full parse of the save we just built. The failure this guards against
-    -- is a SHORT write — a full disk, a killed process, Emscripten's IDBFS
-    -- flushing badly — and that is exactly what a length-and-terminator
-    -- check catches. A file that is the right length and ends in the
-    -- closing brace is the string we encoded.
     local back = love.filesystem.read(tmp)
     if not back or #back ~= #encoded or back:sub(-1) ~= "}" then
         print("SaveService: staged " .. tmp .. " failed verification, keeping the old save")
@@ -204,151 +251,112 @@ function SaveService:_stage(filename, payload)
     return true
 end
 
--- Commit a verified `<file>.tmp` over the real file. Rename is as close to
--- atomic as the platform gives us; the direct-write fallback covers file
--- systems without a working os.rename (the staged tmp has already been
--- verified either way, and read() recovers from the tmp if this is
--- interrupted).
-function SaveService:_commit(filename)
+-- Commit a verified tmp over the live file, keeping one backup.
+--
+-- The rename path keeps `<file>.bak`; the copy fallback does not. That
+-- fallback is the web build's normal path (IDBFS has no working
+-- os.rename), where a read-plus-two-writes on every autosave is the stall
+-- the writer thread exists to avoid — and the tmp is verified either way,
+-- so a crash there still leaves a recoverable copy.
+local function commit(filename)
     local tmp = filename .. ".tmp"
     if not love.filesystem.getInfo(tmp) then return false end
     local dir = love.filesystem.getSaveDirectory()
-    local renamed = false
     if dir and dir ~= "" then
-        pcall(os.remove, dir .. "/" .. filename)   -- Windows rename won't overwrite
-        renamed = pcall(function()
+        local bak = filename .. ".bak"
+        pcall(os.remove, dir .. "/" .. bak)
+        pcall(os.rename, dir .. "/" .. filename, dir .. "/" .. bak)
+        local renamed = pcall(function()
             assert(os.rename(dir .. "/" .. tmp, dir .. "/" .. filename))
         end)
+        if renamed then return true end
+        -- The rename failed after the live file was moved aside; put it back
+        -- so the copy fallback below is not writing over a hole.
+        if not love.filesystem.getInfo(filename) then
+            pcall(os.rename, dir .. "/" .. bak, dir .. "/" .. filename)
+        end
     end
-    if not renamed then
-        local raw = love.filesystem.read(tmp)
-        if not raw then return false end
-        local ok = love.filesystem.write(filename, raw)
-        if not ok then return false end
-        love.filesystem.remove(tmp)
-    end
+    local raw = love.filesystem.read(tmp)
+    if not raw then return false end
+    if not love.filesystem.write(filename, raw) then return false end
+    love.filesystem.remove(tmp)
     return true
 end
 
--- Write a save slot. `payload` is the model-serialized table.
-function SaveService:write(filename, payload)
-    if self.load_failed and isProgressSlot(filename) then
-        print("SaveService: refusing to overwrite " .. filename .. " after a failed load")
-        return false, "load failed"
-    end
-    if not self:_stage(filename, payload) then
-        return false, "stage failed"
-    end
-    if not self:_commit(filename) then
-        print("SaveService: commit failed for " .. filename)
-        return false, "commit failed"
-    end
-    return true
-end
+SaveService.commitFile = commit   -- shared with services/save_worker
 
--- Convenience: load both slots. Returns { meta = ..., run = ... } where each
--- field is the payload table or nil. Callers handle nil = fresh game.
-function SaveService:loadAll()
-    return {
-        meta = self:read(Constants.SAVE.META_FILE),
-        run  = self:read(Constants.SAVE.RUN_FILE),
-    }
-end
-
--- Convenience: write both slots from an in-memory pair. Both are staged
--- before either commits, so a crash between the two writes can't leave
--- meta and run describing different moments (a torn pair let a banked
--- {chip} bounty survive while its once-per-run lock rolled back).
--- Encode one payload for the writer. Returns the string, or nil on a
--- failure that has already been reported.
-function SaveService:_encode(filename, payload)
-    local wrapper = { version = VERSION, timestamp = os.time(), data = payload }
-    local ok, encoded = pcall(json.encode, wrapper)
-    if not ok then
-        print("SaveService: encode failed for " .. filename .. ": " .. tostring(encoded))
-        return nil
-    end
-    return encoded
-end
-
--- One already-encoded file through the writer thread: the analytics log
--- rides with the saves. Returns false when there is no worker, so the
--- caller writes inline itself. The worker stages, verifies the length and
--- the closing brace, and commits, exactly as for a save.
-function SaveService:writeAsync(filename, encoded)
-    if self.load_failed then return false end
-    if not self:_worker() then return false end
-    self:drainResults()
-    self._jobs:push({ filename = filename, encoded = encoded })
-    return true
-end
-
--- The autosave path. On desktop the disk work is handed to the writer
--- thread and this returns immediately; `sync` (the quit and crash paths)
--- forces the inline write so nothing is in flight when the process ends.
-function SaveService:saveAll(meta_payload, run_payload, sync)
+-- Save the game. `payload` is `{ meta = , run = }`. On desktop the disk
+-- work goes to the writer thread and this returns at once; `sync` (quit,
+-- the crash handler, the shove commit) forces the inline write and first
+-- waits for anything already queued.
+function SaveService:save(payload, sync)
     if self.load_failed then
         print("SaveService: refusing to save after a failed load")
         return false
     end
+    local encoded = self:_encode(payload)
+    if not encoded then return false end
 
     if not sync and self:_worker() then
         self:drainResults()
-        local jobs = self._jobs
-        local queued = true
-        if meta_payload then
-            local enc = self:_encode(Constants.SAVE.META_FILE, meta_payload)
-            if enc then jobs:push({ filename = Constants.SAVE.META_FILE, encoded = enc })
-            else queued = false end
-        end
-        if run_payload then
-            local enc = self:_encode(Constants.SAVE.RUN_FILE, run_payload)
-            if enc then jobs:push({ filename = Constants.SAVE.RUN_FILE, encoded = enc })
-            else queued = false end
-        end
-        return queued
+        self._pushed = self._pushed + 1
+        self._jobs:push({ filename = FILE, encoded = encoded })
+        self.has_save = true
+        return true
     end
 
-    local meta_ok = meta_payload and self:_stage(Constants.SAVE.META_FILE, meta_payload)
-    local run_ok  = run_payload  and self:_stage(Constants.SAVE.RUN_FILE,  run_payload)
-    if meta_ok then self:_commit(Constants.SAVE.META_FILE) end
-    if run_ok  then self:_commit(Constants.SAVE.RUN_FILE)  end
-    return (meta_payload == nil or meta_ok) and (run_payload == nil or run_ok)
-end
-
-local function removeWithTmp(filename)
-    if love.filesystem.getInfo(filename) then
-        love.filesystem.remove(filename)
+    if sync then self:flushWorker() end
+    if not stage(FILE, encoded) then return false end
+    if not commit(FILE) then
+        print("SaveService: commit failed")
+        return false
     end
-    local tmp = filename .. ".tmp"
-    if love.filesystem.getInfo(tmp) then
-        love.filesystem.remove(tmp)
+    self.has_save = true
+    return true
+end
+
+-- One already-encoded file through the writer thread: the analytics log
+-- rides with the save. Returns false when there is no worker, so the
+-- caller writes inline itself. Never consults load_failed — a broken game
+-- save is no reason to stop logging.
+function SaveService:writeAsync(filename, encoded)
+    if not self:_worker() then return false end
+    self:drainResults()
+    self._pushed = self._pushed + 1
+    self._jobs:push({ filename = filename, encoded = encoded })
+    return true
+end
+
+-- Delete the save and everything staged or backed up with it, and lift the
+-- failed-load latch. This is the explicit way past an unreadable or
+-- foreign save.
+function SaveService:clear()
+    for _, name in ipairs({ FILE, FILE .. ".tmp", FILE .. ".bak" }) do
+        if love.filesystem.getInfo(name) then love.filesystem.remove(name) end
     end
-end
-
--- Wipe the run slot. Called by game-side reset paths.
-function SaveService:clearRun()
-    removeWithTmp(Constants.SAVE.RUN_FILE)
-end
-
--- Wipe both slots. Used by the credits-screen reset and the F7 debug hotkey.
--- An explicit wipe is the player choosing to abandon an unreadable save, so
--- the load_failed latch clears with it.
-function SaveService:clearAll()
-    self:clearRun()
-    removeWithTmp(Constants.SAVE.META_FILE)
     self.load_failed = false
+    self.refused     = nil
+    self.has_save    = false
 end
 
--- Settings slot — separate from meta/run since user preferences (volume,
--- analytics consent) survive a "delete save" wipe. Settings writes are not
--- blocked by load_failed: they carry no progress.
+-- ── Settings ───────────────────────────────────────────────────────────
+-- Their own file, their own rules: a settings file that will not parse
+-- costs the player their volume, not their save.
+
 function SaveService:loadSettings()
-    return self:read(Constants.SAVE.SETTINGS_FILE)
+    local wrapper = tryRead(Constants.SAVE.SETTINGS_FILE)
+    if not wrapper or type(wrapper.data) ~= "table" then return nil end
+    coerceIntKeys(wrapper.data)
+    return wrapper.data
 end
 
 function SaveService:saveSettings(payload)
-    if payload then self:write(Constants.SAVE.SETTINGS_FILE, payload) end
+    local ok, encoded = pcall(json.encode,
+        { version = VERSION, saved_at = os.time(), data = payload })
+    if not ok or type(encoded) ~= "string" then return false end
+    local name = Constants.SAVE.SETTINGS_FILE
+    if not stage(name, encoded) then return false end
+    return commit(name)
 end
 
 return SaveService

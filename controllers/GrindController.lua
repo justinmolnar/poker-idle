@@ -364,7 +364,6 @@ function GrindController:_fireProcs(trigger, source_tbl, extra)
             -- the save arrays hold per-table references. Re-sync so the
             -- new list is reachable from state (existing lists tick in
             -- place and need no help).
-            self.pool:_syncStateList()
         end
         end
     end
@@ -1070,7 +1069,6 @@ function GrindController:update(dt)
                 if count < cap then
                     state.stakes_won_this_run[key] = count + 1
                     self.banked_rev = (self.banked_rev or 0) + 1
-                    state.hands_since_last_bank = 0
                     -- Same award math as the cash stack path (incl.
                     -- chip_award_mult AND Pen's flat bonus — this used to
                     -- hand-roll the formula and dropped the Pen add).
@@ -1085,7 +1083,6 @@ function GrindController:update(dt)
                         self:itemFired("stack_chip_add", t)
                         self:itemFired("chip_award_mult", t)
                         state.chips_this_run = state.chips_this_run + award
-                        state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
                         -- Bounty Hunter levels on chips banked; its Stack
                         -- shift keys on which lanes are still unbanked,
                         -- so the rollup has to see this bank now.
@@ -1103,7 +1100,6 @@ function GrindController:update(dt)
                         local cp = self:bountyAward(t.stake_id, t.game_type_id, { roll = true })
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
-                            state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
                             state.total_chips_banked = (state.total_chips_banked or 0) + cp
                         end
                     else
@@ -1467,7 +1463,6 @@ function GrindController:update(dt)
         -- the player has actually won the tournament.
         -- Runs before the bounty check so a banking hand's reset (below)
         -- leaves this at 0, not 1. Drives the tutorial's shove-stall hint.
-        state.hands_since_last_bank = (state.hands_since_last_bank or 0) + 1
 
         -- Receipt Printer: a {stack} anywhere settles every Zoom table on
         -- the spot. Appending to `resolutions` mid-iteration is deliberate
@@ -1533,7 +1528,6 @@ function GrindController:update(dt)
                 if count < cap then
                     state.stakes_won_this_run[key] = count + 1
                     self.banked_rev = (self.banked_rev or 0) + 1
-                    state.hands_since_last_bank = 0
                     local award = self:bountyAward(tbl.stake_id, tbl.game_type_id, { roll = true })
                     if award > 0 then
                         -- Dogs Playing Poker: the run's first bounty pays +bonus.
@@ -1549,7 +1543,6 @@ function GrindController:update(dt)
                         -- bounty" signal; the top bar's chip figure stays
                         -- static until shove pulls the trigger on banking.
                         state.chips_this_run = state.chips_this_run + award
-                        state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
                         -- Bounty Hunter levels on chips banked; its Stack
                         -- shift keys on which lanes are still unbanked,
                         -- so the rollup has to see this bank now.
@@ -1577,7 +1570,6 @@ function GrindController:update(dt)
                         local cp = self:bountyAward(tbl.stake_id, tbl.game_type_id, { roll = true })
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
-                            state.lifetime_chips_banked = (state.lifetime_chips_banked or 0) + 1
                             state.total_chips_banked = (state.total_chips_banked or 0) + cp
                             self.game.floating_text.emit(
                                 string.format("+%d {chip}", cp),
@@ -1611,7 +1603,6 @@ function GrindController:update(dt)
                     local count = (cur == true and 1) or 0
                     if count < cap then
                         state.anti_stakes_won_this_run[key] = true
-                        state.hands_since_last_bank = 0
                         local award = self:antiBountyAward(tbl.stake_id)
                         -- Corrupted Worry Stone: every anti pays more.
                         -- Corrupted Fridge: the run's first pays more still.
@@ -1702,7 +1693,6 @@ function GrindController:update(dt)
         if r.tier == "large" or r.tier == "stack" then
             -- Big outcomes, win or loss — the tutorial's tier hint fires
             -- on the first one.
-            state.total_big_outcomes = (state.total_big_outcomes or 0) + 1
         end
         if r.won and r.tier == "stack" then
             state.total_stacks = (state.total_stacks or 0) + 1
@@ -1734,9 +1724,6 @@ function GrindController:update(dt)
         end
         if stake then
             local idx = Lookups.indexById(Stakes, stake.id) or 0
-            if idx > (state.highest_stake_idx or 0) then
-                state.highest_stake_idx = idx
-            end
         end
 
         -- Deck-system meta bookkeeping. Lifetime counters drive unlock
@@ -1752,20 +1739,15 @@ function GrindController:update(dt)
             -- rest fire on their conditional events. Bumped BEFORE
             -- checkPendingUnlocks so any threshold crossed by this hand
             -- unlocks immediately.
-            state.lifetime_hands_played = (state.lifetime_hands_played or 0) + hand_units
             if r.delta > 0 then
-                state.lifetime_money_won = (state.lifetime_money_won or 0) + r.delta
+                state.total_money_won = (state.total_money_won or 0) + r.delta
             elseif r.delta < 0 then
-                state.lifetime_money_lost = (state.lifetime_money_lost or 0) + (-r.delta)
             end
             if r.won and r.tier == "stack" and not r.flipped then
-                state.lifetime_stack_count = (state.lifetime_stack_count or 0) + 1
             end
             if r.won and gtype_id == "ko" then
-                state.lifetime_ko_hands_won = (state.lifetime_ko_hands_won or 0) + 1
             end
             if n_tables >= 4 then
-                state.lifetime_hands_at_4plus_tables = (state.lifetime_hands_at_4plus_tables or 0) + hand_units
             end
 
             -- XP grant for the active deck. Event carries everything the
@@ -1776,7 +1758,6 @@ function GrindController:update(dt)
             -- Hands played while OVER the focus cap — matches the Multitasker
             -- deck's overwhelmed identity (its unlock, mirroring its XP rule).
             if n_tables > focus_cap then
-                state.lifetime_hands_overwhelmed = (state.lifetime_hands_overwhelmed or 0) + hand_units
             end
             self:_grantDeckXp({
                 won            = r.won and true or false,
@@ -1816,7 +1797,6 @@ function GrindController:update(dt)
     -- on tournament tables). Resync so a save mid-KO-run
     -- captures the latest hand counter. Cheap (4 array writes per
     -- table; bounded by MAX_TABLES).
-    self.pool:_syncStateList()
 end
 
 -- Announce something landing on the DECK cell: a gold pulse on the cell plus
@@ -2008,7 +1988,6 @@ function GrindController:buyRunUpgrade(upgrade_id)
     -- Lifetime counter drives the Investor deck's unlock. Gated like the
     -- other lifetime_* counters (accrue only once the deck system exists).
     if Decks.systemUnlocked(state) then
-        state.lifetime_upgrades_bought = (state.lifetime_upgrades_bought or 0) + 1
         Decks.checkPendingUnlocks(state, self.game.unlock_rules)
     end
 
@@ -2176,9 +2155,40 @@ function GrindController:quickReset()
     -- Run-start perks are silent: they land while the player is between
     -- screens (the deck modal, the reset), which is nowhere to hear them.
     state:applyStartingPerks(self.ctx)
-    -- Queued chip bursts reference anchors of tables the rebuild replaces.
+    state.perks_pending = nil
+    self:reloadPool()
+end
+
+-- Throw away every live Table and rebuild from the records on the state.
+--
+-- Only for the paths that REPLACE those records wholesale: a run reset, a
+-- reload from disk, a wipe. Entering the grind screen used to do this every
+-- time, which is why a hand in flight never survived a trip to the room.
+--
+-- The floaters and queued bursts go first. Both hold references to the
+-- Table objects about to be discarded, and a result floater parked on one
+-- waits for it to leave "idle" or play another hand — which a discarded
+-- table never does (the "stuck payout" bug).
+function GrindController:reloadPool()
+    if self.game.floating_text then self.game.floating_text.clear() end
     self.pending_bursts = {}
-    self.pool:rebuildFromState(self.ctx)
+    self:invalidateEffects()
+    self.pool:restoreFromState(self.ctx)
+end
+
+-- Seed the next run's starting perks, once. The shove settles the run the
+-- moment the showdown has played, but the perks have to wait for the
+-- catalog browse that follows it (Pocket Cash bought post-bust seeds the
+-- run it was bought for). Whoever gets there first — the catalog dismissal,
+-- the credits, or the next grind entry after a quit — clears the flag.
+function GrindController:applyPendingPerks()
+    local state = self.game.state
+    if not state.perks_pending then return false end
+    state.perks_pending = nil
+    self:invalidateEffects()
+    state:applyStartingPerks(self.ctx)
+    self:reloadPool()
+    return true
 end
 
 -- The player physically pulled the COMING SOON sticker off `item_id`. Records
@@ -2482,24 +2492,21 @@ function GrindController:changeTableStake(idx, new_stake_id)
 end
 
 -- Toggle a table's autonomous-cursor opt-out flag. Persists via
--- TablePool's _syncStateList → state.active_table_mutes.
+-- Persisted with the table's own record (models/Table:serialize).
 function GrindController:toggleCursorMute(idx)
     local t = self.pool:get(idx)
     if not t then return false end
     t.cursor_muted = not (t.cursor_muted == true)
-    self.pool:_syncStateList()
     return true
 end
 
 -- Toggle the per-table cursor-rebuy opt-out. Only meaningful when the
 -- catalog perk `cursor_rebuy_unlocked` is owned (the [R] header toggle
--- is hidden otherwise). Persists via _syncStateList →
--- state.active_table_rebuy_mutes.
+-- is hidden otherwise). Persisted with the table's own record.
 function GrindController:toggleCursorRebuyMute(idx)
     local t = self.pool:get(idx)
     if not t then return false end
     t.cursor_rebuy_muted = not (t.cursor_rebuy_muted == true)
-    self.pool:_syncStateList()
     return true
 end
 
@@ -2507,7 +2514,7 @@ end
 -- the drag's frames) in a specific board cell. An empty cell moves it; an
 -- occupied one swaps the two. Called from GrindView's drag drop, outside
 -- the update tick, so the prev_states[i] snapshot never spans a move.
--- The cell persists through _syncStateList (active_table_slot).
+-- The cell persists with the table's own record.
 function GrindController:moveTableToSlot(table_id, slot)
     local from_idx
     for i, t in ipairs(self.pool.tables) do
@@ -2646,7 +2653,6 @@ function GrindController:setTypeCursorMute(stake_id, gtype_id, muted)
             n = n + 1
         end
     end
-    if n > 0 then self.pool:_syncStateList() end
     return n
 end
 
@@ -2658,7 +2664,6 @@ function GrindController:setTypeCursorRebuyMute(stake_id, gtype_id, muted)
             n = n + 1
         end
     end
-    if n > 0 then self.pool:_syncStateList() end
     return n
 end
 
@@ -2922,7 +2927,6 @@ function GrindController:rebuyTable(idx, opts)
     -- Sync the parallel save arrays so the next autosave tick captures
     -- the post-rebuy state cleanly.
     if t.ko then t.ko:reset() end
-    self.pool:_syncStateList()
     -- Grant deck XP for rebuy (carries the table's buy-in for count rules).
     self:_grantDeckXp({
         type           = "table_rebuy",
@@ -2937,7 +2941,6 @@ function GrindController:rebuyTable(idx, opts)
     -- Lifetime counter drives the Short Stack deck's unlock. Gated like the
     -- other lifetime_* counters (accrue only once the deck system exists).
     if Decks.systemUnlocked(state) then
-        state.lifetime_rebuys = (state.lifetime_rebuys or 0) + 1
         Decks.checkPendingUnlocks(state, self.game.unlock_rules)
     end
     -- Bankroll → YOU stack chip burst (table positions are already known
@@ -2998,7 +3001,7 @@ function GrindController:initiateShove()
     -- that means "actually shoved", not "started another run".
     state.has_shoved = true
     state.shove_pending = { chips = banked, anti_chips = anti_banked }
-    self.game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
+    self.game.save(true)
     self.game.state_machine:switch("shove")
 end
 

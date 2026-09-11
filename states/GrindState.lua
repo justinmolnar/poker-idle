@@ -143,8 +143,7 @@ end
 function GrindState:_finalizeOnboarding()
     if not self.game.state.onboarded then
         self.game.state.onboarded = true
-        self.game.save_service:saveAll(
-            self.game.state:serializeMeta(), self.game.state:serializeRun())
+        self.game.save()
     end
 end
 
@@ -153,28 +152,22 @@ end
 -- allowed; the host owns the mutation + persisting it (MVC).
 function GrindState:quickReset()
     self.controller:quickReset()
-    self.game.save_service:saveAll(
-        self.game.state:serializeMeta(), self.game.state:serializeRun())
+    self.game.save()
 end
 
 function GrindState:enter()
     Theme.setActive("room")
-    -- Rebuild the table pool from the current state — covers the case where
-    -- the run was reset via prestige while we were in the shove state. The
-    -- shove flow only mutates state directly; we rehydrate on re-enter.
-    --
-    -- Effects ctx must be computed BEFORE the rebuild so freshly seeded
-    -- tables (e.g. start_table_count from Free Sit) pick up Cold Read's
-    -- pre-revealed attributes.
     self.controller:invalidateEffects()
-    -- The rebuild discards every Table object. A resting result floater
-    -- parked on one of them would wait forever: its removal needs the
-    -- table to leave "idle" or play another hand, and a discarded table
-    -- does neither (the "stuck payout" bug). Queued chip bursts anchor to
-    -- those tables too. Drop both before the objects go away.
-    self.game.floating_text.clear()
-    self.controller.pending_bursts = {}
-    self.controller.pool:rebuildFromState(self.controller.ctx)
+    -- Entering the grind does NOT rebuild the pool. It used to, every time,
+    -- which meant a trip to the room and back threw away every hand in
+    -- flight along with the tables playing them. The pool is rebuilt only
+    -- where the records it reads are replaced (GrindController:reloadPool).
+    --
+    -- The one thing left to settle on entry is the perks the last shove
+    -- owes this run: the shove banks and resets the moment the showdown
+    -- plays, and if the player quit at that point rather than clicking
+    -- through the catalog, this is where the run gets its start.
+    self.controller:applyPendingPerks()
 
     HandAnalytics.startRun(self.game.state)
 

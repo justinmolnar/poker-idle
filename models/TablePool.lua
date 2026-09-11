@@ -1,9 +1,15 @@
 -- models/TablePool.lua
 --
--- Owns the player's currently-active Tables. The list of *which stakes are
--- active* is persisted on GameState (`active_table_specs`); the Table
--- instances themselves are transient — rebuilt from that list on construction.
--- Mutations (add, remove, change-stake) sync back to the GameState list.
+-- Owns the player's currently-active Tables. Each Table writes its own
+-- record (models/Table:serialize) and GameState holds the list of them in
+-- `tables`; the pool builds the instances from those records on
+-- construction and whenever something replaces them wholesale (a run
+-- reset, a reload).
+--
+-- The pool does NOT mirror itself into GameState as it goes. It used to,
+-- through sixteen parallel index-keyed arrays re-synced on every mutation
+-- and every resolved hand, which between them still could not describe a
+-- hand in flight. Now `serialize()` runs once, at save time.
 --
 -- Update tick collects resolutions from each table and returns them for the
 -- controller to act on (apply to bankroll, emit floating text, etc.).
@@ -38,18 +44,6 @@ end
 local TablePool = {}
 TablePool.__index = TablePool
 
--- Specs are saved as composite strings "<stake_id>:<game_type_id>" so a
--- single flat string-array survives JSON round-trip cleanly. Helpers
--- below pack and unpack the format.
-local function packSpec(stake_id, game_type_id)
-    return stake_id .. ":" .. game_type_id
-end
-
-local function unpackSpec(spec)
-    local stake_id, gtype_id = spec:match("^([^:]+):(.+)$")
-    return stake_id, gtype_id
-end
-
 function TablePool:new(state, ctx, poker_events, effects_registry, bus)
     local self = setmetatable({
         state        = state,
@@ -61,44 +55,31 @@ function TablePool:new(state, ctx, poker_events, effects_registry, bus)
         -- Threaded down to each Table so it can announce its own changes.
         bus = bus,
     }, TablePool)
-    self:rebuildFromState(ctx)
+    self:restoreFromState(ctx)
     return self
 end
 
-function TablePool:rebuildFromState(ctx)
+-- Rebuild every Table from the records on GameState. A record is whatever
+-- Table:serialize wrote, including a hand in flight; a record carrying
+-- only a stake and a game type is a fresh table, which is what resetRun
+-- and applyStartingPerks append.
+function TablePool:restoreFromState(ctx)
     self.tables = {}
-    local mutes        = self.state.active_table_mutes or {}
-    local rebuy_mutes  = self.state.active_table_rebuy_mutes or {}
-    local hands        = self.state.active_table_ko_hands_won or {}
-    local finishes     = self.state.active_table_ko_finishes or {}
-    local last_fins    = self.state.active_table_last_finish or {}
-    local mstate       = self.state.active_table_ko_state or {}
-    -- Chip-stack tournament continuity: parallel arrays carry per-seat
-    -- state across save / reload. Cash tables leave them nil.
-    local seat_stacks  = self.state.active_table_seat_stacks or {}
-    local seat_busted  = self.state.active_table_seat_busted or {}
-    local p_seats      = self.state.active_table_player_seat or {}
-    local b_seats      = self.state.active_table_button_seat or {}
-    local b_orders     = self.state.active_table_bust_order  or {}
-    local ko_plans    = self.state.active_table_ko_plans   or {}
-    local stack_vals   = self.state.active_table_stack       or {}
-    -- Board cells. A save written before slots existed (or one whose spec
-    -- list grew behind the pool's back — applyStartingPerks appends specs
-    -- directly) has no entry here; those tables fall back to dense reading
-    -- order, which reproduces the pre-slot layout exactly.
-    local slot_vals    = self.state.active_table_slot        or {}
-    local status_vals  = self.state.active_table_statuses    or {}
-    local dense        = TableGrid.denseSlots(#(self.state.active_table_specs or {}))
-    for i, spec in ipairs(self.state.active_table_specs or {}) do
-        local stake_id, gtype_id = unpackSpec(spec)
-        -- Save-safe degrade #2: a stake id that no longer exists (renamed or
-        -- retired ladder entry) can't rebuild a playable table at all — the
-        -- old behavior was a permanently dead panel that never deals. Skip
-        -- the spec and refund its persisted stack so the money isn't
-        -- stranded.
+    self.rev = (self.rev or 0) + 1
+    local records = self.state.tables or {}
+    -- Cells for the records that have no slot of their own: every fresh
+    -- one, since Table:new does not set it. Reading order, which is what
+    -- the board's own layout means.
+    local dense = TableGrid.denseSlots(#records)
+    for i, rec in ipairs(records) do
+        local stake_id, gtype_id = rec.stake_id, rec.game_type_id
+        -- Save-safe degrade: a stake id that no longer exists (a retired
+        -- ladder entry) cannot rebuild a playable table at all, and the old
+        -- behaviour was a dead panel that never dealt. Drop it and refund
+        -- whatever it was holding so the money is not stranded.
         local stake_ok = stake_id and stakeExists(stake_id)
         if stake_id and gtype_id and not stake_ok then
-            local stranded = (self.state.active_table_stack or {})[i]
+            local stranded = rec.stack
             if type(stranded) == "number" and stranded > 0 then
                 self.state.bankroll = (self.state.bankroll or 0) + stranded
             end
@@ -106,51 +87,14 @@ function TablePool:rebuildFromState(ctx)
                 tostring(stake_id), tostring(stranded or 0)))
         end
         if stake_ok and gtype_id then
-            -- Save-safe degrade: an unknown gtype (e.g. a deprecated mode
-            -- from a pre-rip build) silently downgrades to six_max so the
-            -- table can still be reconstructed.
-            if not gtypeExists(gtype_id) then gtype_id = "six_max" end
-            local t = Table:new(stake_id, gtype_id, ctx, self.poker_events,
-                                self.effects_registry, self.bus)
-            t.cursor_muted        = mutes[i] == true
-            t.cursor_rebuy_muted  = rebuy_mutes[i] == true
-            -- Tournament continuity: reload-mid-run drops the player back
-            -- at "table idle, click DEAL to fire the next hand of N".
-            -- Cash tables ignore these.
-            t.ko.hands_won    = hands[i] or 0
-            t.ko.finish_count = finishes[i] or 0
-            t.ko.state        = mstate[i]
-            t.ko.plan         = ko_plans[i]
-            -- The FINISH readout on a settled tournament survives reload.
-            t.last_finish      = last_fins[i]
-            -- A tournament marked mid-run without its per-seat state is a
-            -- cross-build save (the old binary-KO prototype wrote
-            -- state="playing" but never seat_stacks/plans). Restoring it
-            -- as "playing" nil-indexes seat_busted on the first deal —
-            -- restart the tournament cleanly instead.
-            if t.ko.state == "playing" and not (seat_stacks[i] and ko_plans[i]) then
-                t.ko.hands_won = 0
-                t.ko.state     = nil
-                t.ko.plan      = nil
+            -- An unknown gtype (a deprecated mode from a prior build)
+            -- downgrades to six_max so the table can still be rebuilt.
+            if not gtypeExists(gtype_id) then
+                rec = setmetatable({ game_type_id = "six_max" }, { __index = rec })
             end
-            if seat_stacks[i] then
-                t.seat_stacks       = seat_stacks[i]
-                t.seat_busted       = seat_busted[i] or {}
-                t.player_seat_fixed = p_seats[i]
-                t.button_seat       = b_seats[i]
-                t.bust_order        = b_orders[i] or {}
-                if stack_vals[i] then t.stack = stack_vals[i] end
-            end
-            t.slot = slot_vals[i] or dense[i] or TableGrid.pack(0, 0)
-            -- Heaters and tilts survive a reload with their remaining
-            -- time intact. An empty list restores as no statuses at all,
-            -- which is also what a save written before statuses existed
-            -- looks like.
-            local saved_statuses = status_vals[i]
-            if saved_statuses and #saved_statuses > 0 then
-                t.statuses = saved_statuses
-                t._status_rev = (t._status_rev or 0) + 1
-            end
+            local t = Table.restore(rec, ctx, self.poker_events,
+                                    self.effects_registry, self.bus)
+            t.slot = rec.slot or dense[i] or TableGrid.pack(0, 0)
             self.tables[#self.tables + 1] = t
         end
     end
@@ -159,111 +103,37 @@ function TablePool:rebuildFromState(ctx)
     -- nothing downstream ever un-stacks them. First claim on a cell wins;
     -- the offender moves to the first free cell (growing the board if the
     -- count's shape is somehow full). Same treatment for a slot that is
-    -- not a whole non-negative number. Only a corrupt or hand-edited save
-    -- produces either — no in-game writer does.
+    -- not a whole non-negative number.
     local taken = {}
     for _, t in ipairs(self.tables) do
-        local s = t.slot
-        local bad = type(s) ~= "number" or s < 0 or s % 1 ~= 0
-        if bad or taken[s] then
+        local sl = t.slot
+        local bad = type(sl) ~= "number" or sl < 0 or sl % 1 ~= 0
+        if bad or taken[sl] then
             local cols, rows = TableGrid.shape(#self.tables)
             t.slot = TableGrid.firstFree(taken, cols, rows)
                      or TableGrid.placeNew(self:slots())
         end
         taken[t.slot] = true
     end
-    -- A dropped spec (unknown stake) leaves a hole in the middle of the
-    -- saved cells; that is fine, holes are legal. Re-sort so pool order is
-    -- reading order regardless of what the save contained.
+    -- A dropped record leaves a hole in the middle of the saved cells; that
+    -- is fine, holes are legal. Re-sort so pool order is reading order
+    -- regardless of what the save contained, then collapse a board bigger
+    -- than the tables in it need.
     self:_sortBySlot()
-    -- ...and collapse the board if the save describes one bigger than the
-    -- tables in it need. Covers a save written before the board reflowed on
-    -- close, and a spec dropped here for an unknown stake.
     self:_reflow()
-    -- Write the state arrays back from what actually rebuilt. This is what
-    -- purges a dropped spec the moment its stack is refunded — leaving it
-    -- until the first grind tick's sync left a window where saving again
-    -- would refund the same stack twice on the next load.
-    self:_syncStateList()
+    -- Write the records back from what actually rebuilt: this is what
+    -- purges a dropped table the moment its stack is refunded, so saving
+    -- again cannot refund the same stack twice on the next load.
+    self.state.tables = self:serialize()
 end
 
--- Bumped here rather than in each mutator because every path that changes
--- the pool — open, close, move, restake, rebuild, and the mute toggles —
--- already ends in a sync. Erring toward over-bumping is safe for the caches
--- that read it: a spurious bump costs one rebuild, a missed one shows stale
--- numbers.
-function TablePool:_syncStateList()
-    self.rev = (self.rev or 0) + 1
-    -- Written into the arrays the state already holds rather than into
-    -- sixteen fresh ones. This runs on every hand that resolves and again
-    -- for every proc that touches a table, so at a busy board it was
-    -- sixteen throwaway tables several times a frame. The tail past the
-    -- current table count is cleared below, so a closed table leaves
-    -- nothing behind for the serializer to pick up.
-    local st = self.state
-    local specs       = st.active_table_specs         or {}
-    local mutes       = st.active_table_mutes         or {}
-    local rebuy_mutes = st.active_table_rebuy_mutes   or {}
-    local hands       = st.active_table_ko_hands_won  or {}
-    local finishes    = st.active_table_ko_finishes   or {}
-    local last_fins   = st.active_table_last_finish   or {}
-    local mstate      = st.active_table_ko_state      or {}
-    local ko_plans    = st.active_table_ko_plans      or {}
-    local seat_stacks = st.active_table_seat_stacks   or {}
-    local seat_busted = st.active_table_seat_busted   or {}
-    local p_seats     = st.active_table_player_seat   or {}
-    local b_seats     = st.active_table_button_seat   or {}
-    local b_orders    = st.active_table_bust_order    or {}
-    local stack_vals  = st.active_table_stack         or {}
-    local slots       = st.active_table_slot          or {}
-    local statuses    = st.active_table_statuses      or {}
-    for i, t in ipairs(self.tables) do
-        slots[i] = t.slot or 0
-        -- A REFERENCE to the live list, not a copy: the entries tick down
-        -- in place, so whatever is serialised later is automatically
-        -- current without re-syncing every frame.
-        statuses[i] = t.statuses
-        specs[i]        = packSpec(t.stake_id, t.game_type_id)
-        mutes[i]        = t.cursor_muted == true
-        rebuy_mutes[i]  = t.cursor_rebuy_muted == true
-        hands[i]        = (t.ko and t.ko.hands_won) or 0
-        finishes[i]     = (t.ko and t.ko.finish_count) or 0
-        last_fins[i]    = t.last_finish              -- nil mid-run / cash
-        mstate[i]       = t.ko and t.ko.state
-        ko_plans[i]    = t.ko and t.ko.plan       -- nil for cash tables
-        seat_stacks[i]  = t.seat_stacks              -- may be nil for cash tables
-        seat_busted[i]  = t.seat_busted
-        p_seats[i]      = t.player_seat_fixed
-        b_seats[i]      = t.button_seat
-        b_orders[i]     = t.bust_order
-        stack_vals[i]   = t.stack
-    end
-    -- Clear the tail: whatever the previous, longer board left behind.
-    local n = #self.tables
-    local lists = { specs, mutes, rebuy_mutes, hands, finishes, last_fins,
-                    mstate, ko_plans, seat_stacks, seat_busted, p_seats,
-                    b_seats, b_orders, stack_vals, slots, statuses }
-    for k = 1, #lists do
-        local list = lists[k]
-        for i = #list, n + 1, -1 do list[i] = nil end
-    end
-
-    st.active_table_specs        = specs
-    st.active_table_mutes        = mutes
-    st.active_table_rebuy_mutes  = rebuy_mutes
-    st.active_table_ko_hands_won = hands
-    st.active_table_ko_finishes  = finishes
-    st.active_table_last_finish  = last_fins
-    st.active_table_ko_state     = mstate
-    st.active_table_ko_plans     = ko_plans
-    st.active_table_seat_stacks  = seat_stacks
-    st.active_table_seat_busted  = seat_busted
-    st.active_table_player_seat  = p_seats
-    st.active_table_button_seat  = b_seats
-    st.active_table_bust_order   = b_orders
-    st.active_table_stack        = stack_vals
-    st.active_table_slot         = slots
-    st.active_table_statuses     = statuses
+-- Every table's own record. Called at save time only — the pool no longer
+-- mirrors itself into GameState on every mutation, which used to run
+-- sixteen parallel arrays several times a frame at a busy board.
+function TablePool:serialize()
+    local out = {}
+    for i, t in ipairs(self.tables) do out[i] = t:serialize() end
+    return out
 end
 
 function TablePool:count() return #self.tables end
@@ -301,7 +171,7 @@ function TablePool:addTable(stake_id, game_type_id, ctx)
     t.slot = TableGrid.placeNew(self:slots())
     self.tables[#self.tables + 1] = t
     self:_sortBySlot()
-    self:_syncStateList()
+    self.rev = (self.rev or 0) + 1
     -- The caller cannot find the newcomer itself: _sortBySlot inserts it
     -- wherever its cell reads, not at the end of the array.
     return t
@@ -351,7 +221,7 @@ function TablePool:removeTable(idx)
     -- bounds measures from the origin, a leading empty row (shut the top
     -- six of nine) reads as oversize and repacks like any other.
     self:_reflow()
-    self:_syncStateList()
+    self.rev = (self.rev or 0) + 1
 end
 
 -- Put a table in a specific cell. An occupied target swaps the two tables;
@@ -369,7 +239,7 @@ function TablePool:moveToSlot(from_idx, slot)
     end
     t.slot = slot
     self:_sortBySlot()
-    self:_syncStateList()
+    self.rev = (self.rev or 0) + 1
     return true
 end
 
@@ -377,7 +247,7 @@ function TablePool:changeStake(idx, new_stake_id, ctx)
     local t = self.tables[idx]
     if not t then return end
     t:setStake(new_stake_id, ctx)
-    self:_syncStateList()
+    self.rev = (self.rev or 0) + 1
 end
 
 -- ctx = player's computed effects rollup. Returns array of resolutions:

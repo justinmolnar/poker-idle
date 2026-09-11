@@ -19,8 +19,12 @@
 --   pile     views/ChipPile draws the same chips in the same order and at
 --            the same positions as its own layout helper computes fresh,
 --            across sync / move / tidy / take / reserve / accept / clear.
+--   screens  every state builds and draws two frames, which is the only
+--            check that runs a view's draw at all.
 --   save     services/SaveService with love.thread absent (the web build):
---            the inline path still stages, verifies, commits and reads back.
+--            one versioned file, staged and verified, with a backup to fall
+--            back to; a foreign version refused without latching; an
+--            unreadable one latching so nothing overwrites it.
 --
 -- Standalone: `lua sim/smoke_views.lua` from the repo root.
 
@@ -436,7 +440,85 @@ do
     Constants.DEBUG.HAND_ANALYTICS = was
 end
 
--- ── save: the thread-less path, as the web build sees it ────────────────
+-- ── screens: every state builds and draws ───────────────────────────────
+--
+-- Twice now a call site left behind by a refactor reached the player as a
+-- boot crash: a preload calling a local declared below it, and a title
+-- screen calling a function whose signature had changed. Requiring the
+-- module caught neither, because neither runs until something draws.
+--
+-- So: build every state the way main.lua registers them, and draw each one
+-- frame. The stub graphics record nothing here; the assertion is simply
+-- that the call completes. That is enough — both of those crashes were an
+-- index of a nil, one frame in.
+
+do
+    local H = require("sim.harness")
+    local F = Stub.font(16)
+    local w = H.world()
+    local g = w.game
+    g.fonts = { lg = F, md = F, sm = F, xs = F, micro = F }
+    -- A state machine shaped like the real one: the states ask it what
+    -- screen is showing and register themselves against it.
+    g.state_machine = { states = {}, switch = function() end,
+                        current = function() return "grind" end }
+
+    -- A sprite loader that answers without touching the disk: the room
+    -- draws whatever the layout names, and what matters here is that the
+    -- draw runs, not what it looks like.
+    local img = { getWidth = function() return 32 end,
+                  getHeight = function() return 32 end,
+                  getDimensions = function() return 32, 32 end,
+                  setFilter = function() end, release = function() end }
+    g.sprite_loader = {
+        getSprite    = function() return img end,
+        getSpriteFor = function() return img end,
+        hasSprite    = function() return true end,
+        backColor    = function() return { 0.5, 0.5, 0.5 } end,
+        setSprite    = function() end,
+        itemArt      = function() return img end,
+    }
+
+    Stub.recorder()
+    love.graphics.newFont = function() return F end
+    love.graphics.getFont = function() return F end
+
+    -- Every state is built BEFORE any of them draws, because they reach
+    -- each other through the machine: the title borrows the room's view to
+    -- show the room in the dark, and the shove borrows it for its intro.
+    -- Building and drawing one at a time left those lookups nil, which is
+    -- how a crash inside RoomView slipped through this very check.
+    local NAMES = { "grind", "shove", "credits", "title", "room" }
+    local MODULES = { grind = "GrindState", shove = "ShoveState",
+                      credits = "CreditsState", title = "TitleState",
+                      room = "RoomState" }
+    local built = {}
+    for _, key in ipairs(NAMES) do
+        local name = MODULES[key]
+        local made, inst = pcall(function() return require("states." .. name):new(g) end)
+        if c.ok(made, name .. " builds: " .. tostring(inst)) then
+            built[key] = inst
+            g.state_machine.states[key] = inst
+        end
+    end
+    for _, key in ipairs(NAMES) do
+        local inst = built[key]
+        if inst then
+            g.state_machine.current = function() return key end
+            local drew, err = pcall(function() inst:draw() end)
+            c.ok(drew, MODULES[key] .. " draws: " .. tostring(err))
+            -- A second frame, because the first one fills the caches and
+            -- registers the anchors the second one reads back.
+            local again, err2 = pcall(function() inst:draw() end)
+            c.ok(again, MODULES[key] .. " draws a second frame: " .. tostring(err2))
+        end
+    end
+end
+
+-- ── save: one file, versioned, with a backup ────────────────────────────
+--
+-- The thread-less path, which is what the web build always takes and what
+-- the quit path takes everywhere.
 
 do
     love.thread = nil
@@ -444,40 +526,141 @@ do
 
     local SaveService = require("services.SaveService")
     local Constants   = require("data.constants")
+    local FILE        = Constants.SAVE.FILE
 
     local ss = SaveService:new()
     c.eq(ss:_worker(), nil, "no worker when love.thread is absent")
+    c.eq(ss:hasSave(), false, "no save on an empty disk")
 
-    local meta = { chips = 7, owned_items = { "a", "b" }, nested = { x = { 1, 2, 3 } } }
-    local run  = { bankroll = 1234.5, active_table_specs = { "s001:zoom" } }
+    local payload = {
+        meta = { chips = 7, owned_items = { "a", "b" }, nested = { x = { 1, 2, 3 } } },
+        run  = { bankroll = 1234.5, tables = { { stake_id = "s001", game_type_id = "zoom" } } },
+    }
 
-    c.eq(ss:saveAll(meta, run), true, "inline saveAll succeeds")
-    c.ok(files[Constants.SAVE.META_FILE] ~= nil, "the meta file was written")
-    c.ok(files[Constants.SAVE.RUN_FILE] ~= nil, "the run file was written")
+    c.eq(ss:save(payload), true, "the save writes")
+    c.ok(files[FILE] ~= nil, "the save file is on disk")
+    c.eq(files[FILE .. ".tmp"], nil, "the staged tmp is consumed")
+    c.ok(not files[FILE]:find("\n"), "the save is compact, not pretty")
+    c.eq(ss:hasSave(), true, "hasSave is true after a save")
 
-    local back = ss:read(Constants.SAVE.META_FILE)
-    c.ok(back ~= nil, "meta reads back")
-    c.eq(back and back.chips, 7, "meta round-trips a scalar")
-    c.eq(back and back.owned_items and back.owned_items[2], "b", "meta round-trips a list")
-    c.eq(back and back.nested and back.nested.x[3], 3, "meta round-trips nesting")
+    local back = ss:load()
+    c.ok(back ~= nil, "the save reads back")
+    c.eq(back and back.meta and back.meta.chips, 7, "a scalar round-trips")
+    c.eq(back and back.meta and back.meta.owned_items[2], "b", "a list round-trips")
+    c.eq(back and back.meta and back.meta.nested.x[3], 3, "nesting round-trips")
+    c.ok(back and back.run and math.abs(back.run.bankroll - 1234.5) < 1e-9,
+         "a float round-trips")
+    c.eq(back and back.run and back.run.tables[1].stake_id, "s001",
+         "a table record round-trips")
 
-    local rback = ss:read(Constants.SAVE.RUN_FILE)
-    c.ok(rback and math.abs(rback.bankroll - 1234.5) < 1e-9, "run round-trips a float")
+    -- Both halves are in ONE file, which is what makes a torn pair
+    -- impossible: there is no second commit to crash between.
+    c.ok(files[FILE]:find('"meta"', 1, true) and files[FILE]:find('"run"', 1, true),
+         "meta and run are in the same file")
 
-    c.ok(not files[Constants.SAVE.META_FILE]:find("\n"), "the save is compact, not pretty")
-    c.eq(files[Constants.SAVE.META_FILE .. ".tmp"], nil, "the staged tmp is consumed")
+    -- A staged tmp left by a crash between stage and commit is the newest
+    -- copy, and is tried before anything else.
+    local staged = files[FILE]
+    files[FILE] = nil
+    files[FILE .. ".tmp"] = staged
+    local from_tmp = ss:load()
+    c.ok(from_tmp ~= nil, "a save is recovered from its staged tmp")
+    c.eq(from_tmp and from_tmp.meta and from_tmp.meta.chips, 7,
+         "...carrying the state that was staged")
+    c.eq(ss.load_failed, false, "...without latching the service")
+    files[FILE], files[FILE .. ".tmp"] = staged, nil
+end
 
-    files._writes = 0
-    c.eq(ss:saveAll(meta, run, true), true, "sync saveAll succeeds")
-    c.ok(files._writes > 0, "sync saveAll actually wrote")
+-- ── save: the desktop commit, which keeps a backup ──────────────────────
+--
+-- The rename path only runs where love.filesystem reports a real save
+-- directory; the web build has none and takes the copy fallback, which
+-- deliberately keeps no backup (a read plus two writes on every autosave
+-- is the IDBFS stall the writer thread exists to avoid).
 
-    -- A failed load latches and must never overwrite a real save with the
-    -- empty state it fell back to.
+do
+    local files = Stub.memoryFS()
+    local SaveService = require("services.SaveService")
+    local FILE = require("data.constants").SAVE.FILE
+
+    -- A save directory, and rename/remove over the same memory table, so
+    -- the commit takes the branch a desktop player takes.
+    love.filesystem.getSaveDirectory = function() return "/save" end
+    local real_rename, real_remove = os.rename, os.remove
+    local function strip(path) return (path:gsub("^/save/", "")) end
+    os.rename = function(from, to)
+        from, to = strip(from), strip(to)
+        if files[from] == nil then return nil, "no such file" end
+        files[to], files[from] = files[from], nil
+        return true
+    end
+    os.remove = function(path)
+        path = strip(path)
+        if files[path] == nil then return nil, "no such file" end
+        files[path] = nil
+        return true
+    end
+
+    local ss = SaveService:new()
+    local payload = { meta = { chips = 7 }, run = { bankroll = 1 } }
+    c.eq(ss:save(payload), true, "the first save writes")
+    c.eq(files[FILE .. ".bak"], nil, "the first save has nothing to back up")
+
+    payload.meta.chips = 9
+    c.eq(ss:save(payload), true, "the second save writes")
+    c.ok(files[FILE .. ".bak"] ~= nil, "the previous save is kept as a backup")
+    c.eq(ss:load().meta.chips, 9, "the newest save is what loads")
+
+    -- The backup is what a corrupted live file falls back to. This is the
+    -- case the old two-slot layout had no answer for at all.
+    files[FILE] = "{ this is not json"
+    local recovered = ss:load()
+    c.ok(recovered ~= nil, "a corrupt save falls back to the backup")
+    c.eq(recovered and recovered.meta and recovered.meta.chips, 7,
+         "...carrying the previous state")
+    c.eq(ss.load_failed, false, "...without latching the service")
+
+    os.rename, os.remove = real_rename, real_remove
+
+    -- A file from another version is refused, kept, and does not latch.
     local ss2 = SaveService:new()
-    ss2.load_failed = true
-    c.eq(ss2:saveAll(meta, run), false, "a failed load refuses to save")
+    Stub.memoryFS()
+    local other = SaveService:new()
+    other:save(payload)
+    local raw = love.filesystem.read(FILE)
+    love.filesystem.write(FILE, (raw:gsub('"version":2', '"version":1')))
+    local refused, why = ss2:load()
+    c.eq(refused, nil, "a save from another version does not load")
+    c.eq(why, "old", "...and says why")
+    c.eq(ss2.refused, "old", "...and records it for the title screen")
+    c.eq(ss2.load_failed, false, "...without latching the service")
+    c.eq(ss2:hasSave(), false, "...and does not count as a save")
+    c.ok(love.filesystem.read(FILE) ~= nil, "...and is left on disk, not deleted")
+
+    -- An unreadable save DOES latch, and nothing overwrites it.
+    local files3 = Stub.memoryFS()
+    local ss3 = SaveService:new()
+    files3[FILE] = "{ garbage"
+    c.eq(ss3:load(), nil, "an unreadable save does not load")
+    c.eq(ss3.load_failed, true, "...and latches the service")
+    c.eq(ss3:save(payload), false, "...so nothing overwrites it")
+    ss3:clear()
+    c.eq(ss3.load_failed, false, "clear lifts the latch")
+    c.eq(files3[FILE], nil, "clear removes the save")
+
+    -- Settings are their own file and their own rules: a broken one costs
+    -- the player their volume, not their save.
+    local files4 = Stub.memoryFS()
+    local ss4 = SaveService:new()
+    c.eq(ss4:saveSettings({ volume = 0.5, motion_cards = 3 }), true, "settings write")
+    c.eq(ss4:loadSettings().volume, 0.5, "settings read back")
+    files4[require("data.constants").SAVE.SETTINGS_FILE] = "{ garbage"
+    c.eq(ss4:loadSettings(), nil, "a broken settings file does not load")
+    c.eq(ss4.load_failed, false, "...and never latches the save service")
+    c.eq(ss4:save(payload), true, "...so the game still saves")
 
     c.ok(pcall(function() ss:drainResults() end), "drainResults is safe with no worker")
+    c.ok(pcall(function() ss:flushWorker() end), "flushWorker is safe with no worker")
 end
 
 os.exit(c.report("smoke_views") == 0 and 0 or 1)

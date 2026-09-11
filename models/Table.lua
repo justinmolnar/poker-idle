@@ -46,8 +46,8 @@
 --      shows fits the tier: a stack lost looks like a hand worth losing a
 --      stack with.
 
-local RNG           = require("utils.rng")
 local Opponent      = require("models.Opponent")
+local Card          = require("models.Card")
 local HandEval      = require("models.HandEval")
 local HandRealism   = require("models.HandRealism")
 local KoSession    = require("models.KoSession")
@@ -269,9 +269,10 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
         -- Statuses (data/statuses.lua): the temporary things happening TO
         -- this table. Left nil until something applies one — the decay
         -- block runs for every table every frame, so the common case is a
-        -- single nil check. Transient by design: TablePool:_syncStateList
-        -- doesn't carry them, so they evaporate on load, which is right —
-        -- autosave is every 10s and every status is shorter than that.
+        -- single nil check. Persisted by :serialize along with the latches
+        -- that end a punch status; restoring the status without its
+        -- `_forced_next_won` is what used to leave a heater burning for
+        -- the rest of the save.
         statuses           = nil,
         -- Bumped whenever the ctx contribution changes (add, stronger
         -- refresh, expiry). Keys the overlay cache; a pure duration
@@ -293,6 +294,262 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
     }, Table)
     self:fillOpponents(ctx)
     return self
+end
+
+-- ─── Save and restore ─────────────────────────────────────────────────
+--
+-- A table writes its OWN record, hand and all. The pool used to spread
+-- sixteen fields across sixteen parallel index-keyed arrays on GameState,
+-- which between them could not describe a hand in flight: every table came
+-- back idle with a fresh set of opponents, a cash table's stack was saved
+-- but only ever restored on the tournament branch (so a busted table came
+-- back with a free buy-in), and a heater or tilt was restored WITHOUT the
+-- latch that ends it, so it burned forever.
+--
+-- What is deliberately not written: everything the view owns (FX decays,
+-- label memos, the panel rect), the ctx and registry references (they are
+-- re-injected on restore), `_hand_start_t` (a process clock, meaningless
+-- after a restart), and `_pending_resolution` (built and drained inside a
+-- single :update, so it is never live when a save runs).
+
+local function cardsOut(list)
+    if not list then return nil end
+    local out = {}
+    for i, c in ipairs(list) do out[i] = { c.suit, c.rank } end
+    return out
+end
+
+local function cardsIn(list)
+    if not list then return nil end
+    local out = {}
+    for i, c in ipairs(list) do out[i] = Card:new(c[1], c[2]) end
+    return out
+end
+
+-- The best-five lists hold the SAME Card objects as the hole and board
+-- lists, and views/TablePanel compares them by identity to light the
+-- winning cards. So a combo is written as pointers into the three lists it
+-- draws from, and restored by re-pointing at the restored objects.
+local function comboOut(combo, sources)
+    if not combo then return nil end
+    local out = {}
+    for i, card in ipairs(combo) do
+        for name, list in pairs(sources) do
+            for idx, c in ipairs(list or {}) do
+                if c == card then out[i] = { name, idx }; break end
+            end
+            if out[i] then break end
+        end
+        -- A card that is in no source list (should not happen) rides along
+        -- as a value so the hand still reads correctly.
+        out[i] = out[i] or { false, card.suit, card.rank }
+    end
+    return out
+end
+
+local function comboIn(rec, sources)
+    if not rec then return nil end
+    local out = {}
+    for i, ref in ipairs(rec) do
+        if ref[1] == false then
+            out[i] = Card:new(ref[2], ref[3])
+        else
+            local list = sources[ref[1]]
+            out[i] = list and list[ref[2]]
+        end
+    end
+    return out
+end
+
+local function handOut(h)
+    if not h then return nil end
+    local sources = { player_hole = h.player_hole, opponent_hole = h.opponent_hole,
+                      community = h.community }
+    return {
+        won = h.won, tier = h.tier, delta = h.delta,
+        player_hand_name = h.player_hand_name,
+        opponent_hand_name = h.opponent_hand_name,
+        opponent_idx = h.opponent_idx,
+        player_hole   = cardsOut(h.player_hole),
+        opponent_hole = cardsOut(h.opponent_hole),
+        community     = cardsOut(h.community),
+        player_combo   = comboOut(h.player_combo, sources),
+        opponent_combo = comboOut(h.opponent_combo, sources),
+    }
+end
+
+local function handIn(rec)
+    if not rec then return nil end
+    local h = {
+        won = rec.won, tier = rec.tier, delta = rec.delta,
+        player_hand_name = rec.player_hand_name,
+        opponent_hand_name = rec.opponent_hand_name,
+        opponent_idx = rec.opponent_idx,
+        player_hole   = cardsIn(rec.player_hole),
+        opponent_hole = cardsIn(rec.opponent_hole),
+        community     = cardsIn(rec.community),
+    }
+    local sources = { player_hole = h.player_hole, opponent_hole = h.opponent_hole,
+                      community = h.community }
+    h.player_combo   = comboIn(rec.player_combo, sources)
+    h.opponent_combo = comboIn(rec.opponent_combo, sources)
+    return h
+end
+
+function Table:serialize()
+    local sources = { player_hole = self.player_hole,
+                      opponent_hole = self.opponent_hole,
+                      community = self.community }
+    return {
+        -- identity
+        stake_id = self.stake_id, game_type_id = self.game_type_id,
+        slot = self.slot,
+        -- the hand in flight. The script is already a list of plain event
+        -- records (see models/HandScript), so it rides as-is; script_idx is
+        -- the resume watermark and script_timer is dt-accumulated in script
+        -- time, both meaningful across a restart.
+        state = self.state, state_timer = self.state_timer,
+        script = self.script, script_idx = self.script_idx,
+        script_timer = self.script_timer,
+        playback_state = self.playback_state,
+        outcome_won = self.outcome_won, outcome_tier = self.outcome_tier,
+        outcome_delta = self.outcome_delta, outcome_flipped = self.outcome_flipped,
+        natural_outcome = self.natural_outcome,
+        opponent_idx = self.opponent_idx,
+        button_visual_seat = self.button_visual_seat,
+        player_hand_name = self.player_hand_name,
+        opponent_hand_name = self.opponent_hand_name,
+        player_hole   = cardsOut(self.player_hole),
+        opponent_hole = cardsOut(self.opponent_hole),
+        community     = cardsOut(self.community),
+        player_combo   = comboOut(self.player_combo, sources),
+        opponent_combo = comboOut(self.opponent_combo, sources),
+        last_hand = handOut(self.last_hand),
+        -- history the panel draws and the items read
+        hands_played = self.hands_played, last_results = self.last_results,
+        _combo = self._combo, _next_win_tier_up = self._next_win_tier_up,
+        -- money and per-table toggles
+        stack = self.stack, pending_close = self.pending_close,
+        cursor_muted = self.cursor_muted,
+        cursor_rebuy_muted = self.cursor_rebuy_muted,
+        _hand_mult = self._hand_mult,
+        _fast_fold_pending = self._fast_fold_pending,
+        _pending_buyin = self._pending_buyin,
+        -- statuses AND the latches that end them. A punch status (heater,
+        -- tilt) has no timer and no charges: the only thing that spends it
+        -- is the forced hand `_forced_next_won` obliges, so restoring the
+        -- status without the latch is what made them immortal.
+        statuses = self.statuses,
+        _forced_next_won = self._forced_next_won,
+        _punch_live = self._punch_live,
+        _interrupted = self._interrupted,
+        _interrupt_kind = self._interrupt_kind,
+        _heat_hand = self._heat_hand,
+        _tilt_spent_pending = self._tilt_spent_pending,
+        -- chip-stack tournaments
+        seat_stacks = self.seat_stacks, seat_busted = self.seat_busted,
+        player_seat_fixed = self.player_seat_fixed,
+        button_seat = self.button_seat, bust_order = self.bust_order,
+        last_finish = self.last_finish,
+        _pre_hand_bust_count = self._pre_hand_bust_count,
+        ko = self.ko and self.ko:serialize() or nil,
+        opponents = (function()
+            local out = {}
+            for i, o in ipairs(self.opponents or {}) do
+                out[i] = { o.name, o.stack }
+            end
+            return out
+        end)(),
+    }
+end
+
+-- Rebuild a table from its record. A record carrying only stake_id and
+-- game_type_id is a fresh table, which is what resetRun and
+-- applyStartingPerks write.
+function Table.restore(rec, ctx, poker_events, effects_registry, bus)
+    local t = Table:new(rec.stake_id, rec.game_type_id, ctx,
+                        poker_events, effects_registry, bus)
+    if rec.slot then t.slot = rec.slot end
+
+    -- Opponents replace the random roll Table:new just made. Their names
+    -- are the table's identity to the player, so a reload keeps them.
+    if rec.opponents and #rec.opponents > 0 then
+        local seats = {}
+        for i, o in ipairs(rec.opponents) do seats[i] = Opponent:new(o[1], o[2]) end
+        t.opponents = seats
+    end
+    t.reroll_flash_t = 0
+
+    t.state        = rec.state or "idle"
+    t.state_timer  = rec.state_timer or 0
+    t._prev_state  = t.state            -- no phantom state-changed on frame one
+    t.script       = rec.script
+    t.script_idx   = rec.script_idx or 0
+    t.script_timer = rec.script_timer or 0
+    t.playback_state = rec.playback_state
+    -- The view dispatches every script event past this cursor. Left at 0 a
+    -- resumed hand would fire every chip flight it had already played in
+    -- one frame.
+    t.view_event_cursor = t.script_idx
+
+    t.outcome_won     = rec.outcome_won
+    t.outcome_tier    = rec.outcome_tier
+    t.outcome_delta   = rec.outcome_delta
+    t.outcome_flipped = rec.outcome_flipped
+    t.natural_outcome = rec.natural_outcome
+    t.opponent_idx    = rec.opponent_idx
+    t.button_visual_seat = rec.button_visual_seat
+    t.player_hand_name   = rec.player_hand_name
+    t.opponent_hand_name = rec.opponent_hand_name
+    t.player_hole   = cardsIn(rec.player_hole)
+    t.opponent_hole = cardsIn(rec.opponent_hole)
+    t.community     = cardsIn(rec.community)
+    local sources = { player_hole = t.player_hole, opponent_hole = t.opponent_hole,
+                      community = t.community }
+    t.player_combo   = comboIn(rec.player_combo, sources)
+    t.opponent_combo = comboIn(rec.opponent_combo, sources)
+    t.last_hand      = handIn(rec.last_hand)
+
+    t.hands_played = rec.hands_played or 0
+    t.last_results = rec.last_results or {}
+    t._combo = rec._combo
+    t._next_win_tier_up = rec._next_win_tier_up
+
+    if rec.stack then t.stack = rec.stack end
+    t.pending_close       = rec.pending_close == true
+    t.cursor_muted        = rec.cursor_muted == true
+    t.cursor_rebuy_muted  = rec.cursor_rebuy_muted == true
+    t._hand_mult          = rec._hand_mult
+    t._fast_fold_pending  = rec._fast_fold_pending
+    t._pending_buyin      = rec._pending_buyin
+
+    if rec.statuses and #rec.statuses > 0 then
+        t.statuses     = rec.statuses
+        t._status_rev  = (t._status_rev or 0) + 1
+    end
+    t._forced_next_won    = rec._forced_next_won
+    t._punch_live         = rec._punch_live
+    t._interrupted        = rec._interrupted == true
+    t._interrupt_kind     = rec._interrupt_kind
+    t._heat_hand          = rec._heat_hand
+    t._tilt_spent_pending = rec._tilt_spent_pending
+
+    t.seat_stacks          = rec.seat_stacks
+    t.seat_busted          = rec.seat_busted
+    t.player_seat_fixed    = rec.player_seat_fixed
+    t.button_seat          = rec.button_seat
+    t.bust_order           = rec.bust_order
+    t.last_finish          = rec.last_finish
+    t._pre_hand_bust_count = rec._pre_hand_bust_count
+    t.ko = KoSession.restore(rec.ko)
+    -- A tournament marked mid-run without its per-seat state cannot deal
+    -- (the first hand nil-indexes seat_busted). Restart it cleanly.
+    if t.ko.state == "playing" and not (t.seat_stacks and t.ko.plan) then
+        t.ko.hands_won = 0
+        t.ko.state     = nil
+        t.ko.plan      = nil
+    end
+    return t
 end
 
 function Table:fillOpponents(_ctx)

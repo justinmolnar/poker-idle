@@ -2,7 +2,7 @@ io.stdout:setvbuf("no")
 
 -- Entry point for the LÖVE-hosted sims (`love sim` / `lovec sim`).
 --
---   lovec.exe sim                              → sim/run.lua
+--   lovec.exe sim                              → sim/act1.lua
 --   lovec.exe sim --gen-equity bench|anchors   short generator modes
 --   lovec.exe sim --verify-realism [seed] [n]
 --
@@ -34,7 +34,7 @@ function love.load()
             require("sim.verify_showdown_realism")
         end
     else
-        require("sim.run")
+        require("sim.act1")
     end
     love.event.quit()
 end

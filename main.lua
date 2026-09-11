@@ -214,12 +214,24 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 px) {
 -- gameplay states (not title/credits) and no menu-class modal is up.
 -- Persisted in love.update; reset whenever a save fires.
 local autosave_timer = 0
-local AUTOSAVE_INTERVAL = 10  -- seconds
 -- The analytics file goes to the save worker with the saves; the quit path
 -- passes no writer and writes inline so nothing is in flight at exit.
 local function analyticsWriter(filename, encoded)
     return Game and Game.save_service and Game.save_service:writeAsync(filename, encoded)
 end
+
+-- Every key the settings file carries. `analytics_consent` is tri-state:
+-- nil means never asked, which is what makes GrindState's first-run
+-- consent modal reachable, so it must survive a round trip as nil.
+local SETTINGS_KEYS = {
+    "volume", "sfx_volume", "music_volume",
+    "analytics_consent",
+    "display_mode", "display_w", "display_h",   -- desktop only
+    "room_lights_off",
+    "motion_cards", "motion_chips", "motion_tables", "motion_cursors",
+    "motion_paper", "motion_text", "motion_shine", "motion_ui",
+    "motion_cinematics",
+}
 
 local function buildGame()
     local g = {
@@ -318,7 +330,10 @@ local function buildGame()
     g.viewport        = { w = vw, h = vh }
 
     g.save_service    = SaveService:new()
-    local saved       = g.save_service:loadAll()
+    -- nil when there is no save, when one is refused as another version,
+    -- or when one is unreadable (which latches the service so nothing
+    -- overwrites it). GameState:new falls back to its defaults.
+    local saved       = g.save_service:load()
     g.state           = GameState:new(saved)
 
     -- Apply persisted settings.
@@ -332,19 +347,18 @@ local function buildGame()
     if type(prefs.music_volume) == "number" then
         SoundService.setMusicVolume(prefs.music_volume)
     end
-    g.settings = {
-        volume            = SoundService.getMasterVolume(),
-        sfx_volume        = SoundService.getSfxVolume(),
-        music_volume      = SoundService.getMusicVolume(),
-        -- Tri-state on purpose: nil = never asked. Coercing nil to false
-        -- here made GrindState's first-run consent ask unreachable, so the
-        -- modal never showed and web analytics silently never sent.
-        analytics_consent = prefs.analytics_consent,
-        -- Desktop window mode + size (services/Display); absent on web.
-        display_mode      = prefs.display_mode,
-        display_w         = prefs.display_w,
-        display_h         = prefs.display_h,
-    }
+    -- Every settings key there is. Copied by name so a stale or
+    -- hand-edited file cannot put junk on the settings table, and so a key
+    -- that is added here is the only place it needs adding — the old
+    -- version of this was a hardcoded literal plus a `motion_` prefix
+    -- passthrough, and `room_lights_off` fell between the two: written on
+    -- every toggle, never read back, dead at every launch.
+    g.settings = {}
+    for _, k in ipairs(SETTINGS_KEYS) do g.settings[k] = prefs[k] end
+    -- The volumes come back from the service, which clamped them above.
+    g.settings.volume       = SoundService.getMasterVolume()
+    g.settings.sfx_volume   = SoundService.getSfxVolume()
+    g.settings.music_volume = SoundService.getMusicVolume()
     -- Put the window into the saved mode before anything measures it. A
     -- failed mode falls back to windowed 1600×900 and is persisted as such
     -- so the next boot doesn't retry it. love.load re-derives the base
@@ -357,9 +371,6 @@ local function buildGame()
     end
     -- Motion levels (services/Motion): every animation primitive reads
     -- these. Absent keys mean Full, so an old settings file changes nothing.
-    for k, v in pairs(prefs) do
-        if type(k) == "string" and k:sub(1, 7) == "motion_" then g.settings[k] = v end
-    end
     Motion.load(g.settings)
 
     g.effects = EffectsRegistry:new()
@@ -415,9 +426,7 @@ local function buildGame()
         game  = g,
         rules = g.hint_rules,
         story = Story,
-        save  = function()
-            g.save_service:saveAll(g.state:serializeMeta(), g.state:serializeRun())
-        end,
+        save  = function() g.save() end,
     }
     g.story_view = StoryView:new(g)
 
@@ -446,22 +455,41 @@ local function buildGame()
     g.state_machine:register("title",   TitleState:new(g))
     g.state_machine:register("room",    RoomState:new(g))
 
-    g.startNewGame = function()
-        HandAnalytics.deleteCurrent()
-        g.save_service:clearAll()
-        g.state:wipeAll()
-        if g.settings then
-            g.settings.analytics_consent = false
-            g.save_service:saveSettings(g.settings)
+    -- The one place the game is written. The pool is the truth about the
+    -- board while the player is on it; in the shove the pool has been
+    -- cashed out and emptied, so the state's own records stand.
+    g.save = function(sync)
+        local cur = g.state_machine and g.state_machine:current()
+        if (cur == "grind" or cur == "room") and g.grind and g.grind.pool then
+            g.state.tables = g.grind.pool:serialize()
         end
+        return g.save_service:save(
+            { meta = g.state:serializeMeta(), run = g.state:serializeRun() }, sync)
+    end
+
+    -- The one place the game is wiped. Every path that erases progress —
+    -- New Game, the title's delete, F7, the credits' R — comes through
+    -- here, so none of them can forget a step the others take.
+    --
+    -- `analytics_consent` is deliberately NOT touched: it is tri-state and
+    -- nil means "never asked", which is what makes GrindState's first-run
+    -- consent modal reachable. Forcing it to false here opted the player
+    -- out silently and forever.
+    g.newGame = function(to_grind)
+        HandAnalytics.deleteCurrent(g.state.save_id)
+        g.save_service:clear()
+        g.state:wipeAll()
         for _, st in pairs(g.state_machine.states) do
             if type(st) == "table" and type(st.fullReset) == "function" then
                 st:fullReset()
             end
         end
         g.story:reset()
-        g.state_machine:switch("grind")
+        if g.grind then g.grind:reloadPool() end
+        g.save()
+        if to_grind ~= false then g.state_machine:switch("grind") end
     end
+    g.startNewGame = function() g.newGame(true) end
 
     g.input_dispatcher = InputDispatcher:new()
     g.input_controller = InputController:new(g)
@@ -705,16 +733,17 @@ function love.update(dt)
         local sm  = Game.state_machine
         local cur = sm:current()
         local s   = sm.current_state
-        local idle_modal = s and (s.catalog_modal
-                                  or s.demo_end_modal
-                                  or s.deck_flyer)
-        if (cur == "grind" or cur == "shove") and not idle_modal then
+        -- The room saves too: everything it mutates (what you own, what
+        -- has been seen) used to sit unpersisted for as long as the player
+        -- browsed. And a modal no longer suppresses the tick — a save
+        -- during the post-bust catalog is just a save.
+        if cur == "grind" or cur == "shove" or cur == "room" then
             autosave_timer = autosave_timer + dt
-            if autosave_timer >= AUTOSAVE_INTERVAL then
+            if autosave_timer >= Constants.SAVE.AUTOSAVE_SECS then
                 autosave_timer = 0
                 local state = Game.state
                 Perf.enter("save")
-                Game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
+                Game.save()
                 HandAnalytics.flush(state, Game.settings and Game.settings.analytics_consent,
                                     analyticsWriter)
                 Perf.exit("save")
@@ -938,10 +967,10 @@ local function flushSave()
     HandAnalytics.flush(Game.state, Game.settings and Game.settings.analytics_consent)
     local current = Game.state_machine and Game.state_machine:current()
     if current == "grind" or current == "shove" or current == "room" then
-        local state = Game.state
-        -- sync: the writer thread would still be holding this when the
-        -- process ended.
-        Game.save_service:saveAll(state:serializeMeta(), state:serializeRun(), true)
+        -- sync: waits for anything the writer thread is still holding, then
+        -- writes inline, so a queued autosave cannot commit older bytes
+        -- over this one after we have gone.
+        Game.save(true)
         return true
     end
     return false

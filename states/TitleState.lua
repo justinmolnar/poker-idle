@@ -69,9 +69,13 @@ end
 
 function TitleState:exit() end
 
-local function hasSave()
-    return love.filesystem.getInfo(Constants.SAVE.META_FILE) ~= nil
-        or love.filesystem.getInfo(Constants.SAVE.RUN_FILE)  ~= nil
+-- One answer, the service's: it knows about the staged tmp and the backup
+-- it recovers from, and about a file it refused as another version. Asking
+-- the filesystem directly (which this used to do) disagreed with it in
+-- both directions — hiding Continue on a recoverable save, and offering it
+-- on one that would not load.
+function TitleState:hasSave()
+    return (self.game.save_service and self.game.save_service:hasSave()) == true
 end
 
 -- The player's room: RoomState owns the one RoomView (the shove intro
@@ -137,7 +141,7 @@ function TitleState:draw()
         skip      = self.skip,
         leave_t   = self.leave and self.leave.t or nil,
         speaker   = self.speaker,
-        has_save  = hasSave(),
+        has_save  = self:hasSave(),
         room_view = self:_roomView(),
     }
     if self.settings_modal then self.settings_modal:draw() end
@@ -179,9 +183,8 @@ function TitleState:_go(action)
 end
 
 function TitleState:_doDelete()
-    self.game.save_service:clearAll()
-    self.game.state:wipeAll()
     -- Stay on the title; the room redraws bare and Continue is gone.
+    self.game.newGame(false)
 end
 
 -- ── The menu ──────────────────────────────────────────────────────────
@@ -189,7 +192,7 @@ end
 local BUTTON_HANDLERS = {
     continue = function(self) self:_leave("continue") end,
     new = function(self)
-        if hasSave() then
+        if self:hasSave() then
             self._confirm = ConfirmDialog:new{
                 prompt        = "Start a new game? Existing save will be erased.",
                 danger        = true,
@@ -279,7 +282,7 @@ function TitleState:keypressed(key)
     end
     if self.leave then return end
     if key == "return" or key == "kpenter" then
-        self:_handleButton(hasSave() and "continue" or "new")
+        self:_handleButton(self:hasSave() and "continue" or "new")
     elseif key == "escape" then
         self:_handleButton("settings")
     end

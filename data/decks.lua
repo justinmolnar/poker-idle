@@ -247,7 +247,7 @@ local Decks = {
         bonus       = { text = "{c:won:Wins} lean {w:large} and {w:stack}, +{n}% each", per_level = 10 },
         flavor_text = "Put the pedal to the floor. Wild swings, huge pots.",
         unlock = {
-            kind      = "lifetime_stack_count",
+            kind      = "total_stacks",
             threshold = 5000,
             text      = "{w:stack} {c:won:wins}",
         },
@@ -364,7 +364,7 @@ local Decks = {
         bonus       = { text = "+{n}% {c:won:winnings} per stake", per_level = 7.5 },
         flavor_text = "Earnings grow with stakes. Watch the capital accumulate.",
         unlock = {
-            kind      = "lifetime_money_won",
+            kind      = "total_money_won",
             threshold = 1e10,
             text      = "money won",
             format    = "money",

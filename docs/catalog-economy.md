@@ -3,7 +3,8 @@
 What the book costs, what a run earns, and the rules that keep the two in
 step. The data is data/catalog.lua and data/catalog_pages.lua; the numbers
 are held by `lua sim/lint_catalog_economy.lua` (run it with the other four
-lints) and the pacing by `lua sim/run.lua`.
+lints) and the pacing by `lua sim/act1.lua`, which plays Act 1 through the real
+engine (`sim/act1_policy.lua` holds the policy).
 
 ## Income
 
@@ -22,7 +23,7 @@ once, no refunds.
 `Balance.CATALOG_CHIP_BUDGET = { act1 = 225, act2 = 575, tol = 6 }`.
 Act 1 = every ownable card without `act = 2` (35 today), Act 2 = the cards
 with it (37). The whole book is 800. The Act 1 target of 40% owned at the
-R1 win (~14 cards, ~0.40 shove at T3 with `T3_MULT`) is what `sim/run.lua`
+R1 win (~14 cards, ~0.40 shove at T3 with `T3_MULT`) is what `sim/act1.lua`
 measures; the Act 1 item count is derived (`CatalogLoader.act1Count`),
 never authored.
 
@@ -62,7 +63,7 @@ Value Buys 2 · 3 · 3 · 4 · 5 · 8 · 8 · 13 — Stats 3 · 4 · 5 · 6 · 6
 
 ## What changed on 2026-09-07
 
-- Every price set from the tiers; the book went from 879 to 805 (Act 1 230, Act 2 575), and `sim/run.lua` clears Act 1 in 4 runs at 48% shove (target 4-5 at 40%).
+- Every price set from the tiers; the book went from 879 to 805 (Act 1 230, Act 2 575), and the then-current `sim/run.lua` cleared Act 1 in 4 runs at 48% shove (target 4-5 at 40%; that sim has since been replaced by `sim/act1.lua`).
 - Chains re-rooted onto their shelf: Mirror now needs the Fight Night
   Poster (was Wall Hanger, on Stats); Fire Extinguisher needs the Bonsai
   (was Microwave Oven, on Mental); Microwave Oven needs the Nightstand (was

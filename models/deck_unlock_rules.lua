@@ -13,7 +13,7 @@
 --
 -- Condition shape (decided here on the game side; the registry doesn't
 -- interpret):
---   { kind = "lifetime_xxx", threshold = N, text = "Display copy" }
+--   { kind = "total_xxx", threshold = N, text = "Display copy" }
 
 local Decks = require("models.Decks")
 
@@ -25,15 +25,8 @@ local DeckUnlockRules = {}
 -- line, and it lets the predicate and the progress reporter be generated
 -- together (see services/UnlockRegistry:progress).
 local COUNTER_KINDS = {
-    "lifetime_money_won",
-    "lifetime_money_lost",
-    "lifetime_stack_count",
-    "lifetime_ko_hands_won",
-    "lifetime_hands_played",
-    "lifetime_hands_at_4plus_tables",
-    "lifetime_rebuys",
-    "lifetime_upgrades_bought",
-    "lifetime_hands_overwhelmed",
+    "total_money_won",
+    "total_stacks",
     -- Ungated totals the 2026-09 roster gates on (they tick in Act 1 too,
     -- which is fine: a deck opening the moment decks exist is a feature).
     "total_tilts",

@@ -103,6 +103,11 @@ function Stub.recorder()
         getColor      = function() return 1, 1, 1, 1 end,
         getFont       = function() return nil end,
         newCanvas     = function(w, ht) return canvas(w, ht) end,
+        -- No transform stack here, so a point maps to itself. Returning
+        -- nothing (the default no-op) made every anchor the views register
+        -- through it nil, which the readers then did arithmetic on.
+        transformPoint = function(x, y) return x, y end,
+        inverseTransformPoint = function(x, y) return x, y end,
         getCanvas     = function() return stack[#stack] end,
         setCanvas     = function(c)
             if c then stack[#stack + 1] = c else stack[#stack] = nil end
@@ -122,6 +127,12 @@ end
 -- The baseline: enough love for a view or service module to load and run.
 -- Graphics is inert; call Stub.recorder() after this to make it count.
 function Stub.base()
+    -- The game runs on LuaJIT (Lua 5.1 semantics), which has math.log10;
+    -- 5.2 removed it and these checks run under 5.4. Restoring it here
+    -- rather than editing the game keeps the game's code the code that
+    -- ships.
+    if not math.log10 then math.log10 = function(x) return math.log(x, 10) end end
+
     love = love or {}
     love.math = Stub.noops({
         random = function(a, b)
@@ -146,8 +157,15 @@ function Stub.base()
         getColor      = function() return 1, 1, 1, 1 end,
         getFont       = function() return nil end,
         getCanvas     = function() return nil end,
+        -- No transform stack here, so a point maps to itself. Returning
+        -- nothing (the default no-op) made every anchor the views register
+        -- through it nil, which the readers then did arithmetic on.
+        transformPoint = function(x, y) return x, y end,
+        inverseTransformPoint = function(x, y) return x, y end,
     })
     love.mouse    = Stub.noops({ getPosition = function() return -1, -1 end,
+                                 getX = function() return -1 end,
+                                 getY = function() return -1 end,
                                  isDown = function() return false end })
     love.keyboard = Stub.noops({ isDown = function() return false end })
     love.system   = Stub.noops({ getOS = function() return "Windows" end })

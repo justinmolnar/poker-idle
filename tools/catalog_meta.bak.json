@@ -1,0 +1,376 @@
+{
+  "tool": "catalog_designer",
+  "version": 1,
+  "updated_at": "2026-09-07T16:45:22.197Z",
+  "tags": [
+    {
+      "name": "HU/Chip",
+      "color": "#F25285",
+      "created": "2026-09-07T15:20:39.390Z"
+    },
+    {
+      "name": "Zoom",
+      "color": "#F2B333",
+      "created": "2026-09-07T15:20:43.396Z"
+    },
+    {
+      "name": "Tilt",
+      "color": "#73D973",
+      "created": "2026-09-07T15:20:45.747Z"
+    },
+    {
+      "name": "Heat",
+      "color": "#73A6D9",
+      "created": "2026-09-07T15:20:49.082Z"
+    },
+    {
+      "name": "Odds/%'s",
+      "color": "#BF73F2",
+      "created": "2026-09-07T15:20:52.195Z"
+    },
+    {
+      "name": "New run",
+      "color": "#EDBF4D",
+      "created": "2026-09-07T15:20:58.819Z"
+    },
+    {
+      "name": "Cursors",
+      "color": "#5ED9C3",
+      "created": "2026-09-07T15:21:04.099Z"
+    },
+    {
+      "name": "KO",
+      "color": "#F2825E",
+      "created": "2026-09-07T15:21:08.900Z"
+    },
+    {
+      "name": "6M",
+      "color": "#9CB35E",
+      "created": "2026-09-07T15:21:12.603Z"
+    },
+    {
+      "name": "Positional",
+      "color": "#D973B8",
+      "created": "2026-09-07T15:21:17.012Z"
+    },
+    {
+      "name": "Misc Stats",
+      "color": "#F25285",
+      "created": "2026-09-07T16:06:42.136Z"
+    },
+    {
+      "name": "Strong Identity/Fun",
+      "color": "#F2B333",
+      "created": "2026-09-07T16:29:38.283Z"
+    },
+    {
+      "name": "Weak Identity/Boring",
+      "color": "#73D973",
+      "created": "2026-09-07T16:29:45.411Z"
+    }
+  ],
+  "assignments": {
+    "blackout_curtains": [
+      "6M",
+      "Heat",
+      "Positional",
+      "Strong Identity/Fun"
+    ],
+    "bonsai": [
+      "6M",
+      "Strong Identity/Fun"
+    ],
+    "bookshelf": [
+      "Misc Stats",
+      "Strong Identity/Fun"
+    ],
+    "box_of_mice": [
+      "Cursors",
+      "Strong Identity/Fun"
+    ],
+    "calculator": [
+      "Misc Stats",
+      "Strong Identity/Fun"
+    ],
+    "candle": [
+      "HU/Chip",
+      "Heat",
+      "Strong Identity/Fun"
+    ],
+    "cereal_shelf": [
+      "New run",
+      "Strong Identity/Fun"
+    ],
+    "chrome_toaster": [
+      "Odds/%'s"
+    ],
+    "cleaning_robot": [
+      "HU/Chip",
+      "Cursors",
+      "Weak Identity/Boring"
+    ],
+    "comfort_bed": [
+      "Odds/%'s",
+      "Weak Identity/Boring"
+    ],
+    "compact_fridge": [
+      "New run"
+    ],
+    "console_television": [
+      "6M",
+      "Tilt",
+      "Heat",
+      "Positional",
+      "Strong Identity/Fun"
+    ],
+    "cool_towel": [
+      "Tilt",
+      "Heat",
+      "Strong Identity/Fun"
+    ],
+    "copy_machine": [
+      "Zoom",
+      "Weak Identity/Boring"
+    ],
+    "corkboard": [
+      "Odds/%'s",
+      "Weak Identity/Boring"
+    ],
+    "curved_monitor": [
+      "Heat",
+      "KO",
+      "Positional",
+      "Strong Identity/Fun"
+    ],
+    "desk": [
+      "New run",
+      "Strong Identity/Fun"
+    ],
+    "desk_lamp": [
+      "Cursors",
+      "Weak Identity/Boring"
+    ],
+    "desk_plant": [
+      "Odds/%'s",
+      "6M",
+      "Weak Identity/Boring"
+    ],
+    "desk_speakers": [
+      "Odds/%'s",
+      "KO",
+      "Weak Identity/Boring"
+    ],
+    "dish_soap": [
+      "Tilt",
+      "Positional",
+      "Strong Identity/Fun"
+    ],
+    "dogs_playing_poker": [
+      "HU/Chip",
+      "Heat",
+      "Strong Identity/Fun"
+    ],
+    "dusty_console": [
+      "HU/Chip",
+      "Odds/%'s",
+      "Weak Identity/Boring"
+    ],
+    "electric_kettle": [
+      "Misc Stats"
+    ],
+    "energy_drink": [
+      "Zoom",
+      "Heat",
+      "Weak Identity/Boring"
+    ],
+    "fight_night_poster": [
+      "HU/Chip",
+      "Strong Identity/Fun"
+    ],
+    "fire_extinguisher": [
+      "6M",
+      "Tilt",
+      "Heat",
+      "Positional",
+      "Strong Identity/Fun"
+    ],
+    "first_aid_kit": [
+      "KO",
+      "Strong Identity/Fun"
+    ],
+    "framed_diploma": [
+      "Zoom",
+      "Tilt",
+      "Heat",
+      "Strong Identity/Fun"
+    ],
+    "gaming_chair": [
+      "HU/Chip",
+      "Heat",
+      "Positional"
+    ],
+    "gaming_keyboard": [
+      "Cursors",
+      "Strong Identity/Fun"
+    ],
+    "glass_partition": [
+      "Cursors",
+      "Strong Identity/Fun"
+    ],
+    "handheld": [
+      "Odds/%'s",
+      "Zoom",
+      "Weak Identity/Boring"
+    ],
+    "headset": [
+      "Odds/%'s",
+      "Zoom",
+      "Weak Identity/Boring"
+    ],
+    "high_roller_pass": [
+      "Odds/%'s",
+      "KO",
+      "Strong Identity/Fun"
+    ],
+    "house_cat": [
+      "Zoom",
+      "Strong Identity/Fun"
+    ],
+    "laminated_blueprint": [
+      "Misc Stats",
+      "Weak Identity/Boring"
+    ],
+    "laptop_terminal": [
+      "Cursors",
+      "Strong Identity/Fun"
+    ],
+    "lava_lamp": [
+      "Odds/%'s",
+      "Weak Identity/Boring"
+    ],
+    "microwave_oven": [
+      "Tilt",
+      "Strong Identity/Fun"
+    ],
+    "mirror": [
+      "HU/Chip",
+      "Odds/%'s",
+      "Weak Identity/Boring"
+    ],
+    "nightstand": [
+      "Heat",
+      "Strong Identity/Fun"
+    ],
+    "pencil_holder": [
+      "HU/Chip",
+      "Strong Identity/Fun"
+    ],
+    "prize_vase": [
+      "Odds/%'s",
+      "KO",
+      "Strong Identity/Fun"
+    ],
+    "rebuy_sticky_note": [
+      "Misc Stats",
+      "Strong Identity/Fun"
+    ],
+    "receipt_printer": [
+      "HU/Chip",
+      "Zoom",
+      "Weak Identity/Boring"
+    ],
+    "red_rug": [
+      "Odds/%'s",
+      "Positional",
+      "Weak Identity/Boring"
+    ],
+    "ring_binder": [
+      "Misc Stats",
+      "Strong Identity/Fun"
+    ],
+    "rolled_vouchers": [
+      "Heat",
+      "Strong Identity/Fun"
+    ],
+    "rubber_duck": [
+      "Odds/%'s",
+      "New run",
+      "Weak Identity/Boring"
+    ],
+    "second_monitor": [
+      "Misc Stats",
+      "Strong Identity/Fun"
+    ],
+    "shredder": [
+      "KO",
+      "Positional",
+      "Strong Identity/Fun"
+    ],
+    "space_heater": [
+      "Odds/%'s",
+      "Weak Identity/Boring"
+    ],
+    "stack_of_books": [
+      "Odds/%'s",
+      "Weak Identity/Boring"
+    ],
+    "starter_gift_box": [
+      "New run",
+      "Strong Identity/Fun"
+    ],
+    "stash_box": [
+      "New run",
+      "Strong Identity/Fun"
+    ],
+    "telephone": [
+      "Cursors",
+      "Strong Identity/Fun"
+    ],
+    "throw_pillow": [
+      "Odds/%'s",
+      "Weak Identity/Boring"
+    ],
+    "tip_jar": [
+      "HU/Chip",
+      "Strong Identity/Fun"
+    ],
+    "tower_upgrade": [
+      "KO",
+      "Positional",
+      "Strong Identity/Fun"
+    ],
+    "wacom_tablet": [
+      "Cursors",
+      "Strong Identity/Fun"
+    ],
+    "wall_clock": [
+      "Zoom",
+      "Heat",
+      "Strong Identity/Fun"
+    ],
+    "wall_hanger": [
+      "Odds/%'s",
+      "Weak Identity/Boring"
+    ],
+    "waste_basket": [
+      "Tilt"
+    ],
+    "whiteboard": [
+      "Misc Stats",
+      "KO",
+      "Strong Identity/Fun"
+    ],
+    "window": [
+      "Tilt",
+      "Heat",
+      "KO",
+      "Strong Identity/Fun"
+    ],
+    "yellow_sticky_note": [
+      "Odds/%'s",
+      "Weak Identity/Boring"
+    ]
+  },
+  "notes": {},
+  "loadouts": {}
+}

@@ -154,23 +154,24 @@ end
 function SettingsModal:_performLoad()
     local g = self.game
     if not (g.save_service and g.state) then return end
-    -- Read FIRST: loadAll always returns a table, so wiping before the
-    -- check meant a missing or unreadable save wiped the live game.
-    local saved = g.save_service:loadAll()
-    if not (saved.meta or saved.run) then
+    -- Read FIRST: wiping before the check meant a missing, refused or
+    -- unreadable save wiped the live game.
+    local saved = g.save_service:load()
+    if not saved then
         print("SettingsModal: no readable save to load")
         return
     end
     g.state:wipeAll()
     g.state:applySaved(saved)
     g.state.effects_cache = nil
+    if g.grind then g.grind:reloadPool() end
     if g.state_machine and g.state_machine.states then
         for _, st in pairs(g.state_machine.states) do
             if type(st) == "table" and type(st.fullReset) == "function" then
                 st:fullReset()
             end
         end
-        g.state_machine:switch("grind")
+        g.state_machine:switch(g.state.shove_pending and "shove" or "grind")
     end
 end
 
@@ -179,9 +180,7 @@ end
 local ACTION_HANDLERS = {
     save = function(self)
         local g = self.game
-        if g.save_service and g.state then
-            g.save_service:saveAll(g.state:serializeMeta(), g.state:serializeRun())
-        end
+        if g.save then g.save() end
     end,
     load      = function(self) self:_performLoad() end,
     new_game  = function(self) self:_openConfirm("new_game") end,

@@ -1,0 +1,372 @@
+{
+ "version": 1,
+ "edits": {
+  "beats": {
+   "arrival": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "Morning, princess. You must've had the best sleep of your life.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 2,
+      "text": "I know you've got questions. I've got answers. Not yet, though. Answers are for poker players, and so far all you've done is stand there.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 3,
+      "text": "Here's two dollars. Call it a loan. Put it on the felt.",
+      "note": "At this point the money should lerp from 0 to 2.00, with focus on it and the button for the table",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 4,
+      "text": "The two dollars moved to the table. You want it back, you cash out. But we've got poker to play.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 5,
+      "text": "Deal.",
+      "note": "",
+      "deleted": false
+     }
+    ]
+   },
+   "after_first_hand": {
+    "status": "new",
+    "screen": "grind",
+    "insert_after": "arrival",
+    "trigger_note": "Played the first hand, and ether won or lost (fork) maybe it should be 2 beats, I'm writing it in as 1.",
+    "work": [
+     {
+      "kind": "new",
+      "text": "Looks like you lost that one. Luckily it was only a {loss size that it was, chip icon dynamic}. Keep playing.",
+      "note": "Focus the chip pile that has gone down and now has the number/chip icon on it"
+     },
+     {
+      "kind": "new",
+      "text": "Looks like you won your first hand. We're going to get along just fine. You can see the size of the win here, it was a {dynamic sized chip of what the win was}",
+      "note": "Focus the chip pile that now has the number/chip icon on it"
+     }
+    ]
+   },
+   "first_payout": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "See that. A table only holds its buy-in. Win past full and the rest ends up in the bankroll. Yours to spend how you see fit.",
+      "note": "focus the table and the bankroll",
+      "deleted": false
+     }
+    ]
+   },
+   "sharper_reads": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "You can afford Sharper Reads. Grab it.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "new",
+      "text": "That'll improve your odds of winning. Hover it to see what it can do for you at the next level.",
+      "note": "this one is after he bought it (forced). force the player to hover it"
+     },
+     {
+      "kind": "new",
+      "text": "You'll want to keep an eye on the upgrade rack, you won't have a chance in hell at the higher stakes without it. The players get better at every stake.",
+      "note": ""
+     }
+    ]
+   },
+   "second_table": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "Look at you, a second buy-in already. The duel just opened. Heads-Up. One opponent, whole stacks, both ways. ",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 2,
+      "text": "Sit down.",
+      "note": "",
+      "deleted": false
+     }
+    ]
+   },
+   "first_chip": {
+    "work": [
+     {
+      "kind": "new",
+      "text": "",
+      "note": ""
+     },
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "It came with a {chip}. Real gold, I weigh them myself. Win a {w:stack} and the table and it pays one. ",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "new",
+      "text": "Remember though, It's only the FIRST {w:stack} at a table that pays a {chip}. You can tell if a tables payed by the border on the felt, or the button.",
+      "note": "Highlight the boarder, and the boarder on the button, and the + {chip} on the button"
+     },
+     {
+      "kind": "new",
+      "text": "You can also see how many {chip} you'll earn for a {w:stack} here. Higher stakes, better payouts.",
+      "note": "highlight all the + x chip buttons visible"
+     },
+     {
+      "kind": "new",
+      "text": "Get 3 {chip}, and you'll get your first answer.",
+      "note": "focus the +chip that the player got on the table button, and the shove button"
+     },
+     {
+      "kind": "orig",
+      "index": 2,
+      "text": "Hover the readout under a table. Go on, don't keep me waiting.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 3,
+      "text": "Everything a table does per hour, and its odds at all four pot sizes. The gold {w:stack} is the one that pays.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 4,
+      "text": "Now compare your rooms. Zoom's gold number sits at {dyn:stack_odds_zoom} a hand. The duel runs {dyn:stack_odds_hu}.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 5,
+      "text": "Anything I teach you gets written down. The desk under my poster keeps the glossary. I keep very good records.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 6,
+      "text": "Get three of those and you get your first answer.",
+      "note": "",
+      "deleted": true
+     }
+    ]
+   },
+   "the_pitch": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "Three! Look at you. So here's your answer.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "new",
+      "text": "There's only one way out of here. Straight through the door.",
+      "note": ""
+     },
+     {
+      "kind": "new",
+      "text": "But first, you gotta get past me. One hand, everything you have goes in. Winner takes all.",
+      "note": ""
+     },
+     {
+      "kind": "orig",
+      "index": 2,
+      "text": "Win, and you walk out with the lot. Lose, and you keep the {chip}. I'll set you back up with the 2 dollar loan. No harm done.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 3,
+      "text": "Whenever you're ready. No rush. I'm always here. If you feel like you've stalled out it then it's usually a good idea to SHOVE.",
+      "note": "",
+      "deleted": false
+     }
+    ]
+   },
+   "shove_walkthrough": {
+    "trigger_note": "This whole section doesn't work well at all. it needs to be pausing while he talks or something (everything just keeps playing in the background and if I'm not clicking on time then it doesn't match and i'll just miss the shove)",
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "Everything you've got, in one pile. I'll match it if you win and you can walk right out. I love this part.",
+      "note": "focus the chips on the table AFTER they've flown in. pause til click.",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 2,
+      "text": "This bar is your odds at beating me. I'm pretty good though.",
+      "note": "We don't need to explain the items yet. The player doesn't have any and it'll be confusing. Pause.",
+      "deleted": false
+     },
+     {
+      "kind": "new",
+      "text": "...Am I reading that right? 0%? Bad luck.",
+      "note": "unpause after click and play the 5 cards"
+     }
+    ]
+   },
+   "shove_result": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "Looks like you banked {however many the player banked}{chip}. Those are yours to keep, call it a consolation prize.",
+      "note": "",
+      "deleted": false
+     }
+    ]
+   },
+   "house_cheats": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "I forgot to tell you about the undertow card. Unfortunately it landed on your ITEMS and took them out of the count. The bar shows what's left. House rules. Nothing personal.",
+      "note": "",
+      "deleted": false
+     }
+    ]
+   },
+   "after_winning_shove": {
+    "status": "new",
+    "screen": "grind",
+    "insert_after": "shove_result",
+    "trigger_note": "before the cheat card",
+    "work": [
+     {
+      "kind": "new",
+      "text": "Wait...No no nono",
+      "note": ""
+     },
+     {
+      "kind": "new",
+      "text": "What just happened?",
+      "note": "player clicks continue"
+     }
+    ]
+   },
+   "first_catalog": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "Before you head back, have a look at the catalog. Anything in here you keep. Buy it once, and it'll be delivered right to your room.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 2,
+      "text": "That stamp's the price. Stickered ones aren't ready yet. The count says how close.",
+      "note": "pause here force a click or whatever, this one only shows after the books open",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 3,
+      "text": "Close it when you're done and we'll set you back up. How fun.",
+      "note": "",
+      "deleted": false
+     }
+    ]
+   },
+   "the_loop": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "Same loan, same terms. That's a run.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "new",
+      "text": "Your upgrades went with it. Those reset.",
+      "note": ""
+     },
+     {
+      "kind": "new",
+      "text": "Let's take a look at your room.",
+      "note": "focus room button, force click"
+     },
+     {
+      "kind": "new",
+      "text": "Everything you bought from the catalog, delivered as promised. These never reset.",
+      "note": ""
+     },
+     {
+      "kind": "orig",
+      "index": 2,
+      "text": "Your odds on the SHOVE: Items in your room, multiplied by your total bankroll.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "new",
+      "text": "So it's about {chip} now. Every table pays one. Collect, then shove. You'll get it. Next time.",
+      "note": ""
+     },
+     {
+      "kind": "orig",
+      "index": 3,
+      "text": "One more thing. The key to the 6-Max room is in the catalog. Keep collecting. The long game. Slow, deep, worth it. Best carpet in the building.",
+      "note": "",
+      "deleted": true
+     }
+    ]
+   },
+   "first_heat": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "Heat. A table catches it and runs hot: If it was already on a hand, that hand wins. Then it'll deal the next hand . When you see fire on the felt, that's heat.",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 2,
+      "text": "Plenty of things in the catalog throw heat arou",
+      "note": "",
+      "deleted": true
+     }
+    ]
+   }
+  },
+  "shove": {},
+  "newOrder": [
+   "after_first_hand",
+   "after_winning_shove"
+  ]
+ }
+}

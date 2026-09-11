@@ -76,14 +76,18 @@ function InputController:wire()
     dispatcher:on("keypressed",
         function(key) return key == "f6" end,
         function()
+            local saved = game.save_service:load()
+            if not saved then
+                print("[save] F6 — nothing to reload.")
+                return
+            end
             local state = game.state
             state:wipeAll()
-            local saved = game.save_service:loadAll() or {}
             state:applySaved(saved)
             state.effects_cache = nil
             fullResetAllStates()
-            -- Force grind re-enter so TablePool rebuilds + effects refresh.
-            sm:switch("grind")
+            if game.grind then game.grind:reloadPool() end
+            sm:switch(state.shove_pending and "shove" or "grind")
             print(string.format(
                 "[save] F6 — reloaded.  bankroll=$%.2f  chips=%d  owned=%d",
                 state.bankroll, state.chips, #state.owned_items))
@@ -92,11 +96,7 @@ function InputController:wire()
     dispatcher:on("keypressed",
         function(key) return key == "f7" end,
         function()
-            local state = game.state
-            game.save_service:clearAll()
-            state:wipeAll()
-            fullResetAllStates()
-            sm:switch("grind")
+            game.newGame(true)
             print("[save] F7 — wiped.  fresh game.")
         end)
 

@@ -493,7 +493,6 @@ function TableProcs.registerAll(reg)
         if best then
             d.to = best
             local st = d.event.state
-            if st then st.total_tilts_absorbed = (st.total_tilts_absorbed or 0) + 1 end
             local ctrl = d.event.ctrl
             if ctrl and ctrl._grantDeckXp then
                 ctrl:_grantDeckXp({ type = "tilt_absorbed", n = 1 })

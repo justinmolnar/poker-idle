@@ -143,14 +143,16 @@ C.GAUNTLET = {
 }
 
 C.SAVE = {
-    AUTOSAVE_INTERVAL = 30,         -- seconds between auto-save ticks
-    META_FILE         = "meta.save",
-    RUN_FILE          = "run.save",
-    SETTINGS_FILE     = "settings.save",
-    -- Bumping VERSION no longer wipes saves: SaveService applies a
-    -- mismatched file anyway; migrations are field-level in
-    -- GameState:applySaved.
-    VERSION           = 1,
+    AUTOSAVE_SECS = 10,             -- seconds between auto-save ticks
+    -- One file. The old meta.save / run.save pair described one moment in
+    -- two commits, which could tear; both halves live in here now.
+    FILE          = "save.json",
+    SETTINGS_FILE = "settings.save",
+    -- A file whose version is not this is REFUSED, not migrated: there are
+    -- no field-level migrations any more, models/GameState is an explicit
+    -- key list, and an older save is not this game. Bump this whenever the
+    -- shape of what GameState serializes changes.
+    VERSION       = 2,
 }
 
 C.FLOATING_TEXT = {

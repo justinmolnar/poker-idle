@@ -63,12 +63,45 @@ KoSession.__index = KoSession
 function KoSession:new()
     return setmetatable({
         hands_won      = 0,
+        -- Tournaments finished at this table, ever. Backs High Roller Pass
+        -- (controllers/GrindController). Incremented in Table:_endTournament;
+        -- it was only ever initialised by the old save arrays, so a table
+        -- that had never reloaded carried nil here.
+        finish_count   = 0,
         state          = nil,    -- nil | "playing"
         pending_payout = nil,    -- $ amount, transient
         last_finish    = nil,    -- finish position from most recent settle,
                                  -- read by controller for bounty gating
         plan           = nil,    -- tournament plan (see :planRun)
     }, KoSession)
+end
+
+-- The whole session as plain data, and back again. models/Table's own
+-- serialize carries this; the pool used to hand-copy four of the five
+-- fields into parallel save arrays and drop `pending_payout`, which lost a
+-- tournament's payout if the game was closed between the settle and the
+-- controller draining it.
+function KoSession:serialize()
+    return {
+        hands_won      = self.hands_won,
+        finish_count   = self.finish_count,
+        state          = self.state,
+        pending_payout = self.pending_payout,
+        last_finish    = self.last_finish,
+        plan           = self.plan,
+    }
+end
+
+function KoSession.restore(rec)
+    local s = KoSession:new()
+    if type(rec) ~= "table" then return s end
+    s.hands_won      = rec.hands_won or 0
+    s.finish_count   = rec.finish_count or 0
+    s.state          = rec.state
+    s.pending_payout = rec.pending_payout
+    s.last_finish    = rec.last_finish
+    s.plan           = rec.plan
+    return s
 end
 
 function KoSession:begin()

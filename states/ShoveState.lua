@@ -130,9 +130,9 @@ function ShoveState:enter()
     if state.shove_pending and not state.shove_pending.outcomes then
         state.shove_pending.outcomes =
             Gauntlet.rollOutcomes(state, self.shove_rates)
-        self.game.save_service:saveAll(
-            state:serializeMeta(), state:serializeRun())
+        self.game.save()
     end
+    self._settled = false
 
     -- Auto-start the buildup spectacle on entry. The gauntlet itself
     -- doesn't begin until the view's buildup phase finishes (handled
@@ -193,6 +193,9 @@ function ShoveState:_beginGauntlet()
     -- the gauntlet just constructs cards for them. nil on the debug
     -- entries, where begin rolls its own.
     local result = self.gauntlet:begin(pending and pending.outcomes)
+    -- One settle per gauntlet, not per visit: the debug re-roll (F2) runs
+    -- a second one without leaving the screen.
+    self._settled = false
     self.overlay:recordAttempt(result)
     -- The act this shove opens, if any, is knowable NOW: the result is
     -- pre-baked. It used to be computed at the end, in the same statement
@@ -227,11 +230,51 @@ function ShoveState:_milestoneFor(result)
     return m
 end
 
+-- Bank the shove and start the next run, once per gauntlet.
+--
+-- Called from the cinematic's settle beat (views/ShoveView), which sits
+-- right after the summary — the moment the player has seen the result.
+-- Everything the run owed is already decided by then: the chips were
+-- banked into the meta when the shove was committed
+-- (GrindController:initiateShove) and the gauntlet evaluated its whole
+-- result synchronously at :begin. So this records what happened, resets
+-- the run, and saves.
+--
+-- The starting perks do NOT run here. They must come after the catalog
+-- browse the cinematic is about to open, because an item bought there
+-- seeds the run it was bought for. `perks_pending` marks the debt;
+-- whoever reaches it first (the catalog dismissal, the credits, or the
+-- next grind entry if the player quits) pays it.
+function ShoveState:settleRun()
+    if self._settled then return end
+    local state  = self.game.state
+    local result = self.gauntlet and self.gauntlet.result
+    if not result then return end
+    self._settled = true
+
+    -- What the shove banked, kept where the summary lines and the
+    -- analytics can still read it after shove_pending is gone.
+    local pending = state.shove_pending
+    state.last_shove = {
+        chips      = (pending and pending.chips) or 0,
+        anti_chips = (pending and pending.anti_chips) or 0,
+        won        = result.won == true,
+        busted_at  = result.busted_at,
+    }
+    self:_recordActFlags()
+    if result.won then state.cleared = true end
+
+    state:resetRun()             -- clears shove_pending
+    state.perks_pending = true
+    if self.game.grind then self.game.grind:reloadPool() end
+    self.game.save()
+end
+
 -- The act flags, from the gauntlet's result: R1 won opens Act 2 (decks,
--- mid stakes), R2 won opens Act 3. Called the moment the result exists
--- (the cinematic reads them: the deck flyer is thrown mid-summary, and
--- Decks.systemUnlocked has to be true by then) and again at the end, as
--- a no-op. Returns true when a flag changed.
+-- mid stakes), R2 won opens Act 3. Called once, from the settle, which
+-- runs at the summary beat — before the deck flyer is thrown, so
+-- Decks.systemUnlocked is already true when it lands. Returns true when a
+-- flag changed.
 function ShoveState:_recordActFlags()
     local result = self.gauntlet and self.gauntlet.result
     local state  = self.game.state
@@ -257,9 +300,11 @@ function ShoveState:_onGauntletEnded()
     local state  = self.game.state
 
     -- Chips aren't computed at bust anymore. They were banked into
-    -- state.chips at the shove commit; shove_pending.chips remembers the
-    -- amount for the readout (chips_this_run was zeroed at the commit).
-    local chips_banked = (state.shove_pending and state.shove_pending.chips)
+    -- state.chips at the shove commit, and the settle moved the count to
+    -- last_shove (shove_pending is gone by now; its absence is what stops
+    -- a reload routing back into a finished gauntlet).
+    local chips_banked = (state.last_shove and state.last_shove.chips)
+                         or (state.shove_pending and state.shove_pending.chips)
                          or 0
     HandAnalytics.recordShoveResult(result, chips_banked)
 
@@ -272,17 +317,15 @@ function ShoveState:_onGauntletEnded()
     -- R2 can only be won on a shove that also won R1, so on a
     -- double-milestone shove act3 correctly overwrites act2: the bigger
     -- reveal is the one worth showing.
-    -- The demo never records the act flags: the gauntlet stays Act 1
-    -- shaped forever (R2 is never even rolled), every future R1 win
-    -- repeats the same cliffhanger, and nothing downstream (act2 story
-    -- beats, decks, mid/high stakes, act-gated catalog items) unlocks.
-    -- (Recorded as soon as the result existed, in :update, so the
-    -- flyer the cinematic throws finds decks already unlocked; a second
-    -- call here is a no-op.)
-    if self:_recordActFlags() or self._act_flags_changed then
-        self._act_flags_changed = false
-        self.game.save_service:saveAll(state:serializeMeta(), state:serializeRun())
-    end
+    -- The act flags and the run reset both happened at the settle beat,
+    -- back at the summary, along with the save. Nothing here writes
+    -- progress: this is the click that dismisses the felt. The call is a
+    -- no-op unless the timeline was skipped past its settle.
+    --
+    -- (Under DEMO_CUT the flags are never recorded at all: the gauntlet
+    -- stays Act 1 shaped forever, R2 is never rolled, every future R1 win
+    -- repeats the same cliffhanger, and nothing downstream unlocks.)
+    self:settleRun()
 
     -- Demo-cut intercept: when FEATURES.DEMO_CUT is on, winning R1 then
     -- losing R2 is the natural cliffhanger that ends the demo. Show the
@@ -298,17 +341,6 @@ function ShoveState:_onGauntletEnded()
     end
 
     if result.won then
-        state.cleared = true
-        -- The shove is resolved: drop the commit record so the save below
-        -- can't route a later boot back into a finished gauntlet. The bust
-        -- path leaves it for resetRun (quitting on the post-bust catalog
-        -- resumes the same lost shove, not a fresh grind).
-        state.shove_pending = nil
-        -- Persist immediately: love.quit only saves from grind/shove, so
-        -- quitting at the credits screen would otherwise lose the clear
-        -- (and with it the deck-system unlock).
-        self.game.save_service:saveAll(
-            state:serializeMeta(), state:serializeRun())
         -- The last frame of the ending, so credits can fade in over the
         -- pile instead of cutting to a bare screen.
         local shot = self.view.snapshot and self.view:snapshot() or nil
@@ -335,11 +367,11 @@ function ShoveState:_resolveDemoEnd(choice)
     self.demo_end_modal = nil
 
     if choice == "exit" then
-        local state = self.game.state
-        state:resetRun()
-        local meta_ctx = state:computeEffects(
-            self.game.effects, self.game.catalog, self.game.run_upgrades)
-        state:applyStartingPerks(meta_ctx)   -- silent: between screens
+        -- The run already settled and saved at the summary beat; all that
+        -- is owed is the perks the catalog earned.
+        self:settleRun()
+        if self.game.grind then self.game.grind:applyPendingPerks() end
+        self.game.save()
         self.gauntlet       = nil
         self._ended_handled = false
         self.view:resetTimeline()
@@ -400,13 +432,12 @@ function ShoveState:throwFlyer()
 end
 
 -- A different key every throw, persisted so it keeps varying across
--- sessions. Lives in the free-form hints_seen map like the House's
--- once-lines do, so it needs no new serialized field.
+-- sessions. Its own field: it used to live in hints_seen as a number
+-- among booleans, which made that map impossible to type.
 function ShoveState:_nextThrowId()
-    local seen = self.game.state.hints_seen
-    if not seen then return os.time() end
-    local n = (tonumber(seen["catalog:throws"]) or 0) + 1
-    seen["catalog:throws"] = n
+    local state = self.game.state
+    local n = (tonumber(state.catalog_throws) or 0) + 1
+    state.catalog_throws = n
     return n
 end
 
@@ -423,14 +454,13 @@ function ShoveState:_dismissCatalogAndReturn()
     local state = self.game.state
     -- The intro callout (if it showed this visit) is now delivered.
     if state.hints_seen then state.hints_seen["catalog_intro"] = true end
-    state:resetRun()
-    -- Apply meta-progression perks owned in the catalog (Pocket Cash,
-    -- Free Sit, ...). Run-side state was just reset, so the ctx is
-    -- catalog-only here. GrindState:enter will rebuild the pool with
-    -- the freshly seeded specs.
-    local meta_ctx = state:computeEffects(
-        self.game.effects, self.game.catalog, self.game.run_upgrades)
-    state:applyStartingPerks(meta_ctx)   -- silent: between screens
+    -- The run was reset and saved at the settle beat. What is owed now is
+    -- the starting perks, and they wait until here on purpose: an item
+    -- bought on the book that just closed (Pocket Cash, Free Sit) seeds
+    -- the run it was bought for.
+    self:settleRun()
+    if self.game.grind then self.game.grind:applyPendingPerks() end
+    self.game.save()
     self.catalog_modal = nil
     self:_finalizePostBustReturn()
 end
@@ -463,12 +493,6 @@ function ShoveState:update(dt)
         self.view:markRunning()
         self:_beginGauntlet()
         return
-    end
-
-    -- The result is known before the cinematic plays it: record the act
-    -- flags now, so what the cinematic throws (the deck flyer) sees them.
-    if self.gauntlet and self.gauntlet.state == "finished" then
-        self:_recordActFlags()
     end
 
     -- After the cinematic finishes, fire the prestige flow once. No-op if

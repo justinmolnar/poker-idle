@@ -51,10 +51,14 @@ local HANDLERS = {
         return NUMBER_WORDS[m - 1] or tostring(m)
     end, fallback = "five" },
     -- What the shove just banked: the commit record's count (the chips
-    -- were zeroed into state.chips in the same write).
+    -- were zeroed into state.chips in the same write). Spoken both before
+    -- the run settles (the loss line, while the commit record is still
+    -- live) and after it (the act ledes, by which point the settle has
+    -- moved the count to last_shove and dropped the record).
     banked_chips = { fn = function(g)
-        local sp = g.state and g.state.shove_pending
-        local n = sp and sp.chips
+        local st = g.state
+        local sp = st and st.shove_pending
+        local n = (sp and sp.chips) or (st and st.last_shove and st.last_shove.chips)
         if n == nil then return nil end
         return tostring(math.floor(n))
     end, fallback = "a few" },

@@ -74,10 +74,6 @@ function RoomState:getRoomView()
 end
 
 function RoomState:enter()
-    do  -- first-visit bookkeeping for the `screen_visits` hint kind
-        local v = self.game.state and self.game.state.screen_visits
-        if v then v["room"] = (v["room"] or 0) + 1 end
-    end
     Theme.setActive("room")
     if not self.room_view then
         self.room_view = RoomView:new(self.game)

@@ -35,7 +35,9 @@ love.filesystem = {
     remove  = function() return true end,
     getWorkingDirectory = function() return "." end,
 }
-love.mouse = { getPosition = function() return -1, -1 end, isDown = function() return false end }
+love.mouse = { getPosition = function() return -1, -1 end,
+               getX = function() return -1 end, getY = function() return -1 end,
+               isDown = function() return false end }
 -- No sound card: every source is a mute object (the swarm taps on each
 -- click and clash through services/SoundService).
 local function muteSource()
@@ -126,7 +128,26 @@ function H.newGame(opts)
     CatalogUnlockRules.registerAll(g.unlock_rules)
     g.poker_events = PokerEventRegistry:new()
     PokerActionApply.registerAll(g.poker_events)
-    g.floating_text = { emit = function() end }
+    -- The real floating-text system: the engine suite only ever emits, but
+    -- the view draw pass reads it back, and a stub that answers only the
+    -- calls one of them makes hides the other.
+    g.floating_text = require("services.FloatingTextSystem")
+    -- The real services: the views index them directly, so a stub here
+    -- would only hide a call the game makes for real.
+    g.hover = require("services.HoverService")
+    -- The shove settles and saves through game.save; headless there is
+    -- nowhere to write, so the call is counted and dropped.
+    g.saves = 0
+    g.save = function() g.saves = g.saves + 1; return true end
+    -- GrindController:initiateShove ends by switching screens. sim/act1.lua
+    -- calls that function for real (it is what banks chips_this_run and
+    -- writes shove_pending); headless there is no screen to switch to.
+    g.state_machine = { switch = function() end, current = nil }
+    g.save_service = { save = function() return true end,
+                       load = function() return nil end,
+                       hasSave = function() return false end,
+                       clear = function() end,
+                       drainResults = function() end }
     g.fonts = { lg = stubFont(24), md = stubFont(16), sm = stubFont(16), xs = stubFont(8), micro = stubFont(8) }
     g.ui_scale = 1
     g.sim_frozen = false
@@ -145,6 +166,9 @@ function H.world(opts)
     local g = H.newGame(opts)
     local w = setmetatable({ game = g, state = g.state, bus = g.event_bus }, World)
     w.ctrl = GrindController:new(g)
+    -- main.lua hangs the controller here; the shove settle and every
+    -- pool reload reach it through game.grind.
+    g.grind = w.ctrl
     return w
 end
 

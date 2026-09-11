@@ -30,9 +30,7 @@ local CatalogUnlockRules = {}
 local COUNTER_KINDS = {
     "total_hands_played",
     "total_hands_won",
-    "total_big_outcomes",
     "total_denied_stacks",
-    "lifetime_chips_banked",
     "total_busts",
     "total_stack_losses",
     "total_stacks",
@@ -45,7 +43,6 @@ local COUNTER_KINDS = {
     "total_tilts",
     "total_heaters",
     "total_cursor_deals",
-    "highest_stake_idx",
 }
 
 -- Each kind registers a predicate AND a progress reporter reading the same

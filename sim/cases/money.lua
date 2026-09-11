@@ -45,11 +45,12 @@ return function(T)
     end
     if wanted("item:desk") then
         local w = T.world(); w:own("desk")
-        local before = #w.state.active_table_specs
+        local before = #w.state.tables
         w.state:applyStartingPerks(w.ctrl.ctx)
-        local spec = w.state.active_table_specs[#w.state.active_table_specs]
-        check("item:desk", "start", #w.state.active_table_specs == before + 1 and spec and spec:match("^s001:") ~= nil,
-            ("the run opens with one more table seated: %s (a NL2 cash game)"):format(tostring(spec)))
+        local seeded = w.state.tables[#w.state.tables]
+        check("item:desk", "start", #w.state.tables == before + 1 and seeded and seeded.stake_id == "s001",
+            ("the run opens with one more table seated: %s (a NL2 cash game)"):format(
+                seeded and (seeded.stake_id .. ":" .. tostring(seeded.game_type_id)) or "none"))
     end
     if wanted("item:cereal_shelf") then
         local w = T.world({ bankroll = 100 }); w:own("cereal_shelf")

@@ -32,10 +32,6 @@ local FADE_ALPHA  = 0.88
 function CreditsState:enter(opts)
     self.backdrop = opts and opts.backdrop or nil
     self.t = 0
-    do  -- first-visit bookkeeping for the `screen_visits` hint kind
-        local v = self.game.state and self.game.state.screen_visits
-        if v then v["credits"] = (v["credits"] or 0) + 1 end
-    end
     -- The shove palette is the right backdrop here — sparse, dramatic,
     -- already what the player just won out of.
     Theme.setActive("room")   -- one palette everywhere; the shove palette is retired
@@ -100,25 +96,18 @@ end
 
 function CreditsState:keypressed(key)
     -- Continue on the same save: the clear persists (state.cleared), which
-    -- is what unlocks the deck system as post-win progression. Mirrors the
-    -- post-bust return: fresh run, catalog perks re-applied, back to grind
-    -- (GrindState:enter rebuilds the pool).
+    -- is what unlocks the deck system as post-win progression. The run was
+    -- already reset and saved when the gauntlet settled (ShoveState's
+    -- settle beat); all that is left is the perks the catalog purchases
+    -- earned, which is the same thing the post-bust return does.
     if key == "space" or key == "return" or key == "kpenter" then
-        local state = self.game.state
-        state:resetRun()
-        local meta_ctx = state:computeEffects(
-            self.game.effects, self.game.catalog, self.game.run_upgrades)
-        state:applyStartingPerks(meta_ctx)   -- silent: between screens
-        self.game.save_service:saveAll(
-            state:serializeMeta(), state:serializeRun())
+        if self.game.grind then self.game.grind:applyPendingPerks() end
+        self.game.save()
         self.game.state_machine:switch("grind")
         return
     end
     if key == "r" then
-        -- In-memory reset only. Use F7 (delete) to wipe the disk slots too.
-        local state = self.game.state
-        state:wipeAll()
-        self.game.state_machine:switch("grind")
+        self.game.newGame(true)
     end
 end
 

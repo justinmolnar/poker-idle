@@ -100,9 +100,15 @@ end
 
 -- Remove the current save's analytics file (a new game mints a new
 -- save_id, which used to orphan the old file forever).
-function HandAnalytics.deleteCurrent()
-    if _filename and love.filesystem.getInfo(_filename) then
-        love.filesystem.remove(_filename)
+-- `save_id` is passed rather than assumed, because the file is named after
+-- it and this is called from paths that never entered the grind (the
+-- title's delete, a new game before any hand) where startRun has not run
+-- and the module knows no filename at all. Without it those wipes left the
+-- old file behind forever, which is where the pile of orphans came from.
+function HandAnalytics.deleteCurrent(save_id)
+    local name = _filename or (save_id and ("analytics_" .. save_id .. ".json"))
+    if name and love.filesystem.getInfo(name) then
+        love.filesystem.remove(name)
     end
     _filename, _save_id, _run = nil, nil, nil
     _old_shoves, _hands, _hands_dropped = {}, {}, 0
