@@ -226,8 +226,10 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
         -- vignette_*       0..1   — colored wash over felt (good/bad)
         -- border_pulse_t   0..1   — colored border-line flash post-resolve
         -- border_pulse_color "good" | "bad" — drives pulse hue
-        -- lift_t           0..1   — held-aloft offset; 1 during a hand,
-        --                            eases back to 0 when state == idle
+        -- lift_t           0..1   — "in a hand": 1 during a hand, snaps to
+        --                            0 at settle. Drives the felt light
+        --                            (TablePanelEffects.drawFeltLight);
+        --                            the panel itself no longer moves
         -- slam_t           0..1   — brief down-spike triggered on settle
         -- glow_t           0..1   — radial-glow shader intensity, fired
         --                            on stack wins
@@ -240,6 +242,11 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
         lift_t             = 0,
         slam_t             = 0,
         glow_t             = 0,
+        -- deal_spring   { t = 1..0, dur, amp } — the deal's press: a dip
+        --               and squash that springs back over `dur` seconds
+        --               and is gone (TablePanelEffects.dealSpring). amp
+        --               and dur are jittered per deal so no two are alike.
+        deal_spring        = nil,
 
         -- Bump direction: this table just shoved a neighbour, or just got
         -- shoved. Only the DIRECTION lives here — the envelope is a
@@ -1196,8 +1203,9 @@ local UNTILT_DECAY_RATE       = 1.6
 local SHAKE_DECAY_RATE        = 1.2
 local VIGNETTE_DECAY_RATE     = 1.2
 local BORDER_PULSE_DECAY_RATE = 1.0
--- Lift lerp. Panel rises during the playing phases (dealing → showdown).
--- Panel snaps to rest at "settling" (when chips fly + resolution feedback
+-- Lift lerp. The "in a hand" amount rises during the playing phases
+-- (dealing → showdown) and lights the felt; the panel no longer
+-- moves with it. Snaps to rest at "settling" (when chips fly + resolution feedback
 -- fires) and stays at rest while idle. The set of "panel down" states is
 -- explicit so adding a new cinematic phase is one entry, not a code
 -- branch.
@@ -1236,6 +1244,13 @@ function Table:_update(dt, ctx)
     if (self.border_pulse_t or 0) > 0 then
         self.border_pulse_t = math.max(0, self.border_pulse_t - d * BORDER_PULSE_DECAY_RATE)
         if self.border_pulse_t <= 0 then self.border_pulse_color = nil end
+    end
+    -- The deal's spring runs its own short clock and then is nil: it
+    -- must not linger past the press.
+    local ds = self.deal_spring
+    if ds then
+        ds.t = ds.t - d / (ds.dur or 0.22)
+        if ds.t <= 0 then self.deal_spring = nil end
     end
     if (self.glow_t or 0) > 0 then
         -- Lingers ~1.7s so the player has time to register the halo.

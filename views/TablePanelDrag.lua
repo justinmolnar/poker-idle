@@ -47,8 +47,8 @@ end
 -- stashed by _drawCenterGrid (the grid's live cell size).
 --
 -- Notes:
---  • Shadow via a proxy table — Table:update owns the real tbl.lift_t
---    (deal lift) and must not be written from a view.
+--  • Shadow: Effects.drawHeldShadow, the picked-up shadow (thrown by the
+--    lift, leaning with the sway), not the resting drop the grid draws.
 --  • Scale-up goes through the SIZE PARAMS, not a graphics scale:
 --    TablePanel re-derives all chrome from w/h, so the held panel stays
 --    proportional and crisp instead of stretched.
@@ -60,7 +60,7 @@ function TablePanelDrag.drawHeld(game, controller, drag, held)
     local pw, ph = held.pw, held.ph
     local lift   = Easing.outCubic(drag.lift or 0)
 
-    Effects.drawHoverShadow({ lift_t = lift }, drag.px, drag.py, pw, ph)
+    Effects.drawHeldShadow(drag.px, drag.py, pw, ph, lift, drag.tilt or 0)
 
     local gw = pw * (1 + (HELD_SCALE - 1) * lift)
     local gh = ph * (1 + (HELD_SCALE - 1) * lift)

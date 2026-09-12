@@ -545,10 +545,44 @@ end
 -- event carries it so the spread itself can decline to spread again: a
 -- block of Zoom tables must not chain end to end off one click. It is a
 -- deal in every other sense.
+-- The deal's own feedback: the felt pops brighter for a moment
+-- (TablePanelEffects.drawFeltLight reads border_pulse_t with kind
+-- "deal"; the border itself is the bounty trim's and is left alone).
+-- Never over a result's pulse still fading, so a quick re-deal does not
+-- wipe the verdict.
+-- Every deal path calls this (the click, a cursor, an item's fan-out,
+-- dealAll), because the frame is how the player sees which table just
+-- started, wherever the deal came from.
+local DEAL_PULSE = 0.6
+-- The press (TablePanelEffects.dealSpring): a quarter second, give or
+-- take, and a little more or less travel, rolled per deal so a board
+-- of cursors dealing does not move in lockstep.
+local DEAL_SPRING_DUR = 0.22
+local DEAL_SPRING_JITTER = 0.25
+-- Cosmetic randomness has its own generator: the jitter must not draw
+-- from love.math.random, which is the game's outcome stream (the
+-- headless sims seed it and every check downstream of a deal would
+-- shift by two draws). A plain LCG is plenty for a wobble.
+local function fxRandom(self)
+    local x = (self._fx_seed or 12345) * 1103515245 + 12345
+    x = x % 2147483648
+    self._fx_seed = x
+    return x / 2147483648
+end
+function GrindController:_dealFx(t)
+    local r1 = (fxRandom(self) * 2 - 1) * DEAL_SPRING_JITTER
+    local r2 = (fxRandom(self) * 2 - 1) * DEAL_SPRING_JITTER
+    t.deal_spring = { t = 1, dur = DEAL_SPRING_DUR * (1 + r1), amp = 1 + r2 }
+    if (t.border_pulse_t or 0) > 0.05 and t.border_pulse_color ~= "deal" then return end
+    t.border_pulse_t     = DEAL_PULSE
+    t.border_pulse_color = "deal"
+end
+
 function GrindController:dealIdleTable(t, opts)
     if not t or t.state ~= "idle" or t.pending_close then return false end
     if (t.stack or 0) <= 0 then return false end
     if not t:deal(self.ctx) then return false end
+    self:_dealFx(t)
     self:_announce("on_deal", { table = t, spread = (opts and opts.spread) or false })
     return true
 end
@@ -2860,6 +2894,7 @@ function GrindController:dealHand(idx)
     if not ok then
         t._dealt_by_player, t._hand_mult = nil, nil
     else
+        self:_dealFx(t)
         -- New hand, new pile: clear any spent detonation so the pot draws
         -- again. Set here rather than in Table:deal because these are view
         -- FX fields.
@@ -3178,6 +3213,7 @@ function GrindController:dealAll()
     for _, t in ipairs(self.pool.tables) do
         if not t:isBusy() and (t.stack or 0) > 0 then
             if t:deal(self.ctx) then
+                self:_dealFx(t)
                 t.pot_exploded, t.pot_explode_pending = nil, nil
                 n = n + 1
             end

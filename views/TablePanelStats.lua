@@ -141,15 +141,13 @@ local function buildCashOverviewRenderRow(header, bb, ev_dollars, ev_bb, win_cha
     end
 
     local loss_chance = 1.0 - (win_chance or 0)
-    local TIER_COUNT = { small = 1, medium = 2, large = 3, stack = 4 }
-
     local function mixWidth(present, fonts)
         local f_sm = fonts.sm
         local r = TierGlyph.radius(f_sm:getHeight())
         local SEG_GAP = 12
         local w = 0
         for _, seg in ipairs(present) do
-            w = w + r * 2 + 3 + f_sm:getWidth(seg.pct) + SEG_GAP
+            w = w + TierGlyph.width(seg.tier, r) + 3 + f_sm:getWidth(seg.pct) + SEG_GAP
         end
         return w
     end
@@ -159,18 +157,19 @@ local function buildCashOverviewRenderRow(header, bb, ev_dollars, ev_bb, win_cha
         local fh = f_sm:getHeight()
         local r = TierGlyph.radius(fh)
         local SEG_GAP = 12
-        local step = math.max(1, math.floor(r * 0.55))
         local text_y = y
         local text_center_y = y + math.floor(fh * 0.5)
-        local cx = x + r
+        local gx = x
         love.graphics.setFont(f_sm)
         for _, seg in ipairs(present) do
-            local count = TIER_COUNT[seg.tier] or 1
-            local baseline = text_center_y + math.floor((count - 1) * step * 0.5)
-            TierGlyph.draw(cx, baseline, seg.tier, r, outcome)
+            local gw = TierGlyph.width(seg.tier, r)
+            -- Centre the shape on the text line: its base sits half the
+            -- shape's extra height below the middle.
+            local baseline = text_center_y + math.floor((TierGlyph.height(seg.tier, r) - r * 2) * 0.5)
+            TierGlyph.draw(gx + gw / 2, baseline, seg.tier, r, outcome)
             Theme.setColor(TierGlyph.color(seg.tier, outcome))
-            love.graphics.print(seg.pct, cx + r + 3, text_y)
-            cx = cx + r * 2 + 3 + f_sm:getWidth(seg.pct) + SEG_GAP
+            love.graphics.print(seg.pct, gx + gw + 3, text_y)
+            gx = gx + gw + 3 + f_sm:getWidth(seg.pct) + SEG_GAP
         end
     end
 

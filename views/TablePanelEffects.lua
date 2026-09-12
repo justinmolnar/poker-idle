@@ -21,7 +21,17 @@ local Effects = {}
 -- ── Tunables ─────────────────────────────────────────────────────────
 local SHAKE_MAX_PX        = 8     -- amplitude at trauma=1; trauma² scaling
 local VIGNETTE_MAX_ALPHA  = 0.65
-local LIFT_MAX_PX         = 18    -- panel hovers up this many px during a hand
+-- The panel used to hover up 18px during a hand (LIFT_MAX_PX). It does
+-- not any more: the whole panel moved, so the close X, the chrome bar and
+-- every tooltip hover area moved with it, and with cursors dealing the
+-- targets were never still. lift_t survives as the "in a hand" amount
+-- (0..1, eased) and drives the live frame below instead.
+-- The felt light. Not on the border: the gold bounty trim owns the
+-- panel's frame and nothing competes with it. The cloth itself lights
+-- while a hand runs (a lamp over the table) and pops brighter on the deal.
+local LIGHT_COLOR         = { 1.00, 0.96, 0.86 }   -- warm lamp
+local LIGHT_ALPHA         = 0.05  -- the cloth at full "in a hand": a lamp on, not a spotlight
+local DEAL_FLASH_ALPHA    = 0.22  -- the deal's pop, over the light, decaying
 local BORDER_PULSE_MAX_W  = 10    -- max border-line width at pulse=1
 local BORDER_PULSE_ALPHA  = 1.0
 
@@ -77,22 +87,57 @@ function Effects.shakeOffset(tbl)
            (love.math.random() * 2 - 1) * amp
 end
 
--- Vertical offset for the hover-lift. Returns Y delta in px — negative =
--- up, 0 = rest. The lift_t value lerps both directions in Table:update,
--- so a fresh hand smoothly raises the panel and a settled hand smoothly
--- lowers it. No separate slam impulse — the slam mechanic was creating
--- an overshoot that looked like a teleport on quick re-deals.
-function Effects.liftSlamOffset(tbl)
+-- The deal's press. The panel dips a few px and squashes toward its
+-- bottom edge, then springs back, over about a quarter second, and is
+-- still again: motion the player reads as "dealt" without a lifted
+-- panel that holds its click targets somewhere else for the whole
+-- hand. Returns dy (down is positive), sx, sy; TablePanel folds them
+-- into the transform stack and the hit boxes follow dy the way they
+-- followed the lift. amp comes jittered from the deal (see
+-- GrindController:_dealFx), the way a sound's pitch is.
+local DEAL_DIP_PX  = 4
+local DEAL_SQUASH  = 0.035
+function Effects.dealSpring(tbl)
+    local ds = tbl.deal_spring
+    if not ds or (ds.t or 0) <= 0 then return 0, 1, 1 end
     local lvl = Motion.level("tables")
-    if lvl <= Motion.LOW then return 0 end
+    if lvl <= Motion.LOW then return 0, 1, 1 end
     local k = (lvl == Motion.MEDIUM) and 0.5 or 1
-    return (tbl.lift_t or 0) * -LIFT_MAX_PX * k
+    -- One half-sine: down and back, no overshoot to settle from.
+    local p = math.sin((1 - ds.t) * math.pi) * (ds.amp or 1) * k
+    return DEAL_DIP_PX * p, 1 + DEAL_SQUASH * 0.6 * p, 1 - DEAL_SQUASH * p
 end
 
--- Low motion has no lift: a still raised edge says "in a hand" instead.
--- Drawn by TablePanel over the chrome when this returns true.
-function Effects.stillLift(tbl)
-    return Motion.level("tables") <= Motion.LOW and (tbl.lift_t or 0) > 0.5
+-- The panel's vertical offset during a hand: only the deal's spring.
+-- A panel in a hand otherwise sits exactly where it sits at rest, and so
+-- do its click targets.
+function Effects.liftSlamOffset(tbl)
+    local dy = Effects.dealSpring(tbl)
+    return dy
+end
+
+-- In a hand: the cloth lights. lift_t eases 0 -> 1 as the hand starts
+-- and snaps to 0 at settle (Table:update), so the light comes up with
+-- the deal and goes out on the frame the result lands, the way the lift
+-- used to rise and drop. The deal itself pops the light brighter for a
+-- moment (border_pulse_t with kind "deal", set by GrindController:_dealFx
+-- and decayed in Table:update). Drawn on the felt SURFACE, under the
+-- plate, the cards and the chips, inside the rail: the frame is the
+-- bounty trim's and stays untouched. Low motion: the light holds at a
+-- fixed level while a hand runs, no ramp and no pop.
+function Effects.drawFeltLight(tbl, x, y, w, h, radius)
+    local live = tbl.lift_t or 0
+    local pop  = (tbl.border_pulse_color == "deal") and (tbl.border_pulse_t or 0) or 0
+    if Motion.level("tables") <= Motion.LOW then
+        live = (live > 0.5) and 1 or 0
+        pop  = 0
+    end
+    if live <= 0.01 and pop <= 0.01 then return end
+    -- One even wash over the whole cloth: a second, inset pool read as
+    -- another area on the felt, so there is none.
+    local a = live * LIGHT_ALPHA + pop * DEAL_FLASH_ALPHA
+    Theme.setColor(LIGHT_COLOR, math.min(0.6, a))
+    love.graphics.rectangle("fill", x, y, w, h, radius or 0)
 end
 
 -- ── Draw passes ──────────────────────────────────────────────────────
@@ -135,14 +180,56 @@ function Effects.drawHoverShadow(tbl, x, y, w, h)
     end
 end
 
+-- The held panel's shadow. A panel in the player's hand is off the
+-- board, so its shadow is not the resting drop under a slightly raised
+-- edge (drawHoverShadow): it is thrown further down and to the right
+-- the higher the panel lifts, wider and softer, and it leans with the
+-- panel's sway (it is drawn rotated about the same centre, and slides
+-- the opposite way the panel tilts, the way a card's shadow crosses
+-- under it when you tip it). At lift 0 it is the resting shadow, so the
+-- pick-up eases out of one into the other.
+local HELD_SHADOW_DROP    = 18     -- extra drop (px) at full lift, down and right
+local HELD_SHADOW_SPREAD  = 14     -- extra softness at full lift
+local HELD_SHADOW_LEAN_PX = 90     -- lateral slide per radian of sway
+local _held_layers = { {}, {}, {}, {} }
+function Effects.drawHeldShadow(x, y, w, h, lift, tilt)
+    lift = math.max(0, math.min(1, lift or 0))
+    tilt = tilt or 0
+    local r    = Theme.space.radius
+    local drop = lift * HELD_SHADOW_DROP
+    local sx = x + SHADOW_DROP_X + drop * 0.8 - tilt * HELD_SHADOW_LEAN_PX * lift
+    local sy = y + SHADOW_DROP_Y + drop
+    local cx, cy = sx + w / 2, sy + h / 2
+    -- Outermost first: widest and faintest; the last sits under the panel
+    -- itself and carries the weight. The whole stack dims a little as it
+    -- lifts (further from the thing casting it) and spreads a lot.
+    local L = _held_layers
+    L[1].spread, L[1].alpha = 10 + lift * HELD_SHADOW_SPREAD,        0.06 + lift * 0.04
+    L[2].spread, L[2].alpha = 5  + lift * HELD_SHADOW_SPREAD * 0.6,  0.12 + lift * 0.04
+    L[3].spread, L[3].alpha = 2  + lift * HELD_SHADOW_SPREAD * 0.3,  0.20 + lift * 0.02
+    L[4].spread, L[4].alpha = 0,                                      0.42 - lift * 0.10
+    Effects.pushRotated(cx, cy, tilt)
+    for i = 1, 4 do
+        local e = L[i]
+        Theme.setColor(SHADOW_COLOR, e.alpha)
+        love.graphics.rectangle("fill", sx - e.spread, sy - e.spread,
+                                w + e.spread * 2, h + e.spread * 2, r + e.spread)
+    end
+    Effects.popRotated()
+end
+
 -- Border-pulse colored frame on top of the panel chrome. Drawn AFTER
 -- the panel chrome (so it overlays the regular border) but BEFORE felt
 -- content (so cards/chips render on top of the colored ring).
 function Effects.drawBorderPulse(tbl, x, y, w, h)
     local t = tbl.border_pulse_t or 0
     if t <= 0.001 or not tbl.border_pulse_color then return end
-    local color = (tbl.border_pulse_color == "good") and Theme.sem.won
-                                                       or Theme.sem.lost
+    -- "good" / "bad" are a result landing (the resolution loop). "deal"
+    -- is the hand starting, and that one is NOT a border: the felt light
+    -- (drawFeltLight) carries it, so the bounty trim keeps the frame.
+    local kind = tbl.border_pulse_color
+    if kind == "deal" then return end
+    local color = (kind == "good") and Theme.sem.won or Theme.sem.lost
     -- Low motion: the frame at full width for as long as the pulse runs,
     -- no ramp.
     if Motion.level("tables") <= Motion.LOW then t = 1 end

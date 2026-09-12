@@ -255,7 +255,7 @@ local function elementWidth(el, font, m)
     end
     if el.kind == "key"  then return font:getWidth(el.s) + 2 end
     if el.kind == "icon" then return m.size + m.gap end
-    if el.kind == "tier" then return TierGlyph.radius(m.size) * 2 + m.gap end
+    if el.kind == "tier" then return TierGlyph.width(el.name, TierGlyph.radius(m.size)) + m.gap end
     return 0
 end
 
@@ -331,7 +331,8 @@ local function drawElement(game, el, x, y, font, m, color, alpha)
         else drawArrow(x, y, m.size, color, alpha) end
     elseif el.kind == "tier" then
         local r = TierGlyph.radius(m.size)
-        TierGlyph.draw(x + r, y + m.size - r, el.name, r, el.outcome, alpha)
+        local w = TierGlyph.width(el.name, r)
+        TierGlyph.draw(x + w / 2, y + m.size - r, el.name, r, el.outcome, alpha)
     end
 end
 

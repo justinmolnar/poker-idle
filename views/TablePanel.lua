@@ -1731,11 +1731,14 @@ end
 -- Drop the unused inline ghost factory; TablePanel.makeGhostFor below is
 -- the public entry point for ephemeral-button ghost-rendering.
 
--- ─── Per-table FX (shake / vignette / lift / slam / border-pulse) ───
+-- ─── Per-table FX (shake / vignette / felt light / border-pulse) ────
 -- All bounded so adjacent panels in the grid don't get encroached on.
 -- Implementations live in views/TablePanelEffects (sibling-module split,
 -- mirrors views/TablePanelStats). State decays in models/Table.lua:update;
--- the effects layer just reads tween fields.
+-- the effects layer just reads tween fields. Nothing here moves the
+-- panel during a hand: the close X, the chrome bar and the tooltip hover
+-- areas stay put while cursors deal around them.
+local REST_SHADOW = { lift_t = 0 }
 
 -- ─── Ghost factory (press-then-vanish for ephemeral buttons) ─────────
 -- Builds a Ghosts.add render closure for a hit_box that's about to vanish
@@ -1969,7 +1972,12 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- targets — it is a deliberate motion the player is watching, not
     -- jitter, and a button that stayed behind would feel broken.
     local bump_x, bump_y, bump_sx, bump_sy, bump_lift = Effects.bumpOffset(tbl)
-    local lift_y           = Effects.liftSlamOffset(tbl)
+    -- The deal's press: a short dip and squash that springs back and is
+    -- gone. Its dy rides where the lift used to (the hit boxes follow it,
+    -- below); its squash multiplies into the shove's scale about the
+    -- panel's bottom edge.
+    local lift_y, deal_sx, deal_sy = Effects.dealSpring(tbl)
+    bump_sx, bump_sy = bump_sx * deal_sx, bump_sy * deal_sy
     -- A tilted table stays leaning until it settles.
     local lean             = Effects.statusRotation(tbl)
     local transformed = (shake_x ~= 0 or shake_y ~= 0 or lift_y ~= 0
@@ -1983,20 +1991,16 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- into the hit-test would make click targets dance around.
     local hit_boxes_start = hit_boxes and #hit_boxes or 0
 
-    -- Hover shadow — drawn BEFORE the transform push so it stays at the
-    -- panel's resting position while the panel itself lifts off it. When
-    -- the panel is at rest (lift_t = 0) the shadow sits exactly under the
-    -- panel and isn't visible; as the panel lifts, the shadow becomes
-    -- exposed and spreads slightly for a soft hover feel.
-    -- While a slam rears back, the panel climbs toward the camera and its
-    -- shadow stays down on the board — the same trick the gauntlet's
-    -- flying numbers use to sell height. Proxy table because Table:update
+    -- Drop shadow — drawn BEFORE the transform push so it stays at the
+    -- panel's resting position. The panel no longer lifts during a hand
+    -- (Effects.liftSlamOffset), so the resting shadow is drawn at rest
+    -- whatever lift_t says; only a slam, which does rear the panel up
+    -- toward the camera, deepens it. Proxy tables because Table:update
     -- owns the real lift_t.
     if bump_lift > 0.01 then
-        Effects.drawHoverShadow({ lift_t = math.max(tbl.lift_t or 0, bump_lift) },
-                                x, y, w, h)
+        Effects.drawHoverShadow({ lift_t = bump_lift }, x, y, w, h)
     else
-        Effects.drawHoverShadow(tbl, x, y, w, h)
+        Effects.drawHoverShadow(REST_SHADOW, x, y, w, h)
     end
 
     -- A shove swells the panel slightly when it hits everyone at once;
@@ -2114,19 +2118,13 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     local banked = controller and controller:bountyBanked(tbl.stake_id, tbl.game_type_id)
     local anti_banked = controller and controller.antiBountyBanked and controller:antiBountyBanked(tbl.stake_id, tbl.game_type_id)
 
-    -- Border-pulse flash on top of the static border. Decays in
-    -- Table:update; color comes from the win/lost branch in the
-    -- resolution loop. Drawn here so it overlays the panel border
-    -- but sits beneath all felt content.
+    -- A result's border pulse: the verdict in green or red, decaying in
+    -- Table:update. Drawn here so it overlays the panel border but sits
+    -- beneath all felt content. (A hand in progress and the deal itself
+    -- light the felt instead: Effects.drawFeltLight, on the surface.)
     Effects.drawBorderPulse(tbl, x, y, w, h)
-    -- Low motion stand-ins: a raised edge while a hand is live (no lift),
-    -- and the status colour on the frame while a punch lands (no shove).
-    if Effects.stillLift(tbl) then
-        Theme.setColor(Theme.border.strong, 0.9)
-        love.graphics.setLineWidth(2)
-        love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
-        love.graphics.setLineWidth(1)
-    end
+    -- Low motion stand-in: the status colour on the frame while a punch
+    -- lands (no shove).
     local punch = Effects.punchFlash(tbl)
     if punch > 0 then
         Theme.setColor(Theme.sem.lost, 0.9)
@@ -2252,9 +2250,15 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         FeltDecor.drawSurface(surf.x + rw, surf.y + rw,
                               surf.w - 2 * rw, surf.h - 2 * rw,
                               felt_color, math.max(0, (surf.radius or 0) - 1))
+        -- The lamp over the table: the cloth lights while a hand runs and
+        -- pops on the deal. On the surface, inside the rail, under all.
+        Effects.drawFeltLight(tbl, surf.x + rw, surf.y + rw,
+                              surf.w - 2 * rw, surf.h - 2 * rw,
+                              math.max(0, (surf.radius or 0) - 1))
     else
         FeltDecor.drawSurface(felt_x, felt_y, felt_w, felt_h,
                               felt_color, Theme.space.radius)
+        Effects.drawFeltLight(tbl, felt_x, felt_y, felt_w, felt_h, Theme.space.radius)
         Theme.setColor(Theme.border.soft)
         love.graphics.rectangle("line", felt_x, felt_y, felt_w, felt_h,
                                 Theme.space.radius)

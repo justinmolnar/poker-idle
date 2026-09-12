@@ -142,6 +142,7 @@ end
 function FeltDecor.drawCommPlate(rect, felt_color)
     if not rect then return end
     local cfg = Style.comm_plate
+    if (cfg.alpha or 0) <= 0 then return end   -- the recess is off (data/felt_style)
     Theme.setColor(darken(felt_color, cfg.darken or 0.5), cfg.alpha or 0.3)
     love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h,
                             Theme.space.radius)
@@ -152,6 +153,7 @@ end
 function FeltDecor.drawSeatPlate(rect, felt_color, alpha_mul)
     if not rect then return end
     local cfg = Style.seat_plate
+    if (cfg.alpha or 0) <= 0 then return end   -- the backing is off (data/felt_style)
     Theme.setColor(darken(felt_color, cfg.darken or 0.6),
                    (cfg.alpha or 0.25) * (alpha_mul or 1))
     love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h,

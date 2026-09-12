@@ -957,6 +957,36 @@ function Chips.drawGlyphStack(cx, baseline_y, count, r, color, alpha)
     end
 end
 
+-- A glyph ARRANGEMENT: `points` is a list of { dx, row, rise, front }
+-- with dx in units of `col_step` (a fraction of r, centre to centre),
+-- row counting up from the base (each row `row_step` x r higher), an
+-- optional extra `rise` in radii, and `front = true` to draw the chip
+-- over everything else. Otherwise chips draw top row first, then left
+-- to right, so the ones in front (lower, further right) sit over the
+-- ones behind, the way drawGlyphStack's bottom chip fronts its column.
+-- views/TierGlyph owns the shapes (one chip, a pair, a pyramid, a column).
+function Chips.drawGlyphShape(cx, baseline_y, points, r, color, alpha, col_step, row_step)
+    alpha = alpha or 1
+    color = color or Theme.currency.chip
+    mul(_glyph_ring, color, 0.55)
+    _glyph_colors[1], _glyph_colors[2] = color, _glyph_ring
+    local step_y = math.max(1, math.floor(r * (row_step or 0.55)))
+    local step_x = r * (col_step or 1.0)
+    local function place(p)
+        Chips.drawGlyph(cx + (p[1] or 0) * step_x,
+                        baseline_y - (p[2] or 0) * step_y - (p[3] or 0) * r,
+                        r, alpha, 1, _glyph_colors)
+    end
+    local top = 0
+    for _, p in ipairs(points) do if (p[2] or 0) > top then top = p[2] end end
+    for row = top, 0, -1 do
+        for _, p in ipairs(points) do
+            if (p[2] or 0) == row and not p[4] then place(p) end
+        end
+    end
+    for _, p in ipairs(points) do if p[4] then place(p) end end
+end
+
 -- Build deferred-render closures for a chip-index list. Each closure
 -- captures its denomination and renders one chip at the (x, y) the
 -- caller (e.g. FlightSystem) hands back at draw time.

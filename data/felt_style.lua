@@ -115,12 +115,15 @@ return {
     -- Recessed strip behind the five community slots, so empty slots read as
     -- places at the table rather than holes in the felt.
     -- Gated on COMMUNITY CARD width -- it is that row's backing.
+    -- OFF (alpha 0) since 2026-09-12: the card wells already say where the
+    -- slots are, and a darker area around them read as a second surface on
+    -- the felt. The knobs stay so it can come back with one number.
     comm_plate = {
         min_card_w = 20,
         pad_x      = 6,
         pad_y      = 4,
         darken     = 0.55,
-        alpha      = 0.30,
+        alpha      = 0,
     },
 
     -- Card drop shadows. The cheapest thing that makes a card sit ON the table
@@ -144,11 +147,13 @@ return {
     -- NOT gated on a size of its own -- it is gated on the seat NAME flag
     -- (views/FeltLayout's show_names). The plate IS the nameplate, so one flag
     -- governs one idea and there is no felt size where a plate frames nothing.
+    -- OFF (alpha 0) since 2026-09-12, same reason as the community plate:
+    -- the wells carry the seats. The name still shows on its own.
     seat_plate = {
         pad_x  = 3,
         pad_y  = 2,
         darken = 0.60,
-        alpha  = 0.26,
+        alpha  = 0,
     },
 
     -- Dealer button. Moves seat to seat every hand, which is the clearest
