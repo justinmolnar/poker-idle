@@ -591,6 +591,10 @@ function ChipPile.tidy(key, value, opts)
             -- settle and popping back at the end.
             sh0   = (src and src.shade) or p.shade,
             sh1   = p.shade,
+            -- Where the chip was buried BEFORE the settle, and where it
+            -- will be after. The draw picks between them: a chip on the
+            -- move is a whole chip until it lands (see ChipPile.draw).
+            depth0 = (src and src.depth) or p.depth,
             depth = p.depth,
             base  = p.col_base,
             rot   = p.rot,
@@ -605,6 +609,7 @@ function ChipPile.tidy(key, value, opts)
                 x1    = p.x, y1 = p.y,
                 mode  = "out",
                 sh0   = p.shade, sh1 = p.shade,
+                depth0 = p.depth,
                 depth = p.depth,
                 base  = p.col_base,
                 rot   = p.rot,
@@ -886,10 +891,29 @@ function ChipPile.draw(key)
                     end
                 else
                     local sh = (p.sh0 or 1) + ((p.sh1 or 1) - (p.sh0 or 1)) * ease
+                    -- How buried to draw it. Drawn at its DESTINATION depth
+                    -- from the first frame, a top chip bound for the middle
+                    -- of a column slid across the felt as the bottom
+                    -- crescent of a cylinder wall with nothing on top of
+                    -- it: the flash of "another kind of chip" a settle
+                    -- used to show. A chip in motion is a whole chip until
+                    -- it lands; one that stays put is covered only while it
+                    -- is covered both before and after, so a column being
+                    -- uncovered shows the full chip as the one above
+                    -- leaves, and one being covered stays whole until the
+                    -- arrival is actually on it.
+                    local depth
+                    if ease >= 1 then
+                        depth = p.depth
+                    elseif p.x0 ~= p.x1 or p.y0 ~= p.y1 then
+                        depth = 0
+                    else
+                        depth = math.min(p.depth0 or p.depth, p.depth)
+                    end
                     drawChipLocal(place, tint,
                                   p.x0 + (p.x1 - p.x0) * ease,
                                   p.y0 + (p.y1 - p.y0) * ease,
-                                  p.d, a, p.label, sh, p.depth, p.rot)
+                                  p.d, a, p.label, sh, depth, p.rot)
                 end
             end
         end

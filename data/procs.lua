@@ -70,7 +70,7 @@ return {
                     -- Worth more the deeper the tournament runs: the last
                     -- knockout of a final table is the big one.
                     escalate = { field = "busted_total", per = 0.12 } },
-        ghost   = "curved_monitor",
+        ghost   = "hot_bath",
     },
 
     -- The enchant. Marks a neighbour's next pot for a tier bump.
@@ -83,7 +83,7 @@ return {
         target  = { kind = "board_near", radius = 1, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "next_win_tier_up" },
-        ghost   = "tower_upgrade",
+        ghost   = "fresh_towel",
     },
 
     -- The healer. A knockout sometimes buys back a neighbour's buy-in.
@@ -93,7 +93,7 @@ return {
         target  = { kind = "board_near", radius = 1, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "refund_buyin", chance = 1.0 },
-        ghost   = "shredder",
+        ghost   = "box_of_tissues",
     },
 
     -- ─── 6-Max: the tank ──────────────────────────────────────────────
@@ -278,7 +278,7 @@ return {
         target  = { kind = "self" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 4 },
-        ghost   = "cool_towel",
+        ghost   = "electric_kettle",
     },
 
     -- Waste Basket. Take the beat, throw it away: when a tilt's forced
@@ -370,7 +370,7 @@ return {
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6,
                     escalate = { field = "busted_total", per = 0.12 } },
-        ghost   = "curved_monitor",
+        ghost   = "hot_bath",
         impact  = true,    -- a blow: the source shoves / slams (see header)
     },
 
@@ -380,7 +380,7 @@ return {
         target  = { kind = "board_near", radius = 1, exclude_self = true,
                     where = { chip_stack_table = false } },
         payload = { kind = "next_win_tier_up" },
-        ghost   = "tower_upgrade",
+        ghost   = "fresh_towel",
         impact  = true,    -- a blow: the source shoves / slams (see header)
     },
 
@@ -398,7 +398,7 @@ return {
         target  = { kind = "board_near", radius = 1, pick = "random",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "refund_buyin", chance = 1.0 },
-        ghost   = "shredder",
+        ghost   = "box_of_tissues",
     },
 
     -- ─── Tilt: the diegetic bad beats ──────────────────────────────────
@@ -488,14 +488,14 @@ return {
         target  = { kind = "self" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6 },
-        ghost   = "nightstand",
+        ghost   = "chrome_toaster",
     },
     nightstand_rested_corrupt = {
         trigger = "on_rebuy",
         target  = { kind = "self" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6 },
-        ghost   = "nightstand",
+        ghost   = "chrome_toaster",
     },
 
     -- Rolled Vouchers: the first table opened at a stake catches heat
@@ -506,13 +506,13 @@ return {
         target  = { kind = "self" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6 },
-        ghost   = "rolled_vouchers",
+        ghost   = "bottle_of_wine",
     },
     rolled_vouchers_arrival_corrupt = {
         trigger = "on_table_open",
         target  = { kind = "self" },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6 },
-        ghost   = "rolled_vouchers",
+        ghost   = "bottle_of_wine",
     },
 }

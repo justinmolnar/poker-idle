@@ -744,7 +744,14 @@ function Chips.drawChip(x, y, denom_idx, alpha, with_label, tint, shade, depth, 
             -- premultiplied — the idiom the title's menu fade and the hint
             -- dim already use.
             love.graphics.setBlendMode("alpha", "premultiplied")
-            love.graphics.setColor(1, 1, 1, alpha)
+            -- Premultiplied: the colour scales the texture's rgb AND its
+            -- alpha, so a fade has to dim all four. (1, 1, 1, alpha) faded
+            -- only the coverage and left the colour at full strength, and a
+            -- half-faded chip came out brighter than a solid one: the flash
+            -- of a washed-out chip a pot showed while it recomposed its
+            -- pile, since the cross-fading chips are the only ones drawn
+            -- under 1.
+            love.graphics.setColor(alpha, alpha, alpha, alpha)
             if rot and rot ~= 0 then
                 love.graphics.push()
                 love.graphics.rotate(rot)

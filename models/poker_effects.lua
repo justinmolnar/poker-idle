@@ -211,10 +211,11 @@ function PokerEffects.registerAll(reg)
     reg:register("loss_reroll_chance", function(e, ctx)
         ctx.loss_reroll_chance = math.max(ctx.loss_reroll_chance or 0, e.value or 0)
     end)
-    -- Wall Hanger: every stake with a table adds this to every table's win
-    -- chance (buildOutcome x ctx.stakes_seated, live from the controller).
-    reg:register("odds_per_stake_seated", function(e, ctx)
-        ctx.odds_per_stake_seated = (ctx.odds_per_stake_seated or 0) + (e.value or 0)
+    -- Wall Hanger: every distinct table type in play (a stake at a game
+    -- type) adds this to every table's win chance (buildOutcome x
+    -- ctx.lanes_seated, live from the controller).
+    reg:register("odds_per_lane_seated", function(e, ctx)
+        ctx.odds_per_lane_seated = (ctx.odds_per_lane_seated or 0) + (e.value or 0)
     end)
     -- Throw Pillow: a table with no table on any side pays this much more
     -- (the controller stamps t._lonely; Table:deal reads it).

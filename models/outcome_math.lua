@@ -404,9 +404,9 @@ function OutcomeMath.buildOutcome(ctx, gtype, stake)
         win_chance = win_chance + ctx.odds_per_heater * ctx.heater_count
     end
 
-    -- 5b2. Wall Hanger: every stake the player sits at lifts every table.
-    if ctx and ctx.odds_per_stake_seated and (ctx.stakes_seated or 0) > 0 then
-        win_chance = win_chance + ctx.odds_per_stake_seated * ctx.stakes_seated
+    -- 5b2. Wall Hanger: every table type the player sits at lifts every table.
+    if ctx and ctx.odds_per_lane_seated and (ctx.lanes_seated or 0) > 0 then
+        win_chance = win_chance + ctx.odds_per_lane_seated * ctx.lanes_seated
     end
 
     -- 5c. Framed Diploma: hands per second the board plays lift Zoom's
@@ -662,6 +662,45 @@ function OutcomeMath.tiltedLossMult(ctx, gtype_id)
     return m
 end
 
+-- ─── This table's own adjustments ──────────────────────────────────────
+-- What a hand at THIS table gets that a hand at the same stake and game
+-- elsewhere does not: where the table sits (empty cells beside it, the
+-- top-left corner, nothing on any side), whether it is in the player's
+-- hand, what streak it is riding. THE definition: Table:deal applies
+-- these to the hand and evStats applies them to the readout (opts.table),
+-- so the number on the felt is the number the hand plays. They used to
+-- live inline in the deal, where no readout could see them, and a Yellow
+-- Sticky Note showed nothing on the felt it was lifting.
+--
+-- The controller stamps _empty_adjacent, _lonely and slot; the view
+-- stamps _held. `hand_mult` is the Tally Book's multiplier for the NEXT
+-- hand: the deal passes what it stamped, the readout what the streak
+-- would give (GrindController projects it).
+function OutcomeMath.tableWinChanceBonus(ctx, tbl)
+    if not (ctx and tbl) then return 0 end
+    local bonus = 0
+    if ctx.odds_per_empty_adjacent and (tbl._empty_adjacent or 0) > 0 then
+        bonus = bonus + ctx.odds_per_empty_adjacent * tbl._empty_adjacent
+    end
+    if ctx.held_odds and tbl._held then bonus = bonus + ctx.held_odds end
+    -- The Red Rug: whoever sits in the board's top-left cell plays a
+    -- little better. Slot 0 is the packed (row 0, col 0) cell.
+    if (ctx.corner_win_chance or 0) > 0 and (tbl.slot or -1) == 0 then
+        bonus = bonus + ctx.corner_win_chance
+    end
+    return bonus
+end
+
+function OutcomeMath.tableEarningsMult(ctx, tbl, hand_mult)
+    if not (ctx and tbl) then return hand_mult or 1 end
+    local m = 1
+    -- Throw Pillow: nothing on any side of this table, it pays more.
+    if tbl._lonely and ctx.lonely_winnings_mult then m = m * ctx.lonely_winnings_mult end
+    -- Tally Book: the player's own streak.
+    if hand_mult then m = m * hand_mult end
+    return m
+end
+
 -- ─── Payout multiplier ─────────────────────────────────────────────────
 -- Everything that scales a hand's magnitude once its tier is known, as a
 -- single number. THE definition — models/Table.lua applies these factors
@@ -690,8 +729,18 @@ function OutcomeMath.payoutMult(ctx, stake, tier, won, opts)
             mult = mult * (1 + ctx.earnings_per_tier * idx)
         end
         if tier == "stack" then mult = mult * (ctx.stack_mult or 1) end
+        -- This table's own winnings multiplier (the Pillow's isolation,
+        -- the Tally Book's streak): OutcomeMath.tableEarningsMult, handed
+        -- in by the readout so the felt quotes what the hand will pay.
+        mult = mult * (opts.table_mult or 1)
     else
         mult = mult * (ctx.loss_mult or 1)
+        -- Corrupted Gaming Chair: a table past the FOCUS cap loses bigger
+        -- (GrindController applies it at resolve; `opts.overcap` says the
+        -- board is over).
+        if opts.overcap and ctx.overcap_loss_mult then
+            mult = mult * ctx.overcap_loss_mult
+        end
     end
 
     if opts.focus_mult then mult = mult * opts.focus_mult end
@@ -777,6 +826,12 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
     ctx = ctx or {}
     local wc, wd, ld = OutcomeMath.resolvedOutcome(ctx, gtype, stake)
     if not wc then return nil end
+    -- opts.table: price THIS table, position and hand included, the way
+    -- Table:deal will play it. Cash tables only, as in the deal.
+    if opts and opts.table and not gtype.chip_stack_table then
+        local bonus = OutcomeMath.tableWinChanceBonus(ctx, opts.table)
+        if bonus > 0 then wc = math.min(WC_ABSOLUTE_CAP, wc + bonus) end
+    end
 
     local bb = stake.bb or 1
 
@@ -931,6 +986,11 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
             ev_per_hand = ev,
             win_avg_bb  = win_avg,
             loss_avg_bb = loss_avg,
+            -- What the figure already includes, so a tooltip explains
+            -- rather than re-applies: the focus multiplier, and whether
+            -- this priced a real table (its cell, its hand, its streak).
+            focus_mult  = opts and opts.focus_mult or nil,
+            per_table   = (opts and opts.table) and true or false,
         },
     }
 end

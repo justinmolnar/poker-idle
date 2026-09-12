@@ -71,6 +71,14 @@ return {
         -- where the chips were slivers anyway. One number; raise it to
         -- switch to columns sooner.
         micro_below_d = 17,
+        -- ...but never below this many tables, whatever the size says. The
+        -- diameter rule was measured on a Zoom felt at 1600x900; on a real
+        -- board the pot chip sits at 16-17px from five tables up (the
+        -- band solve shrinks the cards to fit the felt's height), so the
+        -- size rule alone turned the pot into columns on a five-table
+        -- board. The designer's rule is the theater's: nothing loses
+        -- detail before 20 tables. Same count as anims.min_tables.
+        micro_min_tables = 20,
     },
 
     -- Opponent seats. The name is pure flavor, and there is no font smaller

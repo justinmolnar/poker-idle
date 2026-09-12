@@ -114,7 +114,7 @@ local EXPECT = {
         if not f then err(where, ("chance %s is not a printable fraction"):format(tostring(e.value)), text) end
         return { f or "?" }
     end,
-    odds_per_stake_seated     = function(e) return { signedPct(e.value) } end,
+    odds_per_lane_seated      = function(e) return { signedPct(e.value) } end,
     lonely_winnings_mult      = function(e) return { "×" .. trim(e.value) } end,
     odds_per_empty_adjacent   = function(e) return { signedPct(e.value) } end,
     six_max_counts_empty      = function() return nil end,

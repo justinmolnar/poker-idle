@@ -120,7 +120,7 @@ return function(T)
 
     case("cool_towel_burnout", function()
         local w, six = board()
-        w:own("cool_towel")
+        w:own("electric_kettle")
         w:announce("on_tilt_spent", { table = six })
         check(key("cool_towel_burnout"), "lands", has(six, "heater"),
             "a tilt ending on a table lights that table; " .. chanceText("cool_towel_burnout"))
@@ -128,14 +128,14 @@ return function(T)
 
     case("curved_monitor_heater", function()
         local w, six, hu, zoom, ko = board()
-        w:own("curved_monitor")
+        w:own("hot_bath")
         w:announce("on_ko", { table = ko, n = 1, out = {}, busted_total = 1, seats = { 1 } })
         local n = (has(hu, "heater") and 1 or 0) + (has(zoom, "heater") and 1 or 0)
         check(key("curved_monitor_heater"), "lands", n == 1,
             ("a knockout lights ONE table adjacent to the tournament (%d of the 2 neighbours lit); "):format(n) .. chanceText("curved_monitor_heater"))
         -- Circuit Pro's reach: +1 target per deck level on top of the pick
         local w2, s2, h2, z2, k2 = board()
-        w2:own("curved_monitor"); w2:deck("circuit_pro", 1)
+        w2:own("hot_bath"); w2:deck("circuit_pro", 1)
         w2:announce("on_ko", { table = k2, n = 1, out = {}, busted_total = 1, seats = { 1 } })
         local n2 = (has(h2, "heater") and 1 or 0) + (has(z2, "heater") and 1 or 0)
         check("deck:circuit_pro:1", "reach", n2 == 2,
@@ -279,7 +279,7 @@ return function(T)
 
     case("nightstand_rested", function()
         local w, six, hu = board()
-        w:own("nightstand")
+        w:own("chrome_toaster")
         hu.stack = 0
         assert(w.ctrl:rebuyTable(w:find(hu)))
         check(key("nightstand_rested"), "lands", has(hu, "heater"),
@@ -299,16 +299,16 @@ return function(T)
             ("resolved odds at a Heads-Up table rose by %.4f after one win"):format(wc1 - wc0))
         -- the Whiteboard doubles what a win banks
         local w2, _, _, _, k2 = board()
-        w2:own({ "prize_vase", "whiteboard" })
+        w2:own({ "prize_vase", "rubber_duck" })
         w2:announce("on_tournament_win", { table = k2, n = 1 })
         local r2 = w2.state.run_ratchets and w2.state.run_ratchets[1]
-        check("item:whiteboard", "ratchet x2", r2 and math.abs((r2.amount or 0) - 0.02) < 1e-9,
+        check("item:rubber_duck", "ratchet x2", r2 and math.abs((r2.amount or 0) - 0.02) < 1e-9,
             ("with the Whiteboard a tournament win banks +%s odds (double the vase's 1%%)"):format(tostring(r2 and r2.amount)))
     end)
 
     case("rolled_vouchers_arrival", function()
         local w = T.world()
-        w:own("rolled_vouchers")
+        w:own("bottle_of_wine")
         local a = w:open("s001", "hu")
         local b = w:open("s001", "zoom")
         local c = w:open("s002", "hu")
@@ -318,7 +318,7 @@ return function(T)
 
     case("shredder_refund", function()
         local w, six, hu, zoom, ko = board()
-        w:own("shredder")
+        w:own("box_of_tissues")
         local before = w.state.bankroll
         w:announce("on_ko", { table = ko, n = 1, out = {}, busted_total = 1, seats = { 1 } })
         local got = w.state.bankroll - before
@@ -345,7 +345,7 @@ return function(T)
 
     case("tower_upgrade_bump", function()
         local w, six, hu, zoom, ko = board()
-        w:own("tower_upgrade")
+        w:own("fresh_towel")
         w:announce("on_ko", { table = ko, n = 1, out = {}, busted_total = 1, seats = { 1 } })
         local n = (hu._next_win_tier_up and 1 or 0) + (zoom._next_win_tier_up and 1 or 0)
         check(key("tower_upgrade_bump"), "lands", n == 1 and not ko._next_win_tier_up,
@@ -415,7 +415,7 @@ return function(T)
 
     rcase("window_bend", function()
         local w, six, hu, zoom, ko = board()
-        w:own({ "prize_vase", "high_roller_pass", "window" })
+        w:own({ "prize_vase", "shower_head", "window" })
         ko.ko.state = "playing"
         local _, status = w:deliver("tilt", hu)
         ko.ko.state = "idle"
@@ -426,7 +426,7 @@ return function(T)
 
     rcase("basket_corner", function()
         local w, six, hu, zoom = board()
-        w:own({ "dish_soap", "waste_basket" })
+        w:own({ "dish_soap", "kitchen_bin" })
         local to = w:deliver("tilt", zoom)
         check("router:basket_corner", "corner", to == six,
             "a tilt aimed anywhere lands on the top-left table instead; " .. rtext("basket_corner"))

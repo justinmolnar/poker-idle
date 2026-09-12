@@ -52,7 +52,7 @@
 --    the R1 flag, a lifetime_* counter) carries `act = 2`, or a `mystery`
 --    so the demo shows a "???" teaser that peels when Act 2 opens.
 -- 8. THE TIERS price a card by its role on the shelf, then the two acts
---    are summed to data/balance.lua CATALOG_CHIP_BUDGET (225 / 575):
+--    are summed to data/balance.lua CATALOG_CHIP_BUDGET (242 / 538):
 --        Act 1  intro 2-5 (a key 8-13) · core 5-10 · capstone 12-14
 --        Act 2  cheap 8-10 · core 12-16 · chain link 12-18 · capstone 18-22
 --    Rules 5-8 and the sums: `lua sim/lint_catalog_economy.lua`.
@@ -86,22 +86,24 @@ return {
     { id = "value_buys", title = "Value Buys", label = "VALUE BUYS", tab = { "sem:chip" },
       items = {
           "corkboard", "starter_gift_box", "energy_drink", "fight_night_poster",
-          "nightstand", "bonsai", "prize_vase", "box_of_mice",
+          "chrome_toaster", "bonsai", "prize_vase", "box_of_mice",
       },
       shelf_of = {
           corkboard = "stats", starter_gift_box = "rack", fight_night_poster = "hu",
           energy_drink = "zoom", bonsai = "six_max", prize_vase = "ko",
-          nightstand = "mental", box_of_mice = "cursors",
+          chrome_toaster = "mental", box_of_mice = "cursors",
       } },
 
-    -- The numbers, each on a condition the player arranges: how many
-    -- stakes, the gaps on the board, the table in your hand, the hands you
-    -- pick yourself. The Corkboard (the intro) is the one flat card.
-    -- Cheap and Act 1, so first.
+    -- The numbers, each on a condition the player arranges: the gaps on
+    -- the board, the table in your hand, the hands you pick yourself, how
+    -- many table types. The Corkboard (the intro) is the one flat card.
+    -- The Sticky Note leads: the one board question a first run can ask.
+    -- The Pillow (one isolated table) and the Hook (many lanes) are Act 2
+    -- builds and sit late.
     { id = "stats", title = "Memberships & Vouchers", label = "STATS", tab = { "paper:sticker_counting" },
       items = {
-          "wall_hanger", "throw_pillow", "stack_of_books", "yellow_sticky_note",
-          "lava_lamp", "comfort_bed", "cutting_board", "chrome_toaster",
+          "yellow_sticky_note", "stack_of_books", "lava_lamp", "comfort_bed",
+          "tally_book", "throw_pillow", "wall_hook", "nightstand",
       } },
 
     -- The run and the rack: what a run starts with (the Gift Box is the
@@ -124,15 +126,16 @@ return {
           "trophy_shelf", "pencil_holder", "gaming_chair", "tip_jar",
       } },
 
-    -- Zoom: speed. The Energy Drink (the intro) spreads deals; the clock
-    -- and the cat turn volume into weather; then what fast-fold means (a
-    -- loss deals the next hand, a tilt does not follow), volume as
-    -- progression, and the loop: the block deals faster, wins in a row
-    -- deal faster, hands per second feed the odds.
+    -- Zoom: volume. Heads-Up does stacks, Zoom does hands, so the shelf
+    -- gates on hands (any table's) and its Act 1 loop leads: the cat cashes
+    -- wins, the console turns the board's speed into odds, the washer
+    -- spins wins in a row into speed. Then what fast-fold means (a loss
+    -- deals the next hand, a tilt does not follow) and the clock; the
+    -- printer and the TV are Act 2's block.
     { id = "zoom", title = "Kitchen & Appliances", label = "ZOOM", tab = { "gtype:zoom" },
       items = {
-          "handheld", "headset", "house_cat", "wall_clock",
-          "framed_diploma", "receipt_printer", "copy_machine", "washing_machine",
+          "house_cat", "hybrid_console", "handheld", "headset",
+          "wall_clock", "washing_machine", "receipt_printer", "replay_tv",
       } },
 
     -- 6-Max: the tank. The Bonsai (the intro) opens the room. The money
@@ -150,19 +153,19 @@ return {
     -- tournament's block, the poster brings a busted neighbour back.
     { id = "ko", title = "Awards & Trophy Wall", label = "TOURNAMENTS", tab = { "gtype:ko" },
       items = {
-          "medical_poster", "first_aid_kit", "curved_monitor", "tower_upgrade",
-          "shredder", "whiteboard", "high_roller_pass", "window",
+          "medical_poster", "first_aid_kit", "hot_bath", "fresh_towel",
+          "box_of_tissues", "rubber_duck", "shower_head", "window",
       } },
 
-    -- The mental game: heat and tilt. The Nightstand (rebuy, heater) is
-    -- the intro. Sources, then the tilt routers and converters, then how
-    -- long and how much the weather is worth: the speakers scale with the
-    -- heaters burning, the stove makes a heater last, the pan lets a
-    -- burning table take a tilt and keep its fire.
+    -- The mental game: heat and tilt. The Toaster (rebuy, heater) is the
+    -- intro. Act 1 gets a source (the Wine lights a table), what heat is
+    -- worth (the speakers) and a tilt router (the soap); then the tilt
+    -- converters, and how long the weather lasts: the stove makes a heater
+    -- last, the pan lets a burning table take a tilt and keep its fire.
     { id = "mental", title = "Bed & Bath", label = "HEAT & TILT", tab = { "sem:heat", "sem:tilt" },
       items = {
-          "rolled_vouchers", "dish_soap", "cool_towel", "waste_basket",
-          "desk_speakers", "cast_iron_pan", "microwave_oven", "gas_stove",
+          "bottle_of_wine", "desk_speakers", "dish_soap", "electric_kettle",
+          "kitchen_bin", "cast_iron_pan", "microwave_oven", "gas_stove",
       } },
 
     -- The cursor swarm (its root, the Box of Mice, is the Value Buys intro).
@@ -173,7 +176,7 @@ return {
     { id = "cursors", title = "Computer Accessories", label = "CURSORS", tab = { "sem:upgrade" },
       items = {
           "laptop_terminal", "old_keyboard", "telephone", "wacom_tablet",
-          "desk_lamp", "glass_partition", "gaming_keyboard", "cleaning_robot",
+          "desk_lamp", "beige_tower", "gaming_keyboard", "cleaning_robot",
       } },
 
     -- The Ultra key is its own thing: on no shelf, so it falls to the

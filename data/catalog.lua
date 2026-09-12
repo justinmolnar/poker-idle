@@ -94,12 +94,17 @@
 -- `format = "money"` switches the counter to dollar formatting. Default is a
 -- plain abbreviated count.
 --
--- IDS ARE FROZEN. owned_items / corrupted_items serialize ids into player
--- saves that are live on itch. Rename a `name` freely; never an `id`.
+-- IDS ARE THE NAMES. An item's id is its display name in snake case
+-- (`chrome_toaster` is the Chrome Toaster), and its sprite alias
+-- (assets/sprites/aliases.json), its sound (assets/audio/items) and its
+-- room cell (data/room_layout) all share that id. owned_items /
+-- corrupted_items serialize ids into saves, so renaming one is a save
+-- version bump (data/constants.lua SAVE.VERSION): the 2026-09-11 pass
+-- renamed fifteen and bumped to 3.
 --
 -- ─── The budget ─────────────────────────────────────────────────────────
--- The WHOLE book is 800 {chip}: the Act 1 shelves (no `act = 2`) 225, the
--- Act 2 shelves 575 (data/balance.lua CATALOG_CHIP_BUDGET). Income per run:
+-- The WHOLE book is 780 {chip}: the Act 1 shelves (no `act = 2`) 242, the
+-- Act 2 shelves 538 (data/balance.lua CATALOG_CHIP_BUDGET). Income per run:
 -- a T1-T3 sweep banks 18 (24 with Fight Night), a T1-T6 sweep 84, so Act 1's
 -- five runs bank ~100 and Act 2's six ~450; Act 3 (180 a run) finishes the
 -- book. Prices come from role tiers and read as a ladder down each shelf
@@ -108,7 +113,7 @@
 --
 -- Shove is a flat 1% per item (data/balance.lua K_SHOVE_PER_ITEM), derived
 -- at boot, so the shove_rate_add entries below carry no value: an act's
--- shove is its item count. Act 1's 35 items carry 0.35 ≥ the 0.250 the
+-- shove is its item count. Act 1's 37 items carry 0.37 ≥ the 0.250 the
 -- first shove needs at T3; later items buy capability rather than shove.
 --
 -- ─── Unlock gates ───────────────────────────────────────────────────────
@@ -144,23 +149,27 @@ local items = {
 
 
     {
-        -- Spread: diversify across stakes and the whole board pays.
-        id          = "wall_hanger",
+        -- Spread: every distinct table type in play (a stake at a game:
+        -- NL2 Heads-Up and NL2 Zoom are two) lifts the whole board. Six
+        -- lanes exist in Act 1 and a run sits at one or two of them, so
+        -- this is an Act 2 card: there it is 36 lanes and room to fill them.
+        id          = "wall_hook",
+        act         = 2,
         name        = "Wall Hook",
-        effect_text = "Each stake you sit at: +1% {c:chance:odds} at {k:every_table}.",
+        effect_text = "Each table type you sit at (stake and game): +1% {c:chance:odds} at {k:every_table}.",
         description = "Sturdy wall hook for hanging your hat and gear.",
-        sprite      = "wall_hanger",
-        phase       = "demo",
-        cost_chip     = 3,
+        sprite      = "wall_hook",
+        phase       = "mid",
+        cost_chip     = 9,
         unlock      = {
             kind      = "total_hands_played",
-            threshold = 50,
+            threshold = 5000,
             text      = "hands played",
         },
         position    = { x = 120, y = 220 },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "odds_per_stake_seated", value = 0.01 },   -- PLACEHOLDER
+            { kind = "odds_per_lane_seated", value = 0.01 },   -- PLACEHOLDER
         },
     },
     {
@@ -293,17 +302,20 @@ local items = {
     {
         -- Quiet: a table with nothing on any side. A 6-Max beside it counts
         -- as nothing with the Comfort Bed.
+        -- An Act 2 build (isolating a table is playing one table in
+        -- Act 1); the Comfort Bed is what makes it a board.
         id          = "throw_pillow",
+        act         = 2,
         name        = "Throw Pillow",
         effect_text = "A table with nothing {k:adjacent}: {c:won:winnings} ×1.5.",
         description = "Soft plush pillow. Perfect for cushioning rough beats.",
         sprite      = "throw_pillow",
-        phase       = "demo",
-        cost_chip     = 4,
+        phase       = "mid",
+        cost_chip     = 8,
         position    = { x = 320, y = 220 },
         unlock = {
             kind      = "total_stack_losses",
-            threshold = 1,
+            threshold = 200,
             text      = "{l:stack} {c:lost:losses} taken",
         },
         effects     = {
@@ -391,7 +403,10 @@ local items = {
         description = "A pad of yellow notes. Sticks to anything.",
         sprite      = "yellow_sticky_note",
         phase       = "demo",
-        cost_chip   = 6,
+        -- The Stats shelf's first card and its Act 1 taster: the one
+        -- question a partial board asks from the first run (fill the gap,
+        -- or leave it for the odds beside it), priced to be bought early.
+        cost_chip   = 3,
         unlock      = {
             kind      = "total_hands_at_4plus",
             threshold = 100,
@@ -406,11 +421,11 @@ local items = {
         -- Hand-picked: the active combo. Only hands you deal yourself
         -- build or break it, so you keep it alive by choosing the right
         -- table each click; the swarm's deals never touch it.
-        id          = "cutting_board",
+        id          = "tally_book",
         name        = "Tally Book",
         effect_text = "{c:won:Wins} in a row on hands you deal yourself: {c:won:winnings} ×1.1 per win, up to ×2. A {c:lost:loss} you dealt ends it.",
         description = "You keep your own count.",
-        sprite      = "cutting_board",
+        sprite      = "tally_book",
         phase       = "mid",
         cost_chip   = 7,
         unlock      = {
@@ -424,13 +439,13 @@ local items = {
         },
     },
     {
-        id          = "rubber_duck",
+        id          = "rubber_duck_retired",
         retired             = true,   -- cut 2026-09-07; docs/retired-item-effects.md
         refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Rubber Duck",
         effect_text = "Your run's first loss is voided.",
         description = "Squeak. It never happened.",
-        sprite      = "rubber_duck",
+        sprite      = "rubber_duck_retired",
         phase       = "demo",
         cost_chip     = 5,
         position    = { x = 210, y = 400 },
@@ -622,11 +637,11 @@ local items = {
             { kind = "six_max_unlocked" },
         },
         unlock = {
-            -- A whole game type is a mid-act MILESTONE, not a day-one key:
-            -- the game only ever sells two rooms. ~75 banked lands around
-            -- run five, so the Den spread opens genuinely mid-game.
+            -- A whole game type is a late-act MILESTONE, not a day-one key:
+            -- the game only ever sells two rooms. A full Act 1 banks ~63,
+            -- so 45 lands around run four: late Act 1, inside the act.
             kind      = "total_chips_banked",
-            threshold = 75,
+            threshold = 45,
             text      = "{chip} {c:chip:banked}",
             -- "???" until the pitch has named the door economy
             mystery   = { kind = "total_chips_banked", threshold = 3 },
@@ -745,15 +760,17 @@ local items = {
         description = "Foam mic cover. Someone else's earwax.",
         sprite      = "headset",
         phase       = "mid",
-        cost_chip   = 6,
+        cost_chip   = 7,
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "zoom_tilt_one_hand" },
         },
+        -- One of the two Zoom cards gated on Zoom hands (the rest count
+        -- every hand, so a Heads-Up player still sees the shelf open).
         unlock = {
             kind      = "total_hands_at_gtype",
             gtype     = "zoom",
-            threshold = 2600,
+            threshold = 1200,
             text      = "Zoom hands",
         },
     },
@@ -826,7 +843,7 @@ local items = {
         cost_chip   = 8,
         unlock = {
             kind      = "total_hands_played",
-            threshold = 7000,
+            threshold = 2500,
             text      = "hands played",
         },
         effects     = {
@@ -849,11 +866,13 @@ local items = {
         effect_text = "Win a hand: 1 in 50 chance {k:a_random_table}'s next {c:won:win} lands one size up.",
         description = "Someone's cat. It has opinions.",
         sprite      = "house_cat",
-        phase       = "mid",
-        cost_chip   = 8,
+        phase       = "demo",
+        -- The Zoom shelf's first card: Zoom does hands the way Heads-Up
+        -- does stacks, and this pays on every hand won, on any table.
+        cost_chip   = 5,
         unlock = {
             kind      = "total_hands_won",
-            threshold = 2900,
+            threshold = 300,
             text      = "hands won",
         },
         effects     = {
@@ -938,10 +957,11 @@ local items = {
         sprite      = "handheld",
         phase       = "mid",
         cost_chip   = 6,
+        -- One of the two Zoom cards gated on Zoom hands.
         unlock = {
             kind      = "total_hands_at_gtype",
             gtype     = "zoom",
-            threshold = 1200,
+            threshold = 400,
             text      = "Zoom hands",
         },
         effects     = {
@@ -978,7 +998,7 @@ local items = {
         cost_chip   = 8,
         unlock = {
             kind      = "total_tilts",
-            threshold = 90,
+            threshold = 15,
             text      = "tables {c:tilt:tilted}",
             -- "???" until tilt exists in this player's game
             mystery   = { kind = "total_tilts", threshold = 1 },
@@ -990,18 +1010,20 @@ local items = {
     },
 
     {
-        id          = "rolled_vouchers",
-        act         = 2,
+        -- The Heat & Tilt shelf's first card and Act 1's heat source: no
+        -- item makes weather on its own before this, so the shelf's taster
+        -- has to be the thing that lights a table.
+        id          = "bottle_of_wine",
         name        = "Bottle of Wine",
         effect_text = "Open your first table at a stake: it catches a {c:heat:heater}.",
         description = "A new stake is an occasion.",
-        sprite      = "rolled_vouchers",
-        phase       = "mid",
-        cost_chip     = 8,
+        sprite      = "bottle_of_wine",
+        phase       = "demo",
+        cost_chip     = 5,
         position    = { x = 600, y = 300 },
         unlock = {
             kind      = "total_busts",
-            threshold = 275,
+            threshold = 10,
             text      = "tables {c:lost:busted}",
         },
         effects     = {
@@ -1217,12 +1239,12 @@ local items = {
         },
     },
     {
-        id            = "glass_partition",
+        id            = "beige_tower",
         act           = 2,
         name          = "Beige Tower",
         effect_text   = "A lit {c:upgrade:cursor} clashes with another: it lights too.",
         description   = "Runs hot. So does everything plugged into it.",
-        sprite        = "glass_partition",
+        sprite        = "beige_tower",
         phase         = "late",
         cost_chip     = 15,
         requires    = "desk_lamp",
@@ -1232,13 +1254,13 @@ local items = {
         },
     },
     {
-        id          = "electric_kettle",
+        id          = "electric_kettle_retired",   -- the id went to the Electric Kettle that carries the name (was cool_towel)
         retired             = true,   -- cut 2026-09-07; docs/retired-item-effects.md
         act         = 2,
         name        = "Electric Kettle",
         effect_text = "A table {c:lost:busts}: 30% of its buy-in comes back.",
         description = "Boils fast. Whistles louder.",
-        sprite      = "electric_kettle",
+        sprite      = "electric_kettle_retired",
         phase       = "late",
         cost_chip   = 11,
         effects     = {
@@ -1259,12 +1281,12 @@ local items = {
         },
     },
     {
-        id          = "chrome_toaster",
+        id          = "nightstand",
         act         = 2,
         name        = "Nightstand",
         effect_text = "1 in 12 chance a {c:won:win} lands one size up.",
         description = "One drawer. You never know what is in it.",
-        sprite      = "chrome_toaster",
+        sprite      = "nightstand",
         phase       = "late",
         cost_chip   = 14,
         effects     = {
@@ -1333,11 +1355,11 @@ local items = {
         },
     },
     {
-        id          = "nightstand",
+        id          = "chrome_toaster",
         name        = "Chrome Toaster",
         effect_text = "{k:Rebuy}: 1 in 2 chance that table catches a {c:heat:heater}.",
         description = "Two slots. One setting. Pops without warning.",
-        sprite      = "nightstand",
+        sprite      = "chrome_toaster",
         phase       = "late",
         cost_chip   = 5,
         effects     = {
@@ -1346,7 +1368,7 @@ local items = {
         },
         unlock = {
             kind      = "total_rebuys",
-            threshold = 150,
+            threshold = 60,
             text      = "rebuys",
         },
         corrupt = {
@@ -1390,7 +1412,7 @@ local items = {
         cost_chip   = 16,
         -- Second link of the tank chain: the Bonsai opens the room, this
         -- starts converting what lands on it.
-        requires    = "nightstand",
+        requires    = "chrome_toaster",
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "proc", proc = "microwave_oven_vent" },
@@ -1408,15 +1430,22 @@ local items = {
         -- Hands per second: the board's live throughput feeds the Zoom
         -- tables' odds (GrindController keeps a one-second count; the
         -- outcome model reads it). Only a Zoom-heavy board registers.
-        id          = "framed_diploma",
-        act         = 2,
+        -- Second card on the Zoom shelf: with the House Cat and the
+        -- Washing Machine it is Act 1's Zoom loop (the washer spins the
+        -- board faster, this turns the speed into odds, the cat cashes the
+        -- wins).
+        id          = "hybrid_console",
         name        = "Hybrid Console",
         effect_text = "Each hand per second the board plays: +2% {c:chance:odds} at {k:Zoom}.",
         description = "Docked. The faster the board runs, the better it plays.",
-        sprite      = "framed_diploma",
-        phase       = "late",
-        cost_chip     = 14,
-        requires    = "wall_clock",
+        sprite      = "hybrid_console",
+        phase       = "mid",
+        cost_chip     = 6,
+        unlock = {
+            kind      = "total_hands_played",
+            threshold = 600,
+            text      = "hands played",
+        },
         position    = { x = 450, y = 400 },
         effects     = {
             { kind = "shove_rate_add" },
@@ -1427,18 +1456,16 @@ local items = {
         -- The combo: wins in a row spin the table faster, a loss stops the
         -- drum. Zoom's win chance and pace are what make streaks happen.
         id          = "washing_machine",
-        act         = 2,
         name        = "Washing Machine",
         effect_text = "{c:won:Wins} in a row at {k:Zoom}: deal speed ×1.05 per win, up to ×1.5. A {c:lost:loss} ends it.",
         description = "Spin cycle. It only gets louder.",
         sprite      = "washing_machine",
-        phase       = "late",
-        cost_chip   = 18,
+        phase       = "mid",
+        cost_chip   = 10,
         unlock      = {
-            kind      = "total_hands_at_gtype",
-            gtype     = "zoom",
-            threshold = 4000,
-            text      = "Zoom hands",
+            kind      = "total_hands_played",
+            threshold = 1500,
+            text      = "hands played",
         },
         effects     = {
             { kind = "shove_rate_add" },
@@ -1514,18 +1541,20 @@ local items = {
     {
         -- The room runs hot: every heater burning anywhere lifts every
         -- table. Scales with the board and with the swarm's fire.
+        -- Act 1's second Heat & Tilt card: opens once anything has made
+        -- heat (the Wine, the Dogs, the Toaster). Owning it also opens the
+        -- clean audio chain (services/MusicDirector).
         id          = "desk_speakers",
-        act         = 2,
         name        = "Desk Speakers",
         effect_text = "Each {c:heat:heater} burning: +1% {c:chance:odds} at {k:every_table}.",
         description = "Two small ones. Turn it up and the whole room feels it.",
         sprite      = "desk_speakers",
         phase       = "mid",
-        cost_chip   = 14,
+        cost_chip   = 8,
         unlock = {
-            kind      = "total_chips_banked",
-            threshold = 160,
-            text      = "{chip} {c:chip:banked}",
+            kind      = "total_heaters",
+            threshold = 10,
+            text      = "{c:heat:heaters} caught",
         },
         effects     = {
             { kind = "shove_rate_add" },
@@ -1593,12 +1622,12 @@ local items = {
         },
     },
     {
-        id          = "curved_monitor",
+        id          = "hot_bath",
         act         = 2,
         name        = "Hot Bath",
         effect_text = "A {k:knockout}: 1 in 5 chance a table {k:adjacent} to the {k:tournament} catches a {c:heat:heater}.",
         description = "Steam. It gets into the next room.",
-        sprite      = "curved_monitor",
+        sprite      = "hot_bath",
         phase       = "mid",
         cost_chip   = 14,
         -- First of the on-KO items: the ratchet first, then the knockouts.
@@ -1617,15 +1646,15 @@ local items = {
         },
     },
     {
-        id          = "tower_upgrade",
+        id          = "fresh_towel",
         act         = 2,
         name        = "Fresh Towel",
         effect_text = "A {k:knockout}: 1 in 6 chance a cash table {k:adjacent} to the {k:tournament} gets its next {c:won:win} one size up.",
         description = "Folded once. Warm from somewhere.",
-        sprite      = "tower_upgrade",
+        sprite      = "fresh_towel",
         phase       = "mid",
         cost_chip   = 15,
-        requires      = "curved_monitor",
+        requires      = "hot_bath",
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "proc", proc = "tower_upgrade_bump" },
@@ -1644,12 +1673,12 @@ local items = {
     {
         -- Carbon copy: volume into progression. Every counter that counts
         -- hands (stickers, gates, deck XP) counts a Zoom hand as two.
-        id          = "copy_machine",
+        id          = "replay_tv",
         act         = 2,
         name        = "Replay TV",
         effect_text = "A {k:Zoom} hand counts as two.",
         description = "The replay. Every hand, played back.",
-        sprite      = "copy_machine",
+        sprite      = "replay_tv",
         phase       = "mid",
         cost_chip   = 17,
         requires    = "receipt_printer",
@@ -1659,14 +1688,14 @@ local items = {
         },
     },
     {
-        id          = "whiteboard",
+        id          = "rubber_duck",
         act         = 2,
         name        = "Rubber Duck",
         effect_text = "A {k:tournament} win pays +2% {c:chance:odds} at {k:every_table} for the run.",
         allow_numbers = { 2 },
         see_also    = { "prize_vase" },
         description = "Squeak. It saw the whole thing.",
-        sprite      = "whiteboard",
+        sprite      = "rubber_duck",
         phase       = "late",
         cost_chip   = 17,
         requires    = "prize_vase",
@@ -1677,13 +1706,13 @@ local items = {
     },
 
     {
-        id          = "high_roller_pass",
+        id          = "shower_head",
         act         = 2,
         name        = "Shower Head",
         effect_text = "Each {k:tournament} a table finishes: +1% {c:chance:odds} at cash tables of its stake, until that table closes.",
         readout     = { kind = "tourney_backing" },
         description = "Rinse. Repeat.",
-        sprite      = "high_roller_pass",
+        sprite      = "shower_head",
         phase       = "late",
         cost_chip   = 18,
         -- Finish-based branch of the tournament chain.
@@ -1711,7 +1740,7 @@ local items = {
         phase       = "late",
         cost_chip   = 20,
         -- The router caps the tournament chain.
-        requires      = "high_roller_pass",
+        requires      = "shower_head",
         unlock = {
             kind      = "total_tilts",
             threshold = 40,
@@ -1858,15 +1887,15 @@ local items = {
     },
 
     {
-        id          = "shredder",
+        id          = "box_of_tissues",
         act         = 2,
         name        = "Box of Tissues",
         effect_text = "A {k:knockout}: 1 in 8 chance a cash table {k:adjacent} to the {k:tournament} gets its buy-in back.",
         description = "For the busts.",
-        sprite      = "shredder",
+        sprite      = "box_of_tissues",
         phase       = "late",
         cost_chip   = 16,
-        requires      = "tower_upgrade",
+        requires      = "fresh_towel",
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "proc", proc = "shredder_refund" },
@@ -1881,12 +1910,12 @@ local items = {
         },
     },
     {
-        id          = "cool_towel",
+        id          = "electric_kettle",
         act         = 2,
         name        = "Electric Kettle",
         effect_text = "A {c:tilt:tilt} ends: 1 in 4 chance that table catches a {c:heat:heater}.",
         description = "Boils fast. Whistles louder.",
-        sprite      = "cool_towel",
+        sprite      = "electric_kettle",
         phase       = "late",
         cost_chip   = 12,
         requires    = "dish_soap",
@@ -1896,12 +1925,12 @@ local items = {
         },
     },
     {
-        id          = "waste_basket",
+        id          = "kitchen_bin",
         act         = 2,
         name        = "Kitchen Bin",
         effect_text = "A {c:tilt:tilt}: 1 in 3 chance it lands on the top-left table instead.",
         description = "The corner is the basket. Ride it out, throw it away.",
-        sprite      = "waste_basket",
+        sprite      = "kitchen_bin",
         phase       = "late",
         cost_chip   = 13,
         requires    = "dish_soap",

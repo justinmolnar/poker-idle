@@ -999,6 +999,13 @@ function ShoveView:skip()
         -- phase_t to nil and only failed to crash because ShoveState flips
         -- to "running" before the next draw reads it.
         self.phase_t = self.buildup_total or 0
+        -- The pour has landed: every chip is on the pot. The arrival count
+        -- is otherwise only kept by the buildup tick, which this skips, and
+        -- controllers/hint_ctx reads it as shove_pot_landed. Left at 0 the
+        -- walkthrough beat's first line (show = shove_pot_landed) waited
+        -- forever with nothing on screen, and a beat that is waiting holds
+        -- the director: no beat played anywhere for the rest of the session.
+        self.buildup_arrived_count = self.buildup_chips and #self.buildup_chips or 0
         return
     end
     if self.phase == "hold" then self:advance(); return end

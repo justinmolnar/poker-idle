@@ -101,7 +101,7 @@
       "New run",
       "Strong Identity/Fun"
     ],
-    "chrome_toaster": [
+    "nightstand": [
       "Odds/%'s"
     ],
     "cleaning_robot": [
@@ -123,12 +123,12 @@
       "Positional",
       "Strong Identity/Fun"
     ],
-    "cool_towel": [
+    "electric_kettle": [
       "Tilt",
       "Heat",
       "Strong Identity/Fun"
     ],
-    "copy_machine": [
+    "replay_tv": [
       "Zoom",
       "Weak Identity/Boring"
     ],
@@ -136,7 +136,7 @@
       "Odds/%'s",
       "Weak Identity/Boring"
     ],
-    "curved_monitor": [
+    "hot_bath": [
       "Heat",
       "KO",
       "Positional",
@@ -198,7 +198,7 @@
       "KO",
       "Strong Identity/Fun"
     ],
-    "framed_diploma": [
+    "hybrid_console": [
       "Zoom",
       "Tilt",
       "Heat",
@@ -213,7 +213,7 @@
       "Cursors",
       "Strong Identity/Fun"
     ],
-    "glass_partition": [
+    "beige_tower": [
       "Cursors",
       "Strong Identity/Fun"
     ],
@@ -227,7 +227,7 @@
       "Zoom",
       "Weak Identity/Boring"
     ],
-    "high_roller_pass": [
+    "shower_head": [
       "Odds/%'s",
       "KO",
       "Strong Identity/Fun"
@@ -257,7 +257,7 @@
       "Odds/%'s",
       "Weak Identity/Boring"
     ],
-    "nightstand": [
+    "chrome_toaster": [
       "Heat",
       "Strong Identity/Fun"
     ],
@@ -288,11 +288,11 @@
       "Misc Stats",
       "Strong Identity/Fun"
     ],
-    "rolled_vouchers": [
+    "bottle_of_wine": [
       "Heat",
       "Strong Identity/Fun"
     ],
-    "rubber_duck": [
+    "rubber_duck_retired": [
       "Odds/%'s",
       "New run",
       "Weak Identity/Boring"
@@ -301,7 +301,7 @@
       "Misc Stats",
       "Strong Identity/Fun"
     ],
-    "shredder": [
+    "box_of_tissues": [
       "KO",
       "Positional",
       "Strong Identity/Fun"
@@ -334,7 +334,7 @@
       "HU/Chip",
       "Strong Identity/Fun"
     ],
-    "tower_upgrade": [
+    "fresh_towel": [
       "KO",
       "Positional",
       "Strong Identity/Fun"
@@ -348,14 +348,14 @@
       "Heat",
       "Strong Identity/Fun"
     ],
-    "wall_hanger": [
+    "wall_hook": [
       "Odds/%'s",
       "Weak Identity/Boring"
     ],
-    "waste_basket": [
+    "kitchen_bin": [
       "Tilt"
     ],
-    "whiteboard": [
+    "rubber_duck": [
       "Misc Stats",
       "KO",
       "Strong Identity/Fun"

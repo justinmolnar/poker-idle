@@ -36,13 +36,13 @@ return function(T)
             ("+5%% odds at every table: measured %s at NL2 Heads-Up, %s at NL10 6-Max; at a naked NL10K 6-Max only %s shows, because its win chance sits clamped at 0 (5%% - the 6-Max's 8%%) before the item"):format(pct(d1), pct(d2), pct(d3)))
     end
 
-    if wanted("item:wall_hanger") then
-        local c3 = withOnly({ "wall_hanger" }, nil, { stakes_seated = 3 })
-        local c0 = withOnly({ "wall_hanger" }, nil, { stakes_seated = 0 })
+    if wanted("item:wall_hook") then
+        local c3 = withOnly({ "wall_hook" }, nil, { lanes_seated = 3 })
+        local c0 = withOnly({ "wall_hook" }, nil, { lanes_seated = 0 })
         local d3 = odds(c3, "zoom", "s002") - odds(base, "zoom", "s002")
         local d0 = odds(c0, "zoom", "s002") - odds(base, "zoom", "s002")
-        check("item:wall_hanger", "odds", math.abs(d3 - 0.03) < 1e-9 and math.abs(d0) < 1e-9,
-            ("+1%% odds per stake seated: 3 stakes = %s everywhere, 0 stakes = %s"):format(pct(d3), pct(d0)))
+        check("item:wall_hook", "odds", math.abs(d3 - 0.03) < 1e-9 and math.abs(d0) < 1e-9,
+            ("+1%% odds per table type in play: 3 lanes = %s everywhere, 0 lanes = %s"):format(pct(d3), pct(d0)))
     end
 
     if wanted("item:mirror") then
@@ -66,11 +66,11 @@ return function(T)
             ("+1%% odds everywhere per heater burning: 4 heaters = %s at NL100 6-Max, none = %s"):format(pct(d), pct(d0)))
     end
 
-    if wanted("item:framed_diploma") then
-        local c = withOnly({ "framed_diploma" }, nil, { hands_per_second = 2.5 })
+    if wanted("item:hybrid_console") then
+        local c = withOnly({ "hybrid_console" }, nil, { hands_per_second = 2.5 })
         local dz = odds(c, "zoom", "s002") - odds(base, "zoom", "s002")
         local dh = odds(c, "hu", "s002") - odds(base, "hu", "s002")
-        check("item:framed_diploma", "odds", math.abs(dz - 0.05) < 1e-9 and math.abs(dh) < 1e-9,
+        check("item:hybrid_console", "odds", math.abs(dz - 0.05) < 1e-9 and math.abs(dh) < 1e-9,
             ("+2%% odds at Zoom per hand per second: 2.5 hands/s = %s at Zoom, %s at Heads-Up"):format(pct(dz), pct(dh)))
     end
 
@@ -86,12 +86,12 @@ return function(T)
             ("1 in 3 of large 6-Max wins become stacks: stack share %.3f -> %.3f (a third of the large share, %.3f); Zoom untouched"):format(wd0.stack, wd1.stack, wd0.large))
     end
 
-    if wanted("item:chrome_toaster") then
-        local c = withOnly({ "chrome_toaster" })
+    if wanted("item:nightstand") then
+        local c = withOnly({ "nightstand" })
         local _, _, wd0 = odds(base, "hu", "s002")
         local _, _, wd1 = odds(c, "hu", "s002")
         -- one size up with p = 1/12: the small share loses a twelfth, the stack share can only gain
-        check("item:chrome_toaster", "bump", math.abs(wd1.small - wd0.small * (1 - 1 / 12)) < 1e-9 and wd1.stack > wd0.stack,
+        check("item:nightstand", "bump", math.abs(wd1.small - wd0.small * (1 - 1 / 12)) < 1e-9 and wd1.stack > wd0.stack,
             ("1 in 12 of wins land one size up: small share %.3f -> %.3f (x 11/12), stack share %.3f -> %.3f"):format(wd0.small, wd1.small, wd0.stack, wd1.stack))
     end
 
@@ -308,18 +308,18 @@ return function(T)
     end
 
     -- High Roller Pass: finished tournaments back the cash tables at their stake
-    if wanted("item:high_roller_pass") then
+    if wanted("item:shower_head") then
         local w = T.world()
         local ko = w:open("s002", "ko")
         local hu = w:open("s002", "hu")
         local far = w:open("s001", "hu")
-        w:own({ "prize_vase", "high_roller_pass" })
+        w:own({ "prize_vase", "shower_head" })
         ko.ko.finish_count = 3
         w:invalidate()
         local ctx = w.ctrl.ctx
         local d2 = odds(ctx, "hu", "s002") - odds(base, "hu", "s002")
         local d1 = odds(ctx, "hu", "s001") - odds(base, "hu", "s001")
-        check("item:high_roller_pass", "backing", math.abs(d2 - 0.03) < 1e-9 and math.abs(d1) < 1e-9,
+        check("item:shower_head", "backing", math.abs(d2 - 0.03) < 1e-9 and math.abs(d1) < 1e-9,
             ("3 tournaments finished at NL10: %s odds at NL10 cash tables, %s at NL2"):format(pct(d2), pct(d1)))
     end
 end

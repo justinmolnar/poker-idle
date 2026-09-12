@@ -468,7 +468,10 @@ function TitleView:draw(st)
         love.graphics.clear(0, 0, 0, 0)
         self:_drawMenu(W, H, s, st)
         love.graphics.setCanvas(prev)
-        love.graphics.setColor(1, 1, 1, menu_a)
+        -- Premultiplied: the fade has to dim the colour with the alpha, or
+        -- the menu comes in brighter than it ends (views/Chips has the
+        -- same note).
+        love.graphics.setColor(menu_a, menu_a, menu_a, menu_a)
         love.graphics.setBlendMode("alpha", "premultiplied")
         love.graphics.draw(self._ui, 0, 0)
         love.graphics.setBlendMode("alpha")

@@ -83,6 +83,13 @@ function TablePanelStats.evLabel(ev_dollars)
     return fmtMoneySigned(ev_dollars) .. "/h"
 end
 
+-- Public: a signed rate with the caller's unit ("+$1.20/min"), the same
+-- compact money the per-table label uses so the rail's earn rate and the
+-- felt's readouts print a dollar the same way. `suffix` may be "".
+function TablePanelStats.rateLabel(dollars, suffix)
+    return fmtMoneySigned(dollars) .. (suffix or "")
+end
+
 local function fmtPctClean(p)
     local pct = (p or 0) * 100
     -- Sub-1% values keep a decimal so a small-but-real chance (e.g. a 0.3% stack
@@ -288,13 +295,22 @@ local function buildCashLines(tbl, controller, stats)
         if fmult < 0.999 then
             local fcap   = controller:currentFocusCapacity()
             local n_open = controller.pool and controller.pool:count() or 0
-            local eff_ev = (stats.pool.ev_per_hand or 0) * fmult
-            local eff_bb = eff_ev / bb
             lines[#lines + 1] = row("", "xs")
-            lines[#lines + 1] = row(string.format(
-                "Focus %d/%d ×%.2f → %s/hand  (%+.1f bb/h)",
-                n_open, fcap, fmult, fmtMoneySigned(eff_ev), eff_bb),
-                "sm", "warn")
+            if stats.pool.focus_mult then
+                -- A live table's figure already has the focus multiplier
+                -- in it (GrindController:_tableEvOpts): say so, don't
+                -- apply it again.
+                lines[#lines + 1] = row(string.format(
+                    "Focus %d/%d ×%.2f, in the figure above", n_open, fcap, fmult),
+                    "sm", "warn")
+            else
+                local eff_ev = (stats.pool.ev_per_hand or 0) * fmult
+                local eff_bb = eff_ev / bb
+                lines[#lines + 1] = row(string.format(
+                    "Focus %d/%d ×%.2f → %s/hand  (%+.1f bb/h)",
+                    n_open, fcap, fmult, fmtMoneySigned(eff_ev), eff_bb),
+                    "sm", "warn")
+            end
         end
     end
 

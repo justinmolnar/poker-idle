@@ -18,6 +18,7 @@ return {
         deck     = "DECK",          -- the deck button, open with no deck in play yet
         quick_reset = "Quick reset",
         play     = "PLAY",          -- the room button, on the room screen
+        rate_unit = "/min",         -- after the earn rate: "+$1.20/min"
     },
 
     -- A locked button is blank and says nothing (the locked game-type
@@ -48,6 +49,15 @@ return {
         quick_reset = { "Banks your {chip} and starts a fresh $2 stake.",
                         "No Shove, for when you're broke and stuck." },
         deck_click  = "Click to see your decks",
+        -- The earn rate over the bankroll: the lede, one line per table
+        -- (the builder formats the numbers), the run's actual, the graph.
+        rate_lede  = "What your tables should earn a minute, dealt at the pace you're dealing them.",
+        rate_table = "%s   %s a hand, %d a minute: %s/min",
+        rate_focus = "FOCUS x%.2f on all of it.",
+        rate_run   = "This run so far: %s over %s on the felt, %s/min.",
+        rate_last  = "Last run: %s/min.",
+        rate_idle  = "Nothing dealt lately. Deal something.",
+        rate_graph = "The last minute, as it went:",
     },
 
     -- The widest value each readout must hold: its slot is sized to this
@@ -60,6 +70,7 @@ return {
         chips    = "999",
         next     = "+99",
         rate     = "999%",
+        rate_min = "+$999.99/min",
     },
 
     -- The game-type keys' blurbs (the strip above the ADD TABLE rows).

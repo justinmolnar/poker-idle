@@ -9,7 +9,10 @@
 -- can never slip away while the House is mid-sentence or a modal is up.
 -- An armed beat then plays, first in script order, as soon as no beat is
 -- running, its own screen is up, and the band has somewhere to draw. One
--- beat at a time. A beat is marked seen (state.story_seen) when its last
+-- beat at a time. A beat marked `recheck` also needs its trigger to pass
+-- again at that moment: it stays armed either way, but a present-tense
+-- claim ("you can afford NL10") is not made once it has stopped being
+-- true, and the beat waits for the next moment it is. A beat is marked seen (state.story_seen) when its last
 -- line is done, and never plays again.
 --
 -- There are no skip conditions. An old save hears each beat the first
@@ -145,7 +148,8 @@ function StoryDirector:update(dt, ctx, blocked)
     if not armed then return end
     for _, beat in ipairs(self.story.beats) do
         if armed[beat.id] and not state.story_seen[beat.id]
-           and ctx.screen == beat.screen then
+           and ctx.screen == beat.screen
+           and (not beat.recheck or self.rules:check(beat.trigger, ctx)) then
             self:_start(beat, ctx)
             return
         end

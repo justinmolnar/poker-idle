@@ -197,9 +197,9 @@ return function(T)
     end
 
     -- ── Glass Partition: fire passes on a clash ───────────────────────
-    if wanted("item:glass_partition") then
+    if wanted("item:beige_tower") then
         local function spread(own)
-            local w = swarmWorld(2, own and "glass_partition" or nil)
+            local w = swarmWorld(2, own and "beige_tower" or nil)
             w:open("s001", "hu")
             local S = swarm(w, { no_hbs = true }); S.step()
             local a, b = CursorPool.cursors()[1], CursorPool.cursors()[2]
@@ -211,7 +211,7 @@ return function(T)
         end
         local lit0, n0 = spread(false)
         local lit1 = spread(true)
-        check("item:glass_partition", "spread", lit0 == false and lit1 == true and n0 == 1,
+        check("item:beige_tower", "spread", lit0 == false and lit1 == true and n0 == 1,
             "a lit cursor clashing with a dark one: the dark one stays dark without the partition and lights with it (one clash reported each time)")
     end
 

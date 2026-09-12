@@ -58,6 +58,7 @@ local DeckArt        = require("views.DeckArt")
 local OutcomeMath    = require("models.outcome_math")
 local Lookups        = require("utils.lookups")
 local Rail           = require("data.rail")
+local RateTicker     = require("data.rate_ticker")
 local CatalogModal   = require("views.CatalogModal")
 local GrindView = {}
 GrindView.__index = GrindView
@@ -381,7 +382,9 @@ function GrindView:_buildTablesTabComponents()
             -- can't even buy in. The trim goes gold when the {chip} is
             -- banked, purple when only the {achip} is.
             local banked  = self.controller:bountyBanked(stake.id, gtype_id)
-            local award   = self.controller:bountyAward(stake.id, gtype_id)
+            -- Advertised while unbanked; once banked, what it actually paid.
+            local award   = (banked and self.controller:bountyPaid(stake.id, gtype_id))
+                            or self.controller:bountyAward(stake.id, gtype_id)
             local icon_id = "chip"
             local border_color = banked and Theme.currency.chip or nil
 
@@ -678,6 +681,137 @@ end
 -- rows only move when the rollup or the upgrade's level does, and both
 -- bump it.
 local _range_memo = Memo.new("range_tooltip")
+
+-- ── The earn rate's tooltip ─────────────────────────────────────────
+-- The lede, one line per table (its $/hand, its pace, the product), the
+-- focus factor when it bites, the run's ACTUAL $/min and last run's, the
+-- ticker, then the total. Memoized on the rollup, the table count and the
+-- board's clock second: services/Tooltip lays a lines table out once per
+-- identity, so the array must hold still between rebuilds; the ticker
+-- row's `render` reads the live trace every frame regardless.
+local _rate_memo = Memo.new("rate_tooltip")
+
+function GrindView:_buildRateTooltip(br, n_open)
+    local ctrl  = self.controller
+    local token = tostring(ctrl.display_rev or 0) .. ":" .. tostring(n_open or 0)
+                  .. ":" .. tostring(math.floor(ctrl.clock or 0))
+    return _rate_memo:get("rail_rate", token, self._buildRateTooltipUncached, self, br)
+end
+
+local function minutesText(secs)
+    secs = secs or 0
+    if secs < 60 then return string.format("%d s", math.floor(secs + 0.5)) end
+    return string.format("%d min", math.floor(secs / 60 + 0.5))
+end
+
+function GrindView:_buildRateTooltipUncached(br)
+    local R     = Rail
+    local rate  = TablePanelStats.rateLabel
+    local state = self.game.state
+    local rows  = { { text = R.tooltips.rate_lede, style = "sm", color_token = "muted" } }
+
+    -- One line per table that has dealt inside the window.
+    local any = false
+    for _, e in ipairs(br.tables or {}) do
+        if (e.hpm or 0) > 0 then
+            any = true
+            local tbl   = e.tbl
+            local stake = Lookups.findById(Stakes, tbl.stake_id)
+            local gtype = Lookups.findById(GameTypes, tbl.game_type_id)
+            local label = ((stake and stake.display_name) or tbl.stake_id or "?") .. " · "
+                          .. ((gtype and gtype.short) or tbl.game_type_id or "?")
+            local tok = (e.rate > 0.005 and "good") or (e.rate < -0.005 and "error") or "muted"
+            rows[#rows + 1] = { style = "sm", color_token = tok,
+                text = string.format(R.tooltips.rate_table, label, rate(e.ev_hand, ""),
+                                     math.floor(e.hpm + 0.5), rate(e.rate, "")) }
+        end
+    end
+    if not any then
+        rows[#rows + 1] = { text = R.tooltips.rate_idle, style = "sm", color_token = "muted" }
+    end
+    if (br.focus_mult or 1) < 0.999 then
+        rows[#rows + 1] = { text = string.format(R.tooltips.rate_focus, br.focus_mult),
+                            style = "sm", color_token = "warn" }
+    end
+
+    -- What actually happened: this run, and the one before it.
+    rows[#rows + 1] = { style = "sm", color_token = "muted",
+        text = string.format(R.tooltips.rate_run, rate(br.run_net, ""),
+                             minutesText(br.run_elapsed), rate(br.run_rate, "")) }
+    if (state.shove_count or 0) > 0 then
+        rows[#rows + 1] = { style = "sm", color_token = "muted",
+            text = string.format(R.tooltips.rate_last, rate(br.last_run_rate, "")) }
+    end
+
+    -- The ticker: the run's hand winnings over the last window, newest on
+    -- the right, the way the table headers' history bars are drawn
+    -- (views/TablePanel drawHistoryBars). Fixed size so the box never
+    -- breathes; the trace is read live.
+    rows[#rows + 1] = { text = R.tooltips.rate_graph, style = "sm", color_token = "muted" }
+    local s   = self.game.ui_scale or 1
+    local TK  = RateTicker
+    local W   = math.max(40, math.floor((TK.w or 180) * s))
+    local H   = math.max(12, math.floor((TK.h or 36) * s))
+    local slots = math.max(2, math.floor((TK.window_s or 60) / (TK.sample_s or 1)))
+    local ctrl  = self.controller
+    rows[#rows + 1] = {
+        measure = function(_) return W, H end,
+        render  = function(x, y, _)
+            local trace = ctrl._rate_trace or {}
+            local n = #trace
+            -- The track the line sits on.
+            Theme.setColor(Theme.border.default, TK.baseline_alpha or 0.18)
+            love.graphics.rectangle("fill", x, y + H - 1, W, 1)
+            if n < 2 then return end
+            local lo, hi = trace[1], trace[1]
+            for i = 2, n do
+                if trace[i] < lo then lo = trace[i] end
+                if trace[i] > hi then hi = trace[i] end
+            end
+            if hi - lo < 1e-6 then hi = lo + 1 end
+            local step = W / (slots - 1)
+            local top, span = y + 1, H - 3
+            local function py(v) return top + span - (v - lo) / (hi - lo) * span end
+            -- Where the window started: the line's rise or fall reads
+            -- against this mark.
+            local y0 = math.floor(py(trace[1])) + 0.5
+            Theme.setColor(Theme.border.default, TK.baseline_alpha or 0.18)
+            love.graphics.line(x, y0, x + W, y0)
+            -- Segment by segment, coloured by its own direction: a rise is
+            -- a win, a fall a loss, a flat stretch is nothing happening.
+            -- Runs of one colour are drawn as one polyline so the joins
+            -- stay clean.
+            love.graphics.setLineWidth(math.max(1, (TK.line_w or 1.5) * s))
+            local run, run_dir = { x + W - (n - 1) * step, py(trace[1]) }, nil
+            local function flush()
+                if #run >= 4 then
+                    local c = (run_dir == 1 and Theme.sem.won) or (run_dir == -1 and Theme.sem.lost)
+                              or Theme.fg.muted
+                    Theme.setColor(c)
+                    love.graphics.line(run)
+                end
+            end
+            for i = 2, n do
+                local d  = trace[i] - trace[i - 1]
+                local dir = (d > 1e-6 and 1) or (d < -1e-6 and -1) or 0
+                local px, pyi = x + W - (n - i) * step, py(trace[i])
+                if run_dir ~= nil and dir ~= run_dir then
+                    flush()
+                    run = { run[#run - 1], run[#run] }   -- start the next run where this one ended
+                end
+                run_dir = dir
+                run[#run + 1] = px
+                run[#run + 1] = pyi
+            end
+            flush()
+            love.graphics.setLineWidth(1)
+        end,
+    }
+
+    -- The takeaway, last and larger, as every breakdown ends.
+    rows[#rows + 1] = { text = rate(br.total, R.labels.rate_unit), style = "md" }
+    return rows
+end
 
 function GrindView:_buildRangeTooltip(up)
     if not up then return nil end
@@ -1366,11 +1500,28 @@ function GrindView:_buildRailComponents()
           lines = { { text = R.labels.cash_out, style = "small", align = "center", color_token = "heading" } } },
     } }
     -- The bankroll, big, with no label: the chips say what it is (the pile
-    -- centres itself over this slot, see _drawBankrollChips).
-    local bankroll = stat{ value = bank_str, value_style = "lg", value_color = bank_color,
-        value_glow_color = broken and Theme.currency.achip or nil,
-        anchor = "cell:bankroll", align = "center", tooltip = R.tooltips.bankroll,
-        w = reserveW(fonts.lg, R.reserve.bankroll) }
+    -- centres itself over this slot, see _drawBankrollChips). Over it, in
+    -- the slot TIED UP has over CASH OUT, the board's earn rate: what the
+    -- open tables should make a minute at the pace they are being dealt
+    -- (GrindController:boardRate). Eased like the other readouts, and
+    -- coloured from the eased value so tint and number never disagree.
+    local br       = ctrl:boardRate()
+    local rate_v   = RollingValue.get("rail_rate", br.total)
+    local rate_txt = TablePanelStats.rateLabel(rate_v, R.labels.rate_unit)
+    local rate_color = Theme.fg.muted
+    if     rate_v >  0.005 then rate_color = Theme.sem.won
+    elseif rate_v < -0.005 then rate_color = Theme.sem.lost end
+    local bankroll = { type = "column", children = {
+        stat{ value = rate_txt, value_style = "sm", h = tied_h, valign = "top", align = "center",
+              value_color = rate_color, dim = (n_open == 0),
+              anchor = "cell:rate", tooltip = self:_buildRateTooltip(br, n_open),
+              w = reserveW(fonts.sm, R.reserve.rate_min) },
+        stat{ value = bank_str, value_style = "lg", value_color = bank_color,
+              h = face_bottom - tied_h,
+              value_glow_color = broken and Theme.currency.achip or nil,
+              anchor = "cell:bankroll", align = "center", tooltip = R.tooltips.bankroll,
+              w = reserveW(fonts.lg, R.reserve.bankroll) },
+    } }
 
     -- ── The chips: banked (yours) and next (this run's, banked when you shove) ──
     local pending = state.chips_this_run or 0

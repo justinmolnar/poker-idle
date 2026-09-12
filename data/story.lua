@@ -25,6 +25,17 @@
 --                           never freezes: the action has to be able to
 --                           happen. Most beats don't need this; the ones
 --                           that narrate a moment in motion do.
+--          recheck = true   the trigger must STILL pass when the beat
+--                           starts. It arms like any other and is never
+--                           lost, but while it waits its turn behind
+--                           another beat the state it speaks to can
+--                           change, and a beat that opens with a
+--                           present-tense fact ("NL10's open", i.e. you
+--                           can afford it) must not say it once the fact
+--                           has gone. Stays armed; starts the next tick
+--                           the trigger holds. For transient money
+--                           triggers; a counter that only climbs never
+--                           needs it.
 --
 -- LINES ARE MODAL. While any line is visible the PLAYER is paused: every
 -- gameplay click and key is swallowed (main.lua), and a click ANYWHERE —
@@ -422,6 +433,11 @@ return {
             id      = "stake_ladder",
             screen  = "grind",
             trigger = { kind = "can_afford_stake", stake = "s002" },
+            -- A stack win can clear $10 for a few seconds and a queued
+            -- beat (first_bust, first_chip) can hold this one back while
+            -- the money goes into an upgrade; without the recheck it once
+            -- opened with "NL10's open" to a player holding $4.
+            recheck = true,
             lines = {
                 { text = "NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better. Worth an {c:upgrade:upgrade} or two first.",
                   anchor = "add_table:s002:zoom" },

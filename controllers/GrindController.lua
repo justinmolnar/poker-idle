@@ -24,6 +24,7 @@ local OutcomeMath    = require("models.outcome_math")
 local Stakes         = require("data.stakes")
 local GameTypes      = require("data.game_types")
 local Constants      = require("data.constants")
+local RateTicker     = require("data.rate_ticker")
 local ChipData       = require("data.chips")
 local FeedbackIntensity = require("data.feedback_intensity")
 local Denoms         = require("services.DenominationBreakdown")
@@ -610,6 +611,36 @@ end
 -- The per-table variant. A table's numbers also move with its own statuses
 -- (Table:effectiveCtx layers them over the ctx) and its seat count, so those
 -- ride in the validity check alongside the display revision.
+-- What a readout needs to price THIS table the way its next hand will
+-- pay: the table itself (its cell, whether it is held, whether anything
+-- is beside it), the Tally Book multiplier the streak would stamp on a
+-- hand dealt now, the focus multiplier, the bankroll (the Bank capstone
+-- reads it) and whether the board is over the FOCUS cap (the corrupted
+-- Gaming Chair). Second return: a key for the caches, so a table moved,
+-- picked up or dealt into a streak reprices without waiting for the
+-- rollup to change.
+function GrindController:_tableEvOpts(tbl)
+    local ctx   = self.ctx or {}
+    local state = self.game.state
+    local mc    = ctx.manual_combo
+    local hand_mult = nil
+    if mc then
+        hand_mult = math.min(mc.cap or 2, 1 + (mc.value or 0) * (self.manual_combo or 0))
+    end
+    local focus   = self:currentFocusMult()
+    local overcap = self.pool:count() > self:currentFocusCapacity()
+    local bank    = ctx.earnings_scale_by_bankroll and (state.bankroll or 0) or nil
+    local opts = { table = tbl, hand_mult = hand_mult, focus_mult = focus,
+                   bankroll = bank, overcap = overcap,
+                   table_mult = OutcomeMath.tableEarningsMult(ctx, tbl, hand_mult) }
+    local bank_key = bank and math.floor(ShoveRate.bankrollMultiplier(bank) * 100 + 0.5) or 0
+    local key = table.concat({
+        tbl._empty_adjacent or 0, tbl._lonely and 1 or 0, tbl._held and 1 or 0,
+        tbl.slot or -1, hand_mult or 1, math.floor(focus * 1000 + 0.5),
+        overcap and 1 or 0, bank_key }, ":")
+    return opts, key
+end
+
 function GrindController:tableStats(tbl)
     if not (tbl and tbl.estimateStats) then return nil end
     local rev   = self.display_rev or 0
@@ -621,19 +652,21 @@ function GrindController:tableStats(tbl)
     local slot = cache[tbl._id]
     local status_rev = tbl._status_rev or 0
     local n_opps     = #tbl.opponents
+    local opts, pos_key = self:_tableEvOpts(tbl)
     if slot and slot.status_rev == status_rev and slot.n_opps == n_opps
-       and slot.stake_id == tbl.stake_id and slot.gtype_id == tbl.game_type_id then
+       and slot.stake_id == tbl.stake_id and slot.gtype_id == tbl.game_type_id
+       and slot.pos_key == pos_key then
         return slot.value or nil
     end
-    local value = tbl:estimateStats(self.ctx) or false
+    local value = tbl:estimateStats(self.ctx, opts) or false
     if slot then
         slot.status_rev, slot.n_opps = status_rev, n_opps
         slot.stake_id, slot.gtype_id = tbl.stake_id, tbl.game_type_id
-        slot.value = value
+        slot.pos_key, slot.value = pos_key, value
     else
         cache[tbl._id] = { status_rev = status_rev, n_opps = n_opps,
                            stake_id = tbl.stake_id, gtype_id = tbl.game_type_id,
-                           value = value }
+                           pos_key = pos_key, value = value }
     end
     return value or nil
 end
@@ -650,13 +683,15 @@ function GrindController:tableDebugStats(tbl)
     local key = tbl._id
     local slot = cache[key]
     local status_rev = tbl._status_rev or 0
+    local opts, pos_key = self:_tableEvOpts(tbl)
     if slot and slot.status_rev == status_rev
-       and slot.stake_id == tbl.stake_id and slot.gtype_id == tbl.game_type_id then
+       and slot.stake_id == tbl.stake_id and slot.gtype_id == tbl.game_type_id
+       and slot.pos_key == pos_key then
         return slot.value or nil
     end
-    local value = tbl:debugStats(self.ctx) or false
+    local value = tbl:debugStats(self.ctx, opts) or false
     cache[key] = { status_rev = status_rev, stake_id = tbl.stake_id,
-                   gtype_id = tbl.game_type_id, value = value }
+                   gtype_id = tbl.game_type_id, pos_key = pos_key, value = value }
     return value or nil
 end
 
@@ -891,6 +926,40 @@ function GrindController:_tickTournamentAuras(dt)
 end
 
 function GrindController:update(dt)
+    -- The board's own clock: seconds the felt has actually played. Only
+    -- GrindState ticks this, after its sim_frozen return, so a story pause,
+    -- the shove, the room and the title all stop it. Every rate below
+    -- (boardRate) reads this, never the wall clock, so a pause does not
+    -- decay a table's pace or dilute the run's $/min.
+    self.clock = (self.clock or 0) + (dt or 0)
+    do
+        local st  = self.game.state
+        local win = RateTicker.window_s or 60
+        st.run_elapsed = (st.run_elapsed or 0) + (dt or 0)
+        -- A table's recent hands: drop what has fallen out of the window.
+        -- Its opened stamp is set here, the first frame it is seen, so the
+        -- window it is measured over is "since it was here" wherever it
+        -- came from (a buy, a rebuild, a perk).
+        for _, t in ipairs(self.pool.tables) do
+            t._opened_clock = t._opened_clock or self.clock
+            local hc = t._hand_clock
+            if hc then
+                while hc[1] and self.clock - hc[1] > win do table.remove(hc, 1) end
+            end
+        end
+        -- The ticker: one sample of the run's hand winnings per sample_s,
+        -- the last window's worth kept (the rail tooltip draws it).
+        local per = RateTicker.sample_s or 1
+        local sec = math.floor(self.clock / per)
+        if sec ~= self._rate_trace_sec then
+            self._rate_trace_sec = sec
+            local tr = self._rate_trace
+            if not tr then tr = {}; self._rate_trace = tr end
+            tr[#tr + 1] = st.run_hand_net or 0
+            local cap = math.max(2, math.floor(win / per))
+            while #tr > cap do table.remove(tr, 1) end
+        end
+    end
     -- Proc budget is per frame too (services/ProcRegistry).
     if self.game.procs then self.game.procs:beginFrame() end
     self:_pollDisplayInputs()
@@ -942,15 +1011,18 @@ function GrindController:update(dt)
         -- INSIDE the board's bounds; past the edge is nothing, which counts
         -- for "nothing adjacent" but never as elbow room.
         do
-            local stakes, occupied, tables = {}, {}, self.pool.tables
+            local lanes, occupied, tables = {}, {}, self.pool.tables
             local six_empty = self.ctx.six_max_counts_empty
             for _, t in ipairs(tables) do
-                stakes[t.stake_id or ""] = true
+                -- The Wall Hook counts table TYPES: a stake at a game type.
+                -- Two NL2 Heads-Up tables are one lane; NL2 Heads-Up and
+                -- NL2 Zoom are two.
+                lanes[(t.stake_id or "") .. ":" .. (t.game_type_id or "")] = true
                 occupied[t.slot or -1] = t
             end
-            local n_stakes = 0
-            for _ in pairs(stakes) do n_stakes = n_stakes + 1 end
-            self:_setCtxField("stakes_seated", n_stakes)
+            local n_lanes = 0
+            for _ in pairs(lanes) do n_lanes = n_lanes + 1 end
+            self:_setCtxField("lanes_seated", n_lanes)
             local slots = {}
             for _, t in ipairs(tables) do slots[#slots + 1] = t.slot or 0 end
             local cols, rows = TableGrid.bounds(slots)
@@ -1033,6 +1105,14 @@ function GrindController:update(dt)
                 self.game.state.bankroll = self.game.state.bankroll + payout
                 self:_emitKoPayoutChips(t, payout)
             end
+            -- The rail's earn rate: a tournament's cash lands here, not
+            -- per hand (those deltas are informational), so its net over
+            -- the seat price is what the run's winnings see.
+            do
+                local st_ = Lookups.findById(Stakes, t.stake_id)
+                self.game.state.run_hand_net = (self.game.state.run_hand_net or 0)
+                    + payout - ((st_ and st_.buy_in) or 0)
+            end
             if Constants.DEBUG.HAND_ANALYTICS then
                 local ko_stake = Lookups.findById(Stakes, t.stake_id)
                 HandAnalytics.recordHand({
@@ -1091,6 +1171,7 @@ function GrindController:update(dt)
                         end
                         self:invalidateEffects()
                         state.total_chips_banked = (state.total_chips_banked or 0) + award
+                        self:_recordBountyPaid(key, award)
                     end
                 else
                     -- Copy Machine: the run's first denied bounty banks anyway.
@@ -1101,6 +1182,7 @@ function GrindController:update(dt)
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
                             state.total_chips_banked = (state.total_chips_banked or 0) + cp
+                            self:_recordBountyPaid(key, cp)
                         end
                     else
                         -- Repeat tournament win on an already-banked combo:
@@ -1551,6 +1633,7 @@ function GrindController:update(dt)
                         end
                         self:invalidateEffects()
                         state.total_chips_banked = (state.total_chips_banked or 0) + award
+                        self:_recordBountyPaid(key, award)
                         self.game.floating_text.emit(
                             string.format("+%d {chip}", award),
                             r.x, (r.y or 0) - 28)
@@ -1571,6 +1654,7 @@ function GrindController:update(dt)
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
                             state.total_chips_banked = (state.total_chips_banked or 0) + cp
+                            self:_recordBountyPaid(key, cp)
                             self.game.floating_text.emit(
                                 string.format("+%d {chip}", cp),
                                 r.x, (r.y or 0) - 28)
@@ -1641,6 +1725,12 @@ function GrindController:update(dt)
         -- Framed Diploma: the board's hands per second.
         self._hand_times = self._hand_times or {}
         self._hand_times[#self._hand_times + 1] = love.timer.getTime()
+        -- The rail's earn rate: this table's recent hands, on the board's
+        -- clock (pruned in update, read by boardRate).
+        if tbl then
+            tbl._hand_clock = tbl._hand_clock or {}
+            tbl._hand_clock[#tbl._hand_clock + 1] = self.clock or 0
+        end
 
         state.total_hands_played = (state.total_hands_played or 0) + hand_units
         if state.total_hands_played == 1 and state.first_hand_delta == nil then
@@ -1698,6 +1788,12 @@ function GrindController:update(dt)
             state.total_stacks = (state.total_stacks or 0) + 1
         elseif (not r.won) and r.tier == "stack" then
             state.total_stack_losses = (state.total_stack_losses or 0) + 1
+        end
+        -- The rail's earn rate: what the run's hands have netted. A
+        -- chip-stack tournament's per-hand delta is informational (its
+        -- cash lands in the payout drain above), so it is left out here.
+        if not r.chip_stack_table then
+            state.run_hand_net = (state.run_hand_net or 0) + r.delta
         end
         if r.delta < 0 then
             -- Fuels the Dishwasher's next-run seed (GameState:resetRun
@@ -1876,6 +1972,22 @@ function GrindController:bountyBanked(stake_id, game_type_id)
         count = cur
     end
     return count >= 1
+end
+
+-- What a lane's bounty actually PAID this run, or nil while unbanked: the
+-- rolled figure (the Trophy Shelf's double, the first-bounty bonus, a Copy
+-- Machine second helping), where bountyAward without `roll` is only the
+-- advertised one. The sidebar badge reads this once the lane is banked, so
+-- a doubled bounty shows +8 and not the +4 it was advertised at.
+function GrindController:bountyPaid(stake_id, game_type_id)
+    local paid = self.game.state.bounty_paid_this_run
+    return paid and paid[bountyKey(stake_id, game_type_id)] or nil
+end
+
+function GrindController:_recordBountyPaid(key, amount)
+    local state = self.game.state
+    state.bounty_paid_this_run = state.bounty_paid_this_run or {}
+    state.bounty_paid_this_run[key] = (state.bounty_paid_this_run[key] or 0) + amount
 end
 
 function GrindController:antiBountyBanked(stake_id, game_type_id)
@@ -2172,6 +2284,13 @@ end
 function GrindController:reloadPool()
     if self.game.floating_text then self.game.floating_text.clear() end
     self.pending_bursts = {}
+    -- The ticker plots the run's winnings; a reloaded pool is a new run
+    -- (or a wiped one), so the trace starts over rather than drawing the
+    -- reset as a cliff.
+    self._rate_trace, self._rate_trace_sec = nil, nil
+    -- The Tally Book's streak is the run's, not the save's: a new run
+    -- starts it at nothing, the way its tables start fresh.
+    self.manual_combo = 0
     self:invalidateEffects()
     self.pool:restoreFromState(self.ctx)
 end
@@ -2319,6 +2438,53 @@ end
 -- to cash until the finish-position payout settles at the end. A
 -- busted or freshly-settled tournament has tbl.stack = 0 → no
 -- contribution either way.
+-- ─── The board's earn rate ──────────────────────────────────────────
+-- What the board should earn a minute at the player's CURRENT pace: for
+-- every open table, its expected $/hand (tableStats: stake, game type,
+-- upgrades, items, statuses, its cell, the focus multiplier) times the
+-- hands it actually finished in the last RateTicker.window_s seconds of
+-- board time, summed.
+-- The formula sim/act1.lua prices upgrades with, measured live instead of
+-- calibrated: it moves the moment an upgrade lands or a table opens, and
+-- falls to nothing as the player stops dealing. A raw $/minute of actual
+-- winnings could not do this job -- stack wins carry the money, so any
+-- short window reads $0 most of the time and spikes; that figure is the
+-- tooltip's "this run", where it has minutes to settle.
+--
+-- Returns { total, focus_mult, tables = { { tbl, ev_hand, hpm, rate } },
+--           run_net, run_elapsed, run_rate, last_run_rate }. Cheap: one
+-- cached tableStats per table.
+function GrindController:boardRate()
+    local state = self.game.state
+    local clock = self.clock or 0
+    local win   = RateTicker.window_s or 60
+    local floor_s = RateTicker.min_window_s or 5
+    -- tableStats already prices each table with the focus multiplier in
+    -- (GrindController:_tableEvOpts), so the sum is the board's rate as
+    -- is; focus_mult rides along for the tooltip's explanation.
+    local out = { tables = {}, total = 0, focus_mult = self:currentFocusMult() }
+    local sum = 0
+    for _, tbl in ipairs(self.pool.tables) do
+        -- Stamped by update the first frame the table is seen; the `or`
+        -- covers a read before that frame.
+        tbl._opened_clock = tbl._opened_clock or clock
+        local span  = math.max(floor_s, math.min(win, clock - tbl._opened_clock))
+        local n     = tbl._hand_clock and #tbl._hand_clock or 0
+        local hpm   = n / (span / 60)
+        local stats = self:tableStats(tbl)
+        local ev    = (stats and stats.ev_per_hand) or 0
+        local rate  = (n > 0) and (ev * hpm) or 0
+        out.tables[#out.tables + 1] = { tbl = tbl, ev_hand = ev, hpm = hpm, rate = rate }
+        sum = sum + rate
+    end
+    out.total       = sum
+    out.run_net     = state.run_hand_net or 0
+    out.run_elapsed = state.run_elapsed or 0
+    out.run_rate    = (out.run_elapsed > 0) and (out.run_net / (out.run_elapsed / 60)) or 0
+    out.last_run_rate = state.last_run_rate or 0
+    return out
+end
+
 function GrindController:tiedUp()
     local total = 0
     for _, t in ipairs(self.pool.tables) do

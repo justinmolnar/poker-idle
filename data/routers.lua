@@ -76,12 +76,12 @@ return {
     basket_corner = {
         kind   = "basket_corner",
         chance = 1/3,
-        ghost  = "waste_basket",
+        ghost  = "kitchen_bin",
     },
     basket_corner_corrupt = {
         kind   = "basket_corner",
         chance = 2/3,
-        ghost  = "waste_basket",
+        ghost  = "kitchen_bin",
     },
     -- Dish Soap: a tilt lands on the table beside its target instead, 1 in 4.
     dish_soap_deflect = {

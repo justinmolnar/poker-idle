@@ -117,8 +117,8 @@ return function(T)
     end
 
     -- ── Cutting Board: the player's own streak ────────────────────────
-    if wanted("item:cutting_board") then
-        local w = T.world(); local t = w:open("s001", "hu"); w:own("cutting_board"); w:tick(0.05)
+    if wanted("item:tally_book") then
+        local w = T.world(); local t = w:open("s001", "hu"); w:own("tally_book"); w:tick(0.05)
         local r1 = T.playHand(w, t, { won = true, tier = "medium", bb = 10 })
         local r2 = T.playHand(w, t, { won = true, tier = "medium", bb = 10 })
         local r3 = T.playHand(w, t, { won = true, tier = "medium", bb = 10 })
@@ -128,16 +128,24 @@ return function(T)
         local after_cursor = w.ctrl.manual_combo
         T.playHand(w, t, { won = false, tier = "small", bb = 10 })
         local after_loss = w.ctrl.manual_combo
-        check("item:cutting_board", "streak", streak == 3 and math.abs(ratio - 1.2) < 1e-6,
+        check("item:tally_book", "streak", streak == 3 and math.abs(ratio - 1.2) < 1e-6,
             ("three wins dealt by hand: streak %d, the third paid x%.2f the first (1 + 0.1 x 2)"):format(streak, ratio))
-        check("item:cutting_board", "cursor", after_cursor == 3 and after_loss == 0,
+        check("item:tally_book", "cursor", after_cursor == 3 and after_loss == 0,
             ("a cursor's win left the streak at %d; a loss dealt by hand reset it to %d"):format(after_cursor, after_loss))
+        -- The streak is the run's: a new run (reloadPool, after the shove
+        -- or a quick reset) starts it at nothing.
+        T.playHand(w, t, { won = true, tier = "medium", bb = 10 })
+        T.playHand(w, t, { won = true, tier = "medium", bb = 10 })
+        local before_reset = w.ctrl.manual_combo
+        w.ctrl:reloadPool()
+        check("item:tally_book", "run_reset", before_reset == 2 and w.ctrl.manual_combo == 0,
+            ("streak %d before the run ended, %d after the pool reloaded for the next run"):format(before_reset, w.ctrl.manual_combo))
     end
 
     -- ── Copy Machine: a Zoom hand counts as two ────────────────────────
-    if wanted("item:copy_machine") then
+    if wanted("item:replay_tv") then
         local w = T.world(); local z = w:open("s001", "zoom"); local h = w:open("s001", "hu")
-        w:own({ "receipt_printer", "copy_machine" }); w:tick(0.05)
+        w:own({ "receipt_printer", "replay_tv" }); w:tick(0.05)
         local before = w.state.total_hands_played or 0
         local byg = (w.state.total_hands_by_gtype and w.state.total_hands_by_gtype.zoom) or 0
         T.playHand(w, z, { won = true, tier = "small" })
@@ -145,14 +153,14 @@ return function(T)
         local byg_after = w.state.total_hands_by_gtype.zoom - byg
         T.playHand(w, h, { won = true, tier = "small" })
         local after_hu = w.state.total_hands_played - before - after_zoom
-        check("item:copy_machine", "counts", after_zoom == 2 and byg_after == 2 and after_hu == 1,
+        check("item:replay_tv", "counts", after_zoom == 2 and byg_after == 2 and after_hu == 1,
             ("a Zoom hand moved hands played by %d (and Zoom hands by %d); a Heads-Up hand by %d"):format(after_zoom, byg_after, after_hu))
         -- and the hand-based deck XP rule weighs it twice
-        local w2 = T.world(); local z2 = w2:open("s001", "zoom"); w2:own({ "receipt_printer", "copy_machine" }); w2:deck("firehose", 0); w2:tick(0.05)
+        local w2 = T.world(); local z2 = w2:open("s001", "zoom"); w2:own({ "receipt_printer", "replay_tv" }); w2:deck("firehose", 0); w2:tick(0.05)
         local seen
         local r = T.stub(w2.ctrl, "_grantDeckXp", function(_, ev) if ev.stake_buy_in then seen = ev end end)
         T.playHand(w2, z2, { won = true, tier = "small" }); r()
-        check("item:copy_machine", "xp", seen and seen.hand_units == 2,
+        check("item:replay_tv", "xp", seen and seen.hand_units == 2,
             ("the hand's deck XP event carried hand_units = %s"):format(tostring(seen and seen.hand_units)))
     end
 
@@ -229,11 +237,21 @@ return function(T)
     -- ── Firehose: Zoom hands are faster per level ──────────────────────
     if wanted("deck:firehose:3") then
         local w = T.world(); local z = w:open("s001", "zoom"); w:tick(0.05)
-        local _, s0 = T.playHand(w, z, { won = true, tier = "small" })
+        -- A hand's length depends on the script it draws (how many streets,
+        -- who folds), so one hand per side is noise: average eight of each.
+        local function avgSecs(n)
+            local sum = 0
+            for _ = 1, n do
+                local _, secs = T.playHand(w, z, { won = true, tier = "small" })
+                sum = sum + (secs or 0)
+            end
+            return sum / n
+        end
+        local s0 = avgSecs(8)
         w:deck("firehose", 3)
-        local _, s3 = T.playHand(w, z, { won = true, tier = "small" })
+        local s3 = avgSecs(8)
         check("deck:firehose:3", "pace", s3 < s0 / 1.3,
-            ("a Zoom hand took %.2fs with no deck, %.2fs at Firehose L3 (1.15^3 = x1.52)"):format(s0, s3))
+            ("a Zoom hand took %.2fs with no deck, %.2fs at Firehose L3 (1.15^3 = x1.52), eight hands each"):format(s0, s3))
     end
 
     -- ── the base rule: a stack loss at 6-Max tilts a neighbour (in play) ─

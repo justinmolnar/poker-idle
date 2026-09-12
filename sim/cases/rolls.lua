@@ -112,10 +112,10 @@ return function(T)
 
     -- Chrome Toaster's bump in play: the win tier lands one up 1 in 12
     -- (the resolved dist is checked in odds.lua; this is the live roll).
-    if wanted("item:chrome_toaster") then
-        local ctx = T.ctxOf({ items = { "chrome_toaster" } })
+    if wanted("item:nightstand") then
+        local ctx = T.ctxOf({ items = { "nightstand" } })
         local hits = E.rate(function() return love.math.random() < (ctx.win_tier_bump_chance or 0) end, N, 1 / 12, 0.006, "Toaster bump chance")
-        check("item:chrome_toaster", "roll", math.abs(hits - 1 / 12) <= 0.006,
+        check("item:nightstand", "roll", math.abs(hits - 1 / 12) <= 0.006,
             ("bump chance on the ctx rolls true %.2f%% of the time (1 in 12 = 8.33%%)"):format(hits * 100))
     end
 

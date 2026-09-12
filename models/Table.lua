@@ -787,24 +787,14 @@ function Table:deal(ctx)
             end
             if shifted then OutcomeMath.distClampAndNormalize(ld) end
         end
-        -- The stats shelf's per-table odds: empty cells beside this table
-        -- (Yellow Sticky Note; a 6-Max counts with the Comfort Bed) and
-        -- the table in the player's hand (Lava Lamp). The controller
-        -- stamps _empty_adjacent, the view stamps _held. Capped like the
-        -- rollup's own shifts.
+        -- This table's own odds: empty cells beside it (Yellow Sticky
+        -- Note; a 6-Max counts with the Comfort Bed), the table in the
+        -- player's hand (Lava Lamp), the top-left corner (Red Rug). One
+        -- definition shared with the readout (OutcomeMath.tableWinChanceBonus),
+        -- capped like the rollup's own shifts.
         do
-            local bonus = 0
-            if ec.odds_per_empty_adjacent and (self._empty_adjacent or 0) > 0 then
-                bonus = bonus + ec.odds_per_empty_adjacent * self._empty_adjacent
-            end
-            if ec.held_odds and self._held then bonus = bonus + ec.held_odds end
+            local bonus = OutcomeMath.tableWinChanceBonus(ec, self)
             if bonus > 0 then wc = math.min(OutcomeMath.WC_ABSOLUTE_CAP, wc + bonus) end
-        end
-        -- The Red Rug: whoever sits in the board's top-left cell plays a
-        -- little better. Slot 0 is the packed (row 0, col 0) cell; this is
-        -- the one place that knows both the rolled ctx and the table's cell.
-        if (ec.corner_win_chance or 0) > 0 and (self.slot or -1) == 0 then
-            wc = wc + ec.corner_win_chance
         end
         -- A hand that was interrupted forces the NEXT one to go the same
         -- way. Only the side: the tier still rolls — from the forced side's
@@ -899,12 +889,10 @@ function Table:deal(ctx)
         earnings_mult = earnings_mult * (1.0 + ectx.earnings_per_tier * tier_idx)
     end
     local loss_mult     = ectx.loss_mult     or 1
-    -- Throw Pillow: nothing on any side of this table, it pays more.
-    if self._lonely and ectx.lonely_winnings_mult then
-        earnings_mult = earnings_mult * ectx.lonely_winnings_mult
-    end
-    -- Cutting Board: the player's own streak, fixed at this hand's deal.
-    if self._hand_mult then earnings_mult = earnings_mult * self._hand_mult end
+    -- This table's own winnings: the Throw Pillow's isolation and the
+    -- Tally Book's streak (fixed at this hand's deal). Shared with the
+    -- readout: OutcomeMath.tableEarningsMult.
+    earnings_mult = earnings_mult * OutcomeMath.tableEarningsMult(ectx, self, self._hand_mult)
     -- Anchor: the tilt's forced hand on a table of the deck's game type
     -- loses less. `_tilt_spent_pending` was latched above when this deal
     -- consumed a forced loss.
@@ -2182,17 +2170,20 @@ end
 -- whenever no status is active. The stake-add buttons in the sidebar
 -- deliberately stay on the raw ctx: they describe a table you haven't
 -- opened, which by definition has no statuses.
-function Table:debugStats(ctx)
+-- `opts` (GrindController:_tableEvOpts): this table's position and hand,
+-- the focus multiplier, the bankroll and the over-cap flag, so the figure
+-- is what the hand will actually pay.
+function Table:debugStats(ctx, opts)
     return OutcomeMath.evStats(self:effectiveCtx(ctx),
         Lookups.findById(GameTypesData, self.game_type_id),
-        Lookups.findById(StakesData, self.stake_id))
+        Lookups.findById(StakesData, self.stake_id), opts)
 end
 
-function Table:estimateStats(ctx)
+function Table:estimateStats(ctx, opts)
     if #self.opponents == 0 then return nil end
     local s = OutcomeMath.evStats(self:effectiveCtx(ctx),
         Lookups.findById(GameTypesData, self.game_type_id),
-        Lookups.findById(StakesData, self.stake_id))
+        Lookups.findById(StakesData, self.stake_id), opts)
     if not s then return nil end
     -- Flat shape the EV readout expects (drawEvReadout).
     return {

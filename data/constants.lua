@@ -151,8 +151,11 @@ C.SAVE = {
     -- A file whose version is not this is REFUSED, not migrated: there are
     -- no field-level migrations any more, models/GameState is an explicit
     -- key list, and an older save is not this game. Bump this whenever the
-    -- shape of what GameState serializes changes.
-    VERSION       = 2,
+    -- shape of what GameState serializes changes, or when a value it holds
+    -- changes meaning (3: fifteen catalog ids renamed to their names on
+    -- 2026-09-11; owned_items from a v2 file would name items that no
+    -- longer exist).
+    VERSION       = 3,
 }
 
 C.FLOATING_TEXT = {

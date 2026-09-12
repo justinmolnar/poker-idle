@@ -49,7 +49,7 @@ Small, mechanical changes that later phases depend on. Zero behaviour change.
    `GrindView`, `PokerEventAnims`, `outcome_math.koFinishFill`, `payoutMult`, `buildOutcome`). Keep `findById`
    for the rare dynamic list.
 2. **Revision counters.** `GrindController.ctx_rev` bumps in `invalidateEffects` and whenever the per-frame ctx
-   fields it mutates in `update` actually change value (`hu_table_count`, `heater_count`, `stakes_seated`,
+   fields it mutates in `update` actually change value (`hu_table_count`, `heater_count`, `lanes_seated`,
    `hands_per_second`, `_zoom_neighbours`). `TablePool.rev` bumps on add / remove / move / stake change.
    `GameState.owned_rev` bumps on buy / corrupt / peel / wipe. These are the cache keys for Phases 2, 3, 8.
 3. **`Table.anchorKey` cache.** Each table owns `_anchor_keys = {}`; `anchorKey(t, slot)` returns

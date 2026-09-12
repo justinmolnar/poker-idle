@@ -628,7 +628,7 @@ do
     local other = SaveService:new()
     other:save(payload)
     local raw = love.filesystem.read(FILE)
-    love.filesystem.write(FILE, (raw:gsub('"version":2', '"version":1')))
+    love.filesystem.write(FILE, (raw:gsub('"version":%d+', '"version":1')))
     local refused, why = ss2:load()
     c.eq(refused, nil, "a save from another version does not load")
     c.eq(why, "old", "...and says why")

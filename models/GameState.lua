@@ -178,6 +178,7 @@ function GameState:new(saved)
         instance.tables[#instance.tables + 1] = { stake_id = "s001", game_type_id = "zoom" }
     end
     instance.stakes_won_this_run = {}           -- set keyed by stake_id; locks in chip bounties per run
+    instance.bounty_paid_this_run = {}          -- same keys: what the bounty actually PAID (a Trophy Shelf double, the first-bounty bonus)
     instance.chips_this_run      = 0            -- running counter for the prestige modal display
     instance.anti_stakes_won_this_run = {}
     instance.anti_chips_this_run      = 0
@@ -220,6 +221,13 @@ function GameState:new(saved)
     instance.run_biggest_pot         = 0
     instance.last_run_biggest_pot_t1 = 0
     instance.last_run_biggest_pot    = 0
+    -- The rail's earn rate (GrindController:boardRate): what the run's
+    -- hands have netted, over how many seconds the board was actually
+    -- playing (story pauses and other screens excluded), and the $/min
+    -- the last run froze at when it ended.
+    instance.run_hand_net  = 0
+    instance.run_elapsed   = 0
+    instance.last_run_rate = 0
 
     -- Transient stat cache, recomputed lazily.
     instance.effects_cache = nil
@@ -258,6 +266,7 @@ function GameState:resetRun()
         self.tables[#self.tables + 1] = { stake_id = "s001", game_type_id = "zoom" }
     end
     self.stakes_won_this_run = {}
+    self.bounty_paid_this_run = {}
     self.chips_this_run      = 0
     self.anti_stakes_won_this_run = {}
     self.anti_chips_this_run      = 0
@@ -280,6 +289,11 @@ function GameState:resetRun()
     self.last_run_biggest_pot    = self.run_biggest_pot or 0
     self.run_biggest_pot_t1      = 0
     self.run_biggest_pot         = 0
+    -- The run's actual $/min, frozen for the rail tooltip's "last run".
+    local secs = self.run_elapsed or 0
+    self.last_run_rate = (secs > 0) and ((self.run_hand_net or 0) / (secs / 60)) or 0
+    self.run_hand_net  = 0
+    self.run_elapsed   = 0
     self.effects_cache       = nil
     self.shove_count         = (self.shove_count or 0) + 1
 end
@@ -358,6 +372,7 @@ function GameState:wipeAll()
     self.six_max_unlocked = false
     self.gtype_announced  = {}
     self:resetRun()
+    self.last_run_rate = 0   -- resetRun derives it from the wiped run; a fresh game has none
     -- A wiped game is a FRESH game: no money until the loan is handed over,
     -- and no first hand yet (the first_hand beats read these).
     self.bankroll   = 0
@@ -438,18 +453,22 @@ GameState.META_KEYS = {
     "total_cursor_deals", "total_hands_by_gtype", "total_money_won",
     -- what the last run left behind, for the starting perks
     "last_run_money_lost", "last_run_biggest_pot_t1", "last_run_biggest_pot",
+    -- what the last run earned a minute, for the rail's earn-rate tooltip
+    "last_run_rate",
 }
 
 GameState.RUN_KEYS = {
     "bankroll", "item_fires_run", "run_upgrade_levels",
     -- every open table, hand and all (models/Table:serialize)
     "tables",
-    "stakes_won_this_run", "chips_this_run",
+    "stakes_won_this_run", "bounty_paid_this_run", "chips_this_run",
     "anti_stakes_won_this_run", "anti_chips_this_run",
     "shove_pending", "perks_pending",
     "first_loss_voided_this_run", "first_stack_loss_voided_this_run",
     "denied_copied_this_run", "first_bounty_this_run", "first_anti_this_run",
     "run_ratchets", "run_money_lost", "run_biggest_pot_t1", "run_biggest_pot",
+    -- the rail's earn rate: hand winnings and seconds on the felt this run
+    "run_hand_net", "run_elapsed",
 }
 
 -- Set by the constructor, never saved.

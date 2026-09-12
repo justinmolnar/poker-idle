@@ -104,10 +104,10 @@ Effects.kinds = {
         value_shape = "0..1, a printable fraction (1/6)",
         affects     = "ctx.loss_reroll_chance",
     },
-    odds_per_stake_seated = {
-        description = "Wall Hanger: every stake with a table open adds this to every table's win chance (buildOutcome x ctx.stakes_seated).",
-        value_shape = "fraction per stake, e.g. 0.01",
-        affects     = "ctx.odds_per_stake_seated",
+    odds_per_lane_seated = {
+        description = "Wall Hanger: every distinct table type in play (a stake at a game type) adds this to every table's win chance (buildOutcome x ctx.lanes_seated).",
+        value_shape = "fraction per lane, e.g. 0.01",
+        affects     = "ctx.odds_per_lane_seated",
     },
     lonely_winnings_mult = {
         description = "Throw Pillow: a table with no table on any side (t._lonely, stamped per frame) multiplies its winnings by this.",

@@ -20,10 +20,10 @@ once, no refunds.
 
 ## The budget
 
-`Balance.CATALOG_CHIP_BUDGET = { act1 = 225, act2 = 575, tol = 6 }`.
-Act 1 = every ownable card without `act = 2` (35 today), Act 2 = the cards
-with it (37). The whole book is 800. The Act 1 target of 40% owned at the
-R1 win (~14 cards, ~0.40 shove at T3 with `T3_MULT`) is what `sim/act1.lua`
+`Balance.CATALOG_CHIP_BUDGET = { act1 = 242, act2 = 538, tol = 6 }`.
+Act 1 = every ownable card without `act = 2` (37 today), Act 2 = the cards
+with it (35). The whole book is 780. The Act 1 target of 40% owned at the
+R1 win (~15 cards, ~0.40 shove at T3 with `T3_MULT`) is what `sim/act1.lua`
 measures; the Act 1 item count is derived (`CatalogLoader.act1Count`),
 never authored.
 
@@ -59,7 +59,40 @@ under 9 chips there.
 
 ## The shelves, in reading order
 
-Value Buys 2 · 3 · 3 · 4 · 5 · 8 · 8 · 13 — Stats 3 · 4 · 5 · 6 · 6 · 7 · 7 · 14 — Rack 6 · 7 · 8 · 8 · 8 · 12 · 20 · 22 — Heads-Up 4 · 6 · 6 · 6 · 8 · 8 · 8 · 22 — Zoom 6 · 6 · 8 · 8 · 14 · 16 · 17 · 18 — 6-Max 6 · 8 · 8 · 14 · 16 · 18 · 20 · 22 — Tournaments 12 · 13 · 14 · 15 · 16 · 17 · 18 · 20 — Mental 8 · 8 · 12 · 13 · 14 · 15 · 16 · 18 — Cursors 10 · 11 · 12 · 12 · 13 · 15 · 16 · 20. (`lua sim/lint_catalog_economy.lua` prints the live list with ids.)
+Value Buys 2 · 3 · 3 · 4 · 5 · 8 · 8 · 13 — Stats 3 · 5 · 6 · 7 · 7 · 8 · 9 · 14 — Rack 6 · 7 · 8 · 8 · 8 · 12 · 20 · 22 — Heads-Up 4 · 6 · 6 · 6 · 8 · 8 · 8 · 22 — Zoom 5 · 6 · 6 · 7 · 8 · 10 · 16 · 17 — 6-Max 6 · 8 · 8 · 14 · 16 · 18 · 20 · 22 — Tournaments 12 · 13 · 14 · 15 · 16 · 17 · 18 · 20 — Mental 5 · 8 · 8 · 12 · 13 · 15 · 16 · 18 — Cursors 10 · 11 · 12 · 12 · 13 · 15 · 16 · 20. (`lua sim/lint_catalog_economy.lua` prints the live list with ids.)
+
+## What changed on 2026-09-11
+
+Ids are the names. Fifteen items whose id still carried an older name were renamed to their display
+name in snake case, and their sprite alias (assets/sprites/aliases.json), sound file
+(assets/audio/items), room cell (data/room_layout), room light, proc ghost, designer tag and test
+keys followed: wall_hanger→wall_hook, cutting_board→tally_book, rolled_vouchers→bottle_of_wine,
+glass_partition→beige_tower, framed_diploma→hybrid_console, curved_monitor→hot_bath,
+tower_upgrade→fresh_towel, copy_machine→replay_tv, high_roller_pass→shower_head,
+shredder→box_of_tissues, cool_towel→electric_kettle, waste_basket→kitchen_bin, whiteboard→rubber_duck,
+and the swapped pair nightstand↔chrome_toaster. The two retired cards that held a wanted id are
+`rubber_duck_retired` and `electric_kettle_retired`. Saves serialize ids, so `SAVE.VERSION` went to 3
+and a v2 file is refused. Deck ids were checked and left alone (`bank`, `master` for "The Bank",
+"The Master" are the intended short forms).
+
+## What changed on 2026-09-10
+
+The Act 1 cadence pass, from a full playthrough's counters (3,045 hands, 2,013 won, 712 stacks,
+89 busts, 77 rebuys, 92 tilts, 52 heaters, 63 chips banked). The Heads-Up shelf had opened five
+items in the act and the Zoom shelf none; Heat & Tilt had one Act 1 card; Bonsai sat past the act.
+
+- **Zoom does hands the way Heads-Up does stacks.** The shelf's gates count total hands and hands won,
+  so a Heads-Up player still sees it open; only Handheld (400) and Headset (1,200) stay on Zoom hands.
+  The Act 1 loop leads the shelf: House Cat (5, 300 hands won), Hybrid Console (6, 600 hands, moved
+  from Act 2, no longer requires the Wall Clock), Washing Machine (10, 1,500 hands, moved from Act 2).
+  Wall Clock 2,500 hands. Receipt Printer and Replay TV stay Act 2.
+- **Stats opens on the board question.** Yellow Sticky Note leads at 3. Throw Pillow (8, 200 stack
+  losses) and Wall Hook (9, 5,000 hands) move to Act 2 as builds. The Hook now counts table TYPES in
+  play (a stake at a game type; effect kind `odds_per_lane_seated`, ctx `lanes_seated`), not stakes.
+- **Heat & Tilt has Act 1 cards.** Bottle of Wine (5, 10 busts) is the act's heat source; Desk Speakers
+  (8, 10 heaters) what heat is worth; Dish Soap at 15 tilts. Both moved from Act 2.
+- **Value Buys inside the act.** Bonsai at 45 chips (was 75), the Chrome Toaster at 60 rebuys (was 150).
+- Budgets re-stated: Act 1 242 over 37 cards, Act 2 538 over 35, the book 780.
 
 ## What changed on 2026-09-07
 

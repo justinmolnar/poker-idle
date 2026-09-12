@@ -4,7 +4,7 @@
 
 | # | catalog id | item | file | artist | original title | pixabay id |
 |---|---|---|---|---|---|---|
-| 1 | `wall_hanger` | Wall Hanger | `wall_hanger.mp3` | freesound_community | one coat hanger put coat hanger in a metalic suport | 105595 |
+| 1 | `wall_hook` | Wall Hanger | `wall_hook.mp3` | freesound_community | one coat hanger put coat hanger in a metalic suport | 105595 |
 | 2 | `mirror` | Mirror | `mirror.mp3` | freesound_community | tapping on glass | 31920 |
 | 3 | `energy_drink` | Energy Drink | `energy_drink.mp3` | universfield | soda bottle opening | 191996 |
 | 4 | `corkboard` | Corkboard | `corkboard.mp3` | makigai_maimai | paper | 245786 |
@@ -31,9 +31,9 @@
 | 25 | `gaming_keyboard` | Gaming Keyboard | `gaming_keyboard.mp3` | freesound_community | mech keyboard 02 | 102918 |
 | 26 | `box_of_mice` | Box of Mice | `box_of_mice.mp3` | dragon-studio | mouse click sfx | 444806 |
 | 27 | `wacom_tablet` | Wacom Tablet | `wacom_tablet.mp3` | freesound_community | screen tap | 38717 |
-| 28 | `nightstand` | Chrome Toaster | `nightstand.mp3` | freesound_community | chrome_toaster | 37635 |
+| 28 | `chrome_toaster` | Chrome Toaster | `chrome_toaster.mp3` | freesound_community | nightstand | 37635 |
 | 29 | `first_aid_kit` | First Aid Kit | `first_aid_kit.mp3` | freesound_community | opening and closing latches | 78365 |
-| 30 | `chrome_toaster` | Nightstand | `chrome_toaster.mp3` | freesound_community | close drawer | 104761 |
+| 30 | `nightstand` | Nightstand | `nightstand.mp3` | freesound_community | close drawer | 104761 |
 | 31 | `receipt_printer` | Receipt Printer | `receipt_printer.mp3` | freesound_community | receipt printer 01 | 43872 |
 | 32 | `microwave_oven` | Microwave Oven | `microwave_oven.mp3` | freesound_community | microwave button | 82493 |
 | 33 | `laminated_blueprint` | Laminated Blueprint | `laminated_blueprint.mp3` | freesound_community | flexing a piece of resonating copper sheet metal | 29593 |
@@ -46,19 +46,19 @@
 | 40 | `tip_jar` | Tip Jar | `tip_jar.mp3` | freesound_community | coins in a jar | 36681 |
 | 41 | `desk_speakers` | Desk Speakers | `desk_speakers.mp3` | freesound_community | speaker buzz | 82989 |
 | 42 | `ultra_stake` | Ultra Stake | `ultra_stake.mp3` | oxidvideos | placing poker chips | 522515 |
-| 43 | `whiteboard` | Rubber Duck | `whiteboard.mp3` | magiaz | duck | 405695 |
-| 44 | `cool_towel` | Electric Kettle | `cool_towel.mp3` | mohammedalobaidi | electric kettle sound effect | 162642 |
-| 45 | `glass_partition` | Beige Tower | `glass_partition.mp3` | freesound_community | 8bit computer startup | 66972 |
+| 43 | `rubber_duck` | Rubber Duck | `rubber_duck.mp3` | magiaz | duck | 405695 |
+| 44 | `electric_kettle` | Electric Kettle | `electric_kettle.mp3` | mohammedalobaidi | electric kettle sound effect | 162642 |
+| 45 | `beige_tower` | Beige Tower | `beige_tower.mp3` | freesound_community | 8bit computer startup | 66972 |
 | 46 | `desk` | Desk | `desk.mp3` | freesound_community | drawer | 41055 |
 
-Unassigned (2026-09-07 reskin, kept in `unassigned/`): `rolled_vouchers` (paper rip fast), `framed_diploma` (tapping on glass), `high_roller_pass` (taking playing card 2), `curved_monitor` (beep), `shredder` (shredder).
+Unassigned (2026-09-07 reskin, kept in `unassigned/`): `bottle_of_wine` (paper rip fast), `hybrid_console` (tapping on glass), `shower_head` (taking playing card 2), `hot_bath` (beep), `box_of_tissues` (box_of_tissues).
 
-Reskin notes (2026-09-07): the Nightstand and Chrome Toaster ids swapped names, sprites, sounds and room cells; the retired Rubber Duck, Electric Kettle, Tower Upgrade (8-bit boot) and Stash Box (drawer) sounds now belong to `whiteboard`, `cool_towel`, `glass_partition` and `desk`. Every item plays its OWN file; nothing shares.
+Reskin notes (2026-09-07): the Nightstand and Chrome Toaster ids swapped names, sprites, sounds and room cells; the retired Rubber Duck, Electric Kettle, Tower Upgrade (8-bit boot) and Stash Box (drawer) sounds now belong to `rubber_duck`, `electric_kettle`, `beige_tower` and `desk`. Every item plays its OWN file; nothing shares.
 ## Credits (by artist)
 
 - **dragon-studio**: single key press (393908), mouse click (346047), mouse click sfx (444806)
 - **edr**: old pc monitor switch on and degaussing (8576)
-- **freesound_community**: one coat hanger put coat hanger in a metalic suport (105595), tapping on glass (31920), turnpage (99756), hitting bed with pillow (79942), low hum (14645), air_mattress_squeeze (64385), sticky note (43933), drawer (41055), handling picture frame (54598), closing a binder (84633), switch on water heater (65792), moving plant (75923), switch knife flick and put away (35763), sticky note (43933), squeaking office chair (67137), headphones jack pugged out (41879), ceramic plate set down (71330), ticking clock_1 (27477), mech keyboard 02 (102918), screen tap (38717), toaster (37635), opening and closing latches (78365), close drawer (104761), receipt printer 01 (43872), microwave button (82493), tapping on glass (31920), flexing a piece of resonating copper sheet metal (29593), old desktop pc booting (24280), knocking on window (99754), cereal box (101352), fire extinguisher pin fall (43270), curtain (82308), coins in a jar (36681), 8bit computer startup (66972), speaker buzz (82989), shredder (105938)
+- **freesound_community**: one coat hanger put coat hanger in a metalic suport (105595), tapping on glass (31920), turnpage (99756), hitting bed with pillow (79942), low hum (14645), air_mattress_squeeze (64385), sticky note (43933), drawer (41055), handling picture frame (54598), closing a binder (84633), switch on water heater (65792), moving plant (75923), switch knife flick and put away (35763), sticky note (43933), squeaking office chair (67137), headphones jack pugged out (41879), ceramic plate set down (71330), ticking clock_1 (27477), mech keyboard 02 (102918), screen tap (38717), toaster (37635), opening and closing latches (78365), close drawer (104761), receipt printer 01 (43872), microwave button (82493), tapping on glass (31920), flexing a piece of resonating copper sheet metal (29593), old desktop pc booting (24280), knocking on window (99754), cereal box (101352), fire extinguisher pin fall (43270), curtain (82308), coins in a jar (36681), 8bit computer startup (66972), speaker buzz (82989), box_of_tissues (105938)
 - **magiaz**: duck (405695)
 - **makigai_maimai**: paper (245786)
 - **mohammedalobaidi**: electric kettle sound effect (162642)
@@ -122,6 +122,6 @@ freesound_community-coins-in-a-jar-36681.mp3
 freesound_community-8bit-computer-startup-66972.mp3
 u_s026io00zm-beep-401570.mp3
 freesound_community-speaker-buzz-82989.mp3
-freesound_community-shredder-105938.mp3
+freesound_community-box_of_tissues-105938.mp3
 oxidvideos-placing-poker-chips-522515.mp3
 ```

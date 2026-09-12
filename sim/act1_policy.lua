@@ -117,8 +117,6 @@ return {
         "corkboard",
         "energy_drink",
         "starter_gift_box",
-        "wall_hanger",
-        "throw_pillow",
     },
     -- Never bought, whatever the fallback would say. Bonsai and Desk Plant
     -- move to the priority list when six_max is true.

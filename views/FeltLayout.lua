@@ -124,7 +124,7 @@ end
 local LAYOUT_KEYS = {
     "felt_x", "felt_y", "felt_w", "felt_h", "hu", "n_opps", "sizes", "s",
     "sm_h", "md_h", "xs_h", "ev_w", "ev_money_w", "tied_w", "tied_short_w",
-    "name_ch_w", "pile_r", "bottom_extra",
+    "name_ch_w", "pile_r", "bottom_extra", "n_tables",
 }
 local _layout_cache = setmetatable({}, { __mode = "k" })
 
@@ -321,8 +321,14 @@ function FeltLayout.compute(p)
     -- a disc on top, views/Chips.drawColumn). Decided from the chip
     -- DIAMETER the pile will draw at, the way shadowAt decides from a
     -- card's width, so both piles on a felt agree.
+    -- Never below pile.micro_min_tables open tables: below that count the
+    -- board is sparse enough that every chip is meant to be a chip.
     local micro_below = (Data.pile and Data.pile.micro_below_d) or 0
-    local function pileDetail(d) return (d < micro_below) and "micro" or "full" end
+    local micro_min_n = (Data.pile and Data.pile.micro_min_tables) or 0
+    local function pileDetail(d)
+        if (p.n_tables or 0) < micro_min_n then return "full" end
+        return (d < micro_below) and "micro" or "full"
+    end
 
     -- Card drop shadows, decided per band for exactly the same reason `plate`
     -- is: the showdown pop redraws the winning cards up to 1.26x larger, and a

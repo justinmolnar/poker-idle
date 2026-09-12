@@ -2202,6 +2202,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
         tied_w = tied_w, tied_short_w = tied_short_w,
         name_ch_w = name_ch_w,
         pile_r = Chips.radius(),
+        -- The board's count: the pile detail rule is gated on it.
+        n_tables = n_tables,
     })
 
     -- ── Felt surface ────────────────────────────────────────────────────
@@ -2425,16 +2427,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     if L.bottom and L.bottom.ev.show and not is_tournament then
         Stats.drawEvReadout(tbl, L.bottom.ev, controller, fonts, hit_boxes,
             EV_KEY[idx], ev_metrics)
-        -- The Washing Machine's combo: wins in a row, at the row's left
-        -- edge (the EV text takes the right). Only where it does anything.
-        local combo = controller and controller.ctx and controller.ctx.zoom_combo_pace
-        if combo and tbl.game_type_id == "zoom" and (tbl._combo or 0) >= 2 and fonts.xs then
-            local ev = L.bottom.ev
-            love.graphics.setFont(fonts.xs)
-            Theme.setColor(Theme.sem.won, 0.9)
-            -- the slot is { x, y, w, show }: y is the text top (views/FeltLayout)
-            love.graphics.print(("%dx"):format(tbl._combo), ev.x, ev.y)
-        end
+        -- (The Washing Machine's "2x" streak used to print here, at ev.x,
+        -- which is where the EV label starts: it landed on top of the
+        -- "+$0" and garbled it. The readout owns this corner; the streak
+        -- shows in the deal pace, and the rail's $/min carries it.)
     end
 
     -- Showdown emphasis — dim the losing/unused cards, grow + pop the winning

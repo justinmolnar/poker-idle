@@ -19,17 +19,17 @@ Balance.RUN_MINUTES            = 20
 -- cadence is 4-5 runs, arriving at ~40% on the big hand and having had
 -- several tries at it by then. (Was 3 runs / 0.80, which nothing ever hit.)
 Balance.ACT1_RUNS_TO_CLEAR     = 5
-Balance.ACT1_COMPLETION_AT_WIN = 0.40     -- fraction of the Act 1 catalog owned by then (~13 of 33)
+Balance.ACT1_COMPLETION_AT_WIN = 0.40     -- fraction of the Act 1 catalog owned by then (~15 of 37)
 Balance.ACT1_SHOVE_TARGET      = 0.40     -- win chance on the big hand around run 4-5
 Balance.T3_MULT                = 3
 
 -- The catalog's {chip} budget: what the Act 1 shelves (no `act = 2`) and
 -- the Act 2 shelves sum to after CatalogLoader.deriveAll, ±tol. The whole
--- book is 800. Income per run: Act 1 banks 18 (24 with Fight Night), Act 2
+-- book is 780. Income per run: Act 1 banks 18 (24 with Fight Night), Act 2
 -- 84, Act 3 180. `lua sim/lint_catalog_economy.lua` checks the sums; the
 -- Act 1 item count is derived from the catalog (CatalogLoader.act1Count),
 -- never authored here.
-Balance.CATALOG_CHIP_BUDGET    = { act1 = 225, act2 = 575, tol = 6 }
+Balance.CATALOG_CHIP_BUDGET    = { act1 = 242, act2 = 538, tol = 6 }
 
 -- Shove rate added per catalog item. A FLAT 1%: one item, one point of
 -- shove. The budget above prices items; it does not set what they are
@@ -67,10 +67,17 @@ Balance.UPGRADE_PRICE_SIG_FIGS = 2
 -- item-less player with that band's expected tables and decks. Items are
 -- the real player's edge over this; decks are the Act 2+ accelerator and
 -- the high stakes are −EV without them even capped, so they are in.
--- `tables_ramp` = one table at L1 growing to `tables` (the focus base cap).
+-- `tables_ramp` = one table at L1 growing to `tables`. The low band prices
+-- off a TWO-table board, not the focus cap of four: the Act 1 run is the
+-- climb to NL100, and priced off four tables levels 6-9 cost ~$1,200 and
+-- the run took 20 minutes (median Act 1 80 min over 30 seeds of
+-- sim/act1.lua). Off two it is ~$650 and the run is ~12, Act 1 ~58 min.
+-- Mid and high price off their own boards, so only levels 1-11 reprice,
+-- plus a bleed through UPGRADE_RAMP_SMOOTHING into levels 12-14 (-26%,
+-- -18%, -7%); level 16 on is unchanged.
 -- `gtypes` = a list, or "cash" for every non-tournament mode.
 Balance.UPGRADE_REFERENCE = {
-    low  = { tables = 4,  tables_ramp = true, decks = {}, gtypes = "cash" },
+    low  = { tables = 2,  tables_ramp = true, decks = {}, gtypes = "cash" },
     mid  = { tables = 9,  decks = { standard = 5 }, gtypes = "cash" },
     -- Act 3 is unbalanced; the high board holds Standard (the deck that
     -- makes T6+ playable: its reroll) until that pass.

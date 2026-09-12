@@ -42,6 +42,14 @@ return function(T)
         local got = (t.h._seen_wc or 0) - base
         check("item:yellow_sticky_note", "odds", math.abs(got - 0.10) < 1e-6,
             ("+5%% odds per empty cell adjacent: the table with two saw +%.1f%% on its deal"):format(got * 100))
+        -- ...and the felt says so before the deal: the readout prices the
+        -- table where it sits (OutcomeMath.tableWinChanceBonus, shared).
+        local shown = w.ctrl:tableStats(t.h)
+        local shown_a = w.ctrl:tableStats(t.a)
+        local d_h = shown and (shown.win_chance - base) or -1
+        local d_a = shown_a and (shown_a.win_chance - base) or -1
+        check("item:yellow_sticky_note", "readout", math.abs(d_h - 0.10) < 1e-6 and math.abs(d_a) < 1e-6,
+            ("the readout shows +%.1f%% at the table with two empties and +%.1f%% at the corner with none"):format(d_h * 100, d_a * 100))
     end
 
     if wanted("item:throw_pillow") then
@@ -57,6 +65,13 @@ return function(T)
         local ratio = r1 and r2 and r2.delta > 0 and (r1.delta / r2.delta) or 0
         check("item:throw_pillow", "winnings", math.abs(ratio - 1.5) < 1e-6,
             ("the lonely table's win paid x%.2f the paired table's (same 10bb pot)"):format(ratio))
+        -- The readout quotes the lonely table higher (tableEarningsMult in
+        -- the payout multiplier), the paired one at the plain figure.
+        local s_lone, s_pair = w.ctrl:tableStats(lone), w.ctrl:tableStats(pair1)
+        local shown_ratio = (s_lone and s_pair and s_pair.ev_per_hand ~= 0)
+                            and (s_lone.ev_per_hand / s_pair.ev_per_hand) or 0
+        check("item:throw_pillow", "readout", shown_ratio > 1.0,
+            ("the lonely table's readout reads x%.2f the paired table's"):format(shown_ratio))
     end
 
     if wanted("item:comfort_bed") then
@@ -129,23 +144,27 @@ return function(T)
             ("the controller counts %d heaters burning (2 lit of 3 tables)"):format(w.ctrl.ctx.heater_count or -1))
     end
 
-    if wanted("item:wall_hanger") then
+    if wanted("item:wall_hook") then
         local w = T.world()
         w:open("s001", "hu"); w:open("s001", "zoom"); w:open("s002", "hu"); w:open("s003", "six_max")
-        w:own("wall_hanger"); w:tick(0.05)
-        check("item:wall_hanger", "count", w.ctrl.ctx.stakes_seated == 3,
-            ("the controller counts %d stakes seated (NL2 twice, NL10, NL100 = 3)"):format(w.ctrl.ctx.stakes_seated or -1))
+        w:own("wall_hook"); w:tick(0.05)
+        local four = w.ctrl.ctx.lanes_seated
+        -- A second table on a lane already in play is not a new lane.
+        w:open("s001", "hu"); w:tick(0.05)
+        check("item:wall_hook", "count", four == 4 and w.ctrl.ctx.lanes_seated == 4,
+            ("the controller counts %d table types in play (NL2 Heads-Up, NL2 Zoom, NL10 Heads-Up, NL100 6-Max = 4), still %d with a second NL2 Heads-Up"):format(
+                four or -1, w.ctrl.ctx.lanes_seated or -1))
     end
 
-    if wanted("item:framed_diploma") then
+    if wanted("item:hybrid_console") then
         local w = T.world()
         local z = {}
         for i = 1, 4 do z[i] = w:open("s001", "zoom") end
-        w:own("framed_diploma"); w:tick(0.05)
+        w:own("hybrid_console"); w:tick(0.05)
         for i = 1, 4 do w.ctrl:dealHand(w:find(z[i])) end
         local peak = 0
         for _ = 1, 200 do w:tick(0.05); peak = math.max(peak, w.ctrl.ctx.hands_per_second or 0) end
-        check("item:framed_diploma", "count", peak >= 2,
+        check("item:hybrid_console", "count", peak >= 2,
             ("four Zoom tables dealt together: the board's hands-per-second stamp peaked at %d in the next ten seconds"):format(peak))
     end
 

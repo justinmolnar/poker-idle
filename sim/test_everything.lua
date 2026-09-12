@@ -279,7 +279,7 @@ function T.untilHands(w, t, n, max_s)
     return t.hands_played >= target
 end
 
-local CASE_FILES = { "procs", "odds", "board", "rolls", "hands", "cursors", "money", "gates", "smoke" }
+local CASE_FILES = { "procs", "odds", "board", "rolls", "hands", "cursors", "money", "gates", "smoke", "board_rate" }
 for _, name in ipairs(CASE_FILES) do
     local path = "sim/cases/" .. name .. ".lua"
     local f = io.open(path, "r")
