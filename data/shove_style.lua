@@ -257,6 +257,28 @@ return {
         gap     = 14,
     },
 
+    -- The take (views/ChipTake): the run's banked chips thrown onto the
+    -- felt after the shove, one per chip, before the book and the flyer.
+    take = {
+        chip_r      = 22,      -- 1x radius of a landed chip
+        from_y      = -60,     -- 1x: the chips start above the frame
+        flight_secs = 0.45,    -- the pour's flight
+        arc_lift    = 110,     -- 1x; the pour's is max(40, 120*s)
+        -- Spacing between chips = clamp(total / n, min, max): 15 chips
+        -- rain over ~1.4 s, 100 over ~2 s.
+        interval    = { total = 1.4, min = 0.02, max = 0.12 },
+        -- Where they land: around (W*0.5, H*rest_y), spread by these
+        -- fractions of the screen at a full flood (60+ chips), shrinking
+        -- with sqrt(n) for a handful, floored at min_x/min_y (1x).
+        spread      = { x = 0.42, y = 0.26, min_x = 60, min_y = 40 },
+        rest_y      = 0.58,
+        land_pitch  = { from = 0.9, to = 1.4 },
+        -- The glow under each landed chip: this bright on landing, settling
+        -- to `rest` over fade_secs; diameter d_mult chip radii.
+        glow        = { d_mult = 2.8, alpha = 0.30, rest = 0.07, fade_secs = 2.5,
+                        color = { 1.00, 0.85, 0.35 } },
+    },
+
     -- Superseded by `glow`. Kept so the draw-trace harness can put the old
     -- lighting back and diff against the pre-extraction capture.
     spotlight = {

@@ -1249,6 +1249,7 @@ function GrindController:update(dt)
                     { scale = 1.4, font = "lg", color_token = "won",
                       lifetime = 2.6, arc_y = -math.floor(lg_h * 0.5),
                       fit_table = t })
+                self:_playNamed("tournament_won")
             elseif payout > 0 then
                 -- Partial payout (busted before the win) — a plain cash float.
                 self.game.floating_text.emit(Format.moneySigned(payout),
@@ -1260,6 +1261,7 @@ function GrindController:update(dt)
                 self.game.floating_text.emit("BUSTED",
                     center[1], center[2],
                     { color_token = "error", lifetime = 1.6, fit_table = t })
+                self:_playNamed("table_busted")
                 self:_announce("on_tournament_miss", { table = t, n = 1 })
             end
 

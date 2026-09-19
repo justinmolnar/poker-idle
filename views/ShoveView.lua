@@ -52,6 +52,7 @@ local IconText               = require("views.IconText")
 local AnchorRegistry         = require("services.AnchorRegistry")
 local Timeline               = require("services.Timeline")
 local Decal                  = require("services.Decal")
+local ChipTake               = require("views.ChipTake")
 local Button                 = require("views.Button")
 local PaletteData            = require("data.theme")
 local ClickFlash             = require("services.ClickFlash")
@@ -458,6 +459,7 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     self.chip_visible   = { false, false, false }
     self.ending         = false
     self.pile           = nil
+    self.take           = nil
     -- The beat machine is services/Timeline: the same engine the House's
     -- story beats run on everywhere else. This view mirrors its clock and
     -- hold into self.elapsed / self.hold_id / self.phase after each tick so
@@ -566,6 +568,21 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     local function throwFlyer(at)
         add(at, function()
             if self.ss and self.ss.throwFlyer then self.ss:throwFlyer() end
+        end)
+    end
+    -- The take: the run's chips rain onto the felt once the book and the
+    -- flyer have their spots (views/ChipTake), so the chips can stay clear
+    -- of both. The BANKED line's rect is computed here from the layout,
+    -- not read off its anchor, which a skip or a lag spike can leave
+    -- unset. The chips land with their own sounds.
+    local function throwChips(at)
+        add(at, function()
+            if not (self.ss and self.ss.throwChips) then return end
+            local W   = love.graphics.getDimensions()
+            local tcx = math.floor(tableCenterX(W))
+            local sy  = Y_PLAYER_HOLE + CARD_H + 40 + 17 + Style.summary.gap
+            local h   = self.fonts.sm:getHeight() + self.fonts.lg:getHeight()
+            self.ss:throwChips({ x = tcx - 200, y = sy, w = 400, h = h }, BUILDUP_TUMBLE)
         end)
     end
 
@@ -732,6 +749,7 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     settle(t + 2.7)
     throwCatalog(t + 3.4)
     throwFlyer(t + 3.55)
+    throwChips(t + 3.7)
     hold(t + 3.75, "result")
     self.total_duration = t + 3.75
 end
@@ -970,6 +988,7 @@ function ShoveView:resetTimeline()
     self.robbed         = false
     self.ending         = false
     self.pile           = nil
+    self.take           = nil
     self.extra_cards    = nil
     self.extra_dealt    = 0
     RollingValue.reset("shove:allin")
@@ -1138,6 +1157,9 @@ function ShoveView:update(dt)
         return
     end
 
+    -- The take rains and glows on its own clock, holds included.
+    ChipTake.update(self.take, dt, self.game.sounds)
+
     if not self.timeline then return end
     -- Card anims keep ticking during a hold (a mid-flip card should land),
     -- but the clock does not, so nothing after the hold fires.
@@ -1255,6 +1277,12 @@ function ShoveView:_drawNumberFlight(f, dst)
     local p = math.max(0, math.min(1, (now - f.t0) / Style.room.fly_secs))
     if self.phase == "ready_to_deal" then p = 1 end   -- a skip lands it
     if p <= 0 and not f.park then return end          -- BANK appears when it lifts off
+    if p > 0 and not f.lifted then
+        f.lifted = true
+        if self.game.sounds and self.game.sounds.playNamed then
+            self.game.sounds.playNamed("number_lift")
+        end
+    end
     local R = Style.room
     local e = 1 - (1 - p) * (1 - p) * (1 - p)
     local lg_h = fonts.lg:getHeight()
@@ -2013,6 +2041,7 @@ function ShoveView:draw()
         glow_h = (Y_PLAYER_HOLE + CARD_H + 20) - (Y_DEALER_HOLE - 20),
     })
 
+
     -- The House, above the dealer's seat, with the slot the cards come out
     -- of. Drawn in every phase including the buildup so the House can
     -- speak as the chips arrive.
@@ -2160,7 +2189,11 @@ function ShoveView:draw()
 
     -- The run summary: the {chip} count, large, alone. The one thing on the
     -- felt with weight, because it is the one thing the player keeps.
-    if self.summary_shown and Style.summary.enabled then
+    -- Not while the catalog is open: the book's ledger is then the one
+    -- count on screen, and two chip figures with two meanings (this run's
+    -- take, the balance to spend) read as a contradiction.
+    local book_up = self.ss and self.ss.catalog_modal and self.ss.catalog_modal:isOpen()
+    if self.summary_shown and Style.summary.enabled and not book_up then
         local fonts = self.fonts
         local tcx   = math.floor(tableCenterX(W))
         -- BELOW the bottom rail, in the open felt under the frame. The rail
@@ -2180,6 +2213,14 @@ function ShoveView:draw()
             line_y = line_y + fonts.lg:getHeight()
         end
         AnchorRegistry.set("shove:summary", tcx - 200, sy, 400, line_y - sy)
+    end
+
+    -- The take: the run's chips on the felt (views/ChipTake), over the
+    -- played hand and the summary (they land clear of the BANKED line),
+    -- and under the book and the flyer the state draws after this view.
+    if self.take then
+        ChipTake.drawLights(self.take)
+        ChipTake.drawChips(self.take)
     end
 
     self:_drawHeadline(W)

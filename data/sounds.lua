@@ -7,9 +7,10 @@
 -- Any may carry `layer = { ...sub-entry... }` for a secondary sound played
 -- alongside (e.g. coin rattle layered over a chip drop on a stack).
 --
--- Most files come from the uVegas Authentic Casino Chips & Cards Sounds pack
--- (54 WAVs recorded on a real felt poker table). The legacy fanfare /
--- game-over MP3s are kept where the pack has no equivalent.
+-- Every file comes from the uVegas Authentic Casino Chips & Cards Sounds pack
+-- (54 WAVs recorded on a real felt poker table) or assets/audio/room and felt.
+-- The legacy fanfare, game-over and buzz MP3s were dropped 2026-09-17: a win
+-- is coins, a loss is one chip pitched down.
 
 local expand = require("utils.sample_set")
 
@@ -17,6 +18,11 @@ local UVEGAS = "assets/audio/uVegas Authentic Casino Chips & Cards Sounds/"
 
 -- ── Pack-rooted sample sets ─────────────────────────────────────────────
 local CARD_GIVE        = expand(UVEGAS .. "Cards/Give/give_",                    10)
+-- The deal and the flip are the same pack set split in two, so a card
+-- turning over never sounds like a card landing: takes 1-7 deal, 8-10
+-- (pitched down in the preset) flip.
+local CARD_DEAL        = { CARD_GIVE[1], CARD_GIVE[2], CARD_GIVE[3], CARD_GIVE[4], CARD_GIVE[5], CARD_GIVE[6], CARD_GIVE[7] }
+local CARD_FLIP        = { CARD_GIVE[8], CARD_GIVE[9], CARD_GIVE[10] }
 local CARD_RIFFLE      = expand(UVEGAS .. "Cards/Shuffle/Riffle/riffle_",         5)
 local CHIP_1ON1        = expand(UVEGAS .. "Chips/1on1/1on1_",                     5)
 local CHIP_2ON1        = expand(UVEGAS .. "Chips/2on1/2on1_",                     5)
@@ -53,13 +59,13 @@ return {
 
 
     -- ── Card events (deal beats + showdown flip) ────────────────────────
-    -- Both random-pick from the 10-sample give set; flip is louder so it
-    -- stands out as the single per-hand cue.
+    -- The deal picks from the first seven gives; the flip from the last
+    -- three, pitched down, louder, so the reveal is not the deal.
     -- min_gap: fires once per hand per table, so a wide grid of fast
     -- tables (or a cascade resolving several at once) would otherwise
     -- stack a dozen identical card sounds on the same frame.
-    card_dealt          = { files = CARD_GIVE,    volume = 0.40, min_gap = 0.05 },
-    hole_card_flip      = { files = CARD_GIVE,    volume = 0.55 },
+    card_dealt          = { files = CARD_DEAL,    volume = 0.40, min_gap = 0.05 },
+    hole_card_flip      = { files = CARD_FLIP,    volume = 0.55, pitch = 0.85 },
 
     -- ── Shove-state events ──────────────────────────────────────────────
     shove_initiated     = { files = CARD_RIFFLE,  volume = 0.70 },
@@ -79,15 +85,21 @@ return {
     -- Still to find (see docs/sound-checklist.md): catalog_thud. The name
     -- is wired on the shove timeline; a file named catalog_thud under
     -- assets/audio/ pairs by itself. Silent until then.
-    -- Pack has no fanfare / game-over equivalents — keep the legacy assets.
-    gauntlet_won        = { file  = "assets/audio/victory_fanfare.mp3", volume = 1.0  },
-    gauntlet_lost       = { file  = "assets/audio/game_over.mp3",       volume = 0.85 },
+    -- The win sting: coins, with a four-chip drop under them for the full
+    -- clear. The loss: one chip pitched down, no jingle. The grind's
+    -- tournament win and bust are the same two sounds by their own names.
+    gauntlet_won        = { files = COINS,        volume = 0.80,
+                            layer = { files = CHIP_DROP_4, volume = 0.60 } },
+    gauntlet_lost       = { files = CHIP_1ON1,    volume = 0.70, pitch = 0.70 },
+    tournament_won      = { files = COINS,        volume = 0.65,
+                            layer = { files = CHIP_DROP_4, volume = 0.45 } },
+    table_busted        = { files = CHIP_1ON1,    volume = 0.60, pitch = 0.70 },
 
     -- ── Pot resolution by tier (8 entries) ──────────────────────────────
     -- Controller passes pot_won_<tier> / pot_lost_<tier> at settling, where
     -- tier ∈ {small, medium, large, stack}. Magnitude scales chip-stack
     -- sample size: 1on1 → 2on1 → 3on2 → Drops/4onStaple. Stacks layer in
-    -- coins (win) or the legacy buzz (loss) for emphasis.
+    -- coins (win) or the same drop pitched down to a thud (loss).
     -- Small pots are the overwhelming majority of resolutions on a fast
     -- mode; gap them so the win/loss cue stays a cue.
     pot_won_small        = { files = CHIP_1ON1,    volume = 0.55, min_gap = 0.05 },
@@ -101,8 +113,8 @@ return {
     pot_lost_medium      = { files = CHIP_2ON1,    volume = 0.45 },
     pot_lost_large     = { files = CHIP_3ON2,    volume = 0.50 },
     pot_lost_stack    = {
-        files = CHIP_DROP_4, volume = 0.175,
-        layer = { file = "assets/audio/negative_buzz.mp3", volume = 0.06875 },
+        files = CHIP_DROP_4, volume = 0.30,
+        layer = { files = CHIP_DROP_4, volume = 0.30, pitch = 0.70 },
     },
 
     -- ── Chip-flight arrival thunks (one per burst, fired by FlightSystem) ──
@@ -131,6 +143,8 @@ return {
     -- per state transition like card_dealt). Lower volume so 5×
     -- community-card snaps don't overwhelm the per-hand mix.
     card_snap           = { files = CARD_GIVE,    volume = 0.18 },
+    -- ITEMS and BANK lifting off the room toward their slots: the whoosh.
+    number_lift         = { file = "assets/audio/whoosh.mp3", volume = 0.50 },
 
     -- Border-pulse marker fires alongside the colored panel-border flash
     -- on every resolution. Tier-scaled volume (multiplier passed in at

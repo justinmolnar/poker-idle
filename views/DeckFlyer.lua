@@ -517,6 +517,20 @@ local function leafHeight(fonts, s)
     return fl(LEAF_PAD_BASE * s) + mastHeight(fonts, s) + fl(GRID_H_BASE * s) + fl(LEAF_PAD_BASE * s)
 end
 
+-- The flyer's resting rect on the felt, computable before it lands: the
+-- take (views/ChipTake) keeps its chips clear of it the way the flyer
+-- keeps clear of the book. Mirrors CatalogModal:feltRect.
+function DeckFlyer:feltRect(W, H)
+    if self._felt_rect then return self._felt_rect end
+    local fonts = self.game.fonts
+    local s     = self.game.ui_scale or 1
+    local fl    = math.floor
+    local dw, dh = fl(LEAF_W_BASE * s), leafHeight(fonts, s)
+    local fw, fh = fl(dw * CLOSED.scale), fl(dh * CLOSED.scale)
+    local x, y, angle = self:_feltSpot(W, H, fw, fh)
+    return { x = x, y = y, w = fw, h = fh, angle = angle }
+end
+
 function DeckFlyer:_drawClosedOnFelt(W, H, fonts, s)
     local fl = math.floor
     local dw, dh = fl(LEAF_W_BASE * s), leafHeight(fonts, s)

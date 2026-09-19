@@ -22,6 +22,7 @@ local Overlay            = require("views.ShoveDebugOverlay")
 local DemoEndModal       = require("views.DemoEndModal")
 local CatalogModal       = require("views.CatalogModal")
 local DeckFlyer          = require("views.DeckFlyer")
+local ChipTake           = require("views.ChipTake")
 local ConfirmDialog      = require("views.widgets.ConfirmDialog")
 local SoundService       = require("services.SoundService")
 local SettingsModal      = require("views.SettingsModal")
@@ -354,6 +355,7 @@ function ShoveState:_onGauntletEnded()
         -- (skipped past), build it now so the shop is never missed.
         if not self.catalog_modal then self:throwCatalog() end
         if not self.deck_flyer then self:throwFlyer() end
+        if self.view and not self.view.take then self:throwChips() end
         self:_dismissCatalogAndReturn()
     end
 end
@@ -414,6 +416,30 @@ function ShoveState:throwCatalog()
           -- shove_count AFTER the shove, so every throw during one hashed
           -- the same number and the book landed in the same spot every time.
           throw_key = "catalog:" .. tostring(self:_nextThrowId()) })
+end
+
+-- The dealer throws the run's chips onto the felt, one per chip banked,
+-- before the book (views/ChipTake). Called by the view as a timeline
+-- beat with the BANKED line's rect to stay clear of and the pour's tumble
+-- preset. A resumed shove replays from the buildup, so the beat simply
+-- fires again; nothing here to restore.
+function ShoveState:throwChips(summary_rect, preset)
+    local view = self.view
+    if not view or view.take then return end
+    local n = view.chips_banked or 0
+    if n <= 0 then return end
+    local W, H = love.graphics.getDimensions()
+    -- Clear of the BANKED line, the book and the flyer (both have their
+    -- spots before they land; the beat fires after both throws).
+    local avoid = { summary_rect }
+    if self.catalog_modal and self.catalog_modal.feltRect then
+        avoid[#avoid + 1] = self.catalog_modal:feltRect(W, H)
+    end
+    if self.deck_flyer and self.deck_flyer.feltRect then
+        avoid[#avoid + 1] = self.deck_flyer:feltRect(W, H)
+    end
+    view.take = ChipTake.begin(n, "take:" .. tostring(self:_nextThrowId()),
+                               W, H, self.game.ui_scale or 1, avoid, preset)
 end
 
 -- The dealer throws the deck flyer after the book, once decks exist. It

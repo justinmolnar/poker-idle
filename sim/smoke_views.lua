@@ -663,4 +663,162 @@ do
     c.ok(pcall(function() ss:flushWorker() end), "flushWorker is safe with no worker")
 end
 
+-- ─── The catalog book: paging, the paper, the count ────────────────────
+-- The post-shove book (open, not on the felt) on the stub: the arrow and
+-- Page keys turn it, a click on bare paper leaves it open while a click on
+-- the felt closes it, and the turn controls sit inside the book's edges
+-- (the manifest's stub lives on the outer left edge and must stay clear).
+do
+    local H = require("sim.harness")
+    local F = Stub.font(16)
+    local w = H.world()
+    local g = w.game
+    g.fonts = { lg = F, md = F, sm = F, xs = F, micro = F }
+    g.state_machine = { states = {}, switch = function() end,
+                        current = function() return "shove" end }
+    local img = { getWidth = function() return 32 end,
+                  getHeight = function() return 32 end,
+                  getDimensions = function() return 32, 32 end,
+                  setFilter = function() end, release = function() end }
+    g.sprite_loader = {
+        getSprite    = function() return img end,
+        getSpriteFor = function() return img end,
+        hasSprite    = function() return true end,
+        backColor    = function() return { 0.5, 0.5, 0.5 } end,
+        setSprite    = function() end,
+        itemArt      = function() return img end,
+    }
+    Stub.recorder()
+    love.graphics.newFont = function() return F end
+    love.graphics.getFont = function() return F end
+
+    -- The page-flip timer reads the frame delta; the stub has no clock.
+    love.timer.getDelta = love.timer.getDelta or function() return 1 / 60 end
+    local CatalogModal = require("views.CatalogModal")
+    local m = CatalogModal:new(g)
+    local function landed() m.flip_t, m.flip_dir, m.old_spread_index = nil, nil, nil end
+
+    local drew, err = pcall(function() m:draw() end)
+    c.ok(drew, "the catalog draws its cover: " .. tostring(err))
+    local W  = love.graphics.getDimensions()
+    local cx = W * 0.5
+    c.ok(m._book_rect ~= nil and math.abs(m._book_rect.x - cx) <= 1,
+         "on the cover the visible book starts at the spine")
+    c.ok(m._next_rect ~= nil and m._prev_rect == nil, "the cover has OPEN > and no PREV")
+    if m._next_rect and m._book_rect then
+        c.ok(m._next_rect.x + m._next_rect.w <= m._book_rect.x + m._book_rect.w + 1,
+             "OPEN > sits inside the book's right edge")
+    end
+
+    c.eq(m:consumeKey("right"), true, "the right arrow is a page key")
+    c.eq(m.spread_index, 1, "...and turns to the first spread")
+    landed()
+    c.eq(m:consumeKey("pagedown"), true, "Page Down is a page key")
+    c.eq(m.spread_index, 2, "...and turns forward again")
+    landed()
+    c.eq(m:consumeKey("left"), true, "the left arrow is a page key")
+    c.eq(m.spread_index, 1, "...and turns back")
+    landed()
+    c.eq(m:consumeKey("space"), true, "Space is still the book's leave key")
+    c.eq(m._resolved, true, "...and resolves it")
+    m._resolved = false
+
+    local drew2, err2 = pcall(function() m:draw() end)
+    c.ok(drew2, "a spread draws: " .. tostring(err2))
+    local br = m._book_rect
+    c.ok(br ~= nil and m._prev_rect ~= nil and m._prev_rect.x >= br.x,
+         "PREV starts at the book's left edge, never outside it where the manifest's stub is")
+    c.ok(br ~= nil and m._next_rect ~= nil and m._next_rect.x + m._next_rect.w <= br.x + br.w + 1,
+         "NEXT ends at the book's right edge")
+
+    -- Bare paper: the left leaf's outer margin at mid-height, where no
+    -- card, tab, sticker or control is.
+    m._enter_t = 1
+    if br then
+        c.eq(m:consumeMouse(br.x + 6, br.y + br.h * 0.5, 1), true, "a click on bare paper is consumed")
+        c.eq(m._resolved, false, "...and leaves the book open")
+    end
+    c.eq(m:consumeMouse(1, 1, 1), true, "a click on the felt is consumed")
+    c.eq(m._resolved, true, "...and closes the book")
+    m._resolved = false
+
+    m.spread_index = math.ceil(#m:_pages() / 2) + 1
+    local drew3, err3 = pcall(function() m:draw() end)
+    c.ok(drew3, "the back cover draws: " .. tostring(err3))
+    c.ok(m._book_rect and math.abs(m._book_rect.x + m._book_rect.w - cx) <= 1,
+         "on the back cover the visible book ends at the spine")
+    c.ok(m._prev_rect ~= nil and m._next_rect == nil, "the back cover has < BACK and no NEXT")
+    c.eq(m:consumeKey("home"), true, "Home is a page key")
+    landed()
+    c.eq(m.spread_index, 0, "...back to the cover")
+end
+
+-- ─── The take: the run's chips thrown onto the felt ────────────────────
+-- views/ChipTake on the stub: every chip lands inside the screen and clear
+-- of the BANKED line, a handful clusters and a flood still fits, and the
+-- draws run (the light pass returns early: the stub never builds the quad).
+do
+    local ChipTake = require("views.ChipTake")
+    local W, H = 1600, 900
+    local summary = { x = W / 2 - 200, y = 700, w = 400, h = 40 }
+    local book    = { x = 640, y = 300, w = 200, h = 260 }
+    local avoid   = { summary, book }
+    local preset  = { flips = 1, spins = 1, phase = 0, min_squash = 0.28, loft = { 0.30, 0.50 } }
+    local function inside(cc, take)
+        return cc.x - take.r >= 0 and cc.x + take.r <= W and cc.y - take.r >= 0 and cc.y + take.r <= H
+    end
+    local function offRect(cc, take, rect)
+        return not (cc.x + take.r > rect.x and cc.x - take.r < rect.x + rect.w
+                    and cc.y + take.r > rect.y and cc.y - take.r < rect.y + rect.h)
+    end
+    local function offSummary(cc, take) return offRect(cc, take, summary) and offRect(cc, take, book) end
+    local function run(n)
+        local take = ChipTake.begin(n, "take:test", W, H, 1, avoid, preset)
+        local last = 0
+        for _, cc in ipairs(take.chips) do if cc.arrive_t > last then last = cc.arrive_t end end
+        local steps = math.ceil((last + 0.1) / (1 / 60))
+        for _ = 1, steps do ChipTake.update(take, 1 / 60, nil) end
+        return take
+    end
+
+    c.eq(ChipTake.begin(0, "take:none", W, H, 1, avoid, preset), nil, "no chips, no take")
+
+    local t12 = run(12)
+    c.eq(#t12.chips, 12, "twelve chips banked: twelve chips thrown")
+    c.ok(ChipTake.done(t12), "...and all twelve landed once the clock passed the last arrival")
+    local all_in, all_off = true, true
+    for _, cc in ipairs(t12.chips) do
+        if not inside(cc, t12) then all_in = false end
+        if not offSummary(cc, t12) then all_off = false end
+    end
+    c.ok(all_in, "every chip of twelve lands inside the screen")
+    c.ok(all_off, "none of the twelve lands on the BANKED line or the book")
+
+    local t150 = run(150)
+    c.eq(#t150.chips, 150, "a hundred and fifty banked: a hundred and fifty thrown, no cap")
+    c.ok(ChipTake.done(t150), "...and the flood all lands")
+    all_in, all_off = true, true
+    for _, cc in ipairs(t150.chips) do
+        if not inside(cc, t150) then all_in = false end
+        if not offSummary(cc, t150) then all_off = false end
+    end
+    c.ok(all_in, "the flood stays on screen")
+    c.ok(all_off, "the flood stays off the BANKED line and the book")
+    c.ok(t150.spacing < t12.spacing, "a flood rains faster per chip than a handful")
+
+    local t1 = ChipTake.begin(1, "take:one", W, H, 1, avoid, preset)
+    local dx = math.abs(t1.chips[1].x - W * 0.5)
+    c.ok(dx <= 60 + t1.r, "a single chip lands within the spread floor of the rest point")
+
+    local drew, err = pcall(function()
+        Stub.recorder()
+        ChipTake.drawLights(t12)
+        ChipTake.drawChips(t12)
+        local mid = ChipTake.begin(20, "take:mid", W, H, 1, avoid, preset)
+        ChipTake.update(mid, 0.5, nil)   -- some landed, some in the air
+        ChipTake.drawChips(mid)
+    end)
+    c.ok(drew, "the take draws landed and airborne chips: " .. tostring(err))
+end
+
 os.exit(c.report("smoke_views") == 0 and 0 or 1)

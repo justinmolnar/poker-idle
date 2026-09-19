@@ -49,6 +49,7 @@ local Format       = require("utils.format")
 local Decal        = require("services.Decal")
 local TooltipSvc     = require("services.Tooltip")
 local HoverSvc       = require("services.HoverService")
+local ClickFlash     = require("services.ClickFlash")
 local AwardGlow      = require("views.AwardGlow")   -- the index tab's "something to peel" pulse
 local ShaderRegistry = require("services.ShaderRegistry")
 local CatalogReceipt = require("views.CatalogReceipt")
@@ -395,6 +396,20 @@ function CatalogModal:consumeKey(key)
         self.receipt:close()
         return true
     end
+    -- Paging: the arrows, A/D, the Page keys, Home and End. Only while the
+    -- book is showing: the shove screen routes keys here even when the
+    -- book sits closed on the felt. Space is never a page key (it leaves
+    -- the shove), so turning and leaving cannot be confused.
+    if self._open then
+        local max_spread = math.ceil(#self:_pages() / 2) + 1
+        local step = ({ left = -1, a = -1, pageup = -1, right = 1, d = 1, pagedown = 1 })[key]
+        if step then
+            self:goToSpread(math.max(0, math.min(max_spread, self.spread_index + step)))
+            return true
+        end
+        if key == "home" then self:goToSpread(0); return true end
+        if key == "end"  then self:goToSpread(max_spread); return true end
+    end
     if self.on_felt then
         -- ESC puts the book down. SPACE is not the book's key on the felt:
         -- the state reads it as "leave the shove" whether the book is open
@@ -679,17 +694,30 @@ function CatalogModal:consumeMouse(mx, my, button)
         if mx >= cell.x and mx < cell.x + cell.w
            and my >= cell.y and my < cell.y + cell.h then
             if cell.buyable and not self.read_only then
+                local ok
                 if cell.corruptible then
-                    return tryCorrupt(self.game, cell.item)
+                    ok = tryCorrupt(self.game, cell.item)
                 else
-                    return tryBuy(self.game, cell.item)
+                    ok = tryBuy(self.game, cell.item)
                 end
+                -- The press: the card flashes for a moment (drawItemCard
+                -- reads it) and the manifest feeds the new line.
+                if ok then ClickFlash.flash("catalog_buy", cell.item.id) end
+                return ok
             end
             return true   -- consumed even if not buyable (don't fall through)
         end
     end
-    -- Dead space: put the book down. There is no close button; clicking
-    -- off the book is how it closes (the back cover's CLOSE and ESC too).
+    -- On the book's paper but on nothing in particular: the book stays
+    -- open. A click that misses a card by a few pixels used to fall
+    -- through to the felt and put the book down.
+    local br = self._book_rect
+    if br and mx >= br.x and mx < br.x + br.w and my >= br.y and my < br.y + br.h then
+        return true
+    end
+    -- Dead space (the felt outside the visible book): put the book down.
+    -- There is no close button; clicking off the book is how it closes
+    -- (the back cover's CLOSE and ESC too).
     if self.on_felt then self:closeToFelt() else self._resolved = true end
     return true
 end
@@ -829,8 +857,12 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- The book is immutable: this ring is the printed price, and it reads
     -- OWN once ordered, corruption or not. The corruption gets its OWN
     -- ring, beside this one (below).
+    -- Red is the buy signal: unowned, open, and affordable right now (never
+    -- in the read-only book, where nothing is for sale). An open card the
+    -- player cannot yet afford stays in ink and says how far off it is.
     local price_color = Theme.paper.ink_half -- black ink default
-    if not is_owned and not locked then
+    local for_sale = (not is_owned) and (not locked) and (not is_corruptible)
+    if for_sale and affordable and not self.read_only then
         price_color = Theme.paper.stamp -- red rubber stamp for active purchase price
     end
 
@@ -860,6 +892,15 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     love.graphics.setFont(fonts.sm)   -- measured in sm; print in sm, not whatever was left set
     local tw_c = fonts.sm:getWidth(cost_text)
     love.graphics.print(cost_text, cx_stamp - tw_c * 0.5, cy_stamp - fonts.sm:getHeight() * 0.5)
+    -- How far off: under the ring, for an open card the balance does not
+    -- reach. The card the player most wants to notice is the one they
+    -- are banking toward.
+    if for_sale and (state.chips or 0) < (item.cost_chip or 0) then
+        local more = ("%d more"):format((item.cost_chip or 0) - (state.chips or 0))
+        love.graphics.setFont(fonts.xs)
+        Theme.setColor(Theme.paper.ink_faint)
+        love.graphics.print(more, cx_stamp - fonts.xs:getWidth(more) * 0.5, cy_stamp + r_stamp + fl(4 * s))
+    end
 
     -- The corruption's own ring, the same size, UNDER the printed one (no
     -- room beside it): the {achip} price while it is on offer, OWN once paid.
@@ -1195,6 +1236,16 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         }
     end
 
+    -- The press: a white wash for a moment after a buy (consumeMouse
+    -- flashes it), over everything on the card.
+    do
+        local fa = ClickFlash.alpha("catalog_buy", item.id)
+        if fa > 0 then
+            Theme.setColor({ 1, 1, 1 }, fa * 0.35)
+            love.graphics.rectangle("fill", x, y, w, h)
+        end
+    end
+
     -- Stash cell bounds for hit-testing. Skipped mid-flip: leaves are drawn
     -- under a scale transform then, so the logical rect wouldn't match what's
     -- on screen — and clicks shouldn't land during a page turn anyway.
@@ -1422,9 +1473,10 @@ local function drawTabSticker(self, t, stuck, s, fonts, x)
     love.graphics.setFont(xs)
     Theme.setColor(Theme.contrastFor(mid), alpha)
     love.graphics.print(t.label, x + t.pad, y + fl((t.h_up - xs:getHeight()) / 2))
-    -- The pulse and the "!" for a shelf with something to peel.
+    -- The pulse (a sticker just became peelable) and the "!" for a shelf
+    -- with something to do: a sticker to peel or a card you can afford.
     AwardGlow.draw(t.key, x, y, w, h)
-    if t.ready > 0 then
+    if t.ready > 0 or (t.buyable or 0) > 0 then
         local breathe = Motion.at("ui", Motion.MEDIUM)
                         and (1 + 0.10 * math.sin(((love.timer and love.timer.getTime()) or 0) * 5)) or 1
         local r  = fl(6 * s) * breathe
@@ -1459,7 +1511,7 @@ function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_s
     self._tab_ready = self._tab_ready or {}
     if self._enter_t < 1 then return end
     local xs     = fonts.xs
-    local h_up   = xs:getHeight() + fl(10 * s)
+    local h_up   = xs:getHeight() + fl(16 * s)   -- taller than the type: a target, not a label
     local stick  = stickBand(s) - fl(4 * s)
     local gap    = fl(3 * s)
     local book_l = fl(cx - page_w)
@@ -1498,6 +1550,18 @@ function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_s
         if not catalogUnlocked(self.game, item, state) then return false end
         return not isPeeled(state, item.id)
     end
+    -- Open, unowned, and the balance covers it (the read-only book sells
+    -- nothing, so it counts none).
+    local function buyableNow(item)
+        if self.read_only or owned[item.id] then return false end
+        if not reqMet(owned, item) then return false end
+        local gated = item.unlock ~= nil or item.requires ~= nil
+        if gated then
+            if not catalogUnlocked(self.game, item, state) then return false end
+            if not isPeeled(state, item.id) then return false end
+        end
+        return (state.chips or 0) >= (item.cost_chip or 0)
+    end
 
     -- Measure every shelf. A sticker is glued to its shelf's RIGHT-hand
     -- leaf (the second leaf of the spread, or the only one), so the open
@@ -1507,13 +1571,14 @@ function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_s
         if pg.dept and pg.dept.tab then
             local dept  = pg.dept
             local label = dept.label or (dept.title or ""):upper()
-            local ready, count, last = 0, 0, leaf_i
+            local ready, buyable, count, last = 0, 0, 0, leaf_i
             for k = leaf_i, #pages do
                 if k > leaf_i and pages[k].dept then break end
                 last = k
                 count = count + #pages[k].items
                 for _, it in ipairs(pages[k].items) do
                     if stickerReady(it) then ready = ready + 1 end
+                    if buyableNow(it) then buyable = buyable + 1 end
                 end
             end
             local key = "catalog_tab:" .. tostring(dept.id)
@@ -1521,7 +1586,7 @@ function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_s
             self._tab_ready[dept.id] = ready
             local glued = math.min(last, leaf_i + 1)
             row[#row + 1] = { leaf = glued, spread = math.ceil(leaf_i / 2), id = dept.id, key = key,
-                              label = label, tw = xs:getWidth(label), ready = ready, count = count,
+                              label = label, tw = xs:getWidth(label), ready = ready, buyable = buyable, count = count,
                               c1 = Theme.tabColor(dept.tab[1]),
                               c2 = dept.tab[2] and Theme.tabColor(dept.tab[2]) or nil }
         end
@@ -1541,7 +1606,7 @@ function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_s
     local avail = row_r - row_l - math.max(0, n - 1) * gap
     local pad   = fl(8 * s)
     if n > 0 and text_w + n * pad * 2 > avail then
-        pad = math.max(fl(3 * s), fl((avail - text_w) / (n * 2)))
+        pad = math.max(fl(6 * s), fl((avail - text_w) / (n * 2)))
     end
     local off = row_l
     for _, t in ipairs(row) do
@@ -1564,6 +1629,7 @@ function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_s
         if t.hov then
             local tip = ("%s: %d items"):format(t.label, t.count)
             if t.ready > 0 then tip = tip .. (", %d to peel"):format(t.ready) end
+            if (t.buyable or 0) > 0 then tip = tip .. (", %d to buy"):format(t.buyable) end
             TooltipSvc.set(tip, mx, my)
         end
         self._tabs[#self._tabs + 1] = t
@@ -1609,34 +1675,17 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
         love.graphics.setFont(fonts.md)
         love.graphics.print(page.title:upper(), x + pad, y + band + fl(10 * s))
     end
-    -- Chip ledger, right page only.
-    --
-    -- The number MEASURED with fonts.md but PRINTED in whatever font the last
-    -- draw left active: a leaf with a department title had just set fonts.md,
-    -- a continuation leaf had not, so the same "19" came out two sizes on
-    -- facing pages and occasionally in fonts.lg after a card cell. setFont
-    -- goes immediately before the print, every time.
-    if is_right then
-        local bal   = string.format("%d", state.chips or 0)
-        local bal_w = fonts.md:getWidth(bal)
-        local gsize = fonts.md:getHeight()
-        local gap   = fl(5 * s)
-        local bx    = x + w - pad - (bal_w + gap + gsize)
-        love.graphics.setFont(fonts.md)
-        Theme.setColor(Theme.paper.stamp)
-        love.graphics.print(bal, bx, y + band + fl(10 * s))
-        Icons.drawChip(self.game, bx + bal_w + gap, y + band + fl(10 * s), gsize)
-        -- {achip} beside it once Act 3 has begun: the corruption prices are
-        -- in this currency, so the ledger has to show it.
-        if state.shove_r2_won then
-            local abal   = string.format("%d", state.anti_chips or 0)
-            local abal_w = fonts.md:getWidth(abal)
-            local ax     = bx - fl(14 * s) - (abal_w + gap + gsize)
-            love.graphics.setFont(fonts.md)
-            Theme.setColor(Theme.paper.corrupt_ink)
-            love.graphics.print(abal, ax, y + band + fl(10 * s))
-            Icons.drawAntiChip(self.game, ax + abal_w + gap, y + band + fl(10 * s), gsize)
-        end
+    -- (The chip ledger used to print here, on right leaves only, so the
+    -- cover and the back-cover spread had no count. It is drawn once per
+    -- view in :draw now, on the visible book's top-right edge.)
+    -- Read-only (the grind's CATALOG button): said once, in the left
+    -- leaf's header band, which nothing else uses on that side.
+    if self.read_only and not is_right then
+        local msg = "BROWSING - buy after a shove"
+        love.graphics.setFont(fonts.xs)
+        Theme.setColor(Theme.paper.ink_half)
+        love.graphics.print(msg, x + fl((w - fonts.xs:getWidth(msg)) / 2),
+                            y + fl((band - fonts.xs:getHeight()) / 2))
     end
     local head_h = fonts.md:getHeight() + fl(16 * s) + band
     Theme.setColor(Theme.paper.ink, 0.20)
@@ -1713,14 +1762,8 @@ drawFrontCover = function(self, x, y, w, h, fonts, s)
     love.graphics.setFont(fonts.md)
     love.graphics.printf("CATALOG & ORDER BOOK", x, y + h * 0.74, w, "center")
 
-    -- On the felt the cover is a thumbnail, so the invitation is printed
-    -- at its real size by _drawClosedOnFelt instead (text never rests
-    -- scaled).
-    if not self.on_felt then
-        love.graphics.setFont(fonts.sm)
-        Theme.setColor(Theme.paper.stamp)
-        love.graphics.printf("GRAB CORNER TO OPEN", x, y + h * 0.88, w, "center")
-    end
+    -- (The "GRAB CORNER TO OPEN" line went with the dog-ears: the footer's
+    -- OPEN > control, drawn by :draw on the open book, is the invitation.)
 
     -- First-visit lede. The flag has been plumbed from ShoveState since the
     -- callout was specced and nothing ever read it, so the band never drew.
@@ -1796,10 +1839,7 @@ local function drawBackCover(self, x, y, w, h, fonts, state, forcing, s, interac
         text_token   = (hov and not forcing) and Theme.paper.page_light or (forcing and Theme.fg.disabled or Theme.paper.ink),
     }
     if hov and forcing then TooltipSvc.set("Get the Poker Poster to start your next run.", mx, my) end
-
-    love.graphics.setFont(fonts.sm)
-    Theme.setColor(Theme.paper.stamp)
-    love.graphics.printf("GRAB CORNER TO BROWSE", x, y + h * 0.88, w, "center")
+    -- (No "GRAB CORNER" line: the footer's < BACK control turns back.)
 end
 
 function CatalogModal:draw()
@@ -1988,51 +2028,87 @@ function CatalogModal:draw()
         end
     end
 
-    -- ── Corner controls. Book bounds are ALWAYS the full open-spread extent,
-    -- cover or spread, so the dog-ear corners never move
-    -- between views — that motion is what made the buttons annoying to hit.
-    -- Non-interactive during a flip. ──
+    -- ── The book's extent. Book bounds are ALWAYS the full open-spread
+    -- extent, cover or spread, so nothing hung off them moves between
+    -- views. The VISIBLE book is the right leaf alone on the cover, the
+    -- left alone on the back cover, both between: a click on it is a click
+    -- on the book (consumeMouse keeps the book open), the ledger sits on
+    -- its top-right edge, and the felt outside it is what closes the book.
     local book_l = fl(cx - page_w)
     local book_r = fl(cx + page_w)
     local book_b = top + page_h
+    local vis_l  = (idx == 0) and cx or book_l
+    local vis_r  = (idx == max_spread) and cx or book_r
+    self._book_rect = { x = vis_l, y = top, w = vis_r - vis_l, h = page_h }
     -- The book as one rect, for a "this is the catalog" hint.
     if not self.flip_t then
         Anchors.set("catalog:book", book_l, top, book_r - book_l, page_h)
     end
     local mx, my = love.mouse.getPosition()
 
-    -- Previous-page dog-ear (bottom-left).
-    self._prev_rect = nil
-    if idx > 0 then
-        local sz  = fl(28 * s)
-        local hov = HoverSvc.rest("button", "catalog_prev",
-            mx >= book_l and mx <= book_l + fl(48 * s) and my >= book_b - fl(48 * s) and my <= book_b, 0)
-        if hov then sz = fl(38 * s) end
-        Theme.setColor(Theme.paper.page_dim)
-        love.graphics.polygon("fill", book_l + sz, book_b, book_l + sz, book_b - sz, book_l, book_b - sz)
-        Theme.setColor(Theme.paper.ink, 0.35)
-        love.graphics.line(book_l + sz, book_b, book_l, book_b - sz)
-        love.graphics.setFont(fonts.sm)
-        Theme.setColor(Theme.paper.ink, hov and 0.85 or 0.40)
-        love.graphics.print("<", book_l + sz * 0.35, book_b - sz * 0.8)
-        if not flipping then self._prev_rect = { x = book_l, y = book_b - sz, w = sz, h = sz } end
+    -- ── The ledger: what there is to spend, top right of the visible book,
+    -- on every view (the cover and the back cover included; it used to
+    -- print on right leaves only). Ink, not the price-tag red: it is the
+    -- balance, not another price. No label: with the felt's BANKED line
+    -- hidden while the book is up (ShoveView) it is the only count on
+    -- screen. Measured and printed in fonts.md, setFont right before.
+    do
+        local pad   = fl(12 * s)
+        local ly    = top + stickBand(s) + fl(10 * s)
+        local bal   = string.format("%d", state.chips or 0)
+        local bal_w = fonts.md:getWidth(bal)
+        local gsize = fonts.md:getHeight()
+        local gap   = fl(5 * s)
+        local bx    = vis_r - pad - (bal_w + gap + gsize)
+        love.graphics.setFont(fonts.md)
+        Theme.setColor(Theme.paper.ink)
+        love.graphics.print(bal, bx, ly)
+        Icons.drawChip(self.game, bx + bal_w + gap, ly, gsize)
+        -- {achip} beside it once Act 3 has begun: the corruption prices are
+        -- in this currency, so the ledger has to show it.
+        if state.shove_r2_won then
+            local abal   = string.format("%d", state.anti_chips or 0)
+            local abal_w = fonts.md:getWidth(abal)
+            local ax     = bx - fl(14 * s) - (abal_w + gap + gsize)
+            love.graphics.setFont(fonts.md)
+            Theme.setColor(Theme.paper.corrupt_ink)
+            love.graphics.print(abal, ax, ly)
+            Icons.drawAntiChip(self.game, ax + abal_w + gap, ly, gsize)
+        end
     end
 
-    -- Next-page dog-ear (bottom-right).
-    self._next_rect = nil
-    if idx < max_spread then
-        local sz  = fl(28 * s)
-        local hov = HoverSvc.rest("button", "catalog_next",
-            mx >= book_r - fl(48 * s) and mx <= book_r and my >= book_b - fl(48 * s) and my <= book_b, 0)
-        if hov then sz = fl(38 * s) end
-        Theme.setColor(Theme.paper.page_dim)
-        love.graphics.polygon("fill", book_r - sz, book_b, book_r - sz, book_b - sz, book_r, book_b - sz)
-        Theme.setColor(Theme.paper.ink, 0.35)
-        love.graphics.line(book_r - sz, book_b, book_r, book_b - sz)
+    -- ── Turn controls, in the footer band every leaf reserves (the page
+    -- number sits at its centre; these take the outer margins). INSIDE the
+    -- book on purpose: the manifest's stub lives on the outer left edge
+    -- and nothing here reaches it. They replaced two 28px dog-ear
+    -- triangles. Rects only when not flipping.
+    do
+        local foot_h = fonts.sm:getHeight() + fl(22 * s)
+        local fy     = book_b - foot_h
+        local pad    = fl(12 * s)
+        local min_w  = fl(120 * s)
+        local ty     = fy + fl((foot_h - fonts.sm:getHeight()) / 2)
         love.graphics.setFont(fonts.sm)
-        Theme.setColor(Theme.paper.ink, hov and 0.85 or 0.40)
-        love.graphics.print(">", book_r - sz * 0.65, book_b - sz * 0.8)
-        if not flipping then self._next_rect = { x = book_r - sz, y = book_b - sz, w = sz, h = sz } end
+        self._prev_rect, self._next_rect = nil, nil
+        if idx > 0 then
+            local label = (idx == max_spread) and "< BACK" or "< PREV"
+            local rw    = math.max(min_w, fonts.sm:getWidth(label) + pad * 2)
+            local hov   = HoverSvc.rest("button", "catalog_prev",
+                mx >= book_l and mx < book_l + rw and my >= fy and my < book_b, 0)
+            Theme.setColor(Theme.paper.ink, hov and 0.90 or 0.55)
+            love.graphics.print(label, book_l + pad, ty)
+            if not flipping then self._prev_rect = { x = book_l, y = fy, w = rw, h = foot_h } end
+        end
+        if idx < max_spread then
+            local label = (idx == 0) and "OPEN >" or "NEXT >"
+            local tw    = fonts.sm:getWidth(label)
+            local rw    = math.max(min_w, tw + pad * 2)
+            local hov   = HoverSvc.rest("button", "catalog_next",
+                mx >= book_r - rw and mx < book_r and my >= fy and my < book_b, 0)
+            Theme.setColor(Theme.paper.ink, hov and 0.90 or 0.55)
+            love.graphics.print(label, book_r - pad - tw, ty)
+            if not flipping then self._next_rect = { x = book_r - rw, y = fy, w = rw, h = foot_h } end
+        end
     end
 
 
@@ -2045,7 +2121,7 @@ function CatalogModal:draw()
     if idx ~= 0 and idx ~= max_spread then
         love.graphics.setFont(fonts.sm)
         Theme.setColor(Theme.paper.ink, 0.45)
-        love.graphics.printf("scroll wheel or grab a corner to turn pages",
+        love.graphics.printf("PREV and NEXT, the arrow keys or the wheel turn the pages",
             book_l, book_b + fl(6 * s), book_r - book_l, "center")
     end
 
@@ -2058,8 +2134,30 @@ function CatalogModal:draw()
         for _, cell in ipairs(self._cells) do
             if cell.revealed and mx >= cell.x and mx < cell.x + cell.w
                and my >= cell.y and my < cell.y + cell.h then
-                local corrupted = state.corrupted_items and state.corrupted_items[cell.item.id]
-                TooltipSvc.set(CatalogReceipt.itemCard(self.game, cell.item, corrupted), mx, my)
+                -- corrupted_items and owned_items are lists, not sets.
+                local corrupted, owned_now = false, false
+                for _, cid in ipairs(state.corrupted_items or {}) do
+                    if cid == cell.item.id then corrupted = true; break end
+                end
+                for _, oid in ipairs(state.owned_items or {}) do
+                    if oid == cell.item.id then owned_now = true; break end
+                end
+                local rows = CatalogReceipt.itemCard(self.game, cell.item, corrupted)
+                -- Appended here, not in itemCard (the receipt and the room
+                -- share that card and know nothing of the balance): what
+                -- buying it would leave, or how far off it is; and the
+                -- read-only note, on the card the player is looking at.
+                if rows and not owned_now then
+                    local cost, have = cell.item.cost_chip or 0, state.chips or 0
+                    if self.read_only then
+                        rows[#rows + 1] = TooltipSvc.iconRow(self.game, "Buy after a shove.", Theme.fg.muted)
+                    elseif have >= cost then
+                        rows[#rows + 1] = TooltipSvc.iconRow(self.game, ("Leaves %d {chip}"):format(have - cost), Theme.fg.muted)
+                    else
+                        rows[#rows + 1] = TooltipSvc.iconRow(self.game, ("%d {chip} short"):format(cost - have), Theme.fg.muted)
+                    end
+                end
+                TooltipSvc.set(rows, mx, my)
                 break
             end
         end
