@@ -1959,8 +1959,12 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     tbl.panel_w = w
     local n_tables = (controller and controller.pool and controller.pool:count()) or 0
     tbl.board_n = n_tables
-    -- The hand's theater exists only below data/felt_layout anims.min_tables.
-    local anims_on = n_tables < ((FeltData.anims and FeltData.anims.min_tables) or math.huge)
+    -- The hand's theater plays at every count. From data/felt_layout
+    -- anims.dense_tables the board is DENSE: the flights still fly and the
+    -- cards still throw; only the pot's detonation on a stack win thins
+    -- to a plain push (views/PokerEventAnims pot_push reads the stamp).
+    tbl.board_dense = n_tables >= ((FeltData.anims and FeltData.anims.dense_tables) or math.huge)
+    local anims_on = true
 
     -- Per-table FX transform stack. Ordered: lift+slam (vertical hover/
     -- punch) → shake (random shudder on top). All sub-elements (chrome,
@@ -2074,9 +2078,9 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     if tbl.script and tbl.playback_state then
         local cursor = tbl.view_event_cursor or 0
         local idx    = tbl.script_idx or 0
-        -- Below the theater width the events are consumed and nothing is
-        -- drawn for them: no flights, mucks or thrown cards. The model
-        -- resets _deal_fx and swept_hand itself each hand, so nothing waits.
+        -- Every event plays at every count (anims_on is always on; a dense
+        -- board only thins the stack-win detonation). The model resets
+        -- _deal_fx and swept_hand itself each hand, so nothing waits.
         for i = cursor + 1, idx do
             local ev = tbl.script[i]
             if ev and anims_on then

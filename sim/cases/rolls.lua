@@ -26,6 +26,14 @@ return function(T)
         local got1 = E.rate(function() return stackLoss(ctx) end, N, p1, 0.006, "stack-loss rate with the Books")
         check("item:stack_of_books", "d6", math.abs(got1 - p1) <= 0.006,
             ("NL10 6-Max stack-loss rate per hand: %.2f%% without, %.2f%% with (expected %.2f%%: a sixth of losses reroll and keep the better)"):format(got0 * 100, got1 * 100, p1 * 100))
+        -- The readout prices the same reroll (OutcomeMath.rerollAdjusted):
+        -- its stack-loss share is the formula above, and a sixth of the
+        -- losses that reroll come back as wins.
+        local wc1, _, ld1 = OM.rerollAdjusted(wc, wd, ld, ctx)
+        local read_stack = (1 - wc1) * ld1.stack
+        local want_wc    = wc + (1 - wc) * (1 / 6) * wc
+        check("item:stack_of_books", "readout", math.abs(read_stack - p1) < 1e-9 and math.abs(wc1 - want_wc) < 1e-12,
+            ("the readout's stack-loss share with the Books is %.3f%% (formula %.3f%%) and its win chance %.4f (%.4f + a sixth of losses rerolled into wins)"):format(read_stack * 100, p1 * 100, wc1, wc))
     end
 
     -- Standard: reroll a stack loss once per level, keep the smallest; the

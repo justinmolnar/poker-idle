@@ -291,9 +291,14 @@ local PokerEventAnims = {
         -- Needs a pile with visible chips to come apart. A surface too
         -- small to draw one (mini panels register no pot pile at all)
         -- falls through to the ordinary carry-over below rather than
-        -- losing the payout to an explosion with nothing to explode.
+        -- losing the payout to an explosion with nothing to explode. A
+        -- DENSE board (data/felt_layout anims.dense_tables, stamped by
+        -- TablePanel as board_dense) takes the same carry-over: the one
+        -- piece of theater that thins at twenty tables, where the flights
+        -- and the thrown cards all stay.
         local intensity = FeedbackIntensity[tbl.outcome_tier or ""]
-        if is_player and intensity and intensity.chip_burst and not tbl.pot_exploded then
+        if is_player and intensity and intensity.chip_burst and not tbl.pot_exploded
+           and not tbl.board_dense then
             local debris = ChipPile.takeAll(pot_key)
             if debris then
                 local stake_theme = StakeThemes[tbl.stake_id]

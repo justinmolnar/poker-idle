@@ -822,12 +822,87 @@ end
 -- post tier shift, post bump — because those are the odds a hand really
 -- runs against. A readout built on the raw buildOutcome dists reports a
 -- Stack rate the player never experiences.
+-- The rerolls, as arithmetic, so every readout prices the hand the live
+-- roll (sampleOutcome) actually plays: the Stack of Books' whole-hand
+-- reroll (ctx.loss_reroll_chance), then Standard's. A stack loss is
+-- rerolled R = ctx.stack_loss_rerolls times and the smallest kept; with
+-- the capstone (ctx.stack_loss_reroll_wins) each reroll first rolls the
+-- win chance and a win ends it. Returns the win chance and the loss
+-- distribution the hand effectively has; the win distribution is
+-- untouched (a reroll's win draws the same one). With q = 1 - wc and
+-- s = ld.stack, for Standard's step:
+--   the stack loss survives with q·s·(surv·s)^R, surv = q with the
+--   capstone, 1 without (sim/standard_reroll.lua's formula);
+--   the rest of s moves to the smaller tiers as the MINIMUM of R draws:
+--   P(min = t) = G(t)^R - G(t+)^R, G(t) = P(draw >= t);
+--   with the capstone q·s·(1 - q^R) becomes a win.
+-- Until this existed (2026-09-29) the felt readout, the lane rates, the
+-- payout tooltip, the upgrade price boards and the sims all priced T4+
+-- without the deck that makes it profitable, and told the player NL1M
+-- lost money with Standard in play.
+-- P(the minimum of n draws from loss dist `ld` is tier i), for each tier,
+-- with G[i] = P(one draw >= tier i).
+local function minOfDraws(ld, n)
+    local G, acc = {}, 0
+    for i = #TIER_KEYS, 1, -1 do
+        acc = acc + (ld[TIER_KEYS[i]] or 0)
+        G[i] = acc
+    end
+    local p = {}
+    for i = 1, #TIER_KEYS do
+        p[i] = (G[i] ^ n) - ((G[i + 1] or 0) ^ n)
+    end
+    return p
+end
+
+local function normalised(mass, total)
+    local d = {}
+    for _, t in ipairs(TIER_KEYS) do d[t] = (total > 0) and (mass[t] / total) or 0 end
+    return d
+end
+
+function OutcomeMath.rerollAdjusted(wc, wd, ld, ctx)
+    if not (wc and ld and ctx) then return wc, wd, ld end
+    -- The Stack of Books first, as in sampleOutcome: a loss rerolls the
+    -- WHOLE hand with chance c and keeps the better, a win beating any
+    -- loss, the smaller of two losses otherwise. q·c·p of the losses
+    -- become wins; a surviving loss is the minimum of two draws.
+    local c = ctx.loss_reroll_chance or 0
+    if c > 0 then
+        local q = 1 - wc
+        local p_min = minOfDraws(ld, 2)
+        local mass = {}
+        for i, t in ipairs(TIER_KEYS) do
+            mass[t] = q * ((1 - c) * (ld[t] or 0) + c * q * p_min[i])
+        end
+        wc = wc + q * c * wc
+        ld = normalised(mass, 1 - wc)
+    end
+    -- Standard's reroll on the stack loss that survived.
+    local R = ctx.stack_loss_rerolls or 0
+    local s = ld.stack or 0
+    if R <= 0 or s <= 0 then return wc, wd, ld end
+    local q      = 1 - wc
+    local cap    = ctx.stack_loss_reroll_wins and true or false
+    local surv   = cap and (q ^ R) or 1        -- no reroll won
+    local to_win = cap and (1 - q ^ R) or 0    -- a reroll won
+    local p_min  = minOfDraws(ld, R)
+    local mass = {}
+    for i, t in ipairs(TIER_KEYS) do
+        local base = (t == "stack") and 0 or (ld[t] or 0)
+        mass[t] = q * (base + s * surv * p_min[i])
+    end
+    local wc2 = wc + q * s * to_win
+    return wc2, wd, normalised(mass, 1 - wc2)
+end
+
 function OutcomeMath.evStats(ctx, gtype, stake, opts)
     Perf.count("evStats")
     if not stake or not gtype then return nil end
     ctx = ctx or {}
     local wc, wd, ld = OutcomeMath.resolvedOutcome(ctx, gtype, stake)
     if not wc then return nil end
+    wc, wd, ld = OutcomeMath.rerollAdjusted(wc, wd, ld, ctx)
     -- opts.table: price THIS table, position and hand included, the way
     -- Table:deal will play it. Cash tables only, as in the deal.
     if opts and opts.table and not gtype.chip_stack_table then

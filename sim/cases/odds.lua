@@ -250,6 +250,28 @@ return function(T)
                 ("Standard L%d: a stack loss rerolls %d time(s)"):format(L, c.stack_loss_rerolls or 0))
         end
     end
+    -- The readout prices the reroll (OutcomeMath.rerollAdjusted): with
+    -- Standard L4 at a filled NL1M six-max the stack-loss share of a hand
+    -- is q·s^5 (sim/standard_reroll's formula), the win chance is
+    -- untouched below the capstone, and the table the felt says loses
+    -- $150K a hand without the deck reads as a winner with it.
+    if wanted("deck:standard:4") then
+        local OM  = T.OutcomeMath
+        local s5, g6 = stake("s005"), gtype("six_max")
+        local fill = s5.fill_window.complete
+        local base = T.ctxOf({ upgrades = { sharper_reads = fill, pot_control = fill } })
+        local with = T.ctxOf({ upgrades = { sharper_reads = fill, pot_control = fill }, decks = { standard = 4 } })
+        local wc, wd, ld = OM.resolvedOutcome(base, g6, s5)
+        local wc2, _, ld2 = OM.rerollAdjusted(wc, wd, ld, with)
+        local want_stack = (1 - wc) * (ld.stack ^ 5)
+        local got_stack  = (1 - wc2) * ld2.stack
+        local ev0 = OM.evStats(base, g6, s5).pool.ev_per_hand
+        local ev4 = OM.evStats(with, g6, s5).pool.ev_per_hand
+        check("deck:standard:4", "readout",
+            math.abs(got_stack - want_stack) < 1e-9 and math.abs(wc2 - wc) < 1e-12 and ev0 < 0 and ev4 > 0,
+            ("filled NL1M six-max: a hand is a stack loss %.4f%% of the time with four rerolls (q·s^5 = %.4f%%); EV $%.0f/hand without the deck, $%.0f with it"):format(
+                got_stack * 100, want_stack * 100, ev0, ev4))
+    end
 
     -- ── the run upgrades through the fill model ────────────────────────
     -- Sharper Reads raises win chance toward the stake's cap; Pot Control

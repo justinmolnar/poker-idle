@@ -68,11 +68,12 @@ local Decks = {
         name      = "Standard",
         sprite    = "cards/backs/04-patterns",
         max_level = 5,
-        -- PLACEHOLDER curve (2026-09-07): sized by sim/deck_curve_check.lua so
-        -- L4 lands inside a T3 session and L5 inside the first T4 session
-        -- (nine capped T3 tables: L4 in ~1.3h; nine mid T4 tables: L5 in
-        -- ~1.4h). The old top (6e6) needed hours of T4.
-        xp_curve  = { 2e3, 2e4, 1e5, 3e5, 2e6 },
+        -- Sized by sim/deck_curve_check.lua (2026-09-29): nine filled T3
+        -- six-max tables reach L3 in ~16 min and L4 in ~40 min, and L5
+        -- stays T4 money that lands in T4's first quarter hour (nine mid
+        -- NL10K tables: 13 min on Zoom, 26 on six-max). The previous top
+        -- (2e6) was 44 min to 1.4 h of T4; before that 6e6, hours.
+        xp_curve  = { 2e3, 1.5e4, 6e4, 1.5e5, 6e5 },
         xp_rule   = { kind = "money_won" },
         levels_on = "money won",
         -- The deck that refuses to lose big: a stack loss is rerolled once

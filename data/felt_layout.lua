@@ -76,8 +76,8 @@ return {
         -- board the pot chip sits at 16-17px from five tables up (the
         -- band solve shrinks the cards to fit the felt's height), so the
         -- size rule alone turned the pot into columns on a five-table
-        -- board. The designer's rule is the theater's: nothing loses
-        -- detail before 20 tables. Same count as anims.min_tables.
+        -- board. The designer's rule: nothing loses detail before 20
+        -- tables. Same count as anims.dense_tables.
         micro_min_tables = 20,
     },
 
@@ -112,20 +112,20 @@ return {
         back_plate_below_w = 10,
     },
 
-    -- Per-hand animation, by how many tables are open. From `min_tables`
-    -- up a table's hand plays with no theater at all: chips do not fly into
-    -- the pot, folds do not muck, deals do not throw cards, the pot does not
-    -- detonate on a stack win. At that density none of it reads as
-    -- anything, and at 36 tables it was most of the frame; the hand still
-    -- plays and its result still lands in the readouts. Counted, not
-    -- measured: the board packs six wide in reading order, so 13 and 36
-    -- tables share a panel width and only the count says how busy the
-    -- screen is. The floating text ("+$0.04", the hand name) is the one
-    -- piece of theater that stays at every count: the designer wants to
-    -- see it always. `floaters_min_tables` is the knob if that changes;
-    -- absent, it never fires.
+    -- Per-hand animation, by how many tables are open. The hand's theater
+    -- plays at EVERY count: chips fly into the pot, folds muck, deals throw
+    -- cards, the pot flies to the winner. (Until 2026-09-29 all of it
+    -- stopped at 20 tables at once, and going from 19 to 20 read as the
+    -- motion setting dropping to Low.) From `dense_tables` up the table is
+    -- DENSE and only the heaviest piece thins: the pot's detonation on a
+    -- stack win (120 pieces scattered and regathered) becomes the plain
+    -- push every other win gets. Counted, not measured: the board packs
+    -- six wide in reading order, so 13 and 36 tables share a panel width
+    -- and only the count says how busy the screen is. The floating text
+    -- ("+$0.04", the hand name) stays at every count; `floaters_min_tables`
+    -- is the knob if that changes; absent, it never fires.
     anims = {
-        min_tables = 20,
+        dense_tables = 20,
     },
 
     -- Heads-up duel seat: the single opponent gets a bigger seat than the
