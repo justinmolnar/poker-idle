@@ -11,7 +11,13 @@
 
 local HintCtx = {}
 
-function HintCtx.build(deps)
+-- Fill `ctx` in place and return it. main.lua keeps one ctx table and one
+-- deps table for the process: every field is written every tick (a field
+-- that is absent this tick is written nil), so a reader always sees this
+-- frame and nothing allocates. The story director keeps the latest ctx
+-- for a line said outside the script; it only reads `screen` off it, so
+-- the shared table is what it wants.
+function HintCtx.fill(ctx, deps)
     local g   = deps.game
     local sm  = g.state_machine
     local cur = sm and sm.current_state
@@ -19,25 +25,29 @@ function HintCtx.build(deps)
     local screen = sm and sm:current() or nil
     local is_shove = screen == "shove"
     local grind = g.grind
-    return {
-        state            = g.state,
-        pool             = grind and grind.pool,
-        grind            = grind,
-        screen           = screen,
-        shove_phase      = is_shove and sv and sv.phase or nil,
-        shove_hold       = is_shove and sv and sv.hold_id or nil,
-        shove_cheats     = is_shove and sv and sv.cheatsDealt and sv:cheatsDealt() or 0,
-        -- Every chip of the buildup's pour has landed on the pot.
-        shove_pot_landed = is_shove and sv and sv.buildup_chips ~= nil
+    ctx.state            = g.state
+    ctx.pool             = grind and grind.pool
+    ctx.grind            = grind
+    ctx.screen           = screen
+    ctx.shove_phase      = is_shove and sv and sv.phase or nil
+    ctx.shove_hold       = is_shove and sv and sv.hold_id or nil
+    ctx.shove_cheats     = is_shove and sv and sv.cheatsDealt and sv:cheatsDealt() or 0
+    -- Every chip of the buildup's pour has landed on the pot.
+    ctx.shove_pot_landed = is_shove and sv and sv.buildup_chips ~= nil
                            and (sv.buildup_arrived_count or 0) >= #sv.buildup_chips
-                           and #sv.buildup_chips > 0 or false,
-        catalog_open     = cur and (cur.catalog_modal ~= nil) or false,
-        -- The deck flyer: open (either screen), or landed folded on the felt.
-        deck_flyer_open   = cur and ((cur.deck_flyer and cur.deck_flyer:isOpen())
-                                  or (cur.deck_roster_modal and cur.deck_roster_modal:isOpen())) or false,
-        deck_flyer_landed = cur and cur.deck_flyer ~= nil and cur.deck_flyer:isLanded() or false,
-        anchor_fresh     = deps.anchor_fresh,
-    }
+                           and #sv.buildup_chips > 0 or false
+    ctx.catalog_open     = cur and (cur.catalog_modal ~= nil) or false
+    -- The deck flyer: open (either screen), or landed folded on the felt.
+    ctx.deck_flyer_open   = cur and ((cur.deck_flyer and cur.deck_flyer:isOpen())
+                                  or (cur.deck_roster_modal and cur.deck_roster_modal:isOpen())) or false
+    ctx.deck_flyer_landed = cur and cur.deck_flyer ~= nil and cur.deck_flyer:isLanded() or false
+    ctx.anchor_fresh     = deps.anchor_fresh
+    return ctx
+end
+
+-- A fresh ctx (the sims, and anything that wants its own copy).
+function HintCtx.build(deps)
+    return HintCtx.fill({}, deps)
 end
 
 return HintCtx

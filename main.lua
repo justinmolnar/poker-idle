@@ -453,11 +453,16 @@ local function buildGame()
     -- The ctx every condition kind evaluates against (controllers/hint_ctx):
     -- state, pool, and the screen-level facts no controller owns. Built
     -- once per tick and shared by the story director and the hints.
+    -- One ctx table and one deps table for the process, refilled per tick
+    -- (a table and a closure per frame otherwise, for two readers that
+    -- only ever look at the latest one).
+    local hint_deps = {
+        game         = g,
+        anchor_fresh = function(name) return AnchorRegistry.age(name) <= 1 end,
+    }
+    local hint_ctx_t = {}
     g.hint_ctx = function()
-        return HintCtx.build{
-            game         = g,
-            anchor_fresh = function(name) return AnchorRegistry.age(name) <= 1 end,
-        }
+        return HintCtx.fill(hint_ctx_t, hint_deps)
     end
     g.state_machine:register("grind",   GrindState:new(g))
     g.state_machine:register("shove",   ShoveState:new(g))
@@ -659,6 +664,12 @@ function love.load()
     end)
 end
 
+-- The glossary resolver the hover tooltip calls; one function for the
+-- process instead of a closure per frame.
+local function glossaryRowsForSpan(span)
+    return GlossaryPanel.rowsForSpan(Game, span)
+end
+
 function love.update(dt)
     -- Perf's frame boundary is here, before anything else runs, so the
     -- counters a frame reports belong to that frame (F4; free when off).
@@ -685,9 +696,7 @@ function love.update(dt)
     -- glossary card beside the box (only once its beat has played).
     do
         local hmx, hmy = love.mouse.getPosition()
-        Tooltip.hover(hmx, hmy, function(span)
-            return GlossaryPanel.rowsForSpan(Game, span)
-        end)
+        Tooltip.hover(hmx, hmy, glossaryRowsForSpan)
     end
     -- Per-frame budget for the notification spine, reset alongside the
     -- other per-frame state above.
