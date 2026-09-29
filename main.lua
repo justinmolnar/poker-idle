@@ -40,7 +40,6 @@ local ItemStream      = require("views.ItemStream")
 local ItemFoley       = require("services.ItemFoley")
 local AnchorRegistry  = require("services.AnchorRegistry")
 local ShaderRegistry  = require("services.ShaderRegistry")
-local ScratchCanvas   = require("services.ScratchCanvas")
 local HandAnalytics   = require("services.HandAnalytics")
 local Perf            = require("services.Perf")
 
@@ -114,6 +113,13 @@ local _realDimensions = love.graphics.getDimensions
 local _realPixelDims  = love.graphics.getPixelDimensions or love.graphics.getDimensions
 local _realGetPos     = love.mouse.getPosition
 local _frameCanvas, _scaleShader
+local _frameCanvasB                      -- the strain's target (love.draw)
+local _strain_amount                     -- uniforms sent on change only
+local _strain_size = { 0, 0 }
+local _strain_hole = { 0, 0, 0, 0 }
+local _blit_s, _blit_bw, _blit_bh        -- the scale shader's last sends
+local _blit_size  = { 0, 0 }
+local _blit_scale = { 0, 0 }
 
 -- ── Pixels, not units ─────────────────────────────────────────────────
 -- LÖVE 12 (SDL3) reports the window in DPI-scaled UNITS on Windows: on a
@@ -147,6 +153,7 @@ local function recomputeBase()
     if w == BASE_W then return false end
     BASE_W = w
     _frameCanvas = nil
+    _frameCanvasB = nil
     return true
 end
 recomputeBase()
@@ -904,8 +911,17 @@ function love.draw()
         -- scale, so an 8 px glyph is 8 px in the frame.
         _frameCanvas = love.graphics.newCanvas(BASE_W, BASE_H, { dpiscale = 1 })
         _frameCanvas:setFilter("linear", "linear")   -- shader needs bilinear sampling
+        -- The strain's target: the frame is drawn through the strain
+        -- shader into this second canvas ONCE, and the layers above the
+        -- strain (hints, story, tooltip, HUD) keep drawing into it, so the
+        -- pass is one full-screen draw and one canvas switch. (It was a
+        -- copy to the scratch canvas and a draw back: two of each.)
+        _frameCanvasB = love.graphics.newCanvas(BASE_W, BASE_H, { dpiscale = 1 })
+        _frameCanvasB:setFilter("linear", "linear")
         _scaleShader = love.graphics.newShader(SHARP_BILINEAR)
+        _blit_s = nil
     end
+    local frame = _frameCanvas
 
     -- Render the game into the fixed base-resolution canvas (crisp, 1:1).
     -- Anchor frame-stamp advances first so anchors registered during this
@@ -926,25 +942,36 @@ function love.draw()
         local grind = Game.grind
         local extra = (grind and Game.state_machine:current() == "grind")
             and (grind.pool:count() - grind:currentFocusCapacity()) or 0
-        local sh = (extra > 0) and ShaderRegistry.get("strain") or nil
-        local scratch = sh and ScratchCanvas.acquire(BASE_W, BASE_H) or nil
-        if scratch then
+        local sh = (extra > 0 and _frameCanvasB) and ShaderRegistry.get("strain") or nil
+        if sh then
             local hole = AnchorRegistry.get("rail:focus")
+            -- Uniforms go up only when they change; the tables are reused
+            -- (LÖVE copies the values at send).
+            local amount = math.min(1, 0.35 + 0.22 * (extra - 1))
+            if _strain_amount ~= amount then
+                _strain_amount = amount
+                sh:send("u_amount", amount)
+            end
+            if _strain_size[1] ~= BASE_W or _strain_size[2] ~= BASE_H then
+                _strain_size[1], _strain_size[2] = BASE_W, BASE_H
+                sh:send("u_size", _strain_size)
+            end
+            local hx, hy, hw, hh = -1000, -1000, 0, 0
+            if hole then hx, hy, hw, hh = hole[1], hole[2], hole[3], hole[4] end
+            local h = _strain_hole
+            if h[1] ~= hx or h[2] ~= hy or h[3] ~= hw or h[4] ~= hh then
+                h[1], h[2], h[3], h[4] = hx, hy, hw, hh
+                sh:send("u_hole", h)
+            end
             love.graphics.setBlendMode("alpha", "premultiplied")
             love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.setCanvas(scratch)
-            love.graphics.draw(_frameCanvas, 0, 0)
-            love.graphics.setCanvas(_frameCanvas)
-            sh:send("u_amount", math.min(1, 0.35 + 0.22 * (extra - 1)))
-            sh:send("u_size", { BASE_W, BASE_H })
-            sh:send("u_hole", hole and { hole[1], hole[2], hole[3], hole[4] }
-                                   or { -1000, -1000, 0, 0 })
+            love.graphics.setCanvas(_frameCanvasB)
             Perf.count("shader_switch")
             love.graphics.setShader(sh)
-            love.graphics.draw(scratch, 0, 0)
+            love.graphics.draw(_frameCanvas, 0, 0)
             love.graphics.setShader()
             love.graphics.setBlendMode("alpha")
-            ScratchCanvas.release()
+            frame = _frameCanvasB
         end
     end
     -- The hint layer, above whatever the state drew including its modals.
@@ -1006,12 +1033,18 @@ function love.draw()
     local d = dpiFactor()                     -- pixels per unit
     local bg = Theme.bg.window
     love.graphics.clear(bg[1], bg[2], bg[3], 1)
-    _scaleShader:send("u_sourceSize", { BASE_W, BASE_H })
-    _scaleShader:send("u_scale",      { s, s })   -- output PIXELS per texel
+    -- The scale shader's uniforms move only on a resize or a base change.
+    if _blit_s ~= s or _blit_bw ~= BASE_W or _blit_bh ~= BASE_H then
+        _blit_s, _blit_bw, _blit_bh = s, BASE_W, BASE_H
+        _blit_size[1], _blit_size[2] = BASE_W, BASE_H
+        _blit_scale[1], _blit_scale[2] = s, s
+        _scaleShader:send("u_sourceSize", _blit_size)
+        _scaleShader:send("u_scale",      _blit_scale)   -- output PIXELS per texel
+    end
     love.graphics.setShader(_scaleShader)
     love.graphics.setColor(1, 1, 1, 1)
     -- The draw happens in units; s/d units per texel puts s pixels there.
-    love.graphics.draw(_frameCanvas, ox / d, oy / d, 0, s / d, s / d)
+    love.graphics.draw(frame, ox / d, oy / d, 0, s / d, s / d)
     love.graphics.setShader()
     Perf.exit("blit")
     Perf.endFrame()
