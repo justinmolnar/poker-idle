@@ -369,4 +369,7 @@ function FlightSystem.count()
     return #_flying
 end
 
+-- How many entities are in the air (the HUD's flights row).
+function FlightSystem.count() return #_flying end
+
 return FlightSystem

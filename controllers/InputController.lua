@@ -46,12 +46,20 @@ function InputController:wire()
     dispatcher:on("keypressed",
         function(key) return key == "f4" end,
         function()
+            local Perf = require("services.Perf")
+            -- Shift+F4: exact allocation mode (the collector is held for
+            -- the frame and stepped at its end, timed as "gc"). Measuring
+            -- only; it perturbs the frame.
+            if love.keyboard.isDown("lshift", "rshift") then
+                if game.debug.perf then Perf.setExact(not Perf.exact()) end
+                return
+            end
             game.debug.perf = not game.debug.perf
             -- The meters only tick while the HUD is up (they are free
             -- otherwise), and the chip counter has been accumulating
             -- unread since the last time it was open — clear both so the
             -- first frame back reads this frame.
-            require("services.Perf").setEnabled(game.debug.perf)
+            Perf.setEnabled(game.debug.perf)
             require("views.Chips").frameStats()
         end)
 

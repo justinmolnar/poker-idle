@@ -766,6 +766,35 @@ end
 -- drawcallsbatched is the one worth watching: it is how many of those calls
 -- LOVE managed to merge, and a chip-rendering change that quietly breaks
 -- batching shows up here and nowhere else.
+-- The HUD's rows are persistent: a row is re-formatted only when its value
+-- changes, so the meter itself allocates nothing while the numbers hold.
+local _hud_rows  = {}     -- { label, text, last } per row; false = a gap
+local _hud_n     = 0
+local function hudRow(label, fmt, v)
+    _hud_n = _hud_n + 1
+    local r = _hud_rows[_hud_n]
+    if r == false or r == nil then r = { label, "", nil }; _hud_rows[_hud_n] = r end
+    if r[3] ~= v or r[1] ~= label then
+        r[1], r[2], r[3] = label, string.format(fmt, v), v
+    end
+end
+local function hudRow2(label, fmt, a, b)
+    _hud_n = _hud_n + 1
+    local r = _hud_rows[_hud_n]
+    if r == false or r == nil then r = { label, "", nil, nil }; _hud_rows[_hud_n] = r end
+    if r[3] ~= a or r[4] ~= b then
+        r[1], r[2], r[3], r[4] = label, string.format(fmt, a, b), a, b
+    end
+end
+local function hudGap()
+    _hud_n = _hud_n + 1
+    _hud_rows[_hud_n] = false
+end
+local function hudMs(label, scope)
+    -- Scope times move every frame; a tenth of a millisecond is the grid.
+    hudRow(label, "%.1f ms", math.floor(Perf.scopeMs(scope) * 10 + 0.5) / 10)
+end
+
 local function drawPerfHud()
     local st = love.graphics.getStats()
     local Chips = require("views.Chips")
@@ -775,49 +804,67 @@ local function drawPerfHud()
     local prev = love.graphics.getFont()
     if font then love.graphics.setFont(font) end
 
-    local lines = {}
-    local function row(label, fmt, ...)
-        lines[#lines + 1] = { label, string.format(fmt, ...) }
-    end
-    local function gap() lines[#lines + 1] = false end
-
+    _hud_n = 0
     local avg, worst = Perf.frameTimes()
-    row("fps",        "%d", love.timer.getFPS())
-    row("frame avg",  "%.1f ms", avg * 1000)
-    row("frame worst","%.1f ms", worst * 1000)
-    row("update",     "%.2f ms", Perf.scopeMs("update"))
-    row("draw",       "%.2f ms", Perf.scopeMs("draw"))
-    gap()
-    row("heap",       "%.1f MB", Perf.heapKB() / 1024)
-    row("heap/frame", "%.0f KB", Perf.heapDeltaKB())
-    gap()
-    row("draw calls", "%d", st.drawcalls or 0)
-    row("batched",    "%d", st.drawcallsbatched or 0)
-    row("chips",      "%d", n_chips)
-    row("chip scale", "%.2f - %.2f", s_min, s_max)
-    row("texture mem","%.1f MB", (st.texturememory or 0) / 1048576)
-    gap()
+    hudRow("fps",         "%d",      love.timer.getFPS())
+    hudRow("frame avg",   "%.1f ms", math.floor(avg * 10000 + 0.5) / 10)
+    hudRow("frame worst", "%.1f ms", math.floor(worst * 10000 + 0.5) / 10)
+    hudMs("update", "update")
+    hudMs("draw",   "draw")
+    hudMs("  rail",     "rail")
+    hudMs("  grid",     "grid")
+    hudMs("    static", "panel_static")
+    hudMs("    live",   "panel_live")
+    hudMs("  sidebars", "sidebars")
+    hudMs("  floaters", "floaters")
+    hudMs("  piles",    "piles")
+    hudMs("  flights",  "flights")
+    hudMs("  post",     "post")
+    hudMs("blit",   "blit")
+    if Perf.exact() then hudMs("gc (exact)", "gc") end
+    hudGap()
+    hudRow("heap",        "%.1f MB", math.floor(Perf.heapKB() / 1024 * 10 + 0.5) / 10)
+    hudRow("heap/frame",  "%.0f KB", math.floor(Perf.heapDeltaKB() + 0.5))
+    hudRow(Perf.exact() and "alloc (exact)" or "alloc ema", "%.0f KB", math.floor(Perf.allocEmaKB() + 0.5))
+    local freed, cycles = Perf.gcRates()
+    hudRow("gc freed/s",  "%.0f KB", math.floor(freed + 0.5))
+    hudRow("gc cycles/s", "%.1f",    math.floor(cycles * 10 + 0.5) / 10)
+    hudGap()
+    hudRow("draw calls",  "%d", st.drawcalls or 0)
+    hudRow("batched",     "%d", st.drawcallsbatched or 0)
+    hudRow("shader sw",   "%d", Perf.counter("shader_switch"))
+    hudRow("chips",       "%d", n_chips)
+    hudRow2("chip scale", "%.2f - %.2f", math.floor(s_min * 100 + 0.5) / 100, math.floor(s_max * 100 + 0.5) / 100)
+    hudRow("texture mem", "%.1f MB", math.floor((st.texturememory or 0) / 1048576 * 10 + 0.5) / 10)
+    hudRow("sheet",       "%.1f MB", Perf.gaugeValue("sheet_mb") or 0)
+    hudRow("atlas",       "%.1f MB", Perf.gaugeValue("atlas_mb") or 0)
+    hudGap()
     -- The optimization meters: each is a call the audit wants driven to
     -- (near) zero at rest. See docs/optimization-plan-2026-09.md.
-    row("evStats",    "%d", Perf.counter("evStats"))
-    row("buildOutcome","%d", Perf.counter("buildOutcome"))
-    row("anchors",    "%d", Perf.counter("anchor_set"))
-    row("text parse", "%d", Perf.counter("icontext_parse"))
-    row("text wrap",  "%d", Perf.counter("getWrap"))
-    row("pile layout","%d", Perf.counter("stack_layout"))
+    hudRow("evStats",     "%d", Perf.counter("evStats"))
+    hudRow("buildOutcome","%d", Perf.counter("buildOutcome"))
+    hudRow("anchors",     "%d", Perf.counter("anchor_set"))
+    hudRow("text parse",  "%d", Perf.counter("icontext_parse"))
+    hudRow("text wrap",   "%d", Perf.counter("getWrap"))
+    hudRow("pile layout", "%d", Perf.counter("stack_layout"))
+    hudRow("pile batch",  "%d", Perf.counter("pile_batch"))
+    hudRow("panels",      "%d", Perf.counter("panel_rebuild"))
+    hudRow2("cached/bypass", "%d / %d", Perf.counter("panel_cached"), Perf.counter("panel_bypass"))
+    hudRow("flights",     "%d", Perf.gaugeValue("flights") or 0)
 
     local lh = font and font:getHeight() or 10
-    local w, h = 210, lh * #lines + 12
+    local w, h = 230, lh * _hud_n + 12
     local x, y = 8, 8
     love.graphics.setColor(0, 0, 0, 0.78)
     love.graphics.rectangle("fill", x, y, w, h, 3)
-    for i, line in ipairs(lines) do
+    for i = 1, _hud_n do
+        local line = _hud_rows[i]
         if line then
             local ly = y + 6 + (i - 1) * lh
             love.graphics.setColor(0.55, 0.85, 1.00, 1)
             love.graphics.print(line[1], x + 6, ly)
             love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.print(line[2], x + 108, ly)
+            love.graphics.print(line[2], x + 128, ly)
         end
     end
     if prev then love.graphics.setFont(prev) end
@@ -848,6 +895,7 @@ function love.draw()
     -- eye lands on the cause. Stepped per table over, so each one is a
     -- visible change. Under the hints, the story band and the tooltips,
     -- which stay crisp.
+    Perf.enter("post")
     do
         local grind = Game.grind
         local extra = (grind and Game.state_machine:current() == "grind")
@@ -865,6 +913,7 @@ function love.draw()
             sh:send("u_size", { BASE_W, BASE_H })
             sh:send("u_hole", hole and { hole[1], hole[2], hole[3], hole[4] }
                                    or { -1000, -1000, 0, 0 })
+            Perf.count("shader_switch")
             love.graphics.setShader(sh)
             love.graphics.draw(scratch, 0, 0)
             love.graphics.setShader()
@@ -914,10 +963,14 @@ function love.draw()
     -- the avoid rect.
     Tooltip.setAvoid(Game.story_view.band_rect)
     Tooltip.draw(Game.fonts)
+    Perf.exit("post")
     -- The game's own draw ends here; the HUD and the blit that follow are
-    -- overhead the "draw" meter must not charge to the frame.
+    -- overhead the "draw" meter must not charge to the frame. The blit has
+    -- its own meter: it is the one full-screen textured draw that every
+    -- frame pays whatever the board.
     Perf.exit("draw")
     if Game.debug and Game.debug.perf then drawPerfHud() end
+    Perf.enter("blit")
     love.graphics.setCanvas()
 
     -- Scale the finished frame to the window via the sharp-bilinear shader.
@@ -934,6 +987,8 @@ function love.draw()
     -- The draw happens in units; s/d units per texel puts s pixels there.
     love.graphics.draw(_frameCanvas, ox / d, oy / d, 0, s / d, s / d)
     love.graphics.setShader()
+    Perf.exit("blit")
+    Perf.endFrame()
 end
 
 function love.keypressed(key)

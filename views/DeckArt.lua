@@ -26,6 +26,7 @@
 --   alpha        (default 1)
 
 local Theme          = require("views.Theme")
+local Perf = require("services.Perf")
 local ShaderRegistry = require("services.ShaderRegistry")
 
 local Motion         = require("services.Motion")
@@ -64,7 +65,7 @@ local function drawBand(sprite, x, y, w, h, cy, ch, shader, r, g, b, a)
     -- translate (a Panel's content), so run the band through the transform.
     local tx, ty = love.graphics.transformPoint(x, cy)
     love.graphics.intersectScissor(math.floor(tx), math.floor(ty), w, ch)
-    if shader then love.graphics.setShader(shader) end
+    if shader then Perf.count("shader_switch"); love.graphics.setShader(shader) end
     local dx, dy, scale = coverRect(sprite, x, y, w, h)
     love.graphics.setColor(r, g, b, a)
     love.graphics.draw(sprite, dx, dy, 0, scale, scale)

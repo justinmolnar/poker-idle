@@ -16,6 +16,7 @@ local StatusData     = require("data.statuses")
 local Pop            = require("services.Pop")
 
 local Motion         = require("services.Motion")
+local Perf           = require("services.Perf")
 local Effects = {}
 
 -- ── Tunables ─────────────────────────────────────────────────────────
@@ -272,6 +273,7 @@ function Effects.drawGlow(tbl, x, y, w, h)
     local gw = w + GLOW_RECT_PAD * 2
     local gh = h + GLOW_RECT_PAD * 2
     Theme.setColor(SHADER_PASS_COLOR, 1)
+    Perf.count("shader_switch")
     love.graphics.setShader(sh)
     sh:send("u_color",     GLOW_COLOR)
     sh:send("u_intensity", t)
@@ -329,6 +331,7 @@ function Effects.drawStatusGlow(tbl, x, y, w, h)
 
     local pad = math.min(GLOW_RECT_PAD, math.floor(w * 0.30))
     Theme.setColor(SHADER_PASS_COLOR, 1)
+    Perf.count("shader_switch")
     love.graphics.setShader(sh)
     sh:send("u_color", color)
     sh:send("u_intensity", intensity)
@@ -655,6 +658,7 @@ function Effects.drawStatusFire(tbl, x, y, w, h)
     local t  = (love.timer and love.timer.getTime() or 0)
     if lvl == Motion.MEDIUM then t = t * 0.5 end
     Theme.setColor(SHADER_PASS_COLOR, 1)
+    Perf.count("shader_switch")
     love.graphics.setShader(sh)
     sh:send("u_time", t)
     sh:send("u_intensity", intensity)

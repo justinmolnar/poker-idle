@@ -27,6 +27,7 @@ local Pop            = require("services.Pop")
 local RollingValue   = require("services.RollingValue")
 local Memo           = require("services.Memo")
 local Motion         = require("services.Motion")
+local Perf           = require("services.Perf")
 local HouseArt       = require("views.HouseArt")
 local CursorPool     = require("services.CursorPool")
 local Icons          = require("views.Icons")
@@ -2257,8 +2258,9 @@ end
 function GrindView:draw(overlay_fn)
     local W, H = love.graphics.getDimensions()
 
-    Theme.setColor(Theme.bg.window)
-    love.graphics.rectangle("fill", 0, 0, W, H)
+    -- No window fill here: the frame canvas is cleared to the palette's
+    -- window colour (Theme.setActive sets love's background colour), so a
+    -- second full-screen quad under everything was pure overdraw.
 
     -- Reset hit boxes — they're rebuilt during this draw pass. The panel
     -- list beside them is the cursor swarm's map of the board
@@ -2277,12 +2279,12 @@ function GrindView:draw(overlay_fn)
         love.graphics.translate(math.sin(t * 1.3) * k, math.cos(t * 1.7) * k)
     end
 
-    self:drawChrome(W)
-    self:_drawCenterGrid(W, H)
-    self.left_panel:draw(self.game)
-    self.right_panel:draw(self.game)
-    self:_drawHouse()
-    self:_drawFloatingText()
+    Perf.enter("rail");     self:drawChrome(W);               Perf.exit("rail")
+    Perf.enter("grid");     self:_drawCenterGrid(W, H);       Perf.exit("grid")
+    Perf.enter("sidebars"); self.left_panel:draw(self.game)
+                            self.right_panel:draw(self.game);  Perf.exit("sidebars")
+    Perf.enter("house");    self:_drawHouse();                 Perf.exit("house")
+    Perf.enter("floaters"); self:_drawFloatingText();          Perf.exit("floaters")
 
     -- Held (dragged) table panel — drawn after the sidebars and floating
     -- text so it rides above them while it's carried around; the chip
@@ -2293,26 +2295,27 @@ function GrindView:draw(overlay_fn)
 
     -- Bankroll chip pile in the bottom-middle band. Registers the
     -- screen-space anchor (via AnchorRegistry) flying-chip emission targets.
-    self:_drawBankrollChips(W, H)
+    Perf.enter("piles");    self:_drawBankrollChips(W, H);     Perf.exit("piles")
 
     -- Flying chips between source and destination (pot ↔ player ↔
     -- bankroll). Renders above panels and the bankroll pile but below
     -- the cursor swarm.
-    FlightSystem.draw()
+    Perf.enter("flights");  FlightSystem.draw();               Perf.exit("flights")
+    Perf.gauge("flights", FlightSystem.count())
 
     -- Press-then-vanish ghosts for DEAL / REBUY / [×] click animations.
     -- Drawn above panels so they sit visually where the live button
     -- was. Must be drawn BEFORE cursors, otherwise the ghost rendered
     -- after a cursor click covers the cursor that just clicked it.
-    Ghosts.draw()
+    Perf.enter("ghosts");   Ghosts.draw();                     Perf.exit("ghosts")
 
     -- The item stream: every catalog item that just did its job floats up
     -- the table area, one icon per fire (views/ItemStream).
-    ItemStream.draw(self.game)
+    Perf.enter("items");    ItemStream.draw(self.game);        Perf.exit("items")
 
     -- Cursor swarm — drawn last so cursors are always on top, including
     -- on top of the press-fade ghost they just dispatched.
-    CursorPool.draw(self.game)
+    Perf.enter("cursors");  CursorPool.draw(self.game);        Perf.exit("cursors")
 
     if break_p then
         love.graphics.pop()

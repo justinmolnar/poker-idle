@@ -40,6 +40,12 @@ function Theme.setActive(name)
     Theme.tier   = p.tier
     Theme.tint   = p.tint
     Theme.active = (PaletteData.palettes[name] and name) or PaletteData.default
+    -- The frame canvas is cleared to this, so no screen has to paint a
+    -- full-window quad to get the page colour under everything.
+    if love and love.graphics and love.graphics.setBackgroundColor then
+        local w = p.bg and p.bg.window
+        if w then love.graphics.setBackgroundColor(w[1], w[2], w[3], 1) end
+    end
 end
 
 function Theme.cycle()

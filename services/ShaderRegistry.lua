@@ -21,6 +21,7 @@
 --   end
 
 local Motion = require("services.Motion")
+local Perf   = require("services.Perf")
 local ShaderRegistry = {}
 
 local _shaders = {}    -- name → love.graphics.Shader (or nil on failure)
@@ -91,6 +92,7 @@ function ShaderRegistry.apply(name, params)
         end
         return nil
     end
+    Perf.count("shader_switch")
     love.graphics.setShader(sh)
     if love.timer and type(sh.hasUniform) == "function" and sh:hasUniform("u_time") then
         pcall(sh.send, sh, "u_time", Motion.time("shine", love.timer.getTime()))
