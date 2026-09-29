@@ -63,6 +63,21 @@ function AnchorRegistry.age(name)
     return _frame - (a.frame or 0)
 end
 
+-- Drop every name in `keys` (a slot -> name map, the shape Table.anchorKey
+-- memoizes on a table): a closed table's thirty-odd anchors otherwise stay
+-- registered, stale, for the rest of the session.
+function AnchorRegistry.forgetAll(keys)
+    if not keys then return end
+    for _, name in pairs(keys) do _anchors[name] = nil end
+end
+
+-- How many anchors are held (tests).
+function AnchorRegistry.count()
+    local n = 0
+    for _ in pairs(_anchors) do n = n + 1 end
+    return n
+end
+
 -- Wipe all anchors. Called on hard resets (F7, prestige) so stale positions
 -- from a prior layout don't leak into the new run.
 function AnchorRegistry.clear()

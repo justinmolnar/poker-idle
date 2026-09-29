@@ -95,4 +95,42 @@ return function(T)
         ("%d hands played across the board, hands-played counter at %d%s"):format(dealt, w.state.total_hands_played or 0, counters_fell and ("; " .. counters_fell) or ""))
     check("smoke:full_board", "statuses", bad_status == nil, bad_status and ("an unauthorized status appeared: " .. bad_status) or "only tilt and heater ever sat on a table")
     check("smoke:full_board", "pace", peak_hps >= 1, ("the board's hands-per-second stamp peaked at %d"):format(peak_hps))
+
+    -- Two minutes of a full board leave the event bus's recycle pool at
+    -- its bound: every announcement passes a fresh table and only :event()
+    -- ever borrows, so an unbounded pool kept every event ever published.
+    local pool_n = w.bus and w.bus.pool and #w.bus.pool or 0
+    check("smoke:full_board", "bus pool", pool_n <= 64,
+        ("the event bus holds %d recycled tables after two minutes (bound 64)"):format(pool_n))
+
+    -- Closing a table cleans up everything keyed on its id: its rolled
+    -- numbers and pops, its anchors, its cached stats, and its piles are
+    -- queued for the view to forget. Roll and anchor a few of its keys
+    -- first so there is something to clean.
+    do
+        local RollingValue = require("services.RollingValue")
+        local Pop          = require("services.Pop")
+        local Anchors      = require("services.AnchorRegistry")
+        local TableModel   = require("models.Table")
+        local t = w:tables()[1]
+        local id = t._id
+        local rk, ak = TableModel.rollingKey(t, "table_ev"), TableModel.anchorKey(t, "pot")
+        RollingValue.get(rk, 1); Pop.onChange(rk, 1); Pop.onChange(rk, 2)
+        Anchors.set(ak, 1, 2, 3, 4)
+        w.ctrl:tableStats(t)
+        local had = RollingValue.count() > 0 and Anchors.get(ak) ~= nil
+            and w.ctrl._tbl_stats and w.ctrl._tbl_stats[id] ~= nil
+        w.ctrl:_finalizeRemove(w:find(t), true)
+        local rv_before, pop_before, an_before = RollingValue.count(), Pop.count(), Anchors.count()
+        RollingValue.forgetAll(t._rolling_keys); Pop.forgetAll(t._rolling_keys); Anchors.forgetAll(t._anchor_keys)
+        local stats_gone = not (w.ctrl._tbl_stats and w.ctrl._tbl_stats[id])
+        local anchor_gone = Anchors.get(ak) == nil
+        local fp = w.ctrl.forget_piles or {}
+        local queued = 0
+        for _, k in ipairs(fp) do if k == ak or k == TableModel.anchorKey(t, "you") then queued = queued + 1 end end
+        check("smoke:full_board", "close cleans", had and stats_gone and anchor_gone and queued == 2
+            and RollingValue.count() == rv_before and Pop.count() == pop_before and Anchors.count() == an_before,
+            ("closing table %d dropped its stats slot, its anchors (%s) and queued its %d piles; a second forget found nothing left (rolled %d, pops %d, anchors %d)"):format(
+                id, tostring(anchor_gone), queued, rv_before, pop_before, an_before))
+    end
 end

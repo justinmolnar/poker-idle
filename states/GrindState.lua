@@ -219,8 +219,11 @@ function GrindState:update(dt)
         return
     end
     local ctrl = self.controller
-    CursorPool.update(dt, cursor_view.hit_boxes, ctrl.ctx,
-        function(hb)
+    -- The dispatcher and the hooks are built once per controller/view pair
+    -- and reused: three closures and a table per frame otherwise.
+    if self._cursor_ctrl ~= ctrl or self._cursor_view ~= cursor_view then
+        self._cursor_ctrl, self._cursor_view = ctrl, cursor_view
+        self._cursor_dispatch = function(hb)
             -- A cursor's DEAL counts (the cursor items gate on it, the
             -- Swarm deck levels on it), then it is a click like any other.
             if hb and hb.action == "deal" then ctrl:onCursorDeal(hb) end
@@ -229,12 +232,14 @@ function GrindState:update(dt)
             ctrl._deal_by_cursor = true
             cursor_view:_handleHitBox(hb)
             ctrl._deal_by_cursor = nil
-        end,
-        cursor_view.table_panels,
-        {
+        end
+        self._cursor_hooks = {
             on_clash    = function(panel) ctrl:onCursorClash(panel) end,
             on_lit_deal = function(hb) ctrl:onLitCursorDeal(hb) end,
-        })
+        }
+    end
+    CursorPool.update(dt, cursor_view.hit_boxes, ctrl.ctx,
+        self._cursor_dispatch, cursor_view.table_panels, self._cursor_hooks)
 
     self.controller:update(dt)
     self.view:update(dt)

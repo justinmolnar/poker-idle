@@ -29,6 +29,7 @@ local ChipData       = require("data.chips")
 local FeedbackIntensity = require("data.feedback_intensity")
 local Denoms         = require("services.DenominationBreakdown")
 local AnchorRegistry = require("services.AnchorRegistry")
+local RollingValue = require("services.RollingValue")
 local AwardGlow      = require("views.AwardGlow")
 local StakeThemes    = require("data.stake_themes")
 local Lookups        = require("utils.lookups")
@@ -978,7 +979,14 @@ end
 -- Is every game type seated somewhere on the board? (The Laminated
 -- Blueprint's condition, carried on the on_hand_won event as `all_games`.)
 function GrindController:_allGamesOpen()
-    local seen, n = {}, 0
+    local seen = self._seen_gtypes
+    if seen then
+        for k in pairs(seen) do seen[k] = nil end
+    else
+        seen = {}
+        self._seen_gtypes = seen
+    end
+    local n = 0
     for _, t in ipairs(self.pool.tables) do
         if t.game_type_id and not seen[t.game_type_id] then
             seen[t.game_type_id] = true
@@ -1140,7 +1148,13 @@ function GrindController:update(dt)
         self._focus_extra = focus_extra
         -- The Receipt Printer: each Zoom's count of adjacent Zooms.
         if self.ctx.zoom_block_pace then
-            local cells = {}
+            local cells = self._zoom_cells
+            if cells then
+                for k in pairs(cells) do cells[k] = nil end
+            else
+                cells = {}
+                self._zoom_cells = cells
+            end
             for _, t in ipairs(self.pool.tables) do
                 if t.game_type_id == "zoom" then cells[t.slot or -1] = true end
             end
@@ -1162,20 +1176,34 @@ function GrindController:update(dt)
         -- INSIDE the board's bounds; past the edge is nothing, which counts
         -- for "nothing adjacent" but never as elbow room.
         do
-            local lanes, occupied, tables = {}, {}, self.pool.tables
+            -- Scratch tables, wiped and reused: this block ran every frame
+            -- and allocated three tables plus a lane string per table.
+            local sc = self._shelf_scratch
+            if not sc then
+                sc = { lanes = {}, occupied = {}, slots = {} }
+                self._shelf_scratch = sc
+            end
+            local lanes, occupied, slots, tables = sc.lanes, sc.occupied, sc.slots, self.pool.tables
+            for k in pairs(occupied) do occupied[k] = nil end
+            for i = #slots, 1, -1 do slots[i] = nil end
             local six_empty = self.ctx.six_max_counts_empty
+            local n_lanes = 0
             for _, t in ipairs(tables) do
                 -- The Wall Hook counts table TYPES: a stake at a game type.
                 -- Two NL2 Heads-Up tables are one lane; NL2 Heads-Up and
-                -- NL2 Zoom are two.
-                lanes[(t.stake_id or "") .. ":" .. (t.game_type_id or "")] = true
+                -- NL2 Zoom are two. A two-level map, no key string.
+                local by_stake = lanes[t.stake_id or ""]
+                if not by_stake then by_stake = {}; lanes[t.stake_id or ""] = by_stake end
+                local g = t.game_type_id or ""
+                if not by_stake[g] then n_lanes = n_lanes + 1 end
+                by_stake[g] = true
                 occupied[t.slot or -1] = t
+                slots[#slots + 1] = t.slot or 0
             end
-            local n_lanes = 0
-            for _ in pairs(lanes) do n_lanes = n_lanes + 1 end
+            for _, by_stake in pairs(lanes) do
+                for g in pairs(by_stake) do by_stake[g] = nil end
+            end
             self:_setCtxField("lanes_seated", n_lanes, "odds_per_lane_seated")
-            local slots = {}
-            for _, t in ipairs(tables) do slots[#slots + 1] = t.slot or 0 end
             local cols, rows = TableGrid.bounds(slots)
             for _, t in ipairs(tables) do
                 local r, c = TableGrid.unpack(t.slot or 0)
@@ -2678,6 +2706,21 @@ function GrindController:_finalizeRemove(idx, quiet)
     -- table stays "idle" forever, so the leaves-idle removal never fires).
     self.game.floating_text.dropForTable(t)
     self.pool:removeTable(idx)
+    -- Everything keyed on this table's id goes with it: its rolled numbers
+    -- and pops (Table.rollingKey memoizes the keys on the table), its
+    -- anchors (Table.anchorKey likewise), its cached stats, and its pot
+    -- and stack piles (queued for the view, which owns ChipPile; drained
+    -- beside pending_bursts). Without this a session's maps held every
+    -- table ever opened.
+    RollingValue.forgetAll(t._rolling_keys)
+    Pop.forgetAll(t._rolling_keys)
+    AnchorRegistry.forgetAll(t._anchor_keys)
+    if self._tbl_stats then self._tbl_stats[t._id] = nil end
+    if self._tbl_debug then self._tbl_debug[t._id] = nil end
+    local fp = self.forget_piles
+    if not fp then fp = {}; self.forget_piles = fp end
+    fp[#fp + 1] = TableModel.anchorKey(t, "pot")
+    fp[#fp + 1] = TableModel.anchorKey(t, "you")
     -- Closing renumbers pool order (table.remove, possibly a repack), and
     -- cursor claims are index-keyed — release them so no cursor silently
     -- re-aims at whatever table now sits at its index (see moveTableToSlot).

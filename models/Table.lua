@@ -1460,8 +1460,10 @@ local STATUS_CAP = 6   -- runaway guard; entries are keyed by kind, so the
 -- Is a status of this kind live on the table? (The cursor swarm asks
 -- for "heater": a cursor crossing a burning table can catch fire.)
 function Table:hasStatus(kind)
-    for _, e in ipairs(self.statuses or {}) do
-        if e.kind == kind then return true end
+    local s = self.statuses
+    if not s then return false end
+    for i = 1, #s do
+        if s[i].kind == kind then return true end
     end
     return false
 end
@@ -1716,7 +1718,14 @@ function Table:effectiveCtx(base)
         return self._ctx_ov
     end
 
-    local ov = {}
+    -- The overlay table is reused across rebuilds (wiped, then refilled);
+    -- the nested copies are fresh, since a rollup's tables are shared.
+    local ov = self._ctx_ov
+    if ov then
+        for k in pairs(ov) do ov[k] = nil end
+    else
+        ov = {}
+    end
     for k, v in pairs(base) do
         if type(v) == "table" then
             local c = {}

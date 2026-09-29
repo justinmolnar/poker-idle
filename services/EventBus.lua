@@ -163,10 +163,19 @@ function EventBus:event()
     return e
 end
 
+-- The pool is BOUNDED. Every publisher that passes a fresh literal hands
+-- the bus a table it will never ask for back (only :event() takes from the
+-- pool), so an unbounded pool kept every event ever published: on a busy
+-- board that was on the order of a hundred retained tables a second, and a
+-- session's heap climbed for as long as it ran. Past the cap the table is
+-- simply dropped for the collector.
+local POOL_MAX = 64
 function EventBus:_recycle(e)
     if type(e) ~= "table" then return end
+    local n = #self.pool
+    if n >= POOL_MAX then return end
     for k in pairs(e) do e[k] = nil end
-    self.pool[#self.pool + 1] = e
+    self.pool[n + 1] = e
 end
 
 -- ── Publishing ───────────────────────────────────────────────────────────

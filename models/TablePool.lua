@@ -257,7 +257,16 @@ end
 -- between, shifting every index past the removed one, so a same-tick
 -- payout landed on the neighbouring table).
 function TablePool:update(dt, ctx)
-    local resolutions = {}
+    -- One array, wiped and refilled: the controller consumes it inside the
+    -- same tick (its announcements dispatch synchronously), so nothing holds
+    -- it past the frame and a fresh table per frame was pure garbage.
+    local resolutions = self._resolutions
+    if resolutions then
+        for i = #resolutions, 1, -1 do resolutions[i] = nil end
+    else
+        resolutions = {}
+        self._resolutions = resolutions
+    end
     for _, t in ipairs(self.tables) do
         local r = t:update(dt, ctx)
         if r then

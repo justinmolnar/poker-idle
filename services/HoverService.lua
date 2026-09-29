@@ -29,16 +29,20 @@ local function now()
     return (love and love.timer and love.timer.getTime()) or 0
 end
 
+-- Two-level maps (namespace -> id -> value) everywhere: the old
+-- `ns .. "\0" .. id` keys built a string per set() and per dwell() call,
+-- and clear() replaced the maps with fresh tables every frame.
+local function bucketOf(map, ns)
+    local b = map[ns]
+    if not b then b = {}; map[ns] = b end
+    return b
+end
+
 function HoverService.set(ns, id)
-    local bucket = _hovered[ns]
-    if not bucket then
-        bucket = {}
-        _hovered[ns] = bucket
-    end
-    bucket[id] = true
-    local key = ns .. "\0" .. tostring(id)
-    if not _first[key] then _first[key] = now() end
-    _live[key] = true
+    bucketOf(_hovered, ns)[id] = true
+    local first = bucketOf(_first, ns)
+    if not first[id] then first[id] = now() end
+    bucketOf(_live, ns)[id] = true
 end
 
 function HoverService.is(ns, id)
@@ -52,7 +56,8 @@ end
 -- clear() passes without a set() for that key.
 function HoverService.dwell(ns, id, secs)
     if not HoverService.is(ns, id) then return false end
-    local t0 = _first[ns .. "\0" .. tostring(id)]
+    local first = _first[ns]
+    local t0 = first and first[id]
     return t0 ~= nil and (now() - t0) >= (secs or Constants.HOVER.DWELL)
 end
 
@@ -70,13 +75,20 @@ function HoverService.rest(ns, id, hit, secs)
 end
 
 function HoverService.clear()
-    _hovered = {}
-    -- A key not re-set since the previous clear() lost its hover; its
-    -- dwell clock restarts on the next visit.
-    for k in pairs(_first) do
-        if not _live[k] then _first[k] = nil end
+    for _, bucket in pairs(_hovered) do
+        for id in pairs(bucket) do bucket[id] = nil end
     end
-    _live = {}
+    -- An id not re-set since the previous clear() lost its hover; its
+    -- dwell clock restarts on the next visit.
+    for ns, first in pairs(_first) do
+        local live = _live[ns]
+        for id in pairs(first) do
+            if not (live and live[id]) then first[id] = nil end
+        end
+    end
+    for _, bucket in pairs(_live) do
+        for id in pairs(bucket) do bucket[id] = nil end
+    end
 end
 
 function HoverService.clearNamespace(ns)

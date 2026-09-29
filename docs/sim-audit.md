@@ -221,8 +221,6 @@
 - gate: unlocks at total_cursor_deals >= 1000: closed at 999, open at 1000
 
 ### item:box_of_mice — PASS
-- copy: Opens the {c:upgrade:cursors} and the Cursor {c:upgrade:upgrade}.
-- rollup: shove_rate_add -> ctx.shove_rate = 0.01; cursor_unlocked -> ctx.cursor_unlocked = true
 - opens: three Cursor levels put 0 cursors on the felt without the box, 3 with it
 
 ### item:wacom_tablet — PASS
@@ -1279,10 +1277,12 @@
 - runs: two minutes of a full board threw nothing
 - board: 36 tables open (the whole 36-table board) with Focus capacity 36
 - swarm: 6 cursors on the felt (Cursor L5 + the Laptop)
-- money: bankroll after two minutes: 1.0000004272254e+15
-- hands: 1668 hands played across the board, hands-played counter at 2591
+- money: bankroll after two minutes: 1.0000004507635e+15
+- hands: 1684 hands played across the board, hands-played counter at 2579
 - statuses: only tilt and heater ever sat on a table
-- pace: the board's hands-per-second stamp peaked at 40
+- pace: the board's hands-per-second stamp peaked at 39
+- bus pool: the event bus holds 64 recycled tables after two minutes (bound 64)
+- close cleans: closing table 3 dropped its stats slot, its anchors (true) and queued its 2 piles; a second forget found nothing left (rolled 0, pops 0, anchors 0)
 
 ### smoke:board_rate — PASS
 - clock: run_elapsed 90.0s after 90s of board time

@@ -122,12 +122,32 @@ local function denomValue(d)
     return (e and e.value) or 0
 end
 
+-- The registry is bounded as well as swept: a session that opens and
+-- closes tables faster than GC_SECONDS can never hold more than a board's
+-- worth of piles plus a margin. Past the bound the idlest quiet pile goes.
+local MAX_PILES = 2 * 36 + 8
+local _n_piles  = 0
+local function evictIdlest()
+    local worst, worst_key = -1, nil
+    for k, e in pairs(_piles) do
+        if e.n_air == 0 and not e.settle and e.idle > worst then
+            worst, worst_key = e.idle, k
+        end
+    end
+    if worst_key then
+        _piles[worst_key] = nil
+        _n_piles = _n_piles - 1
+    end
+end
+
 local function entry(key)
     local e = _piles[key]
     if not e then
+        if _n_piles >= MAX_PILES then evictIdlest() end
         e = { chips = {}, n_air = 0, gen = 1, idle = 0, wrong_t = 0,
               since_take = math.huge, since_place = math.huge }
         _piles[key] = e
+        _n_piles = _n_piles + 1
     end
     e.idle = 0
     return e
@@ -1048,6 +1068,7 @@ function ChipPile.update(dt)
         -- in flight is stranded: a late arrival fails the generation check.
         if e.idle > GC_SECONDS and e.n_air == 0 then
             _piles[key] = nil
+            _n_piles = _n_piles - 1
         end
     end
 end
@@ -1070,10 +1091,26 @@ function ChipPile.clear(key)
     e.since_take = math.huge
 end
 
+-- Drop one key now (a closed table's pot and stack), instead of waiting
+-- GC_SECONDS for the sweep. Chips still in the air toward it fail the
+-- generation check exactly as they do after the sweep.
+function ChipPile.forget(key)
+    if not key or not _piles[key] then return end
+    _piles[key] = nil
+    _n_piles = _n_piles - 1
+end
+
+-- Does the registry hold this key (tests).
+function ChipPile.has(key) return _piles[key] ~= nil end
+
+-- How many piles are held (tests, the HUD).
+function ChipPile.count() return _n_piles end
+
 -- Drop everything. Call alongside FlightSystem.clear so a state teardown
 -- can't leave a pile holding chips whose flights were just discarded.
 function ChipPile.clearAll()
     _piles = {}
+    _n_piles = 0
 end
 
 return ChipPile

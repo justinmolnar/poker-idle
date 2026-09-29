@@ -71,6 +71,25 @@ function Pop.onChange(id, value, duration)
     return Pop.progress(id, duration)
 end
 
+-- Drop every id in `keys` (a name -> key map, the shape Table.rollingKey
+-- memoizes on a table): a closed table's pops and watched values otherwise
+-- stay in these maps for the rest of the session.
+function Pop.forgetAll(keys)
+    if not keys then return end
+    for _, key in pairs(keys) do
+        _fired[key] = nil
+        _seen[key]  = nil
+    end
+end
+
+-- How many ids are held across both maps (tests).
+function Pop.count()
+    local n = 0
+    for _ in pairs(_fired) do n = n + 1 end
+    for _ in pairs(_seen) do n = n + 1 end
+    return n
+end
+
 -- onChange + scale in one call (the common case for a popping stat number).
 function Pop.changeScale(id, value, base, bump, duration)
     return Pop.scale(Pop.onChange(id, value, duration), base, bump)

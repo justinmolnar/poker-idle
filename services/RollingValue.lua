@@ -32,8 +32,14 @@ function RollingValue.get(id, target, rate, group)
     local lvl = Motion.level(group or "text")
     local e = _v[id]
     local tnow = now()
-    if not e or lvl <= Motion.LOW then
+    if not e then
         _v[id] = { curr = target, t = tnow }
+        return target
+    end
+    if lvl <= Motion.LOW then
+        -- Snap in place: a fresh entry per call here was one table per
+        -- rolled number per frame for anyone playing at Low motion.
+        e.curr, e.t = target, tnow
         return target
     end
     if lvl == Motion.MEDIUM then rate = (rate or RATE) * 2 end
@@ -51,7 +57,24 @@ function RollingValue.reset(id) _v[id] = nil end
 -- here toward its target — e.g. a dropped drag panel gliding home from
 -- wherever it was released.
 function RollingValue.set(id, value)
+    local e = _v[id]
+    if e then e.curr, e.t = value, now(); return end
     _v[id] = { curr = value, t = now() }
+end
+
+-- Drop every id in `keys` (a name -> key map, the shape Table.rollingKey
+-- memoizes on a table): a closed table's rolled numbers otherwise stay
+-- in this map for the rest of the session.
+function RollingValue.forgetAll(keys)
+    if not keys then return end
+    for _, key in pairs(keys) do _v[key] = nil end
+end
+
+-- How many ids are held (tests).
+function RollingValue.count()
+    local n = 0
+    for _ in pairs(_v) do n = n + 1 end
+    return n
 end
 
 -- Drop every rolled value (hard resets / new game): stale entries otherwise

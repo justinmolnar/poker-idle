@@ -1119,6 +1119,13 @@ function GrindView:update(dt)
     -- controller→view dependencies out of controllers/GrindController.lua
     -- and shares the same path the script's per-event handlers use.
     local bursts = self.controller:drainBursts()
+    -- A closed table's piles go now, not after the sweep's thirty seconds
+    -- (the controller queues the keys; it never names a view).
+    local fp = self.controller.forget_piles
+    if fp and #fp > 0 then
+        for i = 1, #fp do ChipPile.forget(fp[i]) end
+        for i = #fp, 1, -1 do fp[i] = nil end
+    end
     for _, b in ipairs(bursts) do
         if b.kind == "scatter" then
             -- No destination — form the pile at b.source and blow it apart.
