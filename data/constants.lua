@@ -121,14 +121,15 @@ C.GAMEPLAY = {
     MAX_TABLES             = 36,       -- hard cap on concurrent tables: a FULL 6x6 board, the last shape
                                        -- on models/table_grid's ladder (32 left four empty cells)
 
-    -- Focus / efficiency mechanic. Multi-tabling beyond your capacity scales
-    -- the per-hand $ delta down — split attention costs you value. Upgrades
+    -- Focus / efficiency mechanic. Multi-tabling beyond your capacity slows
+    -- every table's pace — split attention costs you hands, and the same
+    -- number slows and distorts everything the player hears. Upgrades
     -- raise the capacity (focus_capacity_add) and / or reduce the per-extra
     -- penalty (focus_penalty_reduce_mult) so larger multi-tabling becomes
     -- viable as the player progresses.
     FOCUS_BASE_CAPACITY    = 4,        -- below this many tables, no penalty
     FOCUS_BASE_PENALTY     = 0.15,     -- per extra table over capacity (5 over → floor)
-    FOCUS_FLOOR            = 0.05,     -- floor on focus_mult; running too many is actively bad
+    FOCUS_FLOOR            = 0.05,     -- floor on the pace; running too many is actively bad
     UNDERFLOW_THRESHOLD    = -100000000000, -- Act 3 negative bankroll threshold to overflow
     -- CHIP_AWARD_DIVISOR removed — chips come from per-stake first-win
     -- bounties, not from a peak-bankroll formula on bust.

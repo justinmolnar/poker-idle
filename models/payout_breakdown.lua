@@ -150,7 +150,7 @@ end
 
 -- ─── The breakdown ──────────────────────────────────────────────────────
 -- `game` supplies state + the effects registry; gtype/stake pick the
--- table being described. `opts` goes to payoutMult (focus_mult, bankroll).
+-- table being described. `opts` goes to payoutMult (bankroll).
 --
 -- Returns:
 --   { tiers = TIER_KEYS,
@@ -235,7 +235,6 @@ function PayoutBreakdown.cached(game, gtype, stake, opts)
     local br  = (opts and opts.bankroll) or 0
     local key = tostring(game.state and game.state.effects_cache)
                 .. "|" .. tostring(gtype.id) .. "|" .. tostring(stake.id)
-                .. "|" .. string.format("%.4f", (opts and opts.focus_mult) or 1)
                 .. "|" .. string.format("%.3f", ShoveRate.bankrollMultiplier(br))
     if _cache.key == key then return _cache.value end
     _cache.key   = key

@@ -40,6 +40,7 @@ local ItemStream      = require("views.ItemStream")
 local ItemFoley       = require("services.ItemFoley")
 local AnchorRegistry  = require("services.AnchorRegistry")
 local ShaderRegistry  = require("services.ShaderRegistry")
+local ScratchCanvas   = require("services.ScratchCanvas")
 local HandAnalytics   = require("services.HandAnalytics")
 local Perf            = require("services.Perf")
 
@@ -618,6 +619,7 @@ function love.load()
     ShaderRegistry.loadFromFile("rainbow_shift", "shaders/rainbow_shift.frag")
     ShaderRegistry.loadFromFile("pixel_glitch", "shaders/pixel_glitch.frag")
     ShaderRegistry.loadFromFile("corrupted", "shaders/corrupted.frag")
+    ShaderRegistry.loadFromFile("strain", "shaders/strain.frag")
     ShaderRegistry.loadFromFile("flame", "shaders/flame.frag")
     ShaderRegistry.loadFromFile("desaturate", "shaders/desaturate.frag")
 
@@ -709,6 +711,11 @@ function love.update(dt)
             and not Game.story:isPaused()
             and Game.story_view:isTyping())
     end
+    -- The focus strain: over the focus cap the board plays slower, and so
+    -- does everything the player hears. One number, set here before the
+    -- music reads it; every sound effect reads it at play. 0 off the grind.
+    SoundService.setStrain((Game.state_machine:current() == "grind" and Game.grind)
+        and Game.grind:focusStrain() or 0)
     -- The music layer: jazz through the intercom until the player owns
     -- speakers; cut by the House's voice, the gauntlet, and the menus.
     MusicDirector.update(dt, Game)
@@ -834,6 +841,37 @@ function love.draw()
     love.graphics.setCanvas(_frameCanvas)
     love.graphics.clear(love.graphics.getBackgroundColor())
     Game.state_machine:draw()
+    -- The focus strain over the whole frame (shaders/strain.frag): the
+    -- further the board is over its focus cap, the more the screen loses
+    -- focus — colour, edges and light — everywhere but a feathered hole
+    -- over the OVER FOCUS readout in the rail, which stays sharp so the
+    -- eye lands on the cause. Stepped per table over, so each one is a
+    -- visible change. Under the hints, the story band and the tooltips,
+    -- which stay crisp.
+    do
+        local grind = Game.grind
+        local extra = (grind and Game.state_machine:current() == "grind")
+            and (grind.pool:count() - grind:currentFocusCapacity()) or 0
+        local sh = (extra > 0) and ShaderRegistry.get("strain") or nil
+        local scratch = sh and ScratchCanvas.acquire(BASE_W, BASE_H) or nil
+        if scratch then
+            local hole = AnchorRegistry.get("rail:focus")
+            love.graphics.setBlendMode("alpha", "premultiplied")
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.setCanvas(scratch)
+            love.graphics.draw(_frameCanvas, 0, 0)
+            love.graphics.setCanvas(_frameCanvas)
+            sh:send("u_amount", math.min(1, 0.35 + 0.22 * (extra - 1)))
+            sh:send("u_size", { BASE_W, BASE_H })
+            sh:send("u_hole", hole and { hole[1], hole[2], hole[3], hole[4] }
+                                   or { -1000, -1000, 0, 0 })
+            love.graphics.setShader(sh)
+            love.graphics.draw(scratch, 0, 0)
+            love.graphics.setShader()
+            love.graphics.setBlendMode("alpha")
+            ScratchCanvas.release()
+        end
+    end
     -- The hint layer, above whatever the state drew including its modals.
     -- Still inside the base canvas so it scales with the frame.
     do

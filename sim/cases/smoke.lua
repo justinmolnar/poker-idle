@@ -89,7 +89,7 @@ return function(T)
     check("smoke:full_board", "runs", ok == true, ok and "two minutes of a full board threw nothing" or ("THREW: " .. tostring(err)))
     check("smoke:full_board", "board", opened == CAP.MAX_TABLES and cap == CAP.MAX_TABLES,
         ("%d tables open (the whole %d-table board) with Focus capacity %d"):format(opened, CAP.MAX_TABLES, cap))
-    check("smoke:full_board", "swarm", cursors == 13, ("%d cursors on the felt (Cursor L12 + the Laptop)"):format(cursors))
+    check("smoke:full_board", "swarm", cursors == 6, ("%d cursors on the felt (Cursor L5 + the Laptop)"):format(cursors))
     check("smoke:full_board", "money", finite, ("bankroll after two minutes: %s"):format(tostring(b)))
     check("smoke:full_board", "hands", dealt > 200 and (w.state.total_hands_played or 0) >= dealt and not counters_fell,
         ("%d hands played across the board, hands-played counter at %d%s"):format(dealt, w.state.total_hands_played or 0, counters_fell and ("; " .. counters_fell) or ""))

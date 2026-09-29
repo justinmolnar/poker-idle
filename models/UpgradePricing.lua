@@ -10,7 +10,8 @@
 --
 -- The rule, for level L of a fill-scaled upgrade:
 --
---   cost(L) = EV$/hand(best table at fill L-1, reference board)
+--   cost(L) = max( EV$/hand(best table at fill L-1, reference board),
+--                  Balance.UPGRADE_FLOOR_BB × bb(stake that owns L) )
 --             × tables_ref × HANDS(L) × upgrade.cost_mult
 --   HANDS(L) = Balance.UPGRADE_HANDS_FIRST × Balance.UPGRADE_HANDS_GROWTH ^ (L-1)
 --
@@ -20,6 +21,11 @@
 -- stake × game type the previous level made playable, so a level is
 -- priced against the table the player is actually sitting at; the
 -- ladder's steps enter through EV$/hand, never through a typed ratio.
+-- The floor is the stake the level is FOR (the owner, below) at a modest
+-- edge: a stake that is not profitable yet still prices its own levels
+-- at its own scale. (Without it NL1M's and NL100M's levels were pegged
+-- to NL10K's income while those stakes were −EV, and a NL10K board maxed
+-- the book hours before it could sit at either.)
 --
 -- The reference board (Balance.UPGRADE_REFERENCE, keyed by the stake's
 -- `band`) is a deliberately item-less player with that band's expected
@@ -129,7 +135,7 @@ function UpgradePricing.apply(run_upgrades, registry)
     local owner, max_level = ownersByLevel(refs)
     assert(max_level > 0, "UpgradePricing: no windowed stake with a priced band")
 
-    local base = {}
+    local base, floor = {}, {}
     local prev = 0
     for L = 1, max_level do
         local ref  = refs[owner[L].band]
@@ -141,6 +147,16 @@ function UpgradePricing.apply(run_upgrades, registry)
         assert(cost > prev, ("UpgradePricing: L%d ($%.4g) not above L%d ($%.4g)"):format(L, cost, L - 1, prev))
         base[L] = cost
         prev = cost
+        -- The floor: what the stake this level is FOR would pay at a modest
+        -- edge (Balance.UPGRADE_FLOOR_BB big blinds a hand) over the same
+        -- rounds. Where the owner is the best table the real figure is
+        -- above it and nothing changes; where the owner is not profitable
+        -- yet (its fill is still coming in) the price still steps with
+        -- its blinds instead of staying pegged to the stake below, so a
+        -- board is never maxed hours before its top stake can be sat at.
+        -- Applied AFTER the smoothing below, as a curve smoothed on its
+        -- own, so the mid band's floor never bleeds back into Act 1.
+        floor[L] = (Balance.UPGRADE_FLOOR_BB or 0) * owner[L].bb * best.tables * hands
     end
 
     -- Ramp smoothing. The loop above prices each level against the table
@@ -150,10 +166,11 @@ function UpgradePricing.apply(run_upgrades, registry)
     -- there over neighbouring levels. Gaussian-smooth the log-steps with
     -- Balance.UPGRADE_RAMP_SMOOTHING as sigma (in levels; 0 = off), then
     -- rescale so the total climb from L1 to the last level is unchanged.
-    local sigma = Balance.UPGRADE_RAMP_SMOOTHING or 0
-    if sigma > 0 and max_level > 2 then
+    local function smoothRamp(curve)
+        local sigma = Balance.UPGRADE_RAMP_SMOOTHING or 0
+        if not (sigma > 0 and max_level > 2) then return end
         local steps = {}
-        for L = 2, max_level do steps[L] = math.log(base[L] / base[L - 1]) end
+        for L = 2, max_level do steps[L] = math.log(curve[L] / curve[L - 1]) end
         local total = 0
         for L = 2, max_level do total = total + steps[L] end
         local smooth, smooth_total = {}, 0
@@ -167,7 +184,12 @@ function UpgradePricing.apply(run_upgrades, registry)
             smooth_total = smooth_total + smooth[L]
         end
         local scale = total / smooth_total
-        for L = 2, max_level do base[L] = base[L - 1] * math.exp(smooth[L] * scale) end
+        for L = 2, max_level do curve[L] = curve[L - 1] * math.exp(smooth[L] * scale) end
+    end
+    smoothRamp(base)
+    smoothRamp(floor)
+    for L = 1, max_level do
+        if floor[L] > base[L] then base[L] = floor[L] end
     end
 
     -- Rounded here so the sweep and the workbench see clean numbers; the

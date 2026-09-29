@@ -12,6 +12,7 @@ return {
         cash_out = "CASH OUT",
         tied_up  = "TIED UP",
         focus    = "FOCUS",
+        over_focus = "OVER FOCUS",  -- the same cell, once the board is past the cap
         tables   = "TABLES",        -- after the focus bar: "1 / 4 TABLES"
         next     = "NEXT",          -- after the count: "+3 NEXT"
         shove    = "SHOVE",
@@ -38,7 +39,7 @@ return {
         banked   = "Yours. Spend them in the catalog.",
         next     = "{c:chip:Banked} when you shove.",
         -- FOCUS: the first line, then the numbers the builder formats.
-        focus    = "FOCUS multiplies every dollar you win or lose.",
+        focus    = "FOCUS is how fast every table plays.",
         focus_ok = "Stays 100%% at or under %d tables.",
         focus_pen = "Each table over drops it %.0f%% (floor %.0f%%).",
         focus_cap = "Hard cap: %d tables.",
@@ -53,7 +54,7 @@ return {
         -- (the builder formats the numbers), the run's actual, the graph.
         rate_lede  = "What your tables should earn a minute, dealt at the pace you're dealing them.",
         rate_table = "%s   %s a hand, %d a minute: %s/min",
-        rate_focus = "FOCUS x%.2f on all of it.",
+        rate_focus = "FOCUS x%.2f speed on all of it.",
         rate_run   = "This run so far: %s over %s on the felt, %s/min.",
         rate_last  = "Last run: %s/min.",
         rate_idle  = "Nothing dealt lately. Deal something.",

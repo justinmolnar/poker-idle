@@ -209,6 +209,42 @@ return function(T)
                 ("Swarm L%d with max Focus: capacity %d (each of %d Focus levels worth %d)"):format(L, cap, focus_max, 1 + L))
         end
     end
+    -- Swarm levels on every hand a cursor causes, not only the click: a
+    -- hand chained on the house's clock off a cursor's hand (dealIdleTable
+    -- with the cursor's mark: the Zoom chain, a spread, a clash's deal)
+    -- earns the point the click does; the same chain off the player's own
+    -- hand earns nothing, and so does a hand the player deals by hand.
+    if wanted("deck:swarm:1") then
+        local w = T.world()
+        w:deck("swarm", 1)
+        local t = w:open("s001", "zoom")
+        local function xp() return w.state.deck_xp.swarm or 0 end
+        local function settle() T.untilHands(w, t, 1, 30) end
+        -- A player's hand: no point, and its chain carries no mark.
+        local x0 = xp()
+        w.ctrl:dealHand(w:find(t)); local d_player = xp() - x0
+        local mark_player = t._swarm_deal
+        settle()
+        x0 = xp()
+        w.ctrl:dealIdleTable(t, { by_cursor = t._swarm_deal }); local d_player_chain = xp() - x0
+        settle()
+        -- A cursor's hand: a point, and its chain carries the mark on.
+        x0 = xp()
+        w.ctrl._deal_by_cursor = true
+        w.ctrl:onCursorDeal({ idx = w:find(t) }); w.ctrl:dealHand(w:find(t))
+        w.ctrl._deal_by_cursor = nil
+        local d_cursor = xp() - x0
+        local mark_cursor = t._swarm_deal
+        settle()
+        x0 = xp()
+        w.ctrl:dealIdleTable(t, { by_cursor = t._swarm_deal }); local d_cursor_chain = xp() - x0
+        local mark_chain = t._swarm_deal
+        check("deck:swarm:1", "chain",
+            d_player == 0 and mark_player == false and d_player_chain == 0
+            and d_cursor == 1 and mark_cursor == true and d_cursor_chain == 1 and mark_chain == true,
+            ("player's hand %d XP, its chain %d; cursor's hand %d XP, its chain %d (the mark carries: %s)"):format(
+                d_player, d_player_chain, d_cursor, d_cursor_chain, tostring(mark_chain)))
+    end
     if wanted("deck:swarm:5") then
         local w = T.world()
         w:upgrade("focus", focus_max); w:deck("swarm", 5); w:own("second_monitor")
@@ -216,12 +252,45 @@ return function(T)
             ("Swarm L5 + max Focus + Second Monitor = %d = the whole %d-table board"):format(w.ctrl:currentFocusCapacity(), CAP.MAX_TABLES))
     end
 
-    -- Focus penalty: over capacity every hand's money shrinks
+    -- Focus penalty: over capacity every table plays slower, and each
+    -- hand still pays in full.
     if wanted("upgrade:focus:1") then
         local w = T.world()
-        for _ = 1, 6 do w:open("s001", "zoom") end
+        -- One Zoom under the cap first: its pace is the reference.
+        local lone = w:open("s001", "zoom", { 2, 2 })
+        local function paceOf(t)
+            w.ctrl:dealHand(w:find(t)); w:tick(0.05)
+            local p = t._script_pace
+            T.untilHands(w, t, 1, 30)
+            return p
+        end
+        local p_under = paceOf(lone)
+        for _ = 1, 5 do w:open("s001", "zoom") end
         local m = w.ctrl:currentFocusMult()
         check("upgrade:focus:1", "penalty", math.abs(m - (1 - CAP.FOCUS_BASE_PENALTY * 2)) < 1e-9,
-            ("6 tables on a base capacity of %d: winnings x%.2f (%d over, %.0f%% each)"):format(CAP.FOCUS_BASE_CAPACITY, m, 2, CAP.FOCUS_BASE_PENALTY * 100))
+            ("6 tables on a base capacity of %d: speed x%.2f (%d over, %.0f%% each)"):format(CAP.FOCUS_BASE_CAPACITY, m, 2, CAP.FOCUS_BASE_PENALTY * 100))
+        -- The pace: the same table, now two over, plays at the factor.
+        local p_over = paceOf(lone)
+        check("upgrade:focus:1", "pace", math.abs(p_over / p_under - m) < 1e-6,
+            ("the Zoom's pace over the cap is x%.2f its pace under it (focus x%.2f)"):format(p_over / p_under, m))
+        -- The money: a won hand resolves for exactly what the table dealt
+        -- it for, no factor. Read the resolution off on_hand_won.
+        local r_out = T.stub(OM, "sampleOutcome", function() return true, "small" end)
+        local orig, seen = w.ctrl._announce, nil
+        local r_ann = T.stub(w.ctrl, "_announce", function(self, name, ev)
+            if name == "on_hand_won" and ev.table == lone and ev.out and ev.out[1] then
+                seen = ev.out[1].delta
+            end
+            return orig(self, name, ev)
+        end)
+        w.ctrl:dealHand(w:find(lone)); w:tick(0.05)
+        local dealt = lone.outcome_delta
+        T.untilHands(w, lone, 1, 30)
+        r_ann(); r_out()
+        check("upgrade:focus:1", "money", seen ~= nil and dealt and math.abs(seen - dealt) < 1e-6,
+            ("over the cap a won hand dealt for $%.2f resolved for $%.2f (no factor on the money)"):format(dealt or 0, seen or 0))
+        local s = w.ctrl:focusStrain()
+        check("upgrade:focus:1", "strain", math.abs(s - (1 - m) / (1 - CAP.FOCUS_FLOOR)) < 1e-9,
+            ("the audio strain reads %.3f: the shortfall over the distance to the floor"):format(s))
     end
 end

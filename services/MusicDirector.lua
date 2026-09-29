@@ -62,6 +62,18 @@ local STATIC_LEVEL  = 0.07    -- static bed mix at grime 1
 local FAR_LP_HZ     = 1000    -- highs die crossing 50ft of warehouse air
 local ROOM_VOL_CUT  = 0.20    -- flat source-volume drop in the room, MULTIPLICATIVE
                               -- (20% of whatever the current volume is)
+-- The focus strain, at strain = 1 (the focus floor). Read from
+-- SoundService.getStrain on the grind, 0 anywhere else. The music slows
+-- WITH the tables: the source's pitch, which drops the key with it (a
+-- tape, not a time-stretch), held at PITCH_MIN where OpenAL stops being
+-- safe; a slow wow on top; and in the chain more drive and a longer
+-- crush, which apply with the Desk Speakers too — this is not the
+-- intercom, it is the player.
+local PITCH_MIN     = 0.5
+local WOW_DEPTH     = 0.03    -- +/- pitch at strain 1
+local WOW_HZ        = 0.6
+local STRAIN_DRIVE  = 4.0     -- extra soft-clip gain at strain 1
+local STRAIN_CRUSH  = 6       -- extra sample-hold length at strain 1
 
 -- ── State ──────────────────────────────────────────────────────────────
 local _init      = false
@@ -86,8 +98,12 @@ local _static_i  = 0
 -- purchase blooms open); the room is a CUT — walking through a door is
 -- instant, so _echo snaps to its target the frame the screen changes.
 local _grime, _grime_t = 1, 1
-local _grime_sent, _echo_sent = nil, nil
+local _grime_sent, _echo_sent, _strain_sent = nil, nil, nil
 local _echo,  _echo_t  = 0, 0
+-- The focus strain eases like grime (the chain's copy, per chunk); the
+-- source's pitch eases on the main thread, per frame.
+local _strain, _strain_t = 0, 0
+local _pitch = 1
 local _speakers_cached = nil
 local _owned_count     = -1
 
@@ -221,9 +237,10 @@ local function processChunk(sd, dt_chunk)
     local frames = math.floor(sd:getDuration() * sd:getSampleRate() + 0.5)
     -- Ease the texture toward its targets over EASE_SECS, per chunk.
     local k = math.min(1, (dt_chunk or 0.05) / EASE_SECS)
-    _grime = _grime + (_grime_t - _grime) * k
-    local g, e = _grime, _echo
-    if g < 0.003 and e < 0.003 then return end   -- clean passthrough
+    _grime  = _grime  + (_grime_t  - _grime)  * k
+    _strain = _strain + (_strain_t - _strain) * k
+    local g, e, s = _grime, _echo, _strain
+    if g < 0.003 and e < 0.003 and s < 0.003 then return end   -- clean passthrough
 
     local cutoff = LP_CLEAN_HZ + (LP_DIRTY_HZ - LP_CLEAN_HZ) * g
     -- Distance: the far room pulls the lowpass down further still.
@@ -232,9 +249,11 @@ local function processChunk(sd, dt_chunk)
     local hp_a   = 1 - math.exp(-2 * math.pi * HP_DIRTY_HZ / _rate)
     local hp_mix = g                    -- how much of the lows the tiny driver loses
     local makeup = 1 + (MAKEUP - 1) * g
-    local drive  = 1 + DRIVE_MAX * g
+    -- The strain drives and crushes on top of the intercom (or the clean
+    -- chain): the player over focus, not the speaker.
+    local drive  = 1 + DRIVE_MAX * g + STRAIN_DRIVE * s
     local inv_dr = 1 / drive
-    local hold_len = 1 + math.floor(CRUSH_HOLD * g + 0.5)
+    local hold_len = 1 + math.floor(CRUSH_HOLD * g + STRAIN_CRUSH * s + 0.5)
     local st_lvl = STATIC_LEVEL * g
 
     for f = 0, frames - 1 do
@@ -259,7 +278,7 @@ local function processChunk(sd, dt_chunk)
             v = v * drive
             if v > 1 then v = 1 elseif v < -1 then v = -1 end
             v = v * (1.5 - 0.5 * v * v)   -- cubic soft clip
-            v = v * inv_dr * (1 + 0.6 * g)
+            v = v * inv_dr * (1 + 0.6 * g + 0.4 * s)
             -- muffle
             _lp[c] = _lp[c] + alpha * (v - _lp[c])
             v = _lp[c]
@@ -365,6 +384,9 @@ function MusicDirector.update(dt, game)
         end
         -- any later phase: the gauntlet felt. Dead air, on purpose.
     end
+    -- The focus strain follows the board on the grind and nowhere else
+    -- (main.lua sets it 0 off the grind; this is belt over that).
+    _strain_t = (screen == "grind") and SoundService.getStrain() or 0
 
     -- One channel on the intercom: pre-speakers, the House HAVING THE
     -- FLOOR cuts the music — any bubble on screen, not just the
@@ -387,6 +409,10 @@ function MusicDirector.update(dt, game)
         if _echo_sent ~= _echo_t then
             _echo_sent = _echo_t
             _ctl:push({ cmd = "echo", value = _echo_t })
+        end
+        if _strain_sent ~= _strain_t then
+            _strain_sent = _strain_t
+            _ctl:push({ cmd = "strain", value = _strain_t })
         end
         -- The volume curve reads _grime, which the worker now eases. Track
         -- it here at the same rate so the level moves with the sound.
@@ -416,6 +442,19 @@ function MusicDirector.update(dt, game)
     end
 
     pcall(function() _src:setVolume(volume()) end)
+
+    -- The strain slows the music with the tables: the pitch eases toward
+    -- the board's speed (held at PITCH_MIN), then a slow wow rides on it
+    -- by however much of the strain has arrived. A slower source also
+    -- drains its queue slower; the feed below reads free buffers, so it
+    -- simply asks for less.
+    do
+        local pitch_t = math.max(PITCH_MIN, 1 - (1 - PITCH_MIN) * _strain_t)
+        _pitch = _pitch + (pitch_t - _pitch) * math.min(1, (dt or 0) / EASE_SECS)
+        local s_now = (1 - _pitch) / (1 - PITCH_MIN)
+        local p = _pitch * (1 + WOW_DEPTH * s_now * math.sin(2 * math.pi * WOW_HZ * now))
+        pcall(function() _src:setPitch(p) end)
+    end
 
     -- Feed. Each drained buffer gets decoded, dirtied, and queued back.
     if _threaded then

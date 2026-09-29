@@ -368,7 +368,10 @@ function TableProcs.registerAll(reg)
     -- to spread again off it (`when = { spread = false }`).
     reg:registerPayload("deal", function(_spec, target, event)
         if not (target and event.ctrl and event.ctrl.dealIdleTable) then return false end
-        return event.ctrl:dealIdleTable(target, { spread = true })
+        -- The spread inherits the source hand's origin: a cursor's chain
+        -- stays the swarm's (the Swarm deck counts it), a player's does not.
+        local src = event.table
+        return event.ctrl:dealIdleTable(target, { spread = true, by_cursor = src and src._swarm_deal == true })
     end)
 
     -- Hand a table's buy-in back. Rolls once, or once per event unit when

@@ -163,7 +163,7 @@ return {
         term = "Focus",
         beat = "focus_overload",
         words = { "focus" },
-        text = "Run more tables than you can watch and you play all of them a bit worse. Close one, or raise your Focus in the sidebar. I count your tables too.",
+        text = "Run more tables than you can watch and you play all of them slower. Close one, or raise your Focus in the sidebar. I count your tables too.",
     },
 
     -- ── The door ─────────────────────────────────────────────────────

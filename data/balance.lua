@@ -51,6 +51,12 @@ Balance.K_SHOVE_PER_ITEM         = 0.01
 -- above its seat price (NL10K ~3.5 buy-ins, NL1M ~1.3, NL100M ~1.05).
 Balance.UPGRADE_HANDS_FIRST  = 0.5
 Balance.UPGRADE_HANDS_GROWTH = 1.26
+-- The floor under a level's price: the stake the level is FOR, at this
+-- many big blinds a hand (a modest edge; a filled NL10K earns ~6), over
+-- the same rounds. It only binds where that stake is not yet profitable
+-- on its reference board, so a level for NL1M costs NL1M money even while
+-- NL1M loses, instead of NL10K money. Below NL10K it never binds.
+Balance.UPGRADE_FLOOR_BB     = 5
 -- The raw prices step hardest where the best table changes (a stake's
 -- ×100 arrives in one level). Sigma, in levels, of the Gaussian that
 -- smooths the per-level ratios into a ramp; the total climb is kept.

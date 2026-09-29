@@ -265,7 +265,16 @@ local Decks = {
         name      = "Swarm",
         sprite    = "cards/backs/03-fish",
         max_level = 5,
-        xp_curve  = { 500, 2000, 6000, 15000, 40000 },   -- PLACEHOLDER: cursor deals
+        -- Hands a cursor caused, cumulative: its click and every hand
+        -- chained off that click on the house's clock (the Zoom chain, a
+        -- spread, a clash's deal; models/deck_xp_rules). A player's click
+        -- and its chain earn nothing. A 16-Zoom NL10K swarm board plays
+        -- ~200 such hands a minute, so this maxes in about 50 minutes of
+        -- it: a deck maxes inside a run, and a run is under an hour. A
+        -- board chaining 800 a minute maxes it in a quarter of that.
+        -- (Until 2026-09-28 only the clicks counted, a quarter of that
+        -- board's hands, against a 40,000 top: days.)
+        xp_curve  = { 200, 800, 2500, 5500, 10000 },
         xp_rule   = { kind = "cursor_deals" },
         levels_on = "hands dealt by cursors",
         effects   = {

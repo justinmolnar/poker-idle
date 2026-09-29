@@ -295,21 +295,11 @@ local function buildCashLines(tbl, controller, stats)
             local fcap   = controller:currentFocusCapacity()
             local n_open = controller.pool and controller.pool:count() or 0
             lines[#lines + 1] = row("", "xs")
-            if stats.pool.focus_mult then
-                -- A live table's figure already has the focus multiplier
-                -- in it (GrindController:_tableEvOpts): say so, don't
-                -- apply it again.
-                lines[#lines + 1] = row(string.format(
-                    "Focus %d/%d ×%.2f, in the figure above", n_open, fcap, fmult),
-                    "sm", "warn")
-            else
-                local eff_ev = (stats.pool.ev_per_hand or 0) * fmult
-                local eff_bb = eff_ev / bb
-                lines[#lines + 1] = row(string.format(
-                    "Focus %d/%d ×%.2f → %s/hand  (%+.1f bb/h)",
-                    n_open, fcap, fmult, fmtMoneySigned(eff_ev), eff_bb),
-                    "sm", "warn")
-            end
+            -- Focus slows the table; the figure above is still what each
+            -- hand pays, there are just fewer of them.
+            lines[#lines + 1] = row(string.format(
+                "Focus %d/%d ×%.2f speed", n_open, fcap, fmult),
+                "sm", "warn")
         end
     end
 
@@ -934,8 +924,6 @@ function TablePanelStats.appendPayoutLines(lines, game, controller, stake, gtype
     if not shape then return lines end
 
     local bd = PayoutBreakdown.cached(game, gtype, stake, {
-        focus_mult = controller and controller.currentFocusMult
-                     and controller:currentFocusMult() or nil,
         bankroll   = game.state and game.state.bankroll or nil,
     })
     if not bd then return lines end

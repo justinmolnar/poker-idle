@@ -580,6 +580,11 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
     local upgrade_mult = ctx.run_upgrade_strength_mult or 1.0
     for _, item in ipairs(run_upgrades) do
         local lvl = self.run_upgrade_levels[item.id] or 0
+        -- Never more applications than the upgrade has levels: a save
+        -- from before a ladder was shortened (Cursor twelve to five) keeps
+        -- its number until the run resets, but it only ever counts to the
+        -- max.
+        if item.max_level and lvl > item.max_level then lvl = item.max_level end
         if exclude and exclude[item.id] then lvl = 0 end
         if lvl > 0 then
             if upgrade_mult ~= 1.0 then

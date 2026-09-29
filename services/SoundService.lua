@@ -42,18 +42,22 @@ local _loader       = nil
 local _alias_source = nil
 local _mix          = Sounds._mix or {}
 local _damage       = 0          -- 0..1, the global damage bus (underflow)
+local _strain       = 0          -- 0..1, the focus strain (the board over its cap)
 local _last_play    = {}         -- name -> time of its last play (opts.min_gap)
-local _efx_ready    = nil        -- nil untried, true set up, false unavailable
+local _efx_ready    = {}         -- name -> true set up, false unavailable, nil untried
 
--- The OpenAL distortion effect, set up once and only where it exists
--- (desktop yes, love.js no). A failure just means the cheap damage.
-local function efxReady()
-    if _efx_ready ~= nil then return _efx_ready end
-    local d = _mix.damage and _mix.damage.efx
+-- The OpenAL effects, each set up once and only where they exist (desktop
+-- yes, love.js no): `name` is the _mix entry carrying an `efx` table,
+-- "damage" (the underflow) or "strain" (focus). A failure just means the
+-- cheap version.
+local function efxReady(name)
+    local r = _efx_ready[name]
+    if r ~= nil then return r end
+    local d = _mix[name] and _mix[name].efx
     local ok = d and love.audio and love.audio.setEffect
-        and pcall(love.audio.setEffect, "damage", d)
-    _efx_ready = ok and true or false
-    return _efx_ready
+        and pcall(love.audio.setEffect, name, d)
+    _efx_ready[name] = ok and true or false
+    return _efx_ready[name]
 end
 
 -- ── Tone generators ──────────────────────────────────────────────────────────
@@ -163,6 +167,19 @@ function SoundService.getDamage()
     return _damage
 end
 
+-- The focus strain 0..1: 0 at or under the focus cap, 1 at the floor
+-- (GrindController:focusStrain, set from main.lua each frame, 0 off the
+-- grind). Everything the player hears follows it: every play here drops
+-- in pitch and picks up grit, and the music (services/MusicDirector)
+-- reads the same number.
+function SoundService.setStrain(level)
+    _strain = math.max(0, math.min(1, level or 0))
+end
+
+function SoundService.getStrain()
+    return _strain
+end
+
 local function rnd(lo, hi)
     local r = (love.math and love.math.random) or math.random
     return lo + (hi - lo) * r()
@@ -176,6 +193,14 @@ function SoundService.playFile(path, volume_mult, pitch, damaged)
         if rnd(0, 1) < dmg.dropout * level then return end     -- swallowed
         pitch = (pitch or 1.0) * (1 + rnd(-dmg.pitch_wobble, dmg.pitch_wobble) * level)
         volume_mult = (volume_mult or 1.0) * (1 - (1 - dmg.volume) * level)
+    end
+    -- The focus strain: over the cap the tables play slower and so does
+    -- every sound, dropping toward pitch_min at the floor. The grit is
+    -- the "strain" effect below, its send scaled by the amount.
+    local strain = _strain
+    local sm = _mix.strain
+    if strain > 0 and sm then
+        pitch = (pitch or 1.0) * (1 - (1 - (sm.pitch_min or 0.5)) * strain)
     end
     -- Nothing repeats identically.
     local j = _mix.pitch_jitter or 0
@@ -202,8 +227,13 @@ function SoundService.playFile(path, volume_mult, pitch, damaged)
     s:setVolume(math.max(0, math.min(1, (volume_mult or 1.0) * _master * _sfx)))
     if s.setPitch then s:setPitch(pitch or 1.0) end
     if s.setEffect then
-        if level > 0 and efxReady() then pcall(s.setEffect, s, "damage")
-        elseif _efx_ready then pcall(s.setEffect, s, "damage", false) end
+        if level > 0 and efxReady("damage") then pcall(s.setEffect, s, "damage")
+        elseif _efx_ready.damage then pcall(s.setEffect, s, "damage", false) end
+        -- A pooled clone keeps its last send, so the strain is set or
+        -- cleared on every play.
+        if strain > 0.02 and sm and efxReady("strain") then
+            pcall(s.setEffect, s, "strain", { type = "lowpass", volume = strain, highgain = 1 })
+        elseif _efx_ready.strain then pcall(s.setEffect, s, "strain", false) end
     end
     s:stop()
     s:play()

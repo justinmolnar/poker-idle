@@ -85,7 +85,10 @@ return function(T)
         check("item:box_of_mice", "opens", without == 0 and with == 3,
             ("three Cursor levels put %d cursors on the felt without the box, %d with it"):format(without, with))
     end
-    for L = 1, 12 do
+    -- Every level the upgrade has (five since 2026-09-28): the count follows it.
+    local cursor_max = 1
+    for _, u in ipairs(H.RunUpgrades) do if u.id == "cursor" then cursor_max = u.max_level or 1 end end
+    for L = 1, cursor_max do
         local key = ("upgrade:cursor:%d"):format(L)
         if wanted(key) then
             local w = swarmWorld(L); w:open("s001", "hu")

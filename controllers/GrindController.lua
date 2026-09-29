@@ -582,8 +582,18 @@ function GrindController:dealIdleTable(t, opts)
     if not t or t.state ~= "idle" or t.pending_close then return false end
     if (t.stack or 0) <= 0 then return false end
     if not t:deal(self.ctx) then return false end
+    -- `opts.by_cursor`: the hand this deal chains off was a cursor's
+    -- (the Zoom chain reads its own table's mark, a spread its source's,
+    -- a clash is the cursors'). The mark rides the new hand so the chain
+    -- carries it link to link, and the Swarm deck levels on it (models/
+    -- deck_xp_rules): a player's click fanning out earns nothing, a
+    -- cursor's earns every hand it causes. The cursor ITEMS still gate on
+    -- the clicks alone (total_cursor_deals).
+    local by_cursor = (opts and opts.by_cursor) == true
+    t._swarm_deal = by_cursor
     self:_dealFx(t)
     self:_announce("on_deal", { table = t, spread = (opts and opts.spread) or false })
+    if by_cursor then self:_grantDeckXp({ type = "swarm_deal" }) end
     return true
 end
 
@@ -661,16 +671,17 @@ function GrindController:_tableEvOpts(tbl)
     if mc then
         hand_mult = math.min(mc.cap or 2, 1 + (mc.value or 0) * (self.manual_combo or 0))
     end
-    local focus   = self:currentFocusMult()
+    -- Focus is not in here: it slows the table (Table:update's pace),
+    -- it does not scale the hand, so the per-hand figure is the hand's.
     local overcap = self.pool:count() > self:currentFocusCapacity()
     local bank    = ctx.earnings_scale_by_bankroll and (state.bankroll or 0) or nil
-    local opts = { table = tbl, hand_mult = hand_mult, focus_mult = focus,
+    local opts = { table = tbl, hand_mult = hand_mult,
                    bankroll = bank, overcap = overcap,
                    table_mult = OutcomeMath.tableEarningsMult(ctx, tbl, hand_mult) }
     local bank_key = bank and math.floor(ShoveRate.bankrollMultiplier(bank) * 100 + 0.5) or 0
     local key = table.concat({
         tbl._empty_adjacent or 0, tbl._lonely and 1 or 0, tbl._held and 1 or 0,
-        tbl.slot or -1, hand_mult or 1, math.floor(focus * 1000 + 0.5),
+        tbl.slot or -1, hand_mult or 1,
         overcap and 1 or 0, bank_key }, ":")
     return opts, key
 end
@@ -826,9 +837,13 @@ function GrindController:tableSlotsCap()
     return Constants.GAMEPLAY.MAX_TABLES
 end
 
--- Focus / efficiency penalty applied to every per-hand $ delta. See the
--- design discussion in the plan file. n_tables beyond capacity gets shaved
--- by base_penalty * penalty_reduce_mult, floored at FOCUS_FLOOR.
+-- Focus: the pace every table plays at. Under capacity 1.0; each table
+-- beyond it shaves base_penalty * penalty_reduce_mult off, floored at
+-- FOCUS_FLOOR. Applied to the hand's PACE (Table:update, via _focus_pace
+-- stamped in update), never to the money: an over-cap board plays every
+-- hand slower and each hand pays in full, which is the same income as
+-- shaving the delta but shows on the felt. Everything the player hears
+-- follows it too (focusStrain).
 function GrindController:currentFocusMult()
     if self.ctx and self.ctx.focus_penalty_immune then
         return 1.0
@@ -844,6 +859,17 @@ function GrindController:currentFocusMult()
     local mult = 1 - penalty * extra
     if mult < floor_v then mult = floor_v end
     return mult
+end
+
+-- How far over focus the board is, 0..1: 0 at or under capacity, 1 at
+-- the floor. The audio reads this (SoundService.setStrain, fed from
+-- main.lua each frame): the music and every sound effect slow and
+-- distort by it.
+function GrindController:focusStrain()
+    local floor_v = Constants.GAMEPLAY.FOCUS_FLOOR
+    local s = (1 - self:currentFocusMult()) / (1 - floor_v)
+    if s < 0 then s = 0 elseif s > 1 then s = 1 end
+    return s
 end
 
 -- Effective capacity — base + ctx bonus (no penalty math). THE single source:
@@ -924,7 +950,7 @@ function GrindController:onCursorClash(panel)
     -- The Old Keyboard: the clash is a keystroke, the table deals if it is
     -- idle. Before the punch, so a heater from the robot lands ON the hand
     -- the clash just dealt.
-    if ctx.cursor_clash_deals then self:dealIdleTable(t) end
+    if ctx.cursor_clash_deals then self:dealIdleTable(t, { by_cursor = true }) end
     local chance = ctx.cursor_clash_chance or Balance.CURSOR_CLASH.chance
     if love.math.random() >= chance then return end
     local status = ctx.cursor_clash_status or "tilt"
@@ -1012,7 +1038,7 @@ function GrindController:update(dt)
             -- the latch is dropped when the table dealt itself).
             if t._fast_fold_pending and t.state == "idle" then
                 t._fast_fold_pending = nil
-                if self.ctx.zoom_fast_fold and self:dealIdleTable(t) then
+                if self.ctx.zoom_fast_fold and self:dealIdleTable(t, { by_cursor = t._swarm_deal }) then
                     self:itemFired("zoom_fast_fold", t)
                 end
             elseif t._fast_fold_pending and t.state ~= "settling" then
@@ -1021,6 +1047,20 @@ function GrindController:update(dt)
         end
         self:_setCtxField("hu_table_count", n)
         self:_setCtxField("heater_count", burning)
+        -- Focus: every table plays at the board's focus factor (Table:update
+        -- folds it into the pace). Stamped per frame like the Receipt
+        -- Printer's count below, so a table opening or closing moves every
+        -- table's pace the same frame.
+        local focus_pace = self:currentFocusMult()
+        for _, t in ipairs(self.pool.tables) do t._focus_pace = focus_pace end
+        -- Every table over the cap is a moment: the overload sound on
+        -- each step further over, pitched lower each time (the rail's
+        -- alarm and the frame kick on the same frame).
+        local focus_extra = math.max(0, self.pool:count() - self:currentFocusCapacity())
+        if focus_extra > (self._focus_extra or 0) then
+            self:_playNamed("focus_overload", { pitch = math.max(0.5, 1 - 0.08 * (focus_extra - 1)) })
+        end
+        self._focus_extra = focus_extra
         -- The Receipt Printer: each Zoom's count of adjacent Zooms.
         if self.ctx.zoom_block_pace then
             local cells = {}
@@ -1276,13 +1316,9 @@ function GrindController:update(dt)
     if #resolutions == 0 then return end
 
     local state      = self.game.state
-    local focus_mult = self:currentFocusMult()
     for _, r in ipairs(resolutions) do
-        -- Apply focus penalty to the actual $ delta — split attention
-        -- means smaller wins and harsher relative losses. Floor in
-        -- currentFocusMult prevents zero, so a tiny positive delta is
-        -- still positive and counts as a win for the chip bounty.
-        r.delta = r.delta * focus_mult
+        -- Focus does not touch the delta: an over-cap board plays every
+        -- hand slower (Table:update's pace), and the hand pays in full.
         -- Corrupted Gaming Chair: no focus penalty, but every table past
         -- the cap loses bigger.
         if r.delta < 0 and self.ctx and self.ctx.overcap_loss_mult
@@ -2495,9 +2531,9 @@ function GrindController:boardRate()
     local clock = self.clock or 0
     local win   = RateTicker.window_s or 60
     local floor_s = RateTicker.min_window_s or 5
-    -- tableStats already prices each table with the focus multiplier in
-    -- (GrindController:_tableEvOpts), so the sum is the board's rate as
-    -- is; focus_mult rides along for the tooltip's explanation.
+    -- Focus is in the hpm, not the ev: an over-cap board plays slower, so
+    -- each table's measured hand count already carries it. focus_mult
+    -- rides along for the tooltip's explanation only.
     local out = { tables = {}, total = 0, focus_mult = self:currentFocusMult() }
     local sum = 0
     for _, tbl in ipairs(self.pool.tables) do
@@ -2886,6 +2922,10 @@ function GrindController:dealHand(idx)
     -- it resolves. Stamped BEFORE :deal, which prices the hand (the
     -- payout is computed at the deal, Table:deal reads _hand_mult there).
     t._dealt_by_player = not self._deal_by_cursor
+    -- The swarm's mark: this hand was a cursor's click. Every hand dealt
+    -- off it on the house's clock inherits the mark (dealIdleTable), so
+    -- the Swarm deck levels on a cursor's chain and not on the player's.
+    t._swarm_deal = self._deal_by_cursor == true
     local mc = self.ctx and self.ctx.manual_combo
     if t._dealt_by_player and mc then
         t._hand_mult = math.min(mc.cap or 2, 1 + (mc.value or 0) * (self.manual_combo or 0))

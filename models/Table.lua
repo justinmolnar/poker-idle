@@ -1332,12 +1332,16 @@ function Table:_update(dt, ctx)
             ctx_pace = ctx_pace * (1 + math.min(combo.cap or 0.5, (combo.value or 0) * self._combo))
         end
     end
-    local effective_dt = (dt or 0) * pace_mult * ctx_pace
+    -- Focus: the board's factor, stamped by GrindController:update every
+    -- frame. Over capacity every table plays slower; the hand pays in
+    -- full. 1 when nothing has stamped it (a table outside the grind).
+    local focus = self._focus_pace or 1
+    local effective_dt = (dt or 0) * pace_mult * ctx_pace * focus
     -- Script time runs at this multiple of wall time. Published so the
     -- view can convert a gap between script events into the real seconds
     -- it has to animate in — a chip flight that outruns the action it
     -- represents is worse than a fast one.
-    self._script_pace = pace_mult * ctx_pace
+    self._script_pace = pace_mult * ctx_pace * focus
 
     self.state_timer = self.state_timer + effective_dt
 

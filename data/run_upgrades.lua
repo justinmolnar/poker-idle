@@ -114,7 +114,8 @@ local RunUpgrades = {
     -- ── Box of Mice — more cursors in the swarm ──────────────────────
     -- Adds 1 cursor per level. Requires the catalog `box_of_mice` unlock
     -- + at least one cursor (catalog or run) to do anything visible.
-    -- 12 levels.
+    -- FIVE levels (2026-09-28, from twelve): a cursor is a table that
+    -- deals itself, so the ladder is Focus's, priced a notch above it.
     {
         id            = "cursor",
         name          = "Cursor",
@@ -131,13 +132,14 @@ local RunUpgrades = {
         -- that made cursors exist, so it is where a player looks for their
         -- master switch. Authored rather than matched on id in the view.
         cursor_master_controls = true,
-        max_level     = 12,
-        -- Derived (models/UpgradePricing): level k of 12 is priced at the
-        -- Sharper Reads level that sits k/12 of the way to NL1M's last
+        max_level     = 5,
+        -- Derived (models/UpgradePricing): level k of 5 is priced at the
+        -- Sharper Reads level that sits k/5 of the way to NL1M's last
         -- owned level, × cost_mult. Maxes at NL1M without thinking, not
-        -- before. The two fields are the knobs.
+        -- before. The two fields are the knobs. Same window as Focus, a
+        -- quarter dearer: the same ladder, not the same price.
         maxes_at    = "s005",
-        cost_mult   = 4.0,
+        cost_mult   = 5.0,
         costs       = nil,   -- derived
         effects     = { { kind = "cursor_count_add", value = 1 } },
     },

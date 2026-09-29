@@ -14,7 +14,7 @@ Base EV: NL100 capped +114 bb, NL10K capped +5.8 bb, NL100M capped −0.9 bb.
 3. **Maniac hurts you until L5.** Its loss-side shift lands 54% of losses on Stack at NL10K; at L4 it is 0.89× at NL100 and makes NL100M more negative. Only the capstone (tier bump + double) pulls it positive. A deck that is a debuff for four levels is not a deck.
 4. **Tier Manipulator is a debuff at every level.** Widening a window lowers the fill ratio of the levels you already own: NL10K capped goes from +5.8 bb to −6.8 bb at L4. The extra top levels it "adds" are the next stake's levels anyway.
 5. **Hustler is the second-strongest income deck** (×7.7 hands per hour with the capstone), stronger than Standard on a board, and it multiplies everything: XP, chips, deck levelling. As the second deck the player gets it is the wrong size.
-6. **Redundancy.** Swarm (+4 cursors) is dwarfed by Box of Mice (+8) and the Cursor upgrade (+12). Multitasker's +12 focus is the Focus upgrade twice over and its capstone (immunity) is redundant with its own L4. Investor duplicates Calculator + Bookshelf. Tier Manipulator duplicates Nightstand. Short Stack duplicates Rebuy Sticky Note + Wacom. Three decks level on the same signal (hands played / hands won).
+6. **Redundancy.** Swarm (+4 cursors) is dwarfed by Box of Mice (+8) and the Cursor upgrade (+5). Multitasker's +12 focus is the Focus upgrade twice over and its capstone (immunity) is redundant with its own L4. Investor duplicates Calculator + Bookshelf. Tier Manipulator duplicates Nightstand. Short Stack duplicates Rebuy Sticky Note + Wacom. Three decks level on the same signal (hands played / hands won).
 7. **Rebuy discount can exceed 100%.** Short Stack 60% + Rebuy Sticky Note 75% + Wacom 20% = 155%, and `rebuyCostFor` returns `buy_in × (1 − discount)` with no clamp: a rebuy would pay the player. Clamp needed regardless of the deck outcome.
 8. **XP units are inconsistent.** Count decks earn the table's buy-in per event; money decks earn dollars. Short Stack earning "10 × the buy-in per rebuy" is an unreadable unit when "dollars spent on rebuys" is the same thing said plainly. Standard maxes too late (800 NL10K wins).
 9. **Standard's capstone** ("wins never roll Small") is a tier floor on a deck whose whole identity is a cash multiplier. It is also worth almost nothing at capped stakes (Small is 10–15% of wins) and a lot at naked ones, backwards from how the deck is used.
@@ -94,7 +94,7 @@ Tier labels: **unlock** = the stake you are a real player at when it opens; **ma
 
 ### 7. Swarm — cursors
 - **Now**: +1 cursor/level, capstone speed ×3 + instant. XP hands played × buy-in.
-- **Effect**: +4 cursors next to Box of Mice's 8 and the Cursor upgrade's 12. The capstone is Gaming Keyboard's instant click plus most of Cursor Speed's ×6.
+- **Effect**: +4 cursors next to Box of Mice's 8 and the Cursor upgrade's 5. The capstone is Gaming Keyboard's instant click plus most of Cursor Speed's ×6.
 - **Recommend**: give it what cursors can't buy: **cursors deal one extra hand per click per level** (a cursor click resolves 2/3/4/5 hands), capstone **cursors also rebuy**. Or retire it into the cursor catalog line. XP: **hands dealt by cursors** (the new `total_cursor_deals` counter), which nothing else uses. Unlock with Box of Mice, max NL1M.
 
 ### 8. Specialist — one table

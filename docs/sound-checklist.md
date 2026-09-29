@@ -62,7 +62,7 @@ now.
 - [ ] tilt lands (wire) | glass tipping, or a knock going wrong | a tilt is applied to a table
 - [ ] heater lands (wire) | a match strike, short | a heater is applied
 - [ ] punch (wire) | fist on a table, the frame the fist lands (data/statuses slam.rise); the shove reuses it quieter | the slam; a table shoving its neighbour
-- [ ] focus overload (wire) | a short strained tone | focus over the cap
+- [ ] `focus_overload` | a short strained tone; wired, plays once per crossing of the cap (drop the file in and it plays) | the board goes over the focus cap
 - [ ] deck (wire) | one bright note or a card fan; a new deck and a level-up share it | the deck in play levels; a deck unlocks
 - [ ] underflow (wire) | a deep thud with a tail, 1s; afterwards a short digital tear, three variants, for the broken readouts | the Act 3 break; the glyph ticks
 - [x] `anti_chip_bank` | the bankroll chip through the damage bus | an anti-chip banks

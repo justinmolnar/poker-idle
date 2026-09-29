@@ -2,7 +2,8 @@
 --
 -- The rail's earn rate (GrindController:boardRate): a table's measured
 -- pace agrees with how many hands it actually played, the total is the
--- focus-scaled sum of $/hand x hands/min, the run's winnings and clock
+-- sum of $/hand x hands/min (focus is in the measured pace, an over-cap
+-- board plays slower), the run's winnings and clock
 -- accumulate on the board's own time, a board nobody deals falls to zero,
 -- and resetRun freezes the run's $/min for the next run's tooltip.
 return function(T)

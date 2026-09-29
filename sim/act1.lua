@@ -86,6 +86,9 @@ end
 -- The REAL focus formula at a hypothetical table count. currentFocusMult
 -- reads pool:count(); swapping that one method is how a hypothetical board
 -- gets priced without copying the penalty math out of the controller.
+-- In the game the factor slows every table's pace rather than shaving
+-- the money; on a rate it is the same number either way, so the sum of
+-- $/hand x hands/min times it is the board's rate.
 local function focusMultAt(ctrl, n)
     local pool = ctrl.pool
     local real = pool.count
@@ -165,7 +168,7 @@ end
 -- ─── Purchases ──────────────────────────────────────────────────────────
 
 -- What one hand of this lane is worth right now, in dollars. The focus
--- penalty is not in here: it scales every table equally and the question
+-- penalty is not in here: it slows every table equally and the question
 -- is whether THIS lane is worth sitting at.
 local function laneEV(w, stake_id, gtype_id)
     local st, gt = stakeOf(stake_id), gtypeOf(gtype_id)

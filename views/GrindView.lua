@@ -1430,7 +1430,8 @@ function GrindView:_buildRailComponents()
     -- target so it fires once per change.
     local focus_shown = fl(RollingValue.get("focus_pct", focus_pct) + 0.5)
     local over        = focus_shown < 100
-    -- A healthy focus is simply fine (parchment); any penalty is money lost.
+    -- A healthy focus is simply fine (parchment); under 100% every table
+    -- is playing that much slower, which is money lost.
     local focus_color = over and Theme.sem.lost or Theme.fg.heading
     local fpop = Pop.onChange("focus", focus_pct, 0.5)
     if fpop > 0 then
@@ -1448,11 +1449,37 @@ function GrindView:_buildRailComponents()
         string.format(R.tooltips.focus_pen, eff_pen * 100, Constants.GAMEPLAY.FOCUS_FLOOR * 100),
         string.format(R.tooltips.focus_cap, cap),
     }
-    local focus = stat{ label = R.labels.focus,
-        value = focus_shown .. "%", value_color = focus_color,
+    -- Over the cap the cell is an alarm, and every table further over is
+    -- a visible step: the label says OVER FOCUS, the value goes to the
+    -- bankroll's big font, the plate under the pair (drawChrome) fills
+    -- and thickens per table, each step bursts the readout up out of the
+    -- rail (drawChrome) and plays the overload sound pitched lower (the
+    -- controller), and the whole screen loses focus around this one
+    -- readout (main.lua, the strain shader). Between steps it holds
+    -- STILL: being over focus can be a strategy for a while, and a
+    -- readout that blinks the whole time would be unbearable.
+    local extra = math.max(0, n_open - focus_cap)
+    if over and extra > (self._focus_extra or 0) then
+        ClickFlash.flash("focus_alarm", "step", 1.3)
+    end
+    self._focus_extra = over and extra or 0
+    self._focus_over  = over
+    -- The step's kick: the readout bursts out of the rail and shakes,
+    -- then settles. The rail clips its contents, so while the kick runs
+    -- the cell draws nothing and drawChrome redraws the label and value
+    -- above the rail, scaled and shaken about the cell (its anchors).
+    local kick = over and ClickFlash.raw("focus_alarm", "step") or 0
+    self._focus_kick  = kick
+    self._focus_label = over and R.labels.over_focus or R.labels.focus
+    self._focus_value = focus_shown .. "%"
+    local kicking = kick > 0.01
+    local focus = stat{ label = kicking and "" or self._focus_label,
+        label_color_token = over and "lost" or nil,
+        value = kicking and "" or self._focus_value, value_color = focus_color,
+        value_style = over and "lg" or "md",
         value_scale = Pop.scale(fpop, 1, 0.45),
-        anchor = "cell:focus", tooltip = focus_tip,
-        w = reserveW(fonts.md, R.reserve.focus) }
+        anchor = "cell:focus", value_anchor = "cell:focus_value", tooltip = focus_tip,
+        w = reserveW(over and fonts.lg or fonts.md, R.reserve.focus) }
     -- TABLES: open against the capacity, as a fill that reddens past it.
     local tables = stat{ label = R.labels.tables, value = "",
         bar = { frac = n_open / math.max(1, focus_cap), w = fl(SP.stat_bar_w * s),
@@ -1602,11 +1629,13 @@ function GrindView:_buildRailComponents()
     -- move as one; the space left over spreads evenly between the groups.
     local money = group{ tied, bankroll }
     money.anchor = "rail:money"   -- the pile stands over this group
+    local watch = group{ focus, tables }
+    watch.anchor = "rail:focus"   -- the alarm plate (drawChrome) and the strain shader's hole (main.lua)
     local chips = anti and group{ banked, anti, shove } or group{ banked, shove }
     return {
         { type = "spacer", h = RAIL_PAD },
         { type = "row", h = RAIL_BTN_H, align = "top", justify = "between", gap = fl(SP.flex_min_gap * s),
-          children = { group{ gear, book, room, deck }, group{ focus, tables }, money, chips } },
+          children = { group{ gear, book, room, deck }, watch, money, chips } },
     }
 end
 
@@ -2329,7 +2358,67 @@ function GrindView:drawChrome(W)
     Theme.setColor(Theme.border.default)
     love.graphics.rectangle("fill", 0, H - RAIL_H, rw, 1)
     love.graphics.rectangle("fill", rw - 1, H - RAIL_H, 1, RAIL_H)
+    -- Over the focus cap: a red plate under the FOCUS and TABLES pair,
+    -- the full height of the rail and no wider than the pair's slot, so
+    -- it never crosses a neighbour; its fill and frame step up per table
+    -- over and otherwise hold still. Drawn before the rail so the
+    -- readouts sit on it; the rect is last frame's anchor.
+    if self._focus_over then
+        local slot = AnchorRegistry.get("rail:focus")
+        if slot then
+            local step = math.min(self._focus_extra or 1, 5)
+            local pad  = Theme.space.stat_pad
+            local x, w = slot[1] - pad, slot[3] + pad * 2
+            local y, h = H - RAIL_H + 2, RAIL_H - 4
+            Theme.setColor(Theme.sem.lost, 0.14 + 0.08 * step)
+            love.graphics.rectangle("fill", x, y, w, h, Theme.space.radius)
+            Theme.setColor(Theme.sem.lost, 0.9)
+            love.graphics.setLineWidth(1 + step)
+            love.graphics.rectangle("line", x, y, w, h, Theme.space.radius)
+            love.graphics.setLineWidth(1)
+        end
+    end
     self.rail:draw(self.game)
+    -- The step's kick: the OVER FOCUS readout redrawn above the rail,
+    -- free of its clip, bursting UP out of the bar (it sits at the bottom
+    -- of the screen, so it grows from its own bottom edge and lifts) and
+    -- shaking, harder the further over, white at the kick and settling
+    -- to red as it comes back down into the cell (the cell draws nothing
+    -- meanwhile). Overlapping whatever is above it is the point: it is a
+    -- pop, it settles. Motion low: a still, larger flash.
+    local kick = self._focus_kick or 0
+    if self._focus_over and kick > 0.01 then
+        local cell = AnchorRegistry.get("cell:focus")
+        local val  = AnchorRegistry.get("cell:focus_value")
+        if cell and val then
+            local fonts = self.game.fonts
+            local k     = math.min(1, kick)
+            local step  = math.min(self._focus_extra or 1, 5)
+            local scale = 1 + (0.45 + 0.1 * step) * k
+            local lift  = -(10 + 5 * step) * k
+            local jx, jy = 0, 0
+            if Motion.level("ui") > Motion.LOW then
+                local t = love.timer.getTime() * 60
+                jx = (2 + 1.5 * step) * k * math.sin(t * 1.9)
+                jy = (1.5 + step) * k * math.cos(t * 2.3)
+            else
+                scale, lift = 1 + 0.3 * k, -6 * k
+            end
+            -- About the cell's bottom-centre: the growth goes upward.
+            local cx, cy = cell[1] + cell[3] * 0.5, cell[2] + cell[4]
+            local c = Theme.sem.lost
+            Theme.setColor({ c[1] + (1 - c[1]) * k, c[2] + (1 - c[2]) * k, c[3] + (1 - c[3]) * k })
+            love.graphics.push()
+            love.graphics.translate(cx + jx, cy + jy + lift)
+            love.graphics.scale(scale, scale)
+            love.graphics.translate(-cx, -cy)
+            love.graphics.setFont(fonts.sm)
+            love.graphics.print(self._focus_label or "", cell[1], cell[2])
+            love.graphics.setFont(fonts.lg)
+            love.graphics.print(self._focus_value or "", val[1], val[2])
+            love.graphics.pop()
+        end
+    end
 end
 
 function GrindView:railH() return RAIL_H end

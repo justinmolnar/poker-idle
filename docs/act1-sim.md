@@ -1,6 +1,6 @@
 # Act 1 simulation
 
-> `lua sim/act1.lua --seeds=30` on 2026-09-10. Policy in `sim/act1_policy.lua`.
+> `lua sim/act1.lua --seeds=30` on 2026-09-28. Policy in `sim/act1_policy.lua`.
 
 ## Calibration
 
@@ -27,7 +27,7 @@ designer's. Act 1 timings below are conditional on the policy as written.
 
 ## Result
 
-- Act 1 cleared in a median **60 minutes** (range 23-99) over 30 of 30 seeds.
+- Act 1 cleared in a median **60 minutes** (range 23-129) over 30 of 30 seeds.
 - Median **5 shoves**.
 
 ## Per shove, seed 1
@@ -36,6 +36,6 @@ designer's. Act 1 timings below are conditional on the policy as written.
 |---|---|---|---|---|---|---|---|
 | 1 | 8 min | 7.5 min | 4 | 6 | 0.0% | lost | fight_night_poster, corkboard |
 | 2 | 20 min | 11.0 min | 6 | 15 | 5.6% | lost | mirror, energy_drink, starter_gift_box, yellow_sticky_note |
-| 3 | 36 min | 15.0 min | 6 | 15 | 18.4% | lost | stack_of_books, house_cat, rolled_vouchers |
+| 3 | 36 min | 15.0 min | 6 | 15 | 18.4% | lost | stack_of_books, house_cat, bottle_of_wine |
 | 4 | 48 min | 11.2 min | 6 | 15 | 27.5% | **WON** | lava_lamp, stash_box |
 

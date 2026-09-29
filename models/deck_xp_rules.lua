@@ -158,10 +158,17 @@ function DeckXpRules.registerAll(reg)
         return 10 * buyInWeight(event)
     end)
 
-    -- Swarm XP rule: one per hand a cursor deals (GrindController:onCursorDeal).
+    -- Swarm XP rule: one per hand a cursor caused — its click
+    -- (GrindController:onCursorDeal) and every hand chained off that
+    -- click on the house's clock (GrindController:dealIdleTable with the
+    -- cursor's mark: the Zoom chain, a spread, a clash's deal). A hand
+    -- the player clicks for, and everything it fans out into, earns
+    -- nothing. A swarm build's hands are mostly the chains, and the deck
+    -- is the swarm.
     reg:register("cursor_deals", function(_rule, event)
-        if not event or event.type ~= "cursor_deal" then return 0 end
-        return 1
+        if not event then return 0 end
+        if event.type == "cursor_deal" or event.type == "swarm_deal" then return 1 end
+        return 0
     end)
 end
 

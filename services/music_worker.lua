@@ -20,6 +20,7 @@
 --   "poker_music_ctl"    <- { cmd = "track", path = }        load and start
 --                        <- { cmd = "grime", value = }       filter targets
 --                        <- { cmd = "echo",  value = }
+--                        <- { cmd = "strain", value = }      the focus strain
 --                        <- { cmd = "seek",  pos = }         seconds
 --                        <- { cmd = "want",  n = }           chunks wanted
 --                        <- { cmd = "quit" }
@@ -45,12 +46,15 @@ local MAKEUP        = 1.8
 local CRUSH_HOLD    = 4
 local STATIC_LEVEL  = 0.07
 local FAR_LP_HZ     = 1000
+local STRAIN_DRIVE  = 4.0
+local STRAIN_CRUSH  = 6
 
 local _dec, _rate, _channels = nil, 44100, 2
 local _lp, _hp, _hp2 = { 0, 0 }, { 0, 0 }, { 0, 0 }
 local _hold_v, _hold_n = { 0, 0 }, 0
 local _static, _static_n, _static_i = nil, 0, 0
 local _grime, _grime_t = 1, 1
+local _strain, _strain_t = 0, 0
 local _echo = 0
 local _pos, _want = 0, 0
 
@@ -75,9 +79,10 @@ loadStatic()
 local function processChunk(sd, dt_chunk)
     local frames = math.floor(sd:getDuration() * sd:getSampleRate() + 0.5)
     local k = math.min(1, (dt_chunk or 0.05) / EASE_SECS)
-    _grime = _grime + (_grime_t - _grime) * k
-    local g, e = _grime, _echo
-    if g < 0.003 and e < 0.003 then return end   -- clean passthrough
+    _grime  = _grime  + (_grime_t  - _grime)  * k
+    _strain = _strain + (_strain_t - _strain) * k
+    local g, e, s = _grime, _echo, _strain
+    if g < 0.003 and e < 0.003 and s < 0.003 then return end   -- clean passthrough
 
     local cutoff = LP_CLEAN_HZ + (LP_DIRTY_HZ - LP_CLEAN_HZ) * g
     cutoff = cutoff + (math.min(cutoff, FAR_LP_HZ) - cutoff) * e
@@ -85,9 +90,9 @@ local function processChunk(sd, dt_chunk)
     local hp_a   = 1 - math.exp(-2 * math.pi * HP_DIRTY_HZ / _rate)
     local hp_mix = g
     local makeup = 1 + (MAKEUP - 1) * g
-    local drive  = 1 + DRIVE_MAX * g
+    local drive  = 1 + DRIVE_MAX * g + STRAIN_DRIVE * s
     local inv_dr = 1 / drive
-    local hold_len = 1 + math.floor(CRUSH_HOLD * g + 0.5)
+    local hold_len = 1 + math.floor(CRUSH_HOLD * g + STRAIN_CRUSH * s + 0.5)
     local st_lvl = STATIC_LEVEL * g
 
     for f = 0, frames - 1 do
@@ -109,7 +114,7 @@ local function processChunk(sd, dt_chunk)
             v = v * drive
             if v > 1 then v = 1 elseif v < -1 then v = -1 end
             v = v * (1.5 - 0.5 * v * v)   -- cubic soft clip
-            v = v * inv_dr * (1 + 0.6 * g)
+            v = v * inv_dr * (1 + 0.6 * g + 0.4 * s)
             _lp[c] = _lp[c] + alpha * (v - _lp[c])
             v = _lp[c]
             if refresh or hold_len <= 1 then _hold_v[c] = v end
@@ -146,6 +151,7 @@ local function handle(msg)
     if cmd == "track" then openTrack(msg.path)
     elseif cmd == "grime" then _grime_t = msg.value or 0
     elseif cmd == "echo"  then _echo    = msg.value or 0
+    elseif cmd == "strain" then _strain_t = msg.value or 0
     elseif cmd == "want"  then _want    = math.max(_want, msg.n or 0)
     elseif cmd == "seek"  then
         if _dec and pcall(function() _dec:seek(msg.pos or 0) end) then

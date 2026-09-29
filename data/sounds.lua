@@ -55,6 +55,16 @@ return {
             volume       = 0.8,
             efx = { type = "distortion", gain = 0.35, edge = 0.6, lowcut = 300, center = 2400, bandwidth = 2000 },
         },
+        -- The focus strain. Over the focus cap the tables play slower and
+        -- so does everything the player hears: every play drops in pitch
+        -- toward pitch_min at the focus floor, and where OpenAL EFX exists
+        -- the distortion below is sent in proportion to the amount. Fed
+        -- from GrindController:focusStrain by main.lua each frame; the
+        -- music takes the same number (services/MusicDirector).
+        strain = {
+            pitch_min = 0.5,
+            efx = { type = "distortion", gain = 0.3, edge = 0.5, lowcut = 200, center = 2000, bandwidth = 2500 },
+        },
     },
 
 

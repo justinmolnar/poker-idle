@@ -470,7 +470,7 @@ return {
             screen  = "grind",
             trigger = { kind = "focus_overloaded" },
             lines = {
-                { text = "Easy, tiger. You can't focus on that many tables at once. ALL your {c:won:winnings} at ALL tables win {dyn:focus_penalty_pct} less for each table above your focus cap. Adds up fast.",
+                { text = "Easy, tiger. You can't focus on that many tables at once. ALL your tables play {dyn:focus_penalty_pct} slower for each table above your focus cap. Adds up fast.",
                   anchor = { "cell:focus", "buy_runup_focus" } },
             },
         },

@@ -230,7 +230,7 @@ The right-click controls described are not wired yet; the copy leads.
 | You {c:won:won} another {w:stack} but no {chip}. This table type's already {c:chip:paid} its {chip}. Each stake and game pays once per run. Climb. | `chip_badge:banked` | click |
 
 ### `focus_overload` — grind. Trigger: focus overloaded.
-| Easy, tiger. You can't focus on that many tables at once. ALL your {c:won:wins} at ALL tables win {dyn:focus_penalty_pct} less for each table above your focus cap. Adds up fast. | `cell:focus`, `buy_runup_focus` | click |
+| Easy, tiger. You can't focus on that many tables at once. ALL your tables play {dyn:focus_penalty_pct} slower for each table above your focus cap. Adds up fast. | `cell:focus`, `buy_runup_focus` | click |
 
 ### `first_corruption` — shove. Trigger: catalog open, a CORRUPTED item exists.
 Corruption and {achip} are NOT HIS and get no tutorialization anywhere (see

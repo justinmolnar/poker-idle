@@ -704,12 +704,14 @@ end
 -- ─── Payout multiplier ─────────────────────────────────────────────────
 -- Everything that scales a hand's magnitude once its tier is known, as a
 -- single number. THE definition — models/Table.lua applies these factors
--- inline at deal time and GrindController applies the last two at
+-- inline at deal time and GrindController applies the bankroll at
 -- resolve; this is what any readout must agree with.
 --
--- opts.focus_mult / opts.bankroll are the live resolve-time factors. Omit
--- them for the "per hand at this table, before attention and bankroll"
--- reading.
+-- opts.bankroll is the live resolve-time factor. Omit it for the "per
+-- hand at this table, before bankroll" reading. Focus is NOT a payout
+-- factor: it slows the table (Table:update's pace) and the hand pays in
+-- full. opts.focus_mult is still honoured for tools/sim_bridge, which
+-- prices the old money form; the game never passes it.
 function OutcomeMath.payoutMult(ctx, stake, tier, won, opts)
     ctx, opts = ctx or {}, opts or {}
     -- payout_double_chance is a coin flip for 2×, so its contribution to
@@ -987,9 +989,8 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
             win_avg_bb  = win_avg,
             loss_avg_bb = loss_avg,
             -- What the figure already includes, so a tooltip explains
-            -- rather than re-applies: the focus multiplier, and whether
-            -- this priced a real table (its cell, its hand, its streak).
-            focus_mult  = opts and opts.focus_mult or nil,
+            -- rather than re-applies: whether this priced a real table
+            -- (its cell, its hand, its streak).
             per_table   = (opts and opts.table) and true or false,
         },
     }
