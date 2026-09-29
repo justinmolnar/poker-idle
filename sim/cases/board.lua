@@ -166,6 +166,44 @@ return function(T)
         for _ = 1, 200 do w:tick(0.05); peak = math.max(peak, w.ctrl.ctx.hands_per_second or 0) end
         check("item:hybrid_console", "count", peak >= 2,
             ("four Zoom tables dealt together: the board's hands-per-second stamp peaked at %d in the next ten seconds"):format(peak))
+        -- The live counter and the display revision: hands per second moves
+        -- ~20 times a second on a busy board, and used to empty every EV
+        -- cache and memo each time. Without an item that reads it the
+        -- revision must not move while the counter does; with one (the
+        -- Hybrid Console here) it folds at most twice a second.
+        local w2 = T.world()
+        local z2 = {}
+        for i = 1, 4 do z2[i] = w2:open("s001", "zoom") end
+        w2:tick(0.05)
+        local function busy(w, tables, secs)
+            local rev0, moves, last = w.ctrl.display_rev, 0, w.ctrl.display_rev
+            local t = 0
+            while t < secs do
+                for i = 1, #tables do
+                    if tables[i].state == "idle" then w.ctrl:dealHand(w:find(tables[i])) end
+                end
+                w:tick(0.05); t = t + 0.05
+                if w.ctrl.display_rev ~= last then moves = moves + 1; last = w.ctrl.display_rev end
+            end
+            return moves, w.ctrl.display_rev - rev0
+        end
+        local moves_off = busy(w2, z2, 4)
+        local hps_moved = w2.ctrl.ctx.hands_per_second or 0
+        w2:own("hybrid_console"); w2:tick(0.05)
+        local moves_on = busy(w2, z2, 4)
+        check("item:hybrid_console", "display", moves_off == 0 and moves_on <= 9 and moves_on >= 1,
+            ("four seconds of Zoom hands: the display revision moved %d times with nothing reading hands per second (the counter read %d), %d times with the console (folded at most every %.1fs)"):format(
+                moves_off, hps_moved, moves_on, w2.ctrl.LIVE_BUMP_SECS))
+        -- And a cache hit on a table's stats allocates nothing: the key is
+        -- compared field by field, the opts are built only on a miss.
+        local t1 = z2[1]
+        w2.ctrl:tableStats(t1)
+        collectgarbage("collect")
+        local kb0 = collectgarbage("count")
+        for _ = 1, 500 do w2.ctrl:tableStats(t1) end
+        local kb = collectgarbage("count") - kb0
+        check("item:hybrid_console", "stats hit", kb < 2,
+            ("500 hits on a table's stats cache allocated %.1f KB"):format(kb))
     end
 
     if wanted("item:laminated_blueprint") then

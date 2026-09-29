@@ -601,9 +601,11 @@ end
 -- One strictly-increasing number meaning "something a readout derives from
 -- has changed". The EV cache below and every memoized tooltip key on it, so
 -- the whole derived-UI layer refreshes exactly when it must and never
--- otherwise. Bumped by: the effect rollup (invalidateEffects), the live ctx
--- fields (_setCtxField), and — checked once per frame in update — the table
--- pool, the owned-catalog set, and the debug payout shape.
+-- otherwise. Bumped by: the effect rollup (invalidateEffects), a ctx field
+-- something reads (_setCtxField; the live counters only when an owned item
+-- consumes them, and then at most twice a second), and — checked once per
+-- frame in update — the table pool, the owned-catalog set, and the debug
+-- payout shape.
 function GrindController:_bumpDisplay()
     self.display_rev = (self.display_rev or 0) + 1
 end
@@ -622,6 +624,19 @@ function GrindController:_pollDisplayInputs()
         self._seen_owned_rev     = owned_rev
         self._seen_payout_shape  = shape
         self:_bumpDisplay()
+    end
+    -- A live counter an owned item reads (LIVE_CTX_FIELDS) moved: fold it
+    -- at most every LIVE_BUMP_SECS. Hands per second changes ~20 times a
+    -- second on a busy board, and each bump empties every EV cache and
+    -- memo in the game; half a second of staleness on a Framed Diploma
+    -- readout is invisible, twenty rebuilds a second was not.
+    if self._live_dirty then
+        local t = self.clock or 0
+        if t - (self._live_bump_t or -1e9) >= GrindController.LIVE_BUMP_SECS then
+            self._live_dirty  = false
+            self._live_bump_t = t
+            self:_bumpDisplay()
+        end
     end
 end
 
@@ -663,7 +678,20 @@ end
 -- Gaming Chair). Second return: a key for the caches, so a table moved,
 -- picked up or dealt into a streak reprices without waiting for the
 -- rollup to change.
-function GrindController:_tableEvOpts(tbl)
+--
+-- Split in two so a cache HIT allocates nothing: the parts of the key that
+-- are the same for every table this frame (the streak multiplier, the
+-- over-cap flag, the bankroll and its multiplier bucket) are computed once
+-- per controller tick, the per-table parts are compared field by field
+-- against the cache slot, and the opts table is built only on a miss.
+-- (Building the opts and concatenating a seven-part key string on every
+-- call, twice per table per frame, was a few hundred bytes of garbage a
+-- table a frame at a full board, for a lookup that hit.)
+function GrindController:_evFrameConsts()
+    local clock = self.clock or 0
+    if self._ev_clock == clock and self._ev_consts then return end
+    self._ev_clock  = clock
+    self._ev_consts = true
     local ctx   = self.ctx or {}
     local state = self.game.state
     local mc    = ctx.manual_combo
@@ -673,17 +701,40 @@ function GrindController:_tableEvOpts(tbl)
     end
     -- Focus is not in here: it slows the table (Table:update's pace),
     -- it does not scale the hand, so the per-hand figure is the hand's.
-    local overcap = self.pool:count() > self:currentFocusCapacity()
-    local bank    = ctx.earnings_scale_by_bankroll and (state.bankroll or 0) or nil
-    local opts = { table = tbl, hand_mult = hand_mult,
-                   bankroll = bank, overcap = overcap,
-                   table_mult = OutcomeMath.tableEarningsMult(ctx, tbl, hand_mult) }
-    local bank_key = bank and math.floor(ShoveRate.bankrollMultiplier(bank) * 100 + 0.5) or 0
-    local key = table.concat({
-        tbl._empty_adjacent or 0, tbl._lonely and 1 or 0, tbl._held and 1 or 0,
-        tbl.slot or -1, hand_mult or 1,
-        overcap and 1 or 0, bank_key }, ":")
-    return opts, key
+    local bank = ctx.earnings_scale_by_bankroll and (state.bankroll or 0) or nil
+    self._ev_hand_mult = hand_mult
+    self._ev_overcap   = self.pool:count() > self:currentFocusCapacity()
+    self._ev_bank      = bank
+    self._ev_bank_key  = bank and math.floor(ShoveRate.bankrollMultiplier(bank) * 100 + 0.5) or 0
+end
+
+-- Does the cache slot still describe this table's position and hand?
+local function evSlotMatches(self, slot, tbl)
+    return slot.k_adj == (tbl._empty_adjacent or 0)
+       and slot.k_lonely == (tbl._lonely and 1 or 0)
+       and slot.k_held == (tbl._held and 1 or 0)
+       and slot.k_slot == (tbl.slot or -1)
+       and slot.k_hand_mult == (self._ev_hand_mult or 1)
+       and slot.k_overcap == self._ev_overcap
+       and slot.k_bank == self._ev_bank_key
+end
+
+local function evSlotStamp(self, slot, tbl)
+    slot.k_adj       = tbl._empty_adjacent or 0
+    slot.k_lonely    = tbl._lonely and 1 or 0
+    slot.k_held      = tbl._held and 1 or 0
+    slot.k_slot      = tbl.slot or -1
+    slot.k_hand_mult = self._ev_hand_mult or 1
+    slot.k_overcap   = self._ev_overcap
+    slot.k_bank      = self._ev_bank_key
+end
+
+function GrindController:_tableEvOpts(tbl)
+    self:_evFrameConsts()
+    local ctx = self.ctx or {}
+    return { table = tbl, hand_mult = self._ev_hand_mult,
+             bankroll = self._ev_bank, overcap = self._ev_overcap,
+             table_mult = OutcomeMath.tableEarningsMult(ctx, tbl, self._ev_hand_mult) }
 end
 
 function GrindController:tableStats(tbl)
@@ -697,22 +748,21 @@ function GrindController:tableStats(tbl)
     local slot = cache[tbl._id]
     local status_rev = tbl._status_rev or 0
     local n_opps     = #tbl.opponents
-    local opts, pos_key = self:_tableEvOpts(tbl)
+    self:_evFrameConsts()
     if slot and slot.status_rev == status_rev and slot.n_opps == n_opps
        and slot.stake_id == tbl.stake_id and slot.gtype_id == tbl.game_type_id
-       and slot.pos_key == pos_key then
+       and evSlotMatches(self, slot, tbl) then
         return slot.value or nil
     end
-    local value = tbl:estimateStats(self.ctx, opts) or false
-    if slot then
-        slot.status_rev, slot.n_opps = status_rev, n_opps
-        slot.stake_id, slot.gtype_id = tbl.stake_id, tbl.game_type_id
-        slot.pos_key, slot.value = pos_key, value
-    else
-        cache[tbl._id] = { status_rev = status_rev, n_opps = n_opps,
-                           stake_id = tbl.stake_id, gtype_id = tbl.game_type_id,
-                           pos_key = pos_key, value = value }
+    local value = tbl:estimateStats(self.ctx, self:_tableEvOpts(tbl)) or false
+    if not slot then
+        slot = {}
+        cache[tbl._id] = slot
     end
+    slot.status_rev, slot.n_opps = status_rev, n_opps
+    slot.stake_id, slot.gtype_id = tbl.stake_id, tbl.game_type_id
+    slot.value = value
+    evSlotStamp(self, slot, tbl)
     return value or nil
 end
 
@@ -728,15 +778,20 @@ function GrindController:tableDebugStats(tbl)
     local key = tbl._id
     local slot = cache[key]
     local status_rev = tbl._status_rev or 0
-    local opts, pos_key = self:_tableEvOpts(tbl)
+    self:_evFrameConsts()
     if slot and slot.status_rev == status_rev
        and slot.stake_id == tbl.stake_id and slot.gtype_id == tbl.game_type_id
-       and slot.pos_key == pos_key then
+       and evSlotMatches(self, slot, tbl) then
         return slot.value or nil
     end
-    local value = tbl:debugStats(self.ctx, opts) or false
-    cache[key] = { status_rev = status_rev, stake_id = tbl.stake_id,
-                   gtype_id = tbl.game_type_id, pos_key = pos_key, value = value }
+    local value = tbl:debugStats(self.ctx, self:_tableEvOpts(tbl)) or false
+    if not slot then
+        slot = {}
+        cache[key] = slot
+    end
+    slot.status_rev, slot.stake_id, slot.gtype_id = status_rev, tbl.stake_id, tbl.game_type_id
+    slot.value = value
+    evSlotStamp(self, slot, tbl)
     return value or nil
 end
 
@@ -748,11 +803,33 @@ end
 -- fields update() keeps on the ctx actually changes value. Writing the same
 -- number back every frame must NOT count as a change, or the caches never
 -- hit; hence this instead of a plain assignment.
-function GrindController:_setCtxField(key, value)
+--
+-- `gate` names the ctx field that CONSUMES this one (an owned item's
+-- effect). A gated field is live: the deal path reads it off the ctx
+-- directly and must always see the fresh value, but no readout moves
+-- unless the gate is present, so the display revision is left alone
+-- when it is not, and folded at most every LIVE_BUMP_SECS when it is
+-- (_pollDisplayInputs). Without the gate, a field that changed every
+-- frame threw away every EV cache and memo every frame.
+GrindController.LIVE_BUMP_SECS = 0.5
+-- The live fields and their gates, so a new one cannot quietly become a
+-- 20 Hz rebuild: hands_per_second (Framed Diploma), heater_count (Desk
+-- Speakers), hu_table_count (the Mirror), lanes_seated (Wall Hook).
+GrindController.LIVE_CTX_FIELDS = {
+    hands_per_second = "odds_per_hand_per_second",
+    heater_count     = "odds_per_heater",
+    hu_table_count   = "stack_odds_per_hu_table",
+    lanes_seated     = "odds_per_lane_seated",
+}
+function GrindController:_setCtxField(key, value, gate)
     local ctx = self.ctx
     if not ctx or ctx[key] == value then return end
     ctx[key]     = value
     self.ctx_rev = (self.ctx_rev or 0) + 1
+    if gate then
+        if ctx[gate] ~= nil then self._live_dirty = true end
+        return
+    end
     self:_bumpDisplay()
 end
 
@@ -1045,8 +1122,8 @@ function GrindController:update(dt)
                 t._fast_fold_pending = nil
             end
         end
-        self:_setCtxField("hu_table_count", n)
-        self:_setCtxField("heater_count", burning)
+        self:_setCtxField("hu_table_count", n, "stack_odds_per_hu_table")
+        self:_setCtxField("heater_count", burning, "odds_per_heater")
         -- Focus: every table plays at the board's focus factor (Table:update
         -- folds it into the pace). Stamped per frame like the Receipt
         -- Printer's count below, so a table opening or closing moves every
@@ -1096,7 +1173,7 @@ function GrindController:update(dt)
             end
             local n_lanes = 0
             for _ in pairs(lanes) do n_lanes = n_lanes + 1 end
-            self:_setCtxField("lanes_seated", n_lanes)
+            self:_setCtxField("lanes_seated", n_lanes, "odds_per_lane_seated")
             local slots = {}
             for _, t in ipairs(tables) do slots[#slots + 1] = t.slot or 0 end
             local cols, rows = TableGrid.bounds(slots)
@@ -1120,7 +1197,7 @@ function GrindController:update(dt)
         if times then
             local now = love.timer.getTime()
             while times[1] and now - times[1] > 1 do table.remove(times, 1) end
-            self:_setCtxField("hands_per_second", #times)
+            self:_setCtxField("hands_per_second", #times, "odds_per_hand_per_second")
         end
     end
     self:_tickGtypeUnlocks()
