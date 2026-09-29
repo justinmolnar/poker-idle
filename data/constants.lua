@@ -102,9 +102,12 @@ C.DEBUG = {
     -- exposing every internal in plain text. Press `D` in shove mode to
     -- bring it back for development / debugging.
     SHOW_DEBUG_OVERLAY = false,
-    -- Records every hand (duration, delta, tier, stake, game type) to
-    -- hand_analytics.json on quit. Used to tune hand length vs. $/min.
-    HAND_ANALYTICS = true,
+    -- Dev meter: records every hand (duration, delta, tier, stake, game
+    -- type) to analytics_<save_id>.jsonl for tools/hand_analytics.html.
+    -- Off by default — it costs a main-thread encode per hand on every
+    -- table. The web build records regardless of this flag and uploads
+    -- under the player's consent (services/HandAnalytics).
+    HAND_ANALYTICS = false,
 }
 
 C.GAMEPLAY = {

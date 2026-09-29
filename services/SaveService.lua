@@ -31,6 +31,7 @@ local SaveService = {}
 
 local Constants = require("data.constants")
 local json      = require("lib.json")
+local Perf      = require("services.Perf")
 
 local VERSION = Constants.SAVE.VERSION
 local FILE    = Constants.SAVE.FILE
@@ -294,7 +295,11 @@ function SaveService:save(payload, sync)
         print("SaveService: refusing to save after a failed load")
         return false
     end
+    -- Timed on its own so the F4 HUD can tell the encode from the
+    -- serialize when a save tick shows in the frame.
+    Perf.enter("save.encode")
     local encoded = self:_encode(payload)
+    Perf.exit("save.encode")
     if not encoded then return false end
 
     if not sync and self:_worker() then
@@ -324,6 +329,17 @@ function SaveService:writeAsync(filename, encoded)
     self:drainResults()
     self._pushed = self._pushed + 1
     self._jobs:push({ filename = filename, encoded = encoded })
+    return true
+end
+
+-- A chunk onto the end of a file through the writer thread (the analytics
+-- log's pending lines). Same contract as writeAsync: false when there is
+-- no worker, so the caller appends inline itself.
+function SaveService:appendAsync(filename, chunk)
+    if not self:_worker() then return false end
+    self:drainResults()
+    self._pushed = self._pushed + 1
+    self._jobs:push({ filename = filename, append = chunk })
     return true
 end
 

@@ -215,11 +215,20 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 px) {
 -- gameplay states (not title/credits) and no menu-class modal is up.
 -- Persisted in love.update; reset whenever a save fires.
 local autosave_timer = 0
--- The analytics file goes to the save worker with the saves; the quit path
--- passes no writer and writes inline so nothing is in flight at exit.
-local function analyticsWriter(filename, encoded)
-    return Game and Game.save_service and Game.save_service:writeAsync(filename, encoded)
+-- The analytics log goes to the save worker with the saves: its flush
+-- hands over a chunk to append ("append"), a whole file is a write. The
+-- quit path passes no writer and appends inline so nothing is in flight
+-- at exit.
+local function analyticsWriter(filename, chunk, mode)
+    local svc = Game and Game.save_service
+    if not svc then return false end
+    if mode == "append" then return svc:appendAsync(filename, chunk) end
+    return svc:writeAsync(filename, chunk)
 end
+HandAnalytics.setWriter(analyticsWriter)
+-- The autosave tick saves; the analytics flush runs on the NEXT frame so
+-- the two never share one (each alone is a visible frame at a full board).
+local analytics_flush_due = false
 
 -- Every key the settings file carries. `analytics_consent` is tri-state:
 -- nil means never asked, which is what makes GrindState's first-run
@@ -461,11 +470,13 @@ local function buildGame()
     -- cashed out and emptied, so the state's own records stand.
     g.save = function(sync)
         local cur = g.state_machine and g.state_machine:current()
+        Perf.enter("save.serialize")
         if (cur == "grind" or cur == "room") and g.grind and g.grind.pool then
             g.state.tables = g.grind.pool:serialize()
         end
-        return g.save_service:save(
-            { meta = g.state:serializeMeta(), run = g.state:serializeRun() }, sync)
+        local payload = { meta = g.state:serializeMeta(), run = g.state:serializeRun() }
+        Perf.exit("save.serialize")
+        return g.save_service:save(payload, sync)
     end
 
     -- The one place the game is wiped. Every path that erases progress —
@@ -653,6 +664,12 @@ function love.update(dt)
     -- counters a frame reports belong to that frame (F4; free when off).
     Perf.beginFrame(dt)
     Perf.enter("update")
+    -- The analytics flush the last frame's save tick left for this one.
+    if analytics_flush_due then
+        analytics_flush_due = false
+        HandAnalytics.flush(Game.state, Game.settings and Game.settings.analytics_consent,
+                            analyticsWriter)
+    end
     markMouseStale()
     -- Follow Windows' default audio output (LÖVE 12; inert on 11).
     Perf.enter("audio_device")
@@ -748,12 +765,10 @@ function love.update(dt)
             autosave_timer = autosave_timer + dt
             if autosave_timer >= Constants.SAVE.AUTOSAVE_SECS then
                 autosave_timer = 0
-                local state = Game.state
                 Perf.enter("save")
                 Game.save()
-                HandAnalytics.flush(state, Game.settings and Game.settings.analytics_consent,
-                                    analyticsWriter)
                 Perf.exit("save")
+                analytics_flush_due = true
             end
         end
     end
@@ -810,6 +825,8 @@ local function drawPerfHud()
     hudRow("frame avg",   "%.1f ms", math.floor(avg * 10000 + 0.5) / 10)
     hudRow("frame worst", "%.1f ms", math.floor(worst * 10000 + 0.5) / 10)
     hudMs("update", "update")
+    hudMs("  serialize", "save.serialize")
+    hudMs("  encode",    "save.encode")
     hudMs("draw",   "draw")
     hudMs("  rail",     "rail")
     hudMs("  grid",     "grid")

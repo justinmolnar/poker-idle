@@ -374,7 +374,7 @@ do
     c.eq(rec.calls.draw or 0, 1, "an undecided back never plates, however narrow")
 end
 
--- ── analytics: assembled from strings, same file shape ──────────────────
+-- ── analytics: an append-only log, folded back to the file shape ───────
 
 do
     local files = Stub.memoryFS()
@@ -384,59 +384,153 @@ do
     local HA   = require("services.HandAnalytics")
     local json = require("lib.json")
 
+    -- Entering the grind must never read the log back: that parse of the
+    -- whole file is one of the two stalls the log replaced.
+    local reads = 0
+    local base_read = love.filesystem.read
+    love.filesystem.read = function(p) reads = reads + 1; return base_read(p) end
+
+    -- The writer stub the autosave stands in for: every call's name,
+    -- chunk and mode, in order.
+    local calls = {}
+    local function writer(name, chunk, mode)
+        calls[#calls + 1] = { name = name, chunk = chunk, mode = mode }
+        return true
+    end
+    local function allChunks()
+        local parts = {}
+        for i, w in ipairs(calls) do parts[i] = w.chunk end
+        return table.concat(parts)
+    end
+
     local state = { save_id = "t1", shove_count = 2, active_deck_id = "d1",
                     owned_items = { "a" }, run_upgrade_levels = { focus = 2 } }
     HA.startRun(state)
+    c.eq(reads, 0, "startRun reads nothing back")
     for i = 1, 30 do
-        HA.recordHand({ won = (i % 2 == 0), delta = i, tier = "small", game_type_id = "zoom" })
+        HA.recordHand({ won = (i % 2 == 0), delta = i, tier = "small", game_type_id = "zoom",
+                        stake_id = 'nl"2', stake_bb = 0.02 })
     end
     HA.recordEvent({ kind = "buy", id = "desk" })
+    HA.flush(state, false, writer)
 
-    -- Flush through a writer, the way the autosave does.
-    local written, written_name
-    HA.flush(state, false, function(name, enc) written_name, written = name, enc; return true end)
-    c.eq(written_name, "analytics_t1.json", "the writer gets the per-save filename")
-    local ok, data = pcall(json.decode, written or "")
-    c.ok(ok and type(data) == "table", "the assembled file decodes as JSON")
-    local run = data and data.shoves and data.shoves[1]
-    c.eq(data and data.save_id, "t1", "save_id survives")
-    c.eq(run and run.shove_count, 2, "the current shove is in the file")
-    c.eq(run and run.hands and #run.hands, 30, "every hand is in the file")
-    c.eq(run and run.hands and run.hands[30].delta, 30, "hands keep their order and fields")
-    c.eq(run and run.hands_dropped, 0, "nothing dropped under the cap")
-    c.eq(run and run.events and #run.events, 1, "events ride with the run")
+    c.eq(#calls, 1, "one flush is one chunk")
+    c.eq(calls[1] and calls[1].name, "analytics_t1.jsonl", "the writer gets the per-save log name")
+    for _, w in ipairs(calls) do c.eq(w.mode, "append", "every chunk is an append") end
+    c.ok(calls[1] and calls[1].chunk:sub(-1) == "\n", "the chunk ends on a newline")
+
+    -- Every line is one JSON object.
+    local n_lines, bad = 0, 0
+    for line in allChunks():gmatch("[^\n]+") do
+        n_lines = n_lines + 1
+        local ok, obj = pcall(json.decode, line)
+        if not (ok and type(obj) == "table" and obj.k) then bad = bad + 1 end
+    end
+    c.eq(bad, 0, "every line decodes")
+    c.eq(n_lines, 30 + 1 + 1 + 1 + 1, "save, header, 30 hands, the event and the update")
+
+    -- Folded, it is the file the tools read.
+    local data = HA.fold(allChunks())
+    c.eq(data.save_id, "t1", "save_id survives")
+    c.eq(#data.shoves, 1, "one shove")
+    local run = data.shoves[1]
+    c.eq(run and run.shove_count, 2, "the current shove is the one in the log")
+    c.eq(run and #run.hands, 30, "every hand is in the log")
+    c.eq(run and run.hands[30].delta, 30, "hands keep their order and fields")
+    c.eq(run and run.hands[30].stake_id, 'nl"2', "a quote in a string field round-trips")
+    c.eq(run and run.hands[30].stake_bb, 0.02, "a fraction round-trips")
+    c.eq(run and run.hands[30].hands_played, nil, "a field the record lacks is absent, not null")
+    c.eq(run and run.hands[1].won, false, "false is false, not absent")
+    c.eq(run and #run.events, 1, "events ride with the run")
+    c.eq(run and run.events[1].id, "desk", "an event keeps its fields")
     c.eq(run and run.run_upgrade_levels and run.run_upgrade_levels.focus, 2, "flush snapshots upgrades")
+    c.eq(run and run.deck_id, "d1", "the header's deck")
+    c.eq(run and run.hands_dropped, 0, "nothing dropped")
 
-    -- Resume on the next shove: the old shove is kept as-is, the new one
-    -- starts empty, and both land in the file.
-    files["analytics_t1.json"] = written
+    -- A flush with nothing new writes nothing: the update line only lands
+    -- when the metadata changed.
+    HA.flush(state, false, writer)
+    c.eq(#calls, 1, "an unchanged flush writes no chunk")
+    HA.recordShoveStart({ r1 = 0.5, r2 = 0.4, r3 = 0.3, clear = 0.06, catalog = 1, mult = 2, bankroll = 1e6 })
+    HA.flush(state, false, writer)
+    c.eq(#calls, 2, "a changed snapshot writes its update")
+    data = HA.fold(allChunks())
+    c.eq(data.shoves[1].shove_rate and data.shoves[1].shove_rate.r1, 0.5, "the update merges into the shove")
+    HA.recordShoveResult({ won = false, busted_at = 2 }, 0)
+    HA.flush(state, false, writer)
+    data = HA.fold(allChunks())
+    c.eq(data.shoves[1].gauntlet_result, "lost_r2", "the result merges in, last wins")
+
+    -- The burst flush: past the pending cap the lines go out on their
+    -- own, through the writer the autosave registered.
+    HA.setWriter(writer)
+    local before = #calls
+    for i = 1, 300 do HA.recordHand({ delta = 1000 + i }) end
+    c.ok(#calls > before, "a burst between autosaves flushes itself")
+    for _, w in ipairs(calls) do c.eq(w.mode, "append", "the burst is an append too") end
+    HA.flush(state, false, writer)
+    data = HA.fold(allChunks())
+    c.eq(#data.shoves[1].hands, 330, "every burst hand is in the log")
+    HA.setWriter(nil)
+
+    -- The next shove: a second header, and later hands fold under it.
     state.shove_count = 3
     HA.startRun(state)
+    c.eq(reads, 0, "a second startRun reads nothing back either")
     for i = 1, 5 do HA.recordHand({ won = true, delta = i }) end
-    HA.flush(state, false, function(_, enc) written = enc; return true end)
-    ok, data = pcall(json.decode, written or "")
-    c.ok(ok and data and data.shoves and #data.shoves == 2, "two shoves after a resume")
-    c.eq(data and data.shoves[1] and #data.shoves[1].hands, 30, "the old shove is intact")
-    c.eq(data and data.shoves[2] and #data.shoves[2].hands, 5, "the new shove has its hands")
-    c.eq(HA.stats().old_shoves, 1, "the old shove is held as one string")
+    HA.flush(state, false, writer)
+    data = HA.fold(allChunks())
+    c.eq(#data.shoves, 2, "two shoves after a resume")
+    c.eq(data.shoves[1] and #data.shoves[1].hands, 330, "the old shove is intact")
+    c.eq(data.shoves[2] and data.shoves[2].shove_count, 3, "the new shove is the second")
+    c.eq(data.shoves[2] and #data.shoves[2].hands, 5, "the new shove has its hands")
+    c.eq(data.shoves[2] and data.shoves[2].gauntlet_result, nil, "the new shove has no result yet")
+    local saves = 0
+    for _ in allChunks():gmatch('"k":"save"') do saves = saves + 1 end
+    c.eq(saves, 1, "the save line is written once")
 
-    -- The cap: past 1.25x the cap the oldest hands go, and the file says so.
-    HA.MAX_HANDS_PER_RUN = 8
-    for i = 1, 20 do HA.recordHand({ delta = 100 + i }) end
-    HA.flush(state, false, function(_, enc) written = enc; return true end)
-    ok, data = pcall(json.decode, written or "")
-    local r3 = ok and data and data.shoves and data.shoves[2]
-    c.ok(r3 and #r3.hands <= 10 and #r3.hands >= 8,
-         string.format("hands trimmed to the cap (%s)", tostring(r3 and #r3.hands)))
-    c.ok(r3 and r3.hands_dropped > 0, "dropped hands are counted")
-    c.eq(r3 and r3.hands[#r3.hands].delta, 120, "the newest hand is the last one")
-    HA.MAX_HANDS_PER_RUN = 20000
+    -- A resume into the same shove writes another header and the fold
+    -- merges them.
+    HA.startRun(state)
+    HA.recordHand({ delta = 6 })
+    HA.flush(state, false, writer)
+    data = HA.fold(allChunks())
+    c.eq(#data.shoves, 2, "a resumed shove is still one shove")
+    c.eq(data.shoves[2] and #data.shoves[2].hands, 6, "hands after the resume join it")
 
-    -- No writer: the inline write lands on the disk.
+    -- A torn tail (a crash mid-append leaves a line without its end)
+    -- costs that line only.
+    local folded = HA.fold(allChunks() .. '{"k":"hand","s":3,"delta":99,"ti')
+    c.eq(#folded.shoves, 2, "a truncated last line is skipped")
+    c.eq(folded.shoves[2] and #folded.shoves[2].hands, 6, "the torn hand is the only one lost")
+    c.eq(folded.shoves[2] and folded.shoves[2].hands[6].delta, 6, "the last whole line is kept")
+
+    -- No writer: the inline append lands on the disk.
+    HA.recordHand({ delta = 7 })
     HA.flush(state, false, nil)
-    c.ok(files["analytics_t1.json"] ~= nil, "flush without a writer writes inline")
+    c.ok(files["analytics_t1.jsonl"] ~= nil, "flush without a writer appends inline")
+    c.ok(files["analytics_t1.jsonl"] and files["analytics_t1.jsonl"]:find('"delta":7', 1, true) ~= nil,
+         "the inline append carries the hand")
 
+    -- deleteCurrent removes the log and the document an older build left.
+    files["analytics_t1.json"] = "{}"
     HA.deleteCurrent()
+    c.eq(files["analytics_t1.jsonl"], nil, "deleteCurrent removes the log")
+    c.eq(files["analytics_t1.json"], nil, "deleteCurrent removes the legacy document")
+    local n_calls = #calls
+    HA.recordHand({ delta = 8 })
+    HA.flush(state, false, writer)
+    c.eq(#calls, n_calls, "nothing records after deleteCurrent")
+
+    -- Off is off: with the flag down nothing is named or written.
+    Constants.DEBUG.HAND_ANALYTICS = false
+    HA.startRun(state)
+    HA.recordHand({ delta = 9 })
+    HA.flush(state, false, writer)
+    c.eq(#calls, n_calls, "disabled, nothing is written")
+    c.eq(HA.stats().hands, 0, "disabled, nothing is counted")
+
+    love.filesystem.read = base_read
     Constants.DEBUG.HAND_ANALYTICS = was
 end
 

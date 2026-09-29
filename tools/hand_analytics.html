@@ -107,7 +107,7 @@ tr:hover td { background: #1a2a4e; }
     <span style="font-size:11px; color:#555; margin-left:8px;">pulls every save from the Cloudflare D1 backend — no manual download needed</span>
   </div>
   <div id="folder-drop" onclick="document.getElementById('file-input').click()">
-    Drop <b>analytics_*.json</b> files here, or click to select
+    Drop <b>analytics_*.jsonl</b> (or older <b>.json</b>) files here, or click to select
     <input type="file" id="file-input" multiple accept=".json" style="display:none">
   </div>
   <div style="font-size:11px; color:#555; margin-top:6px;">
@@ -225,10 +225,10 @@ drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add(
 drop.addEventListener('dragleave', () => drop.classList.remove('hover'));
 drop.addEventListener('drop', e => {
   e.preventDefault(); drop.classList.remove('hover');
-  loadFiles([...e.dataTransfer.files].filter(f => f.name.endsWith('.json')));
+  loadFiles([...e.dataTransfer.files].filter(isAnalyticsFile));
 });
 input.addEventListener('change', e => {
-  loadFiles([...e.target.files].filter(f => f.name.endsWith('.json')));
+  loadFiles([...e.target.files].filter(isAnalyticsFile));
 });
 document.getElementById('cloud-load-btn').addEventListener('click', loadFromCloud);
 
@@ -273,12 +273,53 @@ function finishLoad(statusText) {
   renderTab();
 }
 
+function isAnalyticsFile(f) {
+  return f.name.endsWith('.jsonl') || f.name.endsWith('.json');
+}
+
+// The game writes an append-only log (analytics_<save_id>.jsonl): one
+// object per line, kinds "save" / "shove" / "hand" / "event" /
+// "shove_update", each carrying its shove number as `s`. Folds it back
+// into the { save_id, shoves: [...] } document the rest of this tool
+// reads — the same rules as services/HandAnalytics.fold: headers for one
+// shove merge (last wins), hands and events group under their shove, a
+// null field is the absent key it decodes to, and a line that will not
+// parse (the torn tail of a crash mid-append) is dropped.
+function foldLines(text) {
+  const out = { save_id: null, shoves: [] };
+  const byShove = new Map();
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let obj;
+    try { obj = JSON.parse(line); } catch (e) { continue; }
+    if (!obj || typeof obj !== 'object') continue;
+    const { k: kind, s, ...fields } = obj;
+    for (const key of Object.keys(fields)) if (fields[key] === null) delete fields[key];
+    if (kind === 'save') {
+      if (out.save_id == null) out.save_id = fields.save_id;
+      continue;
+    }
+    if (s == null) continue;
+    let shove = byShove.get(s);
+    if (!shove) {
+      shove = { shove_count: s, hands: [], events: [], hands_dropped: 0 };
+      byShove.set(s, shove);
+      out.shoves.push(shove);
+    }
+    if (kind === 'hand')       shove.hands.push(fields);
+    else if (kind === 'event') shove.events.push(fields);
+    else if (kind === 'shove' || kind === 'shove_update') Object.assign(shove, fields);
+  }
+  out.shoves.sort((a, b) => a.shove_count - b.shove_count);
+  return out;
+}
+
 async function loadFiles(files) {
   let loaded = 0, skipped = 0;
   for (const file of files) {
     try {
       const text = await file.text();
-      const raw  = JSON.parse(text);
+      const raw  = file.name.endsWith('.jsonl') ? foldLines(text) : JSON.parse(text);
       // New format: { save_id, shoves: [...] }
       if (raw.save_id && Array.isArray(raw.shoves)) {
         mergeSave(raw.save_id, raw.shoves, file.name);

@@ -9,7 +9,8 @@
 -- the encode does, on the thread we are trying to keep free.
 --
 -- What crosses:
---   "poker_save_jobs"    <- { filename, encoded }
+--   "poker_save_jobs"    <- { filename, encoded }   a whole file, staged and committed
+--                           { filename, append }    a chunk onto the end of a log
 --   "poker_save_results" -> { filename, ok, err }
 --
 -- Every job reports exactly once, whether it succeeded or not:
@@ -55,7 +56,19 @@ end
 
 while true do
     local job = jobs:demand()
-    if type(job) == "table" and job.filename and job.encoded then
+    if type(job) == "table" and job.filename and job.append then
+        -- An append is a log line landing (the analytics log): no stage,
+        -- no verify, no backup — the reader skips a torn tail, and a
+        -- rewrite of the whole file is exactly the cost the log exists to
+        -- avoid. One report, like a write.
+        local ok, err = love.filesystem.append(job.filename, job.append)
+        if ok then
+            results:push({ filename = job.filename, ok = true })
+        else
+            results:push({ filename = job.filename, ok = false,
+                           err = "append failed: " .. tostring(err) })
+        end
+    elseif type(job) == "table" and job.filename and job.encoded then
         local filename, encoded = job.filename, job.encoded
         local tmp = filename .. ".tmp"
         local ok, err = love.filesystem.write(tmp, encoded)

@@ -65,6 +65,7 @@ function Stub.memoryFS()
         getInfo = function(p) return files[p] and { type = "file", size = #files[p] } or nil end,
         read    = function(p) return files[p] end,
         write   = function(p, s) files._writes = files._writes + 1; files[p] = s; return true end,
+        append  = function(p, s) files._writes = files._writes + 1; files[p] = (files[p] or "") .. s; return true end,
         remove  = function(p) files[p] = nil; return true end,
         getSaveDirectory    = function() return "" end,
         getWorkingDirectory = function() return "." end,
