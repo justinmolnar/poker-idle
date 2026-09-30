@@ -34,14 +34,25 @@
 -- paints its visible crescent and nothing else, and a chip below
 -- MIN_DETAIL_R paints flat. At small sizes the new art is SIMPLER than
 -- what it replaced, not richer, because anything else is mud.
+--
+-- ─── The atlas ──────────────────────────────────────────────────────
+-- Every chip on screen is textured quads out of ONE canvas, built once
+-- (see "The chip atlas" below), and a pile is one SpriteBatch that is
+-- rebuilt only when the pile changes. The vector painters are still here:
+-- they are what paints the atlas, and they are what draws when
+-- Constants.FEATURES.CHIP_ATLAS is off or canvases are unavailable.
 
 local ChipData    = require("data.chips")
 local Constants   = require("data.constants")
 local Theme       = require("views.Theme")
 local FontService = require("services.FontService")
 local Perf        = require("services.Perf")
+local Tumble      = require("services.Tumble")
 
 local Chips = {}
+
+-- LuaJIT has math.atan2; Lua 5.4 (the headless sims) folds it into atan.
+local atan2 = math.atan2 or math.atan
 
 -- ── Constants (procedural rendering tunables) ────────────────────────
 -- Bases are the 1x design values; the live values are recomputed by
@@ -77,11 +88,11 @@ local STACK_OFFSET_Y = -math.max(2, math.floor(CHIP_RADIUS * STACK_OVERLAP))
 local COL_GAP        = math.max(2, math.floor(CHIP_RADIUS * COL_GAP_FRAC))
 local MAX_PER_COLUMN = 6
 -- A pile that runs out of width folds into staggered rows instead of
--- throwing chips away. See stackLayout.
+-- throwing chips away. See stackLayoutInto.
 -- Fallbacks only. Callers say how wide their pile may get, because only
 -- they know what it would run into — the pot pile has community cards
 -- above it, the player's pile has hole cards beside it, the bankroll band
--- has the whole width of the screen. See `max_cols` in stackLayout.
+-- has the whole width of the screen. See `max_cols` in stackLayoutInto.
 -- Unbounded by default: a caller that says nothing gets the single line it
 -- always got, and only callers that opt in start wrapping. A default cap
 -- here would silently reshape every pile in the game.
@@ -152,6 +163,32 @@ local SHADOW_DY    = 0.35
 -- underneath its top chip.
 local SHADE_PER_DEPTH, SHADE_FLOOR = 0.05, 0.68
 
+-- ── The atlas tiers ─────────────────────────────────────────────────
+-- Every chip is drawn out of a bake at one of these radii (fractions of
+-- CHIP_RADIUS), scaled DOWN to its real size with linear filtering. Four
+-- fixed sizes rather than one: a 44px bake shrunk to 12px with no mipmaps
+-- aliases into a shimmer, and a chip pulled from a bake at most ~1.3x its
+-- own size stays sharp. Never scaled up except by a flight's loft, which
+-- the single bake was scaled up by as well.
+local TIERS        = { 1.00, 0.78, 0.61, 0.47 }
+local N_TIERS      = #TIERS
+-- Spots below ~1.5px wide are an arc apiece for nothing, so the smallest
+-- tier bakes with the cap the vector path applied under 10px.
+local SPOT_CAP_TIER, SPOT_CAP = 4, 6
+-- A buried chip's crescent is one sprite, and its edge spots are one of
+-- this many phases of the slot rotation rather than the exact angle. At a
+-- sliver a few pixels tall the difference between neighbouring phases is
+-- under a pixel; the difference between two slivers with the SAME phase is
+-- what would read as a milled cylinder, and three keep that broken.
+local WALL_PHASES  = 3
+-- The generic currency glyph's bake radii, at 1x. A glyph draws from the
+-- smallest bake at least its own size, so its 1px ring and light arc are
+-- never shrunk by more than half; the title screen's big glyphs come off
+-- the largest.
+local GLYPH_RADII  = { 12, 24, 48 }
+local ATLAS_W      = 1024
+local ATLAS_GUTTER = 2
+
 -- ── The inlay band ──────────────────────────────────────────────────
 -- A horizontal band, not a circular plate: a circle big enough to hold a
 -- four-character denomination doesn't fit inside a chip this size.
@@ -175,8 +212,6 @@ local BAND_PAD_X    = 2      -- px of plate either side of the widest label
 -- further round the chip's circle its ends sweep. At 0.8 the ends were a
 -- pixel off straight and the plate still read as a rectangle.
 local BAND_INK      = 1.00
--- How far out the band may reach. Past this its corners break the rim.
-local BAND_MAX_R    = 0.96
 -- Share of the font's line height that is actual ink. A property of the
 -- FACE, not of chips, so it lives in services/FontService — views/CardSprites
 -- measures its rank glyphs against the same number.
@@ -201,19 +236,28 @@ local _glyph_ring   = { 0, 0, 0 }
 local _glyph_colors = { nil, nil }   -- reused { body, ring } pair
 
 local IDENTITY_TINT = { 1, 1, 1 }
+local EMPTY         = {}
 
--- Baked chip faces (see "The baked faces" below, next to paintChip).
+-- ── Atlas state ─────────────────────────────────────────────────────
 -- Declared here because setScale and configureFont, defined above the
--- bakers, have to be able to drop them.
-local _bake_half = nil
-local _bakes     = {}
-local _bake_gen  = 0
+-- builder, have to be able to drop it. See "The chip atlas" below.
+local _atlas        = nil    -- the one canvas (linear filter)
+local _cells        = nil    -- kind -> cells, nil until built
+local _atlas_gen    = 0      -- bumps on every drop; batches key on it
+local _atlas_fail   = -1     -- the gen whose build failed (no retry until the next drop)
+local _atlas_bytes  = 0
+local _atlas_w, _atlas_h = 0, 0
+local _label_w      = {}     -- denom_idx -> label width, from ensureFit
+local _glyph_baked  = { 0, 0, 0, 0, 0, 0 }   -- the currency colours the glyph cells hold
 
 -- A resize changes the chip radius and re-rasterizes the label font, so
--- every bake is stale. Dropping the table is enough; the canvases go with it.
-local function invalidateBakes()
-    _bake_gen = _bake_gen + 1
-    _bakes    = {}
+-- every cell is stale. The canvas goes with the generation; every batch
+-- built on it re-adds when it sees the new number.
+local function invalidateAtlas()
+    _atlas_gen = _atlas_gen + 1
+    if _atlas and _atlas.release then _atlas:release() end
+    _atlas, _cells = nil, nil
+    _atlas_bytes = 0
 end
 
 -- ── Frame counters (dev HUD) ────────────────────────────────────────
@@ -225,6 +269,11 @@ end
 local _n_chips   = 0
 local _scale_min = math.huge
 local _scale_max = 0
+
+local function noteScale(es)
+    if es < _scale_min then _scale_min = es end
+    if es > _scale_max then _scale_max = es end
+end
 
 local function mul(dst, c, k)
     dst[1] = c[1] * k
@@ -272,7 +321,7 @@ local _fit_dirty = true
 function Chips.configureFont(fonts)
     _font      = fonts and (fonts.sm or fonts.xs) or nil
     _fit_dirty = true
-    invalidateBakes()
+    invalidateAtlas()
 end
 
 -- Rescale chip rendering against the live ui_scale. main.lua calls
@@ -284,13 +333,19 @@ function Chips.setScale(s)
     STACK_OFFSET_Y = -math.max(2, math.floor(CHIP_RADIUS * STACK_OVERLAP))
     COL_GAP        = math.max(2, math.floor(CHIP_RADIUS * COL_GAP_FRAC))
     _fit_dirty     = true
-    invalidateBakes()
+    invalidateAtlas()
 end
 
 -- Current scaled chip radius. A pile's base chip is CENTERED on the `y` passed
 -- to drawStack, so callers that want the pile's visual BOTTOM at a baseline
 -- pass `baseline - Chips.radius()`.
 function Chips.radius() return CHIP_RADIUS end
+
+-- The vertical step between chips in a column (negative: up), and how many
+-- a column holds. Exposed so views/ChipPile can grow a column by one chip
+-- without re-solving the pile.
+function Chips.stackStep() return STACK_OFFSET_Y end
+Chips.MAX_PER_COLUMN = MAX_PER_COLUMN
 
 -- Per-denomination band width. Computed once per font/scale change,
 -- never per frame.
@@ -330,9 +385,12 @@ local function ensureFit()
     _band_hh = math.floor(_font:getHeight() * BAND_INK * 0.5)
 
     -- Widest label anywhere in the ladder decides the plate for all of them.
+    -- Each label's width is kept: the atlas path asks whether a label fits
+    -- once per chip and a font measure there would be a string walk each.
     local widest = 0
-    for _, d in ipairs(ChipData.denominations) do
+    for i, d in ipairs(ChipData.denominations) do
         local w = (d.label and _font:getWidth(d.label)) or 0
+        _label_w[i] = w
         if w > widest then widest = w end
     end
 
@@ -364,6 +422,28 @@ function Chips.bandMetrics(denom_idx)
     return _band_chord, _band_hh, w, _band_hw
 end
 
+-- Will the label land on the plate at native size? Piles are drawn
+-- inside love.graphics.scale(card_scale), card_scale being any
+-- fraction from 0.3 to 1.5, and a pixel font rendered at a
+-- fraction puts its stems between pixels — which is exactly why
+-- chip labels came out crisp in the bankroll band (drawn at 1.0)
+-- and mush on every table panel. There is no fractional fix: this
+-- face is sharp at 1x, 2x, 3x and nowhere in between.
+--
+-- So the label lands on whole screen pixels or the chip goes bare,
+-- and a short label survives to a smaller chip than a long one.
+-- Measured against the chord at the label's own height: the plate
+-- curves in at the top and bottom, so its midline width would
+-- overstate the room. `es` is the chip's real on-screen scale.
+local function labelFits(denom_idx, es)
+    local fw = _label_w[denom_idx]
+    if not fw then return false end
+    if fw * 0.5 + LABEL_PAD > _band_chord * es then return false end
+    local ink_h = _font:getHeight() * INK_OF_LINE
+    if ink_h * 0.5 + LABEL_PAD > _band_hh * es then return false end
+    return true
+end
+
 -- ── Single chip render (the seam for sprite art later) ───────────────
 -- Paints one chip centered on (0, 0) at radius r. Every caller draws
 -- centered — services/Tumble calls render callbacks as fn(0, 0) inside
@@ -381,44 +461,24 @@ end
 -- on both counts. Turning the spots costs nothing — it is one addition to
 -- their starting angle — and it is the only part that needs to differ from
 -- one chip to the next.
--- The denomination plate and its label.
+-- The denomination plate and its label, on the vector path.
 --
--- Module level rather than a closure over paintChip's locals, because the
--- baked path below draws it live: it must not rotate with the rim, and its
--- label is printed at 1/escale so it lands unscaled whatever size the chip
--- is. Neither of those survives being baked into a texture.
+-- Module level rather than a closure over paintChip's locals, because it
+-- must not rotate with the rim, and its label is printed at 1/escale so it
+-- lands unscaled whatever size the chip is.
 --
 -- One decision, not two. The plate exists to carry the number; drawn
 -- without it you get a blank white bar stamped across the chip, which is
 -- worse than no plate at all. So the fit is worked out first and either
 -- both are drawn or neither is.
-local function paintStamp(spec, alpha, band_hw, escale)
+local function paintStamp(spec, alpha, band_hw, escale, denom_idx)
     if not (band_hw and _font and spec.label) then return end
     if #_plate_fill == 0 then return end
+    if not labelFits(denom_idx, escale or 1) then return end
 
-    local bh    = _band_hh
-    local es    = escale or 1
-    local fw    = _font:getWidth(spec.label)
-    local fh    = _font:getHeight()
-    -- Ink, not line box: this face's digits are 1.25em tall inside a
-    -- 2.625em line box (see the band constants above).
-    local ink_h = fh * INK_OF_LINE
-
-    -- Will the label land on the plate at native size? Piles are drawn
-    -- inside love.graphics.scale(card_scale), card_scale being any
-    -- fraction from 0.3 to 1.5, and a pixel font rendered at a
-    -- fraction puts its stems between pixels — which is exactly why
-    -- chip labels came out crisp in the bankroll band (drawn at 1.0)
-    -- and mush on every table panel. There is no fractional fix: this
-    -- face is sharp at 1x, 2x, 3x and nowhere in between.
-    --
-    -- So the label lands on whole screen pixels or the chip goes bare,
-    -- and a short label survives to a smaller chip than a long one.
-    -- Measured against the chord at the label's own height: the plate
-    -- curves in at the top and bottom, so its midline width would
-    -- overstate the room.
-    if fw * 0.5 + LABEL_PAD > _band_chord * es then return end
-    if ink_h * 0.5 + LABEL_PAD > bh * es then return end
+    local es = escale or 1
+    local fw = _label_w[denom_idx]
+    local fh = _font:getHeight()
 
     -- The plate is ONE size for every denomination and scales with the
     -- chip, so a row of chips never looks like it is breathing. It is
@@ -448,89 +508,14 @@ local function paintStamp(spec, alpha, band_hw, escale)
     love.graphics.pop()
 end
 
--- ─── The baked faces ───────────────────────────────────────────────────
--- A full-detail chip is about twenty immediate-mode primitives — outline,
--- rim, eight pie arcs, face, five dome discs, two line arcs, plate, ring —
--- and none of them batch. A full board plus the bankroll pile puts
--- thousands of those in a frame.
---
--- So each variant is painted ONCE into two small canvases and thereafter
--- drawn as two textured quads:
---
---   rim  — outline + rim + spots. Rotated at draw time by the slot angle,
---          which is exact: all three are radially symmetric about the centre.
---   face — face + dome + the light and shadow arcs + the inner ring. Never
---          rotated, because the light comes from a fixed direction.
---
--- The plate and label stay live on top (see paintStamp). Buried, edge and
--- flat chips stay vector: they are few, and already cheap.
---
--- `_bake_half` is read inside paintChip to select which half it is
--- painting. nil is the ordinary, un-baked path.
-local paintChip            -- forward declaration; the bakers call it
+-- Which part of the anatomy paintChip is baking into a cell, or nil for
+-- the ordinary whole-chip vector path:
+--   "rim"  — outline + rim + spots, and stop
+--   "face" — face + dome + arcs + lip, no outline, no rim, no plate
+-- (edge, wall and flat cells are the matching `detail` painted whole.)
+local _bake_kind = nil
 
--- The bake cache is nested tables, not a formatted string: this lookup
--- runs once per full-detail chip per frame, and a six-field string.format
--- here was the busiest allocation in the game. Tint tables come from
--- data/stake_themes and are stable, so they key by identity. The shade is
--- bucketed to a thousandth, which is exactly what the old "%.3f" did: a
--- settling pile passes an interpolated shade every frame, and a raw float
--- key would bake a fresh canvas pair per frame for the whole settle.
--- Returns the leaf table and the key into it.
-local function bakeSlot(denom_idx, tint, shade, spot_cap)
-    local by_tint = _bakes[denom_idx]
-    if not by_tint then by_tint = {}; _bakes[denom_idx] = by_tint end
-    local t = tint or IDENTITY_TINT
-    local by_shade = by_tint[t]
-    if not by_shade then by_shade = {}; by_tint[t] = by_shade end
-    local sk = math.floor((shade or 1) * 1000 + 0.5)
-    local by_cap = by_shade[sk]
-    if not by_cap then by_cap = {}; by_shade[sk] = by_cap end
-    return by_cap, spot_cap or false
-end
-
-local function bakeHalf(which, r, spec, spot_cap, half_px)
-    if not (love.graphics and love.graphics.newCanvas) then return nil end
-    local ok, canvas = pcall(love.graphics.newCanvas, half_px * 2, half_px * 2)
-    if not ok or not canvas then return nil end
-    canvas:setFilter("linear", "linear")
-    local prev = love.graphics.getCanvas()
-    love.graphics.push("all")
-    love.graphics.origin()
-    love.graphics.setScissor()
-    love.graphics.setShader()
-    love.graphics.setBlendMode("alpha", "alphamultiply")
-    love.graphics.setCanvas(canvas)
-    love.graphics.clear(0, 0, 0, 0)
-    love.graphics.translate(half_px, half_px)
-    _bake_half = which
-    -- alpha 1 and rot 0: the caller's alpha multiplies the finished quad,
-    -- and the rim half is rotated when it is drawn.
-    paintChip(r, spec, 1, "full", nil, spot_cap, 0, 1)
-    _bake_half = nil
-    love.graphics.setCanvas(prev)
-    love.graphics.pop()
-    return canvas
-end
-
--- The pair for this variant, baked on first use. nil means canvases are
--- unavailable and the caller should paint the chip the old way.
-local function bakedChip(denom_idx, spec, r, spot_cap, tint, shade)
-    local slot, ck = bakeSlot(denom_idx, tint, shade, spot_cap)
-    local b = slot[ck]
-    if b and b.gen == _bake_gen then return b end
-    -- The light arcs stroke at r*0.14 centred on r*R_LIGHT, so their ink
-    -- reaches a little past the outline.
-    local half = math.ceil(r + math.max(2, r * 0.14)) + 1
-    local rim  = bakeHalf("rim",  r, spec, spot_cap, half)
-    local face = bakeHalf("face", r, spec, spot_cap, half)
-    if not (rim and face) then return nil end
-    b = { rim = rim, face = face, half = half, gen = _bake_gen }
-    slot[ck] = b
-    return b
-end
-
-function paintChip(r, spec, alpha, detail, band_hw, spot_cap, rot, escale)
+local function paintChip(r, spec, alpha, detail, band_hw, spot_cap, rot, escale, denom_idx)
     local n     = spec.spots or 6
     if spot_cap and n > spot_cap then n = spot_cap end
     local step  = (2 * math.pi) / n
@@ -587,7 +572,7 @@ function paintChip(r, spec, alpha, detail, band_hw, spot_cap, rot, escale)
         return
     end
 
-    if _bake_half ~= "face" then
+    if _bake_kind ~= "face" then
     Theme.setColor(_out, alpha)
     love.graphics.circle("fill", 0, 0, r)
     Theme.setColor(_rim, alpha)
@@ -616,7 +601,7 @@ function paintChip(r, spec, alpha, detail, band_hw, spot_cap, rot, escale)
             local a = phase + i * step
             love.graphics.arc("fill", "pie", 0, 0, r * R_RIM, a - half, a + half)
         end
-        if _bake_half == "rim" then return end
+        if _bake_kind == "rim" then return end
     end
     end
 
@@ -652,14 +637,9 @@ function paintChip(r, spec, alpha, detail, band_hw, spot_cap, rot, escale)
     love.graphics.setLineWidth(1)
 
     -- ── Hot-stamp plate, and the label on it ──────────────────────────
-    -- One decision, not two. The plate exists to carry the number; drawn
-    -- without it you get a blank white bar stamped across the chip, which
-    -- is worse than no plate at all. So the fit is worked out first and
-    -- either both are drawn or neither is.
-    --
     -- Its own function so that bailing out of it doesn't skip the lip
     -- below — every chip at this detail level has a lip, labelled or not.
-    if not _bake_half then paintStamp(spec, alpha, band_hw, escale) end
+    if not _bake_kind then paintStamp(spec, alpha, band_hw, escale, denom_idx) end
 
     -- ── The lip, LAST — over the plate and over the label ──────────────
     -- On a real chip the inlay is set into the face and the moulded ring
@@ -692,6 +672,715 @@ local function setupColors(spec, tint, shade)
     mulc(_ink, INK, tint, shade)
 end
 
+-- The generic currency glyph's anatomy, shared by the vector drawGlyph
+-- and the atlas bake. Colours are already in the scratch tables.
+local function paintGlyph(x, y, r, alpha, detailed)
+    Theme.setColor(_out, alpha)
+    love.graphics.circle("fill", x, y, r)
+    Theme.setColor(_rim, alpha)
+    love.graphics.circle("fill", x, y, r * R_RIM)
+
+    if detailed then
+        Theme.setColor(_inlay, alpha * 0.9)
+        local n    = 6
+        local step = (2 * math.pi) / n
+        local half = step * SPOT_FILL * 0.5
+        for i = 0, n - 1 do
+            local a = (math.pi / n) + i * step
+            love.graphics.arc("fill", "pie", x, y, r * R_RIM, a - half, a + half)
+        end
+    end
+
+    Theme.setColor(_body, alpha)
+    love.graphics.circle("fill", x, y, r * R_FACE)
+
+    if detailed then
+        -- Explicit width: this ring used to inherit whatever line width the
+        -- last unrelated caller happened to leave set.
+        love.graphics.setLineWidth(1)
+        Theme.setColor(_ring, alpha)
+        love.graphics.circle("line", x, y, math.max(1, r * 0.42))
+        love.graphics.setColor(1, 1, 1, alpha * 0.18)
+        love.graphics.setLineWidth(math.max(1, r * 0.14))
+        love.graphics.arc("line", "open", x, y, r * R_LIGHT, math.pi, math.pi * 1.75)
+        love.graphics.setLineWidth(1)
+    end
+end
+
+local function setupGlyphColors(chip, ring, shade)
+    mul(_body, chip, shade)
+    mul(_out,  ring, shade * 0.75)
+    mul(_rim,  ring, shade)
+    mul(_ring, chip, shade * 0.55)
+    mixWhite(_inlay, _body, 0.35)
+end
+
+-- ─── The chip atlas ────────────────────────────────────────────────────
+-- A full-detail chip is about twenty immediate-mode primitives — outline,
+-- rim, eight pie arcs, face, five dome discs, two line arcs, plate, ring —
+-- and none of them batch. A full board plus the bankroll pile puts
+-- thousands of those in a frame.
+--
+-- It used to be baked into two canvases per (denomination, tint, shade,
+-- spot cap), allocated inside the draw and never dropped: a settling pile
+-- passes an interpolated shade every frame, so every settle frame baked
+-- new canvas pairs mid-frame, and texture memory doubled over minutes.
+--
+-- Now everything is painted ONCE into a single canvas, keyed on nothing
+-- that changes at draw time. Tint and shade are per-sprite colour
+-- multiplies: exact for the outline, rim, spots, wall, face body and the
+-- plate (the plate is a white cell tinted with the exact inlay colour),
+-- approximate only for the face's two fixed highlight arcs, which are
+-- constant white and black in the vector painter and now dim with the
+-- chip. Per denomination and tier:
+--
+--   rim   — outline + rim + spots. Rotated at draw by the slot angle,
+--           which is exact: all three are radially symmetric.
+--   face  — face + dome + the light and shadow arcs + the lip. Never
+--           rotated, because the light comes from a fixed direction.
+--   edge  — the edge-on chip of a tumble (tiers 1 and 3 only).
+--   wall  — the buried crescent, at WALL_PHASES spot phases, stored
+--           half-height because that is all of it there is.
+--   flat  — silhouette + rim + face at the smallest tier, for chips
+--           below MIN_DETAIL_R.
+--   label — the denomination, printed once at native size.
+--
+-- Shared: the plate and its bezel per tier (white, tinted per sprite),
+-- the column shadow, and the currency glyph at GLYPH_RADII in both detail
+-- levels.
+--
+-- The label cell is the one thing drawn 1:1. The atlas is linear-filtered
+-- because the chip cells are shrunk, and a 1:1 texel-to-pixel sprite
+-- samples exact texels through a linear filter ONLY when its origin lands
+-- on a whole screen pixel — half a pixel off and every stem of the pixel
+-- font smears across two. So the label sprite's position is snapped to a
+-- whole screen pixel when it is added (see composeChip and batchOrigin),
+-- which is what a nearest-filtered font under love.graphics.print did.
+--
+-- Everything composites premultiplied: a canvas painted under ordinary
+-- alpha blending holds premultiplied texels, so each draw is wrapped in
+-- setBlendMode("alpha", "premultiplied") with the colour scaled by alpha
+-- in all four channels — (1, 1, 1, a) would dim the coverage and leave the
+-- colour at full strength, and a half-faded chip came out brighter than a
+-- solid one.
+
+local function halfFor(r)
+    -- The light arcs stroke at r*0.14 centred on r*R_LIGHT, so their ink
+    -- reaches a little past the outline.
+    return math.ceil(r + math.max(2, r * 0.14)) + 1
+end
+
+local function tierRadius(t) return CHIP_RADIUS * TIERS[t] end
+
+-- Effective spot count a cell of this tier bakes for a denomination.
+local function spotsAt(spec, tier)
+    local n = spec.spots or 6
+    if tier == SPOT_CAP_TIER and n > SPOT_CAP then n = SPOT_CAP end
+    return n
+end
+
+-- The slot rotation a wall phase was baked at: the middle of its bucket
+-- of the spot period.
+local function wallPhaseRot(spec, tier, p)
+    local step = (2 * math.pi) / spotsAt(spec, tier)
+    return (p - 0.5) / WALL_PHASES * step
+end
+
+-- Which wall phase a slot rotation falls in.
+local function wallPhaseOf(spec, tier, rot)
+    local step = (2 * math.pi) / spotsAt(spec, tier)
+    local u = (rot % step) / step
+    local p = math.floor(u * WALL_PHASES) + 1
+    if p > WALL_PHASES then p = WALL_PHASES end
+    return p
+end
+
+-- Shelf packing: rows of cells left to right, a new row when one does not
+-- fit, cells sorted tallest first so a row is as full as its height allows.
+-- Returns the height used. Every cell gets `x`, `y`.
+local function shelfPack(items, W)
+    table.sort(items, function(a, b)
+        if a.h ~= b.h then return a.h > b.h end
+        return a.i < b.i
+    end)
+    local x, y, row_h = ATLAS_GUTTER, ATLAS_GUTTER, 0
+    for _, it in ipairs(items) do
+        if x + it.w + ATLAS_GUTTER > W then
+            x = ATLAS_GUTTER
+            y = y + row_h + ATLAS_GUTTER
+            row_h = 0
+        end
+        it.x, it.y = x, y
+        x = x + it.w + ATLAS_GUTTER
+        if it.h > row_h then row_h = it.h end
+    end
+    return y + row_h + ATLAS_GUTTER
+end
+
+local function textureLimit()
+    local lim
+    if love.graphics.getSystemLimits then
+        local ok, l = pcall(love.graphics.getSystemLimits)
+        if ok and type(l) == "table" then lim = l.texturesize end
+    end
+    return lim or 4096
+end
+
+-- Paint one cell at the origin (already translated to its paint origin).
+local function paintCell(it)
+    local kind = it.kind
+    if kind == "rim" or kind == "face" or kind == "edge" or kind == "flat" or kind == "wall" then
+        local spec = ChipData.denominations[it.d]
+        setupColors(spec, nil, 1)
+        local r        = tierRadius(it.t)
+        local spot_cap = (it.t == SPOT_CAP_TIER) and SPOT_CAP or nil
+        local detail, rot = "full", 0
+        if kind == "edge" then detail = "edge"
+        elseif kind == "flat" then detail = "flat"
+        elseif kind == "wall" then detail = "buried"; rot = wallPhaseRot(spec, it.t, it.p) end
+        _bake_kind = kind
+        -- alpha 1 and an unrotated rim: the sprite's colour carries the
+        -- caller's alpha, and the rim is rotated when it is drawn.
+        paintChip(r, spec, 1, detail, nil, spot_cap, rot, 1, it.d)
+        _bake_kind = nil
+    elseif kind == "label" then
+        local spec = ChipData.denominations[it.d]
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.setFont(_font)
+        love.graphics.print(spec.label, 0, 0)
+    elseif kind == "plate_fill" or kind == "plate_bezel" then
+        local pts = buildPlate(_band_hw * TIERS[it.t], _band_hh * TIERS[it.t])
+        love.graphics.setColor(1, 1, 1, 1)
+        if kind == "plate_fill" then
+            love.graphics.polygon("fill", pts)
+        else
+            love.graphics.setLineWidth(1)
+            love.graphics.polygon("line", pts)
+        end
+    elseif kind == "shadow" then
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.ellipse("fill", 0, 0, CHIP_RADIUS * SHADOW_RX, CHIP_RADIUS * SHADOW_RY)
+    elseif kind == "glyph" or kind == "glyph_flat" then
+        setupGlyphColors(Theme.currency.chip, Theme.currency.chip_ring, 1)
+        paintGlyph(0, 0, it.r, 1, kind == "glyph")
+    end
+end
+
+local function renderSheet(canvas, items)
+    local prev = love.graphics.getCanvas()
+    love.graphics.push("all")
+    love.graphics.origin()
+    love.graphics.setShader()
+    love.graphics.setBlendMode("alpha", "alphamultiply")
+    love.graphics.setCanvas(canvas)
+    love.graphics.setScissor()
+    love.graphics.clear(0, 0, 0, 0)
+    local prev_font = love.graphics.getFont()
+    for _, it in ipairs(items) do
+        -- Scissored to the cell: a wall's spot sliver can dip a pixel over
+        -- the crescent's chord, and the gutter is the neighbour's, not ours.
+        love.graphics.setScissor(it.x, it.y, it.w, it.h)
+        love.graphics.push()
+        love.graphics.translate(it.x + it.px, it.y + it.py)
+        paintCell(it)
+        love.graphics.pop()
+    end
+    love.graphics.setScissor()
+    if prev_font then love.graphics.setFont(prev_font) end
+    love.graphics.setCanvas(prev)
+    love.graphics.pop()
+end
+
+-- Pack, allocate and paint the sheet. Returns true on success. nil from
+-- newCanvas (headless, or a GPU that will not give us one) means the
+-- vector path draws instead.
+local function buildAtlas()
+    ensureFit()
+    local items = {}
+    -- w, h: the cell; px, py: where the painter's origin sits in it;
+    -- ox, oy: the sprite origin handed to draw, so a sprite at (x, y) puts
+    -- the chip's centre (or the label's print origin) there.
+    local function cell(kind, d, t, p, w, h, px, py, ox, oy)
+        local it = { i = #items + 1, kind = kind, d = d, t = t, p = p, w = w, h = h,
+                     px = px, py = py, ox = ox, oy = oy }
+        items[#items + 1] = it
+        return it
+    end
+
+    for d, spec in ipairs(ChipData.denominations) do
+        for t = 1, N_TIERS do
+            local half = halfFor(tierRadius(t))
+            local full = 2 * half
+            cell("rim",  d, t, nil, full, full, half, half, half, half)
+            cell("face", d, t, nil, full, full, half, half, half, half)
+            if t == 1 or t == 3 then
+                cell("edge", d, t, nil, full, full, half, half, half, half)
+            end
+            for p = 1, WALL_PHASES do
+                cell("wall", d, t, p, full, half, half, 0, half, 0)
+            end
+        end
+        local h4 = halfFor(tierRadius(N_TIERS))
+        cell("flat", d, N_TIERS, nil, 2 * h4, 2 * h4, h4, h4, h4, h4)
+        if _font and spec.label then
+            -- Two pixels of margin on every side for glyphs that overhang
+            -- their advance. The draw origin puts the cell where print put
+            -- the text: at floor(-fw/2), floor(-fh/2) from the chip's centre.
+            local fw, fh = _label_w[d], _font:getHeight()
+            cell("label", d, nil, nil, fw + 4, fh + 4, 2, 2,
+                 2 - math.floor(-fw * 0.5), 2 - math.floor(-fh * 0.5))
+        end
+    end
+    if _font and #_plate_fill > 0 then
+        for t = 1, N_TIERS do
+            local hw, hh = _band_hw * TIERS[t], _band_hh * TIERS[t]
+            local w, h = 2 * math.ceil(hw) + 4, 2 * math.ceil(hh) + 4
+            local cx, cy = w * 0.5, h * 0.5
+            cell("plate_fill",  nil, t, nil, w, h, cx, cy, cx, cy)
+            cell("plate_bezel", nil, t, nil, w, h, cx, cy, cx, cy)
+        end
+    end
+    do
+        local rx, ry = CHIP_RADIUS * SHADOW_RX, CHIP_RADIUS * SHADOW_RY
+        local w, h = 2 * math.ceil(rx) + 4, 2 * math.ceil(ry) + 4
+        -- Drawn at the chip's centre, the ellipse lands SHADOW_DY below it.
+        cell("shadow", nil, nil, nil, w, h, w * 0.5, h * 0.5,
+             w * 0.5, h * 0.5 - CHIP_RADIUS * SHADOW_DY)
+    end
+    for gi, gr0 in ipairs(GLYPH_RADII) do
+        local gr = gr0 * CHIP_RADIUS / CHIP_RADIUS_BASE
+        local gh = halfFor(gr)
+        local g = cell("glyph",      nil, gi, nil, 2 * gh, 2 * gh, gh, gh, gh, gh)
+        local f = cell("glyph_flat", nil, gi, nil, 2 * gh, 2 * gh, gh, gh, gh, gh)
+        g.r, f.r = gr, gr
+    end
+
+    -- Width first, then height: the atlas is a 1024-wide strip as tall as
+    -- the packing needs, rounded to 64. Only if that outgrows the GPU's
+    -- texture size does it widen.
+    local limit = textureLimit()
+    local W = ATLAS_W
+    local H
+    while true do
+        H = math.ceil(shelfPack(items, W) / 64) * 64
+        if H <= limit or W >= limit then break end
+        W = W * 2
+    end
+    if H > limit then return false end
+
+    local ok, atlas = pcall(love.graphics.newCanvas, W, H)
+    if not ok or not atlas then return false end
+    atlas:setFilter("linear", "linear")
+
+    renderSheet(atlas, items)
+    for _, it in ipairs(items) do
+        it.q = love.graphics.newQuad(it.x, it.y, it.w, it.h, W, H)
+    end
+
+    local cells = { rim = {}, face = {}, edge = {}, wall = {}, flat = {}, label = {},
+                    plate_fill = {}, plate_bezel = {}, glyph = {}, glyph_flat = {} }
+    for _, it in ipairs(items) do
+        local k = it.kind
+        if k == "rim" or k == "face" or k == "edge" then
+            cells[k][it.d] = cells[k][it.d] or {}
+            cells[k][it.d][it.t] = it
+        elseif k == "wall" then
+            cells.wall[it.d] = cells.wall[it.d] or {}
+            cells.wall[it.d][it.t] = cells.wall[it.d][it.t] or {}
+            cells.wall[it.d][it.t][it.p] = it
+        elseif k == "flat" or k == "label" then
+            cells[k][it.d] = it
+        elseif k == "plate_fill" or k == "plate_bezel" or k == "glyph" or k == "glyph_flat" then
+            cells[k][it.t] = it
+        else
+            cells[k] = it
+        end
+    end
+
+    local cc, cr = Theme.currency.chip, Theme.currency.chip_ring
+    _glyph_baked[1], _glyph_baked[2], _glyph_baked[3] = cc[1], cc[2], cc[3]
+    _glyph_baked[4], _glyph_baked[5], _glyph_baked[6] = cr[1], cr[2], cr[3]
+
+    _atlas, _cells = atlas, cells
+    _atlas_w, _atlas_h = W, H
+    _atlas_bytes = W * H * 4
+    Perf.gauge("atlas_mb", _atlas_bytes / 1048576)
+    return true
+end
+
+-- The atlas, built on first use. false means draw the vector way: the
+-- feature flag is off, or canvases are unavailable and this generation
+-- has already failed (a resize or font change is what earns a retry).
+local function ensureAtlas()
+    -- The flag is read every time, not only at build: flipping it off with
+    -- an atlas already built has to restore the vector path at once.
+    if not Constants.FEATURES.CHIP_ATLAS then return false end
+    if _cells then return true end
+    if _atlas_fail == _atlas_gen then return false end
+    if not (love.graphics and love.graphics.newCanvas and love.graphics.newQuad) then
+        _atlas_fail = _atlas_gen
+        return false
+    end
+    if not buildAtlas() then
+        _atlas_fail = _atlas_gen
+        return false
+    end
+    return true
+end
+
+function Chips.atlasGen() return _atlas_gen end
+
+-- pages, w, h, bytes. One page always: a SpriteBatch takes one texture, so
+-- the whole ladder has to share it.
+function Chips.atlasInfo()
+    return _cells and 1 or 0, _atlas_w, _atlas_h, _atlas_bytes
+end
+
+-- The tier a chip at on-screen scale `es` (relative to CHIP_RADIUS) draws
+-- from — the smallest bake that is still at least as big as the chip — and
+-- the residual scale from that bake down to the chip.
+function Chips.tierFor(es)
+    for t = N_TIERS, 1, -1 do
+        if es <= TIERS[t] then return t, es / TIERS[t] end
+    end
+    return 1, es
+end
+Chips.TIERS = TIERS
+
+-- ── Sprite sinks ────────────────────────────────────────────────────
+-- The chip composer below writes sprites to a SINK: either a batch (a
+-- SpriteBatch on the atlas, lazily sized) or the immediate drawer, which
+-- is the same calls straight to love.graphics.draw. One composer, two
+-- outputs, so a chip in a pile and a chip drawn by hand cannot drift.
+local Batch = {}
+Batch.__index = Batch
+
+function Batch:color(r, g, b, a) self.sb:setColor(r, g, b, a) end
+
+function Batch:add(cell, x, y, r, sx, sy, kx)
+    local n = self.n
+    if n >= self.cap then
+        self.cap = self.cap * 2
+        self.sb:setBufferSize(self.cap)
+    end
+    self.n = n + 1
+    self.sb:add(cell.q, x, y, r, sx, sy, cell.ox, cell.oy, kx or 0, 0)
+end
+
+-- Immediate: what drawChip and the icons use. Blend mode is the caller's.
+-- No snapping frame: the caller's transform is unknown here.
+local Immediate = { n = 0, chips = 0, snap = false }
+function Immediate:color(r, g, b, a) love.graphics.setColor(r, g, b, a) end
+function Immediate:add(cell, x, y, r, sx, sy, kx)
+    love.graphics.draw(_atlas, cell.q, x, y, r, sx, sy, cell.ox, cell.oy, kx or 0, 0)
+end
+
+-- A batch for one pile (or the flight renderer). nil headless or with the
+-- atlas off, and the caller draws immediately instead. Its snapping frame
+-- (ox, oy, s: where drawBatch will put it) starts at the origin, unscaled.
+function Chips.newBatch(capacity)
+    if not ensureAtlas() then return nil end
+    if not love.graphics.newSpriteBatch then return nil end
+    capacity = capacity or 128
+    local ok, sb = pcall(love.graphics.newSpriteBatch, _atlas, capacity, "stream")
+    if not ok or not sb then return nil end
+    return setmetatable({
+        sb = sb, cap = capacity, n = 0,
+        gen = _atlas_gen, chips = 0,
+        es_lo = math.huge, es_hi = 0,
+        snap = true, ox = 0, oy = 0, s = 1,
+    }, Batch)
+end
+
+function Chips.releaseBatch(B)
+    if not B then return end
+    if B.sb and B.sb.release then B.sb:release() end
+    B.sb = nil
+end
+
+function Chips.batchClear(B)
+    B.sb:clear()
+    B.n, B.chips = 0, 0
+    B.es_lo, B.es_hi = math.huge, 0
+end
+
+-- Where the batch will be drawn (drawBatch's x, y, s), so a label sprite
+-- can be snapped to a whole SCREEN pixel while it is added. Set before the
+-- adds; a batch is rebuilt when its frame's fractional part moves.
+function Chips.batchOrigin(B, ox, oy, s)
+    B.ox, B.oy, B.s = ox or 0, oy or 0, s or 1
+end
+
+function Chips.batchCount(B) return B.n end
+
+-- Draw a batch at (x, y) under scale s: one texture draw for the pile.
+function Chips.drawBatch(B, x, y, s)
+    if B.n == 0 then return end
+    s = s or 1
+    _n_chips = _n_chips + B.chips
+    if B.es_lo < _scale_min then _scale_min = B.es_lo end
+    if B.es_hi > _scale_max then _scale_max = B.es_hi end
+
+    love.graphics.setBlendMode("alpha", "premultiplied")
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(B.sb, x, y, 0, s, s)
+    love.graphics.setBlendMode("alpha")
+end
+
+-- ── The chip composer ───────────────────────────────────────────────
+-- Writes one chip to a sink. Returns the sprite count.
+--   es       the chip's real on-screen scale (relative to CHIP_RADIUS):
+--            picks the tier and decides whether the label fits
+--   local_s  the scale to draw at in the sink's own space; a pile batch
+--            drawn under place.scale passes 1, a screen-space flight
+--            passes es itself
+-- Order: rim (rotated by rot), face, then plate, bezel and the label at
+-- local_s/es so it lands 1:1 on screen. depth > 0 is one wall sprite,
+-- its phase from rot. Below MIN_DETAIL_R on screen it is the flat cell.
+local function composeChip(S, x, y, denom_idx, alpha, with_label, tint, shade, depth, rot, es, local_s)
+    local d = ChipData.denominations[denom_idx]
+    if not d then return 0 end
+    alpha   = alpha or 1
+    shade   = shade or 1
+    tint    = tint or IDENTITY_TINT
+    es      = es or 1
+    local_s = local_s or 1
+    rot     = rot or 0
+    S.chips = S.chips + 1
+    local cells = _cells
+
+    -- Premultiplied: the colour scales rgb AND alpha.
+    local k = shade * alpha
+    local cr, cg, cb = tint[1] * k, tint[2] * k, tint[3] * k
+
+    if depth and depth > 0 then
+        local tier = Chips.tierFor(es)
+        local cell = cells.wall[denom_idx][tier][wallPhaseOf(d, tier, rot)]
+        local sc   = local_s / TIERS[tier]
+        S:color(cr, cg, cb, alpha)
+        S:add(cell, x, y, 0, sc, sc, 0)
+        return 1
+    end
+
+    if es * CHIP_RADIUS < MIN_DETAIL_R then
+        local cell = cells.flat[denom_idx]
+        local sc   = local_s / TIERS[N_TIERS]
+        S:color(cr, cg, cb, alpha)
+        S:add(cell, x, y, 0, sc, sc, 0)
+        return 1
+    end
+
+    local tier = Chips.tierFor(es)
+    local sc   = local_s / TIERS[tier]
+    S:color(cr, cg, cb, alpha)
+    S:add(cells.rim[denom_idx][tier],  x, y, rot, sc, sc, 0)
+    S:add(cells.face[denom_idx][tier], x, y, 0,   sc, sc, 0)
+
+    -- The label is the ONE thing never scaled with the chip: the plate is
+    -- drawn at the chip's scale and the text at exactly 1:1 on screen, or
+    -- neither is drawn.
+    if with_label then
+        local lcell = cells.label[denom_idx]
+        local pcell = cells.plate_fill[tier]
+        if lcell and pcell and labelFits(denom_idx, es) then
+            setupColors(d, tint, shade)
+            S:color(_inlay[1] * alpha, _inlay[2] * alpha, _inlay[3] * alpha, alpha)
+            S:add(pcell, x, y, 0, sc, sc, 0)
+            S:color(_bezel[1] * alpha, _bezel[2] * alpha, _bezel[3] * alpha, alpha)
+            S:add(cells.plate_bezel[tier], x, y, 0, sc, sc, 0)
+            local ls = local_s / es
+            -- Snapped to a whole screen pixel through the sink's frame,
+            -- so the 1:1 texels sample exactly (see "The chip atlas").
+            local lx, ly = x, y
+            if S.snap then
+                local bs = S.s
+                lx = (math.floor(S.ox + x * bs + 0.5) - S.ox) / bs
+                ly = (math.floor(S.oy + y * bs + 0.5) - S.oy) / bs
+            end
+            S:color(_ink[1] * alpha, _ink[2] * alpha, _ink[3] * alpha, alpha)
+            S:add(lcell, lx, ly, 0, ls, ls, 0)
+            return 5
+        end
+    end
+    return 2
+end
+
+-- ── The tumble transform, as one sprite transform ───────────────────
+-- services/Tumble's chain is translate · scale(near) · rotate(axis) ·
+-- scale(1, squash) · rotate(spin): a 2x2 matrix with positive determinant.
+-- A sprite takes rotation, two scales and a shear, and LÖVE composes them
+-- as R · S · K with K = [[1, kx], [ky, 1]] (Matrix4::setTransformation:
+-- e0 = c·sx − ky·s·sy, e4 = kx·c·sx − s·sy), so QR by Gram-Schmidt on the
+-- FIRST column — Q = R(θ), the triangle [[a, b], [0, d]] — is R · S(a, d)
+-- · K(kx = b/a, ky = 0). The parameter names are the classic trap; the
+-- smoke test maps points through both forms.
+local function tumbleMatrix(axis, squash, spin, near)
+    local ca, sa = math.cos(axis), math.sin(axis)
+    local cs, ss = math.cos(spin), math.sin(spin)
+    local p11, p12 = cs, -ss
+    local p21, p22 = squash * ss, squash * cs
+    return (ca * p11 - sa * p21) * near, (ca * p12 - sa * p22) * near,
+           (sa * p11 + ca * p21) * near, (sa * p12 + ca * p22) * near
+end
+
+local function decompose(m11, m12, m21, m22)
+    local a  = math.sqrt(m11 * m11 + m21 * m21)
+    local th = atan2(m21, m11)
+    local u1, u2 = m11 / a, m21 / a
+    local b  = m12 * u1 + m22 * u2
+    local d  = m22 * u1 - m12 * u2
+    return th, a, d, b / a
+end
+Chips.tumbleMatrix = tumbleMatrix
+Chips.decompose    = decompose
+
+-- A chip mid-tumble, in one sprite transform. Below EDGE_SQUASH it is the
+-- edge cell; otherwise rim, face and label share the one 2x2. The label
+-- is not snapped here: under a turn there is no whole pixel to land on,
+-- exactly as love.graphics.print had none inside Tumble's transform.
+local function composeChipTumbling(S, x, y, denom_idx, alpha, with_label, tint, es, axis, squash, spin, near)
+    local d = ChipData.denominations[denom_idx]
+    if not d then return 0 end
+    alpha = alpha or 1
+    tint  = tint or IDENTITY_TINT
+    es    = es or 1
+    if squash >= 1 and spin == 0 and near == 1 then
+        return composeChip(S, x, y, denom_idx, alpha, with_label, tint, 1, 0, 0, es, es)
+    end
+    S.chips = S.chips + 1
+    local cells = _cells
+    local m11, m12, m21, m22 = tumbleMatrix(axis, squash, spin, near)
+    local th, a, dd, kx = decompose(m11, m12, m21, m22)
+    local cr, cg, cb = tint[1] * alpha, tint[2] * alpha, tint[3] * alpha
+    S:color(cr, cg, cb, alpha)
+
+    local tier = Chips.tierFor(es * near)
+    if squash < EDGE_SQUASH then
+        local et = (tier <= 2) and 1 or 3
+        local u  = es / TIERS[et]
+        S:add(cells.edge[denom_idx][et], x, y, th, a * u, dd * u, kx)
+        return 1
+    end
+    if es * CHIP_RADIUS < MIN_DETAIL_R then
+        local u = es / TIERS[N_TIERS]
+        S:add(cells.flat[denom_idx], x, y, th, a * u, dd * u, kx)
+        return 1
+    end
+    local u = es / TIERS[tier]
+    S:add(cells.rim[denom_idx][tier],  x, y, th, a * u, dd * u, kx)
+    S:add(cells.face[denom_idx][tier], x, y, th, a * u, dd * u, kx)
+    if with_label then
+        local lcell = cells.label[denom_idx]
+        local pcell = cells.plate_fill[tier]
+        if lcell and pcell and labelFits(denom_idx, es) then
+            setupColors(d, tint, 1)
+            S:color(_inlay[1] * alpha, _inlay[2] * alpha, _inlay[3] * alpha, alpha)
+            S:add(pcell, x, y, th, a * u, dd * u, kx)
+            S:color(_bezel[1] * alpha, _bezel[2] * alpha, _bezel[3] * alpha, alpha)
+            S:add(cells.plate_bezel[tier], x, y, th, a * u, dd * u, kx)
+            -- The label at 1:1 under the same turn: the chip's own scale
+            -- cancels, the tumble stays.
+            S:color(_ink[1] * alpha, _ink[2] * alpha, _ink[3] * alpha, alpha)
+            S:add(lcell, x, y, th, a, dd, kx)
+            return 5
+        end
+    end
+    return 2
+end
+
+function Chips.addChip(B, x, y, denom_idx, alpha, with_label, tint, shade, depth, rot, es, local_s)
+    es = es or 1
+    noteScale(es)
+    if es < B.es_lo then B.es_lo = es end
+    if es > B.es_hi then B.es_hi = es end
+    return composeChip(B, x, y, denom_idx, alpha, with_label, tint, shade, depth, rot, es, local_s)
+end
+
+function Chips.addChipTumbling(B, x, y, denom_idx, alpha, with_label, tint, es, axis, squash, spin, near)
+    return composeChipTumbling(B, x, y, denom_idx, alpha, with_label, tint, es, axis, squash, spin, near)
+end
+
+-- Cast shadow under a column base, into a batch. Black at SHADOW_ALPHA
+-- through the premultiplied white ellipse.
+function Chips.addShadow(B, x, y, alpha, local_s)
+    B:color(0, 0, 0, (alpha or 1) * SHADOW_ALPHA)
+    B:add(_cells.shadow, x, y, 0, local_s or 1, local_s or 1, 0)
+end
+
+-- ── The flight renderer ─────────────────────────────────────────────
+-- services/FlightSystem hands chip records here at draw: begin once, add
+-- per record, flush once. One batch in screen space; the tumble is
+-- evaluated from the record's motion numbers (services/Tumble.eval).
+-- Without a batch (headless, atlas off) each record paints the vector way
+-- under the same transform chain Tumble.wrap builds.
+local _flight_batch = nil
+local flightRenderer = {}
+
+local function flightImmediate(rec, squash, near, spin)
+    local es = rec.es or 1
+    love.graphics.push()
+    love.graphics.translate(rec.x, rec.y)
+    if near ~= 1 then love.graphics.scale(near, near) end
+    love.graphics.rotate(rec.tb_axis or 0)
+    love.graphics.scale(1, squash)
+    love.graphics.rotate(spin)
+    if es ~= 1 then love.graphics.scale(es, es) end
+    if squash < EDGE_SQUASH then
+        Chips.drawChipEdge(0, 0, rec.denom, rec.alpha or 1, rec.tint)
+    else
+        Chips.drawChip(0, 0, rec.denom, rec.alpha or 1, rec.label, rec.tint, nil, nil, es)
+    end
+    love.graphics.pop()
+end
+
+function flightRenderer.begin()
+    if _flight_batch and _flight_batch.gen ~= _atlas_gen then
+        Chips.releaseBatch(_flight_batch)
+        _flight_batch = nil
+    end
+    -- false means the last try found no atlas; trying again is a flag
+    -- check when there still is none, and the batch appears the frame the
+    -- atlas does.
+    if not _flight_batch then
+        _flight_batch = Chips.newBatch(256) or false
+    end
+    if _flight_batch then Chips.batchClear(_flight_batch) end
+end
+
+function flightRenderer.add(rec)
+    local squash, near, spin = Tumble.eval(rec, rec.t)
+    local B = _flight_batch
+    if B == nil then
+        flightRenderer.begin()
+        B = _flight_batch
+    end
+    if not B then
+        flightImmediate(rec, squash, near, spin)
+        return
+    end
+    local es = rec.es or 1
+    noteScale(es * near)
+    if es < B.es_lo then B.es_lo = es end
+    if es > B.es_hi then B.es_hi = es end
+    composeChipTumbling(B, rec.x, rec.y, rec.denom, rec.alpha, rec.label, rec.tint,
+                        es, rec.tb_axis or 0, squash, spin, near)
+end
+
+function flightRenderer.flush()
+    local B = _flight_batch
+    if not B or B.n == 0 then return end
+    Chips.drawBatch(B, 0, 0, 1)
+    Chips.batchClear(B)
+end
+
+-- A failed batch is retried on the next generation (a resize, a font).
+function flightRenderer.reset()
+    if _flight_batch then Chips.releaseBatch(_flight_batch) end
+    _flight_batch = nil
+end
+
+Chips.flightRenderer = flightRenderer
+
 -- with_label = true draws the denomination on the inlay.
 -- shade  (optional) multiplies the chip's colors — stack depth.
 -- depth  (optional) chips above this one in its column; > 0 means only
@@ -699,20 +1388,29 @@ end
 -- escale (optional) the caller's own love.graphics.scale factor, so the
 --        detail level is picked from the chip's REAL on-screen size
 --        rather than its nominal radius.
--- rot    (optional) turns this chip's edge spots. See stackLayout.
+-- rot    (optional) turns this chip's edge spots. See stackLayoutInto.
 function Chips.drawChip(x, y, denom_idx, alpha, with_label, tint, shade, depth, escale, rot)
     local d = ChipData.denominations[denom_idx]
     if not d then return end
     alpha = alpha or 1
-    setupColors(d, tint, shade)
-
-    local r   = CHIP_RADIUS
-    local es  = escale or 1
-    local eff = r * es
-
+    local es = escale or 1
     _n_chips = _n_chips + 1
-    if es < _scale_min then _scale_min = es end
-    if es > _scale_max then _scale_max = es end
+    noteScale(es)
+
+    -- Textured quads out of the atlas, in the caller's transform. Falls
+    -- through to the vector path when there is no atlas, and the whole
+    -- thing is off when C.FEATURES.CHIP_ATLAS is false.
+    if ensureAtlas() then
+        Immediate.chips = 0
+        love.graphics.setBlendMode("alpha", "premultiplied")
+        composeChip(Immediate, x, y, denom_idx, alpha, with_label, tint, shade, depth, rot, es, 1)
+        love.graphics.setBlendMode("alpha")
+        return
+    end
+
+    setupColors(d, tint, shade)
+    local r   = CHIP_RADIUS
+    local eff = r * es
     local detail
     if depth and depth > 0 then
         detail = "buried"
@@ -731,52 +1429,12 @@ function Chips.drawChip(x, y, denom_idx, alpha, with_label, tint, shade, depth, 
     -- Spots below ~1.5px wide are an arc apiece for nothing.
     local spot_cap = (eff < 10) and 6 or nil
 
-    -- Two textured quads plus, when it fits, the live plate and label.
-    -- Falls through to the vector path if canvases are unavailable, and the
-    -- whole thing is off when C.FEATURES.CHIP_ATLAS is false.
-    if Constants.FEATURES.CHIP_ATLAS and detail == "full" then
-        local b = bakedChip(denom_idx, d, r, spot_cap, tint, shade)
-        if b then
-            local half = b.half
-            love.graphics.push()
-            love.graphics.translate(x, y)
-            -- Baked under ordinary alpha blending, so it composites back
-            -- premultiplied — the idiom the title's menu fade and the hint
-            -- dim already use.
-            love.graphics.setBlendMode("alpha", "premultiplied")
-            -- Premultiplied: the colour scales the texture's rgb AND its
-            -- alpha, so a fade has to dim all four. (1, 1, 1, alpha) faded
-            -- only the coverage and left the colour at full strength, and a
-            -- half-faded chip came out brighter than a solid one: the flash
-            -- of a washed-out chip a pot showed while it recomposed its
-            -- pile, since the cross-fading chips are the only ones drawn
-            -- under 1.
-            love.graphics.setColor(alpha, alpha, alpha, alpha)
-            if rot and rot ~= 0 then
-                love.graphics.push()
-                love.graphics.rotate(rot)
-                love.graphics.draw(b.rim, -half, -half)
-                love.graphics.pop()
-            else
-                love.graphics.draw(b.rim, -half, -half)
-            end
-            love.graphics.draw(b.face, -half, -half)
-            love.graphics.setBlendMode("alpha")
-            if band_hw then
-                setupColors(d, tint, shade)   -- the bakers left the scratch dirty
-                paintStamp(d, alpha, band_hw, es)
-            end
-            love.graphics.pop()
-            return
-        end
-    end
-
     if x == 0 and y == 0 then
-        paintChip(r, d, alpha, detail, band_hw, spot_cap, rot, es)
+        paintChip(r, d, alpha, detail, band_hw, spot_cap, rot, es, denom_idx)
     else
         love.graphics.push()
         love.graphics.translate(x, y)
-        paintChip(r, d, alpha, detail, band_hw, spot_cap, rot, es)
+        paintChip(r, d, alpha, detail, band_hw, spot_cap, rot, es, denom_idx)
         love.graphics.pop()
     end
 end
@@ -793,7 +1451,7 @@ end
 -- shadow, and nothing the eye could read at that size is gone.
 --
 -- `n_above` is how many chips sit on the base one: the base entry's
--- `depth` from stackLayout, so the column top is that many STACK_OFFSET_Y
+-- `depth` from the layout, so the column top is that many STACK_OFFSET_Y
 -- steps up. Called the way drawChip is, at (x, y) or at the origin under
 -- the caller's scale, with `escale` the scale applied so the 1px outline
 -- can stay a screen pixel.
@@ -806,8 +1464,7 @@ function Chips.drawColumn(x, y, denom_idx, n_above, alpha, tint, escale)
     local es  = escale or 1
     local top = y + (n_above or 0) * STACK_OFFSET_Y
     _n_chips = _n_chips + 1
-    if es < _scale_min then _scale_min = es end
-    if es > _scale_max then _scale_max = es end
+    noteScale(es)
 
     -- Three fills and no line mode: the outline is the body disc inset a
     -- screen pixel inside the outline disc.
@@ -832,14 +1489,25 @@ function Chips.drawChipEdge(x, y, denom_idx, alpha, tint, rot)
     local d = ChipData.denominations[denom_idx]
     if not d then return end
     alpha = alpha or 1
-    setupColors(d, tint, 1)
     _n_chips = _n_chips + 1
+    if ensureAtlas() then
+        -- The edge cell is radially symmetric, so turning the sprite turns
+        -- its spots and nothing else.
+        tint = tint or IDENTITY_TINT
+        love.graphics.setBlendMode("alpha", "premultiplied")
+        love.graphics.setColor(tint[1] * alpha, tint[2] * alpha, tint[3] * alpha, alpha)
+        local cell = _cells.edge[denom_idx][1]
+        love.graphics.draw(_atlas, cell.q, x, y, rot or 0, 1, 1, cell.ox, cell.oy)
+        love.graphics.setBlendMode("alpha")
+        return
+    end
+    setupColors(d, tint, 1)
     if x == 0 and y == 0 then
-        paintChip(CHIP_RADIUS, d, alpha, "edge", nil, nil, rot)
+        paintChip(CHIP_RADIUS, d, alpha, "edge", nil, nil, rot, 1, denom_idx)
     else
         love.graphics.push()
         love.graphics.translate(x, y)
-        paintChip(CHIP_RADIUS, d, alpha, "edge", nil, nil, rot)
+        paintChip(CHIP_RADIUS, d, alpha, "edge", nil, nil, rot, 1, denom_idx)
         love.graphics.pop()
     end
 end
@@ -893,52 +1561,40 @@ end
 -- `colors` (optional) { body, ring } overrides the currency palette, so
 -- the anti-chip is this same glyph in another color rather than a second
 -- implementation of it.
+--
+-- In the currency colours it is one atlas quad (the glyph cell, or the
+-- flat one below MIN_DETAIL_R) from the smallest bake at least its size,
+-- dimmed by `shade` as a multiply. Any other colour pair, or a theme whose
+-- currency colours moved since the bake, paints the vector way.
 function Chips.drawGlyph(x, y, r, alpha, shade, colors)
     alpha = alpha or 1
     shade = shade or 1
     local chip = (colors and colors[1]) or Theme.currency.chip
     local ring = (colors and colors[2]) or Theme.currency.chip_ring
 
-    mul(_body, chip, shade)
-    mul(_out,  ring, shade * 0.75)
-    mul(_rim,  ring, shade)
-    mul(_ring, chip, shade * 0.55)
-    mixWhite(_inlay, _body, 0.35)
-
-    Theme.setColor(_out, alpha)
-    love.graphics.circle("fill", x, y, r)
-    Theme.setColor(_rim, alpha)
-    love.graphics.circle("fill", x, y, r * R_RIM)
-
-    -- Detail only where it still resolves. Below this the glyph is a
-    -- handful of pixels and anatomy is noise.
-    local detailed = (r >= MIN_DETAIL_R)
-
-    if detailed then
-        Theme.setColor(_inlay, alpha * 0.9)
-        local n    = 6
-        local step = (2 * math.pi) / n
-        local half = step * SPOT_FILL * 0.5
-        for i = 0, n - 1 do
-            local a = (math.pi / n) + i * step
-            love.graphics.arc("fill", "pie", x, y, r * R_RIM, a - half, a + half)
+    if not colors and ensureAtlas() then
+        local g = _glyph_baked
+        if chip[1] == g[1] and chip[2] == g[2] and chip[3] == g[3]
+           and ring[1] == g[4] and ring[2] == g[5] and ring[3] == g[6] then
+            local set  = (r >= MIN_DETAIL_R) and _cells.glyph or _cells.glyph_flat
+            local cell = set[#set]
+            for gi = 1, #set do
+                if set[gi].r >= r then cell = set[gi]; break end
+            end
+            local sc = r / cell.r
+            local k  = shade * alpha
+            love.graphics.setBlendMode("alpha", "premultiplied")
+            love.graphics.setColor(k, k, k, alpha)
+            love.graphics.draw(_atlas, cell.q, x, y, 0, sc, sc, cell.ox, cell.oy)
+            love.graphics.setBlendMode("alpha")
+            return
         end
     end
 
-    Theme.setColor(_body, alpha)
-    love.graphics.circle("fill", x, y, r * R_FACE)
-
-    if detailed then
-        -- Explicit width: this ring used to inherit whatever line width the
-        -- last unrelated caller happened to leave set.
-        love.graphics.setLineWidth(1)
-        Theme.setColor(_ring, alpha)
-        love.graphics.circle("line", x, y, math.max(1, r * 0.42))
-        love.graphics.setColor(1, 1, 1, alpha * 0.18)
-        love.graphics.setLineWidth(math.max(1, r * 0.14))
-        love.graphics.arc("line", "open", x, y, r * R_LIGHT, math.pi, math.pi * 1.75)
-        love.graphics.setLineWidth(1)
-    end
+    setupGlyphColors(chip, ring, shade)
+    -- Detail only where it still resolves. Below this the glyph is a
+    -- handful of pixels and anatomy is noise.
+    paintGlyph(x, y, r, alpha, r >= MIN_DETAIL_R)
 end
 
 -- Draw a tight vertical stack of `count` chips (radius r) in `color`,
@@ -987,33 +1643,6 @@ function Chips.drawGlyphShape(cx, baseline_y, points, r, color, alpha, col_step,
     for _, p in ipairs(points) do if p[4] then place(p) end end
 end
 
--- Build deferred-render closures for a chip-index list. Each closure
--- captures its denomination and renders one chip at the (x, y) the
--- caller (e.g. FlightSystem) hands back at draw time.
---
--- Lives here, not in the controller, so the controller never has to
--- name a draw function; it just hands the resulting closure list to
--- FlightSystem.emitBurst. Keeps the view layer the only producer of
--- render callbacks.
--- These may be handed to services/Tumble, so they take its `squash` and
--- flip to the edge-on chip the same way views/ChipFlight does. Only the
--- violent presets ever get low enough to trigger it; a gentle toss never
--- turns far enough to show its rim.
-function Chips.makeRenderFns(chip_indices, tint)
-    local fns = {}
-    if not chip_indices then return fns end
-    for i, idx in ipairs(chip_indices) do
-        fns[i] = function(x, y, _t, squash)
-            if squash and squash < EDGE_SQUASH then
-                Chips.drawChipEdge(x, y, idx, 1, tint)
-            else
-                Chips.drawChip(x, y, idx, 1, true, tint)
-            end
-        end
-    end
-    return fns
-end
-
 -- Approximate footprint of a stack render, for layout hit-testing if
 -- ever needed. Returns (width, height) in px.
 function Chips.stackFootprint(chip_indices)
@@ -1038,28 +1667,35 @@ function Chips.stackFootprint(chip_indices)
 end
 
 -- ── Stack LAYOUT — where every chip in a pile sits ───────────────────
--- Returns an array of { x, y, idx, with_label, src, depth, shade,
--- col_base, row, rot } in draw order — BACK ROW FIRST, so a caller that
--- simply walks the list paints every chip over whatever sits behind it, one entry per chip that would be rendered by
--- drawStack for the same arguments. `src` is the chip's index in the
--- INPUT list — the layout groups by denomination and can clip the tail,
--- so draw order is not input order and a caller that tracks individual
--- chips (views/ChipPile) needs the mapping back. Chips dropped by the
--- max_w clip simply have no placement, so a `src` can be absent.
+-- Solves into a flat RECORD: parallel arrays, one entry per placed chip
+-- in draw order — BACK ROW FIRST, so a caller that walks the record
+-- paints every chip over whatever sits behind it. No table per chip, no
+-- closure, nothing allocated once the record's arrays have grown: a pile
+-- re-solves on every landing, and the old per-chip tables were the
+-- busiest allocation on a busy board.
 --
--- `row` is which staggered row the chip's column landed on: 0 is the front
--- row, higher numbers sit further back and higher up. See the width-budget
--- note below for why rows exist at all.
---
--- `depth` is how many chips sit ON TOP of this one in its column, which
--- is both what dims it and what says only its crescent is visible.
--- `col_base` marks the bottom chip of each column — where a shadow goes.
---
--- Split out from drawStack so a pile and anything that needs to act on
--- its INDIVIDUAL chips (the pot detonating out of its own pile, see
--- views/ChipFlight.explodeStack) agree on position exactly. Two
--- implementations would drift the moment the clipping rules change, and
--- the explosion would visibly start somewhere the pile wasn't.
+--   n                 entries
+--   x[], y[]          the chip's centre, in the caller's space
+--   idx[]             denomination
+--   pos[]             the chip's index in the INPUT list (or `pos_of` of
+--                     it, see below). The layout groups by denomination
+--                     and can clip the tail, so draw order is not input
+--                     order and a caller that tracks individual chips
+--                     (views/ChipPile) needs the mapping back. Chips
+--                     dropped by the width budget have no entry.
+--   depth[]           chips ON TOP of this one in its column: what dims
+--                     it and what says only its crescent is visible
+--   label[]           the top of its column, unless labels are off
+--   base[]            the bottom of its column — where a shadow goes
+--   rot[]             the slot's spot rotation
+--   shade[]           shadeFor(depth)
+--   row[]             which staggered row; 0 is the front
+--   col[]             which column (index into the col_* arrays)
+--   k_of_pos[]        pos -> entry; k_of_pos_n is how far it is written
+--   n_cols, col_idx[], col_n[], col_x[], col_y[], col_row[], col_top_k[]
+--                     the columns: denomination, chips, base centre, row,
+--                     and the entry of the top chip, so a column can grow
+--                     by one without a re-solve (views/ChipPile.accept)
 --
 -- `options.max_cols` / `options.max_rows` bound the pile in COLUMNS, and
 -- the caller owns them: only it knows what its pile would collide with.
@@ -1072,20 +1708,62 @@ end
 -- each column in the FRONT row (chips stack upward via STACK_OFFSET_Y;
 -- rows behind it step up by a further fraction of the radius).
 --
--- Groups chips by denomination in their first-appearance order. A
--- showcase chip (when present) renders as its own group at the front,
--- so it visually sits on its own short column at the left end.
-function Chips.stackLayout(x, y, chip_indices, options)
+-- `options.labels == false` masks every label at the source, so a pile
+-- placed without them (tournament chips are not money) never says "1c" in
+-- any consumer — draw, settle parts, takeAll debris.
+--
+-- `pos_of[i]` (optional) maps input index i to the pos the caller wants
+-- written, so views/ChipPile gets entries keyed on its own chip indices
+-- without a second pass.
+function Chips.newLayoutRecord()
+    return {
+        n = 0, x = {}, y = {}, idx = {}, pos = {}, depth = {}, label = {},
+        base = {}, rot = {}, shade = {}, row = {}, col = {},
+        k_of_pos = {}, k_of_pos_n = 0,
+        n_cols = 0, col_idx = {}, col_n = {}, col_s0 = {}, col_x = {}, col_y = {},
+        col_row = {}, col_top_k = {},
+    }
+end
+
+-- Solver scratch: a fixed count per denomination replaces the group
+-- tables and their sort (data/chips.lua orders the ladder smallest to
+-- largest, so a higher index is a bigger chip and walking the counts from
+-- the top IS the sort), and a counting sort replaces the per-group source
+-- lists.
+local ND       = #ChipData.denominations
+local _count   = {}
+local _start   = {}
+local _cursor  = {}
+local _sorted  = {}
+local _in_row  = {}
+for d = 1, ND do _count[d], _start[d], _cursor[d] = 0, 0, 0 end
+
+local function widthFor(n) return n * CHIP_DIAMETER + math.max(0, n - 1) * COL_GAP end
+
+-- Rows alternate wide/narrow — 3, 2, 3 — and the narrow ones are
+-- staggered half a pitch so they sit in the gaps of the row in front.
+-- That is how chips actually end up on a table, and it packs a pile
+-- into far less width than one long line.
+local function colsInRow(r, base_cols)
+    if r % 2 == 1 and base_cols > 1 then return base_cols - 1 end
+    return base_cols
+end
+
+function Chips.stackLayoutInto(L, chips, n, options, pos_of)
     Perf.count("stack_layout")
-    local placed = {}
-    if not chip_indices or #chip_indices == 0 then return placed end
-    options = options or {}
-    local align = options.align or "center"
-    local max_w = options.max_w                      -- nil = unbounded width
+    local kop = L.k_of_pos
+    for i = 1, L.k_of_pos_n do kop[i] = nil end
+    L.k_of_pos_n = 0
+    L.n, L.n_cols = 0, 0
+    if not chips or n == 0 then return L end
+    options = options or EMPTY
+    local align     = options.align or "center"
+    local max_w     = options.max_w                      -- nil = unbounded width
     -- How wide and how deep this pile may get, in COLUMNS. The caller sets
     -- these; a pile has no idea what is drawn around it.
-    local max_cols = math.max(1, options.max_cols or DEFAULT_MAX_COLS)
-    local max_rows = math.max(1, options.max_rows or DEFAULT_MAX_ROWS)
+    local max_cols  = math.max(1, options.max_cols or DEFAULT_MAX_COLS)
+    local max_rows  = math.max(1, options.max_rows or DEFAULT_MAX_ROWS)
+    local no_labels = (options.labels == false)
 
     -- Group by denomination, then order the groups by DENOMINATION —
     -- biggest chips on the left, always.
@@ -1098,44 +1776,44 @@ function Chips.stackLayout(x, y, chip_indices, options)
     -- Sorting makes the arrangement a function of WHAT the pile holds
     -- rather than the history of how it got there, so a pile only moves
     -- when its contents actually change.
-    --
-    -- data/chips.lua orders the ladder smallest to largest, so a higher
-    -- index is a bigger chip; sorting on the index keeps the denominations
-    -- opaque here.
-    local groups, group_for = {}, {}
-    for i, idx in ipairs(chip_indices) do
-        local g = group_for[idx]
-        if not g then
-            groups[#groups + 1] = { idx = idx, count = 1, src = { i } }
-            group_for[idx]      = #groups
-        else
-            local gr = groups[g]
-            gr.count = gr.count + 1
-            gr.src[#gr.src + 1] = i
-        end
+    for d = 1, ND do _count[d] = 0 end
+    for i = 1, n do
+        local d = chips[i]
+        _count[d] = _count[d] + 1
     end
-    table.sort(groups, function(a, b) return a.idx > b.idx end)
+    local off = 0
+    for d = ND, 1, -1 do
+        _start[d]  = off
+        _cursor[d] = off
+        off = off + _count[d]
+    end
+    for i = 1, n do
+        local d = chips[i]
+        local c = _cursor[d] + 1
+        _cursor[d] = c
+        _sorted[c] = i
+    end
 
     -- Flatten the groups into COLUMNS. Each group breaks into vertical
     -- columns of MAX_PER_COLUMN chips; a column is the unit that gets
     -- placed, wrapped onto another row, or (last resort) dropped.
-    local columns = {}
-    for _, g in ipairs(groups) do
-        local taken = 0
-        local cols  = math.ceil(g.count / MAX_PER_COLUMN)
-        for c = 1, cols do
-            local in_col = math.min(MAX_PER_COLUMN, g.count - (c - 1) * MAX_PER_COLUMN)
-            local col = { idx = g.idx, n = in_col, src = {} }
-            for i = 1, in_col do
-                taken = taken + 1
-                col.src[i] = g.src[taken]
+    local nc = 0
+    local col_idx, col_n, col_s0 = L.col_idx, L.col_n, L.col_s0
+    for d = ND, 1, -1 do
+        local cnt = _count[d]
+        if cnt > 0 then
+            local s0   = _start[d]
+            local cols = math.ceil(cnt / MAX_PER_COLUMN)
+            for c = 1, cols do
+                nc = nc + 1
+                col_idx[nc] = d
+                col_n[nc]   = math.min(MAX_PER_COLUMN, cnt - (c - 1) * MAX_PER_COLUMN)
+                col_s0[nc]  = s0 + (c - 1) * MAX_PER_COLUMN
             end
-            columns[#columns + 1] = col
         end
     end
 
     local pitch = CHIP_DIAMETER + COL_GAP
-    local function widthFor(n) return n * CHIP_DIAMETER + math.max(0, n - 1) * COL_GAP end
 
     -- ── Fitting the width budget ───────────────────────────────────────
     -- A pile used to answer "too wide" by deleting columns, which is how a
@@ -1161,81 +1839,113 @@ function Chips.stackLayout(x, y, chip_indices, options)
                              math.max(1, math.floor((max_w + COL_GAP) / pitch)))
     end
 
-    -- Rows alternate wide/narrow — 3, 2, 3 — and the narrow ones are
-    -- staggered half a pitch so they sit in the gaps of the row in front.
-    -- That is how chips actually end up on a table, and it packs a pile
-    -- into far less width than one long line.
-    local function colsInRow(r)
-        if r % 2 == 1 and base_cols > 1 then return base_cols - 1 end
-        return base_cols
-    end
-
     local capacity = 0
-    for r = 0, max_rows - 1 do capacity = capacity + colsInRow(r) end
-    while #columns > capacity do columns[#columns] = nil end
-    if #columns == 0 then return placed end
+    for r = 0, max_rows - 1 do capacity = capacity + colsInRow(r, base_cols) end
+    if nc > capacity then nc = capacity end
+    if nc == 0 then return L end
 
     -- Row 0 is the FRONT row and carries the largest denominations, since
     -- the breakdown hands them over first and the front row is the one
     -- nothing overlaps.
-    local row_of, in_row = {}, {}
-    do
-        local r, left = 0, colsInRow(0)
-        for i = 1, #columns do
-            while left == 0 do r = r + 1; left = colsInRow(r) end
-            row_of[i] = r
-            in_row[r] = (in_row[r] or 0) + 1
-            left = left - 1
-        end
+    local col_row = L.col_row
+    local r, left = 0, colsInRow(0, base_cols)
+    for i = 1, nc do
+        while left == 0 do r = r + 1; left = colsInRow(r, base_cols) end
+        col_row[i] = r
+        left = left - 1
     end
-    local n_rows = 0
-    for r in pairs(in_row) do n_rows = math.max(n_rows, r + 1) end
+    local n_rows = col_row[nc] + 1
+    for rr = 1, n_rows do _in_row[rr] = 0 end
+    for i = 1, nc do
+        local rr = col_row[i] + 1
+        _in_row[rr] = _in_row[rr] + 1
+    end
 
     local lift = math.max(2, math.floor(CHIP_RADIUS * ROW_LIFT))
+    local Lx, Ly, Lidx, Lpos, Ldepth = L.x, L.y, L.idx, L.pos, L.depth
+    local Llabel, Lbase, Lrot, Lshade, Lrow, Lcol = L.label, L.base, L.rot, L.shade, L.row, L.col
+    local col_x, col_y, col_top_k = L.col_x, L.col_y, L.col_top_k
+    local kopn = 0
 
     -- Emit BACK row first so a simple sequential draw layers correctly:
     -- every chip is painted over whatever sits behind it.
-    for r = n_rows - 1, 0, -1 do
-        local count   = in_row[r] or 0
+    local k = 0
+    for rr = n_rows - 1, 0, -1 do
+        local count = _in_row[rr + 1]
         if count > 0 then
-            local row_w  = widthFor(count)
+            local row_w = widthFor(count)
             -- Odd rows step half a pitch across, so a back column peeks out
             -- between the two in front of it instead of hiding exactly
             -- behind one.
-            local stagger = (r % 2 == 1) and math.floor(pitch * 0.5) or 0
+            local stagger = (rr % 2 == 1) and math.floor(pitch * 0.5) or 0
             local origin_x
             if align == "left" then
-                origin_x = x + stagger
+                origin_x = stagger
             elseif align == "right" then
-                origin_x = x - row_w + stagger
+                origin_x = -row_w + stagger
             else
-                origin_x = x - row_w / 2 + stagger
+                origin_x = -row_w / 2 + stagger
             end
 
             local cx = origin_x + CHIP_RADIUS
-            local ry = y - r * lift
-            for i = 1, #columns do
-                if row_of[i] == r then
-                    local col = columns[i]
-                    for k = 1, col.n do
-                        local depth = col.n - k
-                        placed[#placed + 1] = {
-                            x          = cx,
-                            y          = ry + (k - 1) * STACK_OFFSET_Y,
-                            idx        = col.idx,
-                            with_label = (k == col.n),
-                            src        = col.src[k],
-                            depth      = depth,
-                            shade      = Chips.shadeFor(depth),
-                            col_base   = (k == 1),
-                            row        = r,
-                            rot        = Chips.slotRotation(col.idx, i, k),
-                        }
+            local ry = -rr * lift
+            for ci = 1, nc do
+                if col_row[ci] == rr then
+                    local cn, s0, d = col_n[ci], col_s0[ci], col_idx[ci]
+                    col_x[ci], col_y[ci] = cx, ry
+                    for kk = 1, cn do
+                        k = k + 1
+                        local src   = _sorted[s0 + kk]
+                        local pos   = pos_of and pos_of[src] or src
+                        local depth = cn - kk
+                        Lx[k]     = cx
+                        Ly[k]     = ry + (kk - 1) * STACK_OFFSET_Y
+                        Lidx[k]   = d
+                        Lpos[k]   = pos
+                        Ldepth[k] = depth
+                        Llabel[k] = (kk == cn) and not no_labels
+                        Lbase[k]  = (kk == 1)
+                        Lrow[k]   = rr
+                        Lcol[k]   = ci
+                        Lrot[k]   = Chips.slotRotation(d, ci, kk)
+                        Lshade[k] = Chips.shadeFor(depth)
+                        kop[pos]  = k
+                        if pos > kopn then kopn = pos end
                     end
+                    col_top_k[ci] = k
                     cx = cx + pitch
                 end
             end
         end
+    end
+    L.n, L.n_cols, L.k_of_pos_n = k, nc, kopn
+    return L
+end
+
+-- Returns an array of { x, y, idx, with_label, src, depth, shade,
+-- col_base, row, rot } in draw order: the allocating form of the solver
+-- above, for callers that lay a pile out once (views/ChipPile.layoutAt,
+-- the shove's pot, the sims' cross-check). Solved at (x, y): positions are
+-- offset by the anchor here, where the record form is always at the
+-- origin.
+local _WL = Chips.newLayoutRecord()
+function Chips.stackLayout(x, y, chip_indices, options)
+    local placed = {}
+    if not chip_indices or #chip_indices == 0 then return placed end
+    local L = Chips.stackLayoutInto(_WL, chip_indices, #chip_indices, options)
+    for k = 1, L.n do
+        placed[k] = {
+            x          = x + L.x[k],
+            y          = y + L.y[k],
+            idx        = L.idx[k],
+            with_label = L.label[k],
+            src        = L.pos[k],
+            depth      = L.depth[k],
+            shade      = L.shade[k],
+            col_base   = L.base[k],
+            row        = L.row[k],
+            rot        = L.rot[k],
+        }
     end
     return placed
 end

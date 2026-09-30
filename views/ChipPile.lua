@@ -39,10 +39,26 @@
 --       local taken = ChipPile.take(src_key, amount)
 --       local slots = ChipPile.reserve(dst_key, denoms_of(taken))
 --       ... fly slot to slot, on_arrive → ChipPile.accept(dst_key, slot.chip)
+--
+-- ─── What a pile keeps between frames ───────────────────────────────────
+-- Its LAYOUT is a flat record (views/Chips.stackLayoutInto): parallel
+-- arrays, one entry per settled chip in draw order, solved only when the
+-- collection or a layout-shaping placement field changes. A landing chip
+-- whose column has room is inserted into the record directly, so the
+-- ordinary case — a bet's chips arriving one after another — never
+-- re-solves the pile at all.
+--
+-- Its PICTURE is one SpriteBatch on the chip atlas, rebuilt from the
+-- record only when the record, the tint, the atlas or the sub-pixel
+-- placement changed. A resting pile is one texture draw a frame, whatever
+-- it holds; the hundreds of immediate-mode chips a full board used to draw
+-- are gone. Headless, or with the atlas off, the same record draws a chip
+-- at a time through views/Chips as before.
 
 local Chips    = require("views.Chips")
 local Denoms   = require("services.DenominationBreakdown")
 local ChipData = require("data.chips")
+local Perf     = require("services.Perf")
 
 local ChipPile = {}
 
@@ -59,6 +75,10 @@ local ChipPile = {}
 --   wrong_t = seconds the pile has disagreed with `want` (debounce)
 --   since_take  = seconds since chips last left (refill lockout)
 --   since_place = seconds since a draw path last placed it (liveness)
+--   rev / L / layout_rev    the layout revision, the settled record, and
+--                           the revision it was solved at
+--   frozen / frozen_L / frozen_rev   the Low-motion snapshot and its record
+--   batch / batch_*         the SpriteBatch and the keys it was built on
 -- }
 local _piles = {}
 
@@ -100,6 +120,12 @@ local AIR_TTL         = 4.0
 local GC_SECONDS      = 30     -- drop keys nothing has touched (closed tables)
 local TIDY_FACTOR     = 2      -- tidy once the pile exceeds N× its tier target
 local EPS             = 1e-9
+-- Sprites a pile's batch starts with. A table pile is a few columns; the
+-- bankroll can be twenty. Both grow on demand (views/Chips.Batch:add).
+local BATCH_CAP_TABLE    = 128
+local BATCH_CAP_BANKROLL = 512
+
+local MAX_PER_COLUMN = Chips.MAX_PER_COLUMN
 
 -- ── Helpers ─────────────────────────────────────────────────────────
 -- ─── The layout revision ───────────────────────────────────────────────
@@ -122,6 +148,14 @@ local function denomValue(d)
     return (e and e.value) or 0
 end
 
+-- The batch is GPU memory; it goes with the pile, not with the sweep.
+local function dropBatch(e)
+    if e.batch then
+        Chips.releaseBatch(e.batch)
+        e.batch = nil
+    end
+end
+
 -- The registry is bounded as well as swept: a session that opens and
 -- closes tables faster than GC_SECONDS can never hold more than a board's
 -- worth of piles plus a margin. Past the bound the idlest quiet pile goes.
@@ -135,6 +169,7 @@ local function evictIdlest()
         end
     end
     if worst_key then
+        dropBatch(_piles[worst_key])
         _piles[worst_key] = nil
         _n_piles = _n_piles - 1
     end
@@ -144,8 +179,9 @@ local function entry(key)
     local e = _piles[key]
     if not e then
         if _n_piles >= MAX_PILES then evictIdlest() end
-        e = { chips = {}, n_air = 0, gen = 1, idle = 0, wrong_t = 0,
-              since_take = math.huge, since_place = math.huge }
+        e = { chips = {}, n_air = 0, gen = 1, idle = 0, wrong_t = 0, rev = 0,
+              since_take = math.huge, since_place = math.huge,
+              L = Chips.newLayoutRecord(), layout_rev = -1 }
         _piles[key] = e
         _n_piles = _n_piles + 1
     end
@@ -168,28 +204,6 @@ local function pileValue(e)
     return sum
 end
 
--- Flat denomination-index list, which is what Chips.stackLayout eats,
--- plus the e.chips index each entry came from.
---
--- `settled_only` drops airborne chips. That's what the pile DRAWS: a
--- chip that hasn't landed yet has no business occupying a slot, and
--- holding one open leaves a gap in the stack that reads as a rendering
--- fault rather than as anticipation. The full list is still what an
--- ARRIVAL is measured against — a chip in the air needs to know where it
--- will sit once it's part of the pile.
-local function denomList(e, settled_only)
-    local list, from = {}, {}
-    for i, c in ipairs(e.chips) do
-        if not (settled_only and c.air) then
-            list[#list + 1] = c.d
-            from[#list]     = i
-        end
-    end
-    return list, from
-end
-
--- Same chips in the same order? Breakdown is deterministic, so a straight
--- sequence compare is enough to answer "is this pile already tidy".
 -- Same CONTENTS, not same order. The pile is drawn sorted by
 -- denomination, so two lists holding the same chips render identically no
 -- matter what order they arrived in — and comparing them positionally made
@@ -222,50 +236,93 @@ end
 -- compute slots in unscaled space and every chip would depart from the
 -- wrong place. One implementation, here, for pile rendering AND for
 -- everything that needs to know where an individual chip sits.
-local function layoutLocal(chip_indices, place)
-    if not place then return {} end
+--
+-- Solver scratch, module-wide and reused: the flat denomination list the
+-- solver eats and, beside it, each entry's index in e.chips so the record
+-- comes back keyed on the pile's own positions. Two spare records for the
+-- solves that are read once and dropped (a reserve's targets, a tidy's
+-- before and after).
+local _list = {}
+local _pos  = {}
+local _opts = {}
+local _S1   = Chips.newLayoutRecord()
+local _S2   = Chips.newLayoutRecord()
+local _claimed = {}
+
+-- `settled_only` drops airborne chips. That's what the pile DRAWS: a
+-- chip that hasn't landed yet has no business occupying a slot, and
+-- holding one open leaves a gap in the stack that reads as a rendering
+-- fault rather than as anticipation. The full list is still what an
+-- ARRIVAL is measured against — a chip in the air needs to know where it
+-- will sit once it's part of the pile.
+local function fillList(e, settled_only)
+    local n = 0
+    local chips = e.chips
+    for i = 1, #chips do
+        local c = chips[i]
+        if not (settled_only and c.air) then
+            n = n + 1
+            _list[n] = c.d
+            _pos[n]  = i
+        end
+    end
+    return n
+end
+
+-- The solver options for a placement, in a reused table.
+local function solveOpts(place)
     local s  = place.scale or 1
     local mw = place.max_w
     if mw and s ~= 1 then mw = mw / s end
-    local placed = Chips.stackLayout(0, 0, chip_indices, {
-        align    = place.align or "center",
-        max_w    = mw,
-        -- Column caps are in COLUMNS, not pixels, so unlike max_w they do
-        -- not get divided by the scale.
-        max_cols = place.max_cols,
-        max_rows = place.max_rows,
-    })
+    _opts.align    = place.align or "center"
+    _opts.max_w    = mw
+    -- Column caps are in COLUMNS, not pixels, so unlike max_w they do
+    -- not get divided by the scale.
+    _opts.max_cols = place.max_cols
+    _opts.max_rows = place.max_rows
     -- A pile placed with labels = false (tournament chips are not money
-    -- and must not say "1c") masks them HERE, at the single source every
-    -- consumer reads with_label from — draw, settle parts, takeAll debris.
-    if place.labels == false then
-        for _, p in ipairs(placed) do p.with_label = false end
+    -- and must not say "1c") masks them at the single source every
+    -- consumer reads labels from — draw, settle parts, takeAll debris.
+    _opts.labels   = place.labels
+    return _opts
+end
+
+-- Solve the pile into record L, keyed on e.chips positions.
+local function solveInto(L, e, settled_only)
+    if not e.place then
+        return Chips.stackLayoutInto(L, _list, 0, nil, _pos)
     end
-    return placed
+    local n = fillList(e, settled_only)
+    return Chips.stackLayoutInto(L, _list, n, solveOpts(e.place), _pos)
+end
+
+-- Solve a plain denomination list (a tidy's target) into L.
+local function solveList(L, list, place)
+    if not place then return Chips.stackLayoutInto(L, list, 0, nil) end
+    return Chips.stackLayoutInto(L, list, #list, solveOpts(place))
+end
+
+-- The settled record, re-solved only when the revision moved.
+local function currentLayout(e)
+    if e.layout_rev ~= e.rev then
+        solveInto(e.L, e, true)
+        e.layout_rev = e.rev
+    end
+    return e.L
+end
+
+-- The Low-motion snapshot's record (see ChipPile.freeze), likewise.
+local function frozenLayout(e)
+    if e.frozen_rev ~= e.rev then
+        solveList(e.frozen_L, e.frozen, e.place)
+        e.frozen_rev = e.rev
+    end
+    return e.frozen_L
 end
 
 local function toScreen(place, lx, ly)
     local s = place.scale or 1
     return place.x + lx * s, place.y + ly * s
-end
-
--- Screen-space slot per position in e.chips. Positions clipped out by the
--- max_w budget simply have no entry.
---
--- `settled_only` picks which layout to measure against: where chips are
--- actually DRAWN right now (departures), or where they will sit once
--- everything in the air has landed (arrivals).
-local function slotsByPos(e, settled_only)
-    local out = {}
-    if not e.place then return out end
-    local list, from = denomList(e, settled_only)
-    for _, p in ipairs(layoutLocal(list, e.place)) do
-        if p.src and from[p.src] then
-            local sx, sy = toScreen(e.place, p.x, p.y)
-            out[from[p.src]] = { x = sx, y = sy, with_label = p.with_label }
-        end
-    end
-    return out
 end
 
 -- `shade` and `depth` come from the placement: how far down its column the
@@ -327,14 +384,18 @@ end
 -- breakdown it was handed). Returns screen-space { x, y, idx, with_label }.
 function ChipPile.layoutAt(x, y, chip_indices, opts)
     opts = opts or {}
-    local place = {
-        x = x, y = y,
-        align = opts.align, max_w = opts.max_w, scale = opts.scale or 1,
-        max_cols = opts.max_cols, max_rows = opts.max_rows,
-    }
-    local placed = layoutLocal(chip_indices, place)
+    local s  = opts.scale or 1
+    local mw = opts.max_w
+    if mw and s ~= 1 then mw = mw / s end
+    local placed = Chips.stackLayout(0, 0, chip_indices, {
+        align    = opts.align or "center",
+        max_w    = mw,
+        max_cols = opts.max_cols,
+        max_rows = opts.max_rows,
+        labels   = opts.labels,
+    })
     for _, p in ipairs(placed) do
-        p.x, p.y = toScreen(place, p.x, p.y)
+        p.x, p.y = x + p.x * s, y + p.y * s
     end
     return placed
 end
@@ -365,7 +426,7 @@ function ChipPile.place(key, x, y, opts)
        -- How wide/deep this pile may grow, in columns. The caller knows
        -- what its pile would run into; the pile does not.
        or p.max_cols ~= opts.max_cols or p.max_rows ~= opts.max_rows
-       -- false = no denomination labels, ever (see layoutLocal).
+       -- false = no denomination labels, ever (see solveOpts).
        or p.labels ~= opts.labels then
         p.align, p.max_w, p.scale  = align, opts.max_w, scale
         p.max_cols, p.max_rows     = opts.max_cols, opts.max_rows
@@ -385,7 +446,12 @@ function ChipPile.scale(key)
     return (e and e.place and e.place.scale) or 1
 end
 
+-- With a key: how many chips that pile holds (the felt's stack readouts).
+-- Without one: how many piles the registry holds (tests, the HUD). The
+-- two used to be separate definitions of the same name and the second
+-- silently replaced the first.
 function ChipPile.count(key)
+    if key == nil then return _n_piles end
     local e = _piles[key]
     return e and #e.chips or 0
 end
@@ -397,14 +463,34 @@ function ChipPile.debugSettleParts(key)
     return e and e.settle and e.settle.parts or nil
 end
 
+-- The slots the pile is DRAWING right now, in draw order and screen space:
+-- { x, y, idx, depth, with_label, col_base, rot }. From the record the
+-- draw reads, so a check can hold it against a fresh layout of the same
+-- chips. nil mid-settle, when there is no single layout.
+function ChipPile.debugSlots(key)
+    local e = _piles[key]
+    if not e or not e.place or e.settle then return nil end
+    local L = e.frozen and frozenLayout(e) or currentLayout(e)
+    local out = {}
+    for k = 1, L.n do
+        local sx, sy = toScreen(e.place, L.x[k], L.y[k])
+        out[k] = { x = sx, y = sy, idx = L.idx[k], depth = L.depth[k],
+                   with_label = L.label[k], col_base = L.base[k], rot = L.rot[k] }
+    end
+    return out
+end
+
 -- The denominations this pile currently holds, in order. A read-only view
 -- for anything that needs to reason about the pile's composition rather
--- than just its total.
-function ChipPile.denominations(key)
+-- than just its total. `settled_only` leaves out the chips still in the
+-- air, which is the list the pile draws.
+function ChipPile.denominations(key, settled_only)
     local e = _piles[key]
     if not e then return {} end
     local out = {}
-    for i, c in ipairs(e.chips) do out[i] = c.d end
+    for _, c in ipairs(e.chips) do
+        if not (settled_only and c.air) then out[#out + 1] = c.d end
+    end
     return out
 end
 
@@ -561,11 +647,11 @@ function ChipPile.tidy(key, value, opts)
         return
     end
 
-    local target_denoms = {}
-    for i, c in ipairs(target) do target_denoms[i] = c.d end
-
-    local from = layoutLocal(denomList(e, true), e.place)
-    local to   = layoutLocal(target_denoms, e.place)
+    -- Before and after, as two scratch records. `from` is what is on the
+    -- felt now; `to` is the target list laid out the same way.
+    local from = solveInto(_S1, e, true)
+    for i, c in ipairs(target) do _list[i] = c.d end
+    local to = Chips.stackLayoutInto(_S2, _list, #target, solveOpts(e.place))
 
     -- Pair by denomination, NEAREST FIRST: a $5 already on the felt slides
     -- to the closest place a $5 is wanted. Only the surplus fades.
@@ -576,63 +662,55 @@ function ChipPile.tidy(key, value, opts)
     -- dealt the pile out again, and three identical stacks visibly traded
     -- places while being, chip for chip, exactly what they were before.
     -- Nothing about the pile had changed; the animation moved them anyway.
-    local pool = {}
-    for _, p in ipairs(from) do
-        local b = pool[p.idx]
-        if not b then b = {}; pool[p.idx] = b end
-        b[#b + 1] = p
-    end
-
-    -- Closest unclaimed source of this denomination, or nil if none is left.
-    local function takeNearest(idx, tx, ty)
-        local b = pool[idx]
-        if not b or #b == 0 then return nil end
-        local best, best_d2 = nil, math.huge
-        for i, p in ipairs(b) do
-            local dx, dy = p.x - tx, p.y - ty
-            local d2 = dx * dx + dy * dy
-            if d2 < best_d2 then best, best_d2 = i, d2 end
-        end
-        return table.remove(b, best)
-    end
+    for k = 1, from.n do _claimed[k] = false end
 
     local parts = {}
-    for _, p in ipairs(to) do
-        local src = takeNearest(p.idx, p.x, p.y)
+    for k2 = 1, to.n do
+        local idx, tx, ty = to.idx[k2], to.x[k2], to.y[k2]
+        -- Closest unclaimed source of this denomination, or none.
+        local best, best_d2 = nil, math.huge
+        for k1 = 1, from.n do
+            if not _claimed[k1] and from.idx[k1] == idx then
+                local dx, dy = from.x[k1] - tx, from.y[k1] - ty
+                local d2 = dx * dx + dy * dy
+                if d2 < best_d2 then best, best_d2 = k1, d2 end
+            end
+        end
+        if best then _claimed[best] = true end
         parts[#parts + 1] = {
-            d     = p.idx,
-            label = p.with_label,
-            x0    = src and src.x or p.x,
-            y0    = src and src.y or p.y,
-            x1    = p.x, y1 = p.y,
-            mode  = src and "move" or "in",
+            d     = idx,
+            label = to.label[k2],
+            x0    = best and from.x[best] or tx,
+            y0    = best and from.y[best] or ty,
+            x1    = tx, y1 = ty,
+            mode  = best and "move" or "in",
             -- A settling chip can change depth on the way. Interpolating
             -- the shade is what stops the whole pile flattening for the
             -- settle and popping back at the end.
-            sh0   = (src and src.shade) or p.shade,
-            sh1   = p.shade,
+            sh0   = best and from.shade[best] or to.shade[k2],
+            sh1   = to.shade[k2],
             -- Where the chip was buried BEFORE the settle, and where it
             -- will be after. The draw picks between them: a chip on the
             -- move is a whole chip until it lands (see ChipPile.draw).
-            depth0 = (src and src.depth) or p.depth,
-            depth = p.depth,
-            base  = p.col_base,
-            rot   = p.rot,
+            depth0 = best and from.depth[best] or to.depth[k2],
+            depth = to.depth[k2],
+            base  = to.base[k2],
+            rot   = to.rot[k2],
         }
     end
-    for _, b in pairs(pool) do
-        for _, p in ipairs(b) do
+    for k1 = 1, from.n do
+        if not _claimed[k1] then
             parts[#parts + 1] = {
-                d     = p.idx,
-                label = p.with_label,
-                x0    = p.x, y0 = p.y,
-                x1    = p.x, y1 = p.y,
+                d     = from.idx[k1],
+                label = from.label[k1],
+                x0    = from.x[k1], y0 = from.y[k1],
+                x1    = from.x[k1], y1 = from.y[k1],
                 mode  = "out",
-                sh0   = p.shade, sh1 = p.shade,
-                depth0 = p.depth,
-                depth = p.depth,
-                base  = p.col_base,
-                rot   = p.rot,
+                sh0   = from.shade[k1], sh1 = from.shade[k1],
+                depth0 = from.depth[k1],
+                depth = from.depth[k1],
+                base  = from.base[k1],
+                rot   = from.rot[k1],
             }
         end
     end
@@ -681,6 +759,14 @@ local function breakChip(e, chip)
     return false
 end
 
+-- The screen slot of e.chips[i] in the settled record, or the pile's own
+-- anchor for a chip the width budget clipped.
+local function slotOf(e, L, i)
+    local k = L.k_of_pos[i]
+    if k then return toScreen(e.place, L.x[k], L.y[k]) end
+    return e.place and e.place.x, e.place and e.place.y
+end
+
 function ChipPile.take(key, amount)
     local e = live(key)
     if not e or not amount or amount <= 0 or #e.chips == 0 then return nil end
@@ -714,17 +800,13 @@ function ChipPile.take(key, amount)
     -- Positions are read AFTER any change-making, so a chip departs from
     -- where it is actually sitting at this instant — the drawn layout,
     -- not the one that includes chips still on their way here.
-    local slots = slotsByPos(e, true)
+    local L = currentLayout(e)
     local taken = {}
     for i = #e.chips, 1, -1 do
         local c = e.chips[i]
         if mark[c] then
-            local s = slots[i]
-            table.insert(taken, 1, {
-                d = c.d,
-                x = s and s.x or (e.place and e.place.x),
-                y = s and s.y or (e.place and e.place.y),
-            })
+            local sx, sy = slotOf(e, L, i)
+            table.insert(taken, 1, { d = c.d, x = sx, y = sy })
             table.remove(e.chips, i)
         end
     end
@@ -750,16 +832,12 @@ function ChipPile.takeAll(key)
     local e = _piles[key]
     if not e or #e.chips == 0 then return nil end
     finishSettle(e)
-    local slots = slotsByPos(e, true)
+    local L = currentLayout(e)
     local taken = {}
     for i, c in ipairs(e.chips) do
         if not c.air then
-            local s = slots[i]
-            taken[#taken + 1] = {
-                d = c.d,
-                x = s and s.x or (e.place and e.place.x),
-                y = s and s.y or (e.place and e.place.y),
-            }
+            local sx, sy = slotOf(e, L, i)
+            taken[#taken + 1] = { d = c.d, x = sx, y = sy }
         end
     end
     if #taken == 0 then return nil end
@@ -770,10 +848,11 @@ end
 
 -- ── Reserve / accept: chips arrive at this pile ─────────────────────
 -- reserve() appends the incoming chips and marks them airborne. They
--- occupy their slots in the LAYOUT immediately — so the chips already on
--- the felt sit where they will still be sitting once the flight lands —
--- but draw() skips them, leaving a hole. The flight fills that hole at
--- exactly the pixel it ends on.
+-- occupy their slots in the FULL layout — so the chips already on the
+-- felt sit where they will still be sitting once the flight lands — but
+-- the settled record the pile draws is untouched: the airborne chips are
+-- simply not in it, and the flight fills the hole at exactly the pixel it
+-- ends on.
 --
 -- Returns { { chip, x, y, with_label }, ... }, one per requested chip.
 -- Hand `chip` back to accept() from the flight's on_arrive.
@@ -793,23 +872,114 @@ function ChipPile.reserve(key, denom_indices)
     end
     e.n_air   = e.n_air + #refs
     e.wrong_t = 0
-    touch(e)
 
-    -- Measured against the FULL layout: an arriving chip aims for where
-    -- it will sit once everything in the air has landed, so it doesn't
-    -- have to shuffle after touching down.
-    local slots = slotsByPos(e, false)
-    local out   = {}
+    -- Measured against the FULL layout, in a scratch record: an arriving
+    -- chip aims for where it will sit once everything in the air has
+    -- landed, so it doesn't have to shuffle after touching down. The
+    -- drawn layout did not change, so the revision is left alone.
+    local T   = solveInto(_S1, e, false)
+    local out = {}
     for i, c in ipairs(refs) do
-        local s = slots[base + i]
-        out[i] = {
-            chip       = c,
-            x          = s and s.x,
-            y          = s and s.y,
-            with_label = s and s.with_label,
-        }
+        local k = T.k_of_pos[base + i]
+        local sx, sy, label
+        if k then
+            sx, sy = toScreen(e.place, T.x[k], T.y[k])
+            label  = T.label[k]
+        end
+        out[i] = { chip = c, x = sx, y = sy, with_label = label }
     end
     return out
+end
+
+-- A chip has landed: it joins the settled record. If the record is
+-- current, the pile is neither frozen nor settling, and the last column of
+-- the chip's denomination has room, the chip is INSERTED at that column's
+-- top — the numeric tail shifts up one, the entries below it are re-buried
+-- by one, and the column's bookkeeping grows — which is exactly what a
+-- fresh solve would produce, because a new chip only ever extends the last
+-- column of its denomination and every other column stays where it was.
+-- Otherwise (a new column, a full one, a stale record) the revision moves
+-- and the next draw solves the pile whole.
+local function landChip(e, chip)
+    chip.air = nil
+    e.n_air  = math.max(0, e.n_air - 1)
+    e.idle   = 0
+
+    local L = e.L
+    if e.layout_rev ~= e.rev or e.frozen or e.settle or not e.place or L.n_cols == 0 then
+        touch(e)
+        return
+    end
+
+    -- Which column of this denomination is last, and this chip's position.
+    local d, ci = chip.d, nil
+    for c = 1, L.n_cols do
+        if L.col_idx[c] == d then ci = c end
+    end
+    if not ci or L.col_n[ci] >= MAX_PER_COLUMN then
+        touch(e)
+        return
+    end
+    local pos
+    local chips = e.chips
+    for i = 1, #chips do
+        if chips[i] == chip then pos = i; break end
+    end
+    if not pos then
+        touch(e)
+        return
+    end
+
+    local Lx, Ly, Lidx, Lpos, Ldepth = L.x, L.y, L.idx, L.pos, L.depth
+    local Llabel, Lbase, Lrot, Lshade, Lrow, Lcol = L.label, L.base, L.rot, L.shade, L.row, L.col
+    local kop = L.k_of_pos
+    local n   = L.n
+    local top = L.col_top_k[ci]
+    local ins = top + 1
+
+    -- Shift the tail up one entry.
+    for k = n, ins, -1 do
+        local j = k + 1
+        Lx[j], Ly[j], Lidx[j], Lpos[j], Ldepth[j] = Lx[k], Ly[k], Lidx[k], Lpos[k], Ldepth[k]
+        Llabel[j], Lbase[j], Lrot[j], Lshade[j], Lrow[j], Lcol[j] =
+            Llabel[k], Lbase[k], Lrot[k], Lshade[k], Lrow[k], Lcol[k]
+        kop[Lpos[j]] = j
+    end
+    for c = 1, L.n_cols do
+        if L.col_top_k[c] >= ins then L.col_top_k[c] = L.col_top_k[c] + 1 end
+    end
+
+    -- The chips below the new top are one deeper, and the label moves up.
+    local cn = L.col_n[ci]
+    for k = top - cn + 1, top do
+        local depth = Ldepth[k] + 1
+        Ldepth[k] = depth
+        Lshade[k] = Chips.shadeFor(depth)
+        Llabel[k] = false
+    end
+
+    local kk = cn + 1
+    Lx[ins]     = L.col_x[ci]
+    Ly[ins]     = L.col_y[ci] + (kk - 1) * Chips.stackStep()
+    Lidx[ins]   = d
+    Lpos[ins]   = pos
+    Ldepth[ins] = 0
+    Llabel[ins] = (e.place.labels ~= false)
+    Lbase[ins]  = false
+    Lrot[ins]   = Chips.slotRotation(d, ci, kk)
+    Lshade[ins] = Chips.shadeFor(0)
+    Lrow[ins]   = L.col_row[ci]
+    Lcol[ins]   = ci
+    kop[pos]    = ins
+    if pos > L.k_of_pos_n then L.k_of_pos_n = pos end
+    L.col_n[ci]     = kk
+    L.col_top_k[ci] = ins
+    L.n = n + 1
+
+    -- The picture changed, the solve did not: both revisions move together
+    -- so the batch rebuilds and the layout is not re-solved.
+    touch(e)
+    e.layout_rev = e.rev
 end
 
 -- The chip has landed. A chip whose generation no longer matches (its
@@ -819,23 +989,22 @@ function ChipPile.accept(key, chip)
     local e = _piles[key]
     if not e or not chip or not chip.air then return end
     if chip.gen ~= e.gen then return end
-    chip.air = nil
-    e.n_air  = math.max(0, e.n_air - 1)
-    e.idle   = 0
-    touch(e)
+    landChip(e, chip)
 end
 
--- ── Draw ────────────────────────────────────────────────────────────
 -- ── Freeze ──────────────────────────────────────────────────────────
 -- Low motion: a pile that must not fidget draws a snapshot of its settled
 -- chips while the real collection keeps taking and accepting underneath.
 -- views/TablePanel freezes the pot and the player's stack for a street and
 -- thaws them at the next street and at settle, so the felt's chips change
--- a few times a hand instead of on every bet.
+-- a few times a hand instead of on every bet. The snapshot has its own
+-- record, solved under the revision like the live one.
 function ChipPile.freeze(key)
     local e = _piles[key]
     if not e then return end
-    e.frozen = denomList(e, true)
+    e.frozen = ChipPile.denominations(key, true)
+    e.frozen_L = e.frozen_L or Chips.newLayoutRecord()
+    e.frozen_rev = -1
     touch(e)
 end
 
@@ -844,128 +1013,203 @@ function ChipPile.thaw(key)
     if e then e.frozen = nil; touch(e) end
 end
 
+-- ── Draw ────────────────────────────────────────────────────────────
+-- The pile's batch, made on first use and remade when the atlas changes
+-- generation (a resize, a font). nil headless or with the atlas off, and
+-- the record draws a chip at a time instead.
+local function pileBatch(e, key)
+    local B   = e.batch
+    local gen = Chips.atlasGen()
+    if B and B.gen ~= gen then
+        Chips.releaseBatch(B)
+        B = nil
+        e.batch = nil
+    end
+    if not B then
+        B = Chips.newBatch((key == "bankroll") and BATCH_CAP_BANKROLL or BATCH_CAP_TABLE)
+        e.batch = B
+    end
+    return B
+end
+
+-- Does the batch need rebuilding for this frame? The record's revision,
+-- the tint and the atlas are the obvious keys; the sub-pixel part of the
+-- placement is the quiet one — labels are snapped to whole screen pixels
+-- when they are added (views/Chips), so a pile that slides by a fraction
+-- has to re-add them. A pile that moves by whole pixels does not.
+local function batchStale(e, B, place, tint, s)
+    local fx, fy = place.x - math.floor(place.x), place.y - math.floor(place.y)
+    if e.batch_rev == e.rev and e.batch_tint == tint and e.batch_gen == B.gen
+       and e.batch_fx == fx and e.batch_fy == fy and e.batch_s == s then
+        return false
+    end
+    e.batch_rev, e.batch_tint, e.batch_gen = e.rev, tint, B.gen
+    e.batch_fx, e.batch_fy, e.batch_s = fx, fy, s
+    return true
+end
+
+-- The record's chips into the batch: shadows first, then chips in draw
+-- order. Same two passes as the immediate draw, for the same reason — a
+-- shadow is wider than its chip and would land on the neighbour's column.
+local function fillBatch(B, L, place, tint, s)
+    Chips.batchClear(B)
+    Chips.batchOrigin(B, place.x, place.y, s)
+    for k = 1, L.n do
+        if L.base[k] then Chips.addShadow(B, L.x[k], L.y[k], 1, 1) end
+    end
+    for k = 1, L.n do
+        Chips.addChip(B, L.x[k], L.y[k], L.idx[k], 1, L.label[k], tint,
+                      L.shade[k], L.depth[k], L.rot[k], s, 1)
+    end
+    Perf.count("pile_batch")
+end
+
+-- Draw a record: the micro tier as vector columns, otherwise the batch or,
+-- without one, a chip at a time.
+local function drawRecord(e, key, L, micro)
+    local place, tint = e.place, e.tint
+    local s = place.scale or 1
+    if micro then
+        -- "micro": one shape per column and no shadows. The column is drawn
+        -- from its BASE entry, whose depth is the number of chips above it;
+        -- every other entry in that column is skipped.
+        for k = 1, L.n do
+            if L.base[k] then
+                drawColumnLocal(place, tint, L.x[k], L.y[k], L.idx[k], 1, L.depth[k])
+            end
+        end
+        return
+    end
+    local B = pileBatch(e, key)
+    if B then
+        if batchStale(e, B, place, tint, s) then fillBatch(B, L, place, tint, s) end
+        Chips.drawBatch(B, place.x, place.y, s)
+        return
+    end
+    -- Shadows are their own pass, always. One is wider than the chip it
+    -- belongs to and columns sit two pixels apart, so interleaved they
+    -- would land on the neighbouring column's chips.
+    for k = 1, L.n do
+        if L.base[k] then drawShadowLocal(place, L.x[k], L.y[k], 1) end
+    end
+    for k = 1, L.n do
+        drawChipLocal(place, tint, L.x[k], L.y[k], L.idx[k], 1, L.label[k],
+                      L.shade[k], L.depth[k], L.rot[k])
+    end
+end
+
+local function partAlpha(p, ease)
+    if p.mode == "in"  then return ease end
+    if p.mode == "out" then return 1 - ease end
+    return 1
+end
+
+-- How buried to draw a settling part. Drawn at its DESTINATION depth from
+-- the first frame, a top chip bound for the middle of a column slid across
+-- the felt as the bottom crescent of a cylinder wall with nothing on top of
+-- it: the flash of "another kind of chip" a settle used to show. A chip in
+-- motion is a whole chip until it lands; one that stays put is covered only
+-- while it is covered both before and after, so a column being uncovered
+-- shows the full chip as the one above leaves, and one being covered stays
+-- whole until the arrival is actually on it.
+local function partDepth(p, ease)
+    if ease >= 1 then return p.depth end
+    if p.x0 ~= p.x1 or p.y0 ~= p.y1 then return 0 end
+    return math.min(p.depth0 or p.depth, p.depth)
+end
+
+-- A settle in progress: every part interpolated. The batch is rebuilt
+-- every frame from the parts — a settle is a fifth of a second on one pile.
+local function drawSettle(e, key, micro)
+    local place, tint = e.place, e.tint
+    local s     = place.scale or 1
+    local parts = e.settle.parts
+    local k     = math.min(1, e.settle.t / e.settle.dur)
+    local ease  = k * k * (3 - 2 * k)
+
+    if micro then
+        for _, p in ipairs(parts) do
+            local a = partAlpha(p, ease)
+            -- A settling column rides its base part; a bet is exactly when
+            -- the per-chip cost would matter most.
+            if a > 0.01 and p.base then
+                drawColumnLocal(place, tint,
+                                p.x0 + (p.x1 - p.x0) * ease,
+                                p.y0 + (p.y1 - p.y0) * ease,
+                                p.d, a, p.depth)
+            end
+        end
+        return
+    end
+
+    local B = pileBatch(e, key)
+    if B then
+        Chips.batchClear(B)
+        Chips.batchOrigin(B, place.x, place.y, s)
+        for _, p in ipairs(parts) do
+            local a = partAlpha(p, ease)
+            -- A shadow at full strength under a chip fading out is a
+            -- smudge with nothing on top of it.
+            if p.base and a > 0.01 then
+                Chips.addShadow(B, p.x0 + (p.x1 - p.x0) * ease,
+                                   p.y0 + (p.y1 - p.y0) * ease, a, 1)
+            end
+        end
+        for _, p in ipairs(parts) do
+            local a = partAlpha(p, ease)
+            if a > 0.01 then
+                local sh = (p.sh0 or 1) + ((p.sh1 or 1) - (p.sh0 or 1)) * ease
+                Chips.addChip(B, p.x0 + (p.x1 - p.x0) * ease,
+                                 p.y0 + (p.y1 - p.y0) * ease,
+                                 p.d, a, p.label, tint, sh, partDepth(p, ease), p.rot, s, 1)
+            end
+        end
+        Perf.count("pile_batch")
+        e.batch_rev = nil   -- the next resting frame rebuilds from the record
+        Chips.drawBatch(B, place.x, place.y, s)
+        return
+    end
+
+    for _, p in ipairs(parts) do
+        local a = partAlpha(p, ease)
+        if p.base and a > 0.01 then
+            drawShadowLocal(place,
+                            p.x0 + (p.x1 - p.x0) * ease,
+                            p.y0 + (p.y1 - p.y0) * ease, a)
+        end
+    end
+    for _, p in ipairs(parts) do
+        local a = partAlpha(p, ease)
+        if a > 0.01 then
+            local sh = (p.sh0 or 1) + ((p.sh1 or 1) - (p.sh0 or 1)) * ease
+            drawChipLocal(place, tint,
+                          p.x0 + (p.x1 - p.x0) * ease,
+                          p.y0 + (p.y1 - p.y0) * ease,
+                          p.d, a, p.label, sh, partDepth(p, ease), p.rot)
+        end
+    end
+end
+
 function ChipPile.draw(key)
     local e = _piles[key]
     if not e or not e.place then return end
     e.idle = 0
-    local place, tint = e.place, e.tint
-    -- "micro": one shape per column and no shadows. The column is drawn
-    -- from its BASE entry, whose depth is the number of chips above it;
-    -- every other entry in that column is skipped.
-    local micro = place.detail == "micro"
+    local micro = e.place.detail == "micro"
 
     if e.frozen then
-        local placed = layoutLocal(e.frozen, place)
-        if micro then
-            for _, p in ipairs(placed) do
-                if p.col_base then
-                    drawColumnLocal(place, tint, p.x, p.y, p.idx, 1, p.depth)
-                end
-            end
-            return
-        end
-        for _, p in ipairs(placed) do
-            if p.col_base then drawShadowLocal(place, p.x, p.y, 1) end
-        end
-        for _, p in ipairs(placed) do
-            drawChipLocal(place, tint, p.x, p.y, p.idx, 1, p.with_label,
-                          p.shade, p.depth, p.rot)
-        end
+        drawRecord(e, key, frozenLayout(e), micro)
         return
     end
-
-    -- Shadows are their own pass, always. One is wider than the chip it
-    -- belongs to and columns sit two pixels apart, so interleaved they
-    -- would land on the neighbouring column's chips.
     if e.settle then
-        local k = math.min(1, e.settle.t / e.settle.dur)
-        local ease = k * k * (3 - 2 * k)
-        local function partAlpha(p)
-            if p.mode == "in"  then return ease end
-            if p.mode == "out" then return 1 - ease end
-            return 1
-        end
-        if not micro then
-            for _, p in ipairs(e.settle.parts) do
-                local a = partAlpha(p)
-                -- A shadow at full strength under a chip fading out is a
-                -- smudge with nothing on top of it.
-                if p.base and a > 0.01 then
-                    drawShadowLocal(place,
-                                    p.x0 + (p.x1 - p.x0) * ease,
-                                    p.y0 + (p.y1 - p.y0) * ease, a)
-                end
-            end
-        end
-        for _, p in ipairs(e.settle.parts) do
-            local a = partAlpha(p)
-            if a > 0.01 then
-                if micro then
-                    -- A settling column rides its base part; a bet is
-                    -- exactly when the per-chip cost would matter most.
-                    if p.base then
-                        drawColumnLocal(place, tint,
-                                        p.x0 + (p.x1 - p.x0) * ease,
-                                        p.y0 + (p.y1 - p.y0) * ease,
-                                        p.d, a, p.depth)
-                    end
-                else
-                    local sh = (p.sh0 or 1) + ((p.sh1 or 1) - (p.sh0 or 1)) * ease
-                    -- How buried to draw it. Drawn at its DESTINATION depth
-                    -- from the first frame, a top chip bound for the middle
-                    -- of a column slid across the felt as the bottom
-                    -- crescent of a cylinder wall with nothing on top of
-                    -- it: the flash of "another kind of chip" a settle
-                    -- used to show. A chip in motion is a whole chip until
-                    -- it lands; one that stays put is covered only while it
-                    -- is covered both before and after, so a column being
-                    -- uncovered shows the full chip as the one above
-                    -- leaves, and one being covered stays whole until the
-                    -- arrival is actually on it.
-                    local depth
-                    if ease >= 1 then
-                        depth = p.depth
-                    elseif p.x0 ~= p.x1 or p.y0 ~= p.y1 then
-                        depth = 0
-                    else
-                        depth = math.min(p.depth0 or p.depth, p.depth)
-                    end
-                    drawChipLocal(place, tint,
-                                  p.x0 + (p.x1 - p.x0) * ease,
-                                  p.y0 + (p.y1 - p.y0) * ease,
-                                  p.d, a, p.label, sh, depth, p.rot)
-                end
-            end
-        end
+        drawSettle(e, key, micro)
         return
     end
-
     -- Settled chips only, laid out compactly. Airborne ones are drawn by
     -- their flight and are simply not in this layout, so the pile is
     -- always a solid stack — never a stack with slots punched out of it
     -- waiting to be filled. It shifts a little when an arrival tips a
     -- column over its limit, which reads as the stack making room.
-    local placed = e.layout
-    if not placed or e.layout_rev ~= e.rev then
-        placed        = layoutLocal(denomList(e, true), place)
-        e.layout      = placed
-        e.layout_rev  = e.rev
-    end
-    if micro then
-        for _, p in ipairs(placed) do
-            if p.col_base then
-                drawColumnLocal(place, tint, p.x, p.y, p.idx, 1, p.depth)
-            end
-        end
-        return
-    end
-    for _, p in ipairs(placed) do
-        if p.col_base then drawShadowLocal(place, p.x, p.y, 1) end
-    end
-    for _, p in ipairs(placed) do
-        drawChipLocal(place, tint, p.x, p.y, p.idx, 1, p.with_label,
-                      p.shade, p.depth, p.rot)
-    end
+    drawRecord(e, key, currentLayout(e), micro)
 end
 
 -- ── Lifecycle ───────────────────────────────────────────────────────
@@ -1067,6 +1311,7 @@ function ChipPile.update(dt)
         -- Keys for closed tables stop being touched and go away. Nothing
         -- in flight is stranded: a late arrival fails the generation check.
         if e.idle > GC_SECONDS and e.n_air == 0 then
+            dropBatch(e)
             _piles[key] = nil
             _n_piles = _n_piles - 1
         end
@@ -1074,8 +1319,9 @@ function ChipPile.update(dt)
 end
 
 -- Empty the pile but keep its placement — a new hand at the same table
--- draws in the same spot. Bumps the generation so chips still in the air
--- toward the old contents can't land in the new one.
+-- draws in the same spot, so its batch stays too and is simply refilled.
+-- Bumps the generation so chips still in the air toward the old contents
+-- can't land in the new one.
 function ChipPile.clear(key)
     local e = _piles[key]
     if not e then return end
@@ -1093,9 +1339,12 @@ end
 
 -- Drop one key now (a closed table's pot and stack), instead of waiting
 -- GC_SECONDS for the sweep. Chips still in the air toward it fail the
--- generation check exactly as they do after the sweep.
+-- generation check exactly as they do after the sweep. Its batch goes
+-- with it.
 function ChipPile.forget(key)
-    if not key or not _piles[key] then return end
+    local e = key and _piles[key]
+    if not e then return end
+    dropBatch(e)
     _piles[key] = nil
     _n_piles = _n_piles - 1
 end
@@ -1103,12 +1352,10 @@ end
 -- Does the registry hold this key (tests).
 function ChipPile.has(key) return _piles[key] ~= nil end
 
--- How many piles are held (tests, the HUD).
-function ChipPile.count() return _n_piles end
-
 -- Drop everything. Call alongside FlightSystem.clear so a state teardown
 -- can't leave a pile holding chips whose flights were just discarded.
 function ChipPile.clearAll()
+    for _, e in pairs(_piles) do dropBatch(e) end
     _piles = {}
     _n_piles = 0
 end

@@ -114,6 +114,11 @@ do
 end
 
 -- ── chips: the face atlas ───────────────────────────────────────────────
+-- One canvas for the whole ladder, built on the first draw and never again
+-- for anything that varies per chip: tint, shade, rotation and denomination
+-- are sprite parameters, not bake keys. Only a resize or a font change
+-- earns a rebuild. sim/smoke_chips.lua goes deeper (piles, batches,
+-- flights); this is the cache contract in the same terms as the others.
 
 local Chips  -- also used by the pile section below
 
@@ -134,48 +139,54 @@ do
     Chips.drawChip(100, 100, 1, 1, true, nil, 1, 0, 1, 0.4)
     local vector_primitives = rec.total()
 
-    -- The atlas: first draw bakes, second reuses.
+    -- The atlas: the first draw builds it, the second draws from it.
     Constants.FEATURES.CHIP_ATLAS = true
     rec.reset()
     Chips.drawChip(100, 100, 1, 1, true, nil, 1, 0, 1, 0.4)
-    c.eq(rec.canvases, 2, "the first draw bakes exactly two canvases")
+    c.eq(rec.canvases, 1, "the first draw builds exactly one canvas")
 
     rec.reset()
     Chips.drawChip(100, 100, 1, 1, true, nil, 1, 0, 1, 0.4)
-    c.eq(rec.canvases, 0, "a second draw of the same variant must not bake again")
-    c.eq(rec.calls.draw or 0, 2, "an atlas chip is two texture draws")
+    c.eq(rec.canvases, 0, "a second draw must not build again")
+    c.eq(rec.calls.draw or 0, 5, "a labelled atlas chip is five quad draws")
+    c.eq(rec.calls.arc or 0, 0, "an atlas chip draws no arcs")
+    c.eq(rec.calls.print or 0, 0, "the label is a quad, not a print")
     c.ok(rec.total() < vector_primitives,
          string.format("atlas (%d) should cost fewer primitives than vector (%d)",
                        rec.total(), vector_primitives))
-
-    -- Rotation is applied at draw, so it must reuse the bake.
     rec.reset()
-    Chips.drawChip(50, 50, 1, 1, true, nil, 1, 0, 1, 2.1)
-    c.eq(rec.canvases, 0, "a different rotation must reuse the bake")
+    Chips.drawChip(100, 100, 1, 1, false, nil, 1, 0, 1, 0.4)
+    c.eq(rec.calls.draw or 0, 2, "an unlabelled atlas chip is two quad draws")
 
-    -- Denomination, tint and shade are each part of the key.
+    -- Rotation, denomination, tint and shade are sprite parameters, so none
+    -- of them may touch the canvas.
     for _, case in ipairs({
+        { "rotation",     function() Chips.drawChip(50, 50, 1, 1, true, nil, 1, 0, 1, 2.1) end },
         { "denomination", function() Chips.drawChip(50, 50, 2, 1, true, nil, 1, 0, 1, 0) end },
         { "tint",  function() Chips.drawChip(50, 50, 1, 1, true, { 0.5, 0.5, 0.5 }, 1, 0, 1, 0) end },
         { "shade", function() Chips.drawChip(50, 50, 1, 1, true, nil, 0.8, 0, 1, 0) end },
+        { "shade a thousandth off", function() Chips.drawChip(50, 50, 1, 1, true, nil, 0.8003, 0, 1, 0) end },
+        { "shade a tenth off",      function() Chips.drawChip(50, 50, 1, 1, true, nil, 0.7, 0, 1, 0) end },
     }) do
         rec.reset(); case[2]()
-        c.eq(rec.canvases, 2, "a new " .. case[1] .. " bakes its own pair")
+        c.eq(rec.canvases, 0, "a new " .. case[1] .. " must not bake anything")
     end
 
-    -- A resize drops every bake.
+    -- A resize rebuilds the atlas, once, on the next draw.
     Chips.setScale(1.25)
     rec.reset()
     Chips.drawChip(50, 50, 1, 1, true, nil, 1, 0, 1, 0)
-    c.eq(rec.canvases, 2, "setScale must invalidate the bakes")
+    Chips.drawChip(50, 50, 3, 1, true, nil, 1, 0, 1, 0)
+    c.eq(rec.canvases, 1, "setScale must rebuild the atlas exactly once")
 
-    -- Buried and edge chips are few and cheap, and stay vector.
+    -- Buried and edge chips are one quad each out of the same canvas.
     rec.reset()
     Chips.drawChip(50, 50, 1, 1, true, nil, 1, 3, 1, 0)
-    c.ok(rec.canvases == 0 and (rec.calls.draw or 0) == 0, "buried chips stay vector")
+    c.ok(rec.canvases == 0 and (rec.calls.draw or 0) == 1 and (rec.calls.arc or 0) == 0,
+         "a buried chip is one quad and no arcs")
     rec.reset()
     Chips.drawChipEdge(50, 50, 1, 1, nil, 0)
-    c.ok(rec.canvases == 0 and (rec.calls.draw or 0) == 0, "edge chips stay vector")
+    c.ok(rec.canvases == 0 and (rec.calls.draw or 0) == 1, "an edge chip is one quad")
 
     -- The kill switch: one constant restores today's rendering exactly.
     Constants.FEATURES.CHIP_ATLAS = false
@@ -184,18 +195,6 @@ do
     c.ok(rec.canvases == 0 and (rec.calls.draw or 0) == 0,
          "CHIP_ATLAS off restores the vector path")
     c.eq(rec.total(), vector_primitives, "the vector path is unchanged with the flag off")
-
-    -- A settling pile hands drawChip an interpolated shade every frame; the
-    -- cache buckets it to a thousandth, so a hair's difference must reuse
-    -- the bake rather than raster a fresh pair.
-    Constants.FEATURES.CHIP_ATLAS = true
-    rec.reset()
-    Chips.drawChip(50, 50, 1, 1, true, nil, 0.8, 0, 1, 0)
-    c.eq(rec.canvases, 2, "shade 0.8 bakes its own pair")
-    rec.reset()
-    Chips.drawChip(50, 50, 1, 1, true, nil, 0.8003, 0, 1, 0)
-    c.eq(rec.canvases, 0, "a shade within a thousandth reuses the bake")
-    Constants.FEATURES.CHIP_ATLAS = false
 
     -- A column (the micro tier): three primitives, no canvas, no texture.
     rec.reset()
@@ -305,8 +304,8 @@ do
 
     -- The detail tier is draw-only: setting it must not re-solve the
     -- layout, and at "micro" the pile draws columns and never a chip.
-    local solves, real_layout = 0, Chips.stackLayout
-    Chips.stackLayout = function(...) solves = solves + 1; return real_layout(...) end
+    local solves, real_layout = 0, Chips.stackLayoutInto
+    Chips.stackLayoutInto = function(...) solves = solves + 1; return real_layout(...) end
     local columns, real_column = 0, Chips.drawColumn
     Chips.drawColumn = function() columns = columns + 1 end
     ChipPile.tidy(KEY, 88, { palette = pal, tier = "medium", instant = true })
@@ -325,7 +324,7 @@ do
     local full_chips = #snapshot()
     c.ok(columns == 0 and full_chips > 0, "detail off draws chips again")
     c.eq(solves, 0, "clearing detail must not re-solve either")
-    Chips.stackLayout, Chips.drawColumn = real_layout, real_column
+    Chips.stackLayoutInto, Chips.drawColumn = real_layout, real_column
 
     Chips.drawChip, Chips.drawShadow = real_draw_chip, real_shadow
 end

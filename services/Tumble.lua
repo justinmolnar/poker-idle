@@ -1,8 +1,16 @@
 -- services/Tumble.lua
 --
--- Fake-3D motion decorator for render callbacks. Wraps a `function(x, y)`
--- and returns a `function(x, y, t)` that draws the same thing spinning and
--- tumbling as though it were a solid object thrown through the air.
+-- Fake-3D motion for things thrown through the air. Two forms of the same
+-- maths:
+--
+--   * roll(opts, rec) / eval(rec, t) — the motion numbers written onto a
+--     caller's record and read back as (squash, near, spin) at a progress.
+--     What services/FlightSystem's chip records use: no closure per chip,
+--     and the renderer folds the three into one sprite transform.
+--   * wrap(render_fn, opts) — the decorator form. Wraps a `function(x, y)`
+--     and returns a `function(x, y, t)` that draws the same thing spinning
+--     and tumbling under love.graphics transforms. Cards and the currency
+--     glyph still fly this way.
 --
 -- Knows NOTHING about what it's decorating — chips, cards, quads, sprites,
 -- anything with a render callback. Composes with services/FlightSystem
@@ -42,7 +50,7 @@
 -- current foreshortening, 0..1, and a callback may use it to swap in an
 -- edge-on representation of itself — see views/ChipFlight.
 --
--- Every option is optional; omitted ones are randomised per-wrap so a
+-- Every option is optional; omitted ones are randomised per roll so a
 -- burst of them doesn't move as one rigid body.
 
 local Motion = require("services.Motion")
@@ -56,6 +64,8 @@ local MIN_SQUASH             = 0.14
 -- Loft as a fraction of the object's own size at the apex: 0.4 = 40%
 -- larger halfway through the flight.
 local LOFT_MIN,   LOFT_MAX   = 0.18, 0.45
+
+local TAU = math.pi * 2
 
 local function rand(lo, hi) return lo + love.math.random() * (hi - lo) end
 
@@ -85,7 +95,12 @@ Tumble.PRESETS = {
               loft = { 0.35, 0.60 } },
 }
 
--- Wrap a render callback so it tumbles in flight.
+local EMPTY = {}
+
+-- ─── The record form ────────────────────────────────────────────────────
+-- Roll one flight's motion onto `rec` (seven numbers, prefixed tb_). No
+-- table is made: services/FlightSystem pools its records and a thousand
+-- chips a second fly through here.
 --
 -- opts: a PRESET table (Tumble.PRESETS.toss / .throw) or your own. Each
 -- field may be a number (pinned), a { min, max } range, or omitted.
@@ -103,28 +118,56 @@ Tumble.PRESETS = {
 --                 so an object leaves and arrives at its true size — a
 --                 chip joining a pile has to be the size of the pile's
 --                 chips at the moment it lands.
--- `group` (default "chips"): the motion group; below Full the callback is
--- returned untouched and the thing flies flat.
+-- `group` (default "chips"): the motion group; below Full the record is
+-- marked flat (tb_on = false) and eval returns the identity, so the thing
+-- flies without turning.
+--
+-- The rolls happen in the order wrap always made them, so a seeded run
+-- reproduces the motion it had before the record form existed.
+function Tumble.roll(opts, rec, group)
+    if not Motion.at(group or "chips", Motion.FULL) then
+        rec.tb_on = false
+        return rec
+    end
+    opts = opts or EMPTY
+    rec.tb_on     = true
+    rec.tb_spins  = pick(opts.spins, SPINS_MIN, SPINS_MAX)
+    rec.tb_flips  = pick(opts.flips, FLIPS_MIN, FLIPS_MAX)
+    rec.tb_loft   = pick(opts.loft,  LOFT_MIN,  LOFT_MAX)
+    rec.tb_axis   = opts.axis       or (love.math.random() * math.pi)
+    rec.tb_minsq  = opts.min_squash or MIN_SQUASH
+    rec.tb_phase  = opts.phase      or (love.math.random() * TAU)
+    rec.tb_dir    = opts.spin_dir   or ((love.math.random() < 0.5) and -1 or 1)
+    return rec
+end
+
+-- The motion at progress t: squash (foreshortening across the tumble axis,
+-- min_squash..1), near (the loft scale, 1 at both ends) and spin (the face
+-- rotation, radians). A record roll() marked flat is the identity.
+function Tumble.eval(rec, t)
+    if not rec.tb_on then return 1, 1, 0 end
+    t = t or 0
+    local squash = math.abs(math.cos(rec.tb_phase + t * rec.tb_flips * TAU))
+    local minsq  = rec.tb_minsq
+    if squash < minsq then squash = minsq end
+    local near = 1
+    local loft = rec.tb_loft
+    if loft ~= 0 then near = 1 + loft * math.sin(math.pi * t) end
+    return squash, near, rec.tb_dir * t * rec.tb_spins * TAU
+end
+
+-- ─── The decorator form ─────────────────────────────────────────────────
+-- Wrap a render callback so it tumbles in flight. Options as roll(). Below
+-- Full the callback is returned untouched and the thing flies flat.
 function Tumble.wrap(render_fn, opts, group)
     if not render_fn then return render_fn end
     if not Motion.at(group or "chips", Motion.FULL) then return render_fn end
-    opts = opts or {}
 
-    local spins      = pick(opts.spins, SPINS_MIN, SPINS_MAX)
-    local flips      = pick(opts.flips, FLIPS_MIN, FLIPS_MAX)
-    local loft       = pick(opts.loft,  LOFT_MIN,  LOFT_MAX)
-    local axis       = opts.axis       or (love.math.random() * math.pi)
-    local min_squash = opts.min_squash or MIN_SQUASH
-    local phase      = opts.phase      or (love.math.random() * math.pi * 2)
-    local spin_dir   = opts.spin_dir   or ((love.math.random() < 0.5) and -1 or 1)
-
-    local TAU = math.pi * 2
+    local rec = Tumble.roll(opts, {}, group)
 
     return function(x, y, t)
         t = t or 0
-        -- Foreshortening perpendicular to the tumble axis.
-        local squash = math.abs(math.cos(phase + t * flips * TAU))
-        if squash < min_squash then squash = min_squash end
+        local squash, near, spin = Tumble.eval(rec, t)
 
         love.graphics.push()
         love.graphics.translate(x, y)
@@ -132,17 +175,14 @@ function Tumble.wrap(render_fn, opts, group)
         -- including its label, and applied before the tumble so the two
         -- compose instead of fighting: the chip is bigger AND edge-on at
         -- the same moment if that's where its arc puts it.
-        if loft ~= 0 then
-            local near = 1 + loft * math.sin(math.pi * t)
-            love.graphics.scale(near, near)
-        end
+        if near ~= 1 then love.graphics.scale(near, near) end
         -- Orient the tumble axis, flatten across it, then spin the face
         -- inside the flattened frame. Spinning after the squash is what
         -- makes the face features sweep in a foreshortened arc instead of
         -- gliding around a flat circle.
-        love.graphics.rotate(axis)
+        love.graphics.rotate(rec.tb_axis)
         love.graphics.scale(1, squash)
-        love.graphics.rotate(spin_dir * t * spins * TAU)
+        love.graphics.rotate(spin)
         -- `squash` is handed on so a callback can draw a DIFFERENT thing
         -- when it is nearly edge-on, rather than just a flattened version
         -- of the same thing. A chip on its side shows its rim, not its

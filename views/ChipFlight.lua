@@ -1,7 +1,7 @@
 -- views/ChipFlight.lua
 --
--- Unified chip-flight helper. Composes (denomination breakdown, render
--- closures, burst options) and dispatches a flight to FlightSystem.
+-- Unified chip-flight helper. Composes (denomination breakdown, burst
+-- options, pile bookkeeping) and dispatches chip records to FlightSystem.
 -- Single seam for "chips fly from anchor A to anchor B" — used by both
 -- the script's per-event handlers (views/PokerEventAnims) and the
 -- view-side queue drain that consumes GrindController._emit*Chips
@@ -18,12 +18,17 @@
 --   * flyChipsList(source, dest, chip_indices, options)
 --       For paths that already broke down the amount (controller queue,
 --       where the breakdown happens at queue-push time so the controller
---       isn't pulling in views/Chips). Still wraps the makeRenderFns
---       step + FlightSystem.emitBurst.
+--       isn't pulling in views/Chips).
 --
 -- All honor options.arrival_sound / max_per_event / chip_tint / tier.
 -- Engine-side bookkeeping (capping, staggering, bezier arc) stays in
 -- services/FlightSystem; pile bookkeeping stays in views/ChipPile.
+--
+-- A chip in flight is a RECORD, not a closure: FlightSystem.emitChip takes
+-- the denomination, label, tint, scale and a tumble preset as arguments
+-- and views/Chips.flightRenderer (registered here, once) draws every chip
+-- in the air as one batch. The old path built two closures and seven
+-- tables per chip, and a busy board launched a thousand a second.
 
 local FlightSystem = require("services.FlightSystem")
 local Tumble       = require("services.Tumble")
@@ -33,6 +38,10 @@ local Denoms       = require("services.DenominationBreakdown")
 local ChipData     = require("data.chips")
 
 local ChipFlight = {}
+
+-- The renderer chip records draw through. FlightSystem never requires a
+-- view; this is the one place the two are introduced.
+FlightSystem.setChipRenderer(Chips.flightRenderer)
 
 local function _palette(stake_id)
     return ChipData.stake_palettes[stake_id] or ChipData.full_palette
@@ -53,38 +62,12 @@ local function _layoutAt(x, y, chip_indices, align, max_w, scale)
                              { align = align, max_w = max_w, scale = scale })
 end
 
--- One chip's render callback, at the caller's chip_scale.
-local function _chipFn(idx, with_label, tint, s)
-    s = s or 1
-    -- `squash` arrives from services/Tumble when this chip is tumbling.
-    -- Near edge-on the caller has already flattened us to a sliver, and a
-    -- painted face inside that sliver reads as a smear — so at that point
-    -- the chip shows its rim instead, which is what a real chip on its
-    -- side actually looks like.
-    local EDGE = Chips.EDGE_SQUASH
-    if s == 1 then
-        return function(px, py, _t, squash)
-            if squash and squash < EDGE then
-                Chips.drawChipEdge(px, py, idx, 1, tint)
-            else
-                Chips.drawChip(px, py, idx, 1, with_label, tint, nil, nil, 1)
-            end
-        end
-    end
-    -- `s` goes to drawChip as well as into the transform: a chip flying
-    -- across a small panel is drawn a few pixels wide, and that is what
-    -- decides how much of its anatomy can resolve.
-    return function(px, py, _t, squash)
-        love.graphics.push()
-        love.graphics.translate(px, py)
-        love.graphics.scale(s, s)
-        if squash and squash < EDGE then
-            Chips.drawChipEdge(0, 0, idx, 1, tint)
-        else
-            Chips.drawChip(0, 0, idx, 1, with_label, tint, nil, nil, s)
-        end
-        love.graphics.pop()
-    end
+-- ── 4. The handover. The chip stops being a flight and becomes part of
+-- the pile at the pixel it stopped on. Module-level, with the pile key and
+-- the reserved chip riding the record as its two arrival values, so a
+-- transfer makes no closure per chip.
+local function _landInPile(_x, _y, _rec, key, chip)
+    ChipPile.accept(key, chip)
 end
 
 -- ── Splitting a burst across destinations ────────────────────────────
@@ -135,6 +118,31 @@ local function _reserveAcross(taken, dests)
     return dest_of, slot_of
 end
 
+-- A directed burst of chip records from one point to another: the same
+-- plan, sampling, stagger, landing scatter and duration jitter
+-- FlightSystem.emitBurst gives closures, chip by chip. Directed flights
+-- get the gentle `toss` character: a chip carried to your stack should
+-- have some life in it without cartwheeling like it's been launched.
+-- `tumble = false` flies it flat.
+local function _burst(source, dest, chips, options)
+    local count, step, stagger, duration, land_spread, dur_jitter =
+        FlightSystem.burstPlan(#chips, options)
+    if count == 0 then
+        if options.arrival_sound then FlightSystem.scheduleSound(options.arrival_sound, 0) end
+        return
+    end
+    local tint   = options.chip_tint
+    local tumble = (options.tumble ~= false) and (options.tumble_opts or Tumble.PRESETS.toss) or false
+    for i = 1, count do
+        local src, delay, dur, dx, dy =
+            FlightSystem.burstParams(i, step, stagger, duration, land_spread, dur_jitter,
+                                     dest[1], dest[2])
+        FlightSystem.emitChip(source[1], source[2], dx, dy, chips[src], true, tint, 1, 1,
+                              tumble, delay, dur, nil, nil, nil, nil, options.motion)
+    end
+    FlightSystem.burstSound(options.arrival_sound, count, stagger, duration)
+end
+
 -- Compose a burst from a dollar amount. Picks a chip-tier (used for
 -- denomination weighting) from options.tier or by inferring from the
 -- amount. Bails silently if breakdown is empty.
@@ -147,39 +155,15 @@ function ChipFlight.fly(source, dest, amount, stake_id, options)
     local chips   = Denoms.breakdown(amount, ChipData.denominations,
                                      palette, ChipData.tier_chip_target, tier)
     if not chips or #chips == 0 then return end
-    local render_fns = Chips.makeRenderFns(chips, options.chip_tint)
-    -- Directed flights get the gentle `toss` character: a chip carried to
-    -- your stack should have some life in it without cartwheeling like
-    -- it's been launched. `tumble = false` flies it flat.
-    if options.tumble ~= false then
-        render_fns = Tumble.wrapAll(render_fns, options.tumble_opts or Tumble.PRESETS.toss)
-    end
-    FlightSystem.emitBurst(source, dest, render_fns, {
-        arrival_sound = options.arrival_sound,
-        max_per_event = options.max_per_event,
-    })
+    _burst(source, dest, chips, options)
 end
 
 -- Burst from a pre-broken-down chip-index list (the controller queue
--- pushes these). Caller has already done Denoms.breakdown; we just
--- handle the render-closure + FlightSystem dispatch.
+-- pushes these). Caller has already done Denoms.breakdown.
 function ChipFlight.flyChipsList(source, dest, chip_indices, options)
     if not source or not dest then return end
     if not chip_indices or #chip_indices == 0 then return end
-    options = options or {}
-    local render_fns = Chips.makeRenderFns(chip_indices, options.chip_tint)
-    -- Directed flights fly flat by default (a chip sliding to your stack
-    -- shouldn't cartwheel), but the same decorator is one flag away.
-    -- Directed flights get the gentle `toss` character: a chip carried to
-    -- your stack should have some life in it without cartwheeling like
-    -- it's been launched. `tumble = false` flies it flat.
-    if options.tumble ~= false then
-        render_fns = Tumble.wrapAll(render_fns, options.tumble_opts or Tumble.PRESETS.toss)
-    end
-    FlightSystem.emitBurst(source, dest, render_fns, {
-        arrival_sound = options.arrival_sound,
-        max_per_event = options.max_per_event,
-    })
+    _burst(source, dest, chip_indices, options or {})
 end
 
 -- ── Transfer: pile to pile ───────────────────────────────────────────
@@ -321,6 +305,7 @@ function ChipFlight.transfer(source, dest, options)
         end
     end
     local stagger = options.stagger or ((n > 1) and (spread / (n - 1)) or 0)
+    local tumble  = (options.tumble ~= false) and (options.tumble_opts or Tumble.PRESETS.toss) or false
     for i = 1, n do
         local t  = taken[i]
         local s  = slot_of[i]
@@ -339,20 +324,10 @@ function ChipFlight.transfer(source, dest, options)
         else
             local with_label = (options.labels ~= false)
                                and ((s and s.with_label) ~= false)
-            local fn = _chipFn(t.d, with_label, tint, scale)
-            if options.tumble ~= false then
-                fn = Tumble.wrap(fn, options.tumble_opts or Tumble.PRESETS.toss)
-            end
-            FlightSystem.emit({ sx, sy }, { dx, dy }, fn, {
-                duration   = duration,
-                delay      = (i - 1) * stagger,
-                arc_height = options.arc_height,
-                -- ── 4. The handover. The chip stops being a flight and
-                -- becomes part of the pile at the pixel it stopped on.
-                on_arrive  = s and function()
-                    ChipPile.accept(d and d.key, s.chip)
-                end or nil,
-            })
+            FlightSystem.emitChip(sx, sy, dx, dy, t.d, with_label, tint, scale, 1, tumble,
+                                  (i - 1) * stagger, duration, options.arc_height,
+                                  s and _landInPile or nil, d and d.key, s and s.chip,
+                                  options.motion)
         end
     end
 
@@ -363,53 +338,52 @@ function ChipFlight.transfer(source, dest, options)
 end
 
 -- Explosion tunables. Declared up here because the gather leg below
--- closes over them.
+-- reads them.
 local SCATTER_DURATION = 1.1    -- outward leg; this IS the beat before the turn
 local GATHER_DURATION  = 0.6    -- the run home
 local GATHER_JIT       = 0.18   -- ± fraction, so they don't arrive in lockstep
 
+-- The tumbles of a gathering explosion, as two reused option tables.
+-- Whole numbers of flips and spins from phase 0 on BOTH legs, which means
+-- each leg begins and ends face-on and upright: the chip tumbles
+-- continuously through the turn and is flat when it merges into the pile.
+-- The counts are re-rolled into the table before each roll, so a burst
+-- does not move as one body.
+local _OUT_TUMBLE = { phase = 0, loft = { 0.45, 0.80 } }
+-- Lower loft than the launch — this is a return, not a detonation — and it
+-- lands at exactly 1.0, which is what lets the chip merge into the pile
+-- without changing size.
+local _BACK_TUMBLE = { phase = 0, spins = 1, min_squash = 0.30, loft = { 0.25, 0.45 } }
+
 -- Second leg of a gathering explosion: the chip reaches the top of its
--- arc at (lx, ly) and turns for the pile it belongs to. Built as a closure
--- per chip because the turning point isn't known until the outward leg
--- gets there.
+-- arc at (lx, ly) and turns for the pile it belongs to. Module-level; the
+-- turning point arrives as the landing position and everything else about
+-- the chip rides its record and one small context per chip.
 --
 -- It does NOT stop. A chip that parks reads as a bug — the object has to
 -- stay in motion and simply change its mind about where it's going. The
 -- turn is the whole gesture.
 --
--- `motion` carries the outward leg's tumble parameters so this one can
--- continue it rather than restart it: same axis, same spin direction, and
--- whole numbers of flips and spins from phase 0 on BOTH legs, which means
--- each leg begins and ends face-on and upright. The chip tumbles
--- continuously through the turn and is flat when it merges into the pile.
-local function _gatherLeg(denom, slot, dest, motion, tint, scale, duration)
-    return function(lx, ly)
-        local dx = (slot and slot.x) or (dest.xy and dest.xy[1])
-        local dy = (slot and slot.y) or (dest.xy and dest.xy[2])
-        if not (dx and dy) then
-            if slot then ChipPile.accept(dest.key, slot.chip) end
-            return
-        end
-        local fn = _chipFn(denom, (slot and slot.with_label) ~= false, tint, scale)
-        fn = Tumble.wrap(fn, {
-            axis       = motion.axis,
-            spin_dir   = motion.spin_dir,
-            phase      = 0,
-            flips      = love.math.random(1, 2),
-            spins      = 1,
-            min_squash = 0.30,
-            -- Lower than the launch — this is a return, not a detonation
-            -- — and it lands at exactly 1.0, which is what lets the chip
-            -- merge into the pile without changing size.
-            loft       = { 0.25, 0.45 },
-        })
-        FlightSystem.emit({ lx, ly }, { dx, dy }, fn, {
-            duration  = duration * (1 + (love.math.random() * 2 - 1) * GATHER_JIT),
-            on_arrive = slot and function()
-                ChipPile.accept(dest.key, slot.chip)
-            end or nil,
-        })
+-- The outward leg's record carries its tumble axis and spin direction so
+-- this one can continue it rather than restart it: same axis, same spin
+-- direction, whole turns on both legs.
+local function _gatherLeg(lx, ly, rec, ctx)
+    local slot, dest = ctx.slot, ctx.dest
+    local dx = (slot and slot.x) or (dest.xy and dest.xy[1])
+    local dy = (slot and slot.y) or (dest.xy and dest.xy[2])
+    if not (dx and dy) then
+        if slot then ChipPile.accept(dest.key, slot.chip) end
+        return
     end
+    -- Below Full motion the outward leg landed on the spot with no record;
+    -- the run home then rolls its own axis.
+    _BACK_TUMBLE.axis     = rec and rec.tb_axis or nil
+    _BACK_TUMBLE.spin_dir = rec and rec.tb_dir or nil
+    _BACK_TUMBLE.flips    = love.math.random(1, 2)
+    FlightSystem.emitChip(lx, ly, dx, dy, ctx.d, (slot and slot.with_label) ~= false,
+                          ctx.tint, ctx.scale, 1, _BACK_TUMBLE,
+                          0, ctx.duration * (1 + (love.math.random() * 2 - 1) * GATHER_JIT), nil,
+                          slot and _landInPile or nil, dest.key, slot and slot.chip)
 end
 
 -- Scale a scatter to the box it happens inside, rather than to a handful
@@ -438,9 +412,9 @@ end
 -- THE PILE ITSELF COMES APART. Not a burst of lookalikes spawned over
 -- it: this lays the pile out with views/Chips.stackLayout — the exact
 -- same call drawStack makes — and launches each chip from the position
--- it was occupying, rendered by the exact same drawChip call with the
--- same label and tint rules. A chip in the air is visually continuous
--- with the chip that was sitting in the stack, because it IS that draw.
+-- it was occupying, drawn by the same atlas cells with the same label and
+-- tint rules. A chip in the air is visually continuous with the chip that
+-- was sitting in the stack, because it IS that chip.
 --
 -- The caller is responsible for no longer drawing the pile once this
 -- fires (see views/TablePanel:drawPotLabel), or the pile and its own
@@ -464,14 +438,14 @@ end
 --                         top chips.
 --   options.tumble      — false to fly flat. Default on: a detonating
 --                         pile should tumble.
---   options.tumble_opts — passed to services/Tumble.wrap (spins, flips,
+--   options.tumble_opts — a services/Tumble preset or opts (spins, flips,
 --                         axis, min_squash) to pin the motion instead of
 --                         randomising it per chip.
 --   options.within      — { w, h } of the box this explosion belongs
 --                         inside (a table panel). Sizes the scatter to it
 --                         rather than to fixed pixels, so the same call
 --                         reads right at any panel size.
---   plus anything FlightSystem.emitScatterEach accepts (min_spread,
+--   plus anything FlightSystem.scatterParams accepts (min_spread,
 --   max_spread, rise, duration, arc_min, arc_max, stagger,
 --   arrival_sound).
 function ChipFlight.explodeStack(x, y, chip_indices, options)
@@ -487,24 +461,23 @@ function ChipFlight.explodeStack(x, y, chip_indices, options)
     -- comes apart — every chip is loose in open space — so the whole burst
     -- gets its denomination back. Pass labels = false to suppress.
     local labels = (options.labels ~= false)
-
-    -- _layoutAt already returns screen-space slots, scale applied.
-    local entities = {}
-    for i, p in ipairs(placed) do
-        local fn = _chipFn(p.idx, (labels or p.with_label), tint, s)
-
-        -- Chips thrown off a flipped table tumble. Composed on rather than
-        -- built in: services/Tumble decorates any render callback, so this
-        -- is one line to add and `tumble = false` to drop.
-        if options.tumble ~= false then
-            fn = Tumble.wrap(fn, options.tumble_opts or Tumble.PRESETS.throw)
-        end
-
-        entities[i] = { x = p.x, y = p.y, render_fn = fn }
-    end
+    -- Chips thrown off a flipped table tumble; `tumble = false` drops it.
+    local tumble = (options.tumble ~= false) and (options.tumble_opts or Tumble.PRESETS.throw) or false
 
     _scatterWithin(options)
-    FlightSystem.emitScatterEach(entities, options)
+    local n_fly    = FlightSystem.scatterCount(#placed, options)
+    local duration = options.duration or 1.1
+    for i = 1, n_fly do
+        local p = placed[i]
+        local dx, dy, arc, delay = FlightSystem.scatterParams(p.x, p.y, options)
+        FlightSystem.emitChip(p.x, p.y, dx, dy, p.idx, labels or p.with_label, tint, s, 1,
+                              tumble, delay, duration, arc, nil, nil, nil, options.motion)
+    end
+    if n_fly == 0 then
+        if options.arrival_sound then FlightSystem.scheduleSound(options.arrival_sound, 0) end
+        return
+    end
+    FlightSystem.scatterSound(options)
 end
 
 -- The same detonation for a pile that already tracks its own chips
@@ -537,7 +510,7 @@ end
 --                     scatter to it instead of to fixed pixels
 --   gather_duration — seconds of the run home
 --   gather_sound    — one arrival thunk as the regroup lands
---   plus anything FlightSystem.emitScatterEach accepts.
+--   plus anything FlightSystem.scatterParams accepts.
 function ChipFlight.explodeTaken(taken, options)
     if not taken or #taken == 0 then return end
     options = options or {}
@@ -582,54 +555,6 @@ function ChipFlight.explodeTaken(taken, options)
     -- still in the air.
     local dest_of, slot_of = _reserveAcross(taken, gathering and dests or nil)
 
-    local entities = {}
-    for i, t in ipairs(taken) do
-        local slot = slot_of[i]
-        local dest = dest_of[i]
-        -- A chip the pile's width budget had clipped has no slot; it was
-        -- never on screen, so it has nothing to come apart from.
-        if not (t.x and t.y) then
-            if slot then ChipPile.accept(dest.key, slot.chip) end
-        else
-            local fn     = _chipFn(t.d, labels, tint, s)
-            local motion = {
-                axis     = love.math.random() * math.pi,
-                spin_dir = (love.math.random() < 0.5) and -1 or 1,
-            }
-            if options.tumble == false then
-                -- flat, as asked
-            elseif gathering then
-                -- Whole numbers of flips and spins from phase 0, so the
-                -- chip is face-on and upright at the end of the outward
-                -- leg. The gather leg continues from exactly that pose
-                -- instead of snapping to a new one.
-                fn = Tumble.wrap(fn, {
-                    axis     = motion.axis,
-                    spin_dir = motion.spin_dir,
-                    phase    = 0,
-                    flips    = love.math.random(1, 3),
-                    spins    = love.math.random(1, 3),
-                    -- Thrown hardest of anything in the game, so it comes
-                    -- furthest toward the camera. Back to true size at the
-                    -- turn, where the run home picks it up.
-                    loft     = { 0.45, 0.80 },
-                })
-            else
-                fn = Tumble.wrap(fn, options.tumble_opts or Tumble.PRESETS.throw)
-            end
-
-            local ent = { x = t.x, y = t.y, render_fn = fn }
-            if gathering then
-                -- The run home renders at the scale of the pile it's
-                -- joining: a chip has to be indistinguishable from the
-                -- pile chip it becomes.
-                local gs = (dest.key and ChipPile.scale(dest.key)) or s
-                ent.on_arrive = _gatherLeg(t.d, slot, dest, motion, tint, gs, gather_d)
-            end
-            entities[#entities + 1] = ent
-        end
-    end
-
     if gathering then
         options.duration = options.duration or SCATTER_DURATION
         if options.gather_sound then
@@ -638,7 +563,59 @@ function ChipFlight.explodeTaken(taken, options)
         end
     end
     _scatterWithin(options)
-    FlightSystem.emitScatterEach(entities, options)
+    local duration = options.duration or 1.1
+
+    -- Which chips fly at this motion level; the rest land where they are
+    -- (their gather leg runs from the pile's own footprint).
+    local n_vis = 0
+    for _, t in ipairs(taken) do if t.x and t.y then n_vis = n_vis + 1 end end
+    local n_fly = FlightSystem.scatterCount(n_vis, options)
+    local flown = 0
+    for i, t in ipairs(taken) do
+        local slot = slot_of[i]
+        local dest = dest_of[i]
+        -- A chip the pile's width budget had clipped has no slot; it was
+        -- never on screen, so it has nothing to come apart from.
+        if not (t.x and t.y) then
+            if slot then ChipPile.accept(dest.key, slot.chip) end
+        else
+            local ctx
+            if gathering then
+                -- The run home renders at the scale of the pile it's
+                -- joining: a chip has to be indistinguishable from the
+                -- pile chip it becomes.
+                ctx = { slot = slot, dest = dest, tint = tint, d = t.d,
+                        scale = (dest.key and ChipPile.scale(dest.key)) or s,
+                        duration = gather_d }
+            end
+            flown = flown + 1
+            if flown > n_fly then
+                -- Landed on the spot: the turn happens from here.
+                if ctx then _gatherLeg(t.x, t.y, nil, ctx) end
+            else
+                local tumble
+                if options.tumble == false then
+                    tumble = false
+                elseif gathering then
+                    _OUT_TUMBLE.flips = love.math.random(1, 3)
+                    _OUT_TUMBLE.spins = love.math.random(1, 3)
+                    tumble = _OUT_TUMBLE
+                else
+                    tumble = options.tumble_opts or Tumble.PRESETS.throw
+                end
+                local dx, dy, arc, delay = FlightSystem.scatterParams(t.x, t.y, options)
+                FlightSystem.emitChip(t.x, t.y, dx, dy, t.d, labels, tint, s, 1, tumble,
+                                      delay, duration, arc,
+                                      ctx and _gatherLeg or nil, ctx, nil, options.motion)
+            end
+        end
+    end
+
+    if n_fly == 0 then
+        if options.arrival_sound then FlightSystem.scheduleSound(options.arrival_sound, 0) end
+        return
+    end
+    FlightSystem.scatterSound(options)
 end
 
 -- Convenience: form a pile out of a dollar amount at (x, y) and blow it

@@ -75,11 +75,34 @@ function Stub.memoryFS()
     return files
 end
 
+-- A SpriteBatch that counts. `add` returns a sprite index the way LOVE's
+-- does; `getCount` is what a check reads back; `released` says whether
+-- the owner let go of it.
+function Stub.spriteBatch(texture, capacity)
+    local b = { _texture = texture, _cap = capacity or 1000, _n = 0,
+                _is_batch = true, released = false, adds = 0, colors = 0, clears = 0 }
+    function b:add() self._n = self._n + 1; self.adds = self.adds + 1; return self._n end
+    function b:set() return end
+    function b:setColor() self.colors = self.colors + 1 end
+    function b:clear() self._n = 0; self.clears = self.clears + 1 end
+    function b:getCount() return self._n end
+    function b:getBufferSize() return self._cap end
+    function b:setBufferSize(n) self._cap = n end
+    function b:setDrawRange() end
+    function b:getTexture() return self._texture end
+    function b:release() self.released = true end
+    return b
+end
+
 -- Swap love.graphics for one that counts primitives and simulates canvases.
 -- The handle's `calls` is keyed by primitive name; `canvases` counts how
--- many render targets were allocated since the last reset.
+-- many render targets were allocated since the last reset; a texture draw
+-- is `draw` and a SpriteBatch draw is `draw_batch`, so a check can tell a
+-- pile drawn as one batch from one drawn a quad at a time. `batches` is
+-- every SpriteBatch made since the recorder was installed; a reset keeps
+-- it, because a batch outlives the frames a check counts.
 function Stub.recorder()
-    local h = { calls = {}, canvases = 0 }
+    local h = { calls = {}, canvases = 0, batches = {} }
     local stack = {}
     local function note(k) h.calls[k] = (h.calls[k] or 0) + 1 end
     local function canvas(w, ht)
@@ -104,6 +127,16 @@ function Stub.recorder()
         getColor      = function() return 1, 1, 1, 1 end,
         getFont       = function() return nil end,
         newCanvas     = function(w, ht) return canvas(w, ht) end,
+        newQuad       = function(x, y, w, ht, sw, sh)
+            return { _x = x, _y = y, _w = w, _h = ht,
+                     getViewport = function() return x, y, w, ht end,
+                     getTextureDimensions = function() return sw, sh end }
+        end,
+        newSpriteBatch = function(texture, capacity)
+            local b = Stub.spriteBatch(texture, capacity)
+            h.batches[#h.batches + 1] = b
+            return b
+        end,
         -- No transform stack here, so a point maps to itself. Returning
         -- nothing (the default no-op) made every anchor the views register
         -- through it nil, which the readers then did arithmetic on.
@@ -120,7 +153,9 @@ function Stub.recorder()
         line      = function() note("line") end,
         print     = function() note("print") end,
         printf    = function() note("print") end,
-        draw      = function() note("draw") end,
+        draw      = function(obj)
+            if type(obj) == "table" and obj._is_batch then note("draw_batch") else note("draw") end
+        end,
     })
     return h
 end
