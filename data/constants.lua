@@ -31,6 +31,14 @@ C.FEATURES = {
     -- rather than vector arcs — so it has a switch. False restores the
     -- original vector painting exactly.
     CHIP_ATLAS  = true,
+    -- Each table panel's resting picture (chrome, header, felt, cards,
+    -- readouts) is rendered once into a slot of one shared canvas
+    -- (views/PanelSheet) and blitted every frame, with the live layers
+    -- (piles, pot text, status FX) drawn on top; the slot is re-rendered
+    -- only when the panel's dirty key changes (views/TablePanel.prepare).
+    -- The kill switch: false draws every panel in full every frame, the
+    -- single pass that shipped before.
+    PANEL_CACHE = true,
     -- The demo cut. Hard-stops the gauntlet at the cliffhanger with the
     -- demo-end modal; suppresses the R2/R3 cinematic; collapses the
     -- result-chip strip to a single slot; keeps the act flags and the

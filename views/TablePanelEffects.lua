@@ -625,6 +625,9 @@ end
 -- edge (shaders/flame.frag), on any status kind flagged `flame = true`
 -- in data/statuses.lua. Absent, not shrunk, below gates.fire_min_panel_w
 -- — the ring still says "something is happening here" under that.
+-- The flame's cell count, one pair reused: it was a table per burning
+-- panel per frame.
+local _cells = { 0, 0 }
 function Effects.drawStatusFire(tbl, x, y, w, h)
     if not tbl.statuses then return end
     -- Nothing shows while a blow is still in the air.
@@ -672,8 +675,9 @@ function Effects.drawStatusFire(tbl, x, y, w, h)
     sh:send("u_seed", ((tbl._id or 0) % 89) * 1.618)
     -- ~3px cells: chunky enough to read as the game's pixel art, fine
     -- enough that a tongue keeps a silhouette.
-    sh:send("u_cells", { math.max(24, math.floor(w / 3)),
-                         math.max(8,  math.floor(fh / 3)) })
+    _cells[1] = math.max(24, math.floor(w / 3))
+    _cells[2] = math.max(8,  math.floor(fh / 3))
+    sh:send("u_cells", _cells)
     shaderRect(x, y + h - fh, w, fh)
     love.graphics.setShader()
 end

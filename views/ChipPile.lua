@@ -1352,6 +1352,24 @@ end
 -- Does the registry hold this key (tests).
 function ChipPile.has(key) return _piles[key] ~= nil end
 
+-- The pile's revision (nil for a key never placed): bumped by every change
+-- to what the pile holds or how it is laid out, so a cache of its picture
+-- (the panel cache, views/TablePanel) can key on one number.
+function ChipPile.rev(key)
+    local e = _piles[key]
+    return e and e.rev or nil
+end
+
+-- Is the pile's picture still: no settle playing, nothing in the air, not
+-- frozen? Still, it can be painted once and blitted; moving, it is drawn
+-- live over the blit. A key never placed is quiet (there is nothing to
+-- draw).
+function ChipPile.quiet(key)
+    local e = _piles[key]
+    if not e then return true end
+    return not e.settle and e.n_air == 0 and not e.frozen
+end
+
 -- Drop everything. Call alongside FlightSystem.clear so a state teardown
 -- can't leave a pile holding chips whose flights were just discarded.
 function ChipPile.clearAll()

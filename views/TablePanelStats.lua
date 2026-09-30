@@ -1110,7 +1110,10 @@ end
 -- `metrics` is the table measureEvReadout already built this frame; the
 -- panel measures before it lays out and draws after, and recomputing was
 -- a second pass over the same numbers per table per frame.
-function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, anchor_key, metrics)
+-- `alloc(tbl, hit_boxes)` (optional) hands back a pooled, appended entry
+-- (views/TablePanel's per-table hit-box pool); without it a fresh table is
+-- appended, as before.
+function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, anchor_key, metrics, alloc)
     if not ev then return end
     local font = fonts.sm
     local m = metrics or evMetrics(tbl, controller, font)
@@ -1161,13 +1164,18 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
     -- frame — for a tooltip at most one of them can be showing.
     if hit_boxes then
         local pad = TablePanelStats.EV_READOUT_HIT_PAD
-        hit_boxes[#hit_boxes + 1] = {
-            x = tx - pad, y = ty - pad,
-            w = drawn_w + pad * 2, h = m.text_h + pad * 2,
-            tooltip_fn   = buildEvBreakdownLines,
-            tooltip_arg1 = tbl,
-            tooltip_arg2 = controller,
-        }
+        local hb
+        if alloc then
+            hb = alloc(tbl, hit_boxes)
+        else
+            hb = {}
+            hit_boxes[#hit_boxes + 1] = hb
+        end
+        hb.x, hb.y = tx - pad, ty - pad
+        hb.w, hb.h = drawn_w + pad * 2, m.text_h + pad * 2
+        hb.tooltip_fn   = buildEvBreakdownLines
+        hb.tooltip_arg1 = tbl
+        hb.tooltip_arg2 = controller
     end
 end
 

@@ -465,13 +465,23 @@ local function muckResidue(tbl, swept, sl, back)
     end
 end
 
+-- After a card lands it may still turn (the flip) or, at low motion, fade
+-- in: fx.settled_at is the wall-clock moment the LAST card thrown is at rest,
+-- so the panel cache (views/TablePanel panelIsAnimating) can draw the
+-- panel live until then and cache it after, without walking the gates.
+local GATE_TAIL = (GD.flip or 0.22) + (Motion.FADE_SECS or 0.15)
+local function noteUntil(fx, at)
+    local u = at + GATE_TAIL
+    if not fx.settled_at or u > fx.settled_at then fx.settled_at = u end
+end
+
 PokerEventAnims.deal_hole = function(_ev, tbl, game)
     local sl = game and game.sprite_loader
     local ps = tbl.playback_state
     if not (sl and ps) then return end
     local now  = love.timer.getTime()
     local fx   = tbl._deal_fx or { arrive = {}, flip = {} }
-    fx.arrive, fx.flip = {}, {}
+    fx.arrive, fx.flip, fx.settled_at = {}, {}, nil
     tbl._deal_fx = fx
     local back = backSprite(game)
 
@@ -507,6 +517,7 @@ PokerEventAnims.deal_hole = function(_ev, tbl, game)
         local land = still and 0 or (muck_d + (k - 1) * stag + card)
         fx.arrive[key] = now + land
         fx.flip[key]   = (key == "you") and not still
+        noteUntil(fx, now + land)
         FlightSystem.scheduleSound("card_dealt", land)
     end
 end
@@ -527,6 +538,7 @@ local function dealBoard(tbl, game, first, last)
         if from and rect and not still then flyBack(sl, back, from, rect, k * stag, card) end
         fx.arrive["board_" .. i] = now + (still and 0 or (k * stag + card))
         fx.flip["board_" .. i]   = not still
+        noteUntil(fx, fx.arrive["board_" .. i])
     end
     FlightSystem.scheduleSound("card_dealt", (last - first) * stag + card)
 end

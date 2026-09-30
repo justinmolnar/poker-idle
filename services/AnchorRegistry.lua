@@ -39,11 +39,16 @@ end
 -- Recording: while a list is open, every set() also appends
 -- (name, x, y, w, h) to it as five flat entries, so a render done once
 -- into a cache can have its anchors replayed each frame without running
--- the draw again (the panel cache). No per-anchor table.
+-- the draw again (the panel cache). No per-anchor table. The list keeps
+-- its own count (list.n): a point anchor records nil for w and h, and a
+-- flat list with holes has no length.
 local _rec = nil
 function AnchorRegistry.beginRecord(list)
     _rec = list
-    if list then for i = #list, 1, -1 do list[i] = nil end end
+    if list then
+        for i = (list.n or #list), 1, -1 do list[i] = nil end
+        list.n = 0
+    end
 end
 function AnchorRegistry.endRecord()
     local list = _rec
@@ -54,7 +59,7 @@ end
 -- Replay a recorded list, shifted by (dx, dy).
 function AnchorRegistry.replay(list, dx, dy)
     if not list then return end
-    for i = 1, #list, 5 do
+    for i = 1, list.n or 0, 5 do
         AnchorRegistry.set(list[i], list[i + 1] + dx, list[i + 2] + dy, list[i + 3], list[i + 4])
     end
 end
@@ -63,8 +68,9 @@ function AnchorRegistry.set(name, x, y, w, h)
     Perf.count("anchor_set")
     local rec = _rec
     if rec then
-        local n = #rec
+        local n = rec.n
         rec[n + 1], rec[n + 2], rec[n + 3], rec[n + 4], rec[n + 5] = name, x, y, w, h
+        rec.n = n + 5
     end
     local a = _anchors[name]
     if a then

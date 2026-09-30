@@ -2313,6 +2313,17 @@ function GrindView:_drawCenterGrid(W, H)
     -- (snap-on-first-sight, so boot/rebuild don't animate): panels glide
     -- on any reflow, and the drop settle rides the same chase from the
     -- seeded held position (see _settleDrag).
+    --
+    -- Two passes (views/TablePanel). Pass A places every panel (its cell
+    -- position snapped to whole pixels, so a blit lands on texels) and
+    -- PREPARES it: the script events, the animating/at-rest classifier,
+    -- and for a resting panel whose key moved, a render of its static
+    -- picture into the panel sheet, all inside one canvas switch. Pass B
+    -- draws the shadows, then every panel at the same position: a blit
+    -- with the live layers over it, or the whole panel. The positions are
+    -- kept between the passes in a flat pooled list (four numbers per
+    -- panel) so the rolled value is read once and both passes agree.
+    local held_slot, swap_id
     if dragging then
         -- Drop target is a CELL, not an insertion point. Hovering an
         -- empty cell moves the held table there; hovering an occupied one
@@ -2321,50 +2332,82 @@ function GrindView:_drawCenterGrid(W, H)
         -- untouched until the drop, so hit-box idx values stay correct.
         local mx, my = love.mouse.getPosition()
         dragging.drop_slot = slotAtPoint(mx, my)
-        local held_slot  = tables[held_i].slot
-        local swap_id
+        held_slot = tables[held_i].slot
         if dragging.drop_slot and dragging.drop_slot ~= held_slot then
             for _, t in ipairs(tables) do
                 if t.slot == dragging.drop_slot then swap_id = t._id; break end
             end
         end
+    end
 
+    local P = self._grid_pos
+    if not P then P = {}; self._grid_pos = P end
+    local cache_on = TablePanel.sheetBegin(n, pw, ph)
+
+    -- Pass A.
+    Perf.enter("panel_static")
+    for i = 1, n do
+        if i ~= held_i then
+            local tbl = tables[i]
+            local target = (dragging and tbl._id == swap_id) and held_slot or (tbl.slot or 0)
+            local tx, ty = cellXY(target)
+            local dx = RollingValue.get(TableModel.rollingKey(tbl, "tblx"), tx, SLIDE_RATE, "tables")
+            local dy = RollingValue.get(TableModel.rollingKey(tbl, "tbly"), ty, SLIDE_RATE, "tables")
+            dx, dy = math.floor(dx + 0.5), math.floor(dy + 0.5)
+            -- Post-drop settle: a tiny scale bump as the panel lands,
+            -- recentered so it grows in place. Never mid-drag.
+            local gw, gh = pw, ph
+            if not dragging then
+                local pp = Pop.progress(TableModel.rollingKey(tbl, "tbl_settle"))
+                if pp > 0 then
+                    local sc = Pop.scale(pp, 1, 0.04)
+                    gw, gh = pw * sc, ph * sc
+                end
+            end
+            local k = i * 4
+            P[k - 3], P[k - 2], P[k - 1], P[k] = dx, dy, gw, gh
+            -- A scaled (settling) panel is prepared at its drawn size, which
+            -- the sheet does not hold: it classifies as a bypass and draws
+            -- whole in pass B.
+            TablePanel.prepare(tbl, i, dx - (gw - pw) / 2, dy - (gh - ph) / 2, gw, gh,
+                               self.game, self.controller)
+        end
+    end
+    TablePanel.sheetEnd()
+    Perf.exit("panel_static")
+
+    -- Pass B. Every shadow before any panel when the cache is on: one
+    -- batch of rects, and no panel is ever painted over a neighbour's
+    -- shadow. With the cache off, draw keeps the shadow inside the panel
+    -- (the single pass that shipped).
+    Perf.enter("panel_live")
+    if cache_on then
         for i = 1, n do
             if i ~= held_i then
-                local tbl = tables[i]
-                local target = (tbl._id == swap_id) and held_slot or tbl.slot
-                local tx, ty = cellXY(target)
-                local dx = RollingValue.get(TableModel.rollingKey(tbl, "tblx"), tx, SLIDE_RATE, "tables")
-                local dy = RollingValue.get(TableModel.rollingKey(tbl, "tbly"), ty, SLIDE_RATE, "tables")
-                TablePanel.draw(tbl, i, dx, dy, pw, ph,
-                                self.game, self.controller, self.hit_boxes)
-                self:_notePanel(tbl, i, dx, dy, pw, ph)
+                local k = i * 4
+                local dx, dy, gw, gh = P[k - 3], P[k - 2], P[k - 1], P[k]
+                TablePanel.drawShadow(tables[i], dx - (gw - pw) / 2, dy - (gh - ph) / 2, gw, gh)
             end
         end
+    end
+    for i = 1, n do
+        if i ~= held_i then
+            local tbl = tables[i]
+            local k = i * 4
+            local dx, dy, gw, gh = P[k - 3], P[k - 2], P[k - 1], P[k]
+            TablePanel.draw(tbl, i, dx - (gw - pw) / 2, dy - (gh - ph) / 2, gw, gh,
+                            self.game, self.controller, self.hit_boxes, cache_on)
+            self:_notePanel(tbl, i, dx, dy, pw, ph)
+        end
+    end
+    Perf.exit("panel_live")
+
+    if dragging then
         -- Held panel renders from GrindView:draw (above the sidebars) —
         -- stash its live cell size for TablePanelDrag.drawHeld.
         self._held_draw = { tbl = tables[held_i], idx = held_i, pw = pw, ph = ph }
     else
         self._held_draw = nil
-        for i = 1, n do
-            local tbl = tables[i]
-            local tx, ty = cellXY(tbl.slot or 0)
-            local dx = RollingValue.get(TableModel.rollingKey(tbl, "tblx"), tx, SLIDE_RATE, "tables")
-            local dy = RollingValue.get(TableModel.rollingKey(tbl, "tbly"), ty, SLIDE_RATE, "tables")
-            -- Post-drop settle: a tiny scale bump as the panel lands,
-            -- recentered so it grows in place.
-            local pp = Pop.progress(TableModel.rollingKey(tbl, "tbl_settle"))
-            if pp > 0 then
-                local sc = Pop.scale(pp, 1, 0.04)
-                local gw, gh = pw * sc, ph * sc
-                TablePanel.draw(tbl, i, dx - (gw - pw) / 2, dy - (gh - ph) / 2,
-                                gw, gh, self.game, self.controller, self.hit_boxes)
-            else
-                TablePanel.draw(tbl, i, dx, dy, pw, ph,
-                                self.game, self.controller, self.hit_boxes)
-            end
-            self:_notePanel(tbl, i, dx, dy, pw, ph)
-        end
     end
 end
 
