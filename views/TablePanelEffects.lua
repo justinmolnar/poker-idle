@@ -16,6 +16,10 @@ local StatusData     = require("data.statuses")
 local Pop            = require("services.Pop")
 
 local Motion         = require("services.Motion")
+-- The per-frame pop keys ("tbl_bump:<id>", "tbl_shove:<id>") come from
+-- Table.rollingKey, memoized on the table: the same strings, built once
+-- instead of concatenated on every panel every frame.
+local TableModel     = require("models.Table")
 local Perf           = require("services.Perf")
 local Effects = {}
 
@@ -293,7 +297,9 @@ end
 -- pile of them to blend.
 local function strongestWith(tbl, field)
     local best, best_def
-    for _, e in ipairs(tbl.statuses or {}) do
+    local list = tbl.statuses
+    if not list then return nil end
+    for _, e in ipairs(list) do
         local def = StatusData[e.kind]
         if def and def[field] and (not best or e.magnitude > best.magnitude) then
             best, best_def = e, def
@@ -438,7 +444,7 @@ function Effects.statusRotation(tbl)
     -- Taking a hit rocks the panel ON TOP of whatever it was already
     -- doing, so a table that gets shoved AND tilted does both. Direction
     -- follows the blow: struck from the left, it rocks clockwise.
-    local p = Pop.progress("tbl_bump:" .. (tbl._id or 0), BUMP_DURATION)
+    local p = Pop.progress(TableModel.rollingKey(tbl, "tbl_bump"), BUMP_DURATION)
     if p > 0 and not tbl.bump_out and not tbl.bump_slam then
         local lean_dir = (tbl.bump_dx or 0)
         if lean_dir == 0 then lean_dir = (tbl.bump_dy or 0) end
@@ -468,7 +474,7 @@ function Effects.bumpOffset(tbl)
     local sx, sy = 1, 1
     local lift01 = 0
     local dur = tbl.bump_slam and (SLAM.duration or 1.5) or BUMP_DURATION
-    local p = Pop.progress("tbl_bump:" .. id, dur)
+    local p = Pop.progress(TableModel.rollingKey(tbl, "tbl_bump"), dur)
     -- Motion: Low and below nothing is displaced (TablePanel flashes the
     -- border instead); High and below the shover doesn't lunge.
     local lvl = Motion.level("tables")
@@ -546,7 +552,7 @@ function Effects.bumpOffset(tbl)
         end
     end
 
-    local g = Pop.progress("tbl_shove:" .. id, BUMP_DURATION)
+    local g = Pop.progress(TableModel.rollingKey(tbl, "tbl_shove"), BUMP_DURATION)
     if g > 0 then
         local s = Pop.scale(math.sin(math.pi * (1 - g)), 1, BUMP_GROW)
         sx, sy = sx * s, sy * s
@@ -564,7 +570,7 @@ end
 function Effects.punchFlash(tbl)
     if Motion.level("tables") > Motion.LOW then return 0 end
     local dur = tbl.bump_slam and (SLAM.duration or 1.5) or BUMP_DURATION
-    return Pop.progress("tbl_bump:" .. (tbl._id or 0), dur)
+    return Pop.progress(TableModel.rollingKey(tbl, "tbl_bump"), dur)
 end
 
 -- Rotate everything drawn between push and pop about a point. The held
@@ -687,26 +693,34 @@ end
 local KO_FLASH_S = 1.1
 local seat_kos = {}
 
-local function koKey(tbl, seat)
-    return tostring(tbl._id or tbl) .. ":" .. tostring(seat)
-end
-
+-- Two levels (table id -> seat -> t0), so a busted seat's per-frame query
+-- indexes two tables instead of building a key string.
 function Effects.noteSeatKO(tbl, seat)
     if not (tbl and seat) then return end
-    seat_kos[koKey(tbl, seat)] = love.timer.getTime()
+    local id = tbl._id or tbl
+    local by_seat = seat_kos[id]
+    if not by_seat then by_seat = {}; seat_kos[id] = by_seat end
+    by_seat[seat] = love.timer.getTime()
 end
 
 -- 0..1 while the flash runs, nil before the KO and after it has played out.
 function Effects.seatKOProgress(tbl, seat)
-    local key = koKey(tbl, seat)
-    local t0  = seat_kos[key]
+    local by_seat = seat_kos[tbl._id or tbl]
+    local t0 = by_seat and by_seat[seat]
     if not t0 then return nil end
     local p = (love.timer.getTime() - t0) / KO_FLASH_S
     if p >= 1 then
-        seat_kos[key] = nil
+        by_seat[seat] = nil
         return nil
     end
     return p
+end
+
+-- Is any seat of this table mid-flash (the panel cache's classifier)?
+function Effects.hasSeatKO(tbl)
+    local by_seat = seat_kos[tbl._id or tbl]
+    if not by_seat then return false end
+    return next(by_seat) ~= nil
 end
 
 -- The ring, over the seat's card region: bright at the hit, gone by the

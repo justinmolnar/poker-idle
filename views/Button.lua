@@ -25,6 +25,7 @@ local LIFT_PX   = 1      -- hover lift
 -- ── Curves (private) ────────────────────────────────────────────────────
 local function pressCurve(a)    return Easing.outCubic(a or 0)    end
 local darken = Theme.darken
+local _side  = {}   -- the darkened side colour, one scratch table for every button drawn
 
 -- ── Public API ──────────────────────────────────────────────────────────
 -- Render a chunky button at (x, y, w, h). The button's visible envelope
@@ -79,7 +80,7 @@ function Button.draw(x, y, w, h, opts, label_fn)
     -- Resolve colours.
     local fill = disabled and (opts.disabled_fill or Theme.bg.sunken) or opts.fill_color
     if not fill then return end
-    local side = opts.side_color or darken(fill, 0.5)
+    local side = opts.side_color or darken(fill, 0.5, _side)
 
     -- 1. Side rim.
     if side_h > 0 then

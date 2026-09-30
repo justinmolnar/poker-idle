@@ -49,6 +49,7 @@ local CardSprites   = require("views.CardSprites")
 local Motion        = require("services.Motion")
 local Effects       = require("views.TablePanelEffects")
 local ShaderRegistry = require("services.ShaderRegistry")
+local Perf           = require("services.Perf")
 local FeltStyle     = require("data.felt_style")
 local FeltData      = require("data.felt_layout")
 
@@ -194,6 +195,26 @@ local cardSizesFor = FeltLayout.cardSizes
 -- deal removes tbl.last_hand. The snapshot's keys mirror both tbl.* and
 -- playback_state.* names, so handData/seatState substitute it for either
 -- source and every draw function below renders the residue for free.
+-- The residue's shader pair. `sh` is the desaturate shader or nil (no
+-- shader: draw in colour, keep the layout); the amount goes up only when
+-- it differs from the last one sent, which across a resting board is once.
+local _desat_sent = nil
+local function desatBegin(sh, amount)
+    if not (sh and amount) then return end
+    if _desat_sent ~= amount then
+        _desat_sent = amount
+        pcall(sh.send, sh, "u_amount", amount)
+    end
+    Perf.count("shader_switch")
+    love.graphics.setShader(sh)
+end
+local function desatEnd(sh)
+    if not sh then return end
+    love.graphics.setShader()
+end
+
+local EMPTY = {}  -- the shared empty list: never mutated, never allocated per frame
+local _lp = {}   -- FeltLayout.computeCached's parameter table, reused
 local function residueOf(tbl)
     return (tbl.state == "idle") and tbl.last_hand or nil
 end
@@ -2046,10 +2067,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
            and controller:bountyBanked(tbl.stake_id, tbl.game_type_id) then
             Anchors.set("table:banked", x, y, w, h)
         end
-        for _, st in ipairs(tbl.statuses or {}) do
+        for _, st in ipairs(tbl.statuses or EMPTY) do
             if st.kind == "heater" then Anchors.set("table:heater", x, y, w, h) break end
         end
-        for _, st in ipairs(tbl.statuses or {}) do
+        for _, st in ipairs(tbl.statuses or EMPTY) do
             if st.kind == "tilt" then Anchors.set("table:tilt", x, y, w, h) break end
         end
     end
@@ -2196,17 +2217,20 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- HAND counter + payout ladder as a single row in it. No game type gets a
     -- taller band, so cards/opponents/community/hole are identical everywhere
     -- and stay full-size. (bottom_extra/card_bottom default to the thin row.)
-    local L = FeltLayout.computeCached(tbl, {
-        felt_x = felt_x, felt_y = felt_y, felt_w = felt_w, felt_h = felt_h,
-        hu = (tbl.game_type_id == "hu"), n_opps = #tbl.opponents,
-        sizes = sizes, s = s, sm_h = sm_h2, md_h = md_h, xs_h = xs_h,
-        ev_w = ev_w, ev_money_w = ev_money_w,
-        tied_w = tied_w, tied_short_w = tied_short_w,
-        name_ch_w = name_ch_w,
-        pile_r = Chips.radius(),
-        -- The board's count: the pile detail rule is gated on it.
-        n_tables = n_tables,
-    })
+    -- One parameter table for the process, rewritten per panel (the
+    -- solver copies the fields it compares; a literal here was a table
+    -- per panel per frame).
+    local lp = _lp
+    lp.felt_x, lp.felt_y, lp.felt_w, lp.felt_h = felt_x, felt_y, felt_w, felt_h
+    lp.hu, lp.n_opps = (tbl.game_type_id == "hu"), #tbl.opponents
+    lp.sizes, lp.s, lp.sm_h, lp.md_h, lp.xs_h = sizes, s, sm_h2, md_h, xs_h
+    lp.ev_w, lp.ev_money_w = ev_w, ev_money_w
+    lp.tied_w, lp.tied_short_w = tied_w, tied_short_w
+    lp.name_ch_w = name_ch_w
+    lp.pile_r = Chips.radius()
+    -- The board's count: the pile detail rule is gated on it.
+    lp.n_tables = n_tables
+    local L = FeltLayout.computeCached(tbl, lp)
 
     -- ── Felt surface ────────────────────────────────────────────────────
     -- Drawn AFTER the layout solve, not before, because the layout is what
@@ -2225,25 +2249,19 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- still says its stake while the spent hand reads as inert. The
     -- ease-in off the wall-clock idle timer makes it visibly "go cold"
     -- instead of snap.
-    local residue      = residueOf(tbl)
+    -- One shader pair per residue panel, around the whole grey group
+    -- (the opponent row, the community cards, the player seat: nothing
+    -- coloured is drawn between them, only anchors). It was three pairs
+    -- plus an availability probe that bound the shader with nothing to
+    -- draw, eight binds a panel; and the amount is sent only when it
+    -- changes, which at rest is never (every resting panel shares it).
+    local residue  = residueOf(tbl)
+    local desat_sh = residue and ShaderRegistry.get("desaturate") or nil
     local desat_amount = nil
-    if residue then
+    if desat_sh then
         local RS = FeltStyle.residue or {}
         desat_amount = (RS.desat or 0.85)
                        * math.min(1, (tbl.state_timer or 0) / (RS.ease_secs or 0.35))
-        -- Availability probe only; the per-element wraps do the real work.
-        if not ShaderRegistry.apply("desaturate", { u_amount = desat_amount }) then
-            desat_amount = nil   -- shader unavailable: draw in color, keep layout
-        end
-        ShaderRegistry.apply(nil)
-    end
-    local function desatOn()
-        if desat_amount then
-            ShaderRegistry.apply("desaturate", { u_amount = desat_amount })
-        end
-    end
-    local function desatOff()
-        if desat_amount then ShaderRegistry.apply(nil) end
     end
 
     local surf = L.rail
@@ -2286,8 +2304,9 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
 
     -- Opponents row (seats pre-split by the layout; chip-flight anchor per seat).
     -- Residue: opp cards are dead material, so the row draws desaturated
-    -- (the winning five come back in color via the emphasis pass).
-    desatOn()
+    -- (the winning five come back in color via the emphasis pass). The
+    -- grey group runs from here through the player seat.
+    desatBegin(desat_sh, desat_amount)
     -- Cards are held until the band is done so every shadow lands before
     -- any card and the backs batch (views/CardSprites.batchBegin). The
     -- dealer button is parked, not drawn, for the same reason.
@@ -2316,7 +2335,6 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     if _dealer_btn.d then
         FeltDecor.drawButton(_dealer_btn.x, _dealer_btn.y, _dealer_btn.d, _dealer_btn.alpha)
     end
-    desatOff()
 
     -- Default chip-flight anchors — re-stamped each frame; drawPlayerSeat /
     -- drawPotLabel overwrite with more specific positions when they run.
@@ -2333,10 +2351,10 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
     -- adapts what goes inside them instead of dropping them), so there is no
     -- cards-dropped fallback to branch to.
     local ctx = controller and controller.ctx
-    -- Residue: hole cards and the stack pile are dead material too.
-    desatOn()
+    -- Residue: hole cards and the stack pile are dead material too; the
+    -- grey group ends here.
     drawPlayerSeat(tbl, L.hole, L.bottom, sl, fonts, ctx, idx, L.button)
-    desatOff()
+    desatEnd(desat_sh)
     -- The stack box takes in the parked result readout above the pile
     -- (registered by the floater renderer last frame) while it is there,
     -- so "the readout, tied up and the chips" is one mark.
@@ -2449,10 +2467,9 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes)
 
     -- Pot pile + "Pot: $X", drawn AFTER the emphasis so the chips stay on top of
     -- the dim/grow overlay (the pile is meant to overlap the community cards).
-    -- Chips are dead material in the residue.
-    desatOn()
+    -- (The pot is empty whenever there is residue, so it is drawn in
+    -- colour: a shader pair around nothing was two binds a panel.)
     if L.pot then drawPotLabel(tbl, L.pot, fonts, anims_on) end
-    desatOff()
 
     -- Legacy KO: the binary-outcome pot is always empty, so the felt-center
     -- pot slot shows the HAND x/x tournament counter instead (the payout ladder

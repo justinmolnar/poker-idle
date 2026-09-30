@@ -471,6 +471,14 @@ function SpriteLoader:_conditionCard(sprite_name, image)
     return image
 end
 
+-- A frame of an animation list, resolving a lazy entry. Module-level: it
+-- was a closure created on every getSprite call, one per art card drawn.
+local function frameAt(self, list, idx)
+    local v = list[idx]
+    if list._lazy then return self:_ensure(v) end
+    return v
+end
+
 function SpriteLoader:getSprite(sprite_name, time, fps, frame)
     if not self.loaded then self:loadAll() end
     -- Motion: below High, animated art holds its first frame.
@@ -478,16 +486,10 @@ function SpriteLoader:getSprite(sprite_name, time, fps, frame)
     local resolved = _resolve(self, sprite_name)
     local anim = self.animations[resolved] or self.animations[sprite_name]
 
-    local function frameAt(list, idx)
-        local v = list[idx]
-        if list._lazy then return self:_ensure(v) end
-        return v
-    end
-
     if time == false then
         if anim and #anim > 0 then
             local static_idx = math.max(1, math.min(#anim, math.floor(frame or 1)))
-            return frameAt(anim, static_idx)
+            return frameAt(self, anim, static_idx)
         end
         return self:_ensure(resolved)
     end
@@ -503,7 +505,7 @@ function SpriteLoader:getSprite(sprite_name, time, fps, frame)
             fps = fps or (item_fps and (item_fps[sprite_name] or item_fps[resolved])) or default_fps
 
             local frame_idx = (math.floor(time * fps) % #anim) + 1
-            return frameAt(anim, frame_idx)
+            return frameAt(self, anim, frame_idx)
         end
     end
     return self:_ensure(resolved)

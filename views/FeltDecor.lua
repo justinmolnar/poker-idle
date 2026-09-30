@@ -77,10 +77,11 @@ end
 
 -- Paint the mask over a rect in `color` at `alpha`. Shared by the resting felt
 -- vignette and the win/loss flash in views/TablePanelEffects.
+local BLACK = { 0, 0, 0 }   -- the mask's default ink; a literal here was a table per felt per frame
 function FeltDecor.drawMask(x, y, w, h, color, alpha)
     if not _mask or alpha <= 0.001 or w <= 0 or h <= 0 then return end
     local mw, mh = _mask:getWidth(), _mask:getHeight()
-    Theme.setColor(color or { 0, 0, 0 }, alpha)
+    Theme.setColor(color or BLACK, alpha)
     love.graphics.draw(_mask, x, y, 0, w / mw, h / mh)
 end
 
