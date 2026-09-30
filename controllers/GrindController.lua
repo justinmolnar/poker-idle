@@ -2922,39 +2922,66 @@ end
 -- question was a full pass over the table list — roughly 800 iterations a
 -- frame at a full board. One pass per frame in update() answers all of
 -- them. Rebuilt in place, so a steady state allocates nothing.
+--
+-- The pass counts into a bucket's `n_*` fields first and commits them to
+-- its `open` / `deal` / `rebuy` / `pending` afterwards, so it can tell
+-- whether any bucket actually moved: `summary_rev` steps only then. The
+-- sidebars key their retained trees on it (views/Panel inputs), which is
+-- what lets a board that is merely playing leave them alone.
+local function commitBucket(e)
+    local moved = e.open ~= e.n_open or e.deal ~= e.n_deal
+               or e.rebuy ~= e.n_rebuy or e.pending ~= e.n_pending
+    e.open, e.deal, e.rebuy, e.pending = e.n_open, e.n_deal, e.n_rebuy, e.n_pending
+    return moved
+end
+
+local function newBucket()
+    return { open = 0, deal = 0, rebuy = 0, pending = 0,
+             n_open = 0, n_deal = 0, n_rebuy = 0, n_pending = 0 }
+end
+
 function GrindController:_rebuildPoolSummary()
     local sum = self._pool_summary
     if not sum then
-        sum = { by_stake = {}, total = { open = 0, deal = 0, rebuy = 0, pending = 0 } }
+        sum = { by_stake = {}, total = newBucket() }
         self._pool_summary = sum
+        self.summary_rev = self.summary_rev or 0
     end
     for _, by_gtype in pairs(sum.by_stake) do
         for _, e in pairs(by_gtype) do
-            e.open, e.deal, e.rebuy, e.pending = 0, 0, 0, 0
+            e.n_open, e.n_deal, e.n_rebuy, e.n_pending = 0, 0, 0, 0
         end
     end
     local tot = sum.total
-    tot.open, tot.deal, tot.rebuy, tot.pending = 0, 0, 0, 0
+    tot.n_open, tot.n_deal, tot.n_rebuy, tot.n_pending = 0, 0, 0, 0
 
     for _, t in ipairs(self.pool.tables) do
         local by_gtype = sum.by_stake[t.stake_id]
         if not by_gtype then by_gtype = {}; sum.by_stake[t.stake_id] = by_gtype end
         local e = by_gtype[t.game_type_id]
         if not e then
-            e = { open = 0, deal = 0, rebuy = 0, pending = 0 }
+            e = newBucket()
             by_gtype[t.game_type_id] = e
         end
-        e.open, tot.open = e.open + 1, tot.open + 1
+        e.n_open, tot.n_open = e.n_open + 1, tot.n_open + 1
         if t.cursor_muted == true then
-            e.deal, tot.deal = e.deal + 1, tot.deal + 1
+            e.n_deal, tot.n_deal = e.n_deal + 1, tot.n_deal + 1
         end
         if t.cursor_rebuy_muted == true then
-            e.rebuy, tot.rebuy = e.rebuy + 1, tot.rebuy + 1
+            e.n_rebuy, tot.n_rebuy = e.n_rebuy + 1, tot.n_rebuy + 1
         end
         if t.pending_close then
-            e.pending, tot.pending = e.pending + 1, tot.pending + 1
+            e.n_pending, tot.n_pending = e.n_pending + 1, tot.n_pending + 1
         end
     end
+
+    local moved = commitBucket(tot)
+    for _, by_gtype in pairs(sum.by_stake) do
+        for _, e in pairs(by_gtype) do
+            if commitBucket(e) then moved = true end
+        end
+    end
+    if moved then self.summary_rev = (self.summary_rev or 0) + 1 end
 end
 
 -- The summary bucket for a combo, or nil when the caller passes a shape the

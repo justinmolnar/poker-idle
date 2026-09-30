@@ -184,8 +184,12 @@ function RoomState:update(dt)
         end
     end
 
+    -- The rail is the grind's and it is drawn here too: its numbers tween
+    -- and its clock (the rolled values, the pulses, the focus alarm) runs
+    -- here as well, or the readouts would stand still on this screen.
     local gv = self:_grindView()
     if gv and gv.tweenChrome then gv:tweenChrome(dt) end
+    if gv and gv._tickRail then gv:_tickRail(dt) end
 
     if self.room_view and not want and not self.settings_modal then
         self:_updatePopIn(dt)

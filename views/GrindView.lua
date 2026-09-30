@@ -187,6 +187,14 @@ function GrindView:new(game, controller)
         displayed_tied     = controller:tiedUp(),
     }, GrindView)
 
+    -- The Tables tab's rolled numbers, read once per frame in its inputs
+    -- (RollingValue.get advances a value, so a second read would roll it
+    -- twice) and stashed here for the build. The keys are made once:
+    -- building "gtype_press:zoom" every frame was a string per key per
+    -- frame.
+    self._press, self._press_key, self._btn_ev = {}, {}, {}
+    for _, gt in ipairs(GameTypes) do self._press_key[gt.id] = "gtype_press:" .. gt.id end
+    self:_makeRailClosures()
     self:_buildPanels()
     return self
 end
@@ -219,12 +227,17 @@ function GrindView:_buildPanels()
     local W, H = love.graphics.getDimensions()
     recomputeLayout(W, H, self.game.fonts, self.game.state)
 
+    -- Each tab's tree is retained by the Panel and rebuilt only when its
+    -- `inputs` move (the keys each builder reads; see the inputs functions
+    -- beside the builders). The rail also `refresh`es its live numbers in
+    -- place every frame.
     self.left_panel = Panel:new(0, 0, LEFT_W, H - RAIL_H)
     self.left_panel:registerTab({
         id       = "tables",
         label    = "Tables",
         priority = 0,
         build    = function() return self:_buildTablesTabComponents() end,
+        inputs   = function(_, arr) return self:_tablesTabInputs(arr) end,
     })
     -- Catalog tab removed — purchases now happen in views/CatalogModal.lua
     -- after each bust. The chip shop is only accessible between runs.
@@ -238,6 +251,7 @@ function GrindView:_buildPanels()
         label    = "Upgrades",
         priority = 0,
         build    = function() return self:_buildUpgradesTabComponents() end,
+        inputs   = function(_, arr) return self:_upgradesTabInputs(arr) end,
     })
 
     -- The rail: the chrome, one flex row along the bottom, left of the
@@ -249,13 +263,15 @@ function GrindView:_buildPanels()
         label    = "Rail",
         priority = 0,
         build    = function() return self:_buildRailComponents() end,
+        inputs   = function(_, arr) return self:_railInputs(arr) end,
+        refresh  = function() self:_refreshRail() end,
     })
 
     -- The three panels as one list, so the per-frame hover walk stops
     -- rebuilding a throwaway table to iterate them.
     self._panels = { self.left_panel, self.right_panel, self.rail }
 end
--- ─── Panel content builders (called every frame by Panel:draw) ────────────
+-- ─── Panel content builders (called by Panel:draw when a tab's inputs move) ──
 
 -- Game-type keys: a row of four buttons at the top of the Tables tab.
 -- Selecting one swaps which stake-add rows render below. Cassette-deck
@@ -263,6 +279,8 @@ end
 -- HELD DOWN, pressed flat with a lit legend, so the shape carries the
 -- state. Locked keys (Constants.GTYPE_GATE) stay: dark, flush, blank and
 -- inert, a slot to want. The story beats do the explaining when each opens.
+-- Hover is the renderer's (CR._button lightens the face): a key tinted
+-- here on hover would make the pointer a rebuild key for the whole tab.
 function GrindView:_makeGameTypeStrip()
     local fh        = self.game.fonts.sm:getHeight()
     local s         = self.game.ui_scale or 1
@@ -272,17 +290,18 @@ function GrindView:_makeGameTypeStrip()
         local locked = not self.controller:gtypeAvailable(gt.id)
         local active = (gt.id == self.selected_gtype) and not locked
         local id     = "gtype:" .. gt.id
-        local hov    = (not active) and (not locked) and self.game.hover.is("button", id)
         -- Press TRAVEL is animated: the key eases down when it becomes
-        -- selected and back up when it isn't, on a wall-clock lerp.
-        local press  = RollingValue.get("gtype_press:" .. gt.id, (active or locked) and 1 or 0, 14, "ui")
+        -- selected and back up when it isn't, on a wall-clock lerp. Read
+        -- in _tablesTabInputs (which rebuilds this strip as it moves).
+        local press  = self._press[gt.id]
+        if press == nil then press = (active or locked) and 1 or 0 end
         -- The key wears its game type's chrome (data/game_type_themes), the
         -- same colour the table headers wear: full when selected, sunk when
         -- not, near-out when locked.
         local chrome = GameTypeThemes[gt.id] and GameTypeThemes[gt.id].chrome_color
         local fill
         if chrome then
-            local k = active and 0.60 or (hov and 1.0 or 0.85)
+            local k = active and 0.60 or 0.85
             fill = { chrome[1] * k, chrome[2] * k, chrome[3] * k }
         else
             fill = active and Theme.bg.widget_hover or Theme.bg.chrome
@@ -304,11 +323,80 @@ function GrindView:_makeGameTypeStrip()
             -- A locked key is BLANK: no name until the mode is earned.
             lines = (not locked) and {
                 { text = gt.short or gt.name, style = "small", align = "center",
-                  color_token = (active or hov) and "heading" or "muted" },
+                  color_token = active and "heading" or "muted" },
             } or {},
         }
     end
     return { type = "row", gap = 2, children = kids }
+end
+
+-- "btn_ev:<stake>:<gtype>", the stake row's rolled-EV key, made once per
+-- combo (a bounded set) instead of concatenated per row per frame.
+function GrindView:_evKey(stake_id, gtype_id)
+    local keys = self._ev_keys
+    if not keys then keys = {}; self._ev_keys = keys end
+    local by = keys[gtype_id]
+    if not by then by = {}; keys[gtype_id] = by end
+    local k = by[stake_id]
+    if not k then k = "btn_ev:" .. stake_id .. ":" .. gtype_id; by[stake_id] = k end
+    return k
+end
+
+-- What the Tables tab is built from (views/Panel inputs): the fonts and
+-- scale, the display revision, the selected key, whether the board is
+-- full, the Act 3 badge, the bounty and pool-summary revisions, the cursor
+-- perks, each key's lock and press travel (quantized to 1/64), and per
+-- stake its visibility, its affordability and its rolled EV in cents.
+-- The rolled values are read here, once, and stashed for the build. The
+-- clamp of a stale selection to zoom lives here too, since it is the
+-- selection the build reads.
+function GrindView:_tablesTabInputs(arr)
+    local game, state, ctrl = self.game, self.game.state, self.controller
+    if not ctrl:gtypeAvailable(self.selected_gtype) then
+        self.selected_gtype = "zoom"
+    end
+    local gtype_id = self.selected_gtype
+    local ctx      = ctrl.ctx
+    local full     = ctrl.pool:count() >= ctrl:tableSlotsCap()
+    local n = 0
+    n = n + 1; arr[n] = CR.layout_gen
+    n = n + 1; arr[n] = game.ui_scale or 1
+    n = n + 1; arr[n] = ctrl.display_rev or 0
+    n = n + 1; arr[n] = gtype_id
+    n = n + 1; arr[n] = full
+    n = n + 1; arr[n] = state.shove_r2_won == true
+    n = n + 1; arr[n] = ctrl.banked_rev or 0
+    n = n + 1; arr[n] = ctrl.summary_rev or 0
+    n = n + 1; arr[n] = (ctx and ctx.cursor_unlocked) == true
+    n = n + 1; arr[n] = (ctx and ctx.cursor_rebuy_unlocked) == true
+    local gmask = 0
+    for _, gt in ipairs(GameTypes) do
+        local locked = not ctrl:gtypeAvailable(gt.id)
+        local active = (gt.id == gtype_id) and not locked
+        gmask = gmask * 2 + (locked and 1 or 0)
+        local press = RollingValue.get(self._press_key[gt.id], (active or locked) and 1 or 0, 14, "ui")
+        self._press[gt.id] = press
+        n = n + 1; arr[n] = math.floor(press * 64)
+    end
+    n = n + 1; arr[n] = gmask
+    local gtype_obj = Lookups.findById(GameTypes, gtype_id)
+    local bankroll  = state.bankroll or 0
+    local smask = 0
+    for _, stake in ipairs(Stakes) do
+        local vis    = ctrl:stakeAvailable(stake)
+        local afford = vis and bankroll >= (stake.buy_in or 0)
+        smask = smask * 4 + (vis and 2 or 0) + (afford and 1 or 0)
+        if afford and not full then
+            local ev = TablePanelStats.evPerHand(ctrl, stake, gtype_obj)
+            if ev then
+                local rolled = RollingValue.get(self:_evKey(stake.id, gtype_id), ev)
+                self._btn_ev[stake.id] = rolled
+                n = n + 1; arr[n] = math.floor(rolled * 100)
+            end
+        end
+    end
+    n = n + 1; arr[n] = smask
+    return n
 end
 
 function GrindView:_buildTablesTabComponents()
@@ -331,10 +419,7 @@ function GrindView:_buildTablesTabComponents()
     -- is composite "add_table:<stake>:<gtype>" so the dispatcher routes
     -- to controller:addTable(stake_id, game_type_id).
     -- A stale selection of a still-locked mode (old save state, or a gate
-    -- future-tightened) clamps back to zoom, the always-open mode.
-    if not self.controller:gtypeAvailable(self.selected_gtype) then
-        self.selected_gtype = "zoom"
-    end
+    -- future-tightened) was clamped back to zoom in _tablesTabInputs.
     local gtype_id  = self.selected_gtype
     local gtype_obj = Lookups.findById(GameTypes, gtype_id)
     -- Cursor perks gate the per-row cursor toggles, same two flags the
@@ -364,10 +449,11 @@ function GrindView:_buildTablesTabComponents()
                 if affordable then
                     local ev = TablePanelStats.evPerHand(self.controller, stake, gtype_obj)
                     if ev then
-                        -- Rolls like the per-table readouts; color from the
-                        -- rolled value so tint and number always agree.
-                        ev = RollingValue.get(
-                            "btn_ev:" .. stake.id .. ":" .. gtype_id, ev)
+                        -- Rolls like the per-table readouts (read this frame
+                        -- in _tablesTabInputs); color from the rolled value
+                        -- so tint and number always agree.
+                        local rolled = self._btn_ev[stake.id]
+                        if rolled ~= nil then ev = rolled end
                         local bb    = (stake.bb and stake.bb > 0) and stake.bb or 1
                         local ev_bb = ev / bb
                         sub_left  = TablePanelStats.evLabel(ev)
@@ -694,6 +780,7 @@ local _rate_memo = Memo.new("rate_tooltip")
 
 function GrindView:_buildRateTooltip(br, n_open)
     local ctrl  = self.controller
+    br = br or ctrl:boardRate()   -- hovered before the rail's clock has polled it
     local token = tostring(ctrl.display_rev or 0) .. ":" .. tostring(n_open or 0)
                   .. ":" .. tostring(math.floor(ctrl.clock or 0))
     return _rate_memo:get("rail_rate", token, self._buildRateTooltipUncached, self, br)
@@ -867,10 +954,66 @@ function GrindView:_buildRangeTooltipUncached(up)
     return rows
 end
 
+-- The owned-item set, kept across frames and rebuilt in place when the
+-- catalog revision or the list's length moves (a harness appends to the
+-- list without marking it, and the length catches that).
+local EMPTY = {}
+function GrindView:_ownedSet()
+    local state = self.game.state
+    local list  = state.owned_items or EMPTY
+    local rev, n = state.owned_rev or 0, #list
+    local set = self._owned_set
+    if not set then set = {}; self._owned_set = set end
+    if rev ~= self._owned_set_rev or n ~= self._owned_set_n then
+        for k in pairs(set) do set[k] = nil end
+        for _, id in ipairs(list) do set[id] = true end
+        self._owned_set_rev, self._owned_set_n = rev, n
+    end
+    return set
+end
+
+-- What the Upgrades tab is built from (views/Panel inputs): the fonts and
+-- scale, the display and catalog revisions, the pool summary (the master
+-- cursor toggles), the cursor perks, and per upgrade one number folding
+-- its level, its cap and its four states (can't afford, would strand, at
+-- max, locked); a hidden row keeps its slot as -1 so a row appearing is a
+-- change too. The bankroll is in here only through the affordability bit.
+function GrindView:_upgradesTabInputs(arr)
+    local game, state, ctrl = self.game, self.game.state, self.controller
+    local ctx = ctrl.ctx
+    local n = 0
+    n = n + 1; arr[n] = CR.layout_gen
+    n = n + 1; arr[n] = game.ui_scale or 1
+    n = n + 1; arr[n] = ctrl.display_rev or 0
+    n = n + 1; arr[n] = state.owned_rev or 0
+    n = n + 1; arr[n] = ctrl.summary_rev or 0
+    n = n + 1; arr[n] = (ctx and ctx.cursor_unlocked) == true
+    n = n + 1; arr[n] = (ctx and ctx.cursor_rebuy_unlocked) == true
+    local owned    = self:_ownedSet()
+    local bankroll = state.bankroll or 0
+    for _, up in ipairs(RunUpgrades) do
+        local locked = up.requires and not owned[up.requires]
+        local key = -1
+        if not (locked and up.requires_hide) then
+            local level     = ctrl:getRunUpgradeLevel(up.id)
+            local max_lvl   = ctrl:getRunUpgradeMaxLevel(up)
+            local at_max    = level >= max_lvl
+            local next_cost = ctrl:getRunUpgradeNextCost(up)
+            local cant_afford  = next_cost ~= nil and bankroll < next_cost
+            local would_strand = (not at_max) and (not locked) and (not cant_afford)
+                                 and ctrl:wouldStrandRun(next_cost)
+            key = (cant_afford and 8 or 0) + (would_strand and 4 or 0)
+                + (at_max and 2 or 0) + (locked and 1 or 0)
+                + level * 16 + max_lvl * 1024
+        end
+        n = n + 1; arr[n] = key
+    end
+    return n
+end
+
 function GrindView:_buildUpgradesTabComponents()
     local state = self.game.state
-    local owned = {}
-    for _, id in ipairs(state.owned_items) do owned[id] = true end
+    local owned = self:_ownedSet()
 
     local components = {}
     components[#components + 1] = {
@@ -1112,6 +1255,7 @@ function GrindView:update(dt)
     end
 
     self:tweenChrome(dt)
+    self:_tickRail(dt)
 
     -- Drain the controller's chip-burst queue. Controller produces denomination
     -- indices and source/dest pairs; the view delegates to ChipFlight which
@@ -1196,6 +1340,12 @@ end
 -- with its locked line until earned (data/rail.lua for the words). Drawn,
 -- hovered and clicked by the same Panel + ComponentRenderer path the
 -- sidebars use; RoomState draws the same rail.
+--
+-- The row is RETAINED (views/Panel): _railInputs names what its shape
+-- depends on and the builder runs only when one of those moves;
+-- _refreshRail writes the live numbers into the retained components each
+-- frame; _tickRail, from update, owns the pulses, the alarm and the
+-- rolled values; the tooltips with numbers in them are built on hover.
 
 local COVER_CTX = { on_felt = true }   -- the cover as a thumbnail: no invitation
 
@@ -1291,11 +1441,20 @@ function GrindView:_drawDeckFace(spec, fx, fy, fw, fh)
 end
 
 -- The deck in play, in five lines. Progress is the bar on the button; the
--- roster has the rest.
+-- roster has the rest. Memoized on the deck's level: the lines move only
+-- when it does, and services/Tooltip lays a lines table out once per
+-- identity, so the same table must come back until then.
+local _deck_memo = Memo.new("deck_tooltip")
+
 function GrindView:_deckTooltip(spec)
+    if not spec then return nil end
     local state = self.game.state
+    local level = (state.deck_levels and state.deck_levels[spec.id]) or 0
+    return _deck_memo:get(spec.id, level, self._deckTooltipUncached, self, spec, level)
+end
+
+function GrindView:_deckTooltipUncached(spec, level)
     local id    = spec.id
-    local level = (state.deck_levels and state.deck_levels[id]) or 0
     local maxed = level >= (spec.max_level or 5)
     local row   = TablePanelStats.iconRow
     local lines = {
@@ -1319,144 +1478,203 @@ function GrindView:_deckTooltip(spec)
     return lines
 end
 
-function GrindView:_buildRailComponents()
-    local game  = self.game
-    local state = game.state
-    local fonts = game.fonts
-    local s     = game.ui_scale or 1
-    local fl    = math.floor
-    local ctrl  = self.controller
-    local R     = Rail
-    local SP    = Theme.space
-    local sm      = game.state_machine
-    local on_room = sm and sm.current and sm:current() == "room"
-    local depth   = SP.button_depth
-    local face_h  = RAIL_BTN_H - Button.allocatedH(0, depth)
-    local btn_w   = fl(RAIL_BTN_H * SP.icon_button_w)
-    local gap     = fl(SP.flex_gap * s)
-    local n_open  = ctrl.pool:count()
-    -- A readout hangs its label and value from the rail's bottom, so every
-    -- value shares one baseline and every button one top and bottom.
-    -- A readout's slot ends where the buttons' faces end (above their
-    -- chunk), and its value's baseline sits on that line.
-    local face_bottom = RAIL_BTN_H - depth
-    local function stat(c) c.type = "stat"; c.h = c.h or face_bottom; c.valign = c.valign or "bottom"; return c end
-    -- A slot is as wide as the widest value it can hold (data/rail.lua
-    -- reserve), never as wide as the value it holds now: the row does not
-    -- move as the numbers change.
-    local function reserveW(font, text, extra) return font:getWidth(text) + (extra or 0) + SP.stat_pad end
-    local glyph_w = fl(fonts.md:getHeight() * SP.stat_glyph) + SP.stat_pad
-    local function group(kids) return { type = "row", gap = gap, h = RAIL_BTN_H, align = "top", children = kids } end
+-- FOCUS's tooltip: the capacity and the hard cap are the only numbers in
+-- it and the penalty comes off the rollup, so it is keyed on those three.
+local _focus_memo = Memo.new("focus_tooltip")
 
-    -- ── The buttons: the gear, the book, the room, the deck ──
-    local gear = { type = "button", id = "nav:settings", anchor = "btn:settings",
-        w = btn_w, face_h = face_h, depth = depth, tooltip = R.tooltips.settings,
-        face_fn = function(fx, fy, fw, fh, g)
-            local sz = fl(math.min(fw, fh) * SP.icon_share)
-            Icons.drawGear(g, fx + fl((fw - sz) / 2), fy + fl((fh - sz) / 2), sz)
-        end }
-    -- Locked, a button is BLANK (the locked game-type keys' rule): no
-    -- picture, no word, no line. The slot is there; nothing else is said.
-    local cat_locked = not state.catalog_seen
-    local book = { type = "button", id = "nav:catalog", anchor = "btn:catalog",
-        w = btn_w, face_h = face_h, depth = depth,
-        disabled = cat_locked, tooltip = (not cat_locked) and R.tooltips.catalog or nil,
-        lines = {},
-        face_fn = (not cat_locked) and function(fx, fy, fw, fh, _g)
-            -- The book's own cover, at thumbnail size (the felt's rule).
-            local pad = fl(SP.thumb_pad * s)
-            local k = math.min((fw - pad * 2) / CatalogModal.COVER_W, (fh - pad * 2) / CatalogModal.COVER_H)
-            local cw, ch = CatalogModal.COVER_W * k, CatalogModal.COVER_H * k
-            love.graphics.push()
-            love.graphics.translate(fx + fl((fw - cw) / 2), fy + fl((fh - ch) / 2))
-            love.graphics.scale(k, k)
-            CatalogModal.drawFrontCover(COVER_CTX, 0, 0, CatalogModal.COVER_W, CatalogModal.COVER_H, fonts, 1)
-            love.graphics.pop()
-        end or nil }
-    local room_locked = not state.has_shoved
-    -- Something bought and not yet seen in the room: ONE pulse when it
-    -- arrives, then quiet. A delivery is a note, not an alarm.
-    local unseen_n = state.room_unseen and #state.room_unseen or 0
-    if not room_locked and not on_room and unseen_n > (self._room_unseen_n or 0) then
-        AwardGlow.flash("nav:room")
-    end
-    self._room_unseen_n = unseen_n
-    local room = { type = "button", id = "nav:room", anchor = "btn:room",
-        anchor_also = on_room and "room:play" or nil,
-        w = fl(RAIL_BTN_H * SP.room_thumb_w), face_h = face_h, depth = depth,
-        disabled = room_locked,
-        tooltip  = (not room_locked) and (on_room and R.labels.play or R.tooltips.room) or nil,
-        lines    = {},
-        face_fn = (not room_locked) and function(fx, fy, fw, fh, _g)
-            -- The whole room, framed by its own extent.
-            local canvas, box = self:_roomThumb()
-            if canvas and box then
-                local pad = fl(SP.thumb_pad * s)
-                local bw, bh = math.max(1, box.x2 - box.x1), math.max(1, box.y2 - box.y1)
-                local k = math.min((fw - pad * 2) / bw, (fh - pad * 2) / bh)
-                local cxr, cyr = (box.x1 + box.x2) * 0.5, (box.y1 + box.y2) * 0.5
-                local sx0, sy0, sw0, sh0 = love.graphics.getScissor()
-                local tx, ty = love.graphics.transformPoint(fx, fy)
-                love.graphics.intersectScissor(tx, ty, fw, fh)
-                Theme.assetTint()
-                love.graphics.draw(canvas, fx + fw * 0.5 - cxr * k, fy + fh * 0.5 - cyr * k, 0, k, k)
-                if sx0 then love.graphics.setScissor(sx0, sy0, sw0, sh0) else love.graphics.setScissor() end
-            end
-            if on_room then
-                -- On the room screen the same button is the way back.
-                love.graphics.setFont(fonts.sm)
-                local th = fonts.sm:getHeight()
-                Theme.setColor(Theme.bg.sunken, 0.7)
-                love.graphics.rectangle("fill", fx, fy + fl((fh - th) / 2), fw, th)
-                Theme.setColor(Theme.fg.heading)
-                love.graphics.printf(R.labels.play, fx, fy + fl((fh - th) / 2), fw, "center")
-            end
-        end or nil }
-    local deck_open = Decks.systemUnlocked(state)
-    local spec = deck_open and state.active_deck_id and Decks.specById(state.active_deck_id) or nil
-    -- A deck opened and hasn't been seen: ONE pulse when it does, like
-    -- the room's delivery. A note, not an alarm.
-    local decks_unseen_n = state.decks_unseen and #state.decks_unseen or 0
-    if deck_open and decks_unseen_n > (self._decks_unseen_n or 0) then
-        AwardGlow.flash("deck")
-    end
-    self._decks_unseen_n = decks_unseen_n
-    -- Locked, the key is BLANK: no name, no line, nothing to want by name.
-    -- Open, it wears the deck in play; open with none in play yet, its name.
-    local deck = { type = "button", id = "deck", anchor = "cell:deck",
-        w = fl(RAIL_BTN_H * SP.deck_thumb_w), face_h = face_h, depth = depth,
-        disabled = not deck_open,
-        tooltip  = spec and self:_deckTooltip(spec) or (deck_open and R.tooltips.deck_click) or nil,
-        lines    = (deck_open and not spec) and
-                   { { text = R.labels.deck, style = "small", align = "center", color_token = "heading" } } or {},
-        face_fn  = spec and function(fx, fy, fw, fh) self:_drawDeckFace(spec, fx, fy, fw, fh) end or nil }
+function GrindView:_focusTip(focus_cap, cap)
+    local token = ((self.controller.display_rev or 0) * 1000 + focus_cap) * 1000 + cap
+    return _focus_memo:get("focus", token, self._focusTipUncached, self, focus_cap, cap)
+end
 
-    -- ── FOCUS, and the tables that drive it ──
-    local focus_cap   = ctrl:currentFocusCapacity()
-    local focus_pct   = fl(ctrl:currentFocusMult() * 100 + 0.5)
-    -- Rolls toward the target like the money; the pop keys off the real
-    -- target so it fires once per change.
-    local focus_shown = fl(RollingValue.get("focus_pct", focus_pct) + 0.5)
-    local over        = focus_shown < 100
-    -- A healthy focus is simply fine (parchment); under 100% every table
-    -- is playing that much slower, which is money lost.
-    local focus_color = over and Theme.sem.lost or Theme.fg.heading
-    local fpop = Pop.onChange("focus", focus_pct, 0.5)
-    if fpop > 0 then
-        focus_color = {
-            focus_color[1] + (1 - focus_color[1]) * fpop,
-            focus_color[2] + (1 - focus_color[2]) * fpop,
-            focus_color[3] + (1 - focus_color[3]) * fpop,
-        }
-    end
-    local cap     = ctrl:tableSlotsCap()
-    local eff_pen = Constants.GAMEPLAY.FOCUS_BASE_PENALTY * ((ctrl.ctx and ctrl.ctx.focus_penalty_reduce_mult) or 1)
-    local focus_tip = {
+function GrindView:_focusTipUncached(focus_cap, cap)
+    local R    = Rail
+    local ctx  = self.controller.ctx
+    local eff_pen = Constants.GAMEPLAY.FOCUS_BASE_PENALTY * ((ctx and ctx.focus_penalty_reduce_mult) or 1)
+    return {
         R.tooltips.focus,
         string.format(R.tooltips.focus_ok, focus_cap),
         string.format(R.tooltips.focus_pen, eff_pen * 100, Constants.GAMEPLAY.FOCUS_FLOOR * 100),
         string.format(R.tooltips.focus_cap, cap),
     }
+end
+
+-- SHOVE's tooltip, built only while the button is hovered (tooltip_fn)
+-- and then only when what it prints has moved: the rollup, the rounded
+-- rate, the multiplier to a tenth, this run's chips. The rates it reads
+-- are the ones _railInputs cached for the button's own readout.
+local _shove_memo = Memo.new("shove_tooltip")
+
+function GrindView:_shoveTooltip()
+    local rates = self._shove_rates
+    if not rates then return nil end
+    local pending = self.game.state.chips_this_run or 0
+    local token = tostring(self.controller.display_rev or 0) .. ":" .. tostring(self._shove_pct or 0)
+                  .. ":" .. tostring(math.floor((rates.mult or 0) * 10 + 0.5)) .. ":" .. tostring(pending)
+    return _shove_memo:get("shove", token, self._shoveTooltipUncached, self, rates, pending)
+end
+
+function GrindView:_shoveTooltipUncached(rates, pending)
+    local R   = Rail
+    local tip = {
+        { style = "sm", color_token = "muted", text = R.tooltips.shove_lede },
+        TablePanelStats.iconRow(self.game, string.format(R.tooltips.shove_take, pending), "sm",
+                                (pending > 0) and "chip" or "muted"),
+    }
+    for _, r in ipairs(ShoveRate.formatBreakdown(rates)) do tip[#tip + 1] = r end
+    tip[#tip + 1] = R.tooltips.shove_lock
+    return tip
+end
+
+-- The quick reset's lines carry no numbers: made once per font generation.
+local _rail_memo = Memo.new("rail_tooltips")
+
+local function quickResetTipBuild(game)
+    return iconRows(game, Rail.tooltips.quick_reset, "heading")
+end
+
+function GrindView:_quickResetTip()
+    return _rail_memo:get("quick_reset", CR.layout_gen, quickResetTipBuild, self.game)
+end
+
+-- The chips' two lines: one table for the session (the tooltip's layout
+-- is cached on the table's identity).
+local CHIPS_TIP = { Rail.tooltips.banked, Rail.tooltips.next }
+
+-- ── The rail's helpers, hoisted ──
+-- The builder used to make these as closures on every frame (three
+-- helpers and four faces); now it runs only when the rail's shape changes
+-- and what they closed over comes in as an argument or sits on the view.
+
+-- A readout hangs its label and value from the rail's bottom, so every
+-- value shares one baseline and every button one top and bottom. A
+-- readout's slot ends where the buttons' faces end (above their chunk),
+-- and its value's baseline sits on that line.
+local function railStat(c, face_bottom)
+    c.type = "stat"; c.h = c.h or face_bottom; c.valign = c.valign or "bottom"
+    return c
+end
+
+local function railGroup(kids, gap)
+    return { type = "row", gap = gap, h = RAIL_BTN_H, align = "top", children = kids }
+end
+
+-- A slot is as wide as the widest value it can hold (data/rail.lua
+-- reserve), never as wide as the value it holds now: the row does not
+-- move as the numbers change. Cached per (font, string): the reserve
+-- strings are a fixed set and a font's answer holds until the fonts are
+-- rebuilt (CR.layout_gen).
+local _reserve_w, _reserve_gen = {}, nil
+local function reserveW(font, text, extra)
+    if _reserve_gen ~= CR.layout_gen then
+        for k in pairs(_reserve_w) do _reserve_w[k] = nil end
+        _reserve_gen = CR.layout_gen
+    end
+    local by_font = _reserve_w[font]
+    if not by_font then by_font = {}; _reserve_w[font] = by_font end
+    local w = by_font[text]
+    if not w then w = font:getWidth(text); by_font[text] = w end
+    return w + (extra or 0) + Theme.space.stat_pad
+end
+
+local function gearFace(fx, fy, fw, fh, g)
+    local fl = math.floor
+    local sz = fl(math.min(fw, fh) * Theme.space.icon_share)
+    Icons.drawGear(g, fx + fl((fw - sz) / 2), fy + fl((fh - sz) / 2), sz)
+end
+
+-- The faces and the lazy tooltips, made once per view. They read the
+-- view at call time (the room thumbnail, the deck in play, the cached
+-- rates, which screen is up), so one of each serves every rebuild.
+function GrindView:_makeRailClosures()
+    local game = self.game
+    local fl   = math.floor
+    -- The book's own cover, at thumbnail size (the felt's rule).
+    self._face_book = function(fx, fy, fw, fh)
+        local fonts, s = game.fonts, game.ui_scale or 1
+        local pad = fl(Theme.space.thumb_pad * s)
+        local k = math.min((fw - pad * 2) / CatalogModal.COVER_W, (fh - pad * 2) / CatalogModal.COVER_H)
+        local cw, ch = CatalogModal.COVER_W * k, CatalogModal.COVER_H * k
+        love.graphics.push()
+        love.graphics.translate(fx + fl((fw - cw) / 2), fy + fl((fh - ch) / 2))
+        love.graphics.scale(k, k)
+        CatalogModal.drawFrontCover(COVER_CTX, 0, 0, CatalogModal.COVER_W, CatalogModal.COVER_H, fonts, 1)
+        love.graphics.pop()
+    end
+    -- The whole room, framed by its own extent.
+    self._face_room = function(fx, fy, fw, fh)
+        local fonts, s = game.fonts, game.ui_scale or 1
+        local canvas, box = self:_roomThumb()
+        if canvas and box then
+            local pad = fl(Theme.space.thumb_pad * s)
+            local bw, bh = math.max(1, box.x2 - box.x1), math.max(1, box.y2 - box.y1)
+            local k = math.min((fw - pad * 2) / bw, (fh - pad * 2) / bh)
+            local cxr, cyr = (box.x1 + box.x2) * 0.5, (box.y1 + box.y2) * 0.5
+            local sx0, sy0, sw0, sh0 = love.graphics.getScissor()
+            local tx, ty = love.graphics.transformPoint(fx, fy)
+            love.graphics.intersectScissor(tx, ty, fw, fh)
+            Theme.assetTint()
+            love.graphics.draw(canvas, fx + fw * 0.5 - cxr * k, fy + fh * 0.5 - cyr * k, 0, k, k)
+            if sx0 then love.graphics.setScissor(sx0, sy0, sw0, sh0) else love.graphics.setScissor() end
+        end
+        if self._rail_on_room then
+            -- On the room screen the same button is the way back.
+            love.graphics.setFont(fonts.sm)
+            local th = fonts.sm:getHeight()
+            Theme.setColor(Theme.bg.sunken, 0.7)
+            love.graphics.rectangle("fill", fx, fy + fl((fh - th) / 2), fw, th)
+            Theme.setColor(Theme.fg.heading)
+            love.graphics.printf(Rail.labels.play, fx, fy + fl((fh - th) / 2), fw, "center")
+        end
+    end
+    self._face_deck = function(fx, fy, fw, fh)
+        local spec = self._rail_deck_spec
+        if spec then self:_drawDeckFace(spec, fx, fy, fw, fh) end
+    end
+    self._tip_rate  = function() return self:_buildRateTooltip(self._rail_br, self.controller.pool:count()) end
+    self._tip_shove = function() return self:_shoveTooltip() end
+    self._tip_deck  = function() return self:_deckTooltip(self._rail_deck_spec) end
+end
+
+-- ── The rail's clock ──
+-- What moves on its own, once per frame: run from update (the grind) and
+-- from the room screen (RoomState:update), never from the builder. The
+-- pulses on a delivery, the focus alarm's step, and the two rolled
+-- numbers. The board's earn rate is polled every RATE_POLL_SECS
+-- (GrindController:boardRate builds a table per open table) and eased
+-- every frame.
+local RATE_POLL_SECS = 0.25
+
+function GrindView:_tickRail(dt)
+    local state, ctrl = self.game.state, self.controller
+    local R  = Rail
+    local fl = math.floor
+    local sm = self.game.state_machine
+    local on_room = (sm and sm.current and sm:current() == "room") or false
+    self._rail_on_room = on_room
+
+    -- Something bought and not yet seen in the room: ONE pulse when it
+    -- arrives, then quiet. A delivery is a note, not an alarm. A deck
+    -- that opened and hasn't been seen, the same.
+    local unseen_n = state.room_unseen and #state.room_unseen or 0
+    if state.has_shoved and not on_room and unseen_n > (self._room_unseen_n or 0) then
+        AwardGlow.flash("nav:room")
+    end
+    self._room_unseen_n = unseen_n
+    local decks_unseen_n = state.decks_unseen and #state.decks_unseen or 0
+    if Decks.systemUnlocked(state) and decks_unseen_n > (self._decks_unseen_n or 0) then
+        AwardGlow.flash("deck")
+    end
+    self._decks_unseen_n = decks_unseen_n
+
+    -- FOCUS rolls toward the target like the money; the pop keys off the
+    -- real target so it fires once per change.
+    local n_open      = ctrl.pool:count()
+    local focus_cap   = ctrl:currentFocusCapacity()
+    local focus_pct   = fl(ctrl:currentFocusMult() * 100 + 0.5)
+    local focus_shown = fl(RollingValue.get("focus_pct", focus_pct) + 0.5)
+    local over        = focus_shown < 100
+    self._focus_pop   = Pop.onChange("focus", focus_pct, 0.5)
     -- Over the cap the cell is an alarm, and every table further over is
     -- a visible step: the label says OVER FOCUS, the value goes to the
     -- bankroll's big font, the plate under the pair (drawChrome) fills
@@ -1479,54 +1697,177 @@ function GrindView:_buildRailComponents()
     local kick = over and ClickFlash.raw("focus_alarm", "step") or 0
     self._focus_kick  = kick
     self._focus_label = over and R.labels.over_focus or R.labels.focus
-    self._focus_value = focus_shown .. "%"
-    local kicking = kick > 0.01
-    local focus = stat{ label = kicking and "" or self._focus_label,
+    if focus_shown ~= self._focus_shown then
+        self._focus_shown = focus_shown
+        self._focus_value = focus_shown .. "%"
+    end
+
+    -- The board's earn rate: what the open tables should make a minute at
+    -- the pace they are being dealt (GrindController:boardRate), eased.
+    local now = love.timer.getTime()
+    if not self._rail_br or (now - (self._rail_br_t or -1e9)) >= RATE_POLL_SECS then
+        self._rail_br, self._rail_br_t = ctrl:boardRate(), now
+    end
+    self._rail_rate_v = RollingValue.get("rail_rate", self._rail_br.total)
+end
+
+-- What the rail is built from (views/Panel inputs): its SHAPE only. The
+-- fonts and scale, the display revision, which screen is up, what is
+-- earned (the catalog, the room, the deck system, the deck in play and
+-- its level), the table count against the focus capacity and whether the
+-- board is over it, the Act 3 column, whether SHOVE and the quick reset
+-- are offered, the underflow, whether a shove has happened, the alarm's
+-- kick, and SHOVE's rate to the whole percent. Every number that moves on
+-- its own (the money, the chips, FOCUS's value) is left to _refreshRail.
+function GrindView:_railInputs(arr)
+    -- A draw before any update (a harness): the clock runs once so the
+    -- readouts have something to show.
+    if self._focus_shown == nil then self:_tickRail(0) end
+    local game, state, ctrl = self.game, self.game.state, self.controller
+    local sm = game.state_machine
+    local on_room = (sm and sm.current and sm:current() == "room") or false
+    self._rail_on_room = on_room
+    local deck_open  = Decks.systemUnlocked(state) == true
+    local deck_id    = deck_open and state.active_deck_id or false
+    local deck_level = (deck_id and state.deck_levels and state.deck_levels[deck_id]) or 0
+    local bankroll   = state.bankroll or 0
+    local rev        = ctrl.display_rev or 0
+    -- SHOVE's rate, on the rollup and the whole dollar of the bankroll
+    -- plus what is tied up (ShoveRate.compute allocates its result), kept
+    -- for the button's readout and its tooltip.
+    local total = bankroll + ctrl:tiedUp()
+    local tq    = math.floor(total)
+    if not self._shove_rates or self._shove_rates_rev ~= rev or self._shove_rates_q ~= tq then
+        self._shove_rates = ShoveRate.compute(ctrl.ctx or {}, total)
+        self._shove_rates_rev, self._shove_rates_q = rev, tq
+    end
+    local pct = math.floor((self._shove_rates.raw_r1 or 0) * 100 + 0.5)
+    self._shove_pct = pct
+    local n = 0
+    n = n + 1; arr[n] = CR.layout_gen
+    n = n + 1; arr[n] = game.ui_scale or 1
+    n = n + 1; arr[n] = rev
+    n = n + 1; arr[n] = on_room
+    n = n + 1; arr[n] = state.catalog_seen == true
+    n = n + 1; arr[n] = state.has_shoved == true
+    n = n + 1; arr[n] = deck_open
+    n = n + 1; arr[n] = deck_id
+    n = n + 1; arr[n] = deck_level
+    n = n + 1; arr[n] = ctrl.pool:count()
+    n = n + 1; arr[n] = ctrl:currentFocusCapacity()
+    n = n + 1; arr[n] = self._focus_over == true
+    n = n + 1; arr[n] = state.shove_r2_won == true
+    n = n + 1; arr[n] = ctrl:shoveUnlocked() == true
+    n = n + 1; arr[n] = ctrl:canQuickReset() == true
+    n = n + 1; arr[n] = ShoveRate.underflowed(bankroll) == true
+    n = n + 1; arr[n] = (state.shove_count or 0) > 0
+    n = n + 1; arr[n] = (self._focus_kick or 0) > 0.01
+    n = n + 1; arr[n] = pct
+    return n
+end
+
+function GrindView:_buildRailComponents()
+    local game  = self.game
+    local state = game.state
+    local fonts = game.fonts
+    local s     = game.ui_scale or 1
+    local fl    = math.floor
+    local ctrl  = self.controller
+    local R     = Rail
+    local SP    = Theme.space
+    local on_room = self._rail_on_room or false
+    local depth   = SP.button_depth
+    local face_h  = RAIL_BTN_H - Button.allocatedH(0, depth)
+    local btn_w   = fl(RAIL_BTN_H * SP.icon_button_w)
+    local gap     = fl(SP.flex_gap * s)
+    local n_open  = ctrl.pool:count()
+    local face_bottom = RAIL_BTN_H - depth
+    local glyph_w = fl(fonts.md:getHeight() * SP.stat_glyph) + SP.stat_pad
+    -- The live components by name, for _refreshRail. One table, reused;
+    -- the values themselves are left blank here and filled by the first
+    -- refresh, which follows the build inside the same draw.
+    local rc = self._rail_c
+    if not rc then rc = {}; self._rail_c = rc end
+    for k in pairs(rc) do rc[k] = nil end
+
+    -- ── The buttons: the gear, the book, the room, the deck ──
+    local gear = { type = "button", id = "nav:settings", anchor = "btn:settings",
+        w = btn_w, face_h = face_h, depth = depth, tooltip = R.tooltips.settings,
+        face_fn = gearFace }
+    -- Locked, a button is BLANK (the locked game-type keys' rule): no
+    -- picture, no word, no line. The slot is there; nothing else is said.
+    local cat_locked = not state.catalog_seen
+    local book = { type = "button", id = "nav:catalog", anchor = "btn:catalog",
+        w = btn_w, face_h = face_h, depth = depth,
+        disabled = cat_locked, tooltip = (not cat_locked) and R.tooltips.catalog or nil,
+        lines = {},
+        face_fn = (not cat_locked) and self._face_book or nil }
+    local room_locked = not state.has_shoved
+    local room = { type = "button", id = "nav:room", anchor = "btn:room",
+        anchor_also = on_room and "room:play" or nil,
+        w = fl(RAIL_BTN_H * SP.room_thumb_w), face_h = face_h, depth = depth,
+        disabled = room_locked,
+        tooltip  = (not room_locked) and (on_room and R.labels.play or R.tooltips.room) or nil,
+        lines    = {},
+        face_fn  = (not room_locked) and self._face_room or nil }
+    local deck_open = Decks.systemUnlocked(state)
+    local spec = deck_open and state.active_deck_id and Decks.specById(state.active_deck_id) or nil
+    self._rail_deck_spec = spec
+    -- Locked, the key is BLANK: no name, no line, nothing to want by name.
+    -- Open, it wears the deck in play; open with none in play yet, its name.
+    local deck = { type = "button", id = "deck", anchor = "cell:deck",
+        w = fl(RAIL_BTN_H * SP.deck_thumb_w), face_h = face_h, depth = depth,
+        disabled = not deck_open,
+        tooltip    = (deck_open and not spec) and R.tooltips.deck_click or nil,
+        tooltip_fn = spec and self._tip_deck or nil,
+        lines    = (deck_open and not spec) and
+                   { { text = R.labels.deck, style = "small", align = "center", color_token = "heading" } } or {},
+        face_fn  = spec and self._face_deck or nil }
+
+    -- ── FOCUS, and the tables that drive it ──
+    local focus_cap = ctrl:currentFocusCapacity()
+    local over      = self._focus_over == true
+    local kicking   = (self._focus_kick or 0) > 0.01
+    self._focus_kicking = kicking
+    local cap       = ctrl:tableSlotsCap()
+    local focus_tip = self:_focusTip(focus_cap, cap)
+    -- A healthy focus is simply fine (parchment); under 100% every table
+    -- is playing that much slower, which is money lost. The colour is one
+    -- table the refresh blends in place (the pop lifts it toward white).
+    local fc = self._focus_color
+    if not fc then fc = { 0, 0, 0 }; self._focus_color = fc end
+    local focus = railStat({ label = kicking and "" or self._focus_label,
         label_color_token = over and "lost" or nil,
-        value = kicking and "" or self._focus_value, value_color = focus_color,
+        value = "", value_color = fc, value_scale = 1,
         value_style = over and "lg" or "md",
-        value_scale = Pop.scale(fpop, 1, 0.45),
         anchor = "cell:focus", value_anchor = "cell:focus_value", tooltip = focus_tip,
-        w = reserveW(over and fonts.lg or fonts.md, R.reserve.focus) }
+        w = reserveW(over and fonts.lg or fonts.md, R.reserve.focus) }, face_bottom)
+    rc.focus = focus
     -- TABLES: open against the capacity, as a fill that reddens past it.
-    local tables = stat{ label = R.labels.tables, value = "",
+    local tables = railStat({ label = R.labels.tables, value = "",
         bar = { frac = n_open / math.max(1, focus_cap), w = fl(SP.stat_bar_w * s),
                 color = over and Theme.sem.lost or Theme.fg.heading },
         suffix = { text = n_open .. " / " .. focus_cap, color_token = over and "lost" or "muted" },
         tooltip = focus_tip,
-        w = fl(SP.stat_bar_w * s) + SP.stat_gap + reserveW(fonts.sm, R.reserve.tables) }
+        w = fl(SP.stat_bar_w * s) + SP.stat_gap + reserveW(fonts.sm, R.reserve.tables) }, face_bottom)
+    rc.tables = tables
 
     -- ── The money: what is tied up at the tables, and the bankroll under its pile ──
-    local d_bank  = self.displayed_bankroll or state.bankroll or 0
-    local d_tied  = self.displayed_tied     or ctrl:tiedUp()
-    local d_chips = self.displayed_chips    or state.chips or 0
-    local broken  = self:_broken()
-    -- Tint the bankroll while a tween is in progress: won-green counting
-    -- up, lost-red counting down.
-    local bank_color = Theme.fg.heading
-    local diff_bank  = (state.bankroll or 0) - d_bank
-    if math.abs(diff_bank) > 0.01 then
-        bank_color = (diff_bank > 0) and Theme.sem.won or Theme.sem.lost
-    end
-    local bank_str = moneyText(d_bank)
-    if broken then
-        -- The number is not a number any more. It never resolves.
-        bank_str   = self:_brokenText(bank_str, "bank")
-        bank_color = Theme.currency.achip
-    end
-    local tied_str = moneyText(d_tied)
-    if broken then tied_str = self:_brokenText(tied_str, "tied") end
+    local broken = self:_broken()
+    self._rail_broken = broken
     -- "TIED UP $x" as the small line on top (where the labels are), the
     -- CASH OUT button under it on the value row.
     -- The small line's glyphs, then the same gap every value keeps under
     -- its label, then the button, ending on the bottom line like the rest.
     local tied_h = fonts.sm:getBaseline() + SP.stat_gap
     local cash_w = fonts.sm:getWidth(R.labels.cash_out) + fl(SP.word_button_pad * s)
+    local tied_stat = railStat({ value = "", value_style = "sm", h = tied_h, valign = "top",
+        value_color = broken and Theme.currency.achip or Theme.fg.muted,
+        anchor = "cell:tied", tooltip = R.tooltips.tied_up,
+        w = reserveW(fonts.sm, R.labels.tied_up .. " " .. R.reserve.tied_up) }, face_bottom)
+    rc.tied = tied_stat
     local tied = { type = "column", children = {
-        stat{ value = R.labels.tied_up .. " " .. tied_str, value_style = "sm", h = tied_h, valign = "top",
-              value_color = broken and Theme.currency.achip or Theme.fg.muted,
-              anchor = "cell:tied", tooltip = R.tooltips.tied_up,
-              w = reserveW(fonts.sm, R.labels.tied_up .. " " .. R.reserve.tied_up) },
+        tied_stat,
         { type = "button", id = "cash_out", anchor = "btn:cash_out", depth = depth,
           face_h = (RAIL_BTN_H - tied_h) - Button.allocatedH(0, depth),
           w = cash_w,
@@ -1536,115 +1877,232 @@ function GrindView:_buildRailComponents()
     } }
     -- The bankroll, big, with no label: the chips say what it is (the pile
     -- centres itself over this slot, see _drawBankrollChips). Over it, in
-    -- the slot TIED UP has over CASH OUT, the board's earn rate: what the
-    -- open tables should make a minute at the pace they are being dealt
-    -- (GrindController:boardRate). Eased like the other readouts, and
-    -- coloured from the eased value so tint and number never disagree.
-    local br       = ctrl:boardRate()
-    local rate_v   = RollingValue.get("rail_rate", br.total)
-    local rate_txt = TablePanelStats.rateLabel(rate_v, R.labels.rate_unit)
-    local rate_color = Theme.fg.muted
-    if     rate_v >  0.005 then rate_color = Theme.sem.won
-    elseif rate_v < -0.005 then rate_color = Theme.sem.lost end
-    local bankroll = { type = "column", children = {
-        stat{ value = rate_txt, value_style = "sm", h = tied_h, valign = "top", align = "center",
-              value_color = rate_color, dim = (n_open == 0),
-              anchor = "cell:rate", tooltip = self:_buildRateTooltip(br, n_open),
-              w = reserveW(fonts.sm, R.reserve.rate_min) },
-        stat{ value = bank_str, value_style = "lg", value_color = bank_color,
-              h = face_bottom - tied_h,
-              value_glow_color = broken and Theme.currency.achip or nil,
-              anchor = "cell:bankroll", align = "center", tooltip = R.tooltips.bankroll,
-              w = reserveW(fonts.lg, R.reserve.bankroll) },
-    } }
+    -- the slot TIED UP has over CASH OUT, the board's earn rate, eased
+    -- like the other readouts and coloured from the eased value so tint
+    -- and number never disagree (both in _refreshRail).
+    local rate = railStat({ value = "", value_style = "sm", h = tied_h, valign = "top", align = "center",
+        value_color = Theme.fg.muted, dim = (n_open == 0),
+        anchor = "cell:rate", tooltip_fn = self._tip_rate,
+        w = reserveW(fonts.sm, R.reserve.rate_min) }, face_bottom)
+    rc.rate = rate
+    local bank = railStat({ value = "", value_style = "lg", value_color = Theme.fg.heading,
+        h = face_bottom - tied_h,
+        -- The number is not a number any more. It never resolves.
+        value_glow_color = broken and Theme.currency.achip or nil,
+        anchor = "cell:bankroll", align = "center", tooltip = R.tooltips.bankroll,
+        w = reserveW(fonts.lg, R.reserve.bankroll) }, face_bottom)
+    rc.bank = bank
+    local bankroll = { type = "column", children = { rate, bank } }
 
     -- ── The chips: banked (yours) and next (this run's, banked when you shove) ──
-    local pending = state.chips_this_run or 0
     -- The chips on top, what the next shove adds under them, on the
     -- bottom line with everything else.
-    local chip_dim = (state.shove_count or 0) == 0 and pending == 0
-    local count_h  = fonts.md:getBaseline()   -- the count's glyphs
-    local banked = { type = "column", anchor = "cell:chips", children = {
-        stat{ icon = "chip", value = chipsText(d_chips), h = count_h, valign = "top",
-              dim = chip_dim, value_color = Theme.fg.heading,
-              tooltip = { R.tooltips.banked, R.tooltips.next },
-              w = glyph_w + reserveW(fonts.md, R.reserve.chips) },
-        stat{ value = "+" .. pending .. " " .. R.labels.next, value_style = "sm",
-              h = face_bottom - count_h, dim = chip_dim,
-              value_color_token = (pending > 0) and "chip" or "faint", value_anchor = "chip_badge:shove",
-              tooltip = { R.tooltips.banked, R.tooltips.next },
-              w = reserveW(fonts.sm, R.reserve.next .. " " .. R.labels.next) },
-    } }
+    local count_h = fonts.md:getBaseline()   -- the count's glyphs
+    local chips = railStat({ icon = "chip", value = "", h = count_h, valign = "top",
+        value_color = Theme.fg.heading, tooltip = CHIPS_TIP,
+        w = glyph_w + reserveW(fonts.md, R.reserve.chips) }, face_bottom)
+    local chips_next = railStat({ value = "", value_style = "sm",
+        h = face_bottom - count_h,
+        value_color_token = "faint", value_anchor = "chip_badge:shove",
+        tooltip = CHIPS_TIP,
+        w = reserveW(fonts.sm, R.reserve.next .. " " .. R.labels.next) }, face_bottom)
+    rc.chips, rc.chips_next = chips, chips_next
+    local banked = { type = "column", anchor = "cell:chips", children = { chips, chips_next } }
     local anti
     if state.shove_r2_won then
-        local d_achips = self.displayed_anti_chips or state.anti_chips or 0
-        local pend_a   = state.anti_chips_this_run or 0
-        anti = { type = "column", anchor = "cell:achips", children = {
-            stat{ icon = "achip", value = chipsText(d_achips), h = count_h, valign = "top",
-                  value_color = Theme.currency.achip,
-                  w = glyph_w + reserveW(fonts.md, R.reserve.chips) },
-            stat{ value = "+" .. pend_a .. " " .. R.labels.next, value_style = "sm",
-                  h = face_bottom - count_h,
-                  value_color_token = (pend_a > 0) and "corrupt" or "faint", value_anchor = "achip_badge:shove",
-                  w = reserveW(fonts.sm, R.reserve.next .. " " .. R.labels.next) },
-        } }
+        local achips = railStat({ icon = "achip", value = "", h = count_h, valign = "top",
+            value_color = Theme.currency.achip,
+            w = glyph_w + reserveW(fonts.md, R.reserve.chips) }, face_bottom)
+        local achips_next = railStat({ value = "", value_style = "sm",
+            h = face_bottom - count_h,
+            value_color_token = "faint", value_anchor = "achip_badge:shove",
+            w = reserveW(fonts.sm, R.reserve.next .. " " .. R.labels.next) }, face_bottom)
+        rc.achips, rc.achips_next = achips, achips_next
+        anti = { type = "column", anchor = "cell:achips", children = { achips, achips_next } }
     end
 
     -- ── SHOVE: the door, with the chip's gold on its edge ──
     local can_shove = ctrl:shoveUnlocked()
-    local rates     = ShoveRate.compute(ctrl.ctx or {}, (state.bankroll or 0) + ctrl:tiedUp())
-    local r1        = rates.raw_r1 or 0
+    local rates     = self._shove_rates
+    local r1        = (rates and rates.raw_r1) or 0
     local rate_txt  = string.format("%.0f%%", r1 * 100)
     -- Parchment until the hand is a lock; then the colour of a hand won.
     local rate_tok  = (r1 >= 1.00) and "won" or "heading"
     if broken then
-        rate_txt = self:_brokenText("-999%", "shove", 0.92, 0.12)
+        rate_txt = ""          -- the morph (never resolving) is the refresh's
         rate_tok = "corrupt"
     end
-    local shove_tip
-    if can_shove then
-        shove_tip = {
-            { style = "sm", color_token = "muted", text = R.tooltips.shove_lede },
-            TablePanelStats.iconRow(game, string.format(R.tooltips.shove_take, pending), "sm",
-                                    (pending > 0) and "chip" or "muted"),
-        }
-        for _, r in ipairs(ShoveRate.formatBreakdown(rates)) do shove_tip[#shove_tip + 1] = r end
-        shove_tip[#shove_tip + 1] = R.tooltips.shove_lock
-    else
-        shove_tip = nil   -- a greyed button does not pitch its own click
-    end
+    local shove_line = { text = R.labels.shove, style = "heading", align = "center", color_token = "heading",
+        right = rate_txt, right_color_token = rate_tok, right_anchor = "cell:shove" }
+    rc.shove_line = can_shove and shove_line or nil
     local shove = { type = "button", id = "shove", anchor = "btn:shove",
         w = fonts.md:getWidth(R.labels.shove) + fonts.sm:getWidth(R.reserve.rate) + fl(SP.shove_button_pad * s),
         face_h = face_h, depth = depth,
         disabled = not can_shove,
         face_color = Theme.bg.widget_hover,
         border_color = Theme.sem.chip, border_line_width = Theme.space.line_strong,
-        tooltip = shove_tip,
-        lines = can_shove and {
-            { text = R.labels.shove, style = "heading", align = "center", color_token = "heading",
-              right = rate_txt, right_color_token = rate_tok, right_anchor = "cell:shove" },
-        } or {},
+        -- A greyed button does not pitch its own click.
+        tooltip_fn = can_shove and self._tip_shove or nil,
+        lines = can_shove and { shove_line } or {},
         -- The quick-reset rescue straddles the shove's top edge when bricked.
         overlay = ctrl:canQuickReset() and {
             type = "button", id = "quick_reset", anchor = "btn:quick_reset", depth = SP.button_depth,
             w = fonts.sm:getWidth(R.labels.quick_reset) + fl(SP.overlay_button_pad * s),
-            tooltip = iconRows(game, R.tooltips.quick_reset, "heading"),
+            tooltip = self:_quickResetTip(),
             lines = { { text = R.labels.quick_reset, style = "small", align = "center", color_token = "heading" } },
         } or nil }
 
     -- ── The row ──
     -- Four groups. Things that belong together are a row of their own and
     -- move as one; the space left over spreads evenly between the groups.
-    local money = group{ tied, bankroll }
+    local money = railGroup({ tied, bankroll }, gap)
     money.anchor = "rail:money"   -- the pile stands over this group
-    local watch = group{ focus, tables }
+    local watch = railGroup({ focus, tables }, gap)
     watch.anchor = "rail:focus"   -- the alarm plate (drawChrome) and the strain shader's hole (main.lua)
-    local chips = anti and group{ banked, anti, shove } or group{ banked, shove }
+    local chips_g = anti and railGroup({ banked, anti, shove }, gap) or railGroup({ banked, shove }, gap)
     return {
         { type = "spacer", h = RAIL_PAD },
         { type = "row", h = RAIL_BTN_H, align = "top", justify = "between", gap = fl(SP.flex_min_gap * s),
-          children = { group{ gear, book, room, deck }, watch, money, chips } },
+          children = { railGroup({ gear, book, room, deck }, gap), watch, money, chips_g } },
     }
+end
+
+-- ── The rail's live numbers ──
+-- The bucket a number prints in, so a readout is formatted again only
+-- when its text would change: a tween moves the number every frame, its
+-- text far less often. moneyQ follows Format.money (cents under $1,000,
+-- three figures above); rateQ follows the compact signed money the rates
+-- use (TablePanelStats.rateLabel).
+local Q_EPS = 1e-6
+local function moneyQ(n)
+    n = n or 0
+    if n ~= n then return 0 end
+    local a = math.abs(n)
+    local q
+    if a < 1000 then
+        q = math.floor(a * 100 + Q_EPS)
+    else
+        local m, idx = a, 0
+        while m >= 1000 and idx < 8 do m = m / 1000; idx = idx + 1 end
+        if     m >= 100 then q = math.floor(m + Q_EPS)
+        elseif m >= 10  then q = math.floor(m * 10 + Q_EPS)
+        else                 q = math.floor(m * 100 + Q_EPS) end
+        q = q + idx * 1e6
+    end
+    return n < 0 and -q or q
+end
+local function rateQ(n)
+    n = n or 0
+    if n ~= n then return 0 end
+    local a = math.abs(n)
+    local q
+    if     a >= 1000 then q = 1e8 + moneyQ(a)
+    elseif a >= 100  then q = 3e6 + math.floor(a + 0.5)
+    elseif a >= 10   then q = 2e6 + math.floor(a * 10 + 0.5)
+    else                  q = math.floor(a * 100 + 0.5) end
+    return n < 0 and -q or q
+end
+
+-- Every frame, on the retained tree (views/Panel refresh): the values that
+-- move on their own, each written only when its bucket moved (comp._q).
+-- Only fields that leave the tree's shape alone are touched here: a
+-- stat's value, colour, scale and dim, and SHOVE's right badge (whose
+-- line height memo is dropped with it).
+function GrindView:_refreshRail()
+    local rc = self._rail_c
+    if not rc then return end
+    local state, ctrl = self.game.state, self.controller
+    local R      = Rail
+    local broken = self._rail_broken
+    -- The underflow's glyphs never settle: they redraw at fourteen a second.
+    local morph  = broken and math.floor(love.timer.getTime() * 14) or nil
+
+    -- FOCUS: the rolled percent, its pop, and its colour, blended in place.
+    local f = rc.focus
+    if not self._focus_kicking then
+        local shown = self._focus_shown
+        if f._q ~= shown then f._q = shown; f.value = self._focus_value or "" end
+    end
+    local fpop = self._focus_pop or 0
+    f.value_scale = Pop.scale(fpop, 1, 0.45)
+    local base = self._focus_over and Theme.sem.lost or Theme.fg.heading
+    local fc = f.value_color
+    fc[1] = base[1] + (1 - base[1]) * fpop
+    fc[2] = base[2] + (1 - base[2]) * fpop
+    fc[3] = base[3] + (1 - base[3]) * fpop
+
+    -- TIED UP.
+    local d_tied = self.displayed_tied or ctrl:tiedUp()
+    local t  = rc.tied
+    local tq = morph or moneyQ(d_tied)
+    if t._q ~= tq then
+        t._q = tq
+        local str = moneyText(d_tied)
+        if broken then str = self:_brokenText(str, "tied") end
+        t.value = R.labels.tied_up .. " " .. str
+    end
+
+    -- The bankroll, tinted while a tween is in progress: won-green
+    -- counting up, lost-red counting down.
+    local d_bank = self.displayed_bankroll or state.bankroll or 0
+    local b  = rc.bank
+    local bq = morph or moneyQ(d_bank)
+    if b._q ~= bq then
+        b._q = bq
+        local str = moneyText(d_bank)
+        if broken then str = self:_brokenText(str, "bank") end
+        b.value = str
+    end
+    if broken then
+        b.value_color = Theme.currency.achip
+    else
+        local diff = (state.bankroll or 0) - d_bank
+        b.value_color = (diff > 0.01 and Theme.sem.won) or (diff < -0.01 and Theme.sem.lost) or Theme.fg.heading
+    end
+
+    -- The earn rate.
+    local rv = self._rail_rate_v or 0
+    local r  = rc.rate
+    local rq = rateQ(rv)
+    if r._q ~= rq then r._q = rq; r.value = TablePanelStats.rateLabel(rv, R.labels.rate_unit) end
+    r.value_color = (rv > 0.005 and Theme.sem.won) or (rv < -0.005 and Theme.sem.lost) or Theme.fg.muted
+
+    -- The chips, and what the next shove adds.
+    local pending  = state.chips_this_run or 0
+    local chip_dim = (state.shove_count or 0) == 0 and pending == 0
+    local d_chips  = self.displayed_chips or state.chips or 0
+    local c  = rc.chips
+    local cq = math.floor(d_chips)
+    if c._q ~= cq then c._q = cq; c.value = chipsText(d_chips) end
+    c.dim = chip_dim
+    local cn = rc.chips_next
+    if cn._q ~= pending then
+        cn._q = pending
+        cn.value = "+" .. pending .. " " .. R.labels.next
+        cn.value_color_token = (pending > 0) and "chip" or "faint"
+    end
+    cn.dim = chip_dim
+    local a = rc.achips
+    if a then
+        local d_achips = self.displayed_anti_chips or state.anti_chips or 0
+        local aq = math.floor(d_achips)
+        if a._q ~= aq then a._q = aq; a.value = chipsText(d_achips) end
+        local pend_a = state.anti_chips_this_run or 0
+        local an = rc.achips_next
+        if an._q ~= pend_a then
+            an._q = pend_a
+            an.value = "+" .. pend_a .. " " .. R.labels.next
+            an.value_color_token = (pend_a > 0) and "corrupt" or "faint"
+        end
+    end
+
+    -- SHOVE under the underflow: -999%, never resolving.
+    local sl = rc.shove_line
+    if broken and sl and sl._q ~= morph then
+        sl._q  = morph
+        sl.right = self:_brokenText("-999%", "shove", 0.92, 0.12)
+        sl._rh = nil
+    end
 end
 
 

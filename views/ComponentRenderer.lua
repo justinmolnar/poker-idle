@@ -27,6 +27,20 @@ local AwardGlow   = require("views.AwardGlow")
 local Anchors     = require("services.AnchorRegistry")
 local MiniButton  = require("views.widgets.MiniButton")
 local Perf        = require("services.Perf")
+local Tooltip     = require("services.Tooltip")
+
+-- A component's tooltip on hover: `tooltip` is the lines themselves;
+-- `tooltip_fn(comp, game)` builds (or fetches from a memo) the lines for
+-- the one component under the pointer, so a tree that is retained across
+-- frames (views/Panel) never pays for a tooltip nobody is reading.
+local function hoverTooltip(comp)
+    local lines = comp.tooltip
+    if lines == nil and comp.tooltip_fn then lines = comp.tooltip_fn(comp, comp.__game) end
+    if lines then
+        local mx, my = love.mouse.getPosition()
+        Tooltip.set(lines, mx, my)
+    end
+end
 
 -- Icon row sizes — recomputed by CR.setScale at boot/resize.
 local ICON_SIZE_BASE    = 64
@@ -280,10 +294,7 @@ _hitButton = function(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
                 -- (Unlike the parent button, where "can't afford" is the
                 -- information you actually want while deciding to save.)
                 if act.disabled then return nil end
-                if act.tooltip then
-                    local mx, my = love.mouse.getPosition()
-                    require("services.Tooltip").set(act.tooltip, mx, my)
-                end
+                hoverTooltip(act)
                 if act.id then HoverSvc.set("button", act.id) end
                 return act
             end
@@ -294,10 +305,7 @@ _hitButton = function(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
        and cx >= panel_x + p and cx < panel_x + panel_w - p then
         -- Tooltip shows even when the button is disabled (can't afford / would
         -- strand) — the player needs the info to decide whether to save up.
-        if comp.tooltip then
-            local mx, my = love.mouse.getPosition()
-            require("services.Tooltip").set(comp.tooltip, mx, my)
-        end
+        hoverTooltip(comp)
         if comp.disabled then return nil end
         if comp.id then HoverSvc.set("button", comp.id) end
         return comp
@@ -506,10 +514,9 @@ function CR._stat(comp, px, pw, p, y, game)
 end
 -- A stat is not clickable; hovering it shows its tooltip and nothing else.
 local function _hitStat(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
-    if comp.tooltip and cy >= cursor_y and cy < cursor_y + h
+    if (comp.tooltip or comp.tooltip_fn) and cy >= cursor_y and cy < cursor_y + h
        and cx >= panel_x + p and cx < panel_x + p + statW(comp, comp.__game) then
-        local mx, my = love.mouse.getPosition()
-        require("services.Tooltip").set(comp.tooltip, mx, my)
+        hoverTooltip(comp)
     end
     return nil
 end
@@ -561,7 +568,19 @@ local function justifyRun(ws, x0, x1, justify, gap)
     end
     return xs
 end
+-- Memoized on the row. A retained tree (views/Panel) draws and hit-tests
+-- the same row frame after frame, and each pass laid it out again: three
+-- tables per row per pass, five rows in the rail alone. The layout moves
+-- only with the row's width, the pad, the fonts (CR.layout_gen) or the
+-- children's widths, and the children's widths hold still between
+-- rebuilds by the rule a `refresh` follows: it never changes a field a
+-- child's natural width is measured from (a stat's or button's `w` is
+-- fixed; a flex child follows the row).
 local function rowLayout(comp, pw, p, game)
+    local memo = comp._rl
+    if memo and comp._rl_pw == pw and comp._rl_p == p and comp._rl_gen == CR.layout_gen then
+        return memo
+    end
     local gap  = comp.gap or Theme.space.widget_gap
     local kids = comp.children or {}
     local n    = #kids
@@ -582,6 +601,7 @@ local function rowLayout(comp, pw, p, game)
     local xs = justifyRun(ws, x0, x1, comp.justify or "start", gap)
     local out = {}
     for i, c in ipairs(kids) do out[i] = { comp = c, x = xs[i], w = ws[i] } end
+    comp._rl, comp._rl_pw, comp._rl_p, comp._rl_gen = out, pw, p, CR.layout_gen
     return out
 end
 local function rowH(comp, pw, game)

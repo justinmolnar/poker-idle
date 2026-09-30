@@ -3,6 +3,20 @@
 -- Each tab provides a build(game) → component list function.
 -- Panel calls ComponentRenderer to draw and handles scroll/scrollbar.
 --
+-- The tree a tab builds is RETAINED across frames. A tab may declare:
+--   inputs(game, arr) → n   fills the reused array arr[1..n] with the
+--                           scalars its build depends on (numbers, booleans,
+--                           strings that already exist); the panel compares
+--                           them to last frame's and rebuilds only when one
+--                           moved, on a tab change, or on the first frame.
+--                           A tab without `inputs` rebuilds every frame.
+--   refresh(game, comps)    mutates the live fields of the retained tree in
+--                           place each frame (a stat's value, a bar's frac):
+--                           what changes without changing the tree's shape.
+-- The steady path allocates nothing: the two input arrays swap, the
+-- visible-tab list is cached on a bitmask, and the scroll view is reused.
+-- `build_count` counts the builds (the checks read it).
+--
 -- Lifted from cosmic courier. Removed `views.DataGrid` overlay-close calls
 -- in setActiveTab (DataGrid not lifted). require paths repointed: CC's
 -- `data.theme` → poker-idle's `views.Theme` (the dispatch layer that
@@ -51,7 +65,17 @@ function Panel:new(x, y, w, h)
     instance.scroll = {}
 
     instance._last_components = nil
+    -- The retained tree's inputs: last frame's and this frame's, swapped
+    -- on a rebuild so neither is ever reallocated.
+    instance._in_prev, instance._in_cur, instance._in_n = {}, {}, -1
+    instance._built_tab = nil
+    instance.build_count = 0
     return instance
+end
+
+-- Forget the retained tree: the next draw rebuilds whatever tab is up.
+function Panel:invalidate()
+    self._built_tab = nil
 end
 
 -- Effective tab-bar height for the current game state. Returns 0 when
@@ -84,6 +108,7 @@ function Panel:registerTab(def)
         drag_start_y   = 0,
         scroll_at_drag = 0,
     }
+    self._vis_mask = nil   -- the visible-tab list is stale
 end
 
 function Panel:_isTabVisible(tab, game)
@@ -217,12 +242,62 @@ function Panel:isInContentArea(screen_x, screen_y)
        and screen_y >= self.content_y and screen_y < self.content_y + self.content_h
 end
 
+-- The visible tabs, as one cached list. Every caller (the layout, the
+-- tab bar, the hover and click routing) asked for this several times a
+-- frame and each answer was a fresh table; the visibility is folded into
+-- a bitmask over tab_order and the list is rebuilt only when that moves.
 function Panel:_visibleTabs(game)
-    local out = {}
-    for _, tab in ipairs(self.tab_order) do
-        if self:_isTabVisible(tab, game) then out[#out+1] = tab end
+    local order = self.tab_order
+    local mask, bit = 0, 1
+    for i = 1, #order do
+        if self:_isTabVisible(order[i], game) then mask = mask + bit end
+        bit = bit * 2
     end
-    return out
+    local list = self._vis_list
+    if not list or mask ~= self._vis_mask then
+        list = list or {}
+        for i = #list, 1, -1 do list[i] = nil end
+        for i = 1, #order do
+            if self:_isTabVisible(order[i], game) then list[#list + 1] = order[i] end
+        end
+        self._vis_list, self._vis_mask = list, mask
+    end
+    return list
+end
+
+-- The active tab's tree: the retained one, or a fresh build when the
+-- tab's inputs moved (element by element and by count), the tab changed,
+-- or nothing has been built yet. On a rebuild the input arrays swap, so
+-- this frame's readings become the ones the next frame compares against.
+function Panel:_components(game, tab)
+    local comps = self._last_components
+    local need  = (comps == nil) or (tab ~= self._built_tab)
+    if tab.inputs then
+        local cur = self._in_cur
+        local n   = tab.inputs(game, cur) or 0
+        if not need then
+            local prev = self._in_prev
+            if n ~= self._in_n then
+                need = true
+            else
+                for i = 1, n do
+                    if cur[i] ~= prev[i] then need = true; break end
+                end
+            end
+        end
+        if need then
+            self._in_prev, self._in_cur, self._in_n = cur, self._in_prev, n
+        end
+    else
+        need = true
+    end
+    if need then
+        comps = tab.build(game)
+        self._last_components = comps
+        self._built_tab  = tab
+        self.build_count = self.build_count + 1
+    end
+    return comps
 end
 
 function Panel:draw(game)
@@ -265,14 +340,17 @@ function Panel:draw(game)
     love.graphics.setScissor(self.x, self.content_y, self.w, self.content_h)
     love.graphics.push()
     love.graphics.translate(0, self.content_y - (s and s.scroll_y or 0))
-    local comps = active_tab.build(game)
-    self._last_components = comps
+    local comps = self:_components(game, active_tab)
+    if active_tab.refresh then active_tab.refresh(game, comps) end
 
-    local scroll_view = s and {
-        scroll_y   = s.scroll_y or 0,
-        viewport_h = self.content_h,
-        content_y  = self.content_y,
-    } or nil
+    local scroll_view
+    if s then
+        scroll_view = self._scroll_view
+        if not scroll_view then scroll_view = {}; self._scroll_view = scroll_view end
+        scroll_view.scroll_y   = s.scroll_y or 0
+        scroll_view.viewport_h = self.content_h
+        scroll_view.content_y  = self.content_y
+    end
 
     local total_h = CR.draw(comps, self.x, self.w, game, scroll_view)
 
