@@ -2140,7 +2140,10 @@ local function fitCells(cols, rows, grid_w, grid_h)
     end
     if pw > PANEL_MAX_W then pw = PANEL_MAX_W; ph = pw / PANEL_ASPECT end
     if ph > PANEL_MAX_H then ph = PANEL_MAX_H; pw = ph * PANEL_ASPECT end
-    return pw, ph
+    -- Whole pixels: the panel cache blits a slot of exactly this size, and
+    -- the 1-bit fonts are nearest-filtered, so a fractional cell would
+    -- resample every glyph. Aspect drift is under a pixel.
+    return math.floor(pw), math.floor(ph)
 end
 
 local function bestGridLayout(n, grid_w, grid_h)
@@ -2167,6 +2170,7 @@ local function bestGridLayout(n, grid_w, grid_h)
                 ph = PANEL_MAX_H
                 pw = ph * PANEL_ASPECT
             end
+            pw, ph = math.floor(pw), math.floor(ph)
             local area = pw * ph
             if area > best.area then
                 best = { cols = cols, rows = rows, pw = pw, ph = ph, area = area }
@@ -2370,11 +2374,13 @@ end
 function GrindView:_notePanel(tbl, i, x, y, w, h)
     local list = self.table_panels
     if not list then return end
-    list[#list + 1] = {
-        x = x, y = y, w = w, h = h,
-        idx = i, table_id = tbl._id,
-        heater = tbl.hasStatus and tbl:hasStatus("heater") or false,
-    }
+    local n = (self._panels_n or 0) + 1
+    self._panels_n = n
+    local e = list[n]
+    if not e then e = {}; list[n] = e end
+    e.x, e.y, e.w, e.h = x, y, w, h
+    e.idx, e.table_id = i, tbl._id
+    e.heater = tbl.hasStatus and tbl:hasStatus("heater") or false
 end
 
 -- ─── THE HOUSE (the captor's poster) ──────────────────────────────────
@@ -2731,7 +2737,10 @@ function GrindView:draw(overlay_fn)
     -- list beside them is the cursor swarm's map of the board
     -- (services/CursorPool: clashes and crossings).
     self.hit_boxes = {}
-    self.table_panels = {}
+    -- The panel list is pooled: entries are rewritten in place and the
+    -- tail is trimmed after the grid draws (_notePanel).
+    self.table_panels = self.table_panels or {}
+    self._panels_n = 0
 
     -- The break: for BREAK_SECS after the underflow the whole screen
     -- shakes. Popped before the overlay; the flash goes on after.
@@ -2746,6 +2755,10 @@ function GrindView:draw(overlay_fn)
 
     Perf.enter("rail");     self:drawChrome(W);               Perf.exit("rail")
     Perf.enter("grid");     self:_drawCenterGrid(W, H);       Perf.exit("grid")
+    do
+        local list, n = self.table_panels, self._panels_n or 0
+        for i = #list, n + 1, -1 do list[i] = nil end
+    end
     Perf.enter("sidebars"); self.left_panel:draw(self.game)
                             self.right_panel:draw(self.game);  Perf.exit("sidebars")
     Perf.enter("house");    self:_drawHouse();                 Perf.exit("house")

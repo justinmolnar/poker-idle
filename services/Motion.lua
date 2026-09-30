@@ -123,13 +123,21 @@ end
 
 -- ── Writing ───────────────────────────────────────────────────────────
 
+-- A revision of the levels, for anything that caches a picture drawn at
+-- one level (the panel cache): bumped by every setter.
+Motion.rev = 0
+
 function Motion.set(group, n)
-    if _level[group] ~= nil then _level[group] = clampLevel(n) end
+    if _level[group] ~= nil then
+        _level[group] = clampLevel(n)
+        Motion.rev = Motion.rev + 1
+    end
 end
 
 function Motion.setAll(n)
     n = clampLevel(n)
     for _, g in ipairs(Motion.GROUPS) do _level[g.id] = n end
+    Motion.rev = Motion.rev + 1
 end
 
 -- The common level of every group, or nil when they differ.
@@ -166,6 +174,7 @@ function Motion.load(settings)
         local v = settings["motion_" .. g.id]
         _level[g.id] = (v == nil) and Motion.FULL or clampLevel(v)
     end
+    Motion.rev = Motion.rev + 1
 end
 
 function Motion.save(settings)

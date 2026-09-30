@@ -154,6 +154,11 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
         state_timer   = 0,
         hands_played  = 0,
         last_results  = {},
+        -- The view revision: bumped by the model wherever what a panel
+        -- shows at rest changes (a state transition, a finished hand, a new
+        -- roster). The panel cache keys on it, so the model, not the view,
+        -- says when a picture is stale.
+        view_rev      = 0,
 
         -- Poker-event registry. Used at deal time (writer state mutation
         -- inside HandScript.write) and at play time (cinematic walker
@@ -560,6 +565,7 @@ function Table.restore(rec, ctx, poker_events, effects_registry, bus)
 end
 
 function Table:fillOpponents(_ctx)
+    self.view_rev = (self.view_rev or 0) + 1
     self.opponents = {}
     local stake = Lookups.findById(StakesData,self.stake_id)
     local gtype = Lookups.findById(GameTypesData,self.game_type_id)
@@ -1220,6 +1226,7 @@ function Table:update(dt, ctx)
     local prev = self._prev_state
     if prev ~= self.state then
         self._prev_state = self.state
+        self.view_rev = (self.view_rev or 0) + 1
         if self.bus then
             self.bus:publish("table_state_changed",
                 { table = self, from = prev, to = self.state })
@@ -1940,6 +1947,7 @@ end
 -- and community cards, return to idle. Extracted so the timeline walker
 -- has one tidy call site at end-of-list.
 function Table:_finalizeHand()
+    self.view_rev = (self.view_rev or 0) + 1
     self.last_results[#self.last_results + 1] = {
         won   = self.outcome_won,
         delta = self.outcome_delta,
