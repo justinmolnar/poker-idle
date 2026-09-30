@@ -1060,8 +1060,11 @@ function Batch:color(r, g, b, a) self.sb:setColor(r, g, b, a) end
 function Batch:add(cell, x, y, r, sx, sy, kx)
     local n = self.n
     if n >= self.cap then
+        -- LÖVE 11 needs the buffer grown by hand; 12 removed the call and
+        -- grows a batch on its own. Either way the count is ours.
         self.cap = self.cap * 2
-        self.sb:setBufferSize(self.cap)
+        local sb = self.sb
+        if sb.setBufferSize then sb:setBufferSize(self.cap) end
     end
     self.n = n + 1
     self.sb:add(cell.q, x, y, r, sx, sy, cell.ox, cell.oy, kx or 0, 0)
