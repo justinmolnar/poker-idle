@@ -481,3 +481,49 @@ Two corrections from the first run in game, and a fifth change:
  Knobs: `card.plate_below_w`, `card.back_plate_below_w`,
 `pile.micro_below_d`. Checks: `sim/smoke_views.lua` (column, detail-no-resolve, held queue, bake bucket)
 and `sim/smoke_boot.lua` (dominant colour).
+
+## The second pass (2026-09-29): the big board at 60 fps
+
+The F4 HUD at 22 tables read 18 fps (53 ms, draw 33 ms, 1,259 draw calls, 110 MB of textures); at 34 tables,
+40 fps just after opening and 7 fps a few minutes later with draw at 150 ms and textures at 212 MB, the same
+board recovering when closed and reopened. Update was 2-4 ms throughout. Three read-only audits (the draw path,
+the theater layer, the update path) found the cost entirely in draw and mostly in things that grew with time in
+play, and a plan of eight phases landed as eight commits, each with its own headless checks:
+
+0. **Meters.** Perf allocates nothing per frame, gains gauges, an allocation EMA, freed/s and cycles/s, and an
+   exact mode (Shift+F4); the draw is scoped (rail, grid with static and live, sidebars, floaters, piles, flights,
+   post passes, the blit); every shader bind counts; the HUD's rows are persistent. The palette sets love's
+   background colour, and GrindView's full-window fill is gone.
+1. **Analytics.** `DEBUG.HAND_ANALYTICS` is false; when on, an append-only JSON Lines log (a flush concatenates
+   at most 256 pending lines and the worker appends; nothing is ever rebuilt or read back). The 12 MB document
+   rebuilt as 25 MB of strings every ten seconds, the 368 ms worst frame, is gone.
+2. **Leaks and the update side.** The event bus's recycle pool is bounded (every publish handed it a table it
+   never asked for back); closing a table drops its rolled values, pops, anchors, stats slots and piles; the
+   per-frame scratch on the update side is reused (the pool's resolutions, the stats shelf, the hover maps, the
+   cursor closures, the hint context).
+3. **The display revision.** The live counters (hands per second, heaters, Heads-Up tables, lanes) no longer
+   empty every EV cache and memo twenty times a second: they bump only when an owned item reads them, at most
+   twice a second; an EV cache hit allocates nothing.
+4. **Retained sidebars and rail.** A tab declares `inputs` and `refresh`; `build` runs only when its inputs
+   move; the rail's numbers refresh in place; tooltips build on hover and memoize; the builders' side effects
+   and clocks live in `GrindView:_tickRail`. `sim/smoke_ui.lua`.
+5. **One chip atlas, a batch per pile, incremental layout, pooled flights.** The bake cache (canvases created
+   inside the draw, keyed on shade to a thousandth, never evicted: the 110 → 212 MB) is replaced by one atlas
+   built once (3.75 MB at 1x); each pile is a SpriteBatch rebuilt only on its revision; a landing chip inserts
+   into its column without a full solve; a chip projectile is a pooled record drawn through one batch, not
+   three closures and seven tables. `sim/smoke_chips.lua`.
+6. **The panel cache.** A resting panel is a slot in one shared canvas, re-rendered on a 46-field dirty key
+   and blitted with the live layers on top; a continuous animation bypasses to the immediate path; transforms
+   apply to the blit; the residue's desaturation is baked (it was eight shader binds a panel). The immediate
+   path's per-panel garbage is gone with it. `FEATURES.PANEL_CACHE` is the kill switch. `sim/smoke_panels.lua`.
+7. **The passes.** The focus strain draws once into a second frame canvas and the layers above keep drawing
+   there; its uniforms and the blit's are sent on change. GC tuning is left for after an in-game read.
+
+`sim/perf_budget.lua` prints KB per frame for the controller tick and for a whole frame at 22 tables and checks
+them against budgets meant only to tighten (17 and 107 KB at the end of the pass, headless). The numbers to read
+in game, F4 at 12 / 24 / 34 tables at rest and dealing, before and after: `draw` flat over ten minutes at 34
+tables, `texture mem` flat, `draw calls` from four figures to two at rest, `shader sw` 0 on a residue board,
+`evStats` and `text wrap` 0 at rest, `panels` 0 at rest with `cached/bypass` mostly cached, `pile batch` 0 at
+rest, `heap` flat across a session. What is not pixel-identical: chips are sharper (fixed radius tiers) and
+their highlight arcs dim with shade; the strip's hover is the button's own tint. Phase 4b of the first pass,
+the chip atlas, is the one deferred item that landed.
