@@ -2518,6 +2518,50 @@ local function floaterWidest(t, font)
     return widest
 end
 
+-- One text object per floater for its plain lines (LÖVE 12 calls it a
+-- TextBatch, 11 a Text; love.js has the latter). nil when the engine has
+-- neither (the headless stub), and the caller falls back to prints.
+local _newTextBatch = love and love.graphics
+    and (love.graphics.newTextBatch or love.graphics.newText) or nil
+local _stroke_ct = { { 0, 0, 0, 0.85 }, "" }   -- coloured-text scratch for the stroke adds
+local _text_ct   = { { 1, 1, 1, 1 }, "" }      -- and for the line itself
+local function floaterBatch(t, font, color, lines, step, line_h)
+    if not _newTextBatch then return nil end
+    if t._tb and t._tb_font == font and t._tb_color == color and t._tb_lines == lines then
+        return t._tb
+    end
+    local tb = t._tb
+    if tb then
+        if tb.setFont then tb:setFont(font) end
+        tb:clear()
+    else
+        local ok, fresh = pcall(_newTextBatch, font)
+        if not ok or not fresh then return nil end
+        tb = fresh
+        t._tb = tb
+    end
+    t._tb_font, t._tb_color, t._tb_lines = font, color, lines
+    local sc = _stroke_ct[1]
+    sc[1], sc[2], sc[3] = FLOATER_STROKE_COLOR[1], FLOATER_STROKE_COLOR[2], FLOATER_STROKE_COLOR[3]
+    local tc = _text_ct[1]
+    tc[1], tc[2], tc[3], tc[4] = color[1], color[2], color[3], 1
+    local n_lines = #lines
+    local ly = -((n_lines - 1) * step + line_h) * 0.5
+    for _, line in ipairs(lines) do
+        if line ~= "" and not line:find("{", 1, true) then
+            local tw = font:getWidth(line)
+            _stroke_ct[2] = line
+            for _, off in ipairs(FLOATER_STROKE_OFFSETS) do
+                tb:add(_stroke_ct, -tw * 0.5 + off[1], ly + off[2])
+            end
+            _text_ct[2] = line
+            tb:add(_text_ct, -tw * 0.5, ly)
+        end
+        ly = ly + step
+    end
+    return tb
+end
+
 function GrindView:_drawFloatingText()
     local fonts = self.game.fonts
     -- Resolve a controller-supplied color_token through Theme palettes.
@@ -2614,12 +2658,25 @@ function GrindView:_drawFloatingText()
                     widest + 12, block_h + 6, Theme.space.radius)
             end
         end
+        -- The plain lines and their stroke rings are one text batch per
+        -- floater, rebuilt only when the font, the colour or the lines
+        -- change (nine prints per line per frame otherwise, on a board
+        -- carrying a parked readout per table). The batch is drawn under
+        -- setColor(1,1,1,alpha): the stroke's 0.85 and the text's colour
+        -- are baked into its adds, so the multiply gives today's exact
+        -- values. Icon lines keep the IconText path. Headless, or on a
+        -- build without text objects, the print ring stays.
+        local tb = floaterBatch(t, font, color, lines, step, line_h)
+        if tb then
+            love.graphics.setColor(1, 1, 1, alpha)
+            love.graphics.draw(tb)
+        end
         for _, line in ipairs(lines) do
             if line:find("{", 1, true) then
                 -- Inline icons (e.g. "+1 {chip}") — IconText, no stroke ring.
                 local tw = IconText.measure(line, font, IconText.PLAIN)
                 IconText.draw(self.game, line, -tw * 0.5, ly, font, color, alpha, IconText.PLAIN)
-            elseif line ~= "" then
+            elseif line ~= "" and not tb then
                 local tw = font:getWidth(line)
                 -- Dark stroke ring for legibility against any felt color.
                 Theme.setColor(FLOATER_STROKE_COLOR, alpha * 0.85)
@@ -2651,7 +2708,9 @@ function GrindView:_drawBankrollChips(W, H)
     -- anchor). Without a rail (a harness), the table column's centre.
     local slot = AnchorRegistry.get("rail:money")
     local center_x = slot and (slot[1] + slot[3] * 0.5) or (band_x + band_w * 0.5)
-    self._pile_rect = { x = band_x, y = band_y, w = band_w, h = BOTTOM_BAND_H }
+    local pr = self._pile_rect
+    if not pr then pr = {}; self._pile_rect = pr end
+    pr.x, pr.y, pr.w, pr.h = band_x, band_y, band_w, BOTTOM_BAND_H
     local stack_y  = band_y + BOTTOM_BAND_H - 22
 
     -- Stash for emission code (1-frame stale, fine).
