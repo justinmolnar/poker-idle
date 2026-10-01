@@ -114,16 +114,26 @@ end
 local function acquire()
     local n = #_flying
     if n >= MAX_IN_FLIGHT and not _in_update then
-        -- The entity nearest its landing goes, not the oldest: a board of
-        -- thirty-six fast tables keeps the queue at the cap, and landing
-        -- the oldest cut every chip flight to the bankroll short the
-        -- moment a deal threw its cards. The one about to land anyway is
-        -- the one nobody misses.
-        local best, best_t = 1, -1
+        -- A board of thirty-six fast tables keeps the queue at the cap,
+        -- and landing the oldest cut every chip flight to the bankroll
+        -- short the moment a deal threw its cards; the landed record was
+        -- handed to the new emission, so a chip near the pile vanished
+        -- and reappeared at a table, which read as the flight starting
+        -- over. The victim is a CALLBACK entity (a card: its early landing
+        -- is the card in its slot a beat sooner) nearest its landing; a
+        -- chip goes only when nothing else is in the air.
+        local best, best_t, best_kind = 1, -1, KIND_CHIP
         for i = 1, n do
             local f = _flying[i]
-            local t = (f.delay > 0) and 0 or f.t
-            if t > best_t then best, best_t = i, t end
+            local kind = f.kind
+            if kind == KIND_FN or best_kind == KIND_CHIP then
+                local t = (f.delay > 0) and 0 or f.t
+                if kind ~= best_kind and kind == KIND_FN then
+                    best, best_t, best_kind = i, t, kind
+                elseif t > best_t then
+                    best, best_t, best_kind = i, t, kind
+                end
+            end
         end
         local r = _flying[best]
         for i = best, n - 1 do _flying[i] = _flying[i + 1] end

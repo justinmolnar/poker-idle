@@ -536,11 +536,14 @@ function ChipPile.sync(key, value, opts)
     e.want     = value
     e.palette  = opts.palette or e.palette or ChipData.full_palette
     e.tier     = opts.tier or e.tier or "medium"
+    -- A chip target of the caller's own (the bankroll's is its band's
+    -- width); nil keeps the tier's.
+    e.target   = opts.chip_target
     e.want_age = 0
 
     if #e.chips == 0 and e.n_air == 0 and not e.settle and value > 0
        and e.since_take > TAKE_LOCKOUT then
-        e.chips = ChipPile.compose(value, e.palette, e.tier)
+        e.chips = ChipPile.compose(value, e.palette, e.tier, e.target)
         e.wrong_t = 0
         touch(e)
     end
@@ -552,17 +555,25 @@ end
 -- against a 1e20 chip) runs to the breakdown's own cap, and a pile built
 -- that big was over this module's ceiling the moment it was composed, so
 -- the reconcile rebuilt it every frame, forever.
-local function composeCap(tier)
-    return ((ChipData.tier_chip_target[tier or "medium"]) or 12) * TIDY_FACTOR
+local function composeCap(target)
+    return target * TIDY_FACTOR
 end
 
 -- Breakdown → the chip records this module stores. Largest first, so the
--- truncation at the cap drops the change tail.
-function ChipPile.compose(value, palette, tier)
+-- truncation at the cap drops the change tail. `target` overrides the
+-- tier's chip target (sync's chip_target).
+local _tt = {}
+function ChipPile.compose(value, palette, tier, target)
+    tier = tier or "medium"
+    local tt = ChipData.tier_chip_target
+    if target then
+        for k in pairs(_tt) do _tt[k] = nil end
+        _tt[tier] = target
+        tt = _tt
+    end
     local list = Denoms.breakdown(value, ChipData.denominations,
-                                  palette or ChipData.full_palette,
-                                  ChipData.tier_chip_target, tier or "medium")
-    local n = math.min(#list, composeCap(tier))
+                                  palette or ChipData.full_palette, tt, tier)
+    local n = math.min(#list, composeCap(target or (ChipData.tier_chip_target[tier]) or 12))
     local out = {}
     for i = 1, n do out[i] = { d = list[i] } end
     return out
@@ -657,10 +668,10 @@ function ChipPile.tidy(key, value, opts)
     if not value or value <= 0 then
         target = {}
     elseif opts.rebuild or #e.chips == 0 then
-        target = ChipPile.compose(value, palette, tier)
+        target = ChipPile.compose(value, palette, tier, e.target)
     else
         target = adjustToward(e, value, palette)
-              or ChipPile.compose(value, palette, tier)
+              or ChipPile.compose(value, palette, tier, e.target)
     end
 
     -- The pile is ALREADY the ideal composition. Something asked for a
@@ -889,8 +900,14 @@ end
 --
 -- Returns { { chip, x, y, with_label }, ... }, one per requested chip.
 -- Hand `chip` back to accept() from the flight's on_arrive.
+-- The pile's chip target: its own (sync's chip_target, the bankroll's
+-- width) or its tier's.
+local function tierTarget(e)
+    return e.target or (ChipData.tier_chip_target[e.tier or "medium"]) or 12
+end
+
 local function pileCap(e)
-    return ((ChipData.tier_chip_target[e.tier or "medium"]) or 12) * CAP_FACTOR
+    return tierTarget(e) * CAP_FACTOR
 end
 
 function ChipPile.reserve(key, denom_indices)
@@ -929,13 +946,19 @@ function ChipPile.reserve(key, denom_indices)
         out[i] = { chip = c, x = sx, y = sy, with_label = label }
     end
     if n_rec < #denom_indices then
-        -- The pile's top, or its base when nothing is placed: where an
-        -- absorbed chip lands (ChipPile.accept with no chip is a no-op).
-        local k = T.n
-        local sx, sy
-        if k and k > 0 then sx, sy = toScreen(e.place, T.x[k], T.y[k])
-        else sx, sy = toScreen(e.place, 0, 0) end
+        -- An absorbed chip (ChipPile.accept with no chip is a no-op) lands
+        -- on any chip the pile already shows, a different one each: every
+        -- payout funnelling to one pixel read as a drain. The base when
+        -- nothing is placed.
+        local n = T.n or 0
         for i = n_rec + 1, #denom_indices do
+            local sx, sy
+            if n > 0 then
+                local k = love.math.random(1, n)
+                sx, sy = toScreen(e.place, T.x[k], T.y[k])
+            else
+                sx, sy = toScreen(e.place, 0, 0)
+            end
             out[i] = { chip = nil, x = sx, y = sy, with_label = false }
         end
     end
@@ -1308,7 +1331,7 @@ function ChipPile.update(dt)
                 -- chips are still in the air and the scalar behind them
                 -- has not caught up yet.
                 if e.since_take > TAKE_LOCKOUT then
-                    e.chips = ChipPile.compose(e.want, e.palette, e.tier)
+                    e.chips = ChipPile.compose(e.want, e.palette, e.tier, e.target)
                     touch(e)
                 end
                 e.wrong_t = 0
@@ -1319,7 +1342,7 @@ function ChipPile.update(dt)
                 -- fraction of a cent, a stake palette whose smallest chip
                 -- is $500 — and no arrangement of chips can ever close
                 -- that gap. Anything under a chip is not a disagreement.
-                local target = (ChipData.tier_chip_target[e.tier or "medium"]) or 12
+                local target = tierTarget(e)
                 local tol    = smallestIn(e.palette) - EPS
                 local pv     = pileValue(e)
                 -- A pile as full as a composition gets cannot show more

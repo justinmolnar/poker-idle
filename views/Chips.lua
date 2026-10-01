@@ -340,6 +340,8 @@ end
 -- to drawStack, so callers that want the pile's visual BOTTOM at a baseline
 -- pass `baseline - Chips.radius()`.
 function Chips.radius() return CHIP_RADIUS end
+-- One column's advance: a chip and the gap after it.
+function Chips.columnPitch() return CHIP_DIAMETER + COL_GAP end
 
 -- The vertical step between chips in a column (negative: up), and how many
 -- a column holds. Exposed so views/ChipPile can grow a column by one chip

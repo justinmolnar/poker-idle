@@ -37,6 +37,7 @@ local ChipData       = require("data.chips")
 local FlightSystem   = require("services.FlightSystem")
 local ChipFlight     = require("views.ChipFlight")
 local ChipPile       = require("views.ChipPile")
+local Chips          = require("views.Chips")
 local ClickFlash     = require("services.ClickFlash")
 local TooltipSvc     = require("services.Tooltip")
 local AnchorRegistry = require("services.AnchorRegistry")
@@ -2775,14 +2776,23 @@ function GrindView:_drawBankrollChips(W, H)
     local bankroll = self.game.state.bankroll or 0
     -- The bankroll gets the whole band, so it spreads wide before it
     -- stacks back — the opposite of the table piles, which are boxed in by
-    -- cards on every side.
-    ChipPile.place("bankroll", center_x, stack_y,
-        { align = "center", max_w = band_w - 32,
-          max_cols = BANKROLL_PILE_COLS, max_rows = BANKROLL_PILE_ROWS })
-    ChipPile.sync("bankroll", bankroll, {
-        palette = ChipData.full_palette,
-        tier    = Denoms.tierFromAmount(bankroll),
-    })
+    -- cards on every side. As many columns as the band holds, and at the
+    -- stack tier a chip target that fills one row of them (a pile that
+    -- held ten columns at ten sextillion read as a modest stack); below
+    -- that tier the tier's own count, so an early bankroll is not a wall
+    -- of pennies.
+    local cols = math.max(BANKROLL_PILE_COLS,
+                          math.floor((band_w - 32) / Chips.columnPitch()))
+    local tier = Denoms.tierFromAmount(bankroll)
+    local o = self._bankroll_place
+    if not o then o = { align = "center" }; self._bankroll_place = o end
+    o.max_w, o.max_cols, o.max_rows = band_w - 32, cols, BANKROLL_PILE_ROWS
+    ChipPile.place("bankroll", center_x, stack_y, o)
+    local so = self._bankroll_sync
+    if not so then so = { palette = ChipData.full_palette }; self._bankroll_sync = so end
+    so.tier        = tier
+    so.chip_target = (tier == "stack") and cols * Chips.MAX_PER_COLUMN or nil
+    ChipPile.sync("bankroll", bankroll, so)
     ChipPile.draw("bankroll")
 end
 

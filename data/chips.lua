@@ -113,6 +113,21 @@ return {
         { value = 5e18,       color = { 0.86, 0.22, 0.30 }, label = "5Qi",  spot = INK,  spots = 4  },
         { value = 25e18,      color = { 0.20, 0.60, 0.86 }, label = "25Qi", spot = INK,  spots = 8  },
         { value = 100e18,     color = { 0.98, 0.84, 0.30 }, label = "100Qi",spot = INK,  spots = 5  },
+        -- Past Ultra. A run's bankroll keeps climbing (one read 29Sx), and
+        -- a ladder that stopped at 100Qi composed it as hundreds of its top
+        -- chip. Same letters as utils/format's UNITS.
+        { value = 1e21,       color = { 0.78, 0.86, 0.70 }, label = "1Sx",  spot = INK,  spots = 6  },
+        { value = 5e21,       color = { 0.44, 0.20, 0.52 }, label = "5Sx",  spot = PALE, spots = 4  },
+        { value = 25e21,      color = { 0.92, 0.50, 0.20 }, label = "25Sx", spot = INK,  spots = 8  },
+        { value = 100e21,     color = { 0.16, 0.30, 0.60 }, label = "100Sx",spot = PALE, spots = 5  },
+        { value = 1e24,       color = { 0.96, 0.96, 0.92 }, label = "1Sp",  spot = INK,  spots = 3  },
+        { value = 5e24,       color = { 0.60, 0.12, 0.18 }, label = "5Sp",  spot = PALE, spots = 6  },
+        { value = 25e24,      color = { 0.24, 0.70, 0.56 }, label = "25Sp", spot = INK,  spots = 4  },
+        { value = 100e24,     color = { 0.52, 0.52, 0.56 }, label = "100Sp",spot = PALE, spots = 8  },
+        { value = 1e27,       color = { 0.10, 0.12, 0.22 }, label = "1Oc",  spot = PALE, spots = 5  },
+        { value = 5e27,       color = { 0.98, 0.72, 0.60 }, label = "5Oc",  spot = INK,  spots = 6  },
+        { value = 25e27,      color = { 0.34, 0.56, 0.22 }, label = "25Oc", spot = PALE, spots = 4  },
+        { value = 100e27,     color = { 0.88, 0.80, 0.98 }, label = "100Oc",spot = INK,  spots = 8  },
     },
 
     -- ── Per-stake palettes (4 denominations each) ──────────────────────
@@ -167,7 +182,7 @@ return {
     full_palette = {
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
         15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
-        34, 35, 36, 37,
+        34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
     },
 
     -- A payout composed through a stake's four-chip window degrades to

@@ -13,7 +13,7 @@ local Format = {}
 
 -- Thousands suffixes, one per ×1000. The chip faces in data/chips.lua
 -- use the same letters so a chip and the readout above it agree.
-local UNITS = { "K", "M", "B", "T", "Q", "Qi", "Sx", "Sp" }
+local UNITS = { "K", "M", "B", "T", "Q", "Qi", "Sx", "Sp", "Oc", "No", "Dc" }
 
 -- Guard against "1.15 * 100 = 114.999…" flooring to 114.
 local EPS = 1e-6
