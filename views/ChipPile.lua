@@ -119,6 +119,16 @@ local PLACE_FRESH     = 0.5
 local AIR_TTL         = 4.0
 local GC_SECONDS      = 30     -- drop keys nothing has touched (closed tables)
 local TIDY_FACTOR     = 2      -- tidy once the pile exceeds N× its tier target
+-- The most chips a pile holds, settled and airborne together, as a
+-- multiple of its tier's chip target: the reconcile snaps a pile past it,
+-- and reserve adds no record past it (the flight is still given a landing
+-- spot; its chip is absorbed on arrival). Without the cap on reservations
+-- a pile every payout flies to (the bankroll's, on a busy board, which is
+-- never quiet long enough for the reconcile to run) grew by every chip
+-- that ever landed in it, fifty thousand in a minute of thirty-six Zooms,
+-- and each landing re-solved the lot: the board that got slower the longer
+-- it was open.
+local CAP_FACTOR      = 3
 local EPS             = 1e-9
 -- Sprites a pile's batch starts with. A table pile is a few columns; the
 -- bankroll can be twenty. Both grow on demand (views/Chips.Batch:add).
@@ -856,6 +866,10 @@ end
 --
 -- Returns { { chip, x, y, with_label }, ... }, one per requested chip.
 -- Hand `chip` back to accept() from the flight's on_arrive.
+local function pileCap(e)
+    return ((ChipData.tier_chip_target[e.tier or "medium"]) or 12) * CAP_FACTOR
+end
+
 function ChipPile.reserve(key, denom_indices)
     if not denom_indices or #denom_indices == 0 then return nil end
     local e = live(key)
@@ -863,14 +877,17 @@ function ChipPile.reserve(key, denom_indices)
     e.idle = 0
     finishSettle(e)
 
-    local base = #e.chips
-    local refs = {}
-    for i, d in ipairs(denom_indices) do
-        local c = { d = d, air = true, gen = e.gen, ttl = AIR_TTL }
+    -- Records for as many chips as the pile has room for (CAP_FACTOR);
+    -- the rest are given a landing spot and no record.
+    local base  = #e.chips
+    local n_rec = math.min(#denom_indices, math.max(0, pileCap(e) - base))
+    local refs  = {}
+    for i = 1, n_rec do
+        local c = { d = denom_indices[i], air = true, gen = e.gen, ttl = AIR_TTL }
         e.chips[base + i] = c
         refs[i] = c
     end
-    e.n_air   = e.n_air + #refs
+    e.n_air   = e.n_air + n_rec
     e.wrong_t = 0
 
     -- Measured against the FULL layout, in a scratch record: an arriving
@@ -887,6 +904,17 @@ function ChipPile.reserve(key, denom_indices)
             label  = T.label[k]
         end
         out[i] = { chip = c, x = sx, y = sy, with_label = label }
+    end
+    if n_rec < #denom_indices then
+        -- The pile's top, or its base when nothing is placed: where an
+        -- absorbed chip lands (ChipPile.accept with no chip is a no-op).
+        local k = T.n
+        local sx, sy
+        if k and k > 0 then sx, sy = toScreen(e.place, T.x[k], T.y[k])
+        else sx, sy = toScreen(e.place, 0, 0) end
+        for i = n_rec + 1, #denom_indices do
+            out[i] = { chip = nil, x = sx, y = sy, with_label = false }
+        end
     end
     return out
 end
@@ -1286,7 +1314,7 @@ function ChipPile.update(dt)
                 -- times as many chips as its tier asks for, snaps. No
                 -- debounce, no animation — it is already wrong on screen
                 -- and the honest thing is to stop showing it.
-                if pv > e.want * 1.5 + tol or #e.chips > target * 3 then
+                if pv > e.want * 1.5 + tol or #e.chips > target * CAP_FACTOR then
                     ChipPile.tidy(key, e.want, { instant = true, rebuild = true })
                     e.wrong_t = 0
                 elseif math.abs(pv - e.want) > tol

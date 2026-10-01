@@ -418,6 +418,35 @@ do
     Perf.setEnabled(false)
 end
 
+-- ── cap ─────────────────────────────────────────────────────────────────
+-- A pile holds at most three times its tier's chip target, airborne chips
+-- included: past that a reservation hands back a landing spot with no
+-- record, the arrival is a no-op, and the pile's size no longer follows
+-- the number of chips that ever flew to it.
+do
+    local K3 = "smoke:cap"
+    local pal   = ChipData.full_palette
+    ChipPile.place(K3, 300, 300, { align = "center", scale = 1, max_cols = 10, max_rows = 2 })
+    ChipPile.sync(K3, 0, { tier = "stack" })
+    local cap = 50 * 3
+    local list = {}
+    for i = 1, 40 do list[i] = pal[3] end
+    local absorbed, placed = 0, 0
+    for _ = 1, 25 do
+        local slots = ChipPile.reserve(K3, list)
+        c.eq(#slots, 40, "every reserved chip gets a slot")
+        for _, s in ipairs(slots) do
+            if s.chip then placed = placed + 1; ChipPile.accept(K3, s.chip)
+            else absorbed = absorbed + 1; c.ok(s.x and s.y, "an absorbed chip still has a landing spot"); ChipPile.accept(K3, s.chip) end
+        end
+    end
+    c.eq(placed, cap, "the pile took records up to its cap")
+    c.eq(absorbed, 1000 - cap, "and absorbed the rest")
+    c.eq(ChipPile.count(K3), cap, "a thousand landings leave the pile at its cap")
+    ChipPile.draw(K3)
+    c.ok(#ChipPile.debugSlots(K3) <= cap, "the drawn pile is no bigger than its cap")
+end
+
 -- ── flights ─────────────────────────────────────────────────────────────
 
 local FlightSystem = require("services.FlightSystem")
