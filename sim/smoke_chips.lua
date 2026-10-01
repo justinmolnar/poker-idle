@@ -466,7 +466,8 @@ do
                               Tumble.PRESETS.toss, (i % 10) * 0.02, 0.3 + (i % 7) * 0.05, nil,
                               note, i, nil)
     end
-    c.ok(FlightSystem.count() <= 800, "the cap holds (" .. FlightSystem.count() .. " in flight)")
+    local CAP = FlightSystem.MAX_IN_FLIGHT
+    c.ok(FlightSystem.count() <= CAP, "the cap holds (" .. FlightSystem.count() .. " in flight)")
     for _ = 1, 120 do FlightSystem.update(1 / 60); FlightSystem.draw() end
     c.eq(FlightSystem.count(), 0, "all thousand landed")
     local once, total = true, 0
@@ -478,17 +479,25 @@ do
     c.eq(total, 1000, "a thousand arrivals")
     local alloc, free = FlightSystem.debugPool()
     c.eq(free, alloc, "free stack equals records allocated")
-    c.ok(alloc <= 800, "no more records than the cap (" .. alloc .. ")")
+    c.ok(alloc <= CAP, "no more records than the cap (" .. alloc .. ")")
 
-    -- The cap lands the oldest.
-    local landed_first = 0
-    FlightSystem.emitChip(0, 0, 10, 10, 1, false, nil, 1, 1, false, 0, 1, nil,
-                          function() landed_first = landed_first + 1 end)
-    for _ = 1, 800 do
+    -- The cap lands the entity nearest its landing, not the oldest: a long
+    -- flight launched first survives a short one launched after it.
+    local landed = {}
+    FlightSystem.emitChip(0, 0, 10, 10, 1, false, nil, 1, 1, false, 0, 1.0, nil,
+                          function() landed.long = (landed.long or 0) + 1 end)
+    FlightSystem.emitChip(0, 0, 10, 10, 1, false, nil, 1, 1, false, 0, 0.2, nil,
+                          function() landed.short = (landed.short or 0) + 1 end)
+    FlightSystem.update(0.1)
+    for _ = 1, CAP - 2 do
         FlightSystem.emitChip(0, 0, 10, 10, 1, false, nil, 1, 1, false, 0, 1, nil)
     end
-    c.eq(landed_first, 1, "the cap lands the oldest at once")
-    c.eq(FlightSystem.count(), 800, "and holds at the cap")
+    c.eq(FlightSystem.count(), CAP, "filled to the cap, nothing landed early")
+    c.eq(landed.short, nil, "the short flight is still in the air at the cap")
+    FlightSystem.emitChip(0, 0, 10, 10, 1, false, nil, 1, 1, false, 0, 1, nil)
+    c.eq(landed.short, 1, "one over the cap lands the flight nearest its landing")
+    c.eq(landed.long, nil, "and not the oldest")
+    c.eq(FlightSystem.count(), CAP, "and holds at the cap")
     FlightSystem.clear()
     c.eq(FlightSystem.count(), 0, "clear empties the queue")
     alloc, free = FlightSystem.debugPool()

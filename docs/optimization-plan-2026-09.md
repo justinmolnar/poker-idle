@@ -574,3 +574,12 @@ plate, not the game's); `sim/perf_budget`'s synthetic frame from 107 to 21 KB an
 budgets 5 and 40 KB. The numbers to read in game next: `heap` flat over ten minutes at a full board, `alloc ema`
 well under a megabyte, `cached/bypass` mostly cached with `why` naming only the residue ease, and the `flights`
 count, which at this hand rate sits at the flight cap by design.
+
+In play after that round the user read 43 fps at a full board, `alloc ema` 892 KB, `heap` 31.7 MB, 33 of 36
+cached, and the frame in the 26 panel rebuilds a frame (static 8.1 ms) and the live layers (6.1 ms); chip
+flights to the bankroll were cut short whenever a deal threw its cards, because the queue sits at the flight cap
+at that hand rate and the cap landed the oldest. The cap (1200 now) lands the entity nearest its landing instead.
+A cash panel's key reads the picture a script changes (who is in, the board count, the opponent's reveal) rather
+than the script index, since a bet moves only the live pot and the tied-up line: rebuilds headless on the save
+from 15.9 to 10.7 a frame. A table's layout is solved once a frame (prepare solves, draw reuses).
+`sim/perf_save.lua` also attributes time by call site now, relative costs only (PUC Lua, no GPU).

@@ -26,9 +26,9 @@
 -- as plain numbers, comes off a free stack, and goes back on it when it
 -- lands, scrubbed. A steady state allocates nothing.
 --
--- Soft cap: MAX_IN_FLIGHT entities total. Past it the oldest lands at once
--- (its on_arrive fires, so whatever it carried still gets where it was
--- going) and its record carries the new emission.
+-- Soft cap: MAX_IN_FLIGHT entities total. Past it the entity nearest its
+-- landing lands at once (its on_arrive fires, so whatever it carried still
+-- gets where it was going) and its record carries the new emission.
 
 local SoundService = require("services.SoundService")
 local Motion       = require("services.Motion")
@@ -64,10 +64,11 @@ local _sfree    = {}
 local EMPTY = {}
 
 -- ── Tunables ────────────────────────────────────────────────────────
-local MAX_IN_FLIGHT       = 800     -- soft cap; land-oldest beyond.
+local MAX_IN_FLIGHT       = 1200    -- soft cap; the nearest to landing goes beyond.
                                     -- Bumped to accommodate stack confetti
                                     -- fountains (120+ pieces) overlapping
                                     -- with chip bursts.
+FlightSystem.MAX_IN_FLIGHT = MAX_IN_FLIGHT
 local MAX_PER_EVENT       = 7       -- a burst shows ≤ 7 entities, never hundreds
 local DEFAULT_DURATION    = 0.55    -- seconds from launch to arrival
 local DEFAULT_STAGGER     = 0.03    -- 30 ms between staggered launches
@@ -113,8 +114,19 @@ end
 local function acquire()
     local n = #_flying
     if n >= MAX_IN_FLIGHT and not _in_update then
-        local r = _flying[1]
-        for i = 1, n - 1 do _flying[i] = _flying[i + 1] end
+        -- The entity nearest its landing goes, not the oldest: a board of
+        -- thirty-six fast tables keeps the queue at the cap, and landing
+        -- the oldest cut every chip flight to the bankroll short the
+        -- moment a deal threw its cards. The one about to land anyway is
+        -- the one nobody misses.
+        local best, best_t = 1, -1
+        for i = 1, n do
+            local f = _flying[i]
+            local t = (f.delay > 0) and 0 or f.t
+            if t > best_t then best, best_t = i, t end
+        end
+        local r = _flying[best]
+        for i = best, n - 1 do _flying[i] = _flying[i + 1] end
         _flying[n] = nil
         fire(r)
         scrub(r)

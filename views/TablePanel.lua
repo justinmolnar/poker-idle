@@ -2286,10 +2286,17 @@ end
 -- for every element; the draw functions render into what they are handed.
 -- Solved into one module scratch per call (both passes call it; the layout
 -- itself is memoized on the table, so the second call is a field compare).
-local _ly = {}
+-- One layout record per table, stamped with the frame and the rect it
+-- was solved for: prepare solves it and draw reuses it the same frame
+-- (the text measurements in here ran twice per panel per frame).
 local function solveLayout(tbl, x, y, w, h, game, controller, s, ui_s, n_tables)
     local fonts = game.fonts
-    local ly = _ly
+    local ly = tbl._ly
+    if not ly then ly = {}; tbl._ly = ly end
+    if ly.f == _frame and ly.x == x and ly.y == y and ly.w == w and ly.h == h and ly.L then
+        return ly
+    end
+    ly.f, ly.x, ly.y, ly.w, ly.h = _frame, x, y, w, h
     ly.s, ly.ui_s = s, ui_s
     -- Felt area.
     local felt_x = x + FELT_INSET
@@ -2839,7 +2846,7 @@ end
 -- ── The dirty key ───────────────────────────────────────────────────
 -- Everything the static picture is a function of, as a flat list compared
 -- field by field (no strings built). PANEL_KEY, by index:
---    1 view_rev            2 script_idx          3 state
+--    1 view_rev            2 picture signature   3 state
 --    4 last_hand (id)      5 _status_rev         6 tied cents (_tied_c)
 --    7 EV cents (_ev_c)    8 stack% (_pct_t)     9 loss% (_loss_t)
 --   10 tournament KOs     11 depth bb           12 EV colour (id)
@@ -2859,6 +2866,29 @@ end
 -- Field 6 is the roll itself while the number rolls (the digits are then
 -- drawn live). A pile in motion, a pot, a pulse, a glow are LIVE layers or
 -- bypass reasons, never keys: the key is only what a resting panel shows.
+-- What a cash hand's script changes in the PICTURE: who is still in, how
+-- many board cards are out, whether the opponent's hole is shown. A bet
+-- moves the pot (a live layer) and the tied-up number (field 6) and
+-- nothing else the static render paints, so the script index itself was
+-- a rebuild per action: on a board of thirty-six fast Zooms, twenty-six
+-- panel renders a frame, most of them for a call. A chip-stack table
+-- keeps the index (its seats print their stacks).
+local function pictureSig(tbl, gtype)
+    if gtype and gtype.chip_stack_table then return tbl.script_idx end
+    local ps = tbl.playback_state
+    if not ps then return tbl.script_idx end
+    local sig = (ps.community_count or 0) * 2 + (ps.opp_revealed and 1 or 0)
+    local ins = ps.in_seats
+    if ins then
+        local bit = 16
+        for i = 1, (ps.n_seats or 0) do
+            if ins[i] then sig = sig + bit end
+            bit = bit * 2
+        end
+    end
+    return sig
+end
+
 local KN = 48
 local K  = {}
 -- HUD counters: the first key field that moved on each rebuild ("key:7"),
@@ -2889,7 +2919,7 @@ local function buildKey(tbl, idx, w, h, game, controller, ly)
     local fid  = ACTION_KEY[busted and "rebuy" or "deal"][tbl._id]
     local RS   = FeltStyle.residue or EMPTY
     K[1]  = tbl.view_rev
-    K[2]  = tbl.script_idx
+    K[2]  = pictureSig(tbl, gtype)
     K[3]  = tbl.state
     K[4]  = tbl.last_hand
     K[5]  = tbl._status_rev

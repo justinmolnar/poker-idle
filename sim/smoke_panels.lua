@@ -20,6 +20,7 @@
 --   deal      a dealt hand rebuilds exactly one panel and stays cached:
 --             its cards and its fading seats are live layers, the frame
 --             after rebuilds nothing, the street landing rebuilds once
+--   script    a bet rebuilds nothing (the pot is live); a fold rebuilds once
 --   roll      the tied-up number rolling is one key value: a rebuild when
 --             it starts, none while it rolls, one when it lands
 --   residue   the finished hand rebuilds once, then the residue's shader
@@ -271,6 +272,34 @@ do
     c.eq((counters()), 1, "the street down, the dealt table rebuilds once")
     frame()
     c.eq((counters()), 0, "and rests with its seats still live")
+end
+
+-- ── script ──────────────────────────────────────────────────────────────
+-- The key reads the picture, not the script index: a bet moves the pot (a
+-- live layer) and nothing the static render paints; a fold changes who
+-- is in.
+do
+    local ps = dealt.playback_state
+    c.ok(ps ~= nil, "the dealt table has a hand in play")
+    if ps then
+        ps.pot = (ps.pot or 0) + 1
+        dealt.script_idx = (dealt.script_idx or 0) + 1
+        frame()
+        c.eq((counters()), 0, "a bet rebuilds nothing")
+        local seat
+        for i = 1, (ps.n_seats or 0) do
+            if ps.in_seats[i] and i ~= ps.player_seat then seat = i; break end
+        end
+        c.ok(seat ~= nil, "an opponent is in the hand")
+        if seat then
+            ps.in_seats[seat] = nil
+            dealt.script_idx = dealt.script_idx + 1
+            frame()
+            c.eq((counters()), 1, "a fold rebuilds the panel once")
+            frame()
+            c.eq((counters()), 0, "and rests")
+        end
+    end
 end
 
 -- ── roll ────────────────────────────────────────────────────────────────

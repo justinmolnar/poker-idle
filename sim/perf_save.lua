@@ -63,26 +63,34 @@ local TablePanel   = require("views.TablePanel")
 
 -- ── Attribution ─────────────────────────────────────────────────────────
 local INC, EXC, CNT, measuring = {}, {}, {}, false
-local stack, child = {}, {}
+local TIN, TEX = {}, {}          -- seconds, inclusive and exclusive
+local stack, child, tchild = {}, {}, {}
+local clock = os.clock
 local function wrap(tbl, label, name)
     local orig = tbl[name]
     if type(orig) ~= "function" then return end
     local key = label .. "." .. name
-    INC[key], EXC[key], CNT[key] = 0, 0, 0
-    local function finish(depth, k0, ...)
+    INC[key], EXC[key], CNT[key], TIN[key], TEX[key] = 0, 0, 0, 0, 0
+    local function finish(depth, k0, t0, ...)
         local total = collectgarbage("count") - k0
+        local dt    = clock() - t0
         INC[key] = INC[key] + total
         EXC[key] = EXC[key] + total - child[depth]
+        TIN[key] = TIN[key] + dt
+        TEX[key] = TEX[key] + dt - tchild[depth]
         CNT[key] = CNT[key] + 1
         stack[depth] = nil
-        if depth > 1 then child[depth - 1] = child[depth - 1] + total end
+        if depth > 1 then
+            child[depth - 1]  = child[depth - 1] + total
+            tchild[depth - 1] = tchild[depth - 1] + dt
+        end
         return ...
     end
     tbl[name] = function(...)
         if not measuring then return orig(...) end
         local depth = #stack + 1
-        stack[depth], child[depth] = key, 0
-        return finish(depth, collectgarbage("count"), orig(...))
+        stack[depth], child[depth], tchild[depth] = key, 0, 0
+        return finish(depth, collectgarbage("count"), clock(), orig(...))
     end
 end
 local function wrapAll(modpath, label, only)
@@ -182,7 +190,16 @@ for i = 1, math.min(25, #rows) do
     local r = rows[i]
     print(("  %-36s %7.1f (%7.1f)  %7.2f  %7.0f B"):format(r[1], r[2], r[3], r[4], 1024 * r[2] / r[4]))
 end
-print(("flights in the air: %d"):format(FlightSystem.count()))
+rows = {}
+for k, v in pairs(TEX) do if CNT[k] > 0 and v / N * 1000 >= 0.05 then rows[#rows + 1] = { k, v / N * 1000, TIN[k] / N * 1000, CNT[k] / N } end end
+table.sort(rows, function(a, b) return a[2] > b[2] end)
+print("time a frame by call site, PUC Lua headless, exclusive ms (inclusive), calls a frame (relative costs only):")
+for i = 1, math.min(25, #rows) do
+    local r = rows[i]
+    print(("  %-36s %6.2f (%6.2f)  %7.2f"):format(r[1], r[2], r[3], r[4]))
+end
+print(("flights in the air: %d; emitted a frame: cards %.1f, chips %.1f"):format(FlightSystem.count(),
+    (CNT["FlightSystem.emit"] or 0) / N, (CNT["FlightSystem.emitChip"] or 0) / N))
 
 if HEAP > 0 then
     print("collected heap:")
