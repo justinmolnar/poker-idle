@@ -54,6 +54,13 @@ function InputController:wire()
                 if game.debug.perf then Perf.setExact(not Perf.exact()) end
                 return
             end
+            -- Ctrl+F4: sample the running game for five seconds and write
+            -- the hottest lines to the save directory (services/Profiler).
+            if love.keyboard.isDown("lctrl", "rctrl") then
+                local Profiler = require("services.Profiler")
+                if not Profiler.start(5) then print("[profiler] unavailable (needs LuaJIT 2.1)") end
+                return
+            end
             game.debug.perf = not game.debug.perf
             -- The meters only tick while the HUD is up (they are free
             -- otherwise), and the chip counter has been accumulating

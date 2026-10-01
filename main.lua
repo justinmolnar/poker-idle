@@ -42,6 +42,7 @@ local AnchorRegistry  = require("services.AnchorRegistry")
 local ShaderRegistry  = require("services.ShaderRegistry")
 local HandAnalytics   = require("services.HandAnalytics")
 local Perf            = require("services.Perf")
+local Profiler        = require("services.Profiler")
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
@@ -682,6 +683,7 @@ function love.update(dt)
     -- counters a frame reports belong to that frame (F4; free when off).
     Perf.beginFrame(dt)
     Perf.enter("update")
+    Profiler.update()
     -- The analytics flush the last frame's save tick left for this one.
     if analytics_flush_due then
         analytics_flush_due = false

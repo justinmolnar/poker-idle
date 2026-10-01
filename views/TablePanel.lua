@@ -2319,7 +2319,8 @@ local function renderBody(tbl, idx, x, y, w, h, game, controller, hit_boxes, mod
         -- Table:update. Drawn here so it overlays the panel border but sits
         -- beneath all felt content. (A hand in progress and the deal itself
         -- light the felt instead: Effects.drawFeltLight, on the surface.)
-        -- Live: the panel bypasses the cache while it runs.
+        -- On the cached path both draw over the blit instead (drawLive), so
+        -- a hand in progress keeps its cached picture.
         Effects.drawBorderPulse(tbl, x, y, w, h)
         -- Low motion stand-in: the status colour on the frame while a punch
         -- lands (no shove).
@@ -2382,14 +2383,19 @@ local function renderBody(tbl, idx, x, y, w, h, game, controller, hit_boxes, mod
                               surf.w - 2 * rw, surf.h - 2 * rw,
                               felt_color, math.max(0, (surf.radius or 0) - 1))
         -- The lamp over the table: the cloth lights while a hand runs and
-        -- pops on the deal. On the surface, inside the rail, under all.
-        Effects.drawFeltLight(tbl, surf.x + rw, surf.y + rw,
-                              surf.w - 2 * rw, surf.h - 2 * rw,
-                              math.max(0, (surf.radius or 0) - 1))
+        -- pops on the deal. On the surface, inside the rail, under all on
+        -- the immediate path; over the blit on the cached one (drawLive).
+        if live then
+            Effects.drawFeltLight(tbl, surf.x + rw, surf.y + rw,
+                                  surf.w - 2 * rw, surf.h - 2 * rw,
+                                  math.max(0, (surf.radius or 0) - 1))
+        end
     else
         FeltDecor.drawSurface(felt_x, felt_y, felt_w, felt_h,
                               felt_color, Theme.space.radius)
-        Effects.drawFeltLight(tbl, felt_x, felt_y, felt_w, felt_h, Theme.space.radius)
+        if live then
+            Effects.drawFeltLight(tbl, felt_x, felt_y, felt_w, felt_h, Theme.space.radius)
+        end
         Theme.setColor(Theme.border.soft)
         love.graphics.rectangle("line", felt_x, felt_y, felt_w, felt_h,
                                 Theme.space.radius)
@@ -2643,6 +2649,21 @@ end
 local function drawLive(tbl, x, y, w, h, game, ly)
     local L, fonts = ly.L, game.fonts
     local gtype = ly.gtype
+    -- The lamp over the table and a result's border pulse, over the cached
+    -- picture. On the immediate path the light sits under the cards; here
+    -- it washes them too, a few percent of warm at rest and a quarter
+    -- second of pop on the deal. The alternative was no cache at all on a
+    -- Zoom board, where a table is almost never between those two.
+    local surf = L.rail
+    if surf then
+        local rw = surf.width
+        Effects.drawFeltLight(tbl, surf.x + rw, surf.y + rw,
+                              surf.w - 2 * rw, surf.h - 2 * rw,
+                              math.max(0, (surf.radius or 0) - 1))
+    else
+        Effects.drawFeltLight(tbl, ly.felt_x, ly.felt_y, ly.felt_w, ly.felt_h, Theme.space.radius)
+    end
+    Effects.drawBorderPulse(tbl, x, y, w, h)
     if L.bottom and not (gtype and gtype.chip_stack_table) then
         local you_key = youPileSync(tbl, L.bottom, nil)
         if not ChipPile.quiet(you_key) then
@@ -2729,7 +2750,7 @@ local function buildKey(tbl, idx, w, h, game, controller, ly)
     K[20] = ly.L
     K[21] = _deal_back
     K[22] = Motion.rev
-    K[23] = ((tbl.lift_t or 0) >= 0.99) and 1 or 0
+    K[23] = 0   -- the felt light is a live layer now; was the steady-light flag
     K[24] = cursor_on
     K[25] = rebuy_cursor_on
     K[26] = (controller and controller:bountyBanked(tbl.stake_id, tbl.game_type_id)) and true or false
@@ -2784,9 +2805,8 @@ local function panelIsAnimating(tbl, w, h, ly)
     if st ~= "settling" and st ~= "idle" and opponentFaceUp(tbl)
        and (tbl.state_timer or 0) < 0.25 then return true end
     if Effects.hasSeatKO(tbl) then return true end
-    if (tbl.border_pulse_t or 0) > 0.001 then return true end
-    local lift = tbl.lift_t or 0
-    if lift > 0.001 and lift < 0.99 then return true end
+    -- (The border pulse and the felt light are live layers over the blit,
+    -- so neither stops the cache.)
     if residueOf(tbl) then
         local RS = FeltStyle.residue or EMPTY
         if (tbl.state_timer or 0) < (RS.ease_secs or 0.35) then return true end
@@ -2812,6 +2832,12 @@ function TablePanel.sheetBegin(n, w, h)
         PanelSheet.release()
         _sheet_ok = false
     end
+    -- The HUD's sheet and atlas rows, re-gauged each frame so they read
+    -- even when the HUD was opened after the build (a gauge set at build
+    -- time with the meters off was lost).
+    Perf.gauge("sheet_mb", (PanelSheet.bytes() or 0) / 1048576)
+    local _, _, _, atlas_bytes = Chips.atlasInfo()
+    Perf.gauge("atlas_mb", (atlas_bytes or 0) / 1048576)
     return _sheet_ok
 end
 
