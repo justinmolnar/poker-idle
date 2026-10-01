@@ -2838,7 +2838,12 @@ function GrindView:draw(overlay_fn)
     -- Reset hit boxes — they're rebuilt during this draw pass. The panel
     -- list beside them is the cursor swarm's map of the board
     -- (services/CursorPool: clashes and crossings).
-    self.hit_boxes = {}
+    -- The hit-box list is wiped in place, not replaced: at a full board
+    -- a fresh list regrew through every size each frame.
+    do
+        local hb = self.hit_boxes
+        if hb then for i = #hb, 1, -1 do hb[i] = nil end else self.hit_boxes = {} end
+    end
     -- The panel list is pooled: entries are rewritten in place and the
     -- tail is trimmed after the grid draws (_notePanel).
     self.table_panels = self.table_panels or {}

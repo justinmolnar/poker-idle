@@ -39,6 +39,40 @@ local Icons  = require("views.Icons")
 
 local MiniButton = {}
 
+-- One options record and one face function for every mini button (a row
+-- of the Tables tab draws several, every frame): Button.draw reads the
+-- options before it calls the face, and the face reads its state into
+-- locals first.
+local _opts = {}
+local _cur  = {}
+local function face(fx, fy, fw, fh)
+    local opts, size, fonts, off, dead, ink = _cur.opts, _cur.size, _cur.fonts, _cur.off, _cur.dead, _cur.ink
+    local drew = false
+    if opts.icon and opts.game then
+        local pad = math.max(1, math.floor(fw * 0.15))
+        drew = Icons.draw(opts.game, opts.icon,
+                          fx + pad, fy + pad, fw - pad * 2, fh - pad * 2)
+    end
+    if not drew and opts.label and fonts then
+        local font = (size <= 14 and (fonts.micro or fonts.xs)) or fonts.sm or fonts.xs
+        if font then
+            Theme.setColor(ink)
+            love.graphics.setFont(font)
+            -- Compensate for font top leading whitespace for cap-height glyphs (X, D, R)
+            local font_h = font:getHeight()
+            local text_y = fy + math.floor(fh * 0.5 - font_h * 0.53)
+            love.graphics.printf(opts.label, fx, text_y, fw, "center")
+        end
+    end
+    -- Struck through only for OFF. A disabled button has nothing to be
+    -- switched off, so a strike would claim a state it does not have.
+    if off and not dead then
+        Theme.setColor(Theme.fg.disabled)
+        love.graphics.setLineWidth(1)
+        love.graphics.line(fx + 2, fy + math.floor(fh * 0.5), fx + fw - 2, fy + math.floor(fh * 0.5))
+    end
+end
+
 function MiniButton.draw(opts)
     local size  = opts.size or 0
     local fonts = opts.fonts
@@ -47,40 +81,16 @@ function MiniButton.draw(opts)
     local tint  = opts.tint_token or Theme.fg.heading
     local ink   = (off or dead) and Theme.fg.disabled or tint
 
-    Button.draw(opts.x, opts.y, size, size, {
-        fill_color   = (off or dead) and Theme.bg.sunken
-                       or opts.fill_token or Theme.bg.widget_hover,
-        border_color = (off or dead) and Theme.border.soft or tint,
-        hovered      = opts.hovered and not dead,
-        press_alpha  = (not dead) and (opts.press_alpha or 0) or 0,
-        disabled     = dead,
-        depth        = (size <= 14) and 1 or 2,
-    }, function(fx, fy, fw, fh)
-        local drew = false
-        if opts.icon and opts.game then
-            local pad = math.max(1, math.floor(fw * 0.15))
-            drew = Icons.draw(opts.game, opts.icon,
-                              fx + pad, fy + pad, fw - pad * 2, fh - pad * 2)
-        end
-        if not drew and opts.label and fonts then
-            local font = (size <= 14 and (fonts.micro or fonts.xs)) or fonts.sm or fonts.xs
-            if font then
-                Theme.setColor(ink)
-                love.graphics.setFont(font)
-                -- Compensate for font top leading whitespace for cap-height glyphs (X, D, R)
-                local font_h = font:getHeight()
-                local text_y = fy + math.floor(fh * 0.5 - font_h * 0.53)
-                love.graphics.printf(opts.label, fx, text_y, fw, "center")
-            end
-        end
-        -- Struck through only for OFF. A disabled button has nothing to be
-        -- switched off, so a strike would claim a state it does not have.
-        if off and not dead then
-            Theme.setColor(Theme.fg.disabled)
-            love.graphics.setLineWidth(1)
-            love.graphics.line(fx + 2, fy + math.floor(fh * 0.5), fx + fw - 2, fy + math.floor(fh * 0.5))
-        end
-    end)
+    local o = _opts
+    o.fill_color   = (off or dead) and Theme.bg.sunken
+                     or opts.fill_token or Theme.bg.widget_hover
+    o.border_color = (off or dead) and Theme.border.soft or tint
+    o.hovered      = opts.hovered and not dead
+    o.press_alpha  = (not dead) and (opts.press_alpha or 0) or 0
+    o.disabled     = dead
+    o.depth        = (size <= 14) and 1 or 2
+    _cur.opts, _cur.size, _cur.fonts, _cur.off, _cur.dead, _cur.ink = opts, size, fonts, off, dead, ink
+    Button.draw(opts.x, opts.y, size, size, o, face)
 end
 
 return MiniButton

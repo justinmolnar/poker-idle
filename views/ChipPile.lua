@@ -490,6 +490,17 @@ function ChipPile.debugSlots(key)
     return out
 end
 
+-- The footprint (Chips.stackFootprint) of what the pile holds, airborne
+-- chips included, with no list built: the panel reads it every render.
+local _fp_list = {}
+function ChipPile.footprint(key)
+    local e = key and _piles[key]
+    if not e then return 0, 0 end
+    local n = 0
+    for _, c in ipairs(e.chips) do n = n + 1; _fp_list[n] = c.d end
+    return Chips.stackFootprint(_fp_list, n)
+end
+
 -- The denominations this pile currently holds, in order. A read-only view
 -- for anything that needs to reason about the pile's composition rather
 -- than just its total. `settled_only` leaves out the chips still in the
@@ -535,13 +546,25 @@ function ChipPile.sync(key, value, opts)
     end
 end
 
--- Breakdown → the chip records this module stores.
+-- The most chips a composition holds: the tier's target times
+-- TIDY_FACTOR, which is also where the reconcile starts calling a pile
+-- too full. A breakdown past the top of the ladder (a bankroll of 1e22
+-- against a 1e20 chip) runs to the breakdown's own cap, and a pile built
+-- that big was over this module's ceiling the moment it was composed, so
+-- the reconcile rebuilt it every frame, forever.
+local function composeCap(tier)
+    return ((ChipData.tier_chip_target[tier or "medium"]) or 12) * TIDY_FACTOR
+end
+
+-- Breakdown → the chip records this module stores. Largest first, so the
+-- truncation at the cap drops the change tail.
 function ChipPile.compose(value, palette, tier)
     local list = Denoms.breakdown(value, ChipData.denominations,
                                   palette or ChipData.full_palette,
                                   ChipData.tier_chip_target, tier or "medium")
+    local n = math.min(#list, composeCap(tier))
     local out = {}
-    for i, d in ipairs(list) do out[i] = { d = d } end
+    for i = 1, n do out[i] = { d = list[i] } end
     return out
 end
 
@@ -1299,6 +1322,10 @@ function ChipPile.update(dt)
                 local target = (ChipData.tier_chip_target[e.tier or "medium"]) or 12
                 local tol    = smallestIn(e.palette) - EPS
                 local pv     = pileValue(e)
+                -- A pile as full as a composition gets cannot show more
+                -- than it does: falling short of its scalar is not a
+                -- disagreement for it (exceeding it still is).
+                local saturated = #e.chips >= target * TIDY_FACTOR
 
                 -- HARD CEILING. A pile may lag its scalar — that's the
                 -- whole design, chips are the truth while they're moving
@@ -1317,7 +1344,8 @@ function ChipPile.update(dt)
                 if pv > e.want * 1.5 + tol or #e.chips > target * CAP_FACTOR then
                     ChipPile.tidy(key, e.want, { instant = true, rebuild = true })
                     e.wrong_t = 0
-                elseif math.abs(pv - e.want) > tol
+                elseif pv > e.want + tol
+                       or (pv < e.want - tol and not saturated)
                        or #e.chips > target * TIDY_FACTOR then
                     e.wrong_t = e.wrong_t + dt
                     if e.wrong_t >= RECONCILE_DELAY then

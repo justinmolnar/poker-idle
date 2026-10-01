@@ -1595,7 +1595,7 @@ local function youPileSync(tbl, bottom, idx)
     -- the label's baseline. Registered after the label below, which sets
     -- _ssa for it.
     if idx then
-        local fw, fh = Chips.stackFootprint(ChipPile.denominations(you_key))
+        local fw, fh = ChipPile.footprint(you_key)
         local pad    = math.floor(4 * (cs or 1))
         _ssa.on  = true
         _ssa.key = STACK_KEY[idx]

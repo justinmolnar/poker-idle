@@ -758,6 +758,200 @@ function CR._label(comp, px, pw, p, y, game)
     return h
 end
 
+-- Button.draw reads every option before it calls the face, so one
+-- rewritten record serves every button; every field is assigned per
+-- call so nothing is left over from the last one.
+local _btn_opts   = {}
+local _dim_border = {}
+local _mini_opts  = {}
+
+-- The button's face, hoisted: one function and one state record instead
+-- of a closure per button per frame (twenty-four buttons on the Tables
+-- tab alone). Read into locals first: a face that draws another button
+-- (a deck's art, say) rewrites the record before this one returns.
+local _face = {}
+local function buttonFace(fx, fy, fw, fh)
+    local comp, game, disabled, total_h = _face.comp, _face.game, _face.disabled, _face.total_h
+    -- A drawn face (the book's cover, the room, the gear, the deck's
+    -- art) instead of lines; dimmed under a wash while disabled.
+    if comp.face_fn then
+        comp.face_fn(fx, fy, fw, fh, game, disabled)
+        if disabled then
+            Theme.setColor(Theme.bg.sunken, 0.6)
+            love.graphics.rectangle("fill", fx, fy, fw, fh, Theme.space.radius)
+        end
+    end
+    -- Measure total lines height to center text stack vertically on the button face
+    local total_lines_h = 0
+    for _, line in ipairs(comp.lines or {}) do
+        total_lines_h = total_lines_h + lineRenderedHeight(line, game, fw)
+    end
+    local cursor = fy + math.max(2, math.floor((fh - total_lines_h) * 0.5))
+
+    for _, line in ipairs(comp.lines or {}) do
+        local style = line.style or "body"
+        local font  = styleFont(style, game)
+        love.graphics.setFont(font)
+
+        local color
+        if disabled then
+            color = Theme.fg.disabled
+        elseif line.color_token then
+            color = Theme.semColor(line.color_token)
+                 or (Theme.status and Theme.status[line.color_token])
+                 or (Theme.fg and Theme.fg[line.color_token])
+                 or Theme.fg.primary
+        elseif style == "small" or style == "muted" then
+            color = Theme.fg.muted
+        elseif style == "heading" then
+            color = Theme.fg.heading
+        elseif style == "warning" then
+            color = Theme.fg.heading
+        else
+            color = Theme.fg.primary
+        end
+        Theme.setColor(color)
+
+        local indent = lineIndent(style)
+        -- Give up the right end to the action strip, so right-aligned
+        -- text ("+2 {chip}", "buy-in $2.00") stops where the buttons
+        -- start instead of rendering underneath them.
+        local printf_w = fw - indent - 4 - CR.actionStripW(comp, total_h)
+
+        local right_font = (game.fonts and game.fonts.sm) or font
+        local right_w    = 0
+        if line.right then
+            right_w = right_font:getWidth(line.right) + 8
+        end
+
+        -- A centred word with a right badge is one centred group: the
+        -- word, a gap, the badge (SHOVE with its rate), not a word in
+        -- the middle and a number at the edge.
+        local group = (line.align == "center") and line.right and not line.right_icon
+        local left_printf_w = math.max(1, printf_w - right_w)
+        local group_x, group_tw
+        if group then
+            group_tw = font:getWidth(line.text or "")
+            local gap  = 10
+            local total = group_tw + gap + right_font:getWidth(line.right)
+            group_x = fx + indent + math.floor((printf_w - total) * 0.5)
+            left_printf_w = printf_w
+        end
+        if (line.text or ""):find("{", 1, true) then
+            IconText.draw(game, line.text, fx + indent, cursor, font, color, nil, IconText.PLAIN)
+        elseif group then
+            love.graphics.print(line.text or "", group_x, cursor)
+        else
+            love.graphics.printf(line.text or "",
+                fx + indent, cursor, left_printf_w, line.align or "left")
+        end
+        -- line.text_anchor: the left text's rect, for story marks (a
+        -- readout on a row).
+        if line.text_anchor and line.text and line.text ~= "" then
+            local tw = (line.text):find("{", 1, true) and IconText.measure(line.text, font, IconText.PLAIN)
+                       or font:getWidth(line.text)
+            tw = math.min(tw, left_printf_w)
+            local ax = fx + indent
+            if group then ax = group_x
+            elseif line.align == "center" then ax = ax + math.floor((left_printf_w - tw) * 0.5)
+            elseif line.align == "right" then ax = ax + (left_printf_w - tw) end
+            local sx, sy = love.graphics.transformPoint(ax, cursor)
+            Anchors.set(line.text_anchor, sx, sy, tw, font:getHeight())
+        end
+        if line.right then
+            local right_color = color
+            if line.right_color_token then
+                right_color = Theme.semColor(line.right_color_token)
+                           or (Theme.status and Theme.status[line.right_color_token])
+                           or (Theme.fg and Theme.fg[line.right_color_token])
+                           or color
+            end
+            love.graphics.setFont(right_font)
+            Theme.setColor(right_color)
+            local right_y = cursor + font:getBaseline() - right_font:getBaseline()
+            local icon_d = line.right_icon and right_font:getHeight() or 0
+            local text_w = (icon_d > 0) and math.max(1, printf_w - icon_d - 4) or printf_w
+            if group then
+                -- The badge's right edge closes the centred group.
+                text_w = (group_x + group_tw + 10 + right_font:getWidth(line.right)) - (fx + indent)
+            end
+            love.graphics.printf(line.right,
+                fx + indent, right_y, text_w, "right")
+            if line.right_icon == "achip" then
+                Icons.drawAntiChip(game, fx + indent + printf_w - icon_d, right_y, icon_d,
+                    line.right_icon_alpha, line.right_icon_shade)
+            elseif line.right_icon then
+                Icons.drawChip(game, fx + indent + printf_w - icon_d, right_y, icon_d,
+                    line.right_icon_alpha, line.right_icon_shade)
+            end
+            -- The badge's rect (text + icon): under the component's
+            -- badge_anchor (a shared name, e.g. chip_badge:banked) and
+            -- the line's own right_anchor (this row's badge by name).
+            if comp.badge_anchor or line.right_anchor then
+                local bx0 = fx + indent + text_w
+                            - right_font:getWidth(line.right)
+                local sx, sy = love.graphics.transformPoint(bx0, right_y)
+                local bw = (fx + indent + printf_w) - bx0
+                if comp.badge_anchor and icon_d > 0 then
+                    Anchors.set(comp.badge_anchor, sx, sy, bw, right_font:getHeight())
+                end
+                if line.right_anchor then
+                    Anchors.set(line.right_anchor, sx, sy, bw, right_font:getHeight())
+                end
+            end
+            -- Second badge: the same shape, immediately left of the
+            -- first (the add-table button shows "+N {achip}" beside
+            -- "+N {chip}" in Act 3, when a stake pays both).
+            if line.right2 then
+                local color2 = color
+                if line.right2_color_token then
+                    color2 = Theme.semColor(line.right2_color_token)
+                          or (Theme.status and Theme.status[line.right2_color_token])
+                          or (Theme.fg and Theme.fg[line.right2_color_token])
+                          or color
+                end
+                local first_w = right_font:getWidth(line.right) + icon_d + 4
+                local icon2_d = line.right2_icon and right_font:getHeight() or 0
+                local text2_w = math.max(1, printf_w - first_w - 8 - icon2_d - 4)
+                Theme.setColor(color2)
+                love.graphics.printf(line.right2, fx + indent, right_y, text2_w, "right")
+                local ix2 = fx + indent + text2_w + 4
+                if line.right2_icon == "achip" then
+                    Icons.drawAntiChip(game, ix2, right_y, icon2_d,
+                        line.right2_icon_alpha, line.right2_icon_shade)
+                elseif line.right2_icon then
+                    Icons.drawChip(game, ix2, right_y, icon2_d,
+                        line.right2_icon_alpha, line.right2_icon_shade)
+                end
+            end
+            Theme.setColor(color)
+            love.graphics.setFont(font)
+        end
+
+        cursor = cursor + lineRenderedHeight(line, game, fw)
+    end
+
+    -- Render action sub-buttons inside the post-press face rect
+    if comp.actions then
+        for i, act in ipairs(comp.actions) do
+            local ax, ay, size = actionRect(comp, fx, fw, 4, fy, fh, i)
+            local m = _mini_opts
+            m.x, m.y, m.size = ax, ay, size
+            m.label      = act.label
+            m.icon       = act.icon
+            m.game       = game
+            m.fonts      = game and game.fonts
+            m.muted      = act.muted
+            m.disabled   = act.disabled
+            m.tint_token = act.tint_token
+            m.fill_token = act.fill_token
+            m.hovered    = act.id and HoverSvc.is("button", act.id)
+            m.press_alpha = (act.id and ClickFlash.alpha("button", act.id)) or 0
+            MiniButton.draw(m)
+        end
+    end
+end
+
 function CR._button(comp, px, pw, p, y, game)
     comp.__game = game
     local content_w = pw - p * 2
@@ -804,201 +998,24 @@ function CR._button(comp, px, pw, p, y, game)
     if comp.border_color then
         if disabled then
             local g = comp.border_color
-            border = { g[1] * 0.5, g[2] * 0.5, g[3] * 0.5 }
+            _dim_border[1], _dim_border[2], _dim_border[3] = g[1] * 0.5, g[2] * 0.5, g[3] * 0.5
+            border = _dim_border
         else
             border = comp.border_color
         end
     end
 
-    Button.draw(px + p, y, content_w, total_h, {
-        fill_color    = fill,
-        border_color  = border,
-        hovered       = hovered,
-        press_alpha   = press,
-        disabled      = disabled,
-        disabled_fill = comp.disabled_face_color,
-        depth         = depth,
-        line_width    = comp.border_line_width,
-    }, function(fx, fy, fw, fh)
-        -- A drawn face (the book's cover, the room, the gear, the deck's
-        -- art) instead of lines; dimmed under a wash while disabled.
-        if comp.face_fn then
-            comp.face_fn(fx, fy, fw, fh, game, disabled)
-            if disabled then
-                Theme.setColor(Theme.bg.sunken, 0.6)
-                love.graphics.rectangle("fill", fx, fy, fw, fh, Theme.space.radius)
-            end
-        end
-        -- Measure total lines height to center text stack vertically on the button face
-        local total_lines_h = 0
-        for _, line in ipairs(comp.lines or {}) do
-            total_lines_h = total_lines_h + lineRenderedHeight(line, game, fw)
-        end
-        local cursor = fy + math.max(2, math.floor((fh - total_lines_h) * 0.5))
-
-        for _, line in ipairs(comp.lines or {}) do
-            local style = line.style or "body"
-            local font  = styleFont(style, game)
-            love.graphics.setFont(font)
-
-            local color
-            if disabled then
-                color = Theme.fg.disabled
-            elseif line.color_token then
-                color = Theme.semColor(line.color_token)
-                     or (Theme.status and Theme.status[line.color_token])
-                     or (Theme.fg and Theme.fg[line.color_token])
-                     or Theme.fg.primary
-            elseif style == "small" or style == "muted" then
-                color = Theme.fg.muted
-            elseif style == "heading" then
-                color = Theme.fg.heading
-            elseif style == "warning" then
-                color = Theme.fg.heading
-            else
-                color = Theme.fg.primary
-            end
-            Theme.setColor(color)
-
-            local indent = lineIndent(style)
-            -- Give up the right end to the action strip, so right-aligned
-            -- text ("+2 {chip}", "buy-in $2.00") stops where the buttons
-            -- start instead of rendering underneath them.
-            local printf_w = fw - indent - 4 - CR.actionStripW(comp, total_h)
-
-            local right_font = (game.fonts and game.fonts.sm) or font
-            local right_w    = 0
-            if line.right then
-                right_w = right_font:getWidth(line.right) + 8
-            end
-
-            -- A centred word with a right badge is one centred group: the
-            -- word, a gap, the badge (SHOVE with its rate), not a word in
-            -- the middle and a number at the edge.
-            local group = (line.align == "center") and line.right and not line.right_icon
-            local left_printf_w = math.max(1, printf_w - right_w)
-            local group_x, group_tw
-            if group then
-                group_tw = font:getWidth(line.text or "")
-                local gap  = 10
-                local total = group_tw + gap + right_font:getWidth(line.right)
-                group_x = fx + indent + math.floor((printf_w - total) * 0.5)
-                left_printf_w = printf_w
-            end
-            if (line.text or ""):find("{", 1, true) then
-                IconText.draw(game, line.text, fx + indent, cursor, font, color, nil, IconText.PLAIN)
-            elseif group then
-                love.graphics.print(line.text or "", group_x, cursor)
-            else
-                love.graphics.printf(line.text or "",
-                    fx + indent, cursor, left_printf_w, line.align or "left")
-            end
-            -- line.text_anchor: the left text's rect, for story marks (a
-            -- readout on a row).
-            if line.text_anchor and line.text and line.text ~= "" then
-                local tw = (line.text):find("{", 1, true) and IconText.measure(line.text, font, IconText.PLAIN)
-                           or font:getWidth(line.text)
-                tw = math.min(tw, left_printf_w)
-                local ax = fx + indent
-                if group then ax = group_x
-                elseif line.align == "center" then ax = ax + math.floor((left_printf_w - tw) * 0.5)
-                elseif line.align == "right" then ax = ax + (left_printf_w - tw) end
-                local sx, sy = love.graphics.transformPoint(ax, cursor)
-                Anchors.set(line.text_anchor, sx, sy, tw, font:getHeight())
-            end
-            if line.right then
-                local right_color = color
-                if line.right_color_token then
-                    right_color = Theme.semColor(line.right_color_token)
-                               or (Theme.status and Theme.status[line.right_color_token])
-                               or (Theme.fg and Theme.fg[line.right_color_token])
-                               or color
-                end
-                love.graphics.setFont(right_font)
-                Theme.setColor(right_color)
-                local right_y = cursor + font:getBaseline() - right_font:getBaseline()
-                local icon_d = line.right_icon and right_font:getHeight() or 0
-                local text_w = (icon_d > 0) and math.max(1, printf_w - icon_d - 4) or printf_w
-                if group then
-                    -- The badge's right edge closes the centred group.
-                    text_w = (group_x + group_tw + 10 + right_font:getWidth(line.right)) - (fx + indent)
-                end
-                love.graphics.printf(line.right,
-                    fx + indent, right_y, text_w, "right")
-                if line.right_icon == "achip" then
-                    Icons.drawAntiChip(game, fx + indent + printf_w - icon_d, right_y, icon_d,
-                        line.right_icon_alpha, line.right_icon_shade)
-                elseif line.right_icon then
-                    Icons.drawChip(game, fx + indent + printf_w - icon_d, right_y, icon_d,
-                        line.right_icon_alpha, line.right_icon_shade)
-                end
-                -- The badge's rect (text + icon): under the component's
-                -- badge_anchor (a shared name, e.g. chip_badge:banked) and
-                -- the line's own right_anchor (this row's badge by name).
-                if comp.badge_anchor or line.right_anchor then
-                    local bx0 = fx + indent + text_w
-                                - right_font:getWidth(line.right)
-                    local sx, sy = love.graphics.transformPoint(bx0, right_y)
-                    local bw = (fx + indent + printf_w) - bx0
-                    if comp.badge_anchor and icon_d > 0 then
-                        Anchors.set(comp.badge_anchor, sx, sy, bw, right_font:getHeight())
-                    end
-                    if line.right_anchor then
-                        Anchors.set(line.right_anchor, sx, sy, bw, right_font:getHeight())
-                    end
-                end
-                -- Second badge: the same shape, immediately left of the
-                -- first (the add-table button shows "+N {achip}" beside
-                -- "+N {chip}" in Act 3, when a stake pays both).
-                if line.right2 then
-                    local color2 = color
-                    if line.right2_color_token then
-                        color2 = Theme.semColor(line.right2_color_token)
-                              or (Theme.status and Theme.status[line.right2_color_token])
-                              or (Theme.fg and Theme.fg[line.right2_color_token])
-                              or color
-                    end
-                    local first_w = right_font:getWidth(line.right) + icon_d + 4
-                    local icon2_d = line.right2_icon and right_font:getHeight() or 0
-                    local text2_w = math.max(1, printf_w - first_w - 8 - icon2_d - 4)
-                    Theme.setColor(color2)
-                    love.graphics.printf(line.right2, fx + indent, right_y, text2_w, "right")
-                    local ix2 = fx + indent + text2_w + 4
-                    if line.right2_icon == "achip" then
-                        Icons.drawAntiChip(game, ix2, right_y, icon2_d,
-                            line.right2_icon_alpha, line.right2_icon_shade)
-                    elseif line.right2_icon then
-                        Icons.drawChip(game, ix2, right_y, icon2_d,
-                            line.right2_icon_alpha, line.right2_icon_shade)
-                    end
-                end
-                Theme.setColor(color)
-                love.graphics.setFont(font)
-            end
-
-            cursor = cursor + lineRenderedHeight(line, game, fw)
-        end
-
-        -- Render action sub-buttons inside the post-press face rect
-        if comp.actions then
-            for i, act in ipairs(comp.actions) do
-                local ax, ay, size = actionRect(comp, fx, fw, 4, fy, fh, i)
-                MiniButton.draw{
-                    x = ax, y = ay, size = size,
-                    label      = act.label,
-                    icon       = act.icon,
-                    game       = game,
-                    fonts      = game and game.fonts,
-                    muted      = act.muted,
-                    disabled   = act.disabled,
-                    tint_token = act.tint_token,
-                    fill_token = act.fill_token,
-                    hovered    = act.id and HoverSvc.is("button", act.id),
-                    press_alpha = (act.id and ClickFlash.alpha("button", act.id)) or 0,
-                }
-            end
-        end
-    end)
+    local o = _btn_opts
+    o.fill_color    = fill
+    o.border_color  = border
+    o.hovered       = hovered
+    o.press_alpha   = press
+    o.disabled      = disabled
+    o.disabled_fill = comp.disabled_face_color
+    o.depth         = depth
+    o.line_width    = comp.border_line_width
+    _face.comp, _face.game, _face.disabled, _face.total_h = comp, game, disabled, total_h
+    Button.draw(px + p, y, content_w, total_h, o, buttonFace)
 
     -- Chip-award fanfare: a gold pulse over the button face the moment a
     -- bounty banks (GrindView fires it; shared with the game-type tab strip).

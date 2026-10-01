@@ -1648,21 +1648,22 @@ end
 
 -- Approximate footprint of a stack render, for layout hit-testing if
 -- ever needed. Returns (width, height) in px.
-function Chips.stackFootprint(chip_indices)
-    if not chip_indices or #chip_indices == 0 then return 0, 0 end
-    -- Quick group-count to get column count.
-    local seen, groups = {}, 0
-    local counts = {}
-    for _, idx in ipairs(chip_indices) do
-        if not seen[idx] then
-            seen[idx] = true
-            groups = groups + 1
-        end
+-- `n` is the count to read when the list is a scratch longer than its
+-- contents (ChipPile.footprint). Counts per denomination in scratch.
+local _fp_counts = {}
+function Chips.stackFootprint(chip_indices, n)
+    n = n or (chip_indices and #chip_indices) or 0
+    if n == 0 then return 0, 0 end
+    local counts = _fp_counts
+    for d = 1, #ChipData.denominations do counts[d] = 0 end
+    for i = 1, n do
+        local idx = chip_indices[i]
         counts[idx] = (counts[idx] or 0) + 1
     end
     local cols = 0
-    for _, n in pairs(counts) do
-        cols = cols + math.ceil(n / MAX_PER_COLUMN)
+    for d = 1, #ChipData.denominations do
+        local c = counts[d]
+        if c > 0 then cols = cols + math.ceil(c / MAX_PER_COLUMN) end
     end
     local w = cols * CHIP_DIAMETER + math.max(0, cols - 1) * COL_GAP
     local h = CHIP_DIAMETER + math.max(0, MAX_PER_COLUMN - 1) * (-STACK_OFFSET_Y)

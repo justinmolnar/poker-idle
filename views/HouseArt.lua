@@ -97,16 +97,21 @@ local function glowAt(cx, cy, rx, ry, color, alpha)
     love.graphics.draw(g, cx - rx, cy - ry, 0, rx * 2 / 64, ry * 2 / 64)
 end
 
--- Lerp between the SKY stops at 0..1.
+-- Lerp between the SKY stops at 0..1. One scratch colour: the caller
+-- hands it to setColor and does not keep it.
+local _sky = { 0, 0, 0 }
+local STEM_COLOR = { 0.30, 0.42, 0.24 }
+local BOLT_SPOTS = { { 0.09, 0.14 }, { 0.91, 0.14 }, { 0.09, 0.86 }, { 0.91, 0.86 } }
 local function skyColor(f)
     local n = #SKY
     local pos = f * (n - 1) + 1
     local i = math.min(n - 1, math.floor(pos))
     local k = pos - i
     local a, b = SKY[i], SKY[i + 1]
-    return { a[1] + (b[1] - a[1]) * k,
-             a[2] + (b[2] - a[2]) * k,
-             a[3] + (b[3] - a[3]) * k }
+    _sky[1] = a[1] + (b[1] - a[1]) * k
+    _sky[2] = a[2] + (b[2] - a[2]) * k
+    _sky[3] = a[3] + (b[3] - a[3]) * k
+    return _sky
 end
 
 -- ── The painting ───────────────────────────────────────────────────────
@@ -300,7 +305,7 @@ function HouseArt.paint(x, y, w, h, t)
         if math.abs(fx - path_c) > w * 0.09 then
             local c = FLOWERS[(i % #FLOWERS) + 1]
             local d = math.max(1, w * 0.006)
-            Theme.setColor({ 0.30, 0.42, 0.24 }, 0.9)
+            Theme.setColor(STEM_COLOR, 0.9)
             love.graphics.rectangle("fill", fx, fy, math.max(1, d * 0.5), d * 1.6)
             Theme.setColor(c)
             love.graphics.rectangle("fill", fx - d * 0.5, fy - d, d * 1.6, d * 1.2)
@@ -370,8 +375,7 @@ function HouseArt.drawSpeaker(x, y, w, h, level, t)
 
     -- Corner bolts.
     local br = math.max(1, h * 0.055)
-    for _, b in ipairs({ { 0.09, 0.14 }, { 0.91, 0.14 },
-                         { 0.09, 0.86 }, { 0.91, 0.86 } }) do
+    for _, b in ipairs(BOLT_SPOTS) do
         Theme.setColor(SPK_BOLT)
         love.graphics.circle("fill", x + w * b[1], y + h * b[2], br)
         Theme.setColor(SPK_EDGE)
