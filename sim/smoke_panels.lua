@@ -17,7 +17,11 @@
 --             plus one blit and one slot clear per panel
 --   hover     the DEAL felt's dwell rebuilds its panel once, and once on
 --             leaving
---   deal      a dealt hand bypasses (or rebuilds) exactly one panel
+--   deal      a dealt hand rebuilds exactly one panel and stays cached:
+--             its cards and its fading seats are live layers, the frame
+--             after rebuilds nothing, the street landing rebuilds once
+--   roll      the tied-up number rolling is one key value: a rebuild when
+--             it starts, none while it rolls, one when it lands
 --   residue   the finished hand rebuilds once, then the residue's shader
 --             pair is baked: no switch on the frame after
 --   palette   a palette change rebuilds every panel
@@ -248,13 +252,45 @@ do
     w:tick(1 / 60)
     frame()
     local rebuilds, bypass = counters()
-    -- The stub's clock is the harness's (H.clock), so the deal's gates and
-    -- the felt light both read as in motion: a bypass. Either way, one
-    -- panel and only one.
-    c.eq(rebuilds + bypass, 1, "the dealt table alone bypasses or rebuilds")
-    local mode = TablePanel.debugPanelMode(dealt)
-    c.ok(mode == 1 or rebuilds == 1, "the dealt table is the one")
-    c.ok(dealt._deal_fx and dealt._deal_fx.settled_at ~= nil, "the deal notes when its cards are at rest")
+    -- The cards in the air and the seats fading in are live layers over
+    -- the cached picture, so the dealt table rebuilds (its state moved)
+    -- and is cached; nothing bypasses.
+    c.eq(rebuilds, 1, "the dealt table alone rebuilds")
+    c.eq(bypass, 0, "nothing bypasses for a deal")
+    c.eq(TablePanel.debugPanelMode(dealt), 2, "the dealing table is cached: cards and seats draw live")
+    local fx = dealt._deal_fx
+    c.ok(fx and fx.settled_at ~= nil, "the deal notes when its cards are at rest")
+    c.ok(fx and fx.live_until and fx.live_until.you ~= nil, "the street's live window is open on the hole cards")
+    c.ok((dealt.reroll_flash_t or 0) > 0, "the seats are fading in")
+    frame()
+    c.eq((counters()), 0, "cards in the air and seats fading rebuild nothing")
+    -- The street lands (the stub's clock is H.clock): one rebuild bakes
+    -- the cards; the seats are still fading (the model is frozen).
+    H.clock = fx.settled_at
+    frame()
+    c.eq((counters()), 1, "the street down, the dealt table rebuilds once")
+    frame()
+    c.eq((counters()), 0, "and rests with its seats still live")
+end
+
+-- ── roll ────────────────────────────────────────────────────────────────
+
+do
+    local RollingValue = require("services.RollingValue")
+    local resting = tables[1]
+    local key = Table.rollingKey(resting, "table_tied")
+    frames(2)
+    c.eq((counters()), 0, "at rest before the roll")
+    RollingValue.set(key, (resting.stack or 0) + 1000)
+    frame()
+    c.eq((counters()), 1, "the roll starting rebuilds the panel once (the digits leave the picture)")
+    frame(); frame()
+    c.eq((counters()), 0, "the digits rolling rebuild nothing")
+    RollingValue.set(key, resting.stack or 0)
+    frame()
+    c.eq((counters()), 1, "the roll landing rebuilds once (the digits are baked)")
+    frame()
+    c.eq((counters()), 0, "and rests")
 end
 
 -- ── residue ─────────────────────────────────────────────────────────────

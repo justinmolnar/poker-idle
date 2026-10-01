@@ -527,3 +527,18 @@ tables, `texture mem` flat, `draw calls` from four figures to two at rest, `shad
 rest, `heap` flat across a session. What is not pixel-identical: chips are sharper (fixed radius tiers) and
 their highlight arcs dim with shade; the strip's hover is the button's own tint. Phase 4b of the first pass,
 the chip atlas, is the one deferred item that landed.
+
+### The cache in play (2026-10-01)
+
+On a Zoom board the panel cache cached nothing (the HUD read `0 / 36`): the classifier sent a panel to the
+immediate path while its deal's cards were in the air or turning, and on a Zoom hand of about three seconds the
+hole deal, the flop, the turn and the river keep that window open for the whole hand. Headless at 22 Zooms,
+two thirds of the panels bypassed every frame and most of the rest rebuilt every frame, because the tied-up
+line's rolling digits were a key field. Three more things are live layers now, drawn over the blit each frame
+with their place in the picture left empty: the cards of a street still landing or turning
+(`fx.live_until`, one window per street, so the street's end is one rebuild), Zoom's seat row while it fades in
+after a reroll, and the tied-up number while it rolls (the key holds the roll as one value and the landing
+rebuilds once). The key has 48 fields and the HUD's `why` row names the dominant bypass reason, with a
+`key:N` counter for the field that forced each rebuild. Headless at 22 Zooms, bypasses went from 14.6 to
+0.2 a frame and rebuilds from 5.4 to 2.9 (the script advancing, which is the picture changing); a whole frame
+from 107 to 81 KB. `sim/smoke_panels.lua` is 184 checks.

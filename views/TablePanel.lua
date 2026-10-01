@@ -345,6 +345,41 @@ local function dealGate(tbl, key)
     return nil
 end
 
+-- The live window (fx.live_until, PokerEventAnims): while a street's cards
+-- are landing and turning, a STATIC render leaves their slots empty and
+-- TablePanel.drawLive paints the cards over the cached picture each frame
+-- (drawLiveCards). Once the street is down the key moves (buildKey's live
+-- count) and the cards are baked. The immediate path ignores it: the body
+-- draws every card by its gate as it always did.
+local _static = false   -- set by renderBody: this body paints a cache slot
+local function dealLive(tbl, key)
+    local fx = tbl._deal_fx
+    if not fx or tbl.state == "idle" then return false end
+    local lu = fx.live_until
+    local u = lu and lu[key]
+    return u ~= nil and love.timer.getTime() < u
+end
+
+-- Zoom's seat row fading in after a reroll (reroll_flash_t, 0.4 s from
+-- Table:fillOpponents): the same treatment. A STATIC render leaves the
+-- row out and drawLive draws the seats each frame until the fade is done;
+-- the flag is a key field, so the fade's end rebuilds the picture once.
+local function rerollLive(tbl)
+    return (tbl.reroll_flash_t or 0) > 0 and Motion.at("tables", Motion.FULL)
+end
+
+-- How many card keys are inside their live window: a key field, so a
+-- street opening and a street settling each rebuild the picture once.
+local function dealLiveCount(tbl)
+    local fx = tbl._deal_fx
+    if not fx or tbl.state == "idle" then return 0 end
+    local lu = fx.live_until
+    if not lu then return 0 end
+    local now, n = love.timer.getTime(), 0
+    for _, u in pairs(lu) do if now < u then n = n + 1 end end
+    return n
+end
+
 -- A card turning face-up in its slot: back squashing to edge-on, then the
 -- face opening out. Same squash the shove uses.
 -- `back_plate` is the band's decision for its backs: the closing half shows
@@ -925,6 +960,7 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     Anchors.set(Table.anchorKey(tbl, OPP_CARD_1[opp_idx]), cards_x, cards_y, card_w, card_h)
     Anchors.set(Table.anchorKey(tbl, OPP_CARD_2[opp_idx]), cards_x + card_w + card_gap, cards_y, card_w, card_h)
     local gate, gp_seat = dealGate(tbl, OPP_SLOT[opp_idx])
+    if _static and dealLive(tbl, OPP_SLOT[opp_idx]) then gate = "hidden" end
     local face_up = opponentFaceUp(tbl) and hd.opponent_idx == opp_idx
     if face_up and ss_fold and ss_fold.player_seat and ss_fold.in_seats then
         local ps = ss_fold.player_seat
@@ -1013,6 +1049,26 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     end
 end
 
+-- The opponents row: every seat the layout split, with its chip-flight
+-- anchor. Called by the body, and by the live layer while the seats fade
+-- in after a Zoom reroll. The caller holds the backs batch and parks the
+-- dealer button (_dealer_btn) around it.
+local function drawOpponentRow(tbl, L, sl, fonts, back_sprite, felt_color)
+    local ob = L.opponents
+    if not ob then return end
+    for i, seat in ipairs(ob.seats) do
+        local opp = tbl.opponents[i]
+        if opp then
+            drawOpponentSeat(opp, i, tbl, seat.x, ob.y, seat.w, ob.h,
+                sl, fonts, L.sizes, ob.cards_y_offset, back_sprite,
+                ob.show_names, ob.plate, ob.shadow,
+                seat.plate_rect, felt_color, L.button, ob.back_plate)
+            Anchors.set(Table.anchorKey(tbl, OPP_SLOT[i]),
+                seat.x + seat.w * 0.5, ob.anchor_y)
+        end
+    end
+end
+
 -- Draws the 5 community slots centered in the comm layout rect
 -- (`{ x, y, w, card_w, card_h, gap }` from views/FeltLayout).
 local function drawCommunity(tbl, comm, sl, plate)
@@ -1025,6 +1081,7 @@ local function drawCommunity(tbl, comm, sl, plate)
         local cx = row_x + (i - 1) * (comm.card_w + comm.gap)
         Anchors.set(Table.anchorKey(tbl, BOARD_SLOT[i]), cx, comm.y, comm.card_w, comm.card_h)
         local gate, gp = dealGate(tbl, BOARD_SLOT[i])
+        if _static and dealLive(tbl, BOARD_SLOT[i]) then gate = "hidden" end
         if i <= count and hd.community and hd.community[i] and gate ~= "hidden" then
             if gate == "flip" then
                 drawCardTurn(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h, gp,
@@ -1468,6 +1525,14 @@ local function tiedText(tbl, parts)
     return tbl._tied_full
 end
 
+-- Is the printed number still rolling toward its target? A STATIC render
+-- leaves the line blank while it rolls (every frame's digits would be a
+-- rebuild) and drawLive prints it; the key holds the roll as one value.
+local function tiedRolling(tbl)
+    local target = math.floor(displayStack(tbl) * 100 + 0.5)
+    return tbl._tied_c ~= target
+end
+
 -- Renders the player seat into the layout `hole` rect (centered hole cards +
 -- showdown hand-name) and `bottom` anchors (chip pile + its $ amount at the
 -- felt LEFT edge — both from views/FeltLayout; the EV readout takes the
@@ -1556,6 +1621,7 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, idx, button, mo
     Anchors.set(Table.anchorKey(tbl, "cards_you_1"), cards_x, cards_y, card_w, card_h)
     Anchors.set(Table.anchorKey(tbl, "cards_you_2"), cards_x + card_w + hole.gap, cards_y, card_w, card_h)
     local gate, gp = dealGate(tbl, "you")
+    if _static and dealLive(tbl, "you") then gate = "hidden" end
     if gate == "hidden" then
         drawCardSlot(cards_x, cards_y, card_w, card_h)
         drawCardSlot(cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1)
@@ -1684,7 +1750,9 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, idx, button, mo
     Theme.setColor(Theme.fg.heading)
     love.graphics.setFont(fonts.sm)
     local tied_str = tiedText(tbl, bottom.tied.parts)
-    love.graphics.print(tied_str, bottom.tied.x, bottom.tied.y)
+    if not (_static and tiedRolling(tbl)) then
+        love.graphics.print(tied_str, bottom.tied.x, bottom.tied.y)
+    end
     if tied_anchor_key then
         local tw, th = fonts.sm:getWidth(tied_str), fonts.sm:getHeight()
         Anchors.set(tied_anchor_key, bottom.tied.x, bottom.tied.y, tw, th)
@@ -2294,6 +2362,7 @@ local function renderBody(tbl, idx, x, y, w, h, game, controller, hit_boxes, mod
     local state = game.state
     local anims_on = true
     local live  = (mode == IMMEDIATE)
+    _static = not live
     local s, ui_s = ly.s, ly.ui_s
     local L = ly.L
     local felt_x, felt_y, felt_w, felt_h = ly.felt_x, ly.felt_y, ly.felt_w, ly.felt_h
@@ -2427,19 +2496,10 @@ local function renderBody(tbl, idx, x, y, w, h, game, controller, hit_boxes, mod
     -- dealer button is parked, not drawn, for the same reason.
     CardSprites.batchBegin()
     _dealer_btn.d = nil
-    if L.opponents then
-        local ob = L.opponents
-        for i, seat in ipairs(ob.seats) do
-            local opp = tbl.opponents[i]
-            if opp then
-                drawOpponentSeat(opp, i, tbl, seat.x, ob.y, seat.w, ob.h,
-                    sl, fonts, L.sizes, ob.cards_y_offset, back_sprite,
-                    ob.show_names, ob.plate, ob.shadow,
-                    seat.plate_rect, felt_color, L.button, ob.back_plate)
-                Anchors.set(Table.anchorKey(tbl, OPP_SLOT[i]),
-                    seat.x + seat.w * 0.5, ob.anchor_y)
-            end
-        end
+    -- A cache slot leaves the row out while Zoom's seats fade in; the
+    -- live layer draws it (rerollLive).
+    if not (_static and rerollLive(tbl)) then
+        drawOpponentRow(tbl, L, sl, fonts, back_sprite, felt_color)
     end
 
     -- Community cards. The pot pile is drawn LATER (after the showdown emphasis)
@@ -2646,9 +2706,102 @@ end
 -- the stack pile's bookkeeping every frame and its draw while it moves,
 -- the pot (pile and rolling number), then the status FX, which are last
 -- in the body's z-order too.
+-- The cards of a street still landing or turning, over the cached picture
+-- (their slots are empty in it: dealLive). Positions are the recorded
+-- anchors the static render set and draw replayed; the gate says hidden,
+-- flip, fade or down for each.
+local function drawLiveCards(tbl, L, sl, row_live)
+    local fx = tbl._deal_fx
+    local lu = fx and fx.live_until
+    if not lu or tbl.state == "idle" then return end
+    local now = love.timer.getTime()
+    local hd  = handData(tbl)
+    CardSprites.batchBegin()
+    local ob = L.opponents
+    -- (A live seat row draws its own cards.)
+    if ob and not row_live then
+        for i = 1, #tbl.opponents do
+            local u = lu[OPP_SLOT[i]]
+            if u and now < u then
+                local gate, gp = dealGate(tbl, OPP_SLOT[i])
+                if gate ~= "hidden" then
+                    local a1 = Anchors.get(Table.anchorKey(tbl, OPP_CARD_1[i]))
+                    local a2 = Anchors.get(Table.anchorKey(tbl, OPP_CARD_2[i]))
+                    if a1 and a2 then
+                        local alpha = (gate == "fade") and gp or 1
+                        drawCardBack(sl, _deal_back, a1[1], a1[2], a1[3], a1[4], alpha, ob.shadow, ob.back_plate)
+                        drawCardBack(sl, _deal_back, a2[1], a2[2], a2[3], a2[4], alpha, ob.shadow, ob.back_plate)
+                    end
+                end
+            end
+        end
+    end
+    local comm = L.community
+    if comm then
+        local count = communityCardCount(tbl)
+        for i = 1, 5 do
+            local u = lu[BOARD_SLOT[i]]
+            if u and now < u and i <= count and hd.community and hd.community[i] then
+                local gate, gp = dealGate(tbl, BOARD_SLOT[i])
+                local a = (gate ~= "hidden") and Anchors.get(Table.anchorKey(tbl, BOARD_SLOT[i]))
+                if a then
+                    if gate == "flip" then
+                        drawCardTurn(sl, hd.community[i], a[1], a[2], a[3], a[4], gp, comm.shadow, comm.back_plate)
+                    else
+                        drawCardFront(sl, hd.community[i], a[1], a[2], a[3], a[4],
+                                      (gate == "fade") and gp or 1, comm.plate, comm.shadow)
+                    end
+                end
+            end
+        end
+    end
+    local hole = L.hole
+    local u = lu.you
+    if hole and u and now < u and hd.player_hole then
+        local gate, gp = dealGate(tbl, "you")
+        local a1 = (gate ~= "hidden") and Anchors.get(Table.anchorKey(tbl, "cards_you_1"))
+        local a2 = a1 and Anchors.get(Table.anchorKey(tbl, "cards_you_2"))
+        if a1 and a2 then
+            if gate == "flip" then
+                drawCardTurn(sl, hd.player_hole[1], a1[1], a1[2], a1[3], a1[4], gp, hole.shadow, hole.back_plate)
+                drawCardTurn(sl, hd.player_hole[2], a2[1], a2[2], a2[3], a2[4], gp, hole.shadow, hole.back_plate)
+            elseif holeVisible(tbl) then
+                local alpha = (gate == "fade") and gp or 1
+                drawCardFront(sl, hd.player_hole[1], a1[1], a1[2], a1[3], a1[4], alpha, hole.plate, hole.shadow)
+                drawCardFront(sl, hd.player_hole[2], a2[1], a2[2], a2[3], a2[4], alpha, hole.plate, hole.shadow)
+            end
+        end
+    end
+    CardSprites.batchEnd()
+end
+
 local function drawLive(tbl, x, y, w, h, game, ly)
     local L, fonts = ly.L, game.fonts
     local gtype = ly.gtype
+    local sl    = game.sprite_loader
+    -- The gates read as the immediate path does here: a slot is drawn
+    -- when its card is down, whatever the last static render did.
+    _static = false
+    -- Zoom's seats fading in (left out of the picture), with the dealer
+    -- button one of them parks; then the street's cards still landing.
+    local row_live = rerollLive(tbl)
+    if row_live then
+        CardSprites.batchBegin()
+        _dealer_btn.d = nil
+        drawOpponentRow(tbl, L, sl, fonts, _deal_back, ly.felt_color)
+        CardSprites.batchEnd()
+        if _dealer_btn.d then
+            FeltDecor.drawButton(_dealer_btn.x, _dealer_btn.y, _dealer_btn.d, _dealer_btn.alpha)
+        end
+    end
+    drawLiveCards(tbl, L, sl, row_live)
+    -- The tied-up line while its number rolls (blank in the picture).
+    if L.bottom and L.bottom.tied and not (gtype and gtype.chip_stack_table) and tiedRolling(tbl) then
+        local bt = L.bottom.tied
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.setFont(fonts.sm)
+        love.graphics.print(tiedText(tbl, bt.parts), bt.x, bt.y)
+    end
     -- The lamp over the table and a result's border pulse, over the cached
     -- picture. On the immediate path the light sits under the cards; here
     -- it washes them too, a few percent of warm at rest and a quarter
@@ -2701,11 +2854,18 @@ end
 --   37 hover R            38 hover DEAL/REBUY   39 flash X (/16)
 --   40 flash D (/16)      41 flash R (/16)      42 flash DEAL (/16)
 --   43 desat amount       44 stack pile rev     45 stack pile quiet
---   46 sheet generation
--- A pile in motion, a pot, a pulse, a glow are LIVE layers or bypass
--- reasons, never keys: the key is only what a resting panel shows.
-local KN = 46
+--   46 sheet generation   47 cards in their live window (count)
+--   48 seat row fading in (Zoom reroll)
+-- Field 6 is the roll itself while the number rolls (the digits are then
+-- drawn live). A pile in motion, a pot, a pulse, a glow are LIVE layers or
+-- bypass reasons, never keys: the key is only what a resting panel shows.
+local KN = 48
 local K  = {}
+-- HUD counters: the first key field that moved on each rebuild ("key:7"),
+-- so a cache that rebuilds at rest names the field that is not resting.
+local KEY_COUNTER = {}
+for i = 1, KN do KEY_COUNTER[i] = "key:" .. i end
+TablePanel.KEY_COUNTER = KEY_COUNTER
 local function buildKey(tbl, idx, w, h, game, controller, ly)
     local ctx     = controller and controller.ctx
     local gtype   = ly.gtype
@@ -2733,7 +2893,7 @@ local function buildKey(tbl, idx, w, h, game, controller, ly)
     K[3]  = tbl.state
     K[4]  = tbl.last_hand
     K[5]  = tbl._status_rev
-    K[6]  = tbl._tied_c
+    K[6]  = tiedRolling(tbl) and "roll" or tbl._tied_c
     K[7]  = tbl._ev_c
     K[8]  = tbl._pct_t
     K[9]  = tbl._loss_t
@@ -2775,6 +2935,8 @@ local function buildKey(tbl, idx, w, h, game, controller, ly)
     K[44] = ChipPile.rev(you_key)
     K[45] = ChipPile.quiet(you_key)
     K[46] = PanelSheet.generation()
+    K[47] = dealLiveCount(tbl)
+    K[48] = rerollLive(tbl)
 end
 
 -- ── The bypass classifier ───────────────────────────────────────────
@@ -2784,8 +2946,8 @@ end
 -- Each reason is a treatment the body paints from a clock or a tween:
 --   held          the picked-up panel draws at a scaled size anyway
 --   size          the sheet's slots are one size; a settle draws scaled
---   deal gates    cards in the air and turning (fx.settled_at, PokerEventAnims)
---   reroll flash  Zoom's seats fading in (reroll_flash_t)
+-- (The deal's cards are a live layer, not a reason: dealLive.)
+-- (Zoom's seats fading in after a reroll are a live layer too: rerollLive.)
 --   showdown pop  the winning five popping for a quarter second
 --   seat KO       a busted seat's flash and stamping tag
 --   border pulse  the result's frame, and the deal's light pop
@@ -2794,29 +2956,35 @@ end
 --   back pulse    the deck level-up flash on every back
 --   punch flash   low motion's frame flash
 --   ladder        the KO bar's fill still easing
+-- Returns the reason the panel cannot be cached this frame, or nil. The
+-- reasons are fixed strings that double as Perf counter names, so the HUD
+-- can say WHICH window is keeping a board out of the cache (a Zoom table
+-- is in one or another for most of a hand; which one decides the fix).
+TablePanel.BYPASS_REASONS = {
+    "bypass:held", "bypass:size",
+    "bypass:showdown", "bypass:ko", "bypass:residue", "bypass:deck",
+    "bypass:punch", "bypass:ladder",
+}
 local function panelIsAnimating(tbl, w, h, ly)
-    if tbl._held then return true end
+    if tbl._held then return "bypass:held" end
     local _, sw, sh = PanelSheet.debugSize()
-    if w ~= sw or h ~= sh then return true end
+    if w ~= sw or h ~= sh then return "bypass:size" end
     local st = tbl.state
-    local fx = tbl._deal_fx
-    if fx and fx.settled_at and st ~= "idle" and love.timer.getTime() < fx.settled_at then return true end
-    if (tbl.reroll_flash_t or 0) > 0 then return true end
     if st ~= "settling" and st ~= "idle" and opponentFaceUp(tbl)
-       and (tbl.state_timer or 0) < 0.25 then return true end
-    if Effects.hasSeatKO(tbl) then return true end
+       and (tbl.state_timer or 0) < 0.25 then return "bypass:showdown" end
+    if Effects.hasSeatKO(tbl) then return "bypass:ko" end
     -- (The border pulse and the felt light are live layers over the blit,
     -- so neither stops the cache.)
     if residueOf(tbl) then
         local RS = FeltStyle.residue or EMPTY
-        if (tbl.state_timer or 0) < (RS.ease_secs or 0.35) then return true end
+        if (tbl.state_timer or 0) < (RS.ease_secs or 0.35) then return "bypass:residue" end
     end
-    if _back_pulse > 0 then return true end
-    if Effects.punchFlash(tbl) > 0 then return true end
+    if _back_pulse > 0 then return "bypass:deck" end
+    if Effects.punchFlash(tbl) > 0 then return "bypass:punch" end
     local gtype, L = ly.gtype, ly.L
     if gtype and gtype.chip_stack_table and L.bottom and L.bottom.band
-       and ladderRolling(tbl, gtype, L.bottom.band) then return true end
-    return false
+       and ladderRolling(tbl, gtype, L.bottom.band) then return "bypass:ladder" end
+    return nil
 end
 
 -- ─── Public API ──────────────────────────────────────────────────────
@@ -2857,9 +3025,11 @@ function TablePanel.prepare(tbl, idx, x, y, w, h, game, controller)
     local back_sprite = frameSetup(tbl, game)
     tbl._pf, tbl._pw, tbl._ph = _frame, w, h
     local ly = solveLayout(tbl, x, y, w, h, game, controller, s, ui_s, n_tables)
-    if panelIsAnimating(tbl, w, h, ly) then
+    local why = panelIsAnimating(tbl, w, h, ly)
+    if why then
         tbl._pmode = MODE_BYPASS
         Perf.count("panel_bypass")
+        Perf.count(why)
         return
     end
     tbl._pmode = MODE_CACHED
@@ -2876,7 +3046,7 @@ function TablePanel.prepare(tbl, idx, x, y, w, h, game, controller)
     local dirty = (pk == nil)
     if pk then
         for i = 1, KN do
-            if pk[i] ~= K[i] then dirty = true; break end
+            if pk[i] ~= K[i] then dirty = true; Perf.count(KEY_COUNTER[i]); break end
         end
     end
     if not dirty then return end

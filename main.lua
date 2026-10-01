@@ -885,6 +885,16 @@ local function drawPerfHud()
     hudRow("pile batch",  "%d", Perf.counter("pile_batch"))
     hudRow("panels",      "%d", Perf.counter("panel_rebuild"))
     hudRow2("cached/bypass", "%d / %d", Perf.counter("panel_cached"), Perf.counter("panel_bypass"))
+    do
+        -- Which classifier window kept the most panels out of the cache.
+        local TablePanel = require("views.TablePanel")
+        local best, best_n = "-", 0
+        for _, name in ipairs(TablePanel.BYPASS_REASONS or {}) do
+            local n = Perf.counter(name)
+            if n > best_n then best, best_n = name:sub(8), n end
+        end
+        hudRow2("  why", "%s %d", best, best_n)
+    end
     hudRow("flights",     "%d", Perf.gaugeValue("flights") or 0)
 
     local lh = font and font:getHeight() or 10

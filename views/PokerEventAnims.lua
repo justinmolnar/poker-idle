@@ -498,6 +498,18 @@ local GATE_TAIL = (GD.flip or 0.22) + (Motion.FADE_SECS or 0.15)
 local function noteUntil(fx, at)
     local u = at + GATE_TAIL
     if not fx.settled_at or u > fx.settled_at then fx.settled_at = u end
+    return u
+end
+
+-- fx.live_until[key]: until this wall-clock moment the card slot belongs to
+-- the panel's LIVE layer. Every key of one street shares the street's last
+-- settle, so a cached panel leaves the whole street's slots empty in its
+-- picture, draws the cards over it each frame while they land and turn,
+-- and rebuilds once when the street is down (views/TablePanel dealLive).
+local function openStreet(fx, keys, n, until_)
+    local lu = fx.live_until
+    if not lu then lu = {}; fx.live_until = lu end
+    for i = 1, n do lu[keys[i]] = until_ end
 end
 
 PokerEventAnims.deal_hole = function(_ev, tbl, game)
@@ -507,6 +519,9 @@ PokerEventAnims.deal_hole = function(_ev, tbl, game)
     local now  = love.timer.getTime()
     local fx   = tbl._deal_fx or { arrive = {}, flip = {} }
     fx.arrive, fx.flip, fx.settled_at = {}, {}, nil
+    if fx.live_until then
+        for k in pairs(fx.live_until) do fx.live_until[k] = nil end
+    end
     tbl._deal_fx = fx
     local back = backSprite(game)
 
@@ -533,6 +548,7 @@ PokerEventAnims.deal_hole = function(_ev, tbl, game)
     -- panel fades them in where they sit.
     local still = Motion.level("cards") <= Motion.LOW
     local k = 0
+    local street_until = 0
     for _, key in ipairs(order) do
         for n = 1, 2 do
             local rect = cardRect(tbl, key, n)
@@ -542,9 +558,10 @@ PokerEventAnims.deal_hole = function(_ev, tbl, game)
         local land = still and 0 or (muck_d + (k - 1) * stag + card)
         fx.arrive[key] = now + land
         fx.flip[key]   = (key == "you") and not still
-        noteUntil(fx, now + land)
+        street_until = math.max(street_until, noteUntil(fx, now + land))
         FlightSystem.scheduleSound("card_dealt", land)
     end
+    openStreet(fx, order, #order, street_until)
 end
 
 local function dealBoard(tbl, game, first, last)
@@ -557,14 +574,18 @@ local function dealBoard(tbl, game, first, last)
     local card, stag = dealBudget(tbl, last - first + 1)
     local from = dealOrigin(tbl)
     local still = Motion.level("cards") <= Motion.LOW
+    local street_until = 0
     for i = first, last do
         local k    = i - first
         local rect = Anchors.get(Table.anchorKey(tbl, "board_" .. i))
         if from and rect and not still then flyBack(sl, back, from, rect, k * stag, card) end
         fx.arrive["board_" .. i] = now + (still and 0 or (k * stag + card))
         fx.flip["board_" .. i]   = not still
-        noteUntil(fx, fx.arrive["board_" .. i])
+        street_until = math.max(street_until, noteUntil(fx, fx.arrive["board_" .. i]))
     end
+    local lu = fx.live_until
+    if not lu then lu = {}; fx.live_until = lu end
+    for i = first, last do lu["board_" .. i] = street_until end
     FlightSystem.scheduleSound("card_dealt", (last - first) * stag + card)
 end
 
