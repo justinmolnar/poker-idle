@@ -12,8 +12,11 @@
 -- comparison so ranks line up cleanly under <, ==, >.
 --
 -- Brute-force evaluation: bestFiveOfN enumerates C(N,5) combos (max 126 at
--- N=9) and ranks each. Sub-millisecond at the sizes the gauntlet uses; not
--- worth a Cactus-Kev lookup table for the prototype.
+-- N=9), scores each with the allocation-free score() below and ranks only
+-- the winner. rank() itself works in file-local scratch and allocates the
+-- one tuple it returns. On a full Zoom board the model labels two hands a
+-- deal and the realism search labels more; the old rank (six tables a
+-- call, twenty-one calls a label) was half of every frame's garbage.
 
 local HandEval = {}
 
@@ -80,23 +83,25 @@ function HandEval.describe(rank_tuple)
     return CATEGORY_NAMES[cat] or "unknown"
 end
 
-local function sortDesc(t)
-    table.sort(t, function(a, b) return a > b end)
-end
+-- rank()'s scratch: the five values sorted high to low, a count per rank
+-- value, and the rank groups ordered by count then value (gv/gc, at most
+-- five). Not reentrant; nothing ranks from inside a rank.
+local _vals   = { 0, 0, 0, 0, 0 }
+local _counts = {}
+for v = 2, 14 do _counts[v] = 0 end
+local _gv, _gc = {}, {}
 
--- Detect a straight in unique-rank-values sorted desc. Returns the top rank
--- of the straight, or nil. Handles A-2-3-4-5 wheel as 5-high.
-local function detectStraight(unique_desc)
-    if #unique_desc < 5 then return nil end
-    for i = 1, #unique_desc - 4 do
-        if unique_desc[i] - unique_desc[i + 4] == 4 then
-            return unique_desc[i]
+-- The top card of a straight among the distinct values present (counts
+-- read off _counts), or nil. The wheel is 5-high.
+local function straightOf(counts)
+    for high = 14, 6, -1 do
+        if counts[high] > 0 and counts[high - 1] > 0 and counts[high - 2] > 0
+           and counts[high - 3] > 0 and counts[high - 4] > 0 then
+            return high
         end
     end
-    if unique_desc[1] == 14 then
-        local seen = {}
-        for _, v in ipairs(unique_desc) do seen[v] = true end
-        if seen[2] and seen[3] and seen[4] and seen[5] then return 5 end
+    if counts[14] > 0 and counts[5] > 0 and counts[4] > 0 and counts[3] > 0 and counts[2] > 0 then
+        return 5
     end
     return nil
 end
@@ -104,59 +109,64 @@ end
 function HandEval.rank(cards)
     assert(#cards == 5, "HandEval.rank expects exactly 5 cards")
 
-    local values, suits = {}, {}
-    for i, c in ipairs(cards) do
-        values[i] = c:rankValue()
-        suits[i]  = c.suit
-    end
-    sortDesc(values)
-
-    local counts = {}
-    for _, v in ipairs(values) do counts[v] = (counts[v] or 0) + 1 end
-
-    local groups = {}
-    for v, c in pairs(counts) do table.insert(groups, { value = v, count = c }) end
-    table.sort(groups, function(a, b)
-        if a.count ~= b.count then return a.count > b.count end
-        return a.value > b.value
-    end)
-
-    local first_suit = suits[1]
+    local vals, counts = _vals, _counts
+    for v = 2, 14 do counts[v] = 0 end
+    local first_suit = cards[1].suit
     local is_flush = true
+    for i = 1, 5 do
+        local c = cards[i]
+        local v = c:rankValue()
+        vals[i] = v
+        counts[v] = counts[v] + 1
+        if c.suit ~= first_suit then is_flush = false end
+    end
+    -- Five values high to low: an insertion sort, no comparator.
     for i = 2, 5 do
-        if suits[i] ~= first_suit then is_flush = false; break end
+        local v, j = vals[i], i - 1
+        while j >= 1 and vals[j] < v do vals[j + 1] = vals[j]; j = j - 1 end
+        vals[j + 1] = v
     end
 
-    local unique_desc = {}
-    for _, g in ipairs(groups) do table.insert(unique_desc, g.value) end
-    sortDesc(unique_desc)
-    local straight_high = detectStraight(unique_desc)
+    -- Groups by count, then by value, both descending: scanning the values
+    -- high to low and inserting by count keeps equal counts in value order.
+    local gv, gc, ng = _gv, _gc, 0
+    for v = 14, 2, -1 do
+        local c = counts[v]
+        if c > 0 then
+            local j = ng
+            while j >= 1 and gc[j] < c do gv[j + 1], gc[j + 1] = gv[j], gc[j]; j = j - 1 end
+            gv[j + 1], gc[j + 1] = v, c
+            ng = ng + 1
+        end
+    end
+
+    local straight_high = straightOf(counts)
 
     if is_flush and straight_high then
         return { STRAIGHT_FLUSH, straight_high }
     end
-    if groups[1].count == 4 then
-        return { QUADS, groups[1].value, groups[2].value }
+    if gc[1] == 4 then
+        return { QUADS, gv[1], gv[2] }
     end
-    if groups[1].count == 3 and groups[2] and groups[2].count == 2 then
-        return { FULL_HOUSE, groups[1].value, groups[2].value }
+    if gc[1] == 3 and ng >= 2 and gc[2] == 2 then
+        return { FULL_HOUSE, gv[1], gv[2] }
     end
     if is_flush then
-        return { FLUSH, values[1], values[2], values[3], values[4], values[5] }
+        return { FLUSH, vals[1], vals[2], vals[3], vals[4], vals[5] }
     end
     if straight_high then
         return { STRAIGHT, straight_high }
     end
-    if groups[1].count == 3 then
-        return { TRIPS, groups[1].value, groups[2].value, groups[3].value }
+    if gc[1] == 3 then
+        return { TRIPS, gv[1], gv[2], gv[3] }
     end
-    if groups[1].count == 2 and groups[2] and groups[2].count == 2 then
-        return { TWO_PAIR, groups[1].value, groups[2].value, groups[3].value }
+    if gc[1] == 2 and ng >= 2 and gc[2] == 2 then
+        return { TWO_PAIR, gv[1], gv[2], gv[3] }
     end
-    if groups[1].count == 2 then
-        return { PAIR, groups[1].value, groups[2].value, groups[3].value, groups[4].value }
+    if gc[1] == 2 then
+        return { PAIR, gv[1], gv[2], gv[3], gv[4] }
     end
-    return { HIGH_CARD, values[1], values[2], values[3], values[4], values[5] }
+    return { HIGH_CARD, vals[1], vals[2], vals[3], vals[4], vals[5] }
 end
 
 function HandEval.compare(a, b)
@@ -170,34 +180,44 @@ function HandEval.compare(a, b)
 end
 
 -- Best 5-card hand drawn from up to 9 cards (2 hole + 7 board for runout 3).
--- Returns { rank_tuple, picked_5_cards }.
+-- Returns rank_tuple, picked_5_cards (a new table; `cards` itself at n = 5).
+-- Every combination is scored (score(), below: one number, no allocation,
+-- ordered exactly as rank() is), the first of the best in index order is
+-- kept, as the recursion did, and rank() runs once on it.
+local _five = { false, false, false, false, false }
 function HandEval.bestFiveOfN(cards)
     local n = #cards
     assert(n >= 5 and n <= 9, "bestFiveOfN expects 5..9 cards, got " .. tostring(n))
     if n == 5 then
         return HandEval.rank(cards), cards
     end
-
-    local best_rank, best_combo = nil, nil
-    local picked = {}
-
-    local function recurse(start)
-        if #picked == 5 then
-            local r = HandEval.rank(picked)
-            if not best_rank or HandEval.compare(r, best_rank) > 0 then
-                best_rank  = r
-                best_combo = { picked[1], picked[2], picked[3], picked[4], picked[5] }
+    local five  = _five
+    local best  = -1
+    local bi, bj, bk, bl, bm = 1, 2, 3, 4, 5
+    local score = HandEval.score
+    for i = 1, n - 4 do
+        five[1] = cards[i]
+        for j = i + 1, n - 3 do
+            five[2] = cards[j]
+            for k = j + 1, n - 2 do
+                five[3] = cards[k]
+                for l = k + 1, n - 1 do
+                    five[4] = cards[l]
+                    for m = l + 1, n do
+                        five[5] = cards[m]
+                        local s = score(five, 5)
+                        if s > best then
+                            best = s
+                            bi, bj, bk, bl, bm = i, j, k, l, m
+                        end
+                    end
+                end
             end
-            return
-        end
-        for i = start, n do
-            table.insert(picked, cards[i])
-            recurse(i + 1)
-            table.remove(picked)
         end
     end
-    recurse(1)
-    return best_rank, best_combo
+    five[1], five[2], five[3], five[4], five[5] = false, false, false, false, false
+    local combo = { cards[bi], cards[bj], cards[bk], cards[bl], cards[bm] }
+    return HandEval.rank(combo), combo
 end
 
 -- ─── Fast scoring (no allocation, no combination walk) ─────────────────
@@ -409,15 +429,16 @@ end
 -- describe() string AND the best-5 combo (the cards making the hand), or
 -- (nil, nil) when the inputs aren't a complete 2 + 5 deal. Used by
 -- models/Table.
+local _seven = {}
 function HandEval.handLabel(hole, board)
     if not (hole and #hole >= 2 and board and #board == 5) then
         return nil, nil
     end
-    local cards = {
-        hole[1], hole[2],
-        board[1], board[2], board[3], board[4], board[5],
-    }
+    local cards = _seven
+    cards[1], cards[2] = hole[1], hole[2]
+    cards[3], cards[4], cards[5], cards[6], cards[7] = board[1], board[2], board[3], board[4], board[5]
     local rank, combo = HandEval.bestFiveOfN(cards)
+    for i = 1, 7 do cards[i] = nil end
     return HandEval.describe(rank), combo
 end
 
