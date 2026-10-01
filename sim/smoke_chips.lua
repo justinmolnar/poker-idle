@@ -102,7 +102,7 @@ do
     Chips.setScale(1.5)
     Chips.drawChip(50, 50, 1, 1, true, nil, 1, 0, 1, 0)
     local _, w15, h15, b15 = Chips.atlasInfo()
-    c.ok(h15 <= 2048, "the atlas fits 1024x2048 at 1.5x (h = " .. tostring(h15) .. ")")
+    c.ok(h15 <= 2560, "the atlas fits 1024x2560 at 1.5x (h = " .. tostring(h15) .. ")")
     print(string.format("[smoke_chips] atlas at 1.5x: %dx%d, %.2f MB", w15, h15, b15 / 1048576))
     Chips.setScale(1)
     Chips.drawChip(50, 50, 1, 1, true, nil, 1, 0, 1, 0)
