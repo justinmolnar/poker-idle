@@ -283,8 +283,10 @@ do
     c.ok(ps ~= nil, "the dealt table has a hand in play")
     if ps then
         ps.pot = (ps.pot or 0) + 1
-        dealt.script_idx = (dealt.script_idx or 0) + 1
         frame()
+        if (counters()) ~= 0 then
+            for i = 1, 48 do if Perf.counter("key:" .. i) > 0 then print("  key field that moved: " .. i) end end
+        end
         c.eq((counters()), 0, "a bet rebuilds nothing")
         local seat
         for i = 1, (ps.n_seats or 0) do
@@ -293,7 +295,6 @@ do
         c.ok(seat ~= nil, "an opponent is in the hand")
         if seat then
             ps.in_seats[seat] = nil
-            dealt.script_idx = dealt.script_idx + 1
             frame()
             c.eq((counters()), 1, "a fold rebuilds the panel once")
             frame()
