@@ -89,20 +89,34 @@ end
 -- `tier_chip_target` is a `{ small = N, medium = N, large = N, stack = N }`
 -- table that drives target token count. `tier_hint` ∈ those keys biases
 -- the result toward visual heft. Optional — falls back to "medium".
-function DenominationBreakdown.breakdown(amount, denominations, palette_indices, tier_chip_target, tier_hint)
-    if amount <= 0 or not palette_indices or #palette_indices == 0 then
-        return {}
-    end
-
-    -- Sort palette by descending value so we walk largest-first.
-    local denoms = {}
+-- The palette sorted by descending value, once per palette table (the
+-- palettes are data tables that never change; the cache is weak-keyed so
+-- a transient one is not pinned). A breakdown ran per payout and per
+-- pile composition and sorted thirty-seven two-field tables each time.
+local _sorted = setmetatable({}, { __mode = "k" })
+local function byValueDesc(a, b) return a.value > b.value end
+local function sortedPalette(denominations, palette_indices)
+    local denoms = _sorted[palette_indices]
+    if denoms and denoms.n == #palette_indices and denoms.of == denominations then return denoms end
+    denoms = { n = #palette_indices, of = denominations }
     for _, idx in ipairs(palette_indices) do
         denoms[#denoms + 1] = {
             idx   = idx,
             value = denominations[idx].value,
         }
     end
-    table.sort(denoms, function(a, b) return a.value > b.value end)
+    table.sort(denoms, byValueDesc)
+    _sorted[palette_indices] = denoms
+    return denoms
+end
+
+function DenominationBreakdown.breakdown(amount, denominations, palette_indices, tier_chip_target, tier_hint)
+    if amount <= 0 or not palette_indices or #palette_indices == 0 then
+        return {}
+    end
+
+    -- Largest first.
+    local denoms = sortedPalette(denominations, palette_indices)
 
     local target_count = (tier_chip_target and tier_chip_target[tier_hint or "medium"]) or 8
 

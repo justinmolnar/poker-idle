@@ -19,8 +19,22 @@ local RANK_VALUES = {
 local SUITS = { "clubs", "diamonds", "hearts", "spades" }
 local RANKS = { "2", "3", "4", "5", "6", "7", "8", "9", "10", "j", "q", "k", "a" }
 
+-- One instance per (suit, rank), made on first use and shared after. A
+-- card is immutable data (nothing writes a field on one), so two decks
+-- holding the same card hold the same table; equality by identity is
+-- then equality by value, which is what every `c == card` meant. A deck
+-- was fifty-two fresh tables a hand (the busiest board deals a hand or
+-- two a frame), and the gauntlet's search builds hundreds of decks.
+local _by_suit = {}
 function Card:new(suit, rank)
-    return setmetatable({ suit = suit, rank = rank }, Card)
+    local by_rank = _by_suit[suit]
+    if not by_rank then by_rank = {}; _by_suit[suit] = by_rank end
+    local c = by_rank[rank]
+    if not c then
+        c = setmetatable({ suit = suit, rank = rank }, Card)
+        by_rank[rank] = c
+    end
+    return c
 end
 
 -- Every (suit, rank) name, built once at load. Cards are drawn every frame

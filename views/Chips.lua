@@ -1624,6 +1624,17 @@ end
 -- to right, so the ones in front (lower, further right) sit over the
 -- ones behind, the way drawGlyphStack's bottom chip fronts its column.
 -- views/TierGlyph owns the shapes (one chip, a pair, a pyramid, a column).
+-- The shape's frame for placeGlyph, module state rather than a closure:
+-- a parked result floater on every table draws its tier's shape each
+-- frame, and the closure per shape was the floaters' whole allocation.
+local _gs = { cx = 0, by = 0, sx = 0, sy = 0, r = 0, alpha = 1 }
+local function placeGlyph(p)
+    local g = _gs
+    Chips.drawGlyph(g.cx + (p[1] or 0) * g.sx,
+                    g.by - (p[2] or 0) * g.sy - (p[3] or 0) * g.r,
+                    g.r, g.alpha, 1, _glyph_colors)
+end
+
 function Chips.drawGlyphShape(cx, baseline_y, points, r, color, alpha, col_step, row_step)
     alpha = alpha or 1
     color = color or Theme.currency.chip
@@ -1631,11 +1642,9 @@ function Chips.drawGlyphShape(cx, baseline_y, points, r, color, alpha, col_step,
     _glyph_colors[1], _glyph_colors[2] = color, _glyph_ring
     local step_y = math.max(1, math.floor(r * (row_step or 0.55)))
     local step_x = r * (col_step or 1.0)
-    local function place(p)
-        Chips.drawGlyph(cx + (p[1] or 0) * step_x,
-                        baseline_y - (p[2] or 0) * step_y - (p[3] or 0) * r,
-                        r, alpha, 1, _glyph_colors)
-    end
+    local g = _gs
+    g.cx, g.by, g.sx, g.sy, g.r, g.alpha = cx, baseline_y, step_x, step_y, r, alpha
+    local place = placeGlyph
     local top = 0
     for _, p in ipairs(points) do if (p[2] or 0) > top then top = p[2] end end
     for row = top, 0, -1 do

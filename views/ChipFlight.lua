@@ -205,6 +205,15 @@ local TRANSFER_SPREAD = 0.35   -- seconds the whole column takes to launch
 local MIN_FLIGHT      = 0.14   -- below this a flight reads as a teleport
 local BUDGET_USE      = 0.85   -- land a little before the next thing happens
 
+local MAX_CHIPS = 32
+local EMPTY_DENOM = {}
+local function biggestFirst(a, b)
+    local va = (ChipData.denominations[a.d] or EMPTY_DENOM).value or 0
+    local vb = (ChipData.denominations[b.d] or EMPTY_DENOM).value or 0
+    if va ~= vb then return va > vb end
+    return a._i < b._i
+end
+
 function ChipFlight.transfer(source, dest, options)
     options = options or {}
     local tint     = options.tint or options.chip_tint
@@ -262,6 +271,18 @@ function ChipFlight.transfer(source, dest, options)
                 taken[#taken + 1] = { d = d, x = sx, y = sy }
             end
         end
+    end
+
+    -- ── 1c. The flight's size. A payout past the top of the ladder breaks
+    -- into the breakdown's two hundred chips, and two hundred projectiles
+    -- a payout on a board of thirty-six tables is thousands a second: the
+    -- flight cap landed them unseen and the pile they joined absorbed
+    -- them past its own cap. The biggest MAX_CHIPS fly, in the order they
+    -- were listed; the pile's scalar carries the value of the rest.
+    if #taken > MAX_CHIPS then
+        for i, t in ipairs(taken) do t._i = i end
+        table.sort(taken, biggestFirst)
+        for i = #taken, MAX_CHIPS + 1, -1 do taken[i] = nil end
     end
 
     -- ── 2. Slots open at the destination(s). A payout bigger than the

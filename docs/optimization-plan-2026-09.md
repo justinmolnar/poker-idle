@@ -542,3 +542,35 @@ rebuilds once). The key has 48 fields and the HUD's `why` row names the dominant
 `key:N` counter for the field that forced each rebuild. Headless at 22 Zooms, bypasses went from 14.6 to
 0.2 a frame and rebuilds from 5.4 to 2.9 (the script advancing, which is the picture changing); a whole frame
 from 107 to 81 KB. `sim/smoke_panels.lua` is 184 checks.
+
+### The board that got slower the longer it was open (2026-10-01)
+
+Reproduced headless on the player's own save (`sim/perf_save.lua`: the items, upgrades, decks and open tables of
+a real run through the real controller and view, with the counters, the garbage a frame and an exclusive
+attribution of it by call site; a heap census over every reachable table named the thing that grew). Thirty-six
+Zooms at the lowest stake with every pace upgrade play about four hands a second each. Three things, each its own
+commit:
+
+- The bankroll pile grew by every chip that ever flew to it. Every payout reserved a record per chip in it, and
+  the reconcile that snaps an oversized pile back to its breakdown ran only while nothing was in the air, which
+  on that board is never: 51,000 chips in forty seconds, the collected heap from 28 to 48 MB in fifty, and every
+  landing re-solving the whole pile. A pile now holds at most three times its tier's chip target, airborne chips
+  included; past that a reservation is a landing spot with no record. A composition is capped at the tier's
+  target times two (a bankroll past the top of the ladder composed to the breakdown's own two hundred and was over
+  the ceiling the moment it was built, so the reconcile rebuilt it every frame), and a pile that full counts as in
+  agreement when it falls short of its scalar. The heap is flat on the save afterwards (8.1 to 8.2 MB over 156 s).
+- The hand evaluator was half of every frame's garbage: bestFiveOfN ranked all twenty-one five-card combinations
+  of every labelled hand, six tables and two closures each. It scores them with the allocation-free score() and
+  ranks the winner once; rank() works in scratch. Identical tuples and picks on 300,000 random hands.
+- The rest of a frame's garbage, from a line-level profile: the sidebar buttons' options tables and closures (one
+  hoisted face and rewritten records), the hit-box list regrown each frame, the house art's colour literals, the
+  panel's stack-box footprint built through two lists, the tier glyph's closure per shape (the parked floaters'
+  whole cost), fifty-two fresh Card tables a deck (one instance per card now; cards are immutable), the palette
+  sorted per breakdown, and a payout's two hundred projectiles (the biggest thirty-two fly; the pile's scalar
+  carries the rest).
+
+Headless on the save a frame's garbage went from 347 KB to 92 (eleven of which is the stub's colour per back
+plate, not the game's); `sim/perf_budget`'s synthetic frame from 107 to 21 KB and its update from 17 to 2.5,
+budgets 5 and 40 KB. The numbers to read in game next: `heap` flat over ten minutes at a full board, `alloc ema`
+well under a megabyte, `cached/bypass` mostly cached with `why` naming only the residue ease, and the `flights`
+count, which at this hand rate sits at the flight cap by design.

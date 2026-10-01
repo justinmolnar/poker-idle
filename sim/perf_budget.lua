@@ -108,8 +108,8 @@ for _ = 1, 30 do frame(STEP) end
 local frame_kb = measure(frame, N)
 
 -- Budgets (KB per frame). Tighten as phases land; never loosen.
-local BUDGET_UPDATE = 10
-local BUDGET_FRAME  = 100
+local BUDGET_UPDATE = 5
+local BUDGET_FRAME  = 40
 
 print(("[perf_budget] 22 Zooms, %d frames each: update %.1f KB/frame, frame %.1f KB/frame (hands played %d)"):format(
     N, upd_kb, frame_kb, (function() local n = 0; for _, t in ipairs(w:tables()) do n = n + t.hands_played end; return n end)()))
