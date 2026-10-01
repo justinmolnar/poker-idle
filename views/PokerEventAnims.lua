@@ -113,6 +113,9 @@ end
 -- player, the chips are taken out of their stack pile too, so the same
 -- chips leave one collection and join the other.
 local function flyChipsToPot(tbl, seat, amount)
+    -- A big board: the bet lands in the pot with no flight (the pile syncs
+    -- to the pot's value on its own; data/felt_layout anims.pot_flights_until).
+    if tbl.board_pot_flights == false then return end
     local seat_pos = seatScreenPos(tbl, seat)
     local pot_key  = Table.anchorKey(tbl, "pot")
     local pot_pos  = Anchors.get(pot_key)
@@ -273,6 +276,7 @@ local PokerEventAnims = {
         -- a scheduled bust hand is tier "stack" for the planner, not a
         -- money stack — the KO moment is the seat's, not the pot's.
         if tbl.seat_stacks then
+            if tbl.board_pot_flights == false then return end
             ChipFlight.transfer(pot_pos, target_pos, {
                 chips         = tournamentChips(tbl, ev.amount),
                 labels        = false,
@@ -334,6 +338,27 @@ local PokerEventAnims = {
         -- exactly what the controller's resolution does to the numbers a
         -- beat later, so the chips and the money can't disagree.
         local moving = math.max(ev.amount, payout + (committed or 0))
+        -- A big board: an opponent's pot moves with no flight, and the
+        -- player's flies only the part that reaches the bankroll, which is
+        -- the one chip movement that still reads at that size. The stack
+        -- pile syncs to the stack on its own.
+        if tbl.board_pot_flights == false then
+            if not is_player then return end
+            local bank = dests and dests[2]
+            local to_stack = (dests and dests[1] and dests[1].amount) or 0
+            local to_bank  = moving - math.min(moving, to_stack)
+            if not bank or to_bank <= 0 then return end
+            ChipFlight.transfer(pot_pos, bank.xy, {
+                amount        = to_bank,
+                fabricate     = true,
+                stake_id      = tbl.stake_id,
+                tier          = tbl.outcome_tier,
+                source_key    = pot_key,
+                dest_key      = "bankroll",
+                arrival_sound = "chip_land_you",
+            })
+            return
+        end
         ChipFlight.transfer(pot_pos, target_pos, {
             amount        = moving,
             fabricate     = moving > ev.amount,

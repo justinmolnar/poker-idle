@@ -126,6 +126,14 @@ return {
     -- is the knob if that changes; absent, it never fires.
     anims = {
         dense_tables = 20,
+        -- Chips fly to and from the pot on boards up to this many tables.
+        -- Above it a bet lands in the pot with no flight, a payout flies
+        -- only the part that reaches the bankroll (the one chip movement
+        -- that still reads at that size), and an opponent's or a
+        -- tournament's pot moves with no flight at all. The cards still
+        -- throw and muck. At a full board the pot flights were hundreds of
+        -- projectiles a second that nobody could see.
+        pot_flights_until = 24,
     },
 
     -- Heads-up duel seat: the single opponent gets a bigger seat than the

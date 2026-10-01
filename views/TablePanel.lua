@@ -2133,6 +2133,9 @@ local function stamp(tbl, x, y, w, controller)
     -- cards still throw; only the pot's detonation on a stack win thins
     -- to a plain push (views/PokerEventAnims pot_push reads the stamp).
     tbl.board_dense = n_tables >= ((FeltData.anims and FeltData.anims.dense_tables) or math.huge)
+    -- Past anims.pot_flights_until no chip flies to or from the pot; see
+    -- views/PokerEventAnims (the bankroll leg of a payout still flies).
+    tbl.board_pot_flights = n_tables <= ((FeltData.anims and FeltData.anims.pot_flights_until) or math.huge)
     return n_tables
 end
 
