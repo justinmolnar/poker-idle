@@ -203,6 +203,19 @@ return {
         stack = 50,
     },
 
+    -- ── Tier chip counts for a FLIGHT (views/ChipFlight.transfer) ─────
+    -- A payout crossing the board is a burst, not a pile: the biggest
+    -- chips of the breakdown fly, this many at most, and the pile they
+    -- join carries the value on its scalar. The pile targets above were
+    -- what flew before, and a board of thirty-six Zooms at a hand a second
+    -- each put fourteen hundred chips a second in the air.
+    tier_flight_chips = {
+        small  = 3,
+        medium = 5,
+        large  = 8,
+        stack  = 12,
+    },
+
     -- Per-tier cap on the chip-burst fountain (services/FlightSystem.lua).
     -- Default MAX_PER_EVENT (7) bottlenecks high tiers — bump it for
     -- large and stack so the fountain actually shows the magnitude.

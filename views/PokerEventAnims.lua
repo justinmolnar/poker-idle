@@ -264,6 +264,11 @@ local PokerEventAnims = {
     pot_push = function(ev, tbl, _game)
         if not ev.seat or not ev.amount or ev.amount <= 0 then return end
         local pot_key    = Table.anchorKey(tbl, "pot")
+        -- The table's chip size: its pot pile's, or its stack pile's on a
+        -- felt too short to place a pot pile. The payout flies at this
+        -- size, not the bankroll pile's.
+        local fly_scale  = ChipPile.placedScale(pot_key)
+                           or ChipPile.placedScale(Table.anchorKey(tbl, "you")) or 1
         local pot_pos    = Anchors.get(pot_key)
         local target_pos = seatScreenPos(tbl, ev.seat)
         if not target_pos then return end
@@ -353,6 +358,7 @@ local PokerEventAnims = {
                 fabricate     = true,
                 stake_id      = tbl.stake_id,
                 tier          = tbl.outcome_tier,
+                scale         = fly_scale,
                 source_key    = pot_key,
                 dest_key      = "bankroll",
                 arrival_sound = "chip_land_you",
@@ -364,6 +370,7 @@ local PokerEventAnims = {
             fabricate     = moving > ev.amount,
             stake_id      = tbl.stake_id,
             tier          = tbl.outcome_tier,
+            scale         = fly_scale,
             source_key    = pot_key,
             -- Split across the stack and the bankroll: a payout past the
             -- table's buy-in cap lands in both, and flying it all into the

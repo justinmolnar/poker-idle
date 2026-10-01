@@ -457,6 +457,16 @@ do
     FlightSystem.clear()
     ChipPile.clearAll()
 
+    -- A payout flight is a burst sized by its tier (data/chips
+    -- tier_flight_chips), whatever the amount breaks into.
+    for tier, n in pairs(ChipData.tier_flight_chips) do
+        FlightSystem.clear()
+        ChipFlight.transfer({ 0, 0 }, { 100, 100 }, { amount = 123456789, tier = tier, fabricate = true })
+        c.ok(FlightSystem.count() <= n and FlightSystem.count() > 0,
+             ("a %s payout flies %d chips, at most %d"):format(tier, FlightSystem.count(), n))
+    end
+    FlightSystem.clear()
+
     -- A thousand chips: every on_arrive once, and every record back on
     -- the free stack.
     local arrived = {}

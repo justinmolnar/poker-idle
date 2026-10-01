@@ -273,16 +273,17 @@ function ChipFlight.transfer(source, dest, options)
         end
     end
 
-    -- ── 1c. The flight's size. A payout past the top of the ladder breaks
-    -- into the breakdown's two hundred chips, and two hundred projectiles
-    -- a payout on a board of thirty-six tables is thousands a second: the
-    -- flight cap landed them unseen and the pile they joined absorbed
-    -- them past its own cap. The biggest MAX_CHIPS fly, in the order they
-    -- were listed; the pile's scalar carries the value of the rest.
-    if #taken > MAX_CHIPS then
+    -- ── 1c. The flight's size: the tier's flight count (data/chips
+    -- tier_flight_chips), the biggest chips first; the pile's scalar
+    -- carries the value of the rest. A payout past the top of the ladder
+    -- broke into the breakdown's two hundred chips, and a pile's own tier
+    -- target (fifty for a stack) is a resting pile's heft, not a burst's.
+    local flight_tier = options.tier or (options.amount and Denoms.tierFromAmount(options.amount)) or "medium"
+    local max_chips = (ChipData.tier_flight_chips and ChipData.tier_flight_chips[flight_tier]) or MAX_CHIPS
+    if #taken > max_chips then
         for i, t in ipairs(taken) do t._i = i end
         table.sort(taken, biggestFirst)
-        for i = #taken, MAX_CHIPS + 1, -1 do taken[i] = nil end
+        for i = #taken, max_chips + 1, -1 do taken[i] = nil end
     end
 
     -- ── 2. Slots open at the destination(s). A payout bigger than the
@@ -296,11 +297,15 @@ function ChipFlight.transfer(source, dest, options)
     local dest_of, slot_of = _reserveAcross(taken, dests)
     if not dests and not dest then return end
 
-    -- Chips render at the scale of the pile they're joining — they're
-    -- about to become part of it.
+    -- Chips render at the scale of the pile they LEFT: a chip the size of
+    -- the table it came from reads as that table paying and covers
+    -- nothing on the way. (They used to take the destination's scale, and
+    -- the bankroll pile is the biggest on screen, so every payout crossed
+    -- a board of small panels at 1.2x.) A source with no placed pile
+    -- takes the destination's, then 1.
     local scale = options.scale
-                  or (dests and dests[1] and dests[1].key and ChipPile.scale(dests[1].key))
-                  or (options.source_key and ChipPile.scale(options.source_key))
+                  or (options.source_key and ChipPile.placedScale(options.source_key))
+                  or (dests and dests[1] and dests[1].key and ChipPile.placedScale(dests[1].key))
                   or 1
 
     -- ── 3. One flight per chip.

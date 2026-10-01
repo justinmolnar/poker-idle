@@ -456,6 +456,13 @@ function ChipPile.scale(key)
     return (e and e.place and e.place.scale) or 1
 end
 
+-- The placed scale, or nil for a pile never placed (scale() answers 1,
+-- which a caller choosing between piles cannot tell from a real 1).
+function ChipPile.placedScale(key)
+    local e = key and _piles[key]
+    return e and e.place and e.place.scale or nil
+end
+
 -- With a key: how many chips that pile holds (the felt's stack readouts).
 -- Without one: how many piles the registry holds (tests, the HUD). The
 -- two used to be separate definitions of the same name and the second
