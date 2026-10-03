@@ -25,6 +25,8 @@
 -- Pure presentation; state:setActiveDeck is the one guarded write.
 
 local Anchors     = require("services.AnchorRegistry")
+local ClickSurfaces = require("services.ClickSurfaces")
+local Poke          = require("services.Poke")
 local Paper       = require("views.widgets.Paper")
 local Theme       = require("views.Theme")
 local Sticker     = require("views.widgets.Sticker")
@@ -550,7 +552,8 @@ function DeckFlyer:_drawClosedOnFelt(W, H, fonts, s)
     local spin = angle + spin_left
 
     love.graphics.push()
-    love.graphics.translate(x + fw * 0.5, y + fh * 0.5)
+    local scoot = Poke.offset("felt:flyer")
+    love.graphics.translate(x + fw * 0.5 + scoot, y + fh * 0.5)
     love.graphics.rotate(spin)
     love.graphics.scale(sq, 1 / sq)
     if height > 0.02 then
@@ -581,6 +584,7 @@ function DeckFlyer:_drawClosedOnFelt(W, H, fonts, s)
     if t >= 1 then
         self._felt_rect = { x = x, y = y, w = fw, h = fh, angle = angle }
         Anchors.set("deck:flyer", x, y, fw, fh)
+        ClickSurfaces.add("paper", x, y, fw, fh, { poke = "felt:flyer", poke_kind = "scoot" })
     else
         self._felt_rect = nil
     end
@@ -669,6 +673,8 @@ function DeckFlyer:draw()
     local sx, sy = fl((W - sw) / 2), fl((H - lh) / 2)
     local x1, x2, x3 = sx, sx + lw, sx + lw * 2
     self._sheet_rect = { x = sx, y = sy, w = sw, h = lh }
+    ClickSurfaces.add("wall", 0, 0, W, H)
+    ClickSurfaces.add("paper", sx, sy, sw, lh)
     Anchors.set("story:band", 0, H - fl(56 * s), W, fl(44 * s))
     local mx, my = love.mouse.getPosition()
     local done = self._open_t >= 1

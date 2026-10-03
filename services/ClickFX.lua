@@ -61,6 +61,12 @@ local function fire(x, y, surf, outcome, streak, cursor, deny_key)
     if outcome == "result" then vol = vol * Data.result.surface_volume end
     if cursor then pitch, vol, scale = pitch * cs.pitch, vol * cs.volume, scale * cs.specks end
 
+    if outcome == "took" then
+        -- The thing clicked made its own sound and moves itself: specks only.
+        _burst.tint, _burst.scale = surf.tint, scale
+        Sparks.burst(x, y, Data.materials.item, _burst)
+        return
+    end
     if mat == "item" and surf.item then
         if ClickFX.onItem then ClickFX.onItem(surf.item) end
     else
@@ -103,6 +109,7 @@ function ClickFX.finish()
     local surf = ClickSurfaces.at(_x, _y)
     local outcome = "dead"
     if d.pressed then outcome = "result"
+    elseif d.took then outcome = "took"
     elseif d.denied or surf.material == "denied" then outcome = "denied" end
     local t = now()
     if t - _last_t <= Data.streak.window then

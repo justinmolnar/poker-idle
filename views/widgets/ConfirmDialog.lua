@@ -9,6 +9,7 @@
 --
 -- Engine-agnostic — knows about Theme tokens, fonts, and LabelButton.
 
+local ClickSurfaces = require("services.ClickSurfaces")
 local Theme       = require("views.Theme")
 local LabelButton = require("views.widgets.LabelButton")
 
@@ -112,6 +113,10 @@ function ConfirmDialog:draw(fonts)
 
     Theme.setColor(Theme.bg.chrome)
     love.graphics.rectangle("fill", bx, by, BOX_W, BOX_H, Theme.space.radius)
+    -- Click surfaces (services/ClickSurfaces): the scrim covers the board
+    -- (a muffled wall), the box is chrome.
+    ClickSurfaces.add("wall", 0, 0, W, H)
+    ClickSurfaces.add("chrome", bx, by, BOX_W, BOX_H)
     Theme.setColor(Theme.border.strong)
     love.graphics.rectangle("line", bx, by, BOX_W, BOX_H, Theme.space.radius)
 

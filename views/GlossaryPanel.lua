@@ -206,6 +206,7 @@ function GlossaryPanel:draw()
     -- Reveal from the BOTTOM (house side) while sliding.
     local reveal_y = py + (full_h - ph)
     self._rect = { x = px, y = py, w = pw, h = full_h }
+    require("services.ClickSurfaces").add("paper", px, py, pw, full_h)
 
     local max_scroll = math.max(0, list_h - view_h)
     if self.scroll > max_scroll then self.scroll = max_scroll end

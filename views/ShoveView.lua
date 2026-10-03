@@ -2006,6 +2006,9 @@ function ShoveView:_confetti()
                    40, { duration = 1.6 })
 end
 
+-- The felt's dust: the table green (a fixed colour; the shove's felt does
+-- not change with the stake).
+local SHOVE_FELT_SURFACE = { tint = { 0.20, 0.42, 0.28 } }
 function ShoveView:draw()
     self:_ensureFonts()
 
@@ -2017,6 +2020,11 @@ function ShoveView:draw()
     -- ratio of the source art. Only the chain around them scales.
     recomputeLayout(H, self.fonts, s)
 
+    -- The gauntlet is played on felt (services/ClickSurfaces); the room
+    -- count's phase is the room, whose floor and walls are the wall.
+    if self.phase ~= "room" then
+        require("services.ClickSurfaces").add("felt", 0, 0, W, H, SHOVE_FELT_SURFACE)
+    end
     if self.phase == "room" then
         self:_drawRoomCount(W, H)
         return

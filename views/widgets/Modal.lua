@@ -22,6 +22,7 @@
 -- here first, and (3) ignore body hits outside :bodyClip() (a row drawn
 -- past the clip is not on screen). Modal:inBody(mx, my) answers that.
 
+local ClickSurfaces = require("services.ClickSurfaces")
 local Theme     = require("views.Theme")
 local Scrollbar = require("views.Scrollbar")
 
@@ -123,6 +124,10 @@ function Modal:draw(fonts, body_h_request)
     -- Chrome box.
     Theme.setColor(Theme.bg.chrome)
     love.graphics.rectangle("fill", bx, by, self.w, modal_h, Theme.space.radius)
+    -- Click surfaces (services/ClickSurfaces): the scrim covers the board
+    -- (a muffled wall), the box is chrome.
+    ClickSurfaces.add("wall", 0, 0, W, H)
+    ClickSurfaces.add("chrome", bx, by, self.w, modal_h)
     Theme.setColor(Theme.border.strong)
     love.graphics.setLineWidth(Theme.space.line_strong)
     love.graphics.rectangle("line", bx, by, self.w, modal_h, Theme.space.radius)

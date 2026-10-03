@@ -150,4 +150,55 @@ for kind, k in pairs(Poke.KINDS) do
     c.ok(dx == 0 and dy == 0 and rot == 0 and sc == 1, kind .. " comes back to rest")
 end
 
+-- ── took ────────────────────────────────────────────────────────────────
+-- A click that made its own sound (a room item): specks, no surface sound.
+clock = clock + 5
+frame()
+played = {}
+Sparks.clear()
+local tout = click(5, 5, function() ClickFlash.took() end)
+c.eq(tout, "took", "a click that took (its own foley) is 'took'")
+c.eq(#played, 0, "no surface sound under it")
+c.ok(Sparks.count() > 0, "but its specks fly")
+
+-- ── a real grind frame ──────────────────────────────────────────────────
+-- The board registers its surfaces where it draws them.
+do
+    local H = require("sim.harness")
+    local F = Stub.font(16)
+    local w = H.world({ bankroll = 1e6 })
+    local g = w.game
+    g.fonts = { lg = F, md = F, sm = F, xs = F, micro = F }
+    g.state_machine = { states = {}, switch = function() end, current = function() return "grind" end }
+    local img = { getWidth = function() return 32 end, getHeight = function() return 32 end,
+                  getDimensions = function() return 32, 32 end, setFilter = function() end, release = function() end }
+    g.sprite_loader = { getSprite = function() return img end, getSpriteFor = function() return img end,
+        hasSprite = function() return true end, backColor = function() return { 0.5, 0.5, 0.5 } end,
+        setSprite = function() end, itemArt = function() return img end }
+    Stub.recorder()
+    love.graphics.newFont = function() return F end
+    love.graphics.getFont = function() return F end
+    w:open("s001", "zoom")
+    w:tick(1)
+    local view = require("views.GrindView"):new(g, w.ctrl)
+    for _ = 1, 2 do view:update(1 / 60); view:draw(nil) end
+    local Anchors = require("services.AnchorRegistry")
+    local function centre(name)
+        local a = Anchors.get(name)
+        return a and (a[1] + (a[3] or 0) * 0.5), a and (a[2] + (a[4] or 0) * 0.5)
+    end
+    c.ok(ClickSurfaces.count() > 5, "a grind frame registers its surfaces (" .. ClickSurfaces.count() .. ")")
+    local hx, hy = centre("house")
+    c.eq(hx and ClickSurfaces.at(hx, hy).material, "paper", "the House poster is paper")
+    local sx, sy = centre("house:speaker")
+    c.eq(sx and ClickSurfaces.at(sx, sy).material, "speaker", "its speaker is the speaker")
+    local t1 = w:tables()[1]
+    -- The "center" anchor is a centre point already (w and h ride along).
+    local ca = Anchors.get(require("models.Table").anchorKey(t1, "center"))
+    local tx, ty = ca and ca[1], ca and ca[2]
+    local m = tx and ClickSurfaces.at(tx, ty).material
+    c.ok(m == "felt" or m == "card" or m == "chips", "a table's middle is its felt or what lies on it (" .. tostring(m) .. ")")
+    c.eq(ClickSurfaces.at(view.rail.x + 2, view.rail.y + 2).material, "rail", "the rail's corner is the rail")
+end
+
 if c.report("smoke_clicks") > 0 then os.exit(1) end

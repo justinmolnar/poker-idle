@@ -17,6 +17,7 @@ local CursorPool      = require("services.CursorPool")
 local FlightSystem    = require("services.FlightSystem")
 local ChipPile        = require("views.ChipPile")
 local ClickFlash      = require("services.ClickFlash")
+local ClickFX         = require("services.ClickFX")
 local Ghosts          = require("services.Ghosts")
 local RollingValue    = require("services.RollingValue")
 local ItemStream      = require("views.ItemStream")
@@ -240,6 +241,11 @@ function GrindState:update(dt)
             ctrl._deal_by_cursor = true
             -- Silent: the cursor plays its own tap (CursorPool, cursor_tap).
             ClickFlash.silently(cursor_view._handleHitBox, cursor_view, hb)
+            -- Its click on the surface, in the cursor's voice (services/ClickFX).
+            if hb then
+                ClickFX.cursor((hb.visual_x or hb.x or 0) + (hb.visual_w or hb.w or 0) * 0.5,
+                               (hb.visual_y or hb.y or 0) + (hb.visual_h or hb.h or 0) * 0.5)
+            end
             ctrl._deal_by_cursor = nil
         end
         self._cursor_hooks = {

@@ -44,11 +44,18 @@ local _silent = 0
 -- The dispatch window (services/ClickFX): main.lua opens it around a click's
 -- dispatch, and every press, click or refusal inside it is recorded, so the
 -- click's surface effect knows whether the click did something.
-local _disp = { pressed = false, denied = false, deny_key = nil }
+local _disp = { pressed = false, denied = false, deny_key = nil, took = false }
 local _in_disp = false
 function ClickFlash.beginDispatch()
-    _disp.pressed, _disp.denied, _disp.deny_key = false, false, nil
+    _disp.pressed, _disp.denied, _disp.deny_key, _disp.took = false, false, nil, false
     _in_disp = true
+end
+
+-- The click did something that makes its own sound and its own motion (a
+-- room item's foley and pop, the light switch): no button click, and the
+-- click's effect throws only its specks.
+function ClickFlash.took()
+    if _in_disp then _disp.took = true end
 end
 function ClickFlash.endDispatch()
     _in_disp = false

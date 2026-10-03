@@ -50,6 +50,11 @@ local Decal        = require("services.Decal")
 local TooltipSvc     = require("services.Tooltip")
 local HoverSvc       = require("services.HoverService")
 local ClickFlash     = require("services.ClickFlash")
+local ClickSurfaces = require("services.ClickSurfaces")
+local Poke          = require("services.Poke")
+-- "catalog_card:<id>": a card's spring (a hop, or a refusal's shake).
+local CARD_KEY = setmetatable({}, { __index = function(t, k) local v = "catalog_card:" .. k; rawset(t, k, v); return v end })
+local _cs_opts = {}
 local AwardGlow      = require("views.AwardGlow")   -- the index tab's "something to peel" pulse
 local ShaderRegistry = require("services.ShaderRegistry")
 local CatalogReceipt = require("views.CatalogReceipt")
@@ -562,7 +567,8 @@ function CatalogModal:_drawClosedOnFelt(W, H, page_w, page_h, fonts, s)
     -- A shadow only while it is in the AIR. A book lying on a table has no
     -- offset shadow; drawing one, however small, said it was floating.
     love.graphics.push()
-    love.graphics.translate(x + cw * 0.5, y + ch * 0.5)
+    local scoot = Poke.offset("felt:book")
+    love.graphics.translate(x + cw * 0.5 + scoot, y + ch * 0.5)
     love.graphics.rotate(spin)
     love.graphics.scale(sq, 1 / sq)
     if height > 0.02 then
@@ -593,6 +599,7 @@ function CatalogModal:_drawClosedOnFelt(W, H, page_w, page_h, fonts, s)
     if t >= 1 then
         self._felt_rect = { x = x, y = y, w = cw, h = ch, angle = angle }
         Anchors.set("catalog:book", x, y, cw, ch)
+        ClickSurfaces.add("paper", x, y, cw, ch, { poke = "felt:book", poke_kind = "scoot" })
     else
         self._felt_rect = nil
     end
@@ -1257,6 +1264,11 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     -- under a scale transform then, so the logical rect wouldn't match what's
     -- on screen — and clicks shouldn't land during a page turn anyway.
     if not self.flip_t then
+        -- A click surface: paper that hops, or a refusal when it is for sale
+        -- and out of reach (services/ClickFX).
+        local refuse = (not buyable) and (not is_owned) and (not locked) and not self.read_only
+        _cs_opts.poke = CARD_KEY[item.id]
+        ClickSurfaces.add(refuse and "denied" or "paper", x, y, w, h, _cs_opts)
         self._cells[#self._cells + 1] = {
             x = x, y = y, w = w, h = h, item = item, buyable = buyable, corruptible = corruptible,
             -- The hover card shows the rule only once the card is open.
@@ -1722,7 +1734,8 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
         if units + sp > LEAF_SLOTS then break end   -- guard; :_pages pre-fits
         units = units + sp
         local ch = card_h * sp + gapc * (sp - 1)
-        drawItemCard(self, item, owned, state, x + pad, cy, cw, ch, fonts, forcing,
+        Poke.draw(CARD_KEY[item.id], x + pad + cw * 0.5, cy + ch, drawItemCard,
+                  self, item, owned, state, x + pad, cy, cw, ch, fonts, forcing,
             CATALOG_ORD[item.id] or 0, sp >= 3)
         cy = cy + ch + gapc
     end
@@ -2047,6 +2060,7 @@ function CatalogModal:draw()
     local vis_l  = (idx == 0) and cx or book_l
     local vis_r  = (idx == max_spread) and cx or book_r
     self._book_rect = { x = vis_l, y = top, w = vis_r - vis_l, h = page_h }
+    ClickSurfaces.add("paper", vis_l, top, vis_r - vis_l, page_h)
     -- The book as one rect, for a "this is the catalog" hint.
     if not self.flip_t then
         Anchors.set("catalog:book", book_l, top, book_r - book_l, page_h)

@@ -536,13 +536,17 @@ function RoomState:mousepressed(x, y, button)
         if not item then
             local hit = rv:hitAt(x, y)
             if hit and hit.id == "light_switch" then
+                ClickFlash.took()
                 self:_toggleLights()
                 return
             end
             local id = rv:catalogIdOf(hit)
             item = id and rv.catalog_by_id[id]
         end
-        if item then self:_clickItem(item, x, y) end
+        if item then
+            ClickFlash.took()   -- its foley and pop are the click (services/ClickFX)
+            self:_clickItem(item, x, y)
+        end
     end
 end
 

@@ -351,7 +351,10 @@ local function cardSurface(tbl, name)
         ClickSurfaces.addLocal("card", a[1], a[2], a[3], a[4], _surf_opts)
     end
 end
-local _pile_opts, _felt_opts = {}, {}
+local _pile_opts, _felt_opts, _deny_opts = {}, {}, {}
+-- "hit:<action>:<id>", the press key ClickFlash flashes and a refusal shakes.
+local HIT_POKE = setmetatable({}, { __index = function(t, k)
+    local v = "hit:" .. k; rawset(t, k, v); return v end })
 local PILE_SLOTS = { "pot", "you" }
 local PILE_POKE = setmetatable({}, { __index = function(t, k)
     local v = "pile:" .. k; rawset(t, k, v); return v end })
@@ -1900,6 +1903,8 @@ local function drawFeltButton(tbl, x, y, w, h, fonts, hit_boxes, idx, label, act
     if btn_w < 40 then btn_w = math.max(20, w - 4) end
     if btn_h < 18 then btn_h = math.max(14, h - 4) end
     local bx = x + math.floor((w - btn_w) / 2)
+    -- A refused REBUY shakes (its press key, services/ClickFX).
+    bx = bx + (Poke.offset(HIT_POKE[ACTION_KEY[action][table_id or idx]]))
     local by
     if label_cy then
         by = math.floor(label_cy - btn_h / 2)
@@ -3040,7 +3045,8 @@ local function panelIsAnimating(tbl, w, h, ly)
     if w ~= sw or h ~= sh then return "bypass:size" end
     -- A clicked card jumping, or the stack pile hopping (it bakes into the
     -- picture when it is quiet): live for that quarter second.
-    if Poke.anyActive(cardPrefix(tbl)) or Poke.active(PILE_POKE[Table.anchorKey(tbl, "you")]) then
+    if Poke.anyActive(cardPrefix(tbl)) or Poke.active(PILE_POKE[Table.anchorKey(tbl, "you")])
+       or Poke.active(HIT_POKE[ACTION_KEY.rebuy[tbl._id]]) then
         return "bypass:poke"
     end
     local st = tbl.state
@@ -3327,6 +3333,12 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shad
         ClickSurfaces.addLocal("chrome", x, y, w, h)
         _felt_opts.tint = lys.felt_color
         ClickSurfaces.addLocal("felt", lys.felt_x, lys.felt_y, lys.felt_w, lys.felt_h, _felt_opts)
+        -- Busted and broke: the REBUY has no hit box, so the felt refuses.
+        if tbl.state == "idle" and (tbl.stack or 0) <= 0
+           and game.state.bankroll < rebuyCost(tbl, idx, controller) then
+            _deny_opts.poke = HIT_POKE[ACTION_KEY.rebuy[tbl._id]]
+            ClickSurfaces.addLocal("denied", lys.felt_x, lys.felt_y, lys.felt_w, lys.felt_h, _deny_opts)
+        end
         for _, slot in ipairs(PILE_SLOTS) do
             local pk = Table.anchorKey(tbl, slot)
             local bx, by, bw, bh = ChipPile.bounds(pk)
