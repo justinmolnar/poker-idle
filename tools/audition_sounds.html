@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sound Audition</title>
+<style>
+  :root {
+    --bg: #15130f; --panel: #1f1c17; --panel2: #29251e; --line: #3a342a;
+    --fg: #ece4d4; --muted: #9a9080; --gold: #e2b84a; --green: #5fbf6a;
+    --red: #d9614f; --amber: #e0913a; --felt: #1f4a33;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 14px/1.45 ui-sans-serif, system-ui, "Segoe UI", sans-serif; }
+  button, select, textarea { font: inherit; color: inherit; }
+  .app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .head { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+  .head h1 { margin: 0 0 4px; font-size: 16px; letter-spacing: .02em; }
+  .progress { color: var(--muted); font-size: 12px; }
+  .bar { height: 4px; background: var(--panel2); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--green); width: 0; transition: width .2s; }
+  .slots { overflow-y: auto; flex: 1; padding: 6px 0; }
+  .group { padding: 10px 16px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .slot { display: flex; align-items: center; gap: 8px; padding: 5px 16px; cursor: pointer; border-left: 3px solid transparent; }
+  .slot:hover { background: var(--panel2); }
+  .slot.on { background: var(--panel2); border-left-color: var(--gold); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); flex: none; }
+  .dot.picked { background: var(--green); } .dot.none { background: var(--red); } .dot.noted { background: var(--amber); }
+  .slot .n { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .global { border-top: 1px solid var(--line); padding: 10px 16px 14px; }
+  .global label { font-size: 12px; color: var(--muted); }
+  main { overflow-y: auto; padding: 22px 28px 60px; }
+  .title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .title h2 { margin: 0; font-size: 22px; font-family: ui-monospace, Consolas, monospace; }
+  .what { font-size: 16px; margin: 4px 0 2px; }
+  .target { color: var(--muted); font-size: 12px; font-family: ui-monospace, Consolas, monospace; }
+  .ref { display: flex; gap: 8px; align-items: center; margin: 16px 0 6px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; flex-wrap: wrap; }
+  .ref select { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-width: 260px; }
+  .btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--felt); border-color: #2e6b4a; }
+  .btn.danger.on { background: #4a221d; border-color: var(--red); }
+  .cards { display: grid; gap: 12px; margin-top: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: center; }
+  .card.picked { border-color: var(--green); box-shadow: 0 0 0 1px var(--green) inset; }
+  .card.playing .wave { outline: 1px solid var(--gold); }
+  .num { width: 34px; height: 34px; border-radius: 50%; background: var(--panel2); display: grid; place-items: center; font-weight: 700; cursor: pointer; border: 1px solid var(--line); }
+  .num:hover { border-color: var(--gold); }
+  .wave { width: 100%; height: 54px; display: block; background: #12100c; border-radius: 6px; cursor: pointer; }
+  .meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .meta a { color: var(--fg); text-decoration: none; border-bottom: 1px dotted var(--muted); }
+  .meta b { color: var(--fg); font-weight: 600; }
+  .actions { display: flex; flex-direction: column; gap: 6px; }
+  .row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  textarea { width: 100%; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: vertical; min-height: 64px; }
+  .notes { margin-top: 18px; }
+  .notes label { font-size: 12px; color: var(--muted); }
+  .keys { margin-top: 22px; color: var(--muted); font-size: 12px; }
+  kbd { background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font: 11px ui-monospace, Consolas, monospace; color: var(--fg); }
+  .save { position: fixed; right: 16px; bottom: 12px; font-size: 12px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); padding: 4px 10px; border-radius: 6px; }
+  .save.err { color: var(--red); border-color: var(--red); }
+  .vol { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); padding: 18px; border: 1px dashed var(--line); border-radius: 10px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="head">
+      <h1>Sound audition</h1>
+      <div class="progress" id="progress"></div>
+      <div class="bar"><i id="bar"></i></div>
+    </div>
+    <div class="slots" id="slots"></div>
+    <div class="global">
+      <label for="gnotes">General notes for Claude</label>
+      <textarea id="gnotes" placeholder="Anything that applies to all of them."></textarea>
+    </div>
+  </aside>
+  <main id="main"></main>
+</div>
+<div class="save" id="save">loading…</div>
+
+<script>
+const GROUPS = [
+  ["Items", s => s.target.startsWith("items/")],
+  ["The House", s => s.name === "house_stinger"],
+  ["Music beds", s => s.name.startsWith("music_")],
+  ["The shove", s => s.name.startsWith("paper_")],
+  ["Interface", s => ["button_click","modal_open","modal_close","page_turn","stamp"].includes(s.name)],
+  ["The grind", s => true],
+];
+let data, slots = [], cur = 0, picks = { slots: {}, notes: "", ref: "items/nightstand.ogg" };
+let ctx = null, gain = null, playing = null, lastPlayed = null;
+const buffers = new Map();
+
+function audioCtx() {
+  if (!ctx) { ctx = new AudioContext(); gain = ctx.createGain(); gain.gain.value = +(localStorage.getItem("aud_vol") || 0.8); gain.connect(ctx.destination); }
+  return ctx;
+}
+async function buffer(url) {
+  if (buffers.has(url)) return buffers.get(url);
+  const p = fetch(url).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+                      .then(b => audioCtx().decodeAudioData(b));
+  buffers.set(url, p);
+  return p;
+}
+function stop() {
+  if (playing) { try { playing.src.stop(); } catch (e) {} playing.el && playing.el.classList.remove("playing"); playing = null; }
+}
+async function play(url, el) {
+  audioCtx(); if (ctx.state === "suspended") await ctx.resume();
+  stop();
+  const buf = await buffer(url);
+  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(gain); src.start();
+  playing = { src, el }; el && el.classList.add("playing");
+  src.onended = () => { if (playing && playing.src === src) { el && el.classList.remove("playing"); playing = null; } };
+}
+async function drawWave(canvas, url) {
+  try {
+    const buf = await buffer(url);
+    const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const g = canvas.getContext("2d"); g.scale(dpr, dpr);
+    const d = buf.getChannelData(0), step = Math.max(1, Math.floor(d.length / w));
+    g.fillStyle = "#e2b84a";
+    for (let x = 0; x < w; x++) {
+      let mn = 1, mx = -1;
+      for (let i = x * step, e = Math.min(d.length, i + step); i < e; i++) { const v = d[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+      const y1 = (1 - mx) * h / 2, y2 = (1 - mn) * h / 2;
+      g.fillRect(x, y1, 1, Math.max(1, y2 - y1));
+    }
+    g.fillStyle = "rgba(226,184,74,.18)"; g.fillRect(0, h / 2, w, 1);
+  } catch (e) { /* the play button still reports it */ }
+}
+
+function slotPick(name) { return picks.slots[name] || (picks.slots[name] = { choice: null, note: "" }); }
+function status(name) {
+  const p = picks.slots[name]; if (!p) return "";
+  if (p.choice === "none") return "none";
+  if (p.choice) return "picked";
+  if (p.note && p.note.trim()) return "noted";
+  return "";
+}
+
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  const el = document.getElementById("save"); el.textContent = "saving…"; el.classList.remove("err");
+  saveTimer = setTimeout(async () => {
+    picks.updated = new Date().toISOString();
+    try {
+      const r = await fetch("/api/picks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(picks) });
+      if (!r.ok) throw new Error(r.status);
+      el.textContent = "saved to picks.json";
+    } catch (e) { el.textContent = "not saved: is the server running?"; el.classList.add("err"); }
+  }, 350);
+  renderSide();
+}
+
+function renderSide() {
+  const box = document.getElementById("slots"); box.innerHTML = "";
+  let done = 0;
+  const placed = new Set();
+  for (const [label, test] of GROUPS) {
+    const members = slots.filter(s => !placed.has(s.name) && test(s));
+    if (!members.length) continue;
+    members.forEach(s => placed.add(s.name));
+    const g = document.createElement("div"); g.className = "group"; g.textContent = label; box.appendChild(g);
+    for (const s of members) {
+      const i = slots.indexOf(s), st = status(s.name);
+      if (st === "picked" || st === "none") done++;
+      const row = document.createElement("div"); row.className = "slot" + (i === cur ? " on" : "");
+      row.innerHTML = `<span class="dot ${st}"></span><span>${s.name}</span><span class="n">${s.candidates.length}</span>`;
+      row.onclick = () => { cur = i; render(); };
+      box.appendChild(row);
+      if (i === cur) requestAnimationFrame(() => row.scrollIntoView({ block: "nearest" }));
+    }
+  }
+  document.getElementById("progress").textContent = `${done} of ${slots.length} decided`;
+  document.getElementById("bar").style.width = (100 * done / slots.length) + "%";
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function render() {
+  stop(); renderSide();
+  const s = slots[cur], p = slotPick(s.name), main = document.getElementById("main");
+  const refOpts = data.references.map(r => `<option ${r === picks.ref ? "selected" : ""}>${esc(r)}</option>`).join("");
+  main.innerHTML = `
+    <div class="title"><h2>${esc(s.name)}</h2></div>
+    <div class="what">${esc(s.what)}</div>
+    <div class="target">goes to ${esc(s.target)}</div>
+    <div class="ref">
+      <button class="btn" id="refplay">▶ Reference</button>
+      <select id="refsel">${refOpts}</select>
+      <span style="color:var(--muted);font-size:12px">a sound already in the game, to compare loudness and feel</span>
+      <label class="vol">volume <input type="range" id="vol" min="0" max="1" step="0.05" value="${gain ? gain.gain.value : (localStorage.getItem("aud_vol") || 0.8)}"></label>
+    </div>
+    <div class="cards" id="cards"></div>
+    <div class="row">
+      <button class="btn danger ${p.choice === "none" ? "on" : ""}" id="none">None of these work</button>
+      ${p.choice ? `<button class="btn" id="clear">Clear choice</button>` : ""}
+    </div>
+    <div class="notes">
+      <label for="note">Notes on this one (trim it, too long, find something closer to…)</label>
+      <textarea id="note" placeholder="Optional.">${esc(p.note || "")}</textarea>
+    </div>
+    <div class="keys"><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> play · <kbd>P</kbd> pick the last one played · <kbd>R</kbd> reference · <kbd>N</kbd> none of these · <kbd>Space</kbd> replay · <kbd>J</kbd>/<kbd>K</kbd> or <kbd>↓</kbd>/<kbd>↑</kbd> next / previous</div>`;
+  const cards = document.getElementById("cards");
+  if (!s.candidates.length) cards.innerHTML = `<div class="empty">Nothing passed the rules for this one. Say what to search for in the notes.</div>`;
+  s.candidates.forEach((c, k) => {
+    const url = `/audio/raw/candidates/${encodeURIComponent(s.name)}/${encodeURIComponent(c.file)}`;
+    const lv = c.level || {};
+    const card = document.createElement("div"); card.className = "card" + (p.choice === c.file ? " picked" : "");
+    card.innerHTML = `
+      <div class="num" title="Play (${k + 1})">${k + 1}</div>
+      <div>
+        <canvas class="wave"></canvas>
+        <div class="meta">
+          <a href="${esc(c.page)}" target="_blank" rel="noopener"><b>${esc(c.title)}</b></a>
+          <span>by ${esc(c.user)}</span><span>${c.duration.toFixed(2)}s</span>
+          <span>${c.downloads.toLocaleString()} downloads</span>
+          ${lv.gain_db !== undefined ? `<span>levelled ${lv.gain_db > 0 ? "+" : ""}${lv.gain_db} dB</span>` : `<span style="color:var(--amber)">not levelled</span>`}
+        </div>
+      </div>
+      <div class="actions"><button class="btn ${p.choice === c.file ? "primary" : ""}">${p.choice === c.file ? "✓ Picked" : "Pick"}</button></div>`;
+    const go = () => { lastPlayed = k; play(url, card).catch(() => { card.querySelector(".meta").insertAdjacentHTML("beforeend", `<span style="color:var(--red)">couldn't play</span>`); }); };
+    card.querySelector(".num").onclick = go;
+    card.querySelector(".wave").onclick = go;
+    card.querySelector(".actions .btn").onclick = () => choose(c.file);
+    cards.appendChild(card);
+    c._url = url;
+    drawWave(card.querySelector(".wave"), url);
+  });
+  document.getElementById("refplay").onclick = () => play("/audio/" + picks.ref.split("/").map(encodeURIComponent).join("/"));
+  document.getElementById("refsel").onchange = e => { picks.ref = e.target.value; save(); };
+  document.getElementById("vol").oninput = e => { audioCtx(); gain.gain.value = +e.target.value; localStorage.setItem("aud_vol", e.target.value); };
+  document.getElementById("none").onclick = () => choose(p.choice === "none" ? null : "none");
+  const clr = document.getElementById("clear"); if (clr) clr.onclick = () => choose(null);
+  document.getElementById("note").oninput = e => { p.note = e.target.value; save(); };
+}
+
+function choose(file) { slotPick(slots[cur].name).choice = file; save(); render(); }
+
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT" || e.ctrlKey || e.metaKey || e.altKey) return;
+  const s = slots[cur];
+  if (/^[1-9]$/.test(e.key)) { const k = +e.key - 1; const card = document.querySelectorAll(".card")[k]; if (card) { e.preventDefault(); card.querySelector(".num").click(); } }
+  else if (e.key === "p" || e.key === "P") { if (lastPlayed !== null && s.candidates[lastPlayed]) choose(s.candidates[lastPlayed].file); }
+  else if (e.key === "r" || e.key === "R") document.getElementById("refplay").click();
+  else if (e.key === "n" || e.key === "N") document.getElementById("none").click();
+  else if (e.key === " ") { e.preventDefault(); if (lastPlayed !== null) { const card = document.querySelectorAll(".card")[lastPlayed]; card && card.querySelector(".num").click(); } }
+  else if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); if (cur < slots.length - 1) { cur++; lastPlayed = null; render(); } }
+  else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); if (cur > 0) { cur--; lastPlayed = null; render(); } }
+});
+
+(async () => {
+  try {
+    data = await (await fetch("/api/data")).json();
+  } catch (e) {
+    document.getElementById("main").innerHTML = `<div class="empty">Couldn't reach the audition server. Start it with <code>python tools/audition_sounds.py</code>.</div>`;
+    document.getElementById("save").textContent = "offline"; return;
+  }
+  for (const [name, m] of Object.entries(data.candidates)) if (!name.startsWith("_")) slots.push({ name, ...m });
+  if (data.picks && data.picks.slots) picks = Object.assign(picks, data.picks);
+  if (!data.references.includes(picks.ref)) picks.ref = data.references[0];
+  const g = document.getElementById("gnotes"); g.value = picks.notes || ""; g.oninput = () => { picks.notes = g.value; save(); };
+  const first = slots.findIndex(s => !status(s.name)); cur = first < 0 ? 0 : first;
+  document.getElementById("save").textContent = Object.keys(picks.slots).length ? "picks loaded" : "nothing picked yet";
+  render();
+})();
+</script>
+</body>
+</html>
