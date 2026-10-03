@@ -56,6 +56,7 @@
 -- at a time through views/Chips as before.
 
 local Chips    = require("views.Chips")
+local Poke     = require("services.Poke")
 local Denoms   = require("services.DenominationBreakdown")
 local ChipData = require("data.chips")
 local Perf     = require("services.Perf")
@@ -1271,7 +1272,33 @@ local function drawSettle(e, key, micro)
     end
 end
 
+-- The pile's box on screen (x, y, w, h), roughly: its footprint at its
+-- scale, standing on its placement point. nil for an empty or unplaced
+-- pile. For a click surface (services/ClickSurfaces), not for layout.
+function ChipPile.bounds(key)
+    local e = _piles[key]
+    if not e or not e.place or #e.chips == 0 then return nil end
+    local fw, fh = ChipPile.footprint(key)
+    local s = e.place.scale or 1
+    local R = Chips.radius() * s
+    fw, fh = fw * s, fh * s
+    if e.place.max_w then fw = math.min(fw, e.place.max_w) end
+    local x0 = (e.place.align == "left") and (e.place.x - R) or (e.place.x - fw * 0.5)
+    return x0, e.place.y - fh, fw, fh + R
+end
+
+-- A click on a pile pokes "pile:<key>" (services/ClickFX): it hops or
+-- wobbles about its base while the spring runs.
+local drawPile
 function ChipPile.draw(key)
+    local e = _piles[key]
+    if not e or not e.place then return end
+    local pk = "pile:" .. key
+    if Poke.active(pk) then return Poke.draw(pk, e.place.x, e.place.y, drawPile, key) end
+    return drawPile(key)
+end
+
+drawPile = function(key)
     local e = _piles[key]
     if not e or not e.place then return end
     e.idle = 0

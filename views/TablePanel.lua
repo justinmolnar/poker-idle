@@ -37,6 +37,8 @@ local Hover         = require("services.HoverService")
 local Button        = require("views.Button")
 local Ghosts        = require("services.Ghosts")
 local Anchors       = require("services.AnchorRegistry")
+local ClickSurfaces = require("services.ClickSurfaces")
+local Poke          = require("services.Poke")
 local Table         = require("models.Table")
 local Stats         = require("views.TablePanelStats")
 local SpriteRenderer = require("services.SpriteRenderer")
@@ -319,6 +321,40 @@ local EV_KEY     = named(function(i) return "ev:" .. i end)
 local ACTION_KEY = named(function(action)
     return named(function(i) return action .. ":" .. i end)
 end)
+
+-- A clicked card jumps (services/Poke, services/ClickFX): its key is
+-- "card:<table id>:<card anchor name>", built once per table and name; the
+-- panel's prefix ("card:<id>:") lets the cache classifier see any of them.
+local function cardKey(tbl, name)
+    local m = tbl._card_keys
+    if not m then m = {}; tbl._card_keys = m end
+    local k = m[name]
+    if not k then k = "card:" .. tostring(tbl._id) .. ":" .. name; m[name] = k end
+    return k
+end
+local function cardPrefix(tbl)
+    local k = tbl._card_prefix
+    if not k then k = "card:" .. tostring(tbl._id) .. ":"; tbl._card_prefix = k end
+    return k
+end
+local function cardDY(tbl, name)
+    local _, dy = Poke.offset(cardKey(tbl, name))
+    return dy
+end
+-- "pile:<anchor key>", the key views/ChipPile draws a pile's spring under.
+-- A card on show as a click surface, at its recorded anchor.
+local _surf_opts = {}
+local function cardSurface(tbl, name)
+    local a = Anchors.get(Table.anchorKey(tbl, name))
+    if a and a[3] then
+        _surf_opts.poke = cardKey(tbl, name)
+        ClickSurfaces.addLocal("card", a[1], a[2], a[3], a[4], _surf_opts)
+    end
+end
+local _pile_opts, _felt_opts = {}, {}
+local PILE_SLOTS = { "pot", "you" }
+local PILE_POKE = setmetatable({}, { __index = function(t, k)
+    local v = "pile:" .. k; rawset(t, k, v); return v end })
 
 local _deal_back = nil   -- this frame's back sprite, for the turn's first half
 -- The dealer button, parked by the seat that holds it and drawn by
@@ -960,6 +996,7 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
     Anchors.set(Table.anchorKey(tbl, OPP_CARD_1[opp_idx]), cards_x, cards_y, card_w, card_h)
     Anchors.set(Table.anchorKey(tbl, OPP_CARD_2[opp_idx]), cards_x + card_w + card_gap, cards_y, card_w, card_h)
     local gate, gp_seat = dealGate(tbl, OPP_SLOT[opp_idx])
+    local dy1, dy2 = cardDY(tbl, OPP_CARD_1[opp_idx]), cardDY(tbl, OPP_CARD_2[opp_idx])
     if _static and dealLive(tbl, OPP_SLOT[opp_idx]) then gate = "hidden" end
     local face_up = opponentFaceUp(tbl) and hd.opponent_idx == opp_idx
     if face_up and ss_fold and ss_fold.player_seat and ss_fold.in_seats then
@@ -977,9 +1014,9 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
         drawCardSlot(cards_x, cards_y, card_w, card_h)
         drawCardSlot(cards_x + card_w + card_gap, cards_y, card_w, card_h)
     elseif face_up and hd.opponent_hole then
-        drawCardFront(sl, hd.opponent_hole[1], cards_x, cards_y, card_w, card_h, seat_alpha,
+        drawCardFront(sl, hd.opponent_hole[1], cards_x, cards_y + dy1, card_w, card_h, seat_alpha,
                       plate, shadow)
-        drawCardFront(sl, hd.opponent_hole[2], cards_x + card_w + card_gap, cards_y, card_w, card_h,
+        drawCardFront(sl, hd.opponent_hole[2], cards_x + card_w + card_gap, cards_y + dy2, card_w, card_h,
                       seat_alpha, plate, shadow)
         -- Showdown win emphasis (dim losers / grow winners) is applied later as
         -- a single on-top overlay pass in TablePanel.draw -- see
@@ -991,12 +1028,12 @@ local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,
         -- side by side read instantly, and keep reading at nine pixels wide.
         local drawOne = seat_out and CardSprites.folded or nil
         if drawOne then
-            drawOne(cards_x, cards_y, card_w, card_h, seat_alpha)
-            drawOne(cards_x + card_w + card_gap, cards_y, card_w, card_h, seat_alpha)
+            drawOne(cards_x, cards_y + dy1, card_w, card_h, seat_alpha)
+            drawOne(cards_x + card_w + card_gap, cards_y + dy2, card_w, card_h, seat_alpha)
         else
-            drawCardBack(sl, back_sprite, cards_x, cards_y, card_w, card_h, seat_alpha, shadow,
+            drawCardBack(sl, back_sprite, cards_x, cards_y + dy1, card_w, card_h, seat_alpha, shadow,
                          back_plate)
-            drawCardBack(sl, back_sprite, cards_x + card_w + card_gap, cards_y, card_w, card_h,
+            drawCardBack(sl, back_sprite, cards_x + card_w + card_gap, cards_y + dy2, card_w, card_h,
                          seat_alpha, shadow, back_plate)
         end
     end
@@ -1083,11 +1120,12 @@ local function drawCommunity(tbl, comm, sl, plate)
         local gate, gp = dealGate(tbl, BOARD_SLOT[i])
         if _static and dealLive(tbl, BOARD_SLOT[i]) then gate = "hidden" end
         if i <= count and hd.community and hd.community[i] and gate ~= "hidden" then
+            local cy = comm.y + cardDY(tbl, BOARD_SLOT[i])
             if gate == "flip" then
-                drawCardTurn(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h, gp,
+                drawCardTurn(sl, hd.community[i], cx, cy, comm.card_w, comm.card_h, gp,
                              comm.shadow, comm.back_plate)
             else
-                drawCardFront(sl, hd.community[i], cx, comm.y, comm.card_w, comm.card_h,
+                drawCardFront(sl, hd.community[i], cx, cy, comm.card_w, comm.card_h,
                               (gate == "fade") and gp or 1, plate, comm.shadow)
             end
         else
@@ -1622,19 +1660,20 @@ local function drawPlayerSeat(tbl, hole, bottom, sl, fonts, ctx, idx, button, mo
     Anchors.set(Table.anchorKey(tbl, "cards_you_2"), cards_x + card_w + hole.gap, cards_y, card_w, card_h)
     local gate, gp = dealGate(tbl, "you")
     if _static and dealLive(tbl, "you") then gate = "hidden" end
+    local ydy1, ydy2 = cardDY(tbl, "cards_you_1"), cardDY(tbl, "cards_you_2")
     if gate == "hidden" then
         drawCardSlot(cards_x, cards_y, card_w, card_h)
         drawCardSlot(cards_x + card_w + hole.gap, cards_y, card_w, card_h, 1)
     elseif gate == "flip" and hd.player_hole then
-        drawCardTurn(sl, hd.player_hole[1], cards_x, cards_y, card_w, card_h, gp, hole.shadow,
+        drawCardTurn(sl, hd.player_hole[1], cards_x, cards_y + ydy1, card_w, card_h, gp, hole.shadow,
                      hole.back_plate)
-        drawCardTurn(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, gp,
+        drawCardTurn(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y + ydy2, card_w, card_h, gp,
                      hole.shadow, hole.back_plate)
     elseif holeVisible(tbl) and hd.player_hole then
         local a = (gate == "fade") and gp or 1
-        drawCardFront(sl, hd.player_hole[1], cards_x, cards_y, card_w, card_h, a,
+        drawCardFront(sl, hd.player_hole[1], cards_x, cards_y + ydy1, card_w, card_h, a,
                       hole.plate, hole.shadow)
-        drawCardFront(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y, card_w, card_h, a,
+        drawCardFront(sl, hd.player_hole[2], cards_x + card_w + hole.gap, cards_y + ydy2, card_w, card_h, a,
                       hole.plate, hole.shadow)
         -- Showdown win emphasis (dim losers / grow winners) is applied later as
         -- a single on-top overlay pass in TablePanel.draw (drawShowdownEmphasis).
@@ -2991,7 +3030,7 @@ end
 -- can say WHICH window is keeping a board out of the cache (a Zoom table
 -- is in one or another for most of a hand; which one decides the fix).
 TablePanel.BYPASS_REASONS = {
-    "bypass:held", "bypass:size",
+    "bypass:held", "bypass:size", "bypass:poke",
     "bypass:showdown", "bypass:ko", "bypass:residue", "bypass:deck",
     "bypass:punch", "bypass:ladder",
 }
@@ -2999,6 +3038,11 @@ local function panelIsAnimating(tbl, w, h, ly)
     if tbl._held then return "bypass:held" end
     local _, sw, sh = PanelSheet.debugSize()
     if w ~= sw or h ~= sh then return "bypass:size" end
+    -- A clicked card jumping, or the stack pile hopping (it bakes into the
+    -- picture when it is quiet): live for that quarter second.
+    if Poke.anyActive(cardPrefix(tbl)) or Poke.active(PILE_POKE[Table.anchorKey(tbl, "you")]) then
+        return "bypass:poke"
+    end
     local st = tbl.state
     if st ~= "settling" and st ~= "idle" and opponentFaceUp(tbl)
        and (tbl.state_timer or 0) < 0.25 then return "bypass:showdown" end
@@ -3273,6 +3317,29 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shad
                 hit_boxes[#hit_boxes + 1] = hb
             end
         end
+    end
+
+    -- Click surfaces (services/ClickSurfaces), under the panel's transform
+    -- so a shaken or shoved panel registers where it is drawn: the chrome,
+    -- the felt in its stake's colour, the chip piles, the cards on show.
+    do
+        local lys = solveLayout(tbl, x, y, w, h, game, controller, s, ui_s, n_tables)
+        ClickSurfaces.addLocal("chrome", x, y, w, h)
+        _felt_opts.tint = lys.felt_color
+        ClickSurfaces.addLocal("felt", lys.felt_x, lys.felt_y, lys.felt_w, lys.felt_h, _felt_opts)
+        for _, slot in ipairs(PILE_SLOTS) do
+            local pk = Table.anchorKey(tbl, slot)
+            local bx, by, bw, bh = ChipPile.bounds(pk)
+            if bx then
+                _pile_opts.poke = PILE_POKE[pk]
+                ClickSurfaces.addLocal("chips", bx, by, bw, bh, _pile_opts)
+            end
+        end
+        if holeVisible(tbl) then
+            cardSurface(tbl, "cards_you_1"); cardSurface(tbl, "cards_you_2")
+            for i = 1, #tbl.opponents do cardSurface(tbl, OPP_CARD_1[i]); cardSurface(tbl, OPP_CARD_2[i]) end
+        end
+        for i = 1, communityCardCount(tbl) do cardSurface(tbl, BOARD_SLOT[i]) end
     end
 
     -- The stack box takes in the parked result readout above the pile

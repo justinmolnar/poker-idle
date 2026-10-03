@@ -37,6 +37,8 @@ local ChipData       = require("data.chips")
 local FlightSystem   = require("services.FlightSystem")
 local ChipFlight     = require("views.ChipFlight")
 local ChipPile       = require("views.ChipPile")
+local ClickSurfaces  = require("services.ClickSurfaces")
+local Poke           = require("services.Poke")
 local Chips          = require("views.Chips")
 local ClickFlash     = require("services.ClickFlash")
 local TooltipSvc     = require("services.Tooltip")
@@ -259,6 +261,7 @@ function GrindView:_buildPanels()
     -- right sidebar, drawn and hit-tested by the same Panel +
     -- ComponentRenderer path. The row spreads inside whatever width that is.
     self.rail = Panel:new(0, H - RAIL_H, W - RIGHT_W, RAIL_H)
+    self._side_panels = { self.left_panel, self.right_panel }
     self.rail:registerTab({
         id       = "rail",
         label    = "Rail",
@@ -1553,6 +1556,8 @@ local CHIPS_TIP = { Rail.tooltips.banked, Rail.tooltips.next }
 -- and its value's baseline sits on that line.
 local function railStat(c, face_bottom)
     c.type = "stat"; c.h = c.h or face_bottom; c.valign = c.valign or "bottom"
+    -- A click on a readout is a knock on the rail, and the readout jostles.
+    c.surface = "rail"
     return c
 end
 
@@ -2305,6 +2310,7 @@ function GrindView:_drawCenterGrid(W, H)
                 if not occupied[s] then
                     local ex, ey = cellXY(s)
                     TablePanel.drawEmpty(ex, ey, pw, ph, self.game.fonts)
+                    ClickSurfaces.add("empty", ex, ey, pw, ph)
                 end
             end
         end
@@ -2454,7 +2460,18 @@ function GrindView:_houseHelpBtnRect()
 end
 
 
+-- The poster hangs from a pin at its top centre: a click swings it there
+-- (services/Poke), and the speaker bolted to it rattles on its own.
 function GrindView:_drawHouse()
+    local r = self:_houseRect()
+    ClickSurfaces.add("paper", r.x, r.y, r.w, r.h, { poke = "house:poster" })
+    if Poke.active("house:poster") then
+        return Poke.draw("house:poster", r.x + r.w * 0.5, r.y, self._drawHouseBody, self)
+    end
+    return self:_drawHouseBody()
+end
+
+function GrindView:_drawHouseBody()
     local r  = self:_houseRect()
     local s  = self.game.ui_scale or 1
     local fl = math.floor
@@ -2495,7 +2512,9 @@ function GrindView:_drawHouse()
             speaking = 1
         end
         local spx, spy = ax + fl(6 * s), ay + ah - sh2 - fl(6 * s)
-        HouseArt.drawSpeaker(spx, spy, sw2, sh2, speaking, love.timer.getTime())
+        ClickSurfaces.addLocal("speaker", spx, spy, sw2, sh2, { poke = "house:speaker" })
+        Poke.draw("house:speaker", spx + sw2 * 0.5, spy + sh2 * 0.5,
+                  HouseArt.drawSpeaker, spx, spy, sw2, sh2, speaking, love.timer.getTime())
         -- The story band draws a cable to this: the box the words come
         -- out of (views/StoryView).
         AnchorRegistry.set("house:speaker", spx, spy, sw2, sh2)
@@ -2794,6 +2813,16 @@ function GrindView:_drawBankrollChips(W, H)
     so.chip_target = (tier == "stack") and cols * Chips.MAX_PER_COLUMN or nil
     ChipPile.sync("bankroll", bankroll, so)
     ChipPile.draw("bankroll")
+    -- The pile as a click surface: a tap wobbles it (services/ClickFX).
+    do
+        local fw, fh = ChipPile.footprint("bankroll")
+        if fw > 0 then
+            local R = Chips.radius()
+            fw = math.min(fw, band_w - 32)
+            ClickSurfaces.add("chips", center_x - fw * 0.5, stack_y - fh - R * 0.5, fw, fh + R * 1.5,
+                              { poke = "pile:bankroll", poke_kind = "wobble" })
+        end
+    end
 end
 
 -- ─── Composite draw ───────────────────────────────────────────────────
@@ -2840,6 +2869,10 @@ end
 
 function GrindView:draw(overlay_fn)
     local W, H = love.graphics.getDimensions()
+    -- The board's click surfaces start over with its draw. main.lua clears
+    -- them every frame too; this keeps a harness that drives the view
+    -- directly (sim/) from growing the list without bound.
+    ClickSurfaces.beginFrame()
 
     -- No window fill here: the frame canvas is cleared to the palette's
     -- window colour (Theme.setActive sets love's background colour), so a
@@ -2870,11 +2903,19 @@ function GrindView:draw(overlay_fn)
         love.graphics.translate(math.sin(t * 1.3) * k, math.cos(t * 1.7) * k)
     end
 
+    -- Click surfaces under what draws on them (services/ClickSurfaces):
+    -- the rail's ground, then its readouts and buttons register on top.
+    if self.rail and self.rail.w then
+        ClickSurfaces.add("rail", self.rail.x, self.rail.y, self.rail.w, self.rail.h or (H - self.rail.y))
+    end
     Perf.enter("rail");     self:drawChrome(W);               Perf.exit("rail")
     Perf.enter("grid");     self:_drawCenterGrid(W, H);       Perf.exit("grid")
     do
         local list, n = self.table_panels, self._panels_n or 0
         for i = #list, n + 1, -1 do list[i] = nil end
+    end
+    for _, pnl in ipairs(self._side_panels or {}) do
+        if pnl.w then ClickSurfaces.add("chrome", pnl.x, pnl.y, pnl.w, pnl.h or H) end
     end
     Perf.enter("sidebars"); self.left_panel:draw(self.game)
                             self.right_panel:draw(self.game);  Perf.exit("sidebars")

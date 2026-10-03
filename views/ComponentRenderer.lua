@@ -25,6 +25,11 @@ local Icons       = require("views.Icons")
 local IconText    = require("views.IconText")
 local AwardGlow   = require("views.AwardGlow")
 local Anchors     = require("services.AnchorRegistry")
+local Poke          = require("services.Poke")
+local ClickSurfaces = require("services.ClickSurfaces")
+-- "button:<id>" and "stat:<id>", the poke keys, built once per id.
+local BTN_KEY  = setmetatable({}, { __index = function(t, k) local v = "button:" .. k; rawset(t, k, v); return v end })
+local STAT_KEY = setmetatable({}, { __index = function(t, k) local v = "stat:" .. tostring(k); rawset(t, k, v); return v end })
 local MiniButton  = require("views.widgets.MiniButton")
 local Perf        = require("services.Perf")
 local Tooltip     = require("services.Tooltip")
@@ -388,7 +393,24 @@ local function statW(comp, game)
     return w + SP.stat_pad
 end
 local tokenColor = Theme.color
+-- A readout tagged with a click surface (`surface = "rail"`) registers it
+-- (services/ClickSurfaces) and jostles when clicked (services/Poke).
+local statDraw
+local _stat_opts = {}
 function CR._stat(comp, px, pw, p, y, game)
+    if comp.surface then
+        local kid = comp.id or comp.value_anchor or comp.label
+        local key = kid and STAT_KEY[kid] or nil
+        _stat_opts.poke = key
+        ClickSurfaces.addLocal(comp.surface, px + p, y, pw - p * 2, statH(comp, pw, game), _stat_opts)
+        if key and Poke.active(key) then
+            return Poke.draw(key, px + pw * 0.5, y + statH(comp, pw, game), statDraw, comp, px, pw, p, y, game)
+        end
+    end
+    return statDraw(comp, px, pw, p, y, game)
+end
+
+statDraw = function(comp, px, pw, p, y, game)
     local fonts = game.fonts
     local sm    = fonts.sm
     local vf    = fonts[comp.value_style or "md"] or fonts.md
@@ -935,6 +957,12 @@ local function buttonFace(fx, fy, fw, fh)
     if comp.actions then
         for i, act in ipairs(comp.actions) do
             local ax, ay, size = actionRect(comp, fx, fw, 4, fy, fh, i)
+            -- A dead action refuses a click (services/ClickFX) and shakes.
+            local akey = act.id and BTN_KEY[act.id] or nil
+            if akey then
+                if act.disabled then _stat_opts.poke = akey; ClickSurfaces.addLocal("denied", ax, ay, size, size, _stat_opts) end
+                ax = ax + (Poke.offset(akey))
+            end
             local m = _mini_opts
             m.x, m.y, m.size = ax, ay, size
             m.label      = act.label
@@ -1015,7 +1043,16 @@ function CR._button(comp, px, pw, p, y, game)
     o.depth         = depth
     o.line_width    = comp.border_line_width
     _face.comp, _face.game, _face.disabled, _face.total_h = comp, game, disabled, total_h
-    Button.draw(px + p, y, content_w, total_h, o, buttonFace)
+    -- A disabled button never reaches a click handler (the hit test skips
+    -- it), so it registers as a refusal surface (services/ClickFX) under
+    -- its press key, and that key's shake moves it.
+    local bx = px + p
+    if comp.id then
+        local key = BTN_KEY[comp.id]
+        if disabled then _stat_opts.poke = key; ClickSurfaces.addLocal("denied", bx, y, content_w, total_h, _stat_opts) end
+        bx = bx + (Poke.offset(key))
+    end
+    Button.draw(bx, y, content_w, total_h, o, buttonFace)
 
     -- Chip-award fanfare: a gold pulse over the button face the moment a
     -- bounty banks (GrindView fires it; shared with the game-type tab strip).

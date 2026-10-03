@@ -107,6 +107,16 @@ function Poke.draw(key, px, py, fn, ...)
     love.graphics.pop()
 end
 
+-- Is any poke whose key starts with `prefix` still moving? Walks only the
+-- live pokes (a handful at most).
+function Poke.anyActive(prefix)
+    local n = #prefix
+    for key in pairs(_hits) do
+        if key:sub(1, n) == prefix and Poke.active(key) then return true end
+    end
+    return false
+end
+
 function Poke.clear() _hits = {} end
 
 return Poke

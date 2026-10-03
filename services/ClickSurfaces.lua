@@ -36,6 +36,30 @@ function ClickSurfaces.add(material, x, y, w, h, opts)
     r.pile      = opts and opts.pile or nil
 end
 
+-- `add` for a rect in the CURRENT drawing coordinates (a scrolled sidebar,
+-- a shaken panel): its corners go through love.graphics.transformPoint, and
+-- the result is clipped to the scissor, so a button scrolled out of view
+-- registers nothing. Rotation is ignored (the bounding box of the corners).
+function ClickSurfaces.addLocal(material, x, y, w, h, opts)
+    local lg = love and love.graphics
+    if not (lg and lg.transformPoint) then return ClickSurfaces.add(material, x, y, w, h, opts) end
+    local x1, y1 = lg.transformPoint(x, y)
+    local x2, y2 = lg.transformPoint(x + w, y + h)
+    local x3, y3 = lg.transformPoint(x + w, y)
+    local x4, y4 = lg.transformPoint(x, y + h)
+    if not (x1 and x2 and x3 and x4) then return end
+    local l, t = math.min(x1, x2, x3, x4), math.min(y1, y2, y3, y4)
+    local r, b = math.max(x1, x2, x3, x4), math.max(y1, y2, y3, y4)
+    if lg.getScissor then
+        local sx, sy, sw, sh = lg.getScissor()
+        if sx then
+            l, t = math.max(l, sx), math.max(t, sy)
+            r, b = math.min(r, sx + sw), math.min(b, sy + sh)
+        end
+    end
+    return ClickSurfaces.add(material, l, t, r - l, b - t, opts)
+end
+
 -- The topmost surface containing (x, y), or the wall.
 function ClickSurfaces.at(x, y)
     for i = _n, 1, -1 do
