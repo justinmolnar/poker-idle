@@ -985,8 +985,7 @@ function GrindView:_buildRateTooltipUncached(br)
 end
 
 -- The upgrade tooltip's reach: every stake its next level moves (at any
--- game type), in ladder order, and how many of your open tables that is.
--- The change itself is drawn on those tables and add-table rows while the
+-- game type), in ladder order. The change itself is drawn on those tables and add-table rows while the
 -- button is hovered.
 function GrindView:_upgradeAffectsRows(up)
     local names = {}
@@ -1000,22 +999,12 @@ function GrindView:_upgradeAffectsRows(up)
             end
         end
     end
-    local open = 0
-    for _, t in ipairs(self.controller.pool.tables) do
-        local st = Lookups.findById(Stakes, t.stake_id)
-        local gt = Lookups.findById(GameTypes, t.game_type_id)
-        if st and gt and self:_stakePreview(up, st, gt) then open = open + 1 end
-    end
-    local lvl = self.controller:getRunUpgradeLevel(up.id)
     local rows = {}
     if #names == 0 then
         rows[#rows + 1] = { text = "The next level changes nothing at your stakes.", style = "sm", color_token = "muted" }
         return rows
     end
     rows[#rows + 1] = { text = "Affects: " .. table.concat(names, ", "), style = "sm", color_token = "good" }
-    rows[#rows + 1] = { text = string.format("Level %d now. Level %d is shown on your tables while you hover (%d open table%s).",
-                                             lvl, lvl + 1, open, open == 1 and "" or "s"),
-                        style = "sm", color_token = "muted" }
     return rows
 end
 
