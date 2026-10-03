@@ -92,6 +92,7 @@ const GROUPS = [
   ["Items", s => s.target.startsWith("items/")],
   ["The House", s => s.name === "house_stinger"],
   ["Music beds", s => s.name.startsWith("music_")],
+  ["Clicks (new)", s => s.name.startsWith("click_")],
   ["The shove", s => s.name.startsWith("paper_")],
   ["Interface", s => ["button_click","modal_open","modal_close","page_turn","stamp"].includes(s.name)],
   ["The grind", s => true],

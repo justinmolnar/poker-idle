@@ -52,6 +52,8 @@ def main():
     mpath = os.path.join(CAND, "candidates.json")
     manifest = json.load(open(mpath, encoding="utf-8"))
     for slot, m in manifest.items():
+        if slot.startswith("_"):
+            continue   # the recorded target, not a slot
         for c in m["candidates"]:
             path = os.path.join(CAND, slot, c["file"])
             if not os.path.exists(path):

@@ -181,6 +181,30 @@ in the editor:
 - [ ] `electric_kettle` (in the retired kettle's cell)
 - [ ] `beige_tower` (in the old tower's cell)
 
+## 8. Clicks
+
+Planned 2026-10-03, not built yet. Every click answers where it lands, like Hearthstone's board: a surface sound and
+a spark at the cursor on every click, result or not. A click that does something layers the button click (section 6)
+over it with a gold burst; a button that can't act plays the denied thunk and shakes; rapid clicks climb in pitch and
+spark size, capped, settling when you pause; the cursors click too, pitched up, quieter, fewer specks. A dead click is
+told from a live one in `main.lua` (no `ClickFlash.press`/`.click` fired during the press), and surfaces come from a
+registry of tagged rects beside the anchors. Candidates for every row are in the audition (`tools/audition_sounds.py`,
+"Clicks (new)").
+
+- [ ] `click_felt` (wire) | a soft cloth tap | a table's playing area, the shove felt; dust in the stake's felt colour, a faint ring
+- [ ] `click_chrome` (wire) | a hard tick | Settings and the other mechanical modals, sidebars, panel headers and frames; 2–3 glints
+- [ ] `click_rail` (wire) | a deeper knock, a desk edge | the bottom bar; specks off its top edge, readouts react (digits jostle, numbers bump, chip icons spin)
+- [ ] `click_empty` (wire) | a hollow knock | an empty slot; grey dust
+- [ ] `click_wall` (wire) | a muffled thump | the background, the room's floor and walls; dim specks
+- [ ] `click_paper` (wire) | a paper tap | the catalog's pages and cards, the pamphlet, the House poster (it swings on its pin), the story band; paper flecks
+- [ ] `click_denied` (wire) | a dull thunk | a button that can't act (an upgrade you can't afford); dark specks, the button shakes
+
+Already in hand, no file to find: cards (the pack's give, pitched up; the card jumps), table chips and the bankroll
+pile (the pack's chip clack; the top chip hops, the column wobbles), room items (their own foley; the item bobs), the
+book and pamphlet closed on the felt (their landing sounds, quieter; they scoot), the speaker (`radio/open` static,
+the grille rattles; a plain speaker thump once you own the Desk Speakers), and the House poster's rare static tick
+from the speaker.
+
 ## Totals
 
 | section | in | to find |
@@ -191,6 +215,7 @@ in the editor:
 | the grind | 10 | 3 (table open/close, tilt, the glyph tears; all need wiring) |
 | items | 62 | 11 |
 | paper and interface | 8 | 0 |
+| clicks | 0 | 7 (all need wiring; planned, section 8) |
 | room cells | 46 | 26 to place, 5 to retune |
 
-**16 sounds to find: 11 item files and 5 for everything else (the bass layer, the House stinger, table open/close, tilt, the glyph tears), all five needing a hook first. The 30 decided in the 2026-10-03 audition are in and wired (`tools/audition_sounds.py`, `tools/place_sounds.py`). 26 room cells to place, 5 to retune.**
+**23 sounds to find: 11 item files, 7 click surfaces (section 8) and 5 for everything else (the bass layer, the House stinger, table open/close, tilt, the glyph tears), all twelve non-item ones needing a hook first. The 30 decided in the 2026-10-03 audition are in and wired (`tools/audition_sounds.py`, `tools/place_sounds.py`). 26 room cells to place, 5 to retune.**

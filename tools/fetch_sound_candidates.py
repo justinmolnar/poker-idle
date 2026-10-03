@@ -34,7 +34,7 @@ import urllib.request
 
 UA = "Mozilla/5.0 (poker-idle sound audition fetch)"
 OUT = os.path.join("assets", "audio", "raw", "candidates")
-PER_SLOT = 3
+PER_SLOT = int(os.environ.get("FETCH_PER_SLOT", "3"))
 BEFORE = "2022-06-01T00:00:00Z"
 
 # slot, what it is for, live target, (min s, max s), queries in order of preference
@@ -91,6 +91,14 @@ SLOTS = [
     ("modal_close", "a paper or panel slide out", "ui/modal_close.ogg (wire)", (0.1, 1), ["paper slide", "paper whoosh", "paper rustle short"]),
     ("page_turn", "two or three page turns", "ui/page_turn.ogg", (0.2, 1.5), ["page turn", "book page flip"]),
     ("stamp", "one rubber stamp thunk", "ui/stamp.ogg (wire)", (0.05, 1), ["rubber stamp", "stamp paper", "stamp thud"]),
+    # ── clicks: a surface sound under every click (2026-10-03) ──────────
+    ("click_felt", "felt: a soft cloth tap (a table's playing area, the shove felt)", "ui/click_felt.ogg (wire)", (0.02, 1.0), ["cloth tap", "fabric tap", "canvas tap", "finger tap", "soft tap", "cloth hit"]),
+    ("click_chrome", "chrome: a hard tick (Settings and other mechanical modals, sidebars, panel headers)", "ui/click_chrome.ogg (wire)", (0.02, 0.6), ["metal tick", "plastic tick", "menu tick", "metal click", "plastic click"]),
+    ("click_rail", "rail: a deeper knock, like rapping a desk edge (the bottom bar)", "ui/click_rail.ogg (wire)", (0.03, 0.6), ["knock wood desk", "knock on table", "desk knock", "wood knock"]),
+    ("click_empty", "an empty slot: a hollow knock", "ui/click_empty.ogg (wire)", (0.03, 1.0), ["hollow knock", "hollow wood", "box knock", "knock box", "hollow tap", "hollow"]),
+    ("click_wall", "the wall and floor: a muffled thump (the background, the room)", "ui/click_wall.ogg (wire)", (0.03, 1.0), ["muffled thump", "soft thud", "thump", "muffled knock", "body thud", "soft impact"]),
+    ("click_paper", "paper: a paper tap (the catalog, the pamphlet, the House poster, the story band)", "ui/click_paper.ogg (wire)", (0.02, 1.0), ["paper tap", "paper hit", "paper flick", "flick paper", "cardboard tap", "paper touch"]),
+    ("click_denied", "denied: a dull thunk (a button that can't act, e.g. an upgrade you can't afford)", "ui/click_denied.ogg (wire)", (0.03, 1.0), ["dull thud", "wood thunk", "dull knock", "wood thud", "thunk", "error buzz"]),
 ]
 
 
@@ -146,34 +154,34 @@ def main():
     for name, what, target, (dmin, dmax), queries in SLOTS:
         if only and name not in only:
             continue
-        picked, seen = [], set()
+        # Title relevance first (how many of the query's words the title
+        # carries), downloads second: downloads alone ranked a matchbox
+        # shake above a match strike. Titles carrying EVERY word of a query
+        # are taken across all the queries first; partial matches only fill
+        # what is left ("Paper Scrawling" for "paper tap" filled the slot
+        # before "paper flick" was ever asked).
+        full, partial, seen = [], [], set()
         for q in queries:
-            if len(picked) >= PER_SLOT:
+            if len(full) >= PER_SLOT:
                 break
             try:
                 results = search(q, dmin, dmax)
             except Exception as e:  # noqa: BLE001
                 print("  search failed", name, q, e)
                 continue
-            # Title relevance first (how many of the query's words the title
-            # carries), downloads second: downloads alone ranked a matchbox
-            # shake above a match strike.
             words = [w for w in q.lower().split() if len(w) > 2]
             for r in results:
                 t = r["title"].lower()
                 r["rel"] = sum(1 for w in words if w.rstrip("s") in t)
+                r["query"] = q
             results.sort(key=lambda r: (-r["rel"], -r["downloads"]))
             for r in results:
-                if r["rel"] == 0:
-                    continue
-                if r["id"] in seen:
+                if r["rel"] == 0 or r["id"] in seen:
                     continue
                 seen.add(r["id"])
-                r["query"] = q
-                picked.append(r)
-                if len(picked) >= PER_SLOT:
-                    break
+                (full if r["rel"] >= len(words) else partial).append(r)
             time.sleep(1.0)
+        picked = (full + partial)[:PER_SLOT]
         d = os.path.join(OUT, name)
         os.makedirs(d, exist_ok=True)
         for k, r in enumerate(picked, 1):
