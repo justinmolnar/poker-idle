@@ -33,38 +33,38 @@ local WOOD   = { { 0.52, 0.38, 0.24 }, { 0.40, 0.28, 0.18 }, { 0.66, 0.50, 0.32 
 
 return {
     materials = {
-        felt    = { sound = "click_felt",    volume = 0.55, pitch = 1.0,  specks = 6, colors = nil,
-                    speed = 70,  up = 0.35, gravity = 260, life = 0.32, size = { 2, 3 }, ring = true },
-        chrome  = { sound = "click_chrome",  volume = 0.50, pitch = 1.0,  specks = 3, colors = GLINT,
-                    speed = 110, up = 0.0,  gravity = 0,   life = 0.16, size = { 1, 2 } },
-        rail    = { sound = "click_rail",    volume = 0.60, pitch = 1.0,  specks = 5, colors = WOOD,
-                    speed = 60,  up = 0.6,  gravity = 300, life = 0.34, size = { 2, 3 }, poke = "jostle" },
-        empty   = { sound = "click_empty",   volume = 0.55, pitch = 1.0,  specks = 5, colors = GREY,
-                    speed = 55,  up = 0.3,  gravity = 220, life = 0.36, size = { 2, 3 } },
-        wall    = { sound = "click_wall",    volume = 0.40, pitch = 1.0,  specks = 3, colors = GREY,
-                    speed = 40,  up = 0.2,  gravity = 180, life = 0.30, size = { 1, 2 } },
-        paper   = { sound = "click_paper",   volume = 0.55, pitch = 1.0,  specks = 4, colors = PAPER,
-                    speed = 65,  up = 0.4,  gravity = 200, life = 0.34, size = { 2, 3 }, poke = "swing" },
-        card    = { sound = "click_card",    volume = 0.45, pitch = 1.25, specks = 3, colors = PAPER,
-                    speed = 60,  up = 0.5,  gravity = 240, life = 0.26, size = { 1, 2 }, poke = "jump" },
+        felt    = { sound = "click_felt",    volume = 0.55, pitch = 1.0,  specks = 12, colors = nil,
+                    speed = 105,  up = 0.35, gravity = 260, life = 0.416, size = { 3, 5 }, ring = true },
+        chrome  = { sound = "click_chrome",  volume = 0.50, pitch = 1.0,  specks = 6, colors = GLINT,
+                    speed = 165, up = 0.0,  gravity = 0,   life = 0.208, size = { 2, 4 } },
+        rail    = { sound = "click_rail",    volume = 0.60, pitch = 1.0,  specks = 10, colors = WOOD,
+                    speed = 90,  up = 0.6,  gravity = 300, life = 0.442, size = { 3, 5 }, poke = "jostle" },
+        empty   = { sound = "click_empty",   volume = 0.55, pitch = 1.0,  specks = 10, colors = GREY,
+                    speed = 82,  up = 0.3,  gravity = 220, life = 0.468, size = { 3, 5 } },
+        wall    = { sound = "click_wall",    volume = 0.40, pitch = 1.0,  specks = 6, colors = GREY,
+                    speed = 60,  up = 0.2,  gravity = 180, life = 0.39, size = { 2, 4 } },
+        paper   = { sound = "click_paper",   volume = 0.55, pitch = 1.0,  specks = 8, colors = PAPER,
+                    speed = 98,  up = 0.4,  gravity = 200, life = 0.442, size = { 3, 5 }, poke = "swing" },
+        card    = { sound = "click_card",    volume = 0.45, pitch = 1.25, specks = 6, colors = PAPER,
+                    speed = 90,  up = 0.5,  gravity = 240, life = 0.338, size = { 2, 4 }, poke = "jump" },
         chips   = { sound = "click_chips",   volume = 0.50, pitch = 1.0,  specks = 0, colors = GOLD,
-                    speed = 0,   up = 0,    gravity = 0,   life = 0,    size = { 1, 1 }, poke = "hop" },
+                    speed = 0,   up = 0,    gravity = 0,   life = 0,    size = { 2, 3 }, poke = "hop" },
         -- The House's intercom: its key-up static, and the grille rattles.
-        speaker = { sound = "click_speaker", volume = 0.40, pitch = 1.0,  specks = 3, colors = GREY,
-                    speed = 45,  up = 0.3,  gravity = 200, life = 0.28, size = { 1, 2 }, poke = "rattle" },
+        speaker = { sound = "click_speaker", volume = 0.40, pitch = 1.0,  specks = 6, colors = GREY,
+                    speed = 68,  up = 0.3,  gravity = 200, life = 0.364, size = { 2, 4 }, poke = "rattle" },
         -- A room item plays its own foley (services/ItemFoley) and bobs.
-        item    = { sound = nil,             volume = 0.70, pitch = 1.0,  specks = 4, colors = DUST,
-                    speed = 55,  up = 0.5,  gravity = 220, life = 0.30, size = { 2, 3 }, poke = "bob" },
+        item    = { sound = nil,             volume = 0.70, pitch = 1.0,  specks = 8, colors = DUST,
+                    speed = 82,  up = 0.5,  gravity = 220, life = 0.39, size = { 3, 5 }, poke = "bob" },
         -- A button that can't act.
-        denied  = { sound = "click_denied",  volume = 0.60, pitch = 1.0,  specks = 4, colors = DARK,
-                    speed = 50,  up = 0.2,  gravity = 260, life = 0.30, size = { 2, 3 }, poke = "shake" },
+        denied  = { sound = "click_denied",  volume = 0.60, pitch = 1.0,  specks = 8, colors = DARK,
+                    speed = 75,  up = 0.2,  gravity = 260, life = 0.39, size = { 3, 5 }, poke = "shake" },
     },
 
     -- A click that did something: the button click already plays (ClickFlash),
     -- the surface sound goes under it at this share, and a gold burst rides
     -- over the material's specks.
-    result = { surface_volume = 0.45, specks = 5, colors = GOLD, speed = 120, up = 0.2,
-               gravity = 120, life = 0.24, size = { 2, 3 } },
+    result = { surface_volume = 0.45, specks = 10, colors = GOLD, speed = 180, up = 0.2,
+               gravity = 120, life = 0.312, size = { 3, 5 } },
 
     -- Rapid clicks build: each click inside `window` seconds of the last one
     -- steps the pitch up and the specks out, up to `cap` steps; a pause lets
@@ -79,5 +79,5 @@ return {
     poster_notice_chance = 0.125,
 
     -- Spark pool bound (specks alive at once).
-    max_specks = 600,
+    max_specks = 1200,
 }

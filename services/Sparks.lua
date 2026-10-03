@@ -59,7 +59,7 @@ function Sparks.burst(x, y, spec, opts)
               love.math.random(smin, smax), c, false)
     end
     if spec.ring and lvl > Motion.LOW then
-        spawn(x, y, 0, 0, 0, 0.22, 2, tint or (colors and colors[1]) or WHITE, true)
+        spawn(x, y, 0, 0, 0, 0.28, 2, tint or (colors and colors[1]) or WHITE, true)
     end
 end
 
@@ -93,8 +93,8 @@ function Sparks.draw()
         local c = r.color
         lg.setColor(c[1], c[2], c[3], a)
         if r.ring then
-            local half = 3 + p * 12
-            lg.setLineWidth(1)
+            local half = 4 + p * 22
+            lg.setLineWidth(2)
             lg.rectangle("line", math.floor(r.x - half) + 0.5, math.floor(r.y - half) + 0.5, half * 2, half * 2)
         else
             local s = r.size

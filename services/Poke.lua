@@ -25,15 +25,15 @@ local Motion = require("services.Motion")
 local Poke = {}
 
 local KINDS = {
-    shake  = { dur = 0.32, amp = 4,    freq = 5.5 },
-    jump   = { dur = 0.30, amp = 6 },
-    hop    = { dur = 0.22, amp = 4 },
-    wobble = { dur = 0.40, amp = 0.06, freq = 2.5 },
-    swing  = { dur = 0.90, amp = 0.09, freq = 1.6 },
-    bob    = { dur = 0.34, amp = 3 },
-    jostle = { dur = 0.26, amp = 3 },
-    scoot  = { dur = 0.30, amp = 5 },
-    rattle = { dur = 0.24, amp = 1.5,  freq = 14 },
+    shake  = { dur = 0.36, amp = 6,    freq = 5.5 },
+    jump   = { dur = 0.32, amp = 10 },
+    hop    = { dur = 0.26, amp = 9 },
+    wobble = { dur = 0.45, amp = 0.09, freq = 2.5 },
+    swing  = { dur = 1.10, amp = 0.14, freq = 1.6 },
+    bob    = { dur = 0.36, amp = 5 },
+    jostle = { dur = 0.28, amp = 5 },
+    scoot  = { dur = 0.34, amp = 9 },
+    rattle = { dur = 0.28, amp = 2.5,  freq = 14 },
 }
 Poke.KINDS = KINDS
 

@@ -1133,14 +1133,16 @@ end
 -- The record's chips into the batch: shadows first, then chips in draw
 -- order. Same two passes as the immediate draw, for the same reason — a
 -- shadow is wider than its chip and would land on the neighbour's column.
-local function fillBatch(B, L, place, tint, s)
+local function fillBatch(B, L, place, tint, s, hop_col, hop_dy)
     Chips.batchClear(B)
     Chips.batchOrigin(B, place.x, place.y, s)
     for k = 1, L.n do
         if L.base[k] then Chips.addShadow(B, L.x[k], L.y[k], 1, 1) end
     end
     for k = 1, L.n do
-        Chips.addChip(B, L.x[k], L.y[k], L.idx[k], 1, L.label[k], tint,
+        local y = L.y[k]
+        if hop_col and L.col[k] == hop_col then y = y + hop_dy end
+        Chips.addChip(B, L.x[k], y, L.idx[k], 1, L.label[k], tint,
                       L.shade[k], L.depth[k], L.rot[k], s, 1)
     end
     Perf.count("pile_batch")
@@ -1164,7 +1166,17 @@ local function drawRecord(e, key, L, micro)
     end
     local B = pileBatch(e, key)
     if B then
-        if batchStale(e, B, place, tint, s) then fillBatch(B, L, place, tint, s) end
+        if e.poke_col then
+            -- A clicked column hopping: refilled every frame it moves, and
+            -- once more at rest; then the ordinary staleness rule again.
+            local hop = Poke.active(e.poke_key)
+            local _, dy = Poke.offset(e.poke_key)
+            fillBatch(B, L, place, tint, s, hop and e.poke_col or nil, dy / s)
+            if not hop then e.poke_col = nil end
+            batchStale(e, B, place, tint, s)   -- stamp what the batch now holds
+        elseif batchStale(e, B, place, tint, s) then
+            fillBatch(B, L, place, tint, s)
+        end
         Chips.drawBatch(B, place.x, place.y, s)
         return
     end
@@ -1272,6 +1284,29 @@ local function drawSettle(e, key, micro)
     end
 end
 
+-- A click on a pile (services/ClickFX via main.lua's onPile): the column
+-- nearest the click hops, the rest stay put. The spring is "pile:<key>"
+-- (services/Poke); the batch is refilled with the column lifted while it
+-- runs and once more after.
+function ChipPile.pokeColumn(key, sx, sy)
+    local e = _piles[key]
+    if not e or not e.place or #e.chips == 0 then return end
+    local L = e.L
+    if not L or (L.n_cols or 0) == 0 then return end
+    local place, s = e.place, e.place.scale or 1
+    local best, best_d = nil, math.huge
+    for c = 1, L.n_cols do
+        local cx = place.x + L.col_x[c] * s
+        local cy = place.y + L.col_y[c] * s
+        local d = math.abs(cx - sx) + math.abs(cy - sy) * 0.35
+        if d < best_d then best, best_d = c, d end
+    end
+    if not best then return end
+    e.poke_col = best
+    e.poke_key = e.poke_key or ("pile:" .. key)
+    Poke.hit(e.poke_key, "hop", 1)
+end
+
 -- The pile's box on screen (x, y, w, h), roughly: its footprint at its
 -- scale, standing on its placement point. nil for an empty or unplaced
 -- pile. For a click surface (services/ClickSurfaces), not for layout.
@@ -1287,18 +1322,7 @@ function ChipPile.bounds(key)
     return x0, e.place.y - fh, fw, fh + R
 end
 
--- A click on a pile pokes "pile:<key>" (services/ClickFX): it hops or
--- wobbles about its base while the spring runs.
-local drawPile
 function ChipPile.draw(key)
-    local e = _piles[key]
-    if not e or not e.place then return end
-    local pk = "pile:" .. key
-    if Poke.active(pk) then return Poke.draw(pk, e.place.x, e.place.y, drawPile, key) end
-    return drawPile(key)
-end
-
-drawPile = function(key)
     local e = _piles[key]
     if not e or not e.place then return end
     e.idle = 0

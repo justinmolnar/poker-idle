@@ -1554,6 +1554,9 @@ local CHIPS_TIP = { Rail.tooltips.banked, Rail.tooltips.next }
 -- value shares one baseline and every button one top and bottom. A
 -- readout's slot ends where the buttons' faces end (above their chunk),
 -- and its value's baseline sits on that line.
+-- The bankroll pile as a click surface: the column under the click hops.
+local BANKROLL_SURFACE = { pile = "bankroll" }
+
 local function railStat(c, face_bottom)
     c.type = "stat"; c.h = c.h or face_bottom; c.valign = c.valign or "bottom"
     -- A click on a readout is a knock on the rail, and the readout jostles.
@@ -2471,6 +2474,38 @@ function GrindView:_drawHouse()
     return self:_drawHouseBody()
 end
 
+-- The portrait is a still (HouseArt.paintPortrait, one frozen moment), so
+-- it is painted once into its own canvas at its size and drawn from there:
+-- the painting clips itself with a scissor, which ignores the poster's
+-- swing, so painted live it swung inside a box that stayed put. Without a
+-- canvas (headless, a refusing GPU) it paints live.
+function GrindView:_drawPortrait(ax, ay, aw, ah)
+    aw, ah = math.floor(aw), math.floor(ah)
+    local pc = self._portrait
+    if not pc or pc.w ~= aw or pc.h ~= ah then
+        if pc and pc.canvas and pc.canvas.release then pc.canvas:release() end
+        pc = { w = aw, h = ah }
+        local ok, c = pcall(love.graphics.newCanvas, aw, ah, { dpiscale = 1 })
+        if ok and c then
+            love.graphics.push("all")
+            love.graphics.setCanvas(c)
+            love.graphics.clear(0, 0, 0, 0)
+            love.graphics.origin()
+            love.graphics.setScissor()
+            HouseArt.paintPortrait(0, 0, aw, ah)
+            love.graphics.pop()
+            pc.canvas = c
+        end
+        self._portrait = pc
+    end
+    if pc.canvas then
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(pc.canvas, ax, ay)
+    else
+        HouseArt.paintPortrait(ax, ay, aw, ah)
+    end
+end
+
 function GrindView:_drawHouseBody()
     local r  = self:_houseRect()
     local s  = self.game.ui_scale or 1
@@ -2494,7 +2529,7 @@ function GrindView:_drawHouseBody()
     local ay = r.y + inset + fl(2 * s)
     local aw = r.w - (inset + fl(2 * s)) * 2
     local ah = r.h - (inset + fl(2 * s)) * 2
-    HouseArt.paintPortrait(ax, ay, aw, ah)
+    self:_drawPortrait(ax, ay, aw, ah)
 
     -- The intercom, bolted straight onto the poster's bottom-left: how
     -- the House speaks. Lit, breathing and rattling while a story line
@@ -2820,7 +2855,7 @@ function GrindView:_drawBankrollChips(W, H)
             local R = Chips.radius()
             fw = math.min(fw, band_w - 32)
             ClickSurfaces.add("chips", center_x - fw * 0.5, stack_y - fh - R * 0.5, fw, fh + R * 1.5,
-                              { poke = "pile:bankroll", poke_kind = "wobble" })
+                              BANKROLL_SURFACE)
         end
     end
 end

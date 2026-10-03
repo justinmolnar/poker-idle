@@ -447,6 +447,40 @@ do
     c.ok(#ChipPile.debugSlots(K3) <= cap, "the drawn pile is no bigger than its cap")
 end
 
+-- ── column hop ──────────────────────────────────────────────────────────
+-- A click hops the column under it (ChipPile.pokeColumn): the batch is
+-- refilled while it moves and once at rest, then not at all.
+do
+    local Poke = require("services.Poke")
+    local K4 = "smoke:hop"
+    local pal4 = ChipData.full_palette
+    ChipPile.place(K4, 400, 400, { align = "center", scale = 1, max_cols = 8, max_rows = 2 })
+    local list = {}
+    for i = 1, 12 do list[i] = pal4[1 + (i % 3)] end
+    for _, sl in ipairs(ChipPile.reserve(K4, list)) do if sl.chip then ChipPile.accept(K4, sl.chip) end end
+    ChipPile.draw(K4); ChipPile.draw(K4)
+    local t0 = love.timer.getTime()
+    local now = t0
+    local real = love.timer.getTime
+    love.timer.getTime = function() return now end
+    Perf.setEnabled(true)
+    Perf.beginFrame(1 / 60)
+    ChipPile.pokeColumn(K4, 400, 380)
+    c.ok(Poke.active("pile:" .. K4), "a click on a pile starts its column's hop")
+    now = now + 0.05
+    ChipPile.draw(K4)
+    Perf.beginFrame(1 / 60)
+    c.eq(Perf.counter("pile_batch"), 1, "the batch refills while the column hops")
+    now = now + 1
+    ChipPile.draw(K4)
+    Perf.beginFrame(1 / 60)
+    c.eq(Perf.counter("pile_batch"), 1, "and once more when it lands")
+    ChipPile.draw(K4)
+    Perf.beginFrame(1 / 60)
+    c.eq(Perf.counter("pile_batch"), 0, "then the pile rests: no refill")
+    love.timer.getTime = real
+end
+
 -- ── flights ─────────────────────────────────────────────────────────────
 
 local FlightSystem = require("services.FlightSystem")

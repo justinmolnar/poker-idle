@@ -3343,7 +3343,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shad
             local pk = Table.anchorKey(tbl, slot)
             local bx, by, bw, bh = ChipPile.bounds(pk)
             if bx then
-                _pile_opts.poke = PILE_POKE[pk]
+                _pile_opts.pile = pk     -- the column under the click hops
                 ClickSurfaces.addLocal("chips", bx, by, bw, bh, _pile_opts)
             end
         end

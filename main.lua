@@ -323,6 +323,7 @@ local function buildGame()
     -- item's own foley. The chip pile's hop is set by the grind view.
     ClickFX.play   = function(name, opts) SoundService.playNamed(name, opts) end
     ClickFX.onItem = function(id) ItemFoley.play(g.state, id) end
+    ClickFX.onPile = function(key, x, y) require("views.ChipPile").pokeColumn(key, x, y) end
     -- An item doing its job is heard (services/ItemFoley: its own sound,
     -- damaged if corrupted)...
     g.event_bus:subscribe("item_fired", function(e)
