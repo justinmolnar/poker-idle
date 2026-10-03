@@ -636,7 +636,11 @@ function GrindView:_buildTablesTabComponents()
                       right_color_token = (cant_afford and not full) and "error" or "muted" },
                     -- Its odds (views/OutcomeBar), and a hovered upgrade's
                     -- next level as numbers.
-                    row_stats and { bar = row_stats, bar_h = row_bar_h } or nil,
+                    -- While an upgrade is hovered: the next level, its
+                    -- segments in focus, outlined (the $/h line above says
+                    -- the numbers).
+                    row_stats and { bar = (row_pv and row_pv.next) or row_stats, bar_h = row_bar_h,
+                                    focus = row_pv and row_pv.focus, highlight = row_pv and row_pv.color } or nil,
                 },
             }
         end
@@ -694,7 +698,7 @@ local function previewText(metric, now, nxt)
     local wc0, wc1 = now.win_chance or 0, nxt.win_chance or 0
     if metric == "win_chance" then
         local t = "Win " .. pctStr(wc0) .. " → " .. pctStr(wc1)
-        return { text = t, short = t, color = Theme.sem.won }
+        return { text = t, short = t, color = Theme.sem.won, now = now, next = nxt, focus = "win" }
     end
     local st0 = wc0 * ((now.win_dist or {}).stack or 0)
     local st1 = wc1 * ((nxt.win_dist or {}).stack or 0)
@@ -705,7 +709,7 @@ local function previewText(metric, now, nxt)
     if math.abs(sl1 - sl0) > 5e-4 then
         text = short .. "   loss " .. pctStr(sl0) .. " → " .. pctStr(sl1)
     end
-    return { text = text, short = short, color = Theme.sem.chip }
+    return { text = text, short = short, color = Theme.sem.chip, now = now, next = nxt, focus = "stack" }
 end
 GrindView.previewText = previewText
 
@@ -980,35 +984,39 @@ function GrindView:_buildRateTooltipUncached(br)
     return rows
 end
 
--- The upgrade tooltip's reach: the stakes among your open tables that its
--- next level moves, in ladder order ("Affects: NL2, NL10"). The numbers
--- themselves are on the tables while you hover.
+-- The upgrade tooltip's reach: every stake its next level moves (at any
+-- game type), in ladder order, and how many of your open tables that is.
+-- The change itself is drawn on those tables and add-table rows while the
+-- button is hovered.
 function GrindView:_upgradeAffectsRows(up)
-    local open = {}
-    for _, t in ipairs(self.controller.pool.tables) do
-        local by = open[t.stake_id]
-        if not by then by = {}; open[t.stake_id] = by end
-        by[t.game_type_id] = true
-    end
     local names = {}
     for _, stake in ipairs(Stakes) do
-        local by = open[stake.id]
-        if by then
+        if stakeVisible(self, stake) then
             for _, gtype in ipairs(GameTypes) do
-                if by[gtype.id] and self:_stakePreview(up, stake, gtype) then
+                if self:_stakePreview(up, stake, gtype) then
                     names[#names + 1] = stake.display_name or stake.id
                     break
                 end
             end
         end
     end
-    if #names == 0 then
-        return { { text = "Affects none of your open tables.", style = "sm", color_token = "muted" } }
+    local open = 0
+    for _, t in ipairs(self.controller.pool.tables) do
+        local st = Lookups.findById(Stakes, t.stake_id)
+        local gt = Lookups.findById(GameTypes, t.game_type_id)
+        if st and gt and self:_stakePreview(up, st, gt) then open = open + 1 end
     end
-    return {
-        { text = "Affects: " .. table.concat(names, ", "), style = "sm", color_token = "good" },
-        { text = "Hover to see the next level on your tables.", style = "sm", color_token = "muted" },
-    }
+    local lvl = self.controller:getRunUpgradeLevel(up.id)
+    local rows = {}
+    if #names == 0 then
+        rows[#rows + 1] = { text = "The next level changes nothing at your stakes.", style = "sm", color_token = "muted" }
+        return rows
+    end
+    rows[#rows + 1] = { text = "Affects: " .. table.concat(names, ", "), style = "sm", color_token = "good" }
+    rows[#rows + 1] = { text = string.format("Level %d → %d. Your tables and rows show the change (%d open table%s).",
+                                             lvl, lvl + 1, open, open == 1 and "" or "s"),
+                        style = "sm", color_token = "muted" }
+    return rows
 end
 
 function GrindView:_buildRangeTooltip(up)

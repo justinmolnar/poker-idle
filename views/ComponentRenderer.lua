@@ -792,6 +792,7 @@ end
 -- call so nothing is left over from the last one.
 local _btn_opts   = {}
 local _state_fill = { 0, 0, 0 }
+local _bar_opts   = {}
 local _dim_border = {}
 local _mini_opts  = {}
 
@@ -827,9 +828,13 @@ local function buttonFace(fx, fy, fw, fh)
         if line.bar then
             local ind = lineIndent("small")
             local bw  = math.max(8, fw - ind - 4 - CR.actionStripW(comp, total_h))
-            OutcomeBar.draw(fx + ind, cursor + 1, math.min(bw, line.bar_w or bw), line.bar_h or 4,
-                            line.bar, line.ghost and { ghost = line.ghost, alpha = disabled and 0.45 or 1 }
-                            or (disabled and DIM_BAR or nil))
+            local o = (disabled and DIM_BAR) or nil
+            if line.ghost or line.focus or line.highlight then
+                o = _bar_opts
+                o.ghost, o.focus, o.highlight = line.ghost, line.focus, line.highlight
+                o.alpha = disabled and 0.45 or 1
+            end
+            OutcomeBar.draw(fx + ind, cursor + 1, math.min(bw, line.bar_w or bw), line.bar_h or 4, line.bar, o)
         end
         cursor = cursor + lineRenderedHeight(line, game, fw)
       else

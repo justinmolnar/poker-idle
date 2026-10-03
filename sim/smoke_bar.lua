@@ -100,6 +100,18 @@ for _, t in ipairs(w:tables()) do
 end
 c.ok(with > 0, "hovering Pot Control previews on the tables it moves (" .. with .. ")")
 c.ok(stack_text, "Pot Control's preview is the stack win, now and next")
+do
+    local t1 = w:tables()[1]
+    local pv = t1._preview
+    c.ok(pv and pv.now and pv.next and pv.focus == "stack", "the table's card has now and next bars, the stack segments in focus")
+    local lit = 0
+    for _, comp in ipairs(view:_buildTablesTabComponents() or {}) do
+        for _, line in ipairs(comp.lines or {}) do
+            if line.bar and line.highlight and line.focus == "stack" then lit = lit + 1 end
+        end
+    end
+    c.ok(lit > 0, "the add-table rows' bars light up with the next level (" .. lit .. ")")
+end
 frame(hover)
 c.eq(Perf.counter("panel_rebuild"), 0, "the preview rebuilds no panel (a live layer)")
 frame()
@@ -113,6 +125,7 @@ do
     local t1 = w:tables()[1]
     c.ok(t1._preview and (t1._preview.text or ""):find("^Win ") ~= nil,
          "Sharper Reads' preview is the win chance, now and next")
+    c.ok(t1._preview and t1._preview.focus == "win", "with the win side in focus")
     frame()
 end
 

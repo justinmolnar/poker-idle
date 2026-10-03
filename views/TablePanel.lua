@@ -318,6 +318,8 @@ local TABLE_KEY  = named(function(i) return "table:" .. i end)
 local BAR_KEY    = named(function(i) return "bar:" .. i end)
 -- How fast the odds bar eases to new odds (per second, exponential).
 local BAR_EASE   = 6
+local _pv_opts   = {}
+local _bar_live_opts = {}
 local TIED_KEY   = named(function(i) return "tied:" .. i end)
 local STACK_KEY  = named(function(i) return "stack:" .. i end)
 local EV_KEY     = named(function(i) return "ev:" .. i end)
@@ -3351,32 +3353,60 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shad
                 local dt = (love.timer.getDelta and love.timer.getDelta()) or (1 / 60)
                 OutcomeBar.ease(d, m.stats, 1 - math.exp(-dt * BAR_EASE))
             end
-            OutcomeBar.draw(a[1], a[2], a[3], a[4], d)
+            local o = nil
+            if tbl._preview then
+                o = _bar_live_opts
+                o.focus, o.highlight = tbl._preview.focus, tbl._preview.color
+            end
+            OutcomeBar.draw(a[1], a[2], a[3], a[4], d, o)
         end
     end
 
-    -- A hovered upgrade's next level as numbers above this table's readout
-    -- (set per frame by GrindView:_updatePreview): "Win 41.0% -> 43.5%".
+    -- A hovered upgrade's change on this table (set per frame by
+    -- GrindView:_updatePreview): a card above the readout with the numbers,
+    -- "now" and "next" bars (the segments the upgrade moves bright, the
+    -- rest faint), outlined in the upgrade's colour and pulsing.
     local pv = tbl._preview
-    if pv and pv.text then
+    if pv and pv.text and pv.now and pv.next then
         local ek = EV_KEY[idx]
         local a = Anchors.get(ek)
-        if a and Anchors.age(ek) <= 1 then
-            local f = (game.fonts and (game.fonts.xs or game.fonts.sm))
-            if f then
-                local text = pv.text
-                local tw = f:getWidth(text)
-                if pv.short and tw > w - 16 then text = pv.short; tw = f:getWidth(text) end
-                local th = f:getHeight()
-                local px = math.max(x + 8, math.min(a[1] + a[3] - tw, x + w - tw - 8))
-                local py = a[2] - th - 6
-                Theme.setColor(Theme.bg.chrome, 0.92)
-                love.graphics.rectangle("fill", px - 4, py - 2, tw + 8, th + 4, 3, 3)
-                Theme.setColor(pv.color or Theme.sem.won)
-                love.graphics.rectangle("line", px - 4, py - 2, tw + 8, th + 4, 3, 3)
-                love.graphics.setFont(f)
-                love.graphics.print(text, px, py)
-            end
+        local f = game.fonts and (game.fonts.xs or game.fonts.sm)
+        if f then
+            local th   = f:getHeight()
+            local pad  = 4
+            local text = pv.text
+            local lab_w = f:getWidth("next") + 4
+            local bar_w = math.floor(th * 6)
+            local max_w = w - 2 * pad - 8
+            local tw = f:getWidth(text)
+            if tw > max_w and pv.short then text = pv.short; tw = f:getWidth(text) end
+            local cw = math.min(max_w, math.max(tw, lab_w + bar_w))
+            bar_w = math.max(8, math.min(bar_w, cw - lab_w))
+            local ch = th * 3 + 2
+            local bx = (a and Anchors.age(ek) <= 1) and (a[1] + a[3] - cw - pad) or (x + (w - cw) * 0.5 - pad)
+            bx = math.max(x + 4, math.min(bx, x + w - cw - 2 * pad - 4))
+            local by = ((a and Anchors.age(ek) <= 1) and a[2] or (y + h - th * 2)) - ch - 2 * pad - 4
+            by = math.max(y + 2, by)
+            Theme.setColor(Theme.bg.chrome, 0.95)
+            love.graphics.rectangle("fill", bx, by, cw + 2 * pad, ch + 2 * pad, 4, 4)
+            local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 7)
+            Theme.setColor(pv.color or Theme.sem.won, pulse)
+            love.graphics.setLineWidth(2)
+            love.graphics.rectangle("line", bx, by, cw + 2 * pad, ch + 2 * pad, 4, 4)
+            love.graphics.setLineWidth(1)
+            love.graphics.setFont(f)
+            local cx, cy = bx + pad, by + pad
+            Theme.setColor(pv.color or Theme.sem.won)
+            love.graphics.print(text, cx, cy)
+            local bh = math.max(3, math.floor(th * 0.55))
+            local o = _pv_opts
+            o.focus, o.highlight, o.ghost, o.alpha = pv.focus, nil, nil, nil
+            Theme.setColor(Theme.fg.muted)
+            love.graphics.print("now", cx, cy + th + 1)
+            OutcomeBar.draw(cx + lab_w, cy + th + 1 + math.floor((th - bh) * 0.5), bar_w, bh, pv.now, o)
+            Theme.setColor(Theme.fg.heading)
+            love.graphics.print("next", cx, cy + 2 * th + 2)
+            OutcomeBar.draw(cx + lab_w, cy + 2 * th + 2 + math.floor((th - bh) * 0.5), bar_w, bh, pv.next, o)
         end
     end
 

@@ -56,7 +56,16 @@ OutcomeBar.segments = segments
 
 local _a, _b = { loss = {}, win = {} }, { loss = {}, win = {} }
 
-local function paint(segs, y, h, alpha)
+-- focus: "win" (the win side: Sharper Reads) or "stack" (the stack win and
+-- the stack loss: Pot Control); the segments outside it draw faint.
+local function inFocus(focus, side, t)
+    if not focus then return true end
+    if focus == "win" then return side == "win" end
+    if focus == "stack" then return t == "stack" end
+    return true
+end
+
+local function paint(segs, y, h, alpha, focus)
     for _, side in ipairs(SIDES) do
         local order = (side == "loss") and TIERS or WINS
         local pal = Theme.tier and Theme.tier[side] or nil
@@ -64,14 +73,17 @@ local function paint(segs, y, h, alpha)
             local s = segs[side][t]
             if s[2] > 0 then
                 local c = (pal and pal[t]) or ((side == "win") and Theme.sem.won or Theme.sem.lost)
-                Theme.setColor(c, alpha or 1)
+                Theme.setColor(c, (alpha or 1) * (inFocus(focus, side, t) and 1 or 0.25))
                 love.graphics.rectangle("fill", s[1], y, s[2], h)
             end
         end
     end
 end
 
--- Draw at (x, y), w by h. opts: ghost (stats), alpha.
+-- Draw at (x, y), w by h. opts: ghost (stats), alpha, focus ("win" /
+-- "stack": the segments an upgrade moves stay bright, the rest go faint),
+-- highlight (a colour: a pulsing outline, "this bar is what you're
+-- hovering").
 function OutcomeBar.draw(x, y, w, h, stats, opts)
     if not stats or w < 4 or h < 1 then return end
     x, y, w, h = math.floor(x), math.floor(y), math.floor(w), math.floor(h)
@@ -81,10 +93,18 @@ function OutcomeBar.draw(x, y, w, h, stats, opts)
     -- A faint track under it all, so a bar of tiny odds still reads as a bar.
     Theme.setColor(Theme.border.default, 0.35)
     love.graphics.rectangle("fill", x, y, w, main_h)
-    paint(segments(stats, x, w, _a), y, main_h, opts and opts.alpha)
+    local focus = opts and opts.focus
+    paint(segments(stats, x, w, _a), y, main_h, opts and opts.alpha, focus)
     if ghost then
         local gy = y + main_h + 1
-        paint(segments(ghost, x, w, _b), gy, y + h - gy, 0.9)
+        paint(segments(ghost, x, w, _b), gy, y + h - gy, 0.9, focus)
+    end
+    local hl = opts and opts.highlight
+    if hl then
+        local t = love.timer.getTime()
+        Theme.setColor(hl, 0.55 + 0.45 * math.sin(t * 7))
+        love.graphics.setLineWidth(1)
+        love.graphics.rectangle("line", x - 1.5, y - 1.5, w + 3, main_h + 3)
     end
     -- The win/loss split, a hairline: where the bar crosses over.
     local split = _a.win.small[1]
