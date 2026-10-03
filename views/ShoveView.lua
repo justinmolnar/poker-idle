@@ -38,6 +38,7 @@ local CardSprites            = require("views.CardSprites")
 local ShoveDecor             = require("views.ShoveDecor")
 local Style                  = require("data.shove_style")
 local ShoveRate              = require("models.shove_rate")
+local NOOP = function() end   -- a timeline entry that is only its sound
 local Story                  = require("data.story")
 local StoryView              = require("views.StoryView")
 local FlightSystem           = require("services.FlightSystem")
@@ -690,6 +691,8 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
         -- Card 6 comes out of the slot and lands on BASE. The readout's
         -- catalog term is buried and the bar drains.
         add(t + 2.50, startAnim("board_6", "cheat_card_dealt"), "cheat_card_dealt")
+        -- The first cheat card: the House's stinger under it.
+        add(t + 2.50, NOOP, "house_stinger")
         say(t + 3.10, "panic_new_card")
         t = t + 3.70
 
@@ -789,6 +792,7 @@ function ShoveView:_scheduleEnding(t, add, say)
     end
     local t_last = tt - endingInterval(last_i) + (E.flight_secs or 0.55)
     say(t_last + 0.8, "deck_out")
+    add(t_last + 0.8, NOOP, "house_stinger")
     add(t_last + 0.8, function() self.pot_gone = true end)
     return t_last + 0.8 + (E.curtain_secs or 2.6)
 end

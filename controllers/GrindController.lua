@@ -113,6 +113,8 @@ function GrindController:new(game)
             local st = self.game.state
             if e.status == "tilt" then
                 st.total_tilts = (st.total_tilts or 0) + 1
+                -- Plays when it APPEARS, like the heater (_tickHeaterSounds).
+                if e.table then e.table._tilt_snd = true end
             elseif e.status == "heater" then
                 st.total_heaters = (st.total_heaters or 0) + 1
                 -- The strike plays when the heater APPEARS (_tickHeaterSounds):
@@ -454,9 +456,9 @@ end
 -- applied, or the frame its punch connects (impact_wait back to 0).
 function GrindController:_tickHeaterSounds()
     for _, t in ipairs(self.pool.tables) do
-        if t._heater_snd and (t.impact_wait or 0) <= 0 then
-            t._heater_snd = nil
-            self:_playNamed("heater_lands")
+        if (t.impact_wait or 0) <= 0 then
+            if t._heater_snd then t._heater_snd = nil; self:_playNamed("heater_lands") end
+            if t._tilt_snd   then t._tilt_snd   = nil; self:_playNamed("tilt_lands")   end
         end
     end
 end
@@ -1515,7 +1517,10 @@ function GrindController:update(dt)
                 state.bankroll = threshold - 1
             end
             -- The break, once: not again on a later Ultra stack loss.
-            if not was_under then self:_playNamed("underflow") end
+            if not was_under then
+                self:_playNamed("underflow")
+                self:_playNamed("house_stinger")
+            end
         elseif tbl then
             local new_stack = tbl.stack + r.delta
             if new_stack > cap then
@@ -2627,7 +2632,7 @@ function GrindController:addTable(stake_id, game_type_id)
         -- :update emits it once the view has populated panel positions.
         new_tbl._pending_buyin = cost
     end
-    self:_playNamed("table_added")
+    self:_playNamed("table_open")
     return true
 end
 
@@ -2726,7 +2731,10 @@ function GrindController:_finalizeRemove(idx, quiet)
     else
         refund = t.stack or 0
     end
-    if not quiet then self:_emitCashOutChips(t, refund) end
+    if not quiet then
+        self:_emitCashOutChips(t, refund)
+        self:_playNamed("table_close")
+    end
     -- A resting result floater on this table would outlive it (a removed
     -- table stays "idle" forever, so the leaves-idle removal never fires).
     self.game.floating_text.dropForTable(t)

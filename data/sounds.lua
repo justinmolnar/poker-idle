@@ -188,6 +188,18 @@ return {
     -- The Act 3 underflow, once.
     underflow           = { file = FELT .. "underflow.ogg",    volume = 0.80 },
 
+    -- ── The third round of picks (2026-10-03) ───────────────────────────
+    -- A table opening and closing: a UI pair (unfa), not a chair.
+    table_open          = { file = UI .. "table_open.ogg",   volume = 0.45, min_gap = 0.06 },
+    table_close         = { file = UI .. "table_close.ogg",  volume = 0.45, min_gap = 0.06 },
+    -- A tilt as it appears on a table (with the fist when a punch carried it).
+    tilt_lands          = { file = FELT .. "tilt_lands.ogg", volume = 0.55, min_gap = 0.15 },
+    -- The House making a point: one low note left to ring.
+    house_stinger       = { file = FELT .. "house_stinger.ogg", volume = 0.75, min_gap = 2.0 },
+    -- The broken readouts after the underflow, now and then (GrindView).
+    glyph_tear          = { files = { FELT .. "glyph_tear_1.ogg", FELT .. "glyph_tear_2.ogg",
+                                      FELT .. "glyph_tear_3.ogg" }, volume = 0.22, min_gap = 0.3 },
+
     -- ── Clicks on things that already have a sound (data/clicks.lua) ────
     -- The other click_* names are files to place (assets/audio/ui), silent
     -- until then. A card flicked, a chip tapped, the House's intercom keyed.

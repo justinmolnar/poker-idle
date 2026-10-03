@@ -492,6 +492,7 @@ return {
         {
             id      = "act2",
             screen  = "grind",
+            sound   = "house_stinger",
             trigger = { kind = "act2_unlocked" },
             lines = {
                 { text = "I hope the undertow didn't catch you off guard, I should've told you about it sooner. Oh well." },

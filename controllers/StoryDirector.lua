@@ -256,6 +256,11 @@ function StoryDirector:_start(beat, ctx)
     self.beat     = beat
     self.timeline = tl
     self._paused  = false
+    -- A beat may open on a sound (data/story.lua `sound`: the House's
+    -- stinger on the Act 2 lede).
+    if beat.sound and self.game and self.game.sounds and self.game.sounds.playNamed then
+        self.game.sounds.playNamed(beat.sound)
+    end
     self._anchor_missing_t = 0
     -- Land the first line now rather than a tick later.
     tl:update(0, self:_blockedFn(ctx))

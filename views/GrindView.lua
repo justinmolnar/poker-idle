@@ -1199,7 +1199,24 @@ function GrindView:_sweepBountyGlow()
     self._bounty_glow_primed = true
 end
 
+-- After the underflow the rail's readouts flicker as broken glyphs
+-- (_brokenText, fourteen changes a second); one of the glyph_tear takes
+-- plays under them now and then, never every flicker.
+local GLYPH_GAP_MIN, GLYPH_GAP_MAX = 0.7, 2.2
+function GrindView:_tickGlyphTear()
+    local st = self.game.state
+    if not (st and ShoveRate.underflowed(st.bankroll)) then self._glyph_next = nil; return end
+    local now = love.timer.getTime()
+    if not self._glyph_next then self._glyph_next = now + GLYPH_GAP_MIN end
+    if now >= self._glyph_next then
+        self._glyph_next = now + GLYPH_GAP_MIN + love.math.random() * (GLYPH_GAP_MAX - GLYPH_GAP_MIN)
+        local sounds = self.game.sounds
+        if sounds and sounds.playNamed then sounds.playNamed("glyph_tear") end
+    end
+end
+
 function GrindView:update(dt)
+    self:_tickGlyphTear()
     local mx, my = love.mouse.getPosition()
     self.left_panel:update(my)
     self.right_panel:update(my)
