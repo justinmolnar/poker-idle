@@ -8,9 +8,8 @@ writes assets/audio/raw/candidates/CANDIDATES.md with the credits.
 Rules, so a candidate is safe to ship as-is:
   - Creative Commons 0 only (public domain: commercial use, no credit
     required; credited anyway in the table).
-  - Uploaded before 2022-06-01, before generative sound models were in
-    circulation, so no candidate is AI-generated. Freesound is human
-    recordings and synthesis; the date is the guarantee, not the site.
+  - Found on Freesound and credited: an existing upload of any date,
+    never a sound generated on request.
   - A duration window per slot (foley short, beds long).
   - Ranked by downloads: what other people kept using.
 
@@ -35,40 +34,42 @@ import urllib.request
 UA = "Mozilla/5.0 (poker-idle sound audition fetch)"
 OUT = os.path.join("assets", "audio", "raw", "candidates")
 PER_SLOT = int(os.environ.get("FETCH_PER_SLOT", "3"))
-BEFORE = "2022-06-01T00:00:00Z"
+# At most this many full matches from one query (0: no cap), so one broad
+# query cannot fill a slot with near-duplicates before the others are asked.
+PER_QUERY = int(os.environ.get("FETCH_PER_QUERY", "0"))
 
 # slot, what it is for, live target, (min s, max s), queries in order of preference
 SLOTS = [
     # ── items (assets/audio/items/<id>.ogg) ──────────────────────────────
-    ("fight_night_poster", "a boxing bell, one strike", "items/fight_night_poster.ogg", (0.3, 5), ["boxing bell", "boxing ring bell", "ring bell", "boxing"]),
+    ("fight_night_poster", "a boxing bell: one bright ring-bell strike (any single bell ding that reads as the round bell)", "items/fight_night_poster.ogg", (0.3, 6), ["boxing bell", "boxing ring bell", "ring bell ding", "fight bell", "round bell", "bell knockout", "service bell", "desk bell", "school bell single"]),
     ("tally_book", "a pencil scratch, one stroke", "items/tally_book.ogg", (0.1, 2), ["pencil scratch", "pencil writing short"]),
     ("bonsai", "leaves brushed, a snip", "items/bonsai.ogg", (0.1, 2), ["scissors snip", "pruning shears cut", "leaves rustle short"]),
     ("house_cat", "one short meow", "items/house_cat.ogg", (0.2, 2), ["cat meow", "kitten meow"]),
     ("candle", "a match strike, short", "items/candle.ogg", (0.3, 3), ["match strike", "match lighting"]),
     ("trophy_shelf", "a small cup set down on wood", "items/trophy_shelf.ogg", (0.1, 3), ["trophy", "metal cup", "cup set down", "metal object set down", "put down metal"]),
-    ("dusty_console", "a cartridge blown on, a click", "items/dusty_console.ogg", (0.1, 3), ["cartridge", "nintendo cartridge", "blowing cartridge", "plastic insert"]),
+    ("dusty_console", "a quick blow of air, like blowing into a game cartridge or on a mic", "items/dusty_console.ogg", (0.1, 3), ["mic blow", "blowing into microphone", "blow microphone", "blow air", "puff of air", "blowing dust", "blow"]),
     ("handheld", "a handheld's power tone or button click", "items/handheld.ogg", (0.05, 3), ["gameboy", "game boy", "handheld game", "electronic beep short", "power on beep"]),
-    ("red_rug", "a rug shaken out, one flap", "items/red_rug.ogg", (0.2, 2), ["rug shake", "cloth flap", "blanket shake"]),
+    ("red_rug", "a rug or carpet: shaken out, flapped, or beaten once", "items/red_rug.ogg", (0.2, 4), ["rug shake", "shaking rug", "carpet beat", "carpet beating", "rug beating", "rug flap", "blanket shake", "shaking blanket", "blanket flap", "fabric shake", "cloth shake", "sheet shake", "carpet thump", "carpet"]),
     ("dish_soap", "a squeeze bottle, short", "items/dish_soap.ogg", (0.1, 2), ["squeeze bottle", "plastic bottle squeeze", "soap squirt"]),
     ("bottle_of_wine", "a cork", "items/bottle_of_wine.ogg", (0.1, 2), ["cork pop", "wine cork"]),
     ("desk_lamp", "a lamp switch, click", "items/desk_lamp.ogg", (0.05, 1), ["lamp switch click", "light switch click"]),
-    ("telephone", "a receiver set down", "items/telephone.ogg", (0.1, 2.5), ["telephone hang up", "old phone hang up", "rotary phone", "phone handset"]),
+    ("telephone", "a phone: one ring, a ringtone, or keypad / dial tones", "items/telephone.ogg", (0.1, 4), ["telephone ring single", "old phone ring", "phone ring", "phone dial tone", "dtmf", "phone keypad beep", "telephone ring"]),
     ("old_keyboard", "one stuck key", "items/old_keyboard.ogg", (0.05, 1), ["mechanical keyboard single key", "typewriter key single", "keyboard key press"]),
-    ("medical_poster", "paper pressed flat on a wall", "items/medical_poster.ogg", (0.1, 2), ["paper on wall", "poster tape", "paper slap"]),
-    ("hybrid_console", "a dock click", "items/hybrid_console.ogg", (0.05, 1.5), ["plastic snap click", "docking click", "plastic latch"]),
-    ("washing_machine", "the spin, short", "items/washing_machine.ogg", (1, 5), ["washing machine spin", "washing machine"]),
+    ("medical_poster", "a body / medical sound: a heartbeat, a heart-monitor beep", "items/medical_poster.ogg", (0.2, 4), ["heartbeat", "heart monitor beep", "ecg beep", "heart monitor", "stethoscope", "pulse beep"]),
+    ("hybrid_console", "a game console turning on: startup beeps", "items/hybrid_console.ogg", (0.1, 4), ["console startup", "console power on", "startup sound", "power on beep", "boot up", "startup beep", "power up beep", "electronic startup"]),
+    ("washing_machine", "a washing machine running, thumping", "items/washing_machine.ogg", (1, 8), ["washing machine running", "washing machine thump", "washer spin cycle", "washing machine spin", "dryer thump", "laundry machine", "washing machine"]),
     ("floor_plant", "big leaves, brushed", "items/floor_plant.ogg", (0.2, 2.5), ["leaves brush", "plant leaves rustle", "foliage rustle"]),
     ("gas_stove", "an igniter click", "items/gas_stove.ogg", (0.1, 2), ["gas stove igniter", "stove ignition click", "gas lighter click"]),
     ("cast_iron_pan", "a pan set on a burner, clang", "items/cast_iron_pan.ogg", (0.1, 2.5), ["pan on stove", "frying pan set down", "pan clang"]),
     ("hot_bath", "water, a tap run for a second", "items/hot_bath.ogg", (0.5, 3), ["bath tap water", "faucet running short", "tap water"]),
-    ("fresh_towel", "a towel snap", "items/fresh_towel.ogg", (0.1, 1.5), ["towel snap", "towel whip", "cloth snap"]),
+    ("fresh_towel", "a towel snap: a towel whipped so it cracks", "items/fresh_towel.ogg", (0.05, 2), ["towel snap", "towel whip", "wet towel snap", "towel flick", "towel crack", "cloth whip", "fabric snap", "cloth snap", "sheet snap", "whip crack"]),
     ("replay_tv", "tape whir, a deck loading", "items/replay_tv.ogg", (0.3, 4), ["vhs", "vcr", "cassette insert", "tape deck"]),
     ("shower_head", "a shower running, short", "items/shower_head.ogg", (0.5, 6), ["shower turn on", "shower", "shower water"]),
     ("box_of_tissues", "one tissue pulled", "items/box_of_tissues.ogg", (0.1, 1.5), ["tissue pull", "tissue box", "paper tissue"]),
     ("kitchen_bin", "a bin lid", "items/kitchen_bin.ogg", (0.1, 2), ["trash can lid", "pedal bin lid", "bin lid close"]),
-    ("cleaning_robot", "a small motor whir", "items/cleaning_robot.ogg", (0.3, 3), ["robot vacuum", "small motor whir", "servo motor"]),
+    ("cleaning_robot", "a home-gadget sound: a robot vacuum, a servo, a remote-control or sci-fi device beep", "items/cleaning_robot.ogg", (0.2, 4), ["robot vacuum", "roomba", "vacuum cleaner", "robot beep", "servo", "scifi device", "futuristic beep", "rc car", "robot"]),
     # ── the House ───────────────────────────────────────────────────────
-    ("house_stinger", "one low piano note left to ring", "felt/house_stinger.ogg (wire)", (1, 5), ["piano low note", "piano single note low", "piano key low"]),
+    ("house_stinger", "ONE low sustained note left to ring (1.5-4 s), a dramatic sting when the House makes a point", "felt/house_stinger.ogg (wire)", (1.5, 8), ["piano low note", "low piano note", "cello low note", "cello note", "double bass note", "contrabass note", "low organ note", "organ note", "low string note", "deep bell toll", "bell toll"]),
     # ── music beds ──────────────────────────────────────────────────────
     ("music_layer_hiss", "tape hiss / vinyl crackle bed, loopable", "music layer (wire)", (20, 200), ["vinyl crackle loop", "tape hiss", "record crackle"]),
     ("music_gauntlet_drone", "one sustained low tone, pitchable", "music layer (wire)", (3, 60), ["low drone", "sustained low tone", "dark drone"]),
@@ -76,15 +77,15 @@ SLOTS = [
     ("paper_thud", "a heavy thud for the book landing on the felt", "felt/paper_thud.ogg", (0.1, 1.5), ["book drop", "book thud", "heavy book table"]),
     ("paper_slap", "a light slap for the pamphlet", "felt/paper_slap.ogg", (0.05, 1), ["paper slap", "paper drop table", "magazine drop"]),
     # ── the grind ───────────────────────────────────────────────────────
-    ("table_open", "a chair pulled up", "felt/table_open.ogg (wire)", (0.3, 3), ["chair pull out", "chair drag", "chair move", "chair"]),
-    ("table_close", "a chair pushed in", "felt/table_close.ogg (wire)", (0.3, 3), ["chair push in", "chair slide", "chair move", "chair"]),
-    ("tilt_lands", "glass tipping, or a knock going wrong", "felt/tilt.ogg (wire)", (0.1, 2.5), ["glass wobble", "glass knock over", "glass clink", "bottle wobble", "glass tip"]),
+    ("table_open", "a UI 'open' sound (ideally one of a matching open/close pair)", "felt/table_open.ogg (wire)", (0.05, 2), ["ui open", "menu open", "interface open", "inventory open", "popup open", "panel open", "ui whoosh"]),
+    ("table_close", "a UI 'close' sound, the match to table_open (ideally the same pair)", "felt/table_close.ogg (wire)", (0.05, 2), ["ui close", "menu close modern", "inventory close", "menu close", "interface close", "popup close", "panel close"]),
+    ("tilt_lands", "a 'negative' UI sound: an error / wrong-answer / denied beep", "felt/tilt.ogg (wire)", (0.05, 2), ["negative ui", "ui error", "error beep", "wrong answer", "fail ui", "denied beep", "negative feedback", "error sound"]),
     ("heater_lands", "a match strike, short (not the candle's take)", "felt/heater.ogg (wire)", (0.2, 2), ["lighter flick", "zippo lighter", "match ignite"]),
     ("punch", "fist on a table", "felt/punch.ogg (wire)", (0.05, 1), ["fist table", "punch table", "fist bang wood"]),
     ("focus_overload", "a short strained tone", "felt/focus_overload.ogg", (0.3, 2), ["tape slow down", "power down", "strained tone"]),
     ("deck", "one bright note or a card fan", "felt/deck.ogg (wire)", (0.2, 2.5), ["card fan", "cards shuffle", "card riffle", "playing cards"]),
     ("underflow", "a deep thud with a tail", "felt/underflow.ogg (wire)", (0.5, 3), ["deep boom", "sub thud", "low impact boom"]),
-    ("glyph_tear", "a short digital tear (pick three)", "felt/glyph_tear_1..3.ogg (wire)", (0.05, 1), ["digital glitch", "glitch short", "data corruption"]),
+    ("glyph_tear", "a tiny digital glitch under the broken money readouts after the Act 3 underflow, very short (pick three)", "felt/glyph_tear_1..3.ogg (wire)", (0.05, 0.5), ["digital glitch short", "glitch", "data corruption", "digital error", "bit crush glitch", "static glitch"]),
     # ── paper and interface ─────────────────────────────────────────────
     ("button_click", "one soft click, the same everywhere", "ui/click.ogg (wire)", (0.02, 0.4), ["soft click ui", "button click soft", "mouse click"]),
     ("modal_open", "a paper or panel slide in", "ui/modal_open.ogg (wire)", (0.1, 1), ["paper slide", "paper swipe", "paper slide table"]),
@@ -118,7 +119,7 @@ ATTR = re.compile(r'data-([a-z-]+)="([^"]*)"')
 
 
 def search(query, dmin, dmax):
-    f = 'license:"Creative Commons 0" created:[* TO %s] duration:[%s TO %s]' % (BEFORE, dmin, dmax)
+    f = 'license:"Creative Commons 0" duration:[%s TO %s]' % (dmin, dmax)
     url = "https://freesound.org/search/?" + urllib.parse.urlencode(
         {"q": query, "f": f, "s": "Downloads (most first)"})
     page = get(url).decode("utf-8", "replace")
@@ -175,11 +176,18 @@ def main():
                 r["rel"] = sum(1 for w in words if w.rstrip("s") in t)
                 r["query"] = q
             results.sort(key=lambda r: (-r["rel"], -r["downloads"]))
+            took = 0
             for r in results:
                 if r["rel"] == 0 or r["id"] in seen:
                     continue
+                if r["rel"] >= len(words):
+                    if PER_QUERY and took >= PER_QUERY:
+                        continue
+                    took += 1
+                    full.append(r)
+                else:
+                    partial.append(r)
                 seen.add(r["id"])
-                (full if r["rel"] >= len(words) else partial).append(r)
             time.sleep(1.0)
         picked = (full + partial)[:PER_SLOT]
         d = os.path.join(OUT, name)
@@ -206,9 +214,9 @@ def main():
         "",
         "Audition files for the sounds `docs/sound-checklist.md` lists as missing, fetched by",
         "`tools/fetch_sound_candidates.py` from Freesound. Every file is Creative Commons 0",
-        "(public domain, commercial use, no credit required) and was uploaded before",
-        "2022-06-01, before generative sound models were in circulation, so none is",
-        "AI-generated. The folder is under `raw/`, so the game never plays it.",
+        "(public domain, commercial use, no credit required), found on Freesound and",
+        "credited, not generated on request. The folder is under `raw/`, so the game",
+        "never plays it.",
         "",
         "To use one: copy it to the live target (or say which and it gets trimmed to mono",
         "and placed), and add its row to the folder's MANIFEST.",
