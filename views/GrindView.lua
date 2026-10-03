@@ -2794,6 +2794,9 @@ function GrindView:_drawFloatingText()
         -- quarter second. Transient by construction (Pop.fromTimer hits 0
         -- and stays there), so the resting size is never scaled text.
         if not t.has_persisted then
+            -- The table's pot label stands aside while this pops over it.
+            local owner = t.fit_table or t.table
+            if owner then owner._floater_pop_t = love.timer.getTime() end
             local age = (t.lifetime or 0) - (t.timer or 0)
             scale = scale * Pop.scale(Pop.fromTimer(age, 0.25), 1, 0.22)
         end

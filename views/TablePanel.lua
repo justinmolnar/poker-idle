@@ -1358,7 +1358,13 @@ local function drawPotLabel(tbl, pot, fonts, anims_on)
             end
             label = tbl._pot_str
         end
-        love.graphics.printf(label, pot.text_x, pot.text_y, pot.text_w, "center")
+        -- The result floater pops in the middle of the felt, right where
+        -- this sits: the label stands aside while it pops (GrindView stamps
+        -- tbl._floater_pop_t each frame a floater on this table is popping).
+        local popping = tbl._floater_pop_t and love.timer.getTime() - tbl._floater_pop_t < 0.1
+        if not popping then
+            love.graphics.printf(label, pot.text_x, pot.text_y, pot.text_w, "center")
+        end
     end
 end
 

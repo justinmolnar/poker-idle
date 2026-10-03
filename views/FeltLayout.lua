@@ -551,7 +551,13 @@ function FeltLayout.compute(p)
 
     local tied_parts, tied_w = "short", tied_short
     local ev_parts, ev_w, ev_x = nil, 0, fx + fw - edge
-    for _, rung in ipairs(BOTTOM_LADDER) do
+    -- On a dense board the "Tied up" label goes first, whatever the width:
+    -- at that size the number under the pile says what it is, and the room
+    -- is the readout's.
+    local dense_n = (Data.anims and Data.anims.dense_tables) or 20
+    local first = ((p.n_tables or 0) >= dense_n) and 2 or 1
+    for ri = first, #BOTTOM_LADDER do
+        local rung = BOTTOM_LADDER[ri]
         local tw = (rung.tied == "full") and tied_full or tied_short
         local ew = (rung.ev == "full" and ev_full)
                 or (rung.ev == "money" and ev_money) or 0
