@@ -1,6 +1,6 @@
 # Item sounds manifest and attribution
 
-51 sounds from Pixabay (the Reserved Seat Card became the Desk on 2026-08-25; its sound was dropped, the desk has none yet) (Content License: free for commercial use, no attribution required; credited anyway). One per catalog item, downloaded 2026-08-25; reassigned 2026-09-07 with the reskin (see the notes under the table). Files are named by catalog id; the original upload name, artist and Pixabay asset id are kept here for credit. Not wired into the game yet.
+51 sounds from Pixabay (the Reserved Seat Card became the Desk on 2026-08-25; its sound was dropped, the desk has none yet) (Content License: free for commercial use, no attribution required; credited anyway). One per catalog item, downloaded 2026-08-25; reassigned 2026-09-07 with the reskin (see the notes under the table). Files are named by catalog id; the original upload name, artist and Pixabay asset id are kept here for credit. Played by services/ItemFoley (the room count and when the item fires); the Freesound section below adds the rest.
 
 | # | catalog id | item | file | artist | original title | pixabay id |
 |---|---|---|---|---|---|---|
@@ -125,3 +125,26 @@ freesound_community-speaker-buzz-82989.mp3
 freesound_community-box_of_tissues-105938.mp3
 oxidvideos-placing-poker-chips-522515.mp3
 ```
+
+## Freesound (CC0), added 2026-10-03
+
+Picked in the audition (`tools/audition_sounds.py`) and processed by `tools/place_sounds.py`: cropped, trimmed of silence (55 dB under its own peak), faded, levelled to the item sounds, mono 44.1 kHz OGG. Creative Commons 0 (public domain, commercial use, no attribution required; credited anyway). Every source was uploaded before 2022-06-01, so none is AI-generated.
+
+| file | used as | Freesound title | author | Freesound id | crop | license |
+|---|---|---|---|---|---|---|
+| `bonsai.ogg` | leaves brushed, a snip | [Scissor Snip 03](https://freesound.org/people/Dreadwolf910/sounds/615995/) | Dreadwolf910 | 615995 | 0.30–0.48s | CC0 |
+| `bottle_of_wine.ogg` | a cork | [Cork pop 2](https://freesound.org/people/Andre_Desartistes/sounds/335358/) | Andre_Desartistes | 335358 | 0.00–0.33s | CC0 |
+| `box_of_tissues.ogg` | one tissue pulled | [stock-tissue-paper-pulling-00.flac](https://freesound.org/people/pbimal/sounds/535241/) | pbimal | 535241 | whole | CC0 |
+| `candle.ogg` | a match strike, short | [Match strike](https://freesound.org/people/Bertsz/sounds/524306/) | Bertsz | 524306 | 0.03–0.32s | CC0 |
+| `cast_iron_pan.ogg` | a pan set on a burner, clang | [Metal Clang](https://freesound.org/people/jashstudios/sounds/184343/) | jashstudios | 184343 | whole | CC0 |
+| `desk_lamp.ogg` | a lamp switch, click | [StandardLamp-Switch.flac](https://freesound.org/people/Mindloop/sounds/253659/) | Mindloop | 253659 | 0.00–0.06s | CC0 |
+| `dish_soap.ogg` | a squeeze bottle, short | [squirting soap_1-2.aif](https://freesound.org/people/acrober/sounds/86143/) | acrober | 86143 | 0.15–0.42s | CC0 |
+| `floor_plant.ogg` | big leaves, brushed | [Rustling Plants](https://freesound.org/people/georgesavic/sounds/593472/) | georgesavic | 593472 | 0.01–0.42s | CC0 |
+| `gas_stove.ogg` | an igniter click | [Lighter 01](https://freesound.org/people/Dreadwolf910/sounds/607516/) | Dreadwolf910 | 607516 | 0.01–0.04s | CC0 |
+| `handheld.ogg` | a handheld's power tone or button click | [Game Boy Classic - Startup Sound](https://freesound.org/people/toumas/sounds/610484/) | toumas | 610484 | 0.01–0.79s | CC0 |
+| `hot_bath.ogg` | water, a tap run for a second | [open water tap sound.wav](https://freesound.org/people/estefania9/sounds/250923/) | estefania9 | 250923 | 0.00–1.03s | CC0 |
+| `house_cat.ogg` | one short meow | [cat meow short](https://freesound.org/people/skymary/sounds/412017/) | skymary | 412017 | 0.29–0.88s | CC0 |
+| `kitchen_bin.ogg` | a bin lid | [trashcan.wav](https://freesound.org/people/stomachache/sounds/44871/) | stomachache | 44871 | 0.37–0.98s | CC0 |
+| `old_keyboard.ogg` | one stuck key | [mechanical key hard.wav](https://freesound.org/people/bigmonmulgrew/sounds/378085/) | bigmonmulgrew | 378085 | 0.10–0.14s | CC0 |
+| `shower_head.ogg` | a shower running, short | [Shower Curtain Slide](https://freesound.org/people/amholma/sounds/344363/) | amholma | 344363 | 1.35–2.02s | CC0 |
+| `tally_book.ogg` | a pencil scratch, one stroke | [pencil scratch.wav](https://freesound.org/people/roloco/sounds/570282/) | roloco | 570282 | 0.11–0.33s | CC0 |
