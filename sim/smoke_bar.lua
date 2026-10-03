@@ -115,6 +115,22 @@ end
 c.ok(with > 0, "hovering Pot Control previews on the tables it moves (" .. with .. ")")
 c.ok(stack_text, "Pot Control's preview is the stack win, now and next")
 do
+    -- The cards are drawn in the top layer (after flights and cursors).
+    local TP = require("views.TablePanel")
+    local real, drawn = TP.flushPreviewCards, 0
+    local rec_rect = love.graphics.rectangle
+    TP.flushPreviewCards = function(game)
+        local n0 = 0
+        love.graphics.rectangle = function(...) n0 = n0 + 1; return rec_rect(...) end
+        real(game)
+        love.graphics.rectangle = rec_rect
+        drawn = n0
+    end
+    frame(hover)
+    TP.flushPreviewCards = real
+    c.ok(drawn > 0, "the hover cards are drawn in the top layer (" .. drawn .. " rects)")
+end
+do
     local t1 = w:tables()[1]
     local pv = t1._preview
     c.ok(pv and pv.now and pv.next and pv.focus == "stack", "the table's card has now and next bars, the stack segments in focus")

@@ -3176,6 +3176,10 @@ function GrindView:draw(overlay_fn)
     -- on top of the press-fade ghost they just dispatched.
     Perf.enter("cursors");  CursorPool.draw(self.game);        Perf.exit("cursors")
 
+    -- A hovered upgrade's cards over the tables it moves: above the flights,
+    -- the floaters and the cursors, so they can be read.
+    TablePanel.flushPreviewCards(self.game)
+
     if break_p then
         love.graphics.pop()
         Theme.setColor(Theme.currency.achip, (1 - break_p) * 0.55)

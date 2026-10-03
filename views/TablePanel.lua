@@ -3198,6 +3198,66 @@ end
 
 -- Pass B. Draw one panel and append any clickable hit-zones to hit_boxes.
 -- `shadow_done`: the caller drew the shadow already (the grid, cache on).
+-- A hovered upgrade's change on one table, queued by draw and drawn by
+-- TablePanel.flushPreviewCards after the chip flights, floaters and cursors
+-- so nothing flies over it.
+local _cards, _cards_n = {}, 0
+local function drawPreviewCard(tbl, pv, idx, x, y, w, h, game)
+-- A hovered upgrade's change on this table (set per frame by
+-- GrindView:_updatePreview): a card above the readout with the numbers,
+-- "now" and "next" bars (the segments the upgrade moves bright, the
+-- rest faint), outlined in the upgrade's colour and pulsing.
+    local ek = EV_KEY[idx]
+    local a = Anchors.get(ek)
+    local f = game.fonts and (game.fonts.xs or game.fonts.sm)
+    if f then
+        local th   = f:getHeight()
+        local pad  = 4
+        local text = pv.text
+        local lab_w = f:getWidth("next") + 4
+        local bar_w = math.floor(th * 6)
+        local max_w = w - 2 * pad - 8
+        local tw = IconText.measure(text, f)
+        if tw > max_w and pv.short then text = pv.short; tw = IconText.measure(text, f) end
+        local cw = math.min(max_w, math.max(tw, lab_w + bar_w))
+        bar_w = math.max(8, math.min(bar_w, cw - lab_w))
+        local ch = th * 3 + 2
+        local bx = (a and Anchors.age(ek) <= 1) and (a[1] + a[3] - cw - pad) or (x + (w - cw) * 0.5 - pad)
+        bx = math.max(x + 4, math.min(bx, x + w - cw - 2 * pad - 4))
+        local by = ((a and Anchors.age(ek) <= 1) and a[2] or (y + h - th * 2)) - ch - 2 * pad - 4
+        by = math.max(y + 2, by)
+        Theme.setColor(Theme.bg.chrome, 1)
+        love.graphics.rectangle("fill", bx, by, cw + 2 * pad, ch + 2 * pad, 4, 4)
+        local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 7)
+        Theme.setColor(pv.color or Theme.sem.won, pulse)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", bx, by, cw + 2 * pad, ch + 2 * pad, 4, 4)
+        love.graphics.setLineWidth(1)
+        love.graphics.setFont(f)
+        local cx, cy = bx + pad, by + pad
+        IconText.draw(game, text, cx, cy, f, pv.color or Theme.sem.won, 1)
+        love.graphics.setFont(f)
+        local bh = math.max(3, math.floor(th * 0.55))
+        local o = _pv_opts
+        o.focus, o.highlight, o.ghost, o.alpha = pv.focus, nil, nil, nil
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.print("now", cx, cy + th + 1)
+        OutcomeBar.draw(cx + lab_w, cy + th + 1 + math.floor((th - bh) * 0.5), bar_w, bh, pv.now, o)
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.print("next", cx, cy + 2 * th + 2)
+        OutcomeBar.draw(cx + lab_w, cy + 2 * th + 2 + math.floor((th - bh) * 0.5), bar_w, bh, pv.next, o)
+    end
+end
+
+function TablePanel.flushPreviewCards(game)
+    for i = 1, _cards_n do
+        local c = _cards[i]
+        drawPreviewCard(c.tbl, c.pv, c.idx, c.x, c.y, c.w, c.h, game)
+        c.tbl, c.pv = nil, nil
+    end
+    _cards_n = 0
+end
+
 function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shadow_done)
     if not tbl then
         TablePanel.drawEmpty(x, y, w, h, game.fonts)
@@ -3363,52 +3423,14 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shad
         end
     end
 
-    -- A hovered upgrade's change on this table (set per frame by
-    -- GrindView:_updatePreview): a card above the readout with the numbers,
-    -- "now" and "next" bars (the segments the upgrade moves bright, the
-    -- rest faint), outlined in the upgrade's colour and pulsing.
+    -- A hovered upgrade's change on this table: queued, drawn on top of
+    -- everything by TablePanel.flushPreviewCards (GrindView, last).
     local pv = tbl._preview
     if pv and pv.text and pv.now and pv.next then
-        local ek = EV_KEY[idx]
-        local a = Anchors.get(ek)
-        local f = game.fonts and (game.fonts.xs or game.fonts.sm)
-        if f then
-            local th   = f:getHeight()
-            local pad  = 4
-            local text = pv.text
-            local lab_w = f:getWidth("next") + 4
-            local bar_w = math.floor(th * 6)
-            local max_w = w - 2 * pad - 8
-            local tw = IconText.measure(text, f)
-            if tw > max_w and pv.short then text = pv.short; tw = IconText.measure(text, f) end
-            local cw = math.min(max_w, math.max(tw, lab_w + bar_w))
-            bar_w = math.max(8, math.min(bar_w, cw - lab_w))
-            local ch = th * 3 + 2
-            local bx = (a and Anchors.age(ek) <= 1) and (a[1] + a[3] - cw - pad) or (x + (w - cw) * 0.5 - pad)
-            bx = math.max(x + 4, math.min(bx, x + w - cw - 2 * pad - 4))
-            local by = ((a and Anchors.age(ek) <= 1) and a[2] or (y + h - th * 2)) - ch - 2 * pad - 4
-            by = math.max(y + 2, by)
-            Theme.setColor(Theme.bg.chrome, 0.95)
-            love.graphics.rectangle("fill", bx, by, cw + 2 * pad, ch + 2 * pad, 4, 4)
-            local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 7)
-            Theme.setColor(pv.color or Theme.sem.won, pulse)
-            love.graphics.setLineWidth(2)
-            love.graphics.rectangle("line", bx, by, cw + 2 * pad, ch + 2 * pad, 4, 4)
-            love.graphics.setLineWidth(1)
-            love.graphics.setFont(f)
-            local cx, cy = bx + pad, by + pad
-            IconText.draw(game, text, cx, cy, f, pv.color or Theme.sem.won, 1)
-            love.graphics.setFont(f)
-            local bh = math.max(3, math.floor(th * 0.55))
-            local o = _pv_opts
-            o.focus, o.highlight, o.ghost, o.alpha = pv.focus, nil, nil, nil
-            Theme.setColor(Theme.fg.muted)
-            love.graphics.print("now", cx, cy + th + 1)
-            OutcomeBar.draw(cx + lab_w, cy + th + 1 + math.floor((th - bh) * 0.5), bar_w, bh, pv.now, o)
-            Theme.setColor(Theme.fg.heading)
-            love.graphics.print("next", cx, cy + 2 * th + 2)
-            OutcomeBar.draw(cx + lab_w, cy + 2 * th + 2 + math.floor((th - bh) * 0.5), bar_w, bh, pv.next, o)
-        end
+        _cards_n = _cards_n + 1
+        local c = _cards[_cards_n]
+        if not c then c = {}; _cards[_cards_n] = c end
+        c.tbl, c.pv, c.idx, c.x, c.y, c.w, c.h = tbl, pv, idx, x, y, w, h
     end
 
     -- Click surfaces (services/ClickSurfaces), under the panel's transform
