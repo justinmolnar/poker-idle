@@ -37,6 +37,9 @@ local ChipData       = require("data.chips")
 local FlightSystem   = require("services.FlightSystem")
 local ChipFlight     = require("views.ChipFlight")
 local ChipPile       = require("views.ChipPile")
+local PanelSheet     = require("views.PanelSheet")
+-- Tables open and close like windows: OPEN_FROM smaller, over OPEN_SECS / CLOSE_SECS.
+local OPEN_FROM, OPEN_SECS, CLOSE_SECS = 0.15, 0.28, 0.26
 local ClickSurfaces  = require("services.ClickSurfaces")
 local Poke           = require("services.Poke")
 local Chips          = require("views.Chips")
@@ -1362,6 +1365,13 @@ function GrindView:update(dt)
     local bursts = self.controller:drainBursts()
     -- A closed table's piles go now, not after the sweep's thirty seconds
     -- (the controller queues the keys; it never names a view).
+    -- A table closed in play: copy its last picture out of the panel sheet
+    -- (before this frame's draw reuses the slot) into a closing ghost.
+    local ct = self.controller.closed_tables
+    if ct and #ct > 0 then
+        for i = 1, #ct do self:_ghostClosedTable(ct[i]) end
+        for i = #ct, 1, -1 do ct[i] = nil end
+    end
     local fp = self.controller.forget_piles
     if fp and #fp > 0 then
         for i = 1, #fp do ChipPile.forget(fp[i]) end
@@ -2467,6 +2477,17 @@ function GrindView:_drawCenterGrid(W, H)
                     gw, gh = pw * sc, ph * sc
                 end
             end
+            -- A table opening grows in like a window (a scaled panel draws
+            -- whole; the cache sends it the immediate way by its size).
+            if not tbl._grid_seen then
+                tbl._grid_seen = true
+                Pop.trigger(TableModel.rollingKey(tbl, "tbl_open"))
+            end
+            local op = Pop.progress(TableModel.rollingKey(tbl, "tbl_open"), OPEN_SECS)
+            if op > 0 then
+                local sc = 1 - OPEN_FROM * op
+                gw, gh = gw * sc, gh * sc
+            end
             local k = i * 4
             P[k - 3], P[k - 2], P[k - 1], P[k] = dx, dy, gw, gh
             -- A scaled (settling) panel is prepared at its drawn size, which
@@ -2512,6 +2533,50 @@ function GrindView:_drawCenterGrid(W, H)
     else
         self._held_draw = nil
     end
+end
+
+-- The closing ghost of table `tbl`: its rect from last frame's panel list,
+-- its picture from its panel sheet slot (when the slot is still its own;
+-- otherwise it just goes).
+function GrindView:_ghostClosedTable(tbl)
+    local list_p = self.table_panels or {}
+    for n = 1, (self._panels_n or 0) do
+        local e = list_p[n]
+        if e and e.table_id == tbl._id then
+            local canvas, pad = PanelSheet.copySlot(tbl._pslot, tbl)
+            if canvas then
+                local list = self._closing
+                if not list then list = {}; self._closing = list end
+                list[#list + 1] = { canvas = canvas, pad = pad, x = e.x, y = e.y, w = e.w, h = e.h,
+                                    t0 = love.timer.getTime() }
+            end
+            return
+        end
+    end
+end
+
+function GrindView:_drawClosing()
+    local list = self._closing
+    if not list or #list == 0 then return end
+    local now = love.timer.getTime()
+    local lg = love.graphics
+    for i = #list, 1, -1 do
+        local g = list[i]
+        local p = (now - g.t0) / CLOSE_SECS
+        if p >= 1 then
+            if g.canvas.release then g.canvas:release() end
+            table.remove(list, i)
+        else
+            local ease = p * p
+            local sc, a = 1 - OPEN_FROM * ease, 1 - ease
+            local cx, cy = g.x + g.w * 0.5, g.y + g.h * 0.5
+            lg.setBlendMode("alpha", "premultiplied")
+            lg.setColor(a, a, a, a)
+            lg.draw(g.canvas, cx, cy, 0, sc, sc, g.w * 0.5 + g.pad, g.h * 0.5 + g.pad)
+            lg.setBlendMode("alpha")
+        end
+    end
+    lg.setColor(1, 1, 1, 1)
 end
 
 -- One entry per drawn table panel for the cursor swarm: where it is, which
@@ -3041,6 +3106,7 @@ function GrindView:draw(overlay_fn)
     end
     Perf.enter("rail");     self:drawChrome(W);               Perf.exit("rail")
     Perf.enter("grid");     self:_drawCenterGrid(W, H);       Perf.exit("grid")
+    self:_drawClosing()
     do
         local list, n = self.table_panels, self._panels_n or 0
         for i = #list, n + 1, -1 do list[i] = nil end

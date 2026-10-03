@@ -2743,6 +2743,13 @@ function GrindController:_finalizeRemove(idx, quiet)
     AnchorRegistry.forgetAll(t._anchor_keys)
     if self._tbl_stats then self._tbl_stats[t._id] = nil end
     if self._tbl_debug then self._tbl_debug[t._id] = nil end
+    -- A table closed in play leaves like a window (GrindView's closing
+    -- ghost, from the panel's last picture); a quiet removal just goes.
+    if not quiet then
+        local ct = self.closed_tables
+        if not ct then ct = {}; self.closed_tables = ct end
+        ct[#ct + 1] = t
+    end
     local fp = self.forget_piles
     if not fp then fp = {}; self.forget_piles = fp end
     fp[#fp + 1] = TableModel.anchorKey(t, "pot")

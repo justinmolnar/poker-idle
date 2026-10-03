@@ -3145,7 +3145,7 @@ function TablePanel.prepare(tbl, idx, x, y, w, h, game, controller)
     -- are recorded at these coordinates and replayed by draw shifted to
     -- wherever the panel is that frame.
     PanelSheet.beginWrite()
-    PanelSheet.clearSlot(idx)
+    PanelSheet.clearSlot(idx, tbl)
     local ox, oy = PanelSheet.slotOffset(idx, x, y)
     love.graphics.push()
     love.graphics.translate(ox, oy)

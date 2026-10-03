@@ -38,6 +38,7 @@ local _canvas = nil
 local _n, _w, _h = 0, 0, 0     -- what the sheet was built for
 local _cols, _rows = 0, 0
 local _quads = {}              -- one persistent Quad per slot
+local _owner = {}              -- who last wrote each slot (clearSlot's owner)
 local _writing = false
 local _prev_canvas = nil
 local _limit = nil
@@ -62,6 +63,7 @@ local function drop()
     if _canvas and _canvas.release then _canvas:release() end
     _canvas = nil
     for i = #_quads, 1, -1 do _quads[i] = nil end
+    for k in pairs(_owner) do _owner[k] = nil end
     _n, _w, _h, _cols, _rows = 0, 0, 0, 0, 0
     _gen = _gen + 1
     Perf.gauge("sheet_mb", 0)
@@ -144,8 +146,9 @@ function PanelSheet.writing() return _writing end
 -- ignores the scissor on some drivers and would take the whole sheet with
 -- it. The scissor stays until the next clearSlot or endWrite, so the
 -- render is clipped to its own cell.
-function PanelSheet.clearSlot(i)
+function PanelSheet.clearSlot(i, owner)
     if not _writing then return end
+    _owner[i] = owner
     local sx, sy = PanelSheet.slotRect(i)
     local sw, sh = _w + 2 * PAD, _h + 2 * PAD
     love.graphics.setScissor(sx, sy, sw, sh)
@@ -181,6 +184,30 @@ end
 function PanelSheet.bytes()
     if not _canvas then return 0 end
     return _cols * (_w + 2 * PAD) * _rows * (_h + 2 * PAD) * 4
+end
+
+-- A copy of slot i's picture as its own small canvas (with the slot's
+-- gutter, `PAD` px on every side), or nil. For a panel that is about to
+-- vanish (a closing table's ghost): the slot is reused next frame. The
+-- caller releases it. With `owner`, only when that owner wrote the slot
+-- last (slots follow the draw order, so another panel may have taken it).
+function PanelSheet.copySlot(i, owner)
+    local q = i and _quads[i]
+    if not (_canvas and q and love.graphics.newCanvas) then return nil end
+    if owner ~= nil and _owner[i] ~= owner then return nil end
+    local w, h = _w + 2 * PAD, _h + 2 * PAD
+    local ok, c = pcall(love.graphics.newCanvas, w, h, { dpiscale = 1 })
+    if not ok or not c then return nil end
+    love.graphics.push("all")
+    love.graphics.setCanvas(c)
+    love.graphics.clear(0, 0, 0, 0)
+    love.graphics.origin()
+    love.graphics.setScissor()
+    love.graphics.setBlendMode("replace", "premultiplied")
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(_canvas, q, 0, 0)
+    love.graphics.pop()
+    return c, PAD
 end
 
 -- The canvas itself (tests watch its release).

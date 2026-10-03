@@ -137,6 +137,8 @@ g.sim_frozen = true
 Constants.FEATURES.PANEL_CACHE = false
 frame()
 Constants.FEATURES.PANEL_CACHE = true
+-- New tables grow in (a scaled cell, the size bypass); past that, at rest.
+H.clock = H.clock + 1
 rec.reset()
 frame()
 do
@@ -377,9 +379,36 @@ do
     c.ok(PanelSheet.debugCanvas() ~= old, "the sheet is a new canvas")
     local n = PanelSheet.debugSize()
     c.eq(n, 4, "the new sheet holds four slots")
-    c.eq((counters()), 4, "every panel rebuilds into the new sheet")
+    local rb, bp = counters()
+    c.eq(rb, 3, "the old panels rebuild into the new sheet")
+    c.eq(bp, 1, "the new table grows in (it bypasses while scaled)")
+    c.eq(Perf.counter("bypass:size"), 1, "by its size")
+    H.clock = H.clock + 1
+    frame()
+    c.eq((counters()), 1, "grown, it rebuilds into its slot")
     frame()
     c.eq((counters()), 0, "and rests")
+end
+
+-- ── close ───────────────────────────────────────────────────────────────
+
+do
+    local n0 = #tables
+    ctrl:removeTable(n0)
+    frame()
+    local ghosts = view._closing or {}
+    c.eq(#ghosts, 1, "a table closed in play leaves a ghost")
+    c.eq(#tables, n0 - 1, "and is gone from the board")
+    local g1 = ghosts[1]
+    local released = false
+    if g1 then g1.canvas.release = function() released = true end end
+    H.clock = H.clock + 1
+    frame()
+    c.eq(#ghosts, 0, "the ghost is done in a moment")
+    c.ok(released, "its canvas is released")
+    ctrl:cashOutAll(true)
+    frame()
+    c.eq(#(view._closing or {}), 0, "a quiet removal leaves none")
 end
 
 os.exit(c.report("smoke_panels") == 0 and 0 or 1)
