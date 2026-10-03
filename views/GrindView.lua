@@ -1636,7 +1636,7 @@ end
 
 -- The chips' two lines: one table for the session (the tooltip's layout
 -- is cached on the table's identity).
-local CHIPS_TIP = { Rail.tooltips.banked, Rail.tooltips.next }
+local CHIPS_TIP = { Rail.tooltips.banked }
 
 -- ── The rail's helpers, hoisted ──
 -- The builder used to make these as closures on every frame (three
@@ -1894,7 +1894,7 @@ function GrindView:_buildRailComponents()
 
     -- ── The buttons: the gear, the book, the room, the deck ──
     local gear = { type = "button", id = "nav:settings", anchor = "btn:settings",
-        w = btn_w, face_h = face_h, depth = depth, tooltip = R.tooltips.settings,
+        w = btn_w, face_h = face_h, depth = depth,
         face_fn = gearFace }
     -- Locked, a button is BLANK (the locked game-type keys' rule): no
     -- picture, no word, no line. The slot is there; nothing else is said.
@@ -1909,7 +1909,7 @@ function GrindView:_buildRailComponents()
         anchor_also = on_room and "room:play" or nil,
         w = fl(RAIL_BTN_H * SP.room_thumb_w), face_h = face_h, depth = depth,
         disabled = room_locked,
-        tooltip  = (not room_locked) and (on_room and R.labels.play or R.tooltips.room) or nil,
+        tooltip  = (not room_locked and on_room) and R.labels.play or nil,
         lines    = {},
         face_fn  = (not room_locked) and self._face_room or nil }
     local deck_open = Decks.systemUnlocked(state)
@@ -1965,7 +1965,7 @@ function GrindView:_buildRailComponents()
     local cash_w = fonts.sm:getWidth(R.labels.cash_out) + fl(SP.word_button_pad * s)
     local tied_stat = railStat({ value = "", value_style = "sm", h = tied_h, valign = "top",
         value_color = broken and Theme.currency.achip or Theme.fg.muted,
-        anchor = "cell:tied", tooltip = R.tooltips.tied_up,
+        anchor = "cell:tied",
         w = reserveW(fonts.sm, R.labels.tied_up .. " " .. R.reserve.tied_up) }, face_bottom)
     rc.tied = tied_stat
     local tied = { type = "column", children = {

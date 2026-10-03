@@ -1965,9 +1965,8 @@ local function drawFeltButton(tbl, x, y, w, h, fonts, hit_boxes, idx, label, act
         hb.visual_x, hb.visual_y, hb.visual_w, hb.visual_h = bx, by, btn_w, btn_h
         hb.action, hb.idx, hb.table_id = action, idx, table_id
         hb.label, hb.fill_color = label, fill_color
-        hb.tooltip = (action == "deal")
-              and "Deal a hand at this table."
-              or  "Refill the stack and deal the next hand."
+        -- DEAL says nothing (the button says it); REBUY says it also deals.
+        hb.tooltip = (action == "rebuy") and "Refill the stack and deal the next hand." or nil
         return hb
     end
 end

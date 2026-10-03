@@ -30,25 +30,20 @@ return {
     },
 
     tooltips = {
-        settings = "Settings.",
         catalog  = "The catalog. Everything you can buy for your room.",
-        room     = "Your room.",
-        cash_out = "Cash out every table: each one's stack comes back to your bankroll.",
-        tied_up  = "Money sitting at your tables. CASH OUT brings it back.",
+        cash_out = "Every table's stack back to your bankroll.",
         bankroll = "Your bankroll: the money you play with.",
-        banked   = "Yours. Spend them in the catalog.",
-        next     = "{c:chip:Banked} when you shove.",
+        banked   = "Spend them in the catalog; NEXT banks when you shove.",
         -- FOCUS: the first line, then the numbers the builder formats.
         focus    = "FOCUS is how fast every table plays.",
         focus_ok = "Stays 100%% at or under %d tables.",
         focus_pen = "Each table over drops it %.0f%% (floor %.0f%%).",
         focus_cap = "Hard cap: %d tables.",
         -- SHOVE, unlocked: the lede, the run's take, then the rate breakdown.
-        shove_lede = "Bet everything on one all-in hand at the rate below. Winning beats the prototype (you can keep playing after). Either way you bank this run's {chip} to spend in the catalog on permanent {c:upgrade:upgrades}, then a new run starts.",
+        shove_lede = "One all-in hand at this rate. Win or lose, the run's {chip} bank for the catalog and a new run starts.",
         shove_take = "Banks +%d {chip} for the catalog.",
         shove_lock = "Click to lock this rate.",
-        quick_reset = { "Banks your {chip} and starts a fresh $2 stake.",
-                        "No Shove, for when you're broke and stuck." },
+        quick_reset = { "Banks your {chip} and starts over at $2. No Shove." },
         deck_click  = "Click to see your decks",
         -- The earn rate over the bankroll: the lede, one line per table
         -- (the builder formats the numbers), the run's actual, the graph.
