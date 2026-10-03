@@ -183,7 +183,7 @@ in the editor:
 
 ## 8. Clicks
 
-Planned 2026-10-03, not built yet. Every click answers where it lands, like Hearthstone's board: a surface sound and
+Built 2026-10-03 (services/ClickFX, ClickSurfaces, Sparks, Poke; numbers in data/clicks.lua; sim/smoke_clicks.lua). Every click answers where it lands, like Hearthstone's board: a surface sound and
 a spark at the cursor on every click, result or not. A click that does something layers the button click (section 6)
 over it with a gold burst; a button that can't act plays the denied thunk and shakes; rapid clicks climb in pitch and
 spark size, capped, settling when you pause; the cursors click too, pitched up, quieter, fewer specks. A dead click is
@@ -191,13 +191,13 @@ told from a live one in `main.lua` (no `ClickFlash.press`/`.click` fired during 
 registry of tagged rects beside the anchors. Candidates for every row are in the audition (`tools/audition_sounds.py`,
 "Clicks (new)").
 
-- [x] `click_felt` (wire) | a soft cloth tap | a table's playing area, the shove felt; dust in the stake's felt colour, a faint ring (`ui/click_felt.ogg`, Freesound CC0, ui/MANIFEST)
-- [x] `click_chrome` (wire) | a hard tick | Settings and the other mechanical modals, sidebars, panel headers and frames; 2–3 glints (`ui/click_chrome.ogg`, Freesound CC0, ui/MANIFEST)
-- [x] `click_rail` (wire) | a deeper knock, a desk edge | the bottom bar; specks off its top edge, readouts react (digits jostle, numbers bump, chip icons spin) (`ui/click_rail.ogg`, Freesound CC0, ui/MANIFEST)
-- [x] `click_empty` (wire) | a hollow knock | an empty slot; grey dust (`ui/click_empty.ogg`, Freesound CC0, ui/MANIFEST)
-- [x] `click_wall` (wire) | a muffled thump | the background, the room's floor and walls; dim specks (`ui/click_wall.ogg`, Freesound CC0, ui/MANIFEST)
-- [x] `click_paper` (wire) | a paper tap | the catalog's pages and cards, the pamphlet, the House poster (it swings on its pin), the story band; paper flecks (`ui/click_paper.ogg`, Freesound CC0, ui/MANIFEST)
-- [x] `click_denied` (wire) | a dull thunk | a button that can't act (an upgrade you can't afford); dark specks, the button shakes (`ui/click_denied.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_felt` | a soft cloth tap | a table's playing area, the shove felt; dust in the stake's felt colour, a faint ring (`ui/click_felt.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_chrome` | a hard tick | Settings and the other mechanical modals, sidebars, panel headers and frames; 2–3 glints (`ui/click_chrome.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_rail` | a deeper knock, a desk edge | the bottom bar; specks off its top edge, readouts react (digits jostle, numbers bump, chip icons spin) (`ui/click_rail.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_empty` | a hollow knock | an empty slot; grey dust (`ui/click_empty.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_wall` | a muffled thump | the background, the room's floor and walls; dim specks (`ui/click_wall.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_paper` | a paper tap | the catalog's pages and cards, the pamphlet, the House poster (it swings on its pin), the story band; paper flecks (`ui/click_paper.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_denied` | a dull thunk | a button that can't act (an upgrade you can't afford); dark specks, the button shakes (`ui/click_denied.ogg`, Freesound CC0, ui/MANIFEST)
 
 Already in hand, no file to find: cards (the pack's give, pitched up; the card jumps), table chips and the bankroll
 pile (the pack's chip clack; the top chip hops, the column wobbles), room items (their own foley; the item bobs), the
