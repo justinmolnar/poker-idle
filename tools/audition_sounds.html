@@ -48,7 +48,11 @@
   .card.playing .wave { outline: 1px solid var(--gold); }
   .num { width: 34px; height: 34px; border-radius: 50%; background: var(--panel2); display: grid; place-items: center; font-weight: 700; cursor: pointer; border: 1px solid var(--line); }
   .num:hover { border-color: var(--gold); }
-  .wave { width: 100%; height: 54px; display: block; background: #12100c; border-radius: 6px; cursor: pointer; }
+  .wave { width: 100%; height: 72px; display: block; background: #12100c; border-radius: 6px; cursor: crosshair; user-select: none; }
+  .cbtns { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
+  .cbtns .btn { padding: 3px 9px; font-size: 12px; }
+  .cbtns .btn:disabled { opacity: .4; cursor: default; }
+  .crop { color: var(--gold); font-size: 12px; font-family: ui-monospace, Consolas, monospace; }
   .meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
   .meta a { color: var(--fg); text-decoration: none; border-bottom: 1px dotted var(--muted); }
   .meta b { color: var(--fg); font-weight: 600; }
@@ -92,7 +96,7 @@ const GROUPS = [
   ["Interface", s => ["button_click","modal_open","modal_close","page_turn","stamp"].includes(s.name)],
   ["The grind", s => true],
 ];
-let data, slots = [], cur = 0, picks = { slots: {}, notes: "", ref: "items/nightstand.ogg" };
+let data, slots = [], cur = 0, picks = { slots: {}, crops: {}, notes: "", ref: "items/nightstand.ogg" };
 let ctx = null, gain = null, playing = null, lastPlayed = null;
 const buffers = new Map();
 
@@ -108,22 +112,46 @@ async function buffer(url) {
   return p;
 }
 function stop() {
-  if (playing) { try { playing.src.stop(); } catch (e) {} playing.el && playing.el.classList.remove("playing"); playing = null; }
+  if (playing) {
+    try { playing.src.stop(); } catch (e) {}
+    playing.el && playing.el.classList.remove("playing");
+    if (playing.wf) { playing.wf.head = null; paint(playing.wf); }
+    playing = null;
+  }
 }
-async function play(url, el) {
+// Play `url` from `offset` seconds for `dur` seconds (both optional). A
+// waveform record `wf` gets a moving playhead.
+async function play(url, el, offset, dur, wf) {
   audioCtx(); if (ctx.state === "suspended") await ctx.resume();
   stop();
   const buf = await buffer(url);
-  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(gain); src.start();
-  playing = { src, el }; el && el.classList.add("playing");
-  src.onended = () => { if (playing && playing.src === src) { el && el.classList.remove("playing"); playing = null; } };
+  offset = Math.max(0, Math.min(offset || 0, buf.duration));
+  if (dur === undefined || dur === null) dur = buf.duration - offset;
+  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(gain);
+  src.start(0, offset, Math.max(0.01, dur));
+  const p = { src, el, wf, offset, t0: ctx.currentTime, dur };
+  playing = p; el && el.classList.add("playing");
+  src.onended = () => { if (playing === p) { el && el.classList.remove("playing"); if (wf) { wf.head = null; paint(wf); } playing = null; } };
+  if (wf) {
+    const tick = () => {
+      if (playing !== p) return;
+      wf.head = p.offset + Math.min(p.dur, ctx.currentTime - p.t0);
+      paint(wf); requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
 }
-async function drawWave(canvas, url) {
+
+// A waveform: the drawn wave cached once, the crop and the playhead painted
+// over it. wf = { canvas, base, dur, sel: {start, end} | null, head }.
+async function drawWave(wf, url) {
   try {
     const buf = await buffer(url);
+    const canvas = wf.canvas;
     const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
     canvas.width = w * dpr; canvas.height = h * dpr;
-    const g = canvas.getContext("2d"); g.scale(dpr, dpr);
+    const base = document.createElement("canvas"); base.width = w * dpr; base.height = h * dpr;
+    const g = base.getContext("2d"); g.scale(dpr, dpr);
     const d = buf.getChannelData(0), step = Math.max(1, Math.floor(d.length / w));
     g.fillStyle = "#e2b84a";
     for (let x = 0; x < w; x++) {
@@ -133,8 +161,77 @@ async function drawWave(canvas, url) {
       g.fillRect(x, y1, 1, Math.max(1, y2 - y1));
     }
     g.fillStyle = "rgba(226,184,74,.18)"; g.fillRect(0, h / 2, w, 1);
-  } catch (e) { /* the play button still reports it */ }
+    // A tick every second along the bottom, so a long file can be read.
+    g.fillStyle = "rgba(236,228,212,.25)";
+    for (let t = 1; t < buf.duration; t++) g.fillRect(Math.round(t / buf.duration * w), h - 5, 1, 5);
+    wf.base = base; wf.dur = buf.duration; wf.w = w; wf.h = h;
+    paint(wf);
+  } catch (e) { /* the play button reports it */ }
 }
+function paint(wf) {
+  if (!wf.base) return;
+  const c = wf.canvas, g = c.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, c.width, c.height); g.drawImage(wf.base, 0, 0);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = wf.w, h = wf.h, X = t => t / wf.dur * w;
+  if (wf.sel) {
+    const a = X(wf.sel.start), b = X(wf.sel.end);
+    g.fillStyle = "rgba(10,9,7,.68)"; g.fillRect(0, 0, a, h); g.fillRect(b, 0, w - b, h);
+    g.fillStyle = "rgba(255,240,200,.10)"; g.fillRect(a, 0, b - a, h);
+    g.fillStyle = "#fff3cf"; g.fillRect(a - 1, 0, 2, h); g.fillRect(b - 1, 0, 2, h);
+    g.fillRect(a - 4, 0, 8, 4); g.fillRect(b - 4, 0, 8, 4);
+  }
+  if (wf.head !== null && wf.head !== undefined) { g.fillStyle = "#ffffff"; g.fillRect(X(wf.head), 0, 1.5, h); }
+}
+// Drag to mark the part to keep; drag an edge to move it; a click (no drag)
+// plays from that point (to the crop's end when inside it); double-click
+// clears the crop. `onChange(sel)` saves; `onClick(t)` plays.
+function attachCrop(wf, onChange, onClick) {
+  const c = wf.canvas;
+  const tAt = e => { const r = c.getBoundingClientRect(); return Math.max(0, Math.min(wf.dur, (e.clientX - r.left) / r.width * wf.dur)); };
+  const pxAt = e => e.clientX - c.getBoundingClientRect().left;
+  c.addEventListener("mousedown", e => {
+    if (!wf.dur || e.button !== 0) return;
+    e.preventDefault();
+    const x0 = pxAt(e), t0 = tAt(e);
+    let mode = "new", moved = false;
+    if (wf.sel) {
+      const ax = wf.sel.start / wf.dur * wf.w, bx = wf.sel.end / wf.dur * wf.w;
+      if (Math.abs(x0 - ax) <= 6) mode = "start"; else if (Math.abs(x0 - bx) <= 6) mode = "end";
+    }
+    const move = ev => {
+      if (Math.abs(pxAt(ev) - x0) > 3) moved = true;
+      if (!moved) return;
+      const t = tAt(ev);
+      if (mode === "new") wf.sel = { start: Math.min(t0, t), end: Math.max(t0, t) };
+      else if (mode === "start") wf.sel.start = Math.min(t, wf.sel.end - 0.01);
+      else wf.sel.end = Math.max(t, wf.sel.start + 0.01);
+      paint(wf);
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up);
+      if (moved) {
+        if (wf.sel && wf.sel.end - wf.sel.start < 0.02) wf.sel = null;
+        paint(wf); onChange(wf.sel);
+      } else onClick(t0);
+    };
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+  });
+  c.addEventListener("mousemove", e => {
+    if (!wf.sel || !wf.dur) { c.style.cursor = "crosshair"; return; }
+    const x = pxAt(e), ax = wf.sel.start / wf.dur * wf.w, bx = wf.sel.end / wf.dur * wf.w;
+    c.style.cursor = (Math.abs(x - ax) <= 6 || Math.abs(x - bx) <= 6) ? "ew-resize" : "crosshair";
+  });
+  c.addEventListener("dblclick", () => { wf.sel = null; paint(wf); onChange(null); });
+}
+function cropOf(slot, file) { return (picks.crops[slot] || {})[file] || null; }
+function setCrop(slot, file, sel) {
+  const m = picks.crops[slot] || (picks.crops[slot] = {});
+  if (sel) m[file] = { start: +sel.start.toFixed(3), end: +sel.end.toFixed(3) }; else delete m[file];
+  if (!Object.keys(m).length) delete picks.crops[slot];
+  save();
+}
+const fmt = t => t.toFixed(2) + "s";
 
 function slotPick(name) { return picks.slots[name] || (picks.slots[name] = { choice: null, note: "" }); }
 function status(name) {
@@ -208,7 +305,7 @@ function render() {
       <label for="note">Notes on this one (trim it, too long, find something closer to…)</label>
       <textarea id="note" placeholder="Optional.">${esc(p.note || "")}</textarea>
     </div>
-    <div class="keys"><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> play · <kbd>P</kbd> pick the last one played · <kbd>R</kbd> reference · <kbd>N</kbd> none of these · <kbd>Space</kbd> replay · <kbd>J</kbd>/<kbd>K</kbd> or <kbd>↓</kbd>/<kbd>↑</kbd> next / previous</div>`;
+    <div class="keys">On a wave: drag to keep only that part (it plays when you let go), drag an edge to move it, click to play from that point, double-click to clear. A crop saves with the file and is cut when the file is placed.<br><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> play (the crop, if set) · <kbd>Space</kbd> replay · <kbd>X</kbd> clear the crop · <kbd>Esc</kbd> stop · <kbd>P</kbd> pick the last one played · <kbd>R</kbd> reference · <kbd>N</kbd> none of these · <kbd>J</kbd>/<kbd>K</kbd> or <kbd>↓</kbd>/<kbd>↑</kbd> next / previous</div>`;
   const cards = document.getElementById("cards");
   if (!s.candidates.length) cards.innerHTML = `<div class="empty">Nothing passed the rules for this one. Say what to search for in the notes.</div>`;
   s.candidates.forEach((c, k) => {
@@ -225,15 +322,40 @@ function render() {
           <span>${c.downloads.toLocaleString()} downloads</span>
           ${lv.gain_db !== undefined ? `<span>levelled ${lv.gain_db > 0 ? "+" : ""}${lv.gain_db} dB</span>` : `<span style="color:var(--amber)">not levelled</span>`}
         </div>
+        <div class="cbtns">
+          <button class="btn" data-a="full">&#9654; Whole file</button>
+          <button class="btn" data-a="crop" disabled>&#9654; Crop only</button>
+          <button class="btn" data-a="clear" disabled>Clear crop</button>
+          <span class="crop"></span>
+        </div>
       </div>
       <div class="actions"><button class="btn ${p.choice === c.file ? "primary" : ""}">${p.choice === c.file ? "✓ Picked" : "Pick"}</button></div>`;
-    const go = () => { lastPlayed = k; play(url, card).catch(() => { card.querySelector(".meta").insertAdjacentHTML("beforeend", `<span style="color:var(--red)">couldn't play</span>`); }); };
+    const wf = { canvas: card.querySelector(".wave"), sel: null, head: null };
+    const saved = cropOf(s.name, c.file); if (saved) wf.sel = { start: saved.start, end: saved.end };
+    const fail = () => card.querySelector(".meta").insertAdjacentHTML("beforeend", `<span style="color:var(--red)">couldn't play</span>`);
+    const bCrop = card.querySelector('[data-a="crop"]'), bClear = card.querySelector('[data-a="clear"]'), lab = card.querySelector(".crop");
+    const showCrop = () => {
+      bCrop.disabled = bClear.disabled = !wf.sel;
+      lab.textContent = wf.sel ? `keep ${fmt(wf.sel.start)} - ${fmt(wf.sel.end)} (${fmt(wf.sel.end - wf.sel.start)})` : "drag across the wave to keep only part of it";
+      const pb = card.querySelector(".actions .btn");
+      if (p.choice === c.file) pb.textContent = wf.sel ? "\u2713 Picked (cropped)" : "\u2713 Picked";
+    };
+    // The number, Space and Crop only play the crop when there is one.
+    const go = () => { lastPlayed = k; (wf.sel ? play(url, card, wf.sel.start, wf.sel.end - wf.sel.start, wf) : play(url, card, 0, null, wf)).catch(fail); };
+    card._go = go;
+    card._clear = () => { wf.sel = null; paint(wf); setCrop(s.name, c.file, null); showCrop(); };
     card.querySelector(".num").onclick = go;
-    card.querySelector(".wave").onclick = go;
+    card.querySelector('[data-a="full"]').onclick = () => { lastPlayed = k; play(url, card, 0, null, wf).catch(fail); };
+    bCrop.onclick = go;
+    bClear.onclick = card._clear;
     card.querySelector(".actions .btn").onclick = () => choose(c.file);
+    attachCrop(wf, sel => { setCrop(s.name, c.file, sel); showCrop(); if (sel) go(); },
+      t => { lastPlayed = k;
+             const inCrop = wf.sel && t >= wf.sel.start && t < wf.sel.end;
+             play(url, card, t, inCrop ? wf.sel.end - t : null, wf).catch(fail); });
     cards.appendChild(card);
-    c._url = url;
-    drawWave(card.querySelector(".wave"), url);
+    showCrop();
+    drawWave(wf, url);
   });
   document.getElementById("refplay").onclick = () => play("/audio/" + picks.ref.split("/").map(encodeURIComponent).join("/"));
   document.getElementById("refsel").onchange = e => { picks.ref = e.target.value; save(); };
@@ -252,7 +374,9 @@ document.addEventListener("keydown", e => {
   else if (e.key === "p" || e.key === "P") { if (lastPlayed !== null && s.candidates[lastPlayed]) choose(s.candidates[lastPlayed].file); }
   else if (e.key === "r" || e.key === "R") document.getElementById("refplay").click();
   else if (e.key === "n" || e.key === "N") document.getElementById("none").click();
-  else if (e.key === " ") { e.preventDefault(); if (lastPlayed !== null) { const card = document.querySelectorAll(".card")[lastPlayed]; card && card.querySelector(".num").click(); } }
+  else if (e.key === " ") { e.preventDefault(); if (lastPlayed !== null) { const card = document.querySelectorAll(".card")[lastPlayed]; card && card._go(); } }
+  else if (e.key === "x" || e.key === "X") { if (lastPlayed !== null) { const card = document.querySelectorAll(".card")[lastPlayed]; card && card._clear(); } }
+  else if (e.key === "Escape") stop();
   else if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); if (cur < slots.length - 1) { cur++; lastPlayed = null; render(); } }
   else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); if (cur > 0) { cur--; lastPlayed = null; render(); } }
 });
@@ -269,6 +393,7 @@ document.addEventListener("keydown", e => {
   }
   for (const [name, m] of Object.entries(data.candidates)) if (!name.startsWith("_")) slots.push({ name, ...m });
   if (data.picks && data.picks.slots) picks = Object.assign(picks, data.picks);
+  picks.crops = picks.crops || {};
   if (!data.references.includes(picks.ref)) picks.ref = data.references[0];
   const g = document.getElementById("gnotes"); g.value = picks.notes || ""; g.oninput = () => { picks.notes = g.value; save(); };
   const first = slots.findIndex(s => !status(s.name)); cur = first < 0 ? 0 : first;

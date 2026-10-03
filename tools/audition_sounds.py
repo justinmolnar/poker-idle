@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 AUDIO = os.path.join(ROOT, "assets", "audio")
 CAND = os.path.join(AUDIO, "raw", "candidates")
-PICKS = os.path.join(CAND, "picks.json")
+PICKS = os.environ.get("AUDITION_PICKS") or os.path.join(CAND, "picks.json")
 PAGE = os.path.join(os.path.dirname(__file__), "audition_sounds.html")
 PORT = int(os.environ.get("AUDITION_PORT", "8765"))
 
