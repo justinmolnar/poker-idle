@@ -52,7 +52,10 @@ end
 --   danger          (bool, default false) — if true, Confirm is red
 --   confirm_label   (default "Confirm")
 --   cancel_label    (default "Cancel")
+-- Every confirm on every screen opens and closes with the modal sounds,
+-- here, once.
 function ConfirmDialog:new(opts)
+    require("services.SoundService").playNamed("modal_open")
     return setmetatable({
         prompt        = opts.prompt or "",
         on_confirm    = opts.on_confirm,
@@ -69,6 +72,7 @@ end
 function ConfirmDialog:resolved() return self._resolved end
 
 local function fire(self, kind)
+    if not self._resolved then require("services.SoundService").playNamed("modal_close") end
     self._resolved = kind
     if kind == "confirm" and self.on_confirm then self.on_confirm() end
     if kind == "cancel"  and self.on_cancel  then self.on_cancel()  end
@@ -91,8 +95,9 @@ function ConfirmDialog:consumeMouse(mx, my, button)
         return rect and mx >= rect.x and mx < rect.x + rect.w
                     and my >= rect.y and my < rect.y + rect.h
     end
-    if inside(self._cancel_rect)  then fire(self, "cancel");  return true end
-    if inside(self._confirm_rect) then fire(self, "confirm"); return true end
+    local ClickFlash = require("services.ClickFlash")
+    if inside(self._cancel_rect)  then ClickFlash.click(); fire(self, "cancel");  return true end
+    if inside(self._confirm_rect) then ClickFlash.click(); fire(self, "confirm"); return true end
     return true  -- click outside the buttons swallowed; user must pick one
 end
 

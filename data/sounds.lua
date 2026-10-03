@@ -34,6 +34,8 @@ local COINS            = expand(UVEGAS .. "Coins/coins_",                       
 -- Rendered from the pack's card deal (build-tools/render_felt_sounds.py):
 -- the same sound degraded three ways, for the ending flood.
 local FELT             = "assets/audio/felt/"
+-- Freesound CC0 picks (tools/place_sounds.py; credited in each folder's MANIFEST).
+local UI               = "assets/audio/ui/"
 
 return {
     -- ── Mix rules (read by SoundService; not sound names) ─────────────
@@ -92,9 +94,6 @@ return {
     lights_on           = { file = "assets/audio/room/light_switch.ogg", volume = 0.8,
                             layer = { file = "assets/audio/room/fluorescent.ogg", volume = 0.12 } },
     lights_off          = { file = "assets/audio/room/light_switch.ogg", volume = 0.8 },
-    -- Still to find (see docs/sound-checklist.md): catalog_thud. The name
-    -- is wired on the shove timeline; a file named catalog_thud under
-    -- assets/audio/ pairs by itself. Silent until then.
     -- The win sting: coins, with a four-chip drop under them for the full
     -- clear. The loss: one chip pitched down, no jingle. The grind's
     -- tournament win and bust are the same two sounds by their own names.
@@ -134,7 +133,8 @@ return {
     chip_land_bankroll  = { files = CHIP_DROP_2,  volume = 0.45 },
 
     -- ── Cursor swarm (distinct from human mouse path) ───────────────────
-    cursor_tap          = { files = CHIP_1ON1,    volume = 0.18 },
+    -- The button click, quiet: a cursor presses the same buttons you do.
+    cursor_tap          = { file = UI .. "button_click.ogg", volume = 0.12, min_gap = 0.02 },
 
     -- ── Player-action feedback (purchases, rebuys, stake-ups, table adds) ─
     upgrade_purchased   = { files = CHIP_DROP_3,  volume = 0.60 },
@@ -161,4 +161,30 @@ return {
     -- the call site so Small is barely audible, Stack is a full ding).
     border_pulse_win    = { files = CHIP_1ON1,    volume = 0.25 },
     border_pulse_loss   = { files = CHIP_DROP_2,  volume = 0.30 },
+
+    -- ── Interface (assets/audio/ui) ─────────────────────────────────────
+    -- One click for every press (services/ClickFlash.press).
+    button_click        = { file = UI .. "button_click.ogg", volume = 0.35, min_gap = 0.03 },
+    -- A modal, the glossary, a confirm, the book and the pamphlet.
+    modal_open          = { file = UI .. "modal_open.ogg",   volume = 0.45, min_gap = 0.05 },
+    modal_close         = { file = UI .. "modal_close.ogg",  volume = 0.45, min_gap = 0.05 },
+    page_turn           = { file = UI .. "page_turn.ogg",    volume = 0.50 },
+    -- ORDERED on a bought item; a corrupt purchase plays it damaged.
+    stamp               = { file = UI .. "stamp.ogg",        volume = 0.60 },
+
+    -- ── The felt and the grind (assets/audio/felt) ──────────────────────
+    -- The book and the pamphlet landing on the felt in the shove.
+    catalog_thud        = { file = FELT .. "catalog_thud.ogg", volume = 0.70 },
+    flyer_slap          = { file = FELT .. "flyer_slap.ogg",   volume = 0.60 },
+    -- Each step further over the focus cap (pitched down per step).
+    focus_overload      = { file = FELT .. "focus_overload.ogg", volume = 0.50, min_gap = 0.25 },
+    -- A heater as it appears on a table (with the fist, when a punch
+    -- carried it). One per burst of tables, whatever the count.
+    heater_lands        = { file = FELT .. "heater_lands.ogg", volume = 0.50, min_gap = 0.15 },
+    -- A slam's fist landing; a neighbour shove plays it at half.
+    punch               = { file = FELT .. "punch.ogg",        volume = 0.60, min_gap = 0.08 },
+    -- A deck levelling up or unlocking.
+    deck_up             = { file = FELT .. "deck_up.ogg",      volume = 0.55, min_gap = 0.3 },
+    -- The Act 3 underflow, once.
+    underflow           = { file = FELT .. "underflow.ogg",    volume = 0.80 },
 }

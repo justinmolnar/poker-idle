@@ -271,6 +271,7 @@ function SettingsModal:consumeMouse(mx, my, button)
     if self._res_dd then
         local was_open = self._res_dd:wasOpen()
         local hit = self._res_dd:consumeMouse(mx, my, button)
+        if hit == "header" or hit == "item" then require("services.ClickFlash").click() end
         if hit == "header" and self._res_dd:wasOpen() then
             self._res_dd:setItems(Display.modes(self.game.settings),
                 self._res_dd.selected_value)
@@ -289,6 +290,7 @@ function SettingsModal:consumeMouse(mx, my, button)
     -- drag; subsequent mousemoved events update the value continuously.
     for _, entry in ipairs(self._sliders) do
         if entry.slider:mousepressed(mx, my, button) then
+            require("services.ClickFlash").click()
             return true
         end
     end
@@ -296,6 +298,7 @@ function SettingsModal:consumeMouse(mx, my, button)
     for _, rec in ipairs(self._row_rects) do
         if rec.action and mx >= rec.x and mx < rec.x + rec.w
            and my >= rec.y and my < rec.y + rec.h then
+            require("services.ClickFlash").click()
             self:_runAction(rec.action)
             return true
         end

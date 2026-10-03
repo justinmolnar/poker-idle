@@ -35,6 +35,34 @@ function ClickFlash.flash(ns, id, intensity)
     bucket[id] = intensity
 end
 
+-- The press sound. ClickFlash stays engine-agnostic: main.lua hands it the
+-- function that plays the click (SoundService "button_click"); headless,
+-- nothing is set and a press is silent.
+ClickFlash.on_press = nil
+local _silent = 0
+
+-- The click alone, for a control that has no flash of its own (a tab, a
+-- Settings row, a dialog button).
+function ClickFlash.click()
+    if _silent == 0 and ClickFlash.on_press then ClickFlash.on_press() end
+end
+
+-- A real press: the flash and the click. `flash` stays silent for the
+-- flashes that are not presses (the award glow, the focus alarm).
+function ClickFlash.press(ns, id, intensity)
+    ClickFlash.flash(ns, id, intensity)
+    ClickFlash.click()
+end
+
+-- Run fn with presses silent (a cursor's click on a hit box: the cursor
+-- plays its own tap).
+function ClickFlash.silently(fn, ...)
+    _silent = _silent + 1
+    local ok, err = pcall(fn, ...)
+    _silent = _silent - 1
+    if not ok then error(err, 0) end
+end
+
 function ClickFlash.alpha(ns, id)
     -- Motion: at Low and None a press shows no decaying flash.
     if Motion.level("ui") <= Motion.LOW then return 0 end

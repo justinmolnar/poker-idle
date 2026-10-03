@@ -115,6 +115,10 @@ function GrindController:new(game)
                 st.total_tilts = (st.total_tilts or 0) + 1
             elseif e.status == "heater" then
                 st.total_heaters = (st.total_heaters or 0) + 1
+                -- The strike plays when the heater APPEARS (_tickHeaterSounds):
+                -- a punch-delivered one waits for the fist, which is set
+                -- after this event, so it cannot be decided here.
+                if e.table then e.table._heater_snd = true end
                 -- Hot Hand levels on heaters caught.
                 if Decks.systemUnlocked(st) then
                     self:_grantDeckXp({ type = "heater", n = 1 })
@@ -411,6 +415,7 @@ function GrindController:_bumpTargets(source_tbl, targets)
                 self._pending_impacts = self._pending_impacts or {}
                 self._pending_impacts[#self._pending_impacts + 1] = {
                     tbl = t, dx = dx / len, dy = dy / len, t_left = delay,
+                    slam = not single,
                 }
                 t.impact_wait = delay
             end
@@ -445,6 +450,18 @@ end
 -- Land any shockwaves whose travel time is up. Ticked once per frame
 -- from :update, on raw dt — a blow crosses the board at the same speed
 -- whatever pace the tables are running at.
+-- A heater's strike, once the heater is visible: the frame after it was
+-- applied, or the frame its punch connects (impact_wait back to 0).
+function GrindController:_tickHeaterSounds()
+    for _, t in ipairs(self.pool.tables) do
+        if t._heater_snd and (t.impact_wait or 0) <= 0 then
+            t._heater_snd = nil
+            self:_playNamed("heater_lands")
+        end
+    end
+end
+
+local SHOVE_PUNCH = { volume_mult = 0.5 }
 function GrindController:_tickImpacts(dt)
     local list = self._pending_impacts
     if not list or #list == 0 then return end
@@ -460,6 +477,9 @@ function GrindController:_tickImpacts(dt)
             t.impact_wait  = 0
             t.shake_trauma = math.max(t.shake_trauma or 0, 0.9)
             Pop.trigger("tbl_bump:" .. (t._id or 0))
+            -- The fist landing; a neighbour shove is the same blow, quieter.
+            -- Per-name min_gap makes a slam's many targets one hit.
+            self:_playNamed("punch", (not e.slam) and SHOVE_PUNCH or nil)
             table.remove(list, i)
         else
             t.impact_wait = e.t_left
@@ -1233,6 +1253,7 @@ function GrindController:update(dt)
     self:_tickTournamentAuras(dt)
     -- Shockwaves in flight from a slam or a shove.
     self:_tickImpacts(dt)
+    self:_tickHeaterSounds()
 
     local resolutions = self.pool:update(dt, self.ctx)
 
@@ -1489,9 +1510,12 @@ function GrindController:update(dt)
             -- stack (80-100 bb of a 100 bb seat would not have).
             local threshold = Constants.GAMEPLAY.UNDERFLOW_THRESHOLD or -100000000000
             tbl.stack = 0
+            local was_under = ShoveRate.underflowed(state.bankroll)
             if state.bankroll > threshold - 1 then
                 state.bankroll = threshold - 1
             end
+            -- The break, once: not again on a later Ultra stack loss.
+            if not was_under then self:_playNamed("underflow") end
         elseif tbl then
             local new_stack = tbl.stack + r.delta
             if new_stack > cap then
@@ -2088,6 +2112,7 @@ function GrindController:_announceOnDeckCell(text)
     local a = AnchorRegistry.get("cell:deck")
     if not a then return end
     AwardGlow.flash("deck")   -- the rail's deck button, by its id
+    self:_playNamed("deck_up")
     if self.game.floating_text then
         self.game.floating_text.emit(text,
             a[1] + (a[3] or 0) * 0.5, a[2] + (a[4] or 0),

@@ -19,6 +19,7 @@ local InputDispatcher = require("lib.input_dispatcher")
 
 local SaveService     = require("services.SaveService")
 local SoundService    = require("services.SoundService")
+local ShoveRate       = require("models.shove_rate")
 local SoundLoader     = require("services.SoundLoader")
 local SpriteLoader    = require("services.SpriteLoader")
 local AnimationSystem = require("services.AnimationSystem")
@@ -74,6 +75,7 @@ local StoryView        = require("views.StoryView")
 local HintMarks        = require("views.HintMarks")
 local RadioVoice       = require("services.RadioVoice")
 local MusicDirector    = require("services.MusicDirector")
+local MusicLayers      = require("services.MusicLayers")
 local AudioDevice      = require("services.AudioDevice")
 local Story            = require("data.story")
 local PokerActionApply = require("models.poker_action_apply")
@@ -312,6 +314,8 @@ local function buildGame()
     g.sound_loader    = SoundLoader:new()
     g.sound_loader:loadAll()
     SoundService.attachLoader(g.sound_loader, g.sprite_loader)
+    -- Every press (ClickFlash.press / .click) is one click.
+    ClickFlash.on_press = function() SoundService.playNamed("button_click") end
     -- An item doing its job is heard (services/ItemFoley: its own sound,
     -- damaged if corrupted)...
     g.event_bus:subscribe("item_fired", function(e)
@@ -754,6 +758,9 @@ function love.update(dt)
     -- The music layer: jazz through the intercom until the player owns
     -- speakers; cut by the House's voice, the gauntlet, and the menus.
     MusicDirector.update(dt, Game)
+    -- The beds (Act 3 hiss, the gauntlet drone): their own Sources, so they
+    -- play with or without a music track.
+    MusicLayers.update(dt, Game)
     if Game.save_service.drainResults then Game.save_service:drainResults() end
     Game.floating_text.update(dt)
     FlightSystem.update(dt)
@@ -988,11 +995,13 @@ function love.draw()
     end
     -- The hint layer, above whatever the state drew including its modals.
     -- Still inside the base canvas so it scales with the frame.
+    -- Everything sounds broken once the bankroll has underflowed. Every
+    -- frame, on every screen: this read a state flag nothing ever set, and
+    -- sat behind the hint gate, so the damage bus never turned on.
+    SoundService.setDamage(ShoveRate.underflowed(Game.state and Game.state.bankroll) and 1 or 0)
     do
         local cur = Game.state_machine.current_state
         if not (cur and cur.hintsBlocked and cur:hintsBlocked()) then
-            -- Everything sounds broken once the bankroll has underflowed.
-            SoundService.setDamage(Game.state.underflowed and 1 or 0)
             Game.hint_view:draw(Game.hints:activeHint(), Game.hints.paused)
             -- Every visible story line dims the screen — the player is in
             -- a conversation and play is input-blocked, so the frame says

@@ -83,10 +83,12 @@ function GrindState:openCatalog()
         -- post-bust ritual so the player can't compound a bankroll dump
         -- with an upgrade that strands the run.
         self.catalog_modal = CatalogModal:new(self.game, { read_only = true })
+        require("services.SoundService").playNamed("modal_open")
     end
 end
 
 function GrindState:closeCatalog()
+    if self.catalog_modal then require("services.SoundService").playNamed("modal_close") end
     self.catalog_modal = nil
 end
 
@@ -99,20 +101,24 @@ function GrindState:openDeckRoster()
     if not self.deck_roster_modal then
         self.deck_roster_modal = DeckFlyer:new(self.game, { read_only = true })
         self.game.state.decks_unseen = {}
+        require("services.SoundService").playNamed("modal_open")
     end
 end
 
 function GrindState:closeDeckRoster()
+    if self.deck_roster_modal then require("services.SoundService").playNamed("modal_close") end
     self.deck_roster_modal = nil
 end
 
 function GrindState:openSettings()
     if not self.settings_modal then
         self.settings_modal = SettingsModal:new(self.game)
+        require("services.SoundService").playNamed("modal_open")
     end
 end
 
 function GrindState:closeSettings()
+    if self.settings_modal then require("services.SoundService").playNamed("modal_close") end
     self.settings_modal = nil
 end
 
@@ -121,8 +127,10 @@ end
 function GrindState:openHelp()
     if self.help_panel then
         self.help_panel:beginClose()
+        require("services.SoundService").playNamed("modal_close")
     else
         self.help_panel = GlossaryPanel:new(self.game)
+        require("services.SoundService").playNamed("modal_open")
     end
 end
 
@@ -230,7 +238,8 @@ function GrindState:update(dt)
             -- The Cutting Board's streak is the player's own: a cursor's
             -- click is marked so dealHand knows it was not a hand you picked.
             ctrl._deal_by_cursor = true
-            cursor_view:_handleHitBox(hb)
+            -- Silent: the cursor plays its own tap (CursorPool, cursor_tap).
+            ClickFlash.silently(cursor_view._handleHitBox, cursor_view, hb)
             ctrl._deal_by_cursor = nil
         end
         self._cursor_hooks = {

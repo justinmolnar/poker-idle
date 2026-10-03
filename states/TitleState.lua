@@ -205,6 +205,7 @@ local BUTTON_HANDLERS = {
     end,
     settings = function(self)
         self.settings_modal = SettingsModal:new(self.game, { menu = true })
+        require("services.SoundService").playNamed("modal_open")
     end,
     exit = function(self)
         self._confirm = ConfirmDialog:new{
@@ -236,6 +237,7 @@ function TitleState:_handleButton(id)
 end
 
 function TitleState:closeSettings()
+    if self.settings_modal then require("services.SoundService").playNamed("modal_close") end
     self.settings_modal = nil
 end
 
@@ -252,6 +254,7 @@ function TitleState:mousepressed(x, y, button)
 
     local id = self.view:hit(x, y)
     if id then
+        require("services.ClickFlash").click()
         self:_handleButton(id)
         return
     end

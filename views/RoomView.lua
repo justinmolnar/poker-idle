@@ -1638,7 +1638,7 @@ function RoomView:mousepressed(x, y, button)
             local r = c.rect
             if x >= r.x and x < r.x + r.w and y >= r.y and y < r.y + r.h then
                 c.fn()
-                ClickFlash.flash("room_btn", "room_btn")
+                ClickFlash.press("room_btn", "room_btn")
                 return true
             end
         end
@@ -1654,12 +1654,12 @@ function RoomView:mousepressed(x, y, button)
         if button == 1 then
             if self._exp_btn_rect and x >= self._exp_btn_rect.x and x < self._exp_btn_rect.x + self._exp_btn_rect.w
                and y >= self._exp_btn_rect.y and y < self._exp_btn_rect.y + self._exp_btn_rect.h then
-                ClickFlash.flash("room_btn", "room_btn")
+                ClickFlash.press("room_btn", "room_btn")
                 self:serializeLayout()
                 return true
             elseif self._rst_btn_rect and x >= self._rst_btn_rect.x and x < self._rst_btn_rect.x + self._rst_btn_rect.w
                and y >= self._rst_btn_rect.y and y < self._rst_btn_rect.y + self._rst_btn_rect.h then
-                ClickFlash.flash("room_btn", "room_btn")
+                ClickFlash.press("room_btn", "room_btn")
                 self.placed = {}
                 backupDraft(nil)
                 pcall(love.filesystem.remove, DRAFT_FILE)
@@ -1696,14 +1696,14 @@ function RoomView:mousepressed(x, y, button)
                 return true
             elseif self._clr_btn_rect and x >= self._clr_btn_rect.x and x < self._clr_btn_rect.x + self._clr_btn_rect.w
                and y >= self._clr_btn_rect.y and y < self._clr_btn_rect.y + self._clr_btn_rect.h then
-                ClickFlash.flash("room_btn", "room_btn")
+                ClickFlash.press("room_btn", "room_btn")
                 self.placed = {}
                 self.picked_item = nil
                 print("[room-editor] Cleared all furniture items in room")
                 return true
             elseif self._help_btn_rect and x >= self._help_btn_rect.x and x < self._help_btn_rect.x + self._help_btn_rect.w
                and y >= self._help_btn_rect.y and y < self._help_btn_rect.y + self._help_btn_rect.h then
-                ClickFlash.flash("room_btn", "room_btn")
+                ClickFlash.press("room_btn", "room_btn")
                 self.hide_editor_hud = not self.hide_editor_hud
                 return true
             end
@@ -1712,12 +1712,12 @@ function RoomView:mousepressed(x, y, button)
             if self._size_prev_rect and x >= self._size_prev_rect.x and x < self._size_prev_rect.x + self._size_prev_rect.w
                and y >= self._size_prev_rect.y and y < self._size_prev_rect.y + self._size_prev_rect.h then
                 self.room_size = math.max(4, self.room_size - 1)
-                ClickFlash.flash("room_btn", "room_btn")
+                ClickFlash.press("room_btn", "room_btn")
                 return true
             elseif self._size_next_rect and x >= self._size_next_rect.x and x < self._size_next_rect.x + self._size_next_rect.w
                and y >= self._size_next_rect.y and y < self._size_next_rect.y + self._size_next_rect.h then
                 self.room_size = math.min(16, self.room_size + 1)
-                ClickFlash.flash("room_btn", "room_btn")
+                ClickFlash.press("room_btn", "room_btn")
                 return true
             end
 
@@ -1726,13 +1726,13 @@ function RoomView:mousepressed(x, y, button)
                and y >= self._floor_prev_rect.y and y < self._floor_prev_rect.y + self._floor_prev_rect.h then
                 self.floor_idx = self.floor_idx - 1
                 if self.floor_idx < 0 then self.floor_idx = #self.floor_list end
-                ClickFlash.flash("room_btn", "room_btn")
+                ClickFlash.press("room_btn", "room_btn")
                 return true
             elseif self._floor_next_rect and x >= self._floor_next_rect.x and x < self._floor_next_rect.x + self._floor_next_rect.w
                and y >= self._floor_next_rect.y and y < self._floor_next_rect.y + self._floor_next_rect.h then
                 self.floor_idx = self.floor_idx + 1
                 if self.floor_idx > #self.floor_list then self.floor_idx = 0 end
-                ClickFlash.flash("room_btn", "room_btn")
+                ClickFlash.press("room_btn", "room_btn")
                 return true
             end
         end
@@ -1763,7 +1763,7 @@ function RoomView:mousepressed(x, y, button)
 
             if new_tab then
                 self.browser_tab = new_tab
-                ClickFlash.flash("room_btn", "room_btn")
+                ClickFlash.press("room_btn", "room_btn")
                 self:_cycleSelection(0)
                 return true
             end

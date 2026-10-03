@@ -457,7 +457,8 @@ function CatalogModal:goToSpread(n)
     self.flip_t = flipSecs()
     self.flip_dir = (n > self.old_spread_index) and "next" or "prev"
     local SoundService = require("services.SoundService")
-    SoundService.playNamed("hole_card_flip", { pitch = dist > 1 and 0.85 or nil })
+    -- A leaf turning; a jump of several spreads plays it lower.
+    SoundService.playNamed("page_turn", { pitch = dist > 1 and 0.85 or nil })
     return true
 end
 
@@ -601,6 +602,7 @@ end
 -- with the result still visible around it.
 function CatalogModal:openFromFelt()
     if not self.on_felt or self._open then return end
+    require("services.SoundService").playNamed("modal_open")
     self._open = true
     self._enter_t = 0          -- rise into place
     -- Open to the first spread, not the cover: clicking a closed book and
@@ -612,6 +614,7 @@ end
 -- Close it back to the felt. The book keeps its page; it just sits down.
 function CatalogModal:closeToFelt()
     if not self.on_felt or not self._open then return end
+    require("services.SoundService").playNamed("modal_close")
     self._open = false
 end
 
@@ -702,7 +705,11 @@ function CatalogModal:consumeMouse(mx, my, button)
                 end
                 -- The press: the card flashes for a moment (drawItemCard
                 -- reads it) and the manifest feeds the new line.
-                if ok then ClickFlash.flash("catalog_buy", cell.item.id) end
+                if ok then
+                    ClickFlash.flash("catalog_buy", cell.item.id)
+                    -- ORDERED; a corrupt purchase stamps through the damage bus.
+                    require("services.SoundService").playNamed("stamp", { damaged = cell.corruptible })
+                end
                 return ok
             end
             return true   -- consumed even if not buyable (don't fall through)

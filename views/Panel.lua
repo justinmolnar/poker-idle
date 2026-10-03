@@ -160,6 +160,7 @@ function Panel:handleMouseDown(x, y, _button, game)
             local tx = self.x + (i - 1) * tab_w
             if x >= tx and x < tx + tab_w then
                 local prev = self.active_tab_id
+                require("services.ClickFlash").click()
                 self:setActiveTab(tab.id)
                 if tab.id ~= prev then
                     local s = self.scroll[tab.id]

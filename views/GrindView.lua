@@ -3049,7 +3049,7 @@ function GrindView:mousepressed(x, y, b)
         local hb = self:_houseHelpBtnRect()
         if x >= hb.x and x < hb.x + hb.w
            and y >= hb.y and y < hb.y + hb.h then
-            ClickFlash.flash("help_btn", "help_btn")
+            ClickFlash.press("help_btn", "help_btn")
             if self.game.openHelp then self.game.openHelp() end
             return
         end
@@ -3103,7 +3103,7 @@ function GrindView:mousepressed(x, y, b)
                 -- Press feel now, dispatch on release — without this the
                 -- button would look inert while held.
                 if hb.action ~= "drag_table" then
-                    ClickFlash.flash("hit", hb.action .. ":" .. (hb.table_id or hb.idx))
+                    ClickFlash.press("hit", hb.action .. ":" .. (hb.table_id or hb.idx))
                 end
             else
                 self:_handleHitBox(hb)
@@ -3138,7 +3138,7 @@ function GrindView:cancelDrag()
 end
 
 function GrindView:_handleSidebarButton(id)
-    ClickFlash.flash("button", id)
+    ClickFlash.press("button", id)
     -- The rail.
     if id == "nav:settings" then if self.game.openSettings   then self.game.openSettings()   end return end
     if id == "nav:catalog"  then if self.game.openCatalog    then self.game.openCatalog()    end return end
@@ -3233,7 +3233,7 @@ function GrindView:_handleHitBox(hb)
     if hb.action and hb.idx then
         -- table_id-keyed when present (matches the hover key + the
         -- TablePanel render reads) so a reorder can't cross-tint.
-        ClickFlash.flash("hit", hb.action .. ":" .. (hb.table_id or hb.idx))
+        ClickFlash.press("hit", hb.action .. ":" .. (hb.table_id or hb.idx))
     end
 
     -- Press-then-vanish: ephemeral buttons (DEAL / REBUY / [×]) stop

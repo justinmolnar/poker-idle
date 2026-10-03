@@ -75,6 +75,7 @@ end
 --   body     = function(layout, fonts, s) end   (uses layout:para/gap/custom)
 --   checkbox = { text = "...", default = true }  (optional; renders above buttons)
 function ActionModal:new(opts)
+    require("services.SoundService").playNamed("modal_open")
     local s = modalScale()
     local cb = opts.checkbox
     return setmetatable({
@@ -109,7 +110,7 @@ function ActionModal:resolved() return self._resolved end
 function ActionModal:consumeKey(key)
     if self._resolved == nil then
         local v = self.keys[key]
-        if v ~= nil then self._resolved = v end
+        if v ~= nil then self._resolved = v; require("services.SoundService").playNamed("modal_close") end
         -- Swallow EVERY key while unresolved (matching ConfirmDialog): a
         -- modal that lets unmapped keys fall through invites the host
         -- state to act underneath it — ESC used to stack Settings on top
@@ -140,12 +141,15 @@ function ActionModal:consumeMouse(mx, my, button)
         -- Checkbox toggle — does not resolve the modal.
         local cr = self._checkbox_rect
         if cr and mx >= cr.x and mx < cr.x + cr.w and my >= cr.y and my < cr.y + cr.h then
+            require("services.ClickFlash").click()
             self._checkbox_on = not self._checkbox_on
             return true
         end
         for _, r in ipairs(self._rects) do
             if mx >= r.x and mx < r.x + r.w and my >= r.y and my < r.y + r.h then
+                require("services.ClickFlash").click()
                 self._resolved = r.value
+                require("services.SoundService").playNamed("modal_close")
                 break
             end
         end

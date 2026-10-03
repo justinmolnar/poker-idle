@@ -52,10 +52,12 @@ end
 function RoomState:openSettings()
     if not self.settings_modal then
         self.settings_modal = SettingsModal:new(self.game)
+        require("services.SoundService").playNamed("modal_open")
     end
 end
 
 function RoomState:closeSettings()
+    if self.settings_modal then require("services.SoundService").playNamed("modal_close") end
     self.settings_modal = nil
 end
 
@@ -494,15 +496,15 @@ function RoomState:mousepressed(x, y, button)
     local gv = self:_grindView()
     local hit = gv and gv:chromeHit(x, y)
     if hit == "nav:room" then
-        ClickFlash.flash("button", hit)
+        ClickFlash.press("button", hit)
         self.game.state_machine:switch("grind")
         return
     elseif hit == "nav:settings" then
-        ClickFlash.flash("button", hit)
+        ClickFlash.press("button", hit)
         self:openSettings()
         return
     elseif hit == "nav:catalog" or hit == "deck" then
-        ClickFlash.flash("button", hit)
+        ClickFlash.press("button", hit)
         self.game.state_machine:switch("grind")
         if hit == "nav:catalog" then
             if self.game.openCatalog then self.game.openCatalog() end

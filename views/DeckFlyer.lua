@@ -159,6 +159,7 @@ function DeckFlyer:isLanded() return self.on_felt and not self._open and self._t
 
 function DeckFlyer:openFromFelt()
     if self._open then return end
+    require("services.SoundService").playNamed("modal_open")
     self._open   = true
     self._open_t = 0
     -- Looked at: the top-bar nudge for newly-opened decks stops.
@@ -167,6 +168,7 @@ end
 
 function DeckFlyer:closeToFelt()
     if not self.on_felt or not self._open then return end
+    require("services.SoundService").playNamed("modal_close")
     self._open = false
 end
 
@@ -199,6 +201,7 @@ function DeckFlyer:consumeMouse(mx, my, button)
 
     for _, tile in ipairs(self._tiles) do
         if mx >= tile.x and mx < tile.x + tile.w and my >= tile.y and my < tile.y + tile.h then
+            require("services.ClickFlash").click()
             self._detail_id = tile.id
             if tile.unlocked and not self.read_only then
                 self.game.state:setActiveDeck(tile.id)

@@ -70,10 +70,12 @@ end
 function ShoveState:openSettings()
     if not self.settings_modal then
         self.settings_modal = SettingsModal:new(self.game)
+        require("services.SoundService").playNamed("modal_open")
     end
 end
 
 function ShoveState:closeSettings()
+    if self.settings_modal then require("services.SoundService").playNamed("modal_close") end
     self.settings_modal = nil
 end
 
@@ -454,7 +456,8 @@ function ShoveState:throwFlyer()
         throw_key = "flyer:" .. tostring(self:_nextThrowId()),
         avoid     = self.catalog_modal and self.catalog_modal:feltRect(W, H) or nil,
     })
-    SoundService.playNamed("hole_card_flip")
+    -- The pamphlet slapping down on the felt.
+    SoundService.playNamed("flyer_slap")
 end
 
 -- A different key every throw, persisted so it keeps varying across
@@ -725,7 +728,7 @@ function ShoveState:mousepressed(mx, my, button)
         -- CONTINUE works whether the paper is open or closed, so it is
         -- tested before anything on the felt gets the click.
         if self.view:hitContinue(mx, my) then
-            ClickFlash.flash("continue_btn", "continue_btn")
+            ClickFlash.press("continue_btn", "continue_btn")
             self:_continueFromHold()
             return
         end
@@ -749,7 +752,7 @@ function ShoveState:mousepressed(mx, my, button)
     -- on the felt does nothing. During the deal a click fast-forwards.
     if self.view:isHolding() then
         if self.view:hitContinue(mx, my) then
-            ClickFlash.flash("continue_btn", "continue_btn")
+            ClickFlash.press("continue_btn", "continue_btn")
             self.view:advance()
         end
     elseif self.view:isAnimating() then

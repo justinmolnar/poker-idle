@@ -29,8 +29,8 @@ now.
 
 - [x] room / grind loop | whatever plays on the grind; decide if the noir pack is final or a placeholder for the lo-fi Rhodes loop the audit wants | grind, room
 - [ ] `music_layer_bass` (wire) | a bass line under the same loop, same key and tempo | Act 2 grind
-- [ ] `music_layer_hiss` (wire) | tape hiss / vinyl crackle bed, loopable | Act 3, louder after the underflow
-- [ ] `music_gauntlet_drone` (wire) | one sustained low tone, pitchable up per runout | the gauntlet felt
+- [x] `music_layer_hiss` | `layers/hiss.ogg`, played by services/MusicLayers on the grind and in the room once Act 3 opens, louder after the underflow; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | Act 3, louder after the underflow
+- [x] `music_gauntlet_drone` | `layers/gauntlet_drone.ogg` (crossfaded into a loop), services/MusicLayers, a step up per runout result shown; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | the gauntlet felt
 - [x] title / credits | the title plays the loop through the intercom with the room's treatment (the room in the dark); credits are silent. Decide if that stays | title, credits
 
 ## 2. The House
@@ -50,7 +50,7 @@ now.
 - [x] `shove_initiated` | the pack's riffle | the buildup starts
 - [x] win sting | the pack's coins, a 4-chip drop under them for the full clear (`runout_won` / `gauntlet_won` / `tournament_won`); the legacy fanfare is deleted | a won runout, the full clear, TOURNAMENT WON
 - [x] loss | one pack chip pitched down, no jingle (`gauntlet_lost` / `table_busted`); the legacy game-over is deleted | a lost runout, a table busting
-- [ ] paper lands | a heavy thud for the book, a light slap for the pamphlet; the thud is wired and silent, the slap plays the flip today | the book and the pamphlet land on the felt
+- [x] paper lands | `felt/catalog_thud.ogg` for the book, `felt/flyer_slap.ogg` for the pamphlet; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | the book and the pamphlet land on the felt
 
 ## 4. The grind
 
@@ -60,47 +60,47 @@ now.
 - [x] `seat_ko` | the pack's heaviest drop | a tournament seat busts
 - [x] `stake_up_flourish` | pack chips and coins | a new stake opens
 - [ ] tilt lands (wire) | glass tipping, or a knock going wrong | a tilt is applied to a table
-- [ ] heater lands (wire) | a match strike, short | a heater is applied
-- [ ] punch (wire) | fist on a table, the frame the fist lands (data/statuses slam.rise); the shove reuses it quieter | the slam; a table shoving its neighbour
-- [ ] `focus_overload` | a short strained tone; wired, plays once per crossing of the cap (drop the file in and it plays) | the board goes over the focus cap
-- [ ] deck (wire) | one bright note or a card fan; a new deck and a level-up share it | the deck in play levels; a deck unlocks
-- [ ] underflow (wire) | a deep thud with a tail, 1s; afterwards a short digital tear, three variants, for the broken readouts | the Act 3 break; the glyph ticks
+- [x] heater lands | `felt/heater_lands.ogg`, played when the heater appears (with the fist when a punch carried it); Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | a heater is applied
+- [x] punch | `felt/punch.ogg` at contact; a shove plays it at half; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | the slam; a table shoving its neighbour
+- [x] `focus_overload` | `felt/focus_overload.ogg`, pitched down per step over the cap; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | the board goes over the focus cap
+- [x] deck | `felt/deck_up.ogg` (a card fan), from the deck cell's announcement; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | the deck in play levels; a deck unlocks
+- [x] underflow | `felt/underflow.ogg`, once at the crossing; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). The broken readouts' digital tear (three variants, wire) is still to find. | the Act 3 break; the glyph ticks
 - [x] `anti_chip_bank` | the bankroll chip through the damage bus | an anti-chip banks
 
 ## 5. Per-item foley
 
 Each item plays the file named after its id (`assets/audio/items/<id>.ogg`):
 in the room count, and again when it fires in play. Every item has its OWN
-file; nothing shares. 46 of the 73 live items are in (credited in the
+file; nothing shares. 62 of the 73 live items are in (credited in the
 folder's MANIFEST). Ids are the display names in snake case since 2026-09-12
 (save version 3); the rows below carry the live ids.
 
 - [ ] `fight_night_poster` | Fight Night Poster | a bell, one strike | count only
-- [ ] `tally_book` | Tally Book | a pencil scratch, one stroke | count only
-- [ ] `bonsai` | Bonsai | leaves brushed, a snip | count only
-- [ ] `house_cat` | House Cat | one short meow | 1 in 50 hands won, a random table's next win bumps
-- [ ] `candle` | Candle | a match strike, short | a Stack win lights a random table
+- [x] `tally_book` | Tally Book | a pencil scratch, one stroke | count only (Freesound CC0, items/MANIFEST)
+- [x] `bonsai` | Bonsai | leaves brushed, a snip | count only (Freesound CC0, items/MANIFEST)
+- [x] `house_cat` | House Cat | one short meow | 1 in 50 hands won, a random table's next win bumps (Freesound CC0, items/MANIFEST)
+- [x] `candle` | Candle | a match strike, short | a Stack win lights a random table (Freesound CC0, items/MANIFEST)
 - [ ] `trophy_shelf` | Trophy Shelf | a small cup set down on wood | a bounty pays double
 - [ ] `dusty_console` | Dusty Console | a cartridge blown on, a click | count only
-- [ ] `handheld` | Handheld | a handheld's power tone or button click | a Zoom loss deals the next hand
+- [x] `handheld` | Handheld | a handheld's power tone or button click | a Zoom loss deals the next hand (Freesound CC0, items/MANIFEST)
 - [ ] `red_rug` | Red Rug | a rug shaken out, one flap | count only
-- [ ] `dish_soap` | Dish Soap | a squeeze bottle, short | a tilt slides to the next table
-- [ ] `bottle_of_wine` | Bottle of Wine | a cork | the first table at a stake catches a heater
-- [ ] `desk_lamp` | Desk Lamp | a lamp switch, click | count only
+- [x] `dish_soap` | Dish Soap | a squeeze bottle, short | a tilt slides to the next table (Freesound CC0, items/MANIFEST)
+- [x] `bottle_of_wine` | Bottle of Wine | a cork | the first table at a stake catches a heater (Freesound CC0, items/MANIFEST)
+- [x] `desk_lamp` | Desk Lamp | a lamp switch, click | count only (Freesound CC0, items/MANIFEST)
 - [ ] `telephone` | Telephone | a receiver set down | count only
-- [ ] `old_keyboard` | Old Keyboard | one stuck key | count only
+- [x] `old_keyboard` | Old Keyboard | one stuck key | count only (Freesound CC0, items/MANIFEST)
 - [ ] `medical_poster` | Medical Poster | paper pressed flat on a wall | a knockout revives a busted neighbour
 - [ ] `hybrid_console` | Hybrid Console | a dock click | count only
 - [ ] `washing_machine` | Washing Machine | the spin, short | count only
-- [ ] `floor_plant` | Floor Plant | big leaves, brushed | a 6-Max Stack bumps its neighbours
-- [ ] `gas_stove` | Gas Stove | an igniter click | count only
-- [ ] `cast_iron_pan` | Cast Iron Pan | a pan set on a burner, clang | count only
-- [ ] `hot_bath` | Hot Bath | water, a tap run for a second | a knockout's steam heats a neighbour
+- [x] `floor_plant` | Floor Plant | big leaves, brushed | a 6-Max Stack bumps its neighbours (Freesound CC0, items/MANIFEST)
+- [x] `gas_stove` | Gas Stove | an igniter click | count only (Freesound CC0, items/MANIFEST)
+- [x] `cast_iron_pan` | Cast Iron Pan | a pan set on a burner, clang | count only (Freesound CC0, items/MANIFEST)
+- [x] `hot_bath` | Hot Bath | water, a tap run for a second | a knockout's steam heats a neighbour (Freesound CC0, items/MANIFEST)
 - [ ] `fresh_towel` | Fresh Towel | a towel snap | a knockout bumps a neighbour's next win
 - [ ] `replay_tv` | Replay TV | tape whir, a deck loading | count only
-- [ ] `shower_head` | Shower Head | a shower running, short | count only
-- [ ] `box_of_tissues` | Box of Tissues | one tissue pulled | a knockout refunds a neighbour's buy-in
-- [ ] `kitchen_bin` | Kitchen Bin | a bin lid | a tilt lands in the corner
+- [x] `shower_head` | Shower Head | a shower running, short | count only (Freesound CC0, items/MANIFEST)
+- [x] `box_of_tissues` | Box of Tissues | one tissue pulled | a knockout refunds a neighbour's buy-in (Freesound CC0, items/MANIFEST)
+- [x] `kitchen_bin` | Kitchen Bin | a bin lid | a tilt lands in the corner (Freesound CC0, items/MANIFEST)
 - [ ] `cleaning_robot` | Cleaning Robot | a small motor whir | count only
 
 The five sounds parked in `items/unassigned/` on 2026-09-07 (a beep, a glass
@@ -118,10 +118,10 @@ Nothing in the interface makes a sound today except the felt and the
 cursors; the click flash is silent. Buttons are buttons: one click, wired
 once in the button component, covers every one of them.
 
-- [ ] button click (wire) | one soft click, the same everywhere | any button, tab, key, row, toggle, dropdown item, the close X, table types, REBUY, an upgrade, a catalog tab, a deck tile; the cursor swarm plays it quiet in place of the pack chip
-- [ ] modal open / close (wire) | a paper or panel slide in, and out; the book and the pamphlet are the paper take | the catalog, the pamphlet, Settings, the glossary, confirm dialogs
-- [ ] page turn | two or three page turns; today the card flip | each leaf, wheel or dog-ear of the book
-- [ ] stamp (wire) | one rubber stamp thunk; a corrupt purchase runs it through the damage bus | ORDERED lands on a bought item
+- [x] button click | `ui/button_click.ogg` through ClickFlash.press / .click; the cursors play it quiet as `cursor_tap`; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | any button, tab, key, row, toggle, dropdown item, the close X, table types, REBUY, an upgrade, a catalog tab, a deck tile; the cursor swarm plays it quiet in place of the pack chip
+- [x] modal open / close | `ui/modal_open.ogg`, `ui/modal_close.ogg`, in the screens' open/close functions, the confirm and action dialogs, and the felt book and pamphlet; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | the catalog, the pamphlet, Settings, the glossary, confirm dialogs
+- [x] page turn | `ui/page_turn.ogg`, lower for a jump of several spreads; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | each leaf, wheel or dog-ear of the book
+- [x] stamp | `ui/stamp.ogg` on a purchase; a corrupt one plays damaged; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | ORDERED lands on a bought item
 - [x] title deal | the pack's card give per letter card, then a chip landing for the apostrophe | the name deals onto the title
 - [x] title light switch | `lights_on` | Continue / New Game throw the switch
 - [x] title key-up | the radio open, static only, no words | the intercom keys up while the title idles
@@ -185,16 +185,12 @@ in the editor:
 
 | section | in | to find |
 |---|---|---|
-| music | 2 | 3 (all need wiring) |
+| music | 4 | 1 (needs wiring) |
 | the House | 2 sets (want more variants) | 1 (needs wiring) |
-| the shove | 9 | 1 |
-| the grind | 5 | 7 |
-| items | 46 | 27 |
-| paper and interface | 4 | 4 |
+| the shove | 10 | 0 |
+| the grind | 10 | 3 (table open/close, tilt, the glyph tears; all need wiring) |
+| items | 62 | 11 |
+| paper and interface | 8 | 0 |
 | room cells | 46 | 26 to place, 5 to retune |
 
-**43 sounds to find: 27 item files and 16 for everything else, 14 of those
-needing a hook in the code first (marked wire). 26 room cells to place, 5
-to retune.** The wiring is one `playNamed` per line; ask and I'll add the
-hooks in a batch so every name here pairs with a file the moment it lands
-in `assets/audio/`.
+**16 sounds to find: 11 item files and 5 for everything else (the bass layer, the House stinger, table open/close, tilt, the glyph tears), all five needing a hook first. The 30 decided in the 2026-10-03 audition are in and wired (`tools/audition_sounds.py`, `tools/place_sounds.py`). 26 room cells to place, 5 to retune.**
