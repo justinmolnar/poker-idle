@@ -418,6 +418,14 @@ function GrindView:_buildTablesTabComponents()
     -- Game-type keys.
     components[#components + 1] = self:_makeGameTypeStrip()
     components[#components + 1] = { type = "spacer", h = math.floor(4 * s_ui) }
+    -- A full board says so once, here, not on every row below.
+    if active >= cap then
+        components[#components + 1] = {
+            type = "label", style = "muted",
+            text = string.format("Tables full: %d of %d", active, cap),
+            h = self.game.fonts.md:getHeight() + math.floor(6 * s_ui),
+        }
+    end
 
     -- Stake-add buttons for the currently selected game type. Button id
     -- is composite "add_table:<stake>:<gtype>" so the dispatcher routes
@@ -446,11 +454,11 @@ function GrindView:_buildTablesTabComponents()
             -- bb-normalized value stays the color threshold so good/bad
             -- doesn't shift with stake size; bb/h itself is tooltip-only.
             local sub_left, sub_right, sub_color
-            if full then
-                sub_left, sub_right = "tables full (max " .. cap .. ")", ""
-            else
+            -- A full board is said once above the list; a row keeps its
+            -- buy-in and, when the bankroll covers it, its $/h.
+            do
                 sub_right = "buy-in " .. Format.price(stake.buy_in or 0)
-                if affordable then
+                if not cant_afford then
                     local ev = TablePanelStats.evPerHand(self.controller, stake, gtype_obj)
                     if ev then
                         -- Rolls like the per-table readouts (read this frame
@@ -606,8 +614,8 @@ function GrindView:_buildTablesTabComponents()
 
     -- Tables count / focus / capacity live on the rail (the sidebar
     -- duplicate was redundant). The local `active` and `cap` reads above
-    -- still drive the per-button "tables full" / "buy-in unaffordable"
-    -- disabled states.
+    -- still drive the rows' disabled state and the one "tables full"
+    -- line under the header.
 
     return components
 end
