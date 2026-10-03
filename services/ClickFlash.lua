@@ -41,10 +41,35 @@ end
 ClickFlash.on_press = nil
 local _silent = 0
 
+-- The dispatch window (services/ClickFX): main.lua opens it around a click's
+-- dispatch, and every press, click or refusal inside it is recorded, so the
+-- click's surface effect knows whether the click did something.
+local _disp = { pressed = false, denied = false, deny_key = nil }
+local _in_disp = false
+function ClickFlash.beginDispatch()
+    _disp.pressed, _disp.denied, _disp.deny_key = false, false, nil
+    _in_disp = true
+end
+function ClickFlash.endDispatch()
+    _in_disp = false
+    return _disp
+end
+
 -- The click alone, for a control that has no flash of its own (a tab, a
 -- Settings row, a dialog button).
 function ClickFlash.click()
+    if _in_disp then _disp.pressed = true end
     if _silent == 0 and ClickFlash.on_press then ClickFlash.on_press() end
+end
+
+-- A control that exists but can't act this time (a REBUY you can't afford,
+-- a purchase that fails): no click; services/ClickFX plays the refusal and
+-- shakes the control, keyed "ns:id" (the same key its press would flash).
+function ClickFlash.deny(ns, id)
+    if _in_disp then
+        _disp.denied = true
+        _disp.deny_key = (ns and id) and (ns .. ":" .. tostring(id)) or nil
+    end
 end
 
 -- A real press: the flash and the click. `flash` stays silent for the

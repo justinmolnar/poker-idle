@@ -39,6 +39,9 @@ local GlossaryPanel   = require("views.GlossaryPanel")   -- the tooltip's side c
 local Ghosts          = require("services.Ghosts")
 local ItemStream      = require("views.ItemStream")
 local ItemFoley       = require("services.ItemFoley")
+local ClickFX         = require("services.ClickFX")
+local ClickSurfaces   = require("services.ClickSurfaces")
+local Sparks          = require("services.Sparks")
 local AnchorRegistry  = require("services.AnchorRegistry")
 local ShaderRegistry  = require("services.ShaderRegistry")
 local HandAnalytics   = require("services.HandAnalytics")
@@ -316,6 +319,10 @@ local function buildGame()
     SoundService.attachLoader(g.sound_loader, g.sprite_loader)
     -- Every press (ClickFlash.press / .click) is one click.
     ClickFlash.on_press = function() SoundService.playNamed("button_click") end
+    -- Every click's surface (services/ClickFX): its sound by name, a room
+    -- item's own foley. The chip pile's hop is set by the grind view.
+    ClickFX.play   = function(name, opts) SoundService.playNamed(name, opts) end
+    ClickFX.onItem = function(id) ItemFoley.play(g.state, id) end
     -- An item doing its job is heard (services/ItemFoley: its own sound,
     -- damaged if corrupted)...
     g.event_bus:subscribe("item_fired", function(e)
@@ -764,6 +771,7 @@ function love.update(dt)
     if Game.save_service.drainResults then Game.save_service:drainResults() end
     Game.floating_text.update(dt)
     FlightSystem.update(dt)
+    Sparks.update(dt)
     ChipPile.update(dt)
     ClickFlash.update(dt)
     Ghosts.update(dt)
@@ -946,9 +954,14 @@ function love.draw()
     -- Anchor frame-stamp advances first so anchors registered during this
     -- draw read age 0 and stale ones (widget no longer drawn) age up.
     AnchorRegistry.tick()
+    -- Surfaces are re-registered by this draw (services/ClickSurfaces); a
+    -- click between frames reads the last frame's.
+    ClickSurfaces.beginFrame()
     love.graphics.setCanvas(_frameCanvas)
     love.graphics.clear(love.graphics.getBackgroundColor())
     Game.state_machine:draw()
+    -- Every click's specks, over the screen and its modals.
+    Sparks.draw()
     -- The focus strain over the whole frame (shaders/strain.frag): the
     -- further the board is over its focus cap, the more the screen loses
     -- focus — colour, edges and light — everywhere but a feathered hole
@@ -1086,7 +1099,11 @@ function love.mousepressed(x, y, b)
     local fx, fy = unitsToFrame(x, y)
     -- A click while a tooltip's side card is up pins it; the next click lets it go.
     if b == 1 and Tooltip.click() then return end
+    -- Every left click answers where it lands (services/ClickFX): the
+    -- dispatch is bracketed so it knows whether the click did something.
+    if b == 1 then ClickFX.begin(fx, fy) end
     Game.input_dispatcher:dispatch("mousepressed",  fx, fy, b)
+    if b == 1 then ClickFX.finish() end
 end
 function love.mousereleased(x, y, b)   markMouseStale(); local fx, fy = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousereleased", fx, fy, b) end
 function love.mousemoved(x, y, dx, dy) markMouseStale(); local fx, fy, k = unitsToFrame(x, y); Game.input_dispatcher:dispatch("mousemoved", fx, fy, dx / k, dy / k) end

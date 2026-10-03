@@ -187,4 +187,11 @@ return {
     deck_up             = { file = FELT .. "deck_up.ogg",      volume = 0.55, min_gap = 0.3 },
     -- The Act 3 underflow, once.
     underflow           = { file = FELT .. "underflow.ogg",    volume = 0.80 },
+
+    -- ── Clicks on things that already have a sound (data/clicks.lua) ────
+    -- The other click_* names are files to place (assets/audio/ui), silent
+    -- until then. A card flicked, a chip tapped, the House's intercom keyed.
+    click_card          = { files = CARD_DEAL,   volume = 0.40, min_gap = 0.02 },
+    click_chips         = { files = CHIP_1ON1,   volume = 0.45, min_gap = 0.02 },
+    click_speaker       = { file = "assets/audio/radio/open/noise9.wav", volume = 0.35, min_gap = 0.08 },
 }
