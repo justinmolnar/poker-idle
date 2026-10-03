@@ -80,4 +80,19 @@ do
     c.ok(#rows < 12, "the tooltip stays short on a full board (" .. #rows .. " rows)")
 end
 
+-- The graph's points are finished buckets only: money landing in the open
+-- bucket moves nothing already drawn.
+do
+    local GV = require("views.GrindView")
+    local rt = { w = 5, t = 2, b = { 10, -4, 6, 3, 0 } }
+    local n = #rt.b - 1
+    local before = {}
+    for i, v in ipairs(GV.rateGraphPoints(rt, n)) do before[i] = v end
+    rt.b[#rt.b] = 50
+    local same = true
+    for i, v in ipairs(GV.rateGraphPoints(rt, n)) do if v ~= before[i] then same = false end end
+    c.ok(same and #before == n, "the open bucket moves no drawn point")
+    c.ok(math.abs(before[1] - 10 / 5 * 60) < 1e-9, "a point is $/min over its window")
+end
+
 if c.report("smoke_rate") > 0 then os.exit(1) end

@@ -2,7 +2,7 @@
 --
 -- The rail's earn-rate readout (views/GrindView `_buildRailComponents`,
 -- GrindController:boardRate): the small "$/min" line above the bankroll
--- and the ticker graph in its tooltip. Sibling of data/history_bars.lua,
+-- and the line graph in its tooltip. Sibling of data/history_bars.lua,
 -- same role: layout knobs as a data table, read by the view, no code.
 -- Pixel values are 1x design-space; the view scales them by ui_scale.
 return {
@@ -13,7 +13,7 @@ return {
     -- A table open for less than this is measured over this much anyway,
     -- so one quick hand on a fresh table does not read as 60 a minute.
     min_window_s = 5,
-    -- The graph: the run's $/min, the whole run, in buckets. A bucket
+    -- The graph: the run's $/min as a line, the whole run, in buckets. A bucket
     -- starts this many seconds wide; past `buckets` of them, neighbours
     -- merge and the width doubles, so the whole run always fits and the
     -- picture compresses as the run grows.
@@ -24,5 +24,5 @@ return {
     w              = 180,
     h              = 36,
     line_w         = 1.5,
-    baseline_alpha = 0.18,   -- the track under the line, and the start-of-window mark
+    baseline_alpha = 0.18,   -- the zero line
 }

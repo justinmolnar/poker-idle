@@ -833,6 +833,29 @@ function GrindView:_buildRateTooltip(br, n_open)
     return _rate_memo:get("rail_rate", token, self._buildRateTooltipUncached, self, br)
 end
 
+-- The rate graph's points: for each finished bucket, $/min over the
+-- minute ending with it (a rolling window of ~60 s of buckets; at least
+-- the bucket itself once buckets are a minute wide). Reused table.
+local _graph_pts, _graph_line = {}, {}
+local function rateGraphPoints(rt, n)
+    local b, w = rt.b, rt.w
+    local k = math.max(1, math.floor(60 / w + 0.5))
+    local sum = 0
+    for i = 1, n do
+        sum = sum + b[i]
+        if i > k then sum = sum - b[i - k] end
+        local span = math.min(i, k) * w
+        _graph_pts[i] = sum / span * 60
+    end
+    for i = #_graph_pts, n + 1, -1 do _graph_pts[i] = nil end
+    return _graph_pts
+end
+local function rateGraphLabel(v)
+    return Format.money(v) .. "/min"
+end
+
+GrindView.rateGraphPoints = function(rt, n) return rateGraphPoints(rt, n) end
+
 local function minutesText(secs)
     secs = secs or 0
     if secs < 60 then return string.format("%d s", math.floor(secs + 0.5)) end
@@ -894,13 +917,13 @@ function GrindView:_buildRateTooltipUncached(br)
             text = string.format(R.tooltips.rate_last, rate(br.last_run_rate, "")) }
     end
 
-    -- The ticker: the run's hand winnings over the last window, newest on
-    -- the right, the way the table headers' history bars are drawn
-    -- (views/TablePanel drawHistoryBars). Fixed size so the box never
+    -- The graph: the run's $/min as a line, start of the run on the left,
+    -- now on the right. Each point is the rate over the minute up to the
+    -- end of a finished bucket (GrindController:_tickRateTrace), so a
+    -- point never moves once it is drawn; the bucket still filling is not
+    -- plotted. A zero line, and the top (and bottom, when the run has gone
+    -- negative) value at the left edge. Fixed size so the box never
     -- breathes; the trace is read live.
-    -- The graph: the run's $/min, the whole run, one bar per time bucket
-    -- (GrindController:_tickRateTrace), green above zero and red below.
-    -- Fixed size so the box never breathes; the trace is read live.
     rows[#rows + 1] = { style = "sm", color_token = "muted",
         text = string.format(R.tooltips.rate_graph, minutesText(br.run_elapsed)) }
     local s   = self.game.ui_scale or 1
@@ -910,41 +933,46 @@ function GrindView:_buildRateTooltipUncached(br)
     local state_ref = self.game.state
     rows[#rows + 1] = {
         measure = function(_) return W, H end,
-        render  = function(x, y, _)
+        render  = function(x, y, fonts)
             local rt = state_ref.run_rate_trace
-            local b  = rt and rt.b
-            -- The finished buckets, and the open one once it has a fair
-            -- share of its width behind it.
-            local n = b and #b or 0
-            if n > 0 and rt.t < rt.w * 0.25 then n = n - 1 end
+            local n  = rt and (#rt.b - 1) or 0      -- finished buckets only
             Theme.setColor(Theme.border.default, TK.baseline_alpha or 0.18)
-            if n < 1 then love.graphics.rectangle("fill", x, y + H - 1, W, 1); return end
-            local function rateOf(i)
-                local w = (i == #b) and math.max(rt.t, 1) or rt.w
-                return b[i] / w * 60
+            if n < 2 then
+                love.graphics.rectangle("fill", x, y + H - 1, W, 1)
+                return
             end
+            local pts = rateGraphPoints(rt, n)
             local lo, hi = 0, 0
             for i = 1, n do
-                local r = rateOf(i)
+                local r = pts[i]
                 if r < lo then lo = r end
                 if r > hi then hi = r end
             end
             if hi - lo < 1e-9 then hi = lo + 1 end
-            local zero = y + math.floor(H * hi / (hi - lo) + 0.5)
+            local function py(r) return y + (H - 1) * (hi - r) / (hi - lo) end
+            local zero = math.floor(py(0) + 0.5)
             love.graphics.rectangle("fill", x, zero, W, 1)
-            local bw = W / n
+            local line = _graph_line
+            local k = 0
             for i = 1, n do
-                local r = rateOf(i)
-                local bx = x + math.floor((i - 1) * bw)
-                local bwi = math.max(1, math.floor(i * bw) - math.floor((i - 1) * bw) - ((bw >= 3) and 1 or 0))
-                if r > 0 and hi > 0 then
-                    Theme.setColor(Theme.sem.won)
-                    local h = math.max(1, math.floor((zero - y) * r / hi + 0.5))
-                    love.graphics.rectangle("fill", bx, zero - h, bwi, h)
-                elseif r < 0 and lo < 0 then
-                    Theme.setColor(Theme.sem.lost)
-                    local h = math.max(1, math.floor((y + H - zero - 1) * r / lo + 0.5))
-                    love.graphics.rectangle("fill", bx, zero + 1, bwi, h)
+                line[k + 1] = x + (W - 1) * (i - 1) / (n - 1)
+                line[k + 2] = py(pts[i])
+                k = k + 2
+            end
+            for i = #line, k + 1, -1 do line[i] = nil end
+            local last = pts[n]
+            Theme.setColor(last >= 0 and Theme.sem.won or Theme.sem.lost)
+            love.graphics.setLineWidth((TK.line_w or 1.5) * s)
+            love.graphics.setLineJoin("bevel")
+            love.graphics.line(line)
+            love.graphics.setLineWidth(1)
+            local f = fonts and (fonts.xs or fonts.sm)
+            if f then
+                love.graphics.setFont(f)
+                Theme.setColor(Theme.fg.muted)
+                love.graphics.print(rateGraphLabel(hi), x + 2, y)
+                if lo < 0 then
+                    love.graphics.print(rateGraphLabel(lo), x + 2, y + H - f:getHeight())
                 end
             end
         end,
