@@ -733,6 +733,22 @@
     "processed": "2026-10-03"
   },
   {
+    "id": "replay_tv",
+    "file": "replay_tv.ogg",
+    "source": "freesound",
+    "license": "CC0",
+    "freesound_id": "625149",
+    "artist": "sysdub",
+    "title": "VCR 02.wav",
+    "page": "https://freesound.org/people/sysdub/sounds/625149/",
+    "original_file": "3-625149-vcr-02-wav.ogg",
+    "crop": {
+      "end": 0.722,
+      "start": 0.518
+    },
+    "processed": "2026-10-03"
+  },
+  {
     "id": "shower_head",
     "file": "shower_head.ogg",
     "source": "freesound",
@@ -761,6 +777,22 @@
     "crop": {
       "end": 0.325,
       "start": 0.11
+    },
+    "processed": "2026-10-03"
+  },
+  {
+    "id": "trophy_shelf",
+    "file": "trophy_shelf.ogg",
+    "source": "freesound",
+    "license": "CC0",
+    "freesound_id": "214850",
+    "artist": "kikuchiyo",
+    "title": "coffeeCupAndSpoon_01.wav",
+    "page": "https://freesound.org/people/kikuchiyo/sounds/214850/",
+    "original_file": "3-214850-coffeecupandspoon-01-wav.ogg",
+    "crop": {
+      "end": 0.197,
+      "start": 0.034
     },
     "processed": "2026-10-03"
   }

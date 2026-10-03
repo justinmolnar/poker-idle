@@ -128,7 +128,7 @@ oxidvideos-placing-poker-chips-522515.mp3
 
 ## Freesound (CC0), added 2026-10-03
 
-Picked in the audition (`tools/audition_sounds.py`) and processed by `tools/place_sounds.py`: cropped, trimmed of silence (55 dB under its own peak), faded, levelled to the item sounds, mono 44.1 kHz OGG. Creative Commons 0 (public domain, commercial use, no attribution required; credited anyway). Every source was uploaded before 2022-06-01, so none is AI-generated.
+Picked in the audition (`tools/audition_sounds.py`) and processed by `tools/place_sounds.py`: cropped, trimmed of silence (55 dB under its own peak), faded, levelled to the item sounds, mono 44.1 kHz OGG. Creative Commons 0 (public domain, commercial use, no attribution required; credited anyway). Found on Freesound and credited below.
 
 | file | used as | Freesound title | author | Freesound id | crop | license |
 |---|---|---|---|---|---|---|
@@ -146,5 +146,7 @@ Picked in the audition (`tools/audition_sounds.py`) and processed by `tools/plac
 | `house_cat.ogg` | one short meow | [cat meow short](https://freesound.org/people/skymary/sounds/412017/) | skymary | 412017 | 0.29–0.88s | CC0 |
 | `kitchen_bin.ogg` | a bin lid | [trashcan.wav](https://freesound.org/people/stomachache/sounds/44871/) | stomachache | 44871 | 0.37–0.98s | CC0 |
 | `old_keyboard.ogg` | one stuck key | [mechanical key hard.wav](https://freesound.org/people/bigmonmulgrew/sounds/378085/) | bigmonmulgrew | 378085 | 0.10–0.14s | CC0 |
+| `replay_tv.ogg` | tape whir, a deck loading | [VCR 02.wav](https://freesound.org/people/sysdub/sounds/625149/) | sysdub | 625149 | 0.52–0.72s | CC0 |
 | `shower_head.ogg` | a shower running, short | [Shower Curtain Slide](https://freesound.org/people/amholma/sounds/344363/) | amholma | 344363 | 1.35–2.02s | CC0 |
 | `tally_book.ogg` | a pencil scratch, one stroke | [pencil scratch.wav](https://freesound.org/people/roloco/sounds/570282/) | roloco | 570282 | 0.11–0.33s | CC0 |
+| `trophy_shelf.ogg` | a small cup set down on wood | [coffeeCupAndSpoon_01.wav](https://freesound.org/people/kikuchiyo/sounds/214850/) | kikuchiyo | 214850 | 0.03–0.20s | CC0 |

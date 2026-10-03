@@ -13,6 +13,8 @@
 --   - each preset's file (or files) exists on disk
 --   - each file in assets/audio/ui, felt, layers is named by a preset, a
 --     literal call, or is a bed services/MusicLayers plays
+--   - each `sound` name in data/clicks.lua (the click materials) resolves
+--     the same way, and counts as played
 --   - each items/<id>.ogg is a catalog id (services/ItemFoley plays by id)
 --
 -- Standalone: `lua sim/check_sound_names.lua` from the repo root.
@@ -108,6 +110,26 @@ for name, where in pairs(called) do
     check(Sounds[name] ~= nil or loaderHas(name),
           ("'%s' (played in %s) has a preset or a file"):format(name, where))
 end
+
+-- Surface sounds: services/ClickFX plays each click material's `sound` by
+-- name from data/clicks.lua, not by a literal playNamed call.
+local Clicks = require("data.clicks")
+local function walkSounds(t, path, seen)
+    seen = seen or {}
+    if seen[t] then return end
+    seen[t] = true
+    for k, v in pairs(t) do
+        if k == "sound" and type(v) == "string" then
+            check(Sounds[v] ~= nil or loaderHas(v),
+                  ("'%s' (data/clicks.lua %s) has a preset or a file"):format(v, path))
+            if not called[v] then n_called = n_called + 1 end
+            called[v] = called[v] or "data/clicks.lua"
+        elseif type(v) == "table" then
+            walkSounds(v, path .. "." .. tostring(k), seen)
+        end
+    end
+end
+walkSounds(Clicks, "clicks")
 
 -- Placed files are reachable.
 local beds = { ["assets/audio/layers/hiss.ogg"] = true, ["assets/audio/layers/gauntlet_drone.ogg"] = true }

@@ -4,7 +4,7 @@
 
 ## Freesound (CC0), added 2026-10-03
 
-Picked in the audition (`tools/audition_sounds.py`) and processed by `tools/place_sounds.py`: cropped, trimmed of silence (55 dB under its own peak), faded, levelled to the item sounds, mono 44.1 kHz OGG. Creative Commons 0 (public domain, commercial use, no attribution required; credited anyway). Every source was uploaded before 2022-06-01, so none is AI-generated.
+Picked in the audition (`tools/audition_sounds.py`) and processed by `tools/place_sounds.py`: cropped, trimmed of silence (55 dB under its own peak), faded, levelled to the item sounds, mono 44.1 kHz OGG. Creative Commons 0 (public domain, commercial use, no attribution required; credited anyway). Found on Freesound and credited below.
 
 | file | used as | Freesound title | author | Freesound id | crop | license |
 |---|---|---|---|---|---|---|

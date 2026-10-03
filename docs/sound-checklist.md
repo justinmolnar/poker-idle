@@ -80,7 +80,7 @@ folder's MANIFEST). Ids are the display names in snake case since 2026-09-12
 - [x] `bonsai` | Bonsai | leaves brushed, a snip | count only (Freesound CC0, items/MANIFEST)
 - [x] `house_cat` | House Cat | one short meow | 1 in 50 hands won, a random table's next win bumps (Freesound CC0, items/MANIFEST)
 - [x] `candle` | Candle | a match strike, short | a Stack win lights a random table (Freesound CC0, items/MANIFEST)
-- [ ] `trophy_shelf` | Trophy Shelf | a small cup set down on wood | a bounty pays double
+- [x] `trophy_shelf` | Trophy Shelf | a small cup set down on wood | a bounty pays double (Freesound CC0, items/MANIFEST)
 - [ ] `dusty_console` | Dusty Console | a cartridge blown on, a click | count only
 - [x] `handheld` | Handheld | a handheld's power tone or button click | a Zoom loss deals the next hand (Freesound CC0, items/MANIFEST)
 - [ ] `red_rug` | Red Rug | a rug shaken out, one flap | count only
@@ -97,7 +97,7 @@ folder's MANIFEST). Ids are the display names in snake case since 2026-09-12
 - [x] `cast_iron_pan` | Cast Iron Pan | a pan set on a burner, clang | count only (Freesound CC0, items/MANIFEST)
 - [x] `hot_bath` | Hot Bath | water, a tap run for a second | a knockout's steam heats a neighbour (Freesound CC0, items/MANIFEST)
 - [ ] `fresh_towel` | Fresh Towel | a towel snap | a knockout bumps a neighbour's next win
-- [ ] `replay_tv` | Replay TV | tape whir, a deck loading | count only
+- [x] `replay_tv` | Replay TV | tape whir, a deck loading | count only (Freesound CC0, items/MANIFEST)
 - [x] `shower_head` | Shower Head | a shower running, short | count only (Freesound CC0, items/MANIFEST)
 - [x] `box_of_tissues` | Box of Tissues | one tissue pulled | a knockout refunds a neighbour's buy-in (Freesound CC0, items/MANIFEST)
 - [x] `kitchen_bin` | Kitchen Bin | a bin lid | a tilt lands in the corner (Freesound CC0, items/MANIFEST)
@@ -191,13 +191,13 @@ told from a live one in `main.lua` (no `ClickFlash.press`/`.click` fired during 
 registry of tagged rects beside the anchors. Candidates for every row are in the audition (`tools/audition_sounds.py`,
 "Clicks (new)").
 
-- [ ] `click_felt` (wire) | a soft cloth tap | a table's playing area, the shove felt; dust in the stake's felt colour, a faint ring
-- [ ] `click_chrome` (wire) | a hard tick | Settings and the other mechanical modals, sidebars, panel headers and frames; 2–3 glints
-- [ ] `click_rail` (wire) | a deeper knock, a desk edge | the bottom bar; specks off its top edge, readouts react (digits jostle, numbers bump, chip icons spin)
-- [ ] `click_empty` (wire) | a hollow knock | an empty slot; grey dust
-- [ ] `click_wall` (wire) | a muffled thump | the background, the room's floor and walls; dim specks
-- [ ] `click_paper` (wire) | a paper tap | the catalog's pages and cards, the pamphlet, the House poster (it swings on its pin), the story band; paper flecks
-- [ ] `click_denied` (wire) | a dull thunk | a button that can't act (an upgrade you can't afford); dark specks, the button shakes
+- [x] `click_felt` (wire) | a soft cloth tap | a table's playing area, the shove felt; dust in the stake's felt colour, a faint ring (`ui/click_felt.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_chrome` (wire) | a hard tick | Settings and the other mechanical modals, sidebars, panel headers and frames; 2–3 glints (`ui/click_chrome.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_rail` (wire) | a deeper knock, a desk edge | the bottom bar; specks off its top edge, readouts react (digits jostle, numbers bump, chip icons spin) (`ui/click_rail.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_empty` (wire) | a hollow knock | an empty slot; grey dust (`ui/click_empty.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_wall` (wire) | a muffled thump | the background, the room's floor and walls; dim specks (`ui/click_wall.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_paper` (wire) | a paper tap | the catalog's pages and cards, the pamphlet, the House poster (it swings on its pin), the story band; paper flecks (`ui/click_paper.ogg`, Freesound CC0, ui/MANIFEST)
+- [x] `click_denied` (wire) | a dull thunk | a button that can't act (an upgrade you can't afford); dark specks, the button shakes (`ui/click_denied.ogg`, Freesound CC0, ui/MANIFEST)
 
 Already in hand, no file to find: cards (the pack's give, pitched up; the card jumps), table chips and the bankroll
 pile (the pack's chip clack; the top chip hops, the column wobbles), room items (their own foley; the item bobs), the
@@ -213,9 +213,9 @@ from the speaker.
 | the House | 2 sets (want more variants) | 1 (needs wiring) |
 | the shove | 10 | 0 |
 | the grind | 10 | 3 (table open/close, tilt, the glyph tears; all need wiring) |
-| items | 62 | 11 |
+| items | 64 | 9 |
 | paper and interface | 8 | 0 |
-| clicks | 0 | 7 (all need wiring; planned, section 8) |
+| clicks | 7 (placed; played by name from `data/clicks.lua`) | 0 |
 | room cells | 46 | 26 to place, 5 to retune |
 
-**23 sounds to find: 11 item files, 7 click surfaces (section 8) and 5 for everything else (the bass layer, the House stinger, table open/close, tilt, the glyph tears), all twelve non-item ones needing a hook first. The 30 decided in the 2026-10-03 audition are in and wired (`tools/audition_sounds.py`, `tools/place_sounds.py`). 26 room cells to place, 5 to retune.**
+**14 sounds to find: 9 item files and 5 for everything else (the bass layer, the House stinger, table open/close, tilt, the glyph tears), all five non-item ones needing a hook first. The 30 decided in the 2026-10-03 audition are in and wired (`tools/audition_sounds.py`, `tools/place_sounds.py`); the 9 decided after it (the seven click surfaces, the Trophy Shelf, the Replay TV) are placed and credited. 26 room cells to place, 5 to retune.**

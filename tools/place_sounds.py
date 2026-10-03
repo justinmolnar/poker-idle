@@ -54,6 +54,13 @@ LIVE = {
     "modal_close":          ("ui/modal_close.ogg",     "a modal or the book closing", None),
     "page_turn":            ("ui/page_turn.ogg",       "a catalog page turning", None),
     "stamp":                ("ui/stamp.ogg",           "ORDERED stamped on a bought item", None),
+    "click_felt":           ("ui/click_felt.ogg",      "a click on felt (a table's playing area, the shove felt)", None),
+    "click_chrome":         ("ui/click_chrome.ogg",    "a click on chrome (Settings and other mechanical modals, sidebars, panel headers)", None),
+    "click_rail":           ("ui/click_rail.ogg",      "a click on the rail (the bottom bar)", None),
+    "click_empty":          ("ui/click_empty.ogg",     "a click on an empty slot", None),
+    "click_wall":           ("ui/click_wall.ogg",      "a click on the wall or floor (the background, the room)", None),
+    "click_paper":          ("ui/click_paper.ogg",     "a click on paper (the catalog, the pamphlet, the House poster, the story band)", None),
+    "click_denied":         ("ui/click_denied.ogg",    "a button that can't act", None),
     "music_layer_hiss":     ("layers/hiss.ogg",        "the Act 3 vinyl bed, louder after the underflow", "whole"),
     "music_gauntlet_drone": ("layers/gauntlet_drone.ogg", "the gauntlet's drone, up a step per runout", 1.5),
 }
@@ -187,7 +194,7 @@ def write_manifests(placed):
                    "Picked in the audition (`tools/audition_sounds.py`) and processed by `tools/place_sounds.py`: "
                    "cropped, trimmed of silence (%d dB under its own peak), faded, levelled to the item sounds, mono 44.1 kHz OGG. "
                    "Creative Commons 0 (public domain, commercial use, no attribution required; credited anyway). "
-                   "Every source was uploaded before 2022-06-01, so none is AI-generated.\n\n%s\n%s\n"
+                   "Found on Freesound and credited below.\n\n%s\n%s\n"
                    % (TODAY, TRIM_BELOW_PEAK, head, "\n".join(r["row"] for r in rows)))
         if os.path.exists(path):
             text = open(path, encoding="utf-8").read()
