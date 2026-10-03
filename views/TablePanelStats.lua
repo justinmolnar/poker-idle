@@ -18,6 +18,7 @@ local Format = require("utils.format")
 local Stakes      = require("data.stakes")
 local KoPayouts  = require("data.ko_payouts")
 local Lookups     = require("utils.lookups")
+local OutcomeBar = require("views.OutcomeBar")
 local TierGlyph   = require("views.TierGlyph")
 local OutcomeMath = require("models.outcome_math")
 local PayoutBreakdown = require("models.payout_breakdown")
@@ -55,6 +56,9 @@ end
 
 -- "ev:<idx>" -> "stack_pct:<idx>", derived once per key rather than a gsub
 -- per table per frame. Bounded by the board's 36 cells.
+-- "ev:<idx>" -> "bar:<idx>", the odds bar's rect (TablePanel's preview).
+local _bar_key = setmetatable({}, { __index = function(t, k)
+    local v = "bar:" .. (k:match("^ev:(.+)$") or k); rawset(t, k, v); return v end })
 local _pct_key = setmetatable({}, { __index = function(t, k)
     local s = (k:gsub("^ev:", "stack_pct:"))
     rawset(t, k, s)
@@ -289,20 +293,7 @@ local function buildCashLines(tbl, controller, stats)
         buildCashOverviewRenderRow(header, bb, stats.pool.ev_per_hand or 0, ev_bb, stats.pool.win_chance or 0, win_avg_dollars, stats.pool.win_dist, loss_avg_dollars, stats.pool.loss_dist)
     }
 
-    if controller and controller.currentFocusMult then
-        local fmult = controller:currentFocusMult()
-        if fmult < 0.999 then
-            local fcap   = controller:currentFocusCapacity()
-            local n_open = controller.pool and controller.pool:count() or 0
-            lines[#lines + 1] = row("", "xs")
-            -- Focus slows the table; the figure above is still what each
-            -- hand pays, there are just fewer of them.
-            lines[#lines + 1] = row(string.format(
-                "Focus %d/%d ×%.2f speed", n_open, fcap, fmult),
-                "sm", "warn")
-        end
-    end
-
+    -- (The focus line that sat here repeated the rail's TABLES cell.)
     return lines
 end
 
@@ -1032,10 +1023,6 @@ local function evMetrics(tbl, controller, font)
     -- concatenated three times per panel per frame.
     local ev        = RollingValue.get(TableModel.rollingKey(tbl, "table_ev"),
                                        stats.ev_per_hand or 0)
-    local stack_pct = RollingValue.get(TableModel.rollingKey(tbl, "table_stackpct"),
-                          ((stats.win_chance or 0)
-                           * ((stats.win_dist and stats.win_dist.stack) or 0))
-                           * 100)
     local ev_bb       = ev / bb
     -- The strings rebuild only when their displayed digits change, memoized
     -- on the table: a rolling value still rebuilds per frame, a resting one
@@ -1045,39 +1032,20 @@ local function evMetrics(tbl, controller, font)
         tbl._ev_c, tbl._ev_str = ev_c, TablePanelStats.evLabel(ev)
     end
     local label = tbl._ev_str
-    local pct_t = math.floor(stack_pct * 10 + 0.5)
-    if tbl._pct_t ~= pct_t then
-        tbl._pct_t, tbl._pct_str = pct_t, string.format("%.1f%%", stack_pct)
-    end
-    local stack_label = tbl._pct_str
+    -- The odds as one bar (views/OutcomeBar) beside the $/h: it replaced
+    -- the Stack% and loss% glyphs. The panel cache keys on the stats
+    -- table itself (a fresh one each time the odds are recomputed).
+    tbl._pct_t, tbl._loss_t = stats, nil
 
-    local state = controller and controller.game and controller.game.state
-    local show_loss = state and state.shove_r2_won
-    local loss_pct = 0
-    local loss_label = ""
-    
     local text_h    = font:getHeight()
-    local r         = TierGlyph.radius(text_h)
     local gap       = math.floor(text_h * 0.6)
-    local glyph_pad = math.floor(text_h * 0.25)
     local bb_w      = font:getWidth(label)
-    -- Two widths, because the bottom row sheds the Stack% before it drops the
+    local bar_w     = math.floor(text_h * 4.5)
+    local bar_h     = math.max(3, math.floor(text_h * 0.45))
+    -- Two widths, because the bottom row sheds the bar before it drops the
     -- readout entirely (views/FeltLayout picks; this just measures both).
     local money_w   = bb_w
-    local total_w   = bb_w + gap + r * 2 + glyph_pad + font:getWidth(stack_label)
-
-    if show_loss then
-        loss_pct = RollingValue.get(TableModel.rollingKey(tbl, "table_losspct"),
-                      ((1.0 - (stats.win_chance or 0))
-                       * ((stats.loss_dist and stats.loss_dist.stack) or 0))
-                       * 100)
-        local loss_t = math.floor(loss_pct * 10 + 0.5)
-        if tbl._loss_t ~= loss_t then
-            tbl._loss_t, tbl._loss_str = loss_t, string.format("%.1f%%", loss_pct)
-        end
-        loss_label = tbl._loss_str
-        total_w = total_w + gap + r * 2 + glyph_pad + font:getWidth(loss_label)
-    end
+    local total_w   = bb_w + gap + bar_w
 
     local color     = (ev_bb > 0.05 and Theme.sem.won)
                    or (ev_bb < -0.05 and Theme.sem.lost)
@@ -1087,10 +1055,9 @@ local function evMetrics(tbl, controller, font)
     -- drawn within the frame and never held.
     local m = tbl._ev_metrics
     if not m then m = {}; tbl._ev_metrics = m end
-    m.label, m.stack_label, m.color = label, stack_label, color
-    m.total_w, m.money_w, m.text_h, m.r, m.gap = total_w, money_w, text_h, r, gap
-    m.glyph_pad, m.bb_w = glyph_pad, bb_w
-    m.show_loss, m.loss_label = show_loss, loss_label
+    m.label, m.color, m.stats = label, color, stats
+    m.total_w, m.money_w, m.text_h, m.gap = total_w, money_w, text_h, gap
+    m.bb_w, m.bar_w, m.bar_h = bb_w, bar_w, bar_h
     return m
 end
 
@@ -1133,29 +1100,18 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
     Theme.setColor(m.color)
     love.graphics.print(m.label, tx, ty)
 
-    -- Stack-win chance: gold tier glyph + pct, sharing the EV color. Its
-    -- own anchor ("ev:<idx>" -> "stack_pct:<idx>") for the beats about the
-    -- gold number alone.
-    local sx = tx + m.bb_w + m.gap
+    -- The odds bar, vertically centred on the text. The gold stack-win
+    -- segment keeps the "stack_pct:<idx>" anchor (the story points at it),
+    -- and the bar's rect is "bar:<idx>" for the hover preview's live layer.
     if not money_only then
-        TierGlyph.draw(sx + m.r, ty + m.text_h - m.r, "stack", m.r, "win")
-        Theme.setColor(m.color)
-        love.graphics.print(m.stack_label, sx + m.r * 2 + m.glyph_pad, ty)
+        local bx = tx + m.bb_w + m.gap
+        local by = ty + math.floor((m.text_h - m.bar_h) * 0.5)
+        OutcomeBar.draw(bx, by, m.bar_w, m.bar_h, m.stats)
         if anchor_key then
-            Anchors.set(_pct_key[anchor_key], sx, ty,
-                m.r * 2 + m.glyph_pad + font:getWidth(m.stack_label), m.text_h)
+            local gx, gw = OutcomeBar.segmentRect(m.stats, bx, m.bar_w, "win", "stack")
+            Anchors.set(_pct_key[anchor_key], gx, by, math.max(gw, 2), m.bar_h)
+            Anchors.set(_bar_key[anchor_key], bx, by, m.bar_w, m.bar_h)
         end
-    end
-
-    -- Stack-loss chance: purple tier glyph + pct
-    if m.show_loss and not money_only then
-        local lx = sx + m.r * 2 + m.glyph_pad + font:getWidth(m.stack_label) + m.gap
-        -- Corruption's purple on the Stack glyph (the anti-chip is what a Stack
-        -- loss pays in Act 3), without patching the tier ramp in place.
-        TierGlyph.drawColored(lx + m.r, ty + m.text_h - m.r, "stack", m.r, Theme.sem.corrupt)
-
-        Theme.setColor(Theme.sem.corrupt)
-        love.graphics.print(m.loss_label, lx + m.r * 2 + m.glyph_pad, ty)
     end
 
     -- Lazy: only the box under the pointer resolves its lines (see

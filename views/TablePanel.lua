@@ -38,6 +38,7 @@ local Button        = require("views.Button")
 local Ghosts        = require("services.Ghosts")
 local Anchors       = require("services.AnchorRegistry")
 local ClickSurfaces = require("services.ClickSurfaces")
+local OutcomeBar    = require("views.OutcomeBar")
 local Poke          = require("services.Poke")
 local Table         = require("models.Table")
 local Stats         = require("views.TablePanelStats")
@@ -314,6 +315,7 @@ local OPP_SLOT   = named(function(i) return "opp_" .. i end)
 local SEAT_NAME  = named(function(i) return "Seat " .. i end)
 local BOARD_SLOT = named(function(i) return "board_" .. i end)
 local TABLE_KEY  = named(function(i) return "table:" .. i end)
+local BAR_KEY    = named(function(i) return "bar:" .. i end)
 local TIED_KEY   = named(function(i) return "tied:" .. i end)
 local STACK_KEY  = named(function(i) return "stack:" .. i end)
 local EV_KEY     = named(function(i) return "ev:" .. i end)
@@ -3322,6 +3324,19 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shad
                 hb.idx = idx
                 hit_boxes[#hit_boxes + 1] = hb
             end
+        end
+    end
+
+    -- A hovered upgrade's next level over this table's odds bar (set per
+    -- frame by GrindView:_updatePreview): a live layer, so the cached
+    -- picture is untouched. Only over a bar drawn this frame.
+    if tbl._preview then
+        local bk = BAR_KEY[idx]
+        local a = Anchors.get(bk)
+        local m = tbl._ev_metrics
+        if a and m and m.stats and Anchors.age(bk) <= 1 then
+            local gh = math.max(2, math.floor(a[4] * 0.8))
+            OutcomeBar.draw(a[1], a[2], a[3], a[4] + gh + 1, m.stats, { ghost = tbl._preview })
         end
     end
 

@@ -27,6 +27,8 @@ local AwardGlow   = require("views.AwardGlow")
 local Anchors     = require("services.AnchorRegistry")
 local Poke          = require("services.Poke")
 local ClickSurfaces = require("services.ClickSurfaces")
+local OutcomeBar    = require("views.OutcomeBar")
+local DIM_BAR       = { alpha = 0.45 }
 -- "button:<id>" and "stat:<id>", the poke keys, built once per id.
 local BTN_KEY  = setmetatable({}, { __index = function(t, k) local v = "button:" .. k; rawset(t, k, v); return v end })
 local STAT_KEY = setmetatable({}, { __index = function(t, k) local v = "stat:" .. tostring(k); rawset(t, k, v); return v end })
@@ -132,6 +134,7 @@ local function lineRenderedHeight(line, game, content_w)
 end
 
 function CR._lineRenderedHeight(line, game, content_w)
+    if line.bar ~= nil then return (line.bar_h or 4) + 3 end
     local style  = line.style or "body"
     local font   = styleFont(style, game)
     -- Icon-bearing lines render single-line via IconText (no wrapping).
@@ -311,8 +314,10 @@ _hitButton = function(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
         -- Tooltip shows even when the button is disabled (can't afford / would
         -- strand) — the player needs the info to decide whether to save up.
         hoverTooltip(comp)
-        if comp.disabled then return nil end
+        -- Hover is reported even for a disabled button (a maxed or out of
+        -- reach upgrade still previews on the board); it just takes no click.
         if comp.id then HoverSvc.set("button", comp.id) end
+        if comp.disabled then return nil end
         return comp
     end
     return nil
@@ -811,6 +816,17 @@ local function buttonFace(fx, fy, fw, fh)
     local cursor = fy + math.max(2, math.floor((fh - total_lines_h) * 0.5))
 
     for _, line in ipairs(comp.lines or {}) do
+      if line.bar ~= nil then
+        -- An odds bar (views/OutcomeBar), the line's `ghost` under it.
+        if line.bar then
+            local ind = lineIndent("small")
+            local bw  = math.max(8, fw - ind - 4 - CR.actionStripW(comp, total_h))
+            OutcomeBar.draw(fx + ind, cursor + 1, math.min(bw, line.bar_w or bw), line.bar_h or 4,
+                            line.bar, line.ghost and { ghost = line.ghost, alpha = disabled and 0.45 or 1 }
+                            or (disabled and DIM_BAR or nil))
+        end
+        cursor = cursor + lineRenderedHeight(line, game, fw)
+      else
         local style = line.style or "body"
         local font  = styleFont(style, game)
         love.graphics.setFont(font)
@@ -951,6 +967,7 @@ local function buttonFace(fx, fy, fw, fh)
         end
 
         cursor = cursor + lineRenderedHeight(line, game, fw)
+      end
     end
 
     -- Render action sub-buttons inside the post-press face rect

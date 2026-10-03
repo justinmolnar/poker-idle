@@ -60,6 +60,7 @@ local GlyphMorph     = require("services.GlyphMorph")
 local Decks          = require("models.Decks")
 local DeckArt        = require("views.DeckArt")
 local OutcomeMath    = require("models.outcome_math")
+local OutcomeBar     = require("views.OutcomeBar")
 local Lookups        = require("utils.lookups")
 local Rail           = require("data.rail")
 local RateTicker     = require("data.rate_ticker")
@@ -373,6 +374,7 @@ function GrindView:_tablesTabInputs(arr)
     n = n + 1; arr[n] = ctrl.summary_rev or 0
     n = n + 1; arr[n] = (ctx and ctx.cursor_unlocked) == true
     n = n + 1; arr[n] = (ctx and ctx.cursor_rebuy_unlocked) == true
+    n = n + 1; arr[n] = self._preview_up or false
     local gmask = 0
     for _, gt in ipairs(GameTypes) do
         local locked = not ctrl:gtypeAvailable(gt.id)
@@ -450,6 +452,12 @@ function GrindView:_buildTablesTabComponents()
             local disabled     = full or cant_afford
             local affordable   = not disabled   -- can open this table right now
 
+            -- The row's odds bar and, while a previewing upgrade is hovered,
+            -- its next level.
+            local row_ev   = gtype_obj and self.controller:evStats(stake, gtype_obj)
+            local row_stats = row_ev and row_ev.pool or nil
+            local prev_up  = self._preview_up and Lookups.findById(RunUpgrades, self._preview_up)
+            local row_ghost = (prev_up and gtype_obj) and self:_stakePreview(prev_up, stake, gtype_obj) or nil
             -- $/h EV — only when the table can actually be opened. The
             -- bb-normalized value stays the color threshold so good/bad
             -- doesn't shift with stake size; bb/h itself is tooltip-only.
@@ -607,6 +615,9 @@ function GrindView:_buildTablesTabComponents()
                       -- This row's $/h readout, by name.
                       text_anchor = "add_table_ev:" .. stake.id .. ":" .. gtype_id,
                       right = sub_right, right_color_token = "muted" },
+                    -- Its odds (views/OutcomeBar), with a hovered upgrade's
+                    -- next level under them.
+                    { bar = row_stats or false, ghost = row_ghost, bar_h = math.max(3, math.floor(4 * s_ui)) },
                 },
             }
         end
@@ -629,132 +640,111 @@ local function catalogName(item_id)
     return item_id
 end
 
--- Upgrades whose effect "fills" toward a per-stake cap get a dynamic "next
--- level" tooltip — built fresh from the outcome model so it reflects real
--- upgrades/perks and whatever stakes exist. Both builders omit non-changing
--- stakes (only show what the level moves) and short-circuit to "MAX".
-
--- Per-stake cell value: "MAX" once the dimension's fill is past this stake's
--- window, "+N%" while it's still moving, "-" when the gain rounds to nothing.
-local function _cell(capped, delta)
-    if capped then return "MAX" end
-    if delta >= 0.005 then return string.format("+%d%%", math.floor(delta * 100 + 0.5)) end
-    return "-"
-end
-
-local function _capped(ctx, fill_key, gt, stake)
-    local window = stake.fill_window
-    if not window then return false end
-    local _, complete = OutcomeMath.effectiveWindow(window, ctx)
-    -- The Bookshelf raises the ceiling: a stake keeps gaining from the
-    -- levels past its window until the bonus is used up.
-    return OutcomeMath.sumFills(ctx[fill_key], gt)
-           >= complete + (ctx.run_upgrade_bonus_levels or 0)
-end
-
--- Win chance: the fill delta cancels the per-mode additive shift, so a single
--- mode-agnostic value per stake is honest. Every stake shown (MAX / +N% / -).
-local function _winChanceRows(view, ctx, nextctx)
-    local f     = view.game.fonts.sm
-    local gtype = Lookups.findById(GameTypes, "six_max") or GameTypes[1]
-    local data, name_w = {}, 0
-    for _, stake in ipairs(Stakes) do
-        if stakeVisible(view, stake) then
-            local cw  = OutcomeMath.buildOutcome(ctx,     gtype, stake)
-            local nw  = OutcomeMath.buildOutcome(nextctx, gtype, stake)
-            local txt = _cell(_capped(ctx, "win_chance_fills", gtype, stake), nw - cw)
-            data[#data + 1] = { name = stake.display_name or stake.id, txt = txt }
-            name_w = math.max(name_w, f:getWidth(stake.display_name or stake.id))
-        end
-    end
-
-    local col  = name_w + math.floor(f:getHeight() * 1.4)
-    local rows = { { text = "Odds, next level:", style = "sm", color_token = "muted" } }
-    for _, e in ipairs(data) do
-        local name, txt = e.name, e.txt
-        local dim = (txt == "MAX" or txt == "-")
-        rows[#rows + 1] = {
-            measure = function(_) return col + f:getWidth(txt), f:getHeight() end,
-            render  = function(x, y, _)
-                love.graphics.setFont(f)
-                Theme.setColor(Theme.fg.muted); love.graphics.print(name, x, y)
-                Theme.setColor(dim and Theme.fg.faint or Theme.fg.heading)
-                love.graphics.print(txt, x + col, y)
-            end,
-        }
-    end
-    return rows
-end
-
--- Stack rate: the win-dist renormalization makes the stack-tier delta
--- genuinely mode-dependent, so it's a per-mode grid (one column per game
--- type). Every stake shown; each cell is MAX / +N% / -.
-local function _stackRateRows(view, ctx, nextctx)
-    local f      = view.game.fonts.sm
-    local gtypes = GameTypes
-
-    local data, name_w = {}, 0
-    for _, stake in ipairs(Stakes) do
-        if stakeVisible(view, stake) then
-            local cells = {}
-            for i, gt in ipairs(gtypes) do
-                local _, cd = OutcomeMath.buildOutcome(ctx,     gt, stake)
-                local _, nd = OutcomeMath.buildOutcome(nextctx, gt, stake)
-                cells[i] = _cell(_capped(ctx, "win_dist_fills", gt, stake),
-                                 (nd.stack or 0) - (cd.stack or 0))
-            end
-            data[#data + 1] = { name = stake.display_name or stake.id, cells = cells }
-            name_w = math.max(name_w, f:getWidth(stake.display_name or stake.id))
-        end
-    end
-
-    local gap      = math.floor(f:getHeight() * 0.8)
-    local name_col = name_w + gap
-    local col_w    = f:getWidth("+99%")
-    for _, gt in ipairs(gtypes) do col_w = math.max(col_w, f:getWidth(gt.short or gt.id)) end
-    col_w = col_w + gap
-    local total_w  = name_col + #gtypes * col_w
-
-    local rows = {
-        {   -- header: stack icon (the word "Stack" reads as nothing) + label
-            measure = function(_) return IconText.measure("{stack} rate, next level:", f), f:getHeight() end,
-            render  = function(x, y, _)
-                IconText.draw(view.game, "{stack} rate, next level:", x, y, f, Theme.fg.muted)
-            end,
-        },
-        {   -- column header: game-type short names
-            measure = function(_) return total_w, f:getHeight() end,
-            render  = function(x, y, _)
-                love.graphics.setFont(f)
-                Theme.setColor(Theme.fg.muted)
-                for i, gt in ipairs(gtypes) do
-                    love.graphics.print(gt.short or gt.id, x + name_col + (i - 1) * col_w, y)
-                end
-            end,
-        },
-    }
-    for _, row in ipairs(data) do
-        local name, cells = row.name, row.cells
-        rows[#rows + 1] = {
-            measure = function(_) return total_w, f:getHeight() end,
-            render  = function(x, y, _)
-                love.graphics.setFont(f)
-                Theme.setColor(Theme.fg.heading)
-                love.graphics.print(name, x, y)
-                for i, c in ipairs(cells) do
-                    Theme.setColor((c == "MAX" or c == "-") and Theme.fg.faint or Theme.fg.heading)
-                    love.graphics.print(c, x + name_col + (i - 1) * col_w, y)
-                end
-            end,
-        }
-    end
-    return rows
-end
-
+-- Upgrades whose effect "fills" toward a per-stake cap preview their next
+-- level as an odds bar (views/OutcomeBar): in the tooltip, on the tables
+-- and on the add-table rows. `keys` are the ctx fill lists one more level
+-- appends to (GrindView:_nextCtx).
 local RANGE_TOOLTIP = {
-    win_chance = { keys = { "win_chance_fills" },                  build = _winChanceRows },
-    win_dist   = { keys = { "win_dist_fills", "loss_dist_fills" }, build = _stackRateRows },
+    win_chance = { keys = { "win_chance_fills" } },
+    win_dist   = { keys = { "win_dist_fills", "loss_dist_fills" } },
 }
+
+-- ── The outcome bar's next-level preview ────────────────────────────────
+-- An upgrade with a range tooltip (RANGE_TOOLTIP) previews its next level:
+-- the ctx with one more fill on its keys. Built once per display revision
+-- and upgrade.
+local function statsDiffer(a, b)
+    if not (a and b) then return false end
+    if math.abs((a.win_chance or 0) - (b.win_chance or 0)) > 1e-9 then return true end
+    for _, side in ipairs({ "win_dist", "loss_dist" }) do
+        local x, y = a[side] or {}, b[side] or {}
+        for _, t in ipairs({ "small", "medium", "large", "stack" }) do
+            if math.abs((x[t] or 0) - (y[t] or 0)) > 1e-9 then return true end
+        end
+    end
+    return false
+end
+GrindView.statsDiffer = statsDiffer
+
+function GrindView:_nextCtx(up)
+    local spec = up and up.tooltip_metric and RANGE_TOOLTIP[up.tooltip_metric]
+    if not spec then return nil end
+    local ctrl = self.controller
+    local token = tostring(ctrl.display_rev or 0) .. ":" .. up.id
+    local nc = self._next_ctx
+    if nc and nc.token == token then return nc.ctx end
+    local ctx, nextctx = ctrl.ctx or {}, {}
+    for k, v in pairs(ctx) do nextctx[k] = v end
+    for _, key in ipairs(spec.keys) do
+        local list = {}
+        for _, d in ipairs(ctx[key] or {}) do list[#list + 1] = d end
+        list[#list + 1] = { strength = 1 }
+        nextctx[key] = list
+    end
+    self._next_ctx = { token = token, ctx = nextctx }
+    self._preview_memo = {}
+    return nextctx
+end
+
+-- The upgrade whose button is under the pointer, when it previews.
+local PREVIEW_UPS
+function GrindView:_hoveredPreview()
+    if not PREVIEW_UPS then
+        PREVIEW_UPS = {}
+        for _, up in ipairs(RunUpgrades) do
+            if up.tooltip_metric and RANGE_TOOLTIP[up.tooltip_metric] then
+                PREVIEW_UPS[#PREVIEW_UPS + 1] = { key = "buy_runup_" .. up.id, up = up }
+            end
+        end
+    end
+    local Hover = self.game.hover or require("services.HoverService")
+    for _, p in ipairs(PREVIEW_UPS) do
+        if Hover.is("button", p.key) then return p.up end
+    end
+    return nil
+end
+
+-- Per frame (update): every table's next-level stats while a previewing
+-- upgrade is hovered (tbl._preview, read by TablePanel's preview layer),
+-- nil otherwise or where the next level changes nothing for that table.
+function GrindView:_updatePreview()
+    local up = self:_hoveredPreview()
+    self._preview_up = up and up.id or nil
+    local nextctx = up and self:_nextCtx(up)
+    local ctrl = self.controller
+    for _, t in ipairs(ctrl.pool.tables) do
+        local nxt = nil
+        if nextctx and t.estimateStats then
+            local memo = self._preview_memo
+            local hit = memo[t._id]
+            if hit == nil then
+                local now = ctrl:tableStats(t)
+                local n = t:estimateStats(nextctx, ctrl:_tableEvOpts(t))
+                hit = (now and n and statsDiffer(now, n)) and n or false
+                memo[t._id] = hit
+            end
+            nxt = hit or nil
+        end
+        t._preview = nxt
+    end
+end
+
+-- The next level's stats for a stake and game type (add-table rows, the
+-- tooltip), or nil when it changes nothing there.
+function GrindView:_stakePreview(up, stake, gtype)
+    local nextctx = self:_nextCtx(up)
+    if not nextctx then return nil end
+    local memo = self._preview_memo
+    local key = stake.id .. "|" .. gtype.id
+    local hit = memo[key]
+    if hit == nil then
+        local now = self.controller:evStats(stake, gtype)
+        local n = OutcomeMath.evStats(nextctx, gtype, stake)
+        hit = (now and n and statsDiffer(now.pool, n.pool)) and n.pool or false
+        memo[key] = hit
+    end
+    return hit or nil
+end
 
 -- One IconText tooltip row for a blurb line (heading color; {icon} markers
 -- resolve to real glyphs). Single line — blurbs are authored pre-wrapped as a
@@ -917,9 +907,71 @@ function GrindView:_buildRateTooltipUncached(br)
     return rows
 end
 
+-- The upgrade tooltip's bar: the stake and game type with the most open
+-- tables that the next level moves (or, with none open, the first visible
+-- one it moves), now with the next level under it, and one line of the
+-- numbers that change. "Hover me and look at your tables" does the rest.
+function GrindView:_upgradeBarRows(up)
+    local ctrl = self.controller
+    local counts, order = {}, {}
+    for _, t in ipairs(ctrl.pool.tables) do
+        local k = t.stake_id .. "|" .. t.game_type_id
+        if not counts[k] then counts[k] = { n = 0, stake_id = t.stake_id, gtype_id = t.game_type_id }; order[#order + 1] = counts[k] end
+        counts[k].n = counts[k].n + 1
+    end
+    table.sort(order, function(a, b) return a.n > b.n end)
+    local pick, now, nxt
+    for _, c in ipairs(order) do
+        local stake = Lookups.findById(Stakes, c.stake_id)
+        local gtype = Lookups.findById(GameTypes, c.gtype_id)
+        local n = stake and gtype and self:_stakePreview(up, stake, gtype)
+        if n then pick, now, nxt = c, ctrl:evStats(stake, gtype).pool, n; break end
+    end
+    if not pick then
+        for _, stake in ipairs(Stakes) do
+            if stakeVisible(self, stake) then
+                for _, gtype in ipairs(GameTypes) do
+                    local n = self:_stakePreview(up, stake, gtype)
+                    if n then
+                        pick = { n = 0, stake_id = stake.id, gtype_id = gtype.id }
+                        now, nxt = ctrl:evStats(stake, gtype).pool, n
+                        break
+                    end
+                end
+            end
+            if pick then break end
+        end
+    end
+    if not pick then return { { text = "The next level changes nothing at your stakes.", style = "sm", color_token = "muted" } } end
+    local stake = Lookups.findById(Stakes, pick.stake_id)
+    local gtype = Lookups.findById(GameTypes, pick.gtype_id)
+    local label = ((stake and stake.display_name) or pick.stake_id) .. " · " .. ((gtype and gtype.short) or pick.gtype_id)
+    if pick.n > 0 then label = label .. string.format("  (%d open)", pick.n) end
+    local s = self.game.ui_scale or 1
+    local w, h = math.floor(200 * s), math.floor(14 * s)
+    local function pct(x) return string.format("%.1f%%", x * 100) end
+    local wc0, wc1 = now.win_chance or 0, nxt.win_chance or 0
+    local st0 = wc0 * ((now.win_dist or {}).stack or 0)
+    local st1 = wc1 * ((nxt.win_dist or {}).stack or 0)
+    local sl0 = (1 - wc0) * ((now.loss_dist or {}).stack or 0)
+    local sl1 = (1 - wc1) * ((nxt.loss_dist or {}).stack or 0)
+    local parts = {}
+    if math.abs(wc1 - wc0) > 5e-4 then parts[#parts + 1] = "win " .. pct(wc0) .. " → " .. pct(wc1) end
+    if math.abs(st1 - st0) > 5e-4 then parts[#parts + 1] = "stack win " .. pct(st0) .. " → " .. pct(st1) end
+    if math.abs(sl1 - sl0) > 5e-4 then parts[#parts + 1] = "stack loss " .. pct(sl0) .. " → " .. pct(sl1) end
+    local rows = {
+        { text = label .. ": now, and the next level under it", style = "sm", color_token = "muted" },
+        OutcomeBar.row(now, nxt, w, h),
+    }
+    if #parts > 0 then rows[#rows + 1] = { text = table.concat(parts, " · "), style = "sm", color_token = "good" } end
+    rows[#rows + 1] = { text = "Your tables show it too while you hover.", style = "sm", color_token = "muted" }
+    return rows
+end
+
 function GrindView:_buildRangeTooltip(up)
     if not up then return nil end
-    return _range_memo:get(up.id, self.controller.display_rev or 0,
+    return _range_memo:get(up.id, tostring(self.controller.display_rev or 0) .. ":"
+                           .. tostring(self.controller.summary_rev or 0),
                            self._buildRangeTooltipUncached, self, up)
 end
 
@@ -962,7 +1014,7 @@ function GrindView:_buildRangeTooltipUncached(up)
                 list[#list + 1] = { strength = 1 }
                 nextctx[key] = list
             end
-            for _, r in ipairs(spec.build(self, ctx, nextctx)) do rows[#rows + 1] = r end
+            for _, r in ipairs(self:_upgradeBarRows(up)) do rows[#rows + 1] = r end
         end
     end
 
@@ -1229,6 +1281,9 @@ end
 
 function GrindView:update(dt)
     self:_tickGlyphTear()
+    -- Last frame's hover (HoverService is set by the hit tests below and
+    -- read during the draw): the hovered upgrade's preview on the tables.
+    self:_updatePreview()
     local mx, my = love.mouse.getPosition()
     self.left_panel:update(my)
     self.right_panel:update(my)
