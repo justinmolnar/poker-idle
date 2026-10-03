@@ -261,7 +261,10 @@ document.addEventListener("keydown", e => {
   try {
     data = await (await fetch("/api/data")).json();
   } catch (e) {
-    document.getElementById("main").innerHTML = `<div class="empty">Couldn't reach the audition server. Start it with <code>python tools/audition_sounds.py</code>.</div>`;
+    const asFile = location.protocol === "file:";
+    document.getElementById("main").innerHTML = asFile
+      ? `<div class="empty">This page can't be opened directly as a file. Double-click <b>tools/audition_sounds.bat</b> instead: it starts the little server that plays the sounds and saves your picks, and opens this page at <b>http://localhost:8765</b>.</div>`
+      : `<div class="empty">The audition server stopped. Double-click <b>tools/audition_sounds.bat</b> to start it again, then reload.</div>`;
     document.getElementById("save").textContent = "offline"; return;
   }
   for (const [name, m] of Object.entries(data.candidates)) if (!name.startsWith("_")) slots.push({ name, ...m });
