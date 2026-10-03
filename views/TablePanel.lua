@@ -39,6 +39,7 @@ local Ghosts        = require("services.Ghosts")
 local Anchors       = require("services.AnchorRegistry")
 local ClickSurfaces = require("services.ClickSurfaces")
 local OutcomeBar    = require("views.OutcomeBar")
+local IconText      = require("views.IconText")
 local Poke          = require("services.Poke")
 local Table         = require("models.Table")
 local Stats         = require("views.TablePanelStats")
@@ -3378,8 +3379,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shad
             local lab_w = f:getWidth("next") + 4
             local bar_w = math.floor(th * 6)
             local max_w = w - 2 * pad - 8
-            local tw = f:getWidth(text)
-            if tw > max_w and pv.short then text = pv.short; tw = f:getWidth(text) end
+            local tw = IconText.measure(text, f)
+            if tw > max_w and pv.short then text = pv.short; tw = IconText.measure(text, f) end
             local cw = math.min(max_w, math.max(tw, lab_w + bar_w))
             bar_w = math.max(8, math.min(bar_w, cw - lab_w))
             local ch = th * 3 + 2
@@ -3396,8 +3397,8 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shad
             love.graphics.setLineWidth(1)
             love.graphics.setFont(f)
             local cx, cy = bx + pad, by + pad
-            Theme.setColor(pv.color or Theme.sem.won)
-            love.graphics.print(text, cx, cy)
+            IconText.draw(game, text, cx, cy, f, pv.color or Theme.sem.won, 1)
+            love.graphics.setFont(f)
             local bh = math.max(3, math.floor(th * 0.55))
             local o = _pv_opts
             o.focus, o.highlight, o.ghost, o.alpha = pv.focus, nil, nil, nil

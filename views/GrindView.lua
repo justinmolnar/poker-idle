@@ -697,17 +697,17 @@ local function previewText(metric, now, nxt)
     if not (now and nxt) then return nil end
     local wc0, wc1 = now.win_chance or 0, nxt.win_chance or 0
     if metric == "win_chance" then
-        local t = "Win " .. pctStr(wc0) .. " → " .. pctStr(wc1)
+        local t = "Win " .. pctStr(wc0) .. " {arrow} " .. pctStr(wc1)
         return { text = t, short = t, color = Theme.sem.won, now = now, next = nxt, focus = "win" }
     end
     local st0 = wc0 * ((now.win_dist or {}).stack or 0)
     local st1 = wc1 * ((nxt.win_dist or {}).stack or 0)
     local sl0 = (1 - wc0) * ((now.loss_dist or {}).stack or 0)
     local sl1 = (1 - wc1) * ((nxt.loss_dist or {}).stack or 0)
-    local short = "Stack win " .. pctStr(st0) .. " → " .. pctStr(st1)
+    local short = "Stack win " .. pctStr(st0) .. " {arrow} " .. pctStr(st1)
     local text = short
     if math.abs(sl1 - sl0) > 5e-4 then
-        text = short .. "   loss " .. pctStr(sl0) .. " → " .. pctStr(sl1)
+        text = short .. "   loss " .. pctStr(sl0) .. " {arrow} " .. pctStr(sl1)
     end
     return { text = text, short = short, color = Theme.sem.chip, now = now, next = nxt, focus = "stack" }
 end
@@ -1013,7 +1013,7 @@ function GrindView:_upgradeAffectsRows(up)
         return rows
     end
     rows[#rows + 1] = { text = "Affects: " .. table.concat(names, ", "), style = "sm", color_token = "good" }
-    rows[#rows + 1] = { text = string.format("Level %d → %d. Your tables and rows show the change (%d open table%s).",
+    rows[#rows + 1] = { text = string.format("Level %d now. Level %d is shown on your tables while you hover (%d open table%s).",
                                              lvl, lvl + 1, open, open == 1 and "" or "s"),
                         style = "sm", color_token = "muted" }
     return rows
@@ -1330,7 +1330,6 @@ function GrindView:update(dt)
     self:_tickGlyphTear()
     -- Last frame's hover (HoverService is set by the hit tests below and
     -- read during the draw): the hovered upgrade's preview on the tables.
-    self:_updatePreview()
     local mx, my = love.mouse.getPosition()
     self.left_panel:update(my)
     self.right_panel:update(my)
@@ -1359,6 +1358,9 @@ function GrindView:update(dt)
             CR.hitTest(comps, panel.x, panel.w, mx, cy, self.game)
         end
     end
+    -- The hovered upgrade's preview on the board: after the hit test, which
+    -- is what reports this frame's hover (main clears it every frame).
+    self:_updatePreview()
     -- The chip pile says what it is on hover (its band, from the last draw).
     local pr = self._pile_rect
     if pr and mx >= pr.x and mx < pr.x + pr.w and my >= pr.y and my < pr.y + pr.h then

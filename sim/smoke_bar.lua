@@ -88,7 +88,21 @@ for _, id in ipairs({ "pot_control", "sharper_reads" }) do
 end
 
 -- ── preview ─────────────────────────────────────────────────────────────
-local hover = function() HoverService.set("button", "buy_runup_pot_control") end
+-- Hovered the way the game does it: the mouse on the button, hover cleared
+-- at the top of the frame and reported by the view's own hit test (setting
+-- it by hand before update hid a preview that read hover too early).
+local AR = require("services.AnchorRegistry")
+local function mouseOn(id)
+    return function()
+        local r = AR.get("buy_runup_" .. id)
+        local mx, my = -1, -1
+        if r then mx, my = (r.x or r[1]) + 10, (r.y or r[2]) + 10 end
+        love.mouse.getPosition = function() return mx, my end
+        love.mouse.getX = function() return mx end
+        love.mouse.getY = function() return my end
+    end
+end
+local hover = mouseOn("pot_control")
 frame(hover)
 frame(hover)
 local with, stack_text = 0, true
@@ -114,13 +128,13 @@ do
 end
 frame(hover)
 c.eq(Perf.counter("panel_rebuild"), 0, "the preview rebuilds no panel (a live layer)")
-frame()
+frame(function() love.mouse.getPosition = function() return -1, -1 end end)
 local left = 0
 for _, t in ipairs(w:tables()) do if t._preview then left = left + 1 end end
 c.eq(left, 0, "un-hovered, the preview is gone")
 
 do
-    local sr = function() HoverService.set("button", "buy_runup_sharper_reads") end
+    local sr = mouseOn("sharper_reads")
     frame(sr); frame(sr)
     local t1 = w:tables()[1]
     c.ok(t1._preview and (t1._preview.text or ""):find("^Win ") ~= nil,
