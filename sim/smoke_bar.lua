@@ -3,11 +3,15 @@
 -- The outcome bar (views/OutcomeBar) and the upgrade preview:
 --   segments  eight segments, as wide as their absolute chances, filling the
 --             bar exactly; the win/loss split where the win chance says
---   tooltip   pot_control's and sharper_reads' tooltips carry a bar row
---             (custom measure/render) instead of the per-stake grids
---   preview   hovering an upgrade gives every table it moves a next-level
---             preview (tbl._preview), drawn as a live layer: no panel
---             rebuilds for it; un-hovering clears it
+--   tooltip   pot_control's and sharper_reads' tooltips name the stakes
+--             they move ("Affects: NL2"), no graph
+--   preview   hovering an upgrade gives every table it moves its own
+--             metric, now and next (tbl._preview.text: "Win" for Sharper
+--             Reads, "Stack win" for Pot Control), drawn as a live layer:
+--             no panel rebuilds for it; un-hovering clears it
+--   rows      an add-table row you can't afford has no bar
+--   ease      the bar eases toward new odds instead of jumping
+--   throttle  the streak multiplier reaches the readouts once a second
 --   disabled  a disabled upgrade still reports hover (it previews)
 --
 -- Standalone: `lua sim/smoke_bar.lua` from the repo root.
@@ -76,29 +80,98 @@ for _ = 1, 4 do frame() end
 for _, id in ipairs({ "pot_control", "sharper_reads" }) do
     local up = Lookups.findById(RunUpgrades, id)
     local rows = view:_buildRangeTooltipUncached(up)
-    local bar = false
+    local affects = false
     for _, r in ipairs(rows or {}) do
-        if type(r) == "table" and r.measure and r.render then
-            local bw, bh = r.measure(g.fonts)
-            if bw > 50 and bh < 40 then bar = true end
-        end
+        if type(r) == "table" and type(r.text) == "string" and r.text:find("^Affects: NL2") then affects = true end
     end
-    c.ok(bar, id .. "'s tooltip carries an odds bar row")
+    c.ok(affects, id .. "'s tooltip names the stakes it moves")
 end
 
 -- ── preview ─────────────────────────────────────────────────────────────
 local hover = function() HoverService.set("button", "buy_runup_pot_control") end
 frame(hover)
 frame(hover)
-local with = 0
-for _, t in ipairs(w:tables()) do if t._preview then with = with + 1 end end
+local with, stack_text = 0, true
+for _, t in ipairs(w:tables()) do
+    if t._preview then
+        with = with + 1
+        if not (t._preview.text or ""):find("^Stack win") then stack_text = false end
+    end
+end
 c.ok(with > 0, "hovering Pot Control previews on the tables it moves (" .. with .. ")")
+c.ok(stack_text, "Pot Control's preview is the stack win, now and next")
 frame(hover)
 c.eq(Perf.counter("panel_rebuild"), 0, "the preview rebuilds no panel (a live layer)")
 frame()
 local left = 0
 for _, t in ipairs(w:tables()) do if t._preview then left = left + 1 end end
 c.eq(left, 0, "un-hovered, the preview is gone")
+
+do
+    local sr = function() HoverService.set("button", "buy_runup_sharper_reads") end
+    frame(sr); frame(sr)
+    local t1 = w:tables()[1]
+    c.ok(t1._preview and (t1._preview.text or ""):find("^Win ") ~= nil,
+         "Sharper Reads' preview is the win chance, now and next")
+    frame()
+end
+
+-- ── rows ────────────────────────────────────────────────────────────────
+do
+    local saved = g.state.bankroll
+    g.state.bankroll = 0
+    local bars = 0
+    for _, comp in ipairs(view:_buildTablesTabComponents() or {}) do
+        for _, line in ipairs(comp.lines or {}) do if line.bar then bars = bars + 1 end end
+    end
+    c.eq(bars, 0, "no add-table row shows a bar when none can be afforded")
+    -- The bar fits into the row's padding: a row is as tall with it as
+    -- without (the list does not grow a scrollbar for it).
+    local CR = require("views.ComponentRenderer")
+    local function rowH()
+        for _, comp in ipairs(view:_buildTablesTabComponents() or {}) do
+            if comp.type == "button" and comp.face_color then
+                return CR.types.button.measureH(comp, 260, g)
+            end
+        end
+    end
+    local h_without = rowH()
+    g.state.bankroll = saved
+    local h_with = rowH()
+    c.ok(h_with ~= nil and h_with == h_without, "an add-table row keeps its height with the bar ("
+         .. tostring(h_with) .. " vs " .. tostring(h_without) .. ")")
+end
+
+-- ── ease ────────────────────────────────────────────────────────────────
+do
+    local a = { win_chance = 0.4, win_dist = { small = 1 }, loss_dist = { small = 1 } }
+    local b = { win_chance = 0.6, win_dist = { stack = 1 }, loss_dist = { small = 1 } }
+    local d = { win_dist = {}, loss_dist = {} }
+    OutcomeBar.ease(d, a, 1)
+    c.ok(math.abs(d.win_chance - 0.4) < 1e-9, "a fresh bar starts at its odds")
+    OutcomeBar.ease(d, b, 0.25)
+    c.ok(d.win_chance > 0.4 and d.win_chance < 0.6, "one step moves part of the way")
+    for _ = 1, 200 do OutcomeBar.ease(d, b, 0.25) end
+    c.ok(math.abs(d.win_chance - 0.6) < 1e-6 and math.abs(d.win_dist.stack - 1) < 1e-6, "and arrives")
+end
+
+-- ── throttle ────────────────────────────────────────────────────────────
+do
+    local ctrl = w.ctrl
+    ctrl.ctx.manual_combo = { value = 0.1, cap = 3 }
+    ctrl.manual_combo = 0
+    ctrl.clock = (ctrl.clock or 0) + 10
+    ctrl:_evFrameConsts()
+    local m0 = ctrl._ev_hand_mult
+    ctrl.manual_combo = 5
+    ctrl.clock = ctrl.clock + 0.2
+    ctrl:_evFrameConsts()
+    c.eq(ctrl._ev_hand_mult, m0, "a streak step inside the second leaves the readout alone")
+    ctrl.clock = ctrl.clock + 1
+    ctrl:_evFrameConsts()
+    c.ok(ctrl._ev_hand_mult ~= m0, "a second later it is taken")
+    ctrl.ctx.manual_combo = nil
+end
 
 -- ── disabled ────────────────────────────────────────────────────────────
 do

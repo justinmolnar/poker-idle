@@ -651,8 +651,8 @@ function GrindController:_pollDisplayInputs()
     -- A live counter an owned item reads (LIVE_CTX_FIELDS) moved: fold it
     -- at most every LIVE_BUMP_SECS. Hands per second changes ~20 times a
     -- second on a busy board, and each bump empties every EV cache and
-    -- memo in the game; half a second of staleness on a Framed Diploma
-    -- readout is invisible, twenty rebuilds a second was not.
+    -- memo in the game; a second of staleness on a Framed Diploma readout
+    -- is invisible, twenty rebuilds (and a jumping number) a second was not.
     if self._live_dirty then
         local t = self.clock or 0
         if t - (self._live_bump_t or -1e9) >= GrindController.LIVE_BUMP_SECS then
@@ -725,11 +725,25 @@ function GrindController:_evFrameConsts()
     -- Focus is not in here: it slows the table (Table:update's pace),
     -- it does not scale the hand, so the per-hand figure is the hand's.
     local bank = ctx.earnings_scale_by_bankroll and (state.bankroll or 0) or nil
-    self._ev_hand_mult = hand_mult
     self._ev_overcap   = self.pool:count() > self:currentFocusCapacity()
-    self._ev_bank      = bank
-    self._ev_bank_key  = bank and math.floor(ShoveRate.bankrollMultiplier(bank) * 100 + 0.5) or 0
+    -- The streak multiplier and the bankroll move on every hand; a readout
+    -- that followed them would never sit still. They are taken at most once
+    -- every READOUT_SECS (at once when the item that reads them comes or
+    -- goes). The hands themselves pay the live values.
+    local due = (clock - (self._ev_latch_t or -1e9)) >= GrindController.READOUT_SECS
+             or ((hand_mult == nil) ~= (self._ev_hand_mult == nil))
+             or ((bank == nil) ~= (self._ev_bank == nil))
+    if due then
+        self._ev_latch_t   = clock
+        self._ev_hand_mult = hand_mult
+        self._ev_bank      = bank
+        self._ev_bank_key  = bank and math.floor(ShoveRate.bankrollMultiplier(bank) * 100 + 0.5) or 0
+    end
 end
+-- How often a readout may take a value that moves every hand (above, and
+-- the live ctx counters, LIVE_BUMP_SECS).
+GrindController.READOUT_SECS = 1.0
+GrindController.HPS_WINDOW   = 5
 
 -- Does the cache slot still describe this table's position and hand?
 local function evSlotMatches(self, slot, tbl)
@@ -834,7 +848,7 @@ end
 -- when it is not, and folded at most every LIVE_BUMP_SECS when it is
 -- (_pollDisplayInputs). Without the gate, a field that changed every
 -- frame threw away every EV cache and memo every frame.
-GrindController.LIVE_BUMP_SECS = 0.5
+GrindController.LIVE_BUMP_SECS = 1.0
 -- The live fields and their gates, so a new one cannot quietly become a
 -- 20 Hz rebuild: hands_per_second (Framed Diploma), heater_count (Desk
 -- Speakers), hu_table_count (the Mirror), lanes_seated (Wall Hook).
@@ -1235,12 +1249,16 @@ function GrindController:update(dt)
                 t._lonely = (neighbours == 0)
             end
         end
-        -- The Framed Diploma: hands the board finished in the last second.
+        -- The Framed Diploma: hands per second, averaged over the last
+        -- HPS_WINDOW seconds and kept to one decimal, so it is a rate and
+        -- not a count that flickers with every deal.
         local times = self._hand_times
         if times then
             local now = love.timer.getTime()
-            while times[1] and now - times[1] > 1 do table.remove(times, 1) end
-            self:_setCtxField("hands_per_second", #times, "odds_per_hand_per_second")
+            local win = GrindController.HPS_WINDOW
+            while times[1] and now - times[1] > win do table.remove(times, 1) end
+            local hps = math.floor(#times / win * 10 + 0.5) / 10
+            self:_setCtxField("hands_per_second", hps, "odds_per_hand_per_second")
         end
     end
     self:_tickGtypeUnlocks()

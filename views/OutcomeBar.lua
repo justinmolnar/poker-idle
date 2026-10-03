@@ -22,6 +22,7 @@ local OutcomeBar = {}
 local TIERS = { "stack", "large", "medium", "small" }   -- loss side, left to right
 local WINS  = { "small", "medium", "large", "stack" }   -- win side, left to right
 OutcomeBar.LOSS_ORDER, OutcomeBar.WIN_ORDER = TIERS, WINS
+local SIDES, DISTS = { "loss", "win" }, { "win_dist", "loss_dist" }
 
 -- The eight segments' (x, w) for a bar at x of width w, written into `out`
 -- as out[side][tier] = { x, w } (reused). A segment with any chance at all
@@ -56,7 +57,7 @@ OutcomeBar.segments = segments
 local _a, _b = { loss = {}, win = {} }, { loss = {}, win = {} }
 
 local function paint(segs, y, h, alpha)
-    for _, side in ipairs({ "loss", "win" }) do
+    for _, side in ipairs(SIDES) do
         local order = (side == "loss") and TIERS or WINS
         local pal = Theme.tier and Theme.tier[side] or nil
         for _, t in ipairs(order) do
@@ -89,6 +90,19 @@ function OutcomeBar.draw(x, y, w, h, stats, opts)
     local split = _a.win.small[1]
     Theme.setColor(Theme.fg.heading, 0.55)
     love.graphics.rectangle("fill", split, y - 1, 1, main_h + 2)
+end
+
+-- Move display stats `d` toward `s` by fraction k (1 snaps): the bar
+-- eases between odds instead of jumping. Allocation-free once d's dist
+-- tables exist.
+function OutcomeBar.ease(d, s, k)
+    d.win_chance = (d.win_chance or 0) + ((s.win_chance or 0) - (d.win_chance or 0)) * k
+    for _, side in ipairs(DISTS) do
+        local dd, sd = d[side], s[side] or {}
+        for _, t in ipairs(WINS) do
+            dd[t] = (dd[t] or 0) + ((sd[t] or 0) - (dd[t] or 0)) * k
+        end
+    end
 end
 
 -- The rect of one segment of the bar drawn at (x, w): x, w (for an anchor on

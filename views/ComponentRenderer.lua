@@ -175,7 +175,9 @@ local function contentH(comp, content_w, game)
         end
         return h
     end
-    local h = BTN_PAD
+    -- comp.pad_trim: padding a line was fitted into (an add-table row's
+    -- odds bar), so the button keeps the height it had without it.
+    local h = comp.pad_trim and math.max(1, BTN_PAD - comp.pad_trim) or BTN_PAD
     for _, line in ipairs(lines) do
         h = h + lineRenderedHeight(line, game, content_w)
     end

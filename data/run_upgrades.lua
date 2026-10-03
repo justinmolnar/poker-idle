@@ -55,8 +55,8 @@ local RunUpgrades = {
         name        = "Sharper Reads",
         description = "+{c:chance:odds} at {k:every_table}",
         tooltip_blurb = {
-            "Raises your {c:chance:odds} at every stake and",
-            "game type. The graph shows the next level.",
+            "Raises your {c:chance:odds} of winning a hand,",
+            "at every stake and game type.",
         },
         icon        = "sharper_reads",
         -- Drives a per-stake range tooltip (win chance, current → next level).
@@ -85,7 +85,7 @@ local RunUpgrades = {
         description = "More {w:stack}, fewer {l:stack}.",
         tooltip_blurb = {
             "More {w:stack}, fewer {l:stack}, at every stake.",
-            "The graph shows the {w:stack} {c:chance:odds}, the ones that pay {chip}.",
+            "{w:stack} are the wins that pay {chip}.",
         },
         icon        = "pot_control",
         -- Drives a per-stake range tooltip (Stack rate, current → next level).

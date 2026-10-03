@@ -94,7 +94,7 @@ return function(T)
     check("smoke:full_board", "hands", dealt > 200 and (w.state.total_hands_played or 0) >= dealt and not counters_fell,
         ("%d hands played across the board, hands-played counter at %d%s"):format(dealt, w.state.total_hands_played or 0, counters_fell and ("; " .. counters_fell) or ""))
     check("smoke:full_board", "statuses", bad_status == nil, bad_status and ("an unauthorized status appeared: " .. bad_status) or "only tilt and heater ever sat on a table")
-    check("smoke:full_board", "pace", peak_hps >= 1, ("the board's hands-per-second stamp peaked at %d"):format(peak_hps))
+    check("smoke:full_board", "pace", peak_hps >= 1, ("the board's hands-per-second stamp peaked at %.1f"):format(peak_hps))
 
     -- Two minutes of a full board leave the event bus's recycle pool at
     -- its bound: every announcement passes a fresh table and only :event()

@@ -38,6 +38,7 @@ local MAX_CARD_SCALE = 1.5
 local BOTTOM_LADDER = {
     { tied = "full",  ev = "full"  },
     { tied = "short", ev = "full"  },
+    { tied = "short", ev = "pcts"  },   -- the bar goes first
     { tied = "short", ev = "money" },
     { tied = "full",  ev = nil     },
     { tied = "short", ev = nil     },
@@ -123,7 +124,7 @@ end
 -- TablePanel must treat it as read-only — it does; it only reads L.
 local LAYOUT_KEYS = {
     "felt_x", "felt_y", "felt_w", "felt_h", "hu", "n_opps", "sizes", "s",
-    "sm_h", "md_h", "xs_h", "ev_w", "ev_money_w", "tied_w", "tied_short_w",
+    "sm_h", "md_h", "xs_h", "ev_w", "ev_money_w", "ev_pcts_w", "tied_w", "tied_short_w",
     "name_ch_w", "pile_r", "bottom_extra", "n_tables",
 }
 local _layout_cache = setmetatable({}, { __mode = "k" })
@@ -546,6 +547,7 @@ function FeltLayout.compute(p)
     local tied_short = p.tied_short_w or tied_full
     local ev_full    = p.ev_w or 0
     local ev_money   = p.ev_money_w or ev_full
+    local ev_pcts    = p.ev_pcts_w or ev_full
     local pad        = scaled(sp.you_pad, p.s)
     local inner_w    = fw - 2 * edge
 
@@ -560,6 +562,7 @@ function FeltLayout.compute(p)
         local rung = BOTTOM_LADDER[ri]
         local tw = (rung.tied == "full") and tied_full or tied_short
         local ew = (rung.ev == "full" and ev_full)
+                or (rung.ev == "pcts" and ev_pcts)
                 or (rung.ev == "money" and ev_money) or 0
         if ew > 0 then
             local t = BandStack.threeUp(inner_w, tw, ew, 0, pad)

@@ -161,16 +161,22 @@ return function(T)
         local z = {}
         for i = 1, 4 do z[i] = w:open("s001", "zoom") end
         w:own("hybrid_console"); w:tick(0.05)
-        for i = 1, 4 do w.ctrl:dealHand(w:find(z[i])) end
+        -- Played continuously for ten seconds: the stamp is a rate (hands
+        -- per second over the last few seconds), not a burst count.
         local peak = 0
-        for _ = 1, 200 do w:tick(0.05); peak = math.max(peak, w.ctrl.ctx.hands_per_second or 0) end
-        check("item:hybrid_console", "count", peak >= 2,
-            ("four Zoom tables dealt together: the board's hands-per-second stamp peaked at %d in the next ten seconds"):format(peak))
+        for _ = 1, 200 do
+            for i = 1, 4 do
+                if z[i].state == "idle" then w.ctrl:dealHand(w:find(z[i])) end
+            end
+            w:tick(0.05); peak = math.max(peak, w.ctrl.ctx.hands_per_second or 0)
+        end
+        check("item:hybrid_console", "count", peak >= 1 and peak < 20,
+            ("four Zoom tables played for ten seconds: the board's hands-per-second rate peaked at %.1f"):format(peak))
         -- The live counter and the display revision: hands per second moves
         -- ~20 times a second on a busy board, and used to empty every EV
         -- cache and memo each time. Without an item that reads it the
         -- revision must not move while the counter does; with one (the
-        -- Hybrid Console here) it folds at most twice a second.
+        -- Hybrid Console here) it folds at most once a second.
         local w2 = T.world()
         local z2 = {}
         for i = 1, 4 do z2[i] = w2:open("s001", "zoom") end
@@ -192,7 +198,7 @@ return function(T)
         w2:own("hybrid_console"); w2:tick(0.05)
         local moves_on = busy(w2, z2, 4)
         check("item:hybrid_console", "display", moves_off == 0 and moves_on <= 9 and moves_on >= 1,
-            ("four seconds of Zoom hands: the display revision moved %d times with nothing reading hands per second (the counter read %d), %d times with the console (folded at most every %.1fs)"):format(
+            ("four seconds of Zoom hands: the display revision moved %d times with nothing reading hands per second (the counter read %.1f), %d times with the console (folded at most every %.1fs)"):format(
                 moves_off, hps_moved, moves_on, w2.ctrl.LIVE_BUMP_SECS))
         -- And a cache hit on a table's stats allocates nothing: the key is
         -- compared field by field, the opts are built only on a miss.

@@ -1032,20 +1032,51 @@ local function evMetrics(tbl, controller, font)
         tbl._ev_c, tbl._ev_str = ev_c, TablePanelStats.evLabel(ev)
     end
     local label = tbl._ev_str
-    -- The odds as one bar (views/OutcomeBar) beside the $/h: it replaced
-    -- the Stack% and loss% glyphs. The panel cache keys on the stats
-    -- table itself (a fresh one each time the odds are recomputed).
-    tbl._pct_t, tbl._loss_t = stats, nil
+    -- The stack-win chance, the gold number: rolled like the $/h, its
+    -- string rebuilt only when its digits move (the panel cache keys on
+    -- those digits, _pct_t).
+    local stack_pct = RollingValue.get(TableModel.rollingKey(tbl, "table_stackpct"),
+                          ((stats.win_chance or 0)
+                           * ((stats.win_dist and stats.win_dist.stack) or 0)) * 100)
+    local pct_t = math.floor(stack_pct * 10 + 0.5)
+    if tbl._pct_t ~= pct_t then
+        tbl._pct_t, tbl._pct_str = pct_t, string.format("%.1f%%", stack_pct)
+    end
+    local stack_label = tbl._pct_str
+    -- The stack-loss chance beside it, once the second shove has shown it.
+    local state = controller and controller.game and controller.game.state
+    local show_loss = state and state.shove_r2_won
+    local loss_label = ""
+    if show_loss then
+        local loss_pct = RollingValue.get(TableModel.rollingKey(tbl, "table_losspct"),
+                          ((1.0 - (stats.win_chance or 0))
+                           * ((stats.loss_dist and stats.loss_dist.stack) or 0)) * 100)
+        local loss_t = math.floor(loss_pct * 10 + 0.5)
+        if tbl._loss_t ~= loss_t then
+            tbl._loss_t, tbl._loss_str = loss_t, string.format("%.1f%%", loss_pct)
+        end
+        loss_label = tbl._loss_str
+    else
+        tbl._loss_t = nil
+    end
 
     local text_h    = font:getHeight()
+    local r         = TierGlyph.radius(text_h)
     local gap       = math.floor(text_h * 0.6)
+    local glyph_pad = math.floor(text_h * 0.25)
     local bb_w      = font:getWidth(label)
-    local bar_w     = math.floor(text_h * 4.5)
+    local stack_w   = r * 2 + glyph_pad + font:getWidth(stack_label)
+    local loss_w    = show_loss and (r * 2 + glyph_pad + font:getWidth(loss_label)) or 0
+    -- The odds bar after the numbers (views/OutcomeBar; drawn by the panel's
+    -- live layer, easing between values, so only its rect is laid out here).
+    local bar_w     = math.floor(text_h * 4)
     local bar_h     = math.max(3, math.floor(text_h * 0.45))
-    -- Two widths, because the bottom row sheds the bar before it drops the
-    -- readout entirely (views/FeltLayout picks; this just measures both).
+    -- Three widths, because the bottom row sheds the bar, then the
+    -- percentages, before it drops the readout entirely (views/FeltLayout
+    -- picks; this just measures them).
     local money_w   = bb_w
-    local total_w   = bb_w + gap + bar_w
+    local pcts_w    = bb_w + gap + stack_w + (show_loss and (gap + loss_w) or 0)
+    local total_w   = pcts_w + gap + bar_w
 
     local color     = (ev_bb > 0.05 and Theme.sem.won)
                    or (ev_bb < -0.05 and Theme.sem.lost)
@@ -1056,8 +1087,10 @@ local function evMetrics(tbl, controller, font)
     local m = tbl._ev_metrics
     if not m then m = {}; tbl._ev_metrics = m end
     m.label, m.color, m.stats = label, color, stats
-    m.total_w, m.money_w, m.text_h, m.gap = total_w, money_w, text_h, gap
-    m.bb_w, m.bar_w, m.bar_h = bb_w, bar_w, bar_h
+    m.stack_label, m.loss_label, m.show_loss = stack_label, loss_label, show_loss
+    m.total_w, m.money_w, m.pcts_w, m.text_h, m.gap = total_w, money_w, pcts_w, text_h, gap
+    m.bb_w, m.bar_w, m.bar_h, m.r, m.glyph_pad = bb_w, bar_w, bar_h, r, glyph_pad
+    m.stack_w, m.loss_w = stack_w, loss_w
     return m
 end
 
@@ -1067,7 +1100,7 @@ end
 function TablePanelStats.measureEvReadout(tbl, controller, fonts)
     local m = evMetrics(tbl, controller, fonts.sm)
     if not m then return 0, 0 end
-    return m.total_w, m.money_w, m
+    return m.total_w, m.money_w, m, m.pcts_w
 end
 
 -- Draw the readout left-anchored at the layout slot `ev = { x, y, w, show }`
@@ -1090,7 +1123,8 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
     -- narrow to hold the Stack% glyph beside the tied-up line, so only the
     -- $/hand survives.
     local money_only = (ev.parts == "money")
-    local drawn_w    = money_only and m.money_w or m.total_w
+    local with_bar   = (ev.parts == "full")
+    local drawn_w    = (money_only and m.money_w) or (with_bar and m.total_w) or m.pcts_w
 
     love.graphics.setFont(font)
     local tx, ty = ev.x, ev.y
@@ -1100,17 +1134,30 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
     Theme.setColor(m.color)
     love.graphics.print(m.label, tx, ty)
 
-    -- The odds bar, vertically centred on the text. The gold stack-win
-    -- segment keeps the "stack_pct:<idx>" anchor (the story points at it),
-    -- and the bar's rect is "bar:<idx>" for the hover preview's live layer.
+    -- Stack-win chance: gold tier glyph + pct, sharing the EV color. Its
+    -- own anchor ("ev:<idx>" -> "stack_pct:<idx>") for the beats about the
+    -- gold number alone. Then the stack loss, when shown.
+    local bx, by
     if not money_only then
-        local bx = tx + m.bb_w + m.gap
-        local by = ty + math.floor((m.text_h - m.bar_h) * 0.5)
-        OutcomeBar.draw(bx, by, m.bar_w, m.bar_h, m.stats)
+        local sx = tx + m.bb_w + m.gap
+        TierGlyph.draw(sx + m.r, ty + m.text_h - m.r, "stack", m.r, "win")
+        Theme.setColor(m.color)
+        love.graphics.print(m.stack_label, sx + m.r * 2 + m.glyph_pad, ty)
         if anchor_key then
-            local gx, gw = OutcomeBar.segmentRect(m.stats, bx, m.bar_w, "win", "stack")
-            Anchors.set(_pct_key[anchor_key], gx, by, math.max(gw, 2), m.bar_h)
-            Anchors.set(_bar_key[anchor_key], bx, by, m.bar_w, m.bar_h)
+            Anchors.set(_pct_key[anchor_key], sx, ty, m.stack_w, m.text_h)
+        end
+        sx = sx + m.stack_w + m.gap
+        if m.show_loss then
+            TierGlyph.draw(sx + m.r, ty + m.text_h - m.r, "stack", m.r, "loss")
+            Theme.setColor(Theme.sem.lost)
+            love.graphics.print(m.loss_label, sx + m.r * 2 + m.glyph_pad, ty)
+            sx = sx + m.loss_w + m.gap
+        end
+        -- The bar's rect only: TablePanel's live layer draws it, easing
+        -- from the old odds to the new ones ("bar:<idx>").
+        if with_bar then
+            bx, by = sx, ty + math.floor((m.text_h - m.bar_h) * 0.5)
+            if anchor_key then Anchors.set(_bar_key[anchor_key], bx, by, m.bar_w, m.bar_h) end
         end
     end
 
@@ -1127,12 +1174,43 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
             hb = {}
             hit_boxes[#hit_boxes + 1] = hb
         end
+        local num_w = bx and (bx - tx - m.gap) or drawn_w
         hb.x, hb.y = tx - pad, ty - pad
-        hb.w, hb.h = drawn_w + pad * 2, m.text_h + pad * 2
+        hb.w, hb.h = num_w + pad * 2, m.text_h + pad * 2
         hb.tooltip_fn   = buildEvBreakdownLines
         hb.tooltip_arg1 = tbl
         hb.tooltip_arg2 = controller
+        -- The bar names its segments: each tier and its chance.
+        if bx then
+            local hb2
+            if alloc then hb2 = alloc(tbl, hit_boxes) else hb2 = {}; hit_boxes[#hit_boxes + 1] = hb2 end
+            hb2.x, hb2.y = bx - 1, ty - pad
+            hb2.w, hb2.h = m.bar_w + pad + 1, m.text_h + pad * 2
+            hb2.tooltip_fn   = TablePanelStats.barLegendLines
+            hb2.tooltip_arg1 = tbl
+            hb2.tooltip_arg2 = controller
+        end
     end
+end
+
+-- The bar's legend: every segment, wins then losses, with its glyph, its
+-- name and its chance per hand (absolute, as wide as it is on the bar).
+local TIER_NAME = { stack = "Stack", large = "Large", medium = "Medium", small = "Small" }
+function TablePanelStats.barLegendLines(tbl, controller)
+    local stats = controller and controller:tableStats(tbl)
+    local game = controller and controller.game
+    if not (stats and game) then return nil end
+    local wc = stats.win_chance or 0
+    local lines = { row("Each hand, by outcome:", "sm", "muted") }
+    for _, t in ipairs({ "stack", "large", "medium", "small" }) do
+        local p = wc * ((stats.win_dist or {})[t] or 0)
+        lines[#lines + 1] = iconRow(game, string.format("{w:%s} %s win  %s", t, TIER_NAME[t], fmtPctClean(p * 100)), "sm")
+    end
+    for _, t in ipairs({ "small", "medium", "large", "stack" }) do
+        local p = (1 - wc) * ((stats.loss_dist or {})[t] or 0)
+        lines[#lines + 1] = iconRow(game, string.format("{l:%s} %s loss  %s", t, TIER_NAME[t], fmtPctClean(p * 100)), "sm")
+    end
+    return lines
 end
 
 -- ─── Debug tooltip (toggled by `) ────────────────────────────────────

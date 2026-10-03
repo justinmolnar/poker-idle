@@ -316,6 +316,8 @@ local SEAT_NAME  = named(function(i) return "Seat " .. i end)
 local BOARD_SLOT = named(function(i) return "board_" .. i end)
 local TABLE_KEY  = named(function(i) return "table:" .. i end)
 local BAR_KEY    = named(function(i) return "bar:" .. i end)
+-- How fast the odds bar eases to new odds (per second, exponential).
+local BAR_EASE   = 6
 local TIED_KEY   = named(function(i) return "tied:" .. i end)
 local STACK_KEY  = named(function(i) return "stack:" .. i end)
 local EV_KEY     = named(function(i) return "ev:" .. i end)
@@ -2370,8 +2372,9 @@ local function solveLayout(tbl, x, y, w, h, game, controller, s, ui_s, n_tables)
     -- The caller measures text widths so FeltLayout stays pure geometry. The
     -- bottom row holds two edge-anchored strings on ONE line with no smaller
     -- font to fall back on, so the layout needs every form it might shed to.
-    local ev_w, ev_money_w, ev_metrics = Stats.measureEvReadout(tbl, controller, fonts)
+    local ev_w, ev_money_w, ev_metrics, ev_pcts_w = Stats.measureEvReadout(tbl, controller, fonts)
     ev_w, ev_money_w = ev_w or 0, ev_money_w or 0
+    ev_pcts_w = ev_pcts_w or ev_w
     ly.ev_metrics = ev_metrics
     local tied_w       = fonts.sm:getWidth(tiedText(tbl, "full"))
     local tied_short_w = fonts.sm:getWidth(tiedText(tbl, "short"))
@@ -2391,7 +2394,7 @@ local function solveLayout(tbl, x, y, w, h, game, controller, s, ui_s, n_tables)
     lp.felt_x, lp.felt_y, lp.felt_w, lp.felt_h = felt_x, felt_y, felt_w, felt_h
     lp.hu, lp.n_opps = (tbl.game_type_id == "hu"), #tbl.opponents
     lp.sizes, lp.s, lp.sm_h, lp.md_h, lp.xs_h = sizes, s, sm_h2, md_h, xs_h
-    lp.ev_w, lp.ev_money_w = ev_w, ev_money_w
+    lp.ev_w, lp.ev_money_w, lp.ev_pcts_w = ev_w, ev_money_w, ev_pcts_w
     lp.tied_w, lp.tied_short_w = tied_w, tied_short_w
     lp.name_ch_w = name_ch_w
     lp.pile_r = Chips.radius()
@@ -3332,16 +3335,48 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shad
         end
     end
 
-    -- A hovered upgrade's next level over this table's odds bar (set per
-    -- frame by GrindView:_updatePreview): a live layer, so the cached
-    -- picture is untouched. Only over a bar drawn this frame.
-    if tbl._preview then
+    -- The odds bar, a live layer (the cached picture holds only its rect):
+    -- it eases from the old odds to the new ones instead of jumping.
+    do
         local bk = BAR_KEY[idx]
         local a = Anchors.get(bk)
         local m = tbl._ev_metrics
         if a and m and m.stats and Anchors.age(bk) <= 1 then
-            local gh = math.max(2, math.floor(a[4] * 0.8))
-            OutcomeBar.draw(a[1], a[2], a[3], a[4] + gh + 1, m.stats, { ghost = tbl._preview })
+            local d = tbl._bar_disp
+            if not d then
+                d = { win_dist = {}, loss_dist = {} }
+                tbl._bar_disp = d
+                OutcomeBar.ease(d, m.stats, 1)
+            else
+                local dt = (love.timer.getDelta and love.timer.getDelta()) or (1 / 60)
+                OutcomeBar.ease(d, m.stats, 1 - math.exp(-dt * BAR_EASE))
+            end
+            OutcomeBar.draw(a[1], a[2], a[3], a[4], d)
+        end
+    end
+
+    -- A hovered upgrade's next level as numbers above this table's readout
+    -- (set per frame by GrindView:_updatePreview): "Win 41.0% -> 43.5%".
+    local pv = tbl._preview
+    if pv and pv.text then
+        local ek = EV_KEY[idx]
+        local a = Anchors.get(ek)
+        if a and Anchors.age(ek) <= 1 then
+            local f = (game.fonts and (game.fonts.xs or game.fonts.sm))
+            if f then
+                local text = pv.text
+                local tw = f:getWidth(text)
+                if pv.short and tw > w - 16 then text = pv.short; tw = f:getWidth(text) end
+                local th = f:getHeight()
+                local px = math.max(x + 8, math.min(a[1] + a[3] - tw, x + w - tw - 8))
+                local py = a[2] - th - 6
+                Theme.setColor(Theme.bg.chrome, 0.92)
+                love.graphics.rectangle("fill", px - 4, py - 2, tw + 8, th + 4, 3, 3)
+                Theme.setColor(pv.color or Theme.sem.won)
+                love.graphics.rectangle("line", px - 4, py - 2, tw + 8, th + 4, 3, 3)
+                love.graphics.setFont(f)
+                love.graphics.print(text, px, py)
+            end
         end
     end
 
