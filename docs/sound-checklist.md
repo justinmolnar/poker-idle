@@ -37,7 +37,7 @@ now.
 
 - [x] `radio/open/*` | mic keying on, static burst; ONE file now, want 4–6 so the key-up varies | every speech bubble starts
 - [x] `radio/voice/*` | distorted voice bed, ONE file now, want 3–4 different textures | while his text types
-- [ ] `house_stinger` (wire) | one low piano note left to ring, 1.5–2s | first cheat card, the Act 2 lede, the underflow, deck_out
+- [x] `house_stinger` | `felt/house_stinger.ogg`, one low piano note left to ring (the shove timeline at the first cheat card and the deck running out, the `act2` beat's `sound`, the underflow crossing); Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | first cheat card, the Act 2 lede, the underflow, deck_out
 
 ## 3. The shove: the room count, the cut, the felt
 
@@ -56,52 +56,52 @@ now.
 
 - [x] pot resolve | the pack's chip stacks by tier, coins layered on a won Stack | a hand resolves, win or loss
 - [x] Stack loss | the pack's 4-chip drop with itself pitched down under it (`pot_lost_stack`); the legacy buzz is deleted | a Stack is lost
-- [ ] table open / close | a chair pulled up, a chair pushed in; today the open is a pack chip, the close is silent (wire) | a table opens, a table is cashed out
+- [x] table open / close | `ui/table_open.ogg`, `ui/table_close.ogg`, a UI pair by one author (not a chair, per the user); Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | a table opens, a table is cashed out
 - [x] `seat_ko` | the pack's heaviest drop | a tournament seat busts
 - [x] `stake_up_flourish` | pack chips and coins | a new stake opens
-- [ ] tilt lands (wire) | glass tipping, or a knock going wrong | a tilt is applied to a table
+- [x] tilt lands | `felt/tilt_lands.ogg`, a negative UI sound, played when the tilt appears (with the fist when a punch carried it); Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | a tilt is applied to a table
 - [x] heater lands | `felt/heater_lands.ogg`, played when the heater appears (with the fist when a punch carried it); Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | a heater is applied
 - [x] punch | `felt/punch.ogg` at contact; a shove plays it at half; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | the slam; a table shoving its neighbour
 - [x] `focus_overload` | `felt/focus_overload.ogg`, pitched down per step over the cap; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | the board goes over the focus cap
 - [x] deck | `felt/deck_up.ogg` (a card fan), from the deck cell's announcement; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). | the deck in play levels; a deck unlocks
-- [x] underflow | `felt/underflow.ogg`, once at the crossing; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). The broken readouts' digital tear (three variants, wire) is still to find. | the Act 3 break; the glyph ticks
+- [x] underflow | `felt/underflow.ogg`, once at the crossing; Freesound CC0, credited in the folder's MANIFEST (2026-10-03). The broken readouts' digital tear is `felt/glyph_tear_1..3.ogg`, one of them now and then (0.7–2.2 s apart) while the readouts are broken (GrindView). | the Act 3 break; the glyph ticks
 - [x] `anti_chip_bank` | the bankroll chip through the damage bus | an anti-chip banks
 
 ## 5. Per-item foley
 
 Each item plays the file named after its id (`assets/audio/items/<id>.ogg`):
 in the room count, and again when it fires in play. Every item has its OWN
-file; nothing shares. 62 of the 73 live items are in (credited in the
+file; nothing shares. 73 of the 73 live items are in (credited in the
 folder's MANIFEST). Ids are the display names in snake case since 2026-09-12
 (save version 3); the rows below carry the live ids.
 
-- [ ] `fight_night_poster` | Fight Night Poster | a bell, one strike | count only
+- [x] `fight_night_poster` | Fight Night Poster | a bell, one strike | count only (Freesound CC0, items/MANIFEST)
 - [x] `tally_book` | Tally Book | a pencil scratch, one stroke | count only (Freesound CC0, items/MANIFEST)
 - [x] `bonsai` | Bonsai | leaves brushed, a snip | count only (Freesound CC0, items/MANIFEST)
 - [x] `house_cat` | House Cat | one short meow | 1 in 50 hands won, a random table's next win bumps (Freesound CC0, items/MANIFEST)
 - [x] `candle` | Candle | a match strike, short | a Stack win lights a random table (Freesound CC0, items/MANIFEST)
 - [x] `trophy_shelf` | Trophy Shelf | a small cup set down on wood | a bounty pays double (Freesound CC0, items/MANIFEST)
-- [ ] `dusty_console` | Dusty Console | a cartridge blown on, a click | count only
+- [x] `dusty_console` | Dusty Console | a cartridge blown on, a click | count only (Freesound CC0, items/MANIFEST)
 - [x] `handheld` | Handheld | a handheld's power tone or button click | a Zoom loss deals the next hand (Freesound CC0, items/MANIFEST)
-- [ ] `red_rug` | Red Rug | a rug shaken out, one flap | count only
+- [x] `red_rug` | Red Rug | a rug shaken out, one flap | count only (Freesound CC0, items/MANIFEST)
 - [x] `dish_soap` | Dish Soap | a squeeze bottle, short | a tilt slides to the next table (Freesound CC0, items/MANIFEST)
 - [x] `bottle_of_wine` | Bottle of Wine | a cork | the first table at a stake catches a heater (Freesound CC0, items/MANIFEST)
 - [x] `desk_lamp` | Desk Lamp | a lamp switch, click | count only (Freesound CC0, items/MANIFEST)
-- [ ] `telephone` | Telephone | a receiver set down | count only
+- [x] `telephone` | Telephone | a receiver set down | count only (Freesound CC0, items/MANIFEST)
 - [x] `old_keyboard` | Old Keyboard | one stuck key | count only (Freesound CC0, items/MANIFEST)
-- [ ] `medical_poster` | Medical Poster | paper pressed flat on a wall | a knockout revives a busted neighbour
-- [ ] `hybrid_console` | Hybrid Console | a dock click | count only
-- [ ] `washing_machine` | Washing Machine | the spin, short | count only
+- [x] `medical_poster` | Medical Poster | paper pressed flat on a wall | a knockout revives a busted neighbour (Freesound CC0, items/MANIFEST)
+- [x] `hybrid_console` | Hybrid Console | a dock click | count only (Freesound CC0, items/MANIFEST)
+- [x] `washing_machine` | Washing Machine | the spin, short | count only (Freesound CC0, items/MANIFEST)
 - [x] `floor_plant` | Floor Plant | big leaves, brushed | a 6-Max Stack bumps its neighbours (Freesound CC0, items/MANIFEST)
 - [x] `gas_stove` | Gas Stove | an igniter click | count only (Freesound CC0, items/MANIFEST)
 - [x] `cast_iron_pan` | Cast Iron Pan | a pan set on a burner, clang | count only (Freesound CC0, items/MANIFEST)
 - [x] `hot_bath` | Hot Bath | water, a tap run for a second | a knockout's steam heats a neighbour (Freesound CC0, items/MANIFEST)
-- [ ] `fresh_towel` | Fresh Towel | a towel snap | a knockout bumps a neighbour's next win
+- [x] `fresh_towel` | Fresh Towel | a towel snap | a knockout bumps a neighbour's next win (Freesound CC0, items/MANIFEST)
 - [x] `replay_tv` | Replay TV | tape whir, a deck loading | count only (Freesound CC0, items/MANIFEST)
 - [x] `shower_head` | Shower Head | a shower running, short | count only (Freesound CC0, items/MANIFEST)
 - [x] `box_of_tissues` | Box of Tissues | one tissue pulled | a knockout refunds a neighbour's buy-in (Freesound CC0, items/MANIFEST)
 - [x] `kitchen_bin` | Kitchen Bin | a bin lid | a tilt lands in the corner (Freesound CC0, items/MANIFEST)
-- [ ] `cleaning_robot` | Cleaning Robot | a small motor whir | count only
+- [x] `cleaning_robot` | Cleaning Robot | a small motor whir | count only (Freesound CC0, items/MANIFEST)
 
 The five sounds parked in `items/unassigned/` on 2026-09-07 (a beep, a glass
 tap, a paper rip, a shredder, a card draw) were deleted 2026-09-17: the
@@ -210,12 +210,12 @@ from the speaker.
 | section | in | to find |
 |---|---|---|
 | music | 4 | 1 (needs wiring) |
-| the House | 2 sets (want more variants) | 1 (needs wiring) |
+| the House | 2 sets (want more variants) + the stinger | 0 |
 | the shove | 10 | 0 |
-| the grind | 10 | 3 (table open/close, tilt, the glyph tears; all need wiring) |
-| items | 64 | 9 |
+| the grind | 13 | 0 |
+| items | 73 | 0 |
 | paper and interface | 8 | 0 |
 | clicks | 7 (placed; played by name from `data/clicks.lua`) | 0 |
 | room cells | 46 | 26 to place, 5 to retune |
 
-**14 sounds to find: 9 item files and 5 for everything else (the bass layer, the House stinger, table open/close, tilt, the glyph tears), all five non-item ones needing a hook first. The 30 decided in the 2026-10-03 audition are in and wired (`tools/audition_sounds.py`, `tools/place_sounds.py`); the 9 decided after it (the seven click surfaces, the Trophy Shelf, the Replay TV) are placed and credited. 26 room cells to place, 5 to retune.**
+**1 sound to find: the bass layer under the music (same key and tempo as the loop, so not something found off the shelf). Everything else is in, credited and wired (`tools/audition_sounds.py`, `tools/place_sounds.py`). 26 room cells to place, 5 to retune.**

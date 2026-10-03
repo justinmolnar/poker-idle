@@ -137,16 +137,25 @@ Picked in the audition (`tools/audition_sounds.py`) and processed by `tools/plac
 | `box_of_tissues.ogg` | one tissue pulled | [stock-tissue-paper-pulling-00.flac](https://freesound.org/people/pbimal/sounds/535241/) | pbimal | 535241 | whole | CC0 |
 | `candle.ogg` | a match strike, short | [Match strike](https://freesound.org/people/Bertsz/sounds/524306/) | Bertsz | 524306 | 0.03–0.32s | CC0 |
 | `cast_iron_pan.ogg` | a pan set on a burner, clang | [Metal Clang](https://freesound.org/people/jashstudios/sounds/184343/) | jashstudios | 184343 | whole | CC0 |
+| `cleaning_robot.ogg` | a home-gadget sound: a robot vacuum, a servo, a remote-control or sci-fi device beep | [Beeping Robot or Machine](https://freesound.org/people/Jofae/sounds/363251/) | Jofae | 363251 | 0.19–0.71s | CC0 |
 | `desk_lamp.ogg` | a lamp switch, click | [StandardLamp-Switch.flac](https://freesound.org/people/Mindloop/sounds/253659/) | Mindloop | 253659 | 0.00–0.06s | CC0 |
 | `dish_soap.ogg` | a squeeze bottle, short | [squirting soap_1-2.aif](https://freesound.org/people/acrober/sounds/86143/) | acrober | 86143 | 0.15–0.42s | CC0 |
+| `dusty_console.ogg` | a quick blow of air, like blowing into a game cartridge or on a mic | [Blowing - Dji-Mic3](https://freesound.org/people/Sadiquecat/sounds/831946/) | Sadiquecat | 831946 | whole | CC0 |
+| `fight_night_poster.ogg` | a boxing bell: one bright ring-bell strike (any single bell ding that reads as the round bell) | [Boxing Bell/Trip Gong](https://freesound.org/people/friendlyjoe/sounds/871008/) | friendlyjoe | 871008 | 0.56–1.11s | CC0 |
 | `floor_plant.ogg` | big leaves, brushed | [Rustling Plants](https://freesound.org/people/georgesavic/sounds/593472/) | georgesavic | 593472 | 0.01–0.42s | CC0 |
+| `fresh_towel.ogg` | a towel snap: a towel whipped so it cracks | [Whip Crack.m4a](https://freesound.org/people/SciFiSounds/sounds/529925/) | SciFiSounds | 529925 | whole | CC0 |
 | `gas_stove.ogg` | an igniter click | [Lighter 01](https://freesound.org/people/Dreadwolf910/sounds/607516/) | Dreadwolf910 | 607516 | 0.01–0.04s | CC0 |
 | `handheld.ogg` | a handheld's power tone or button click | [Game Boy Classic - Startup Sound](https://freesound.org/people/toumas/sounds/610484/) | toumas | 610484 | 0.01–0.79s | CC0 |
 | `hot_bath.ogg` | water, a tap run for a second | [open water tap sound.wav](https://freesound.org/people/estefania9/sounds/250923/) | estefania9 | 250923 | 0.00–1.03s | CC0 |
 | `house_cat.ogg` | one short meow | [cat meow short](https://freesound.org/people/skymary/sounds/412017/) | skymary | 412017 | 0.29–0.88s | CC0 |
+| `hybrid_console.ogg` | a game console turning on: startup beeps | [Boot Sound](https://freesound.org/people/GameAudio/sounds/220207/) | GameAudio | 220207 | whole | CC0 |
 | `kitchen_bin.ogg` | a bin lid | [trashcan.wav](https://freesound.org/people/stomachache/sounds/44871/) | stomachache | 44871 | 0.37–0.98s | CC0 |
+| `medical_poster.ogg` | a body / medical sound: a heartbeat, a heart-monitor beep | [heartbeat.wav](https://freesound.org/people/PollyannaMedia/sounds/541434/) | PollyannaMedia | 541434 | 0.29–0.63s | CC0 |
 | `old_keyboard.ogg` | one stuck key | [mechanical key hard.wav](https://freesound.org/people/bigmonmulgrew/sounds/378085/) | bigmonmulgrew | 378085 | 0.10–0.14s | CC0 |
+| `red_rug.ogg` | a rug or carpet: shaken out, flapped, or beaten once | [thump (on carpet)](https://freesound.org/people/animationIsaac/sounds/133282/) | animationIsaac | 133282 | 0.09–0.41s | CC0 |
 | `replay_tv.ogg` | tape whir, a deck loading | [VCR 02.wav](https://freesound.org/people/sysdub/sounds/625149/) | sysdub | 625149 | 0.52–0.72s | CC0 |
 | `shower_head.ogg` | a shower running, short | [Shower Curtain Slide](https://freesound.org/people/amholma/sounds/344363/) | amholma | 344363 | 1.35–2.02s | CC0 |
 | `tally_book.ogg` | a pencil scratch, one stroke | [pencil scratch.wav](https://freesound.org/people/roloco/sounds/570282/) | roloco | 570282 | 0.11–0.33s | CC0 |
+| `telephone.ogg` | a phone: one ring, a ringtone, or keypad / dial tones | [Phone Ringing Sound.wav](https://freesound.org/people/fspera/sounds/528111/) | fspera | 528111 | 0.69–1.24s | CC0 |
 | `trophy_shelf.ogg` | a small cup set down on wood | [coffeeCupAndSpoon_01.wav](https://freesound.org/people/kikuchiyo/sounds/214850/) | kikuchiyo | 214850 | 0.03–0.20s | CC0 |
+| `washing_machine.ogg` | a washing machine running, thumping | [washing machine](https://freesound.org/people/qlevihirs/sounds/141450/) | qlevihirs | 141450 | 2.64–3.14s | CC0 |

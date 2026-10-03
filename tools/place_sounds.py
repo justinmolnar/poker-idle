@@ -61,10 +61,19 @@ LIVE = {
     "click_wall":           ("ui/click_wall.ogg",      "a click on the wall or floor (the background, the room)", None),
     "click_paper":          ("ui/click_paper.ogg",     "a click on paper (the catalog, the pamphlet, the House poster, the story band)", None),
     "click_denied":         ("ui/click_denied.ogg",    "a button that can't act", None),
+    "house_stinger":        ("felt/house_stinger.ogg", "the House making a point: the first cheat card, the Act 2 lede, the underflow, the deck running out", None),
+    "table_open":           ("ui/table_open.ogg",      "a table opening", None),
+    "table_close":          ("ui/table_close.ogg",     "a table closing or cashing out", None),
+    "tilt_lands":           ("felt/tilt_lands.ogg",    "a tilt appearing on a table", None),
     "music_layer_hiss":     ("layers/hiss.ogg",        "the Act 3 vinyl bed, louder after the underflow", "whole"),
     "music_gauntlet_drone": ("layers/gauntlet_drone.ogg", "the gauntlet's drone, up a step per runout", 1.5),
 }
 ITEMS_DIR = "items"
+# Slots that take several files, picked as candidate numbers in the slot's
+# note ("1, 2, 4"): slot -> (live path with a %d for 1..n, what).
+MULTI = {
+    "glyph_tear": ("felt/glyph_tear_%d.ogg", "the broken readouts' glitch after the underflow (one of three, now and then)"),
+}
 # Silence is trimmed relative to the sound's own peak: an absolute -60 dB
 # floor ate a whole recording that peaked at -44 dB before levelling.
 TRIM_BELOW_PEAK = 55
@@ -237,11 +246,22 @@ def main():
     t_mean, t_peak = target()
     print("level target from the item sounds: mean %.1f dB, peak %.1f dB" % (t_mean, t_peak))
     placed = []
+    # Expand the multi-file slots into one job per numbered candidate.
+    jobs = []
     for slot, s in sorted(picks.get("slots", {}).items()):
-        choice = s.get("choice")
+        if slot in MULTI and slot in cands:
+            nums = [int(n) for n in re.findall(r"\d+", s.get("note") or "")]
+            by_num = {int(c["file"].split("-", 1)[0]): c["file"] for c in cands[slot]["candidates"]}
+            for i, n in enumerate([n for n in nums if n in by_num], 1):
+                jobs.append((slot, by_num[n], MULTI[slot][0] % i, MULTI[slot][1]))
+        else:
+            jobs.append((slot, s.get("choice"), None, None))
+    for slot, choice, multi_live, multi_what in jobs:
         if not choice or choice == "none":
             continue
-        if slot in LIVE:
+        if multi_live:
+            live, what, loop = multi_live, multi_what, None
+        elif slot in LIVE:
             live, what, loop = LIVE[slot]
         elif slot in ids:
             live, what, loop = "%s/%s.ogg" % (ITEMS_DIR, slot), cands[slot]["what"], None
