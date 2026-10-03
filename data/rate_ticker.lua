@@ -13,8 +13,12 @@ return {
     -- A table open for less than this is measured over this much anyway,
     -- so one quick hand on a fresh table does not read as 60 a minute.
     min_window_s = 5,
-    -- The ticker samples the run's hand winnings this often.
-    sample_s     = 1,
+    -- The graph: the run's $/min, the whole run, in buckets. A bucket
+    -- starts this many seconds wide; past `buckets` of them, neighbours
+    -- merge and the width doubles, so the whole run always fits and the
+    -- picture compresses as the run grows.
+    bucket_s     = 5,
+    buckets      = 90,
 
     -- The graph row in the tooltip.
     w              = 180,

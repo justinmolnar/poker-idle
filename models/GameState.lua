@@ -228,6 +228,7 @@ function GameState:new(saved)
     instance.run_hand_net  = 0
     instance.run_elapsed   = 0
     instance.last_run_rate = 0
+    instance.run_rate_trace = false   -- the earn-rate graph's buckets (GrindController:_tickRateTrace)
 
     -- Transient stat cache, recomputed lazily.
     instance.effects_cache = nil
@@ -294,6 +295,7 @@ function GameState:resetRun()
     self.last_run_rate = (secs > 0) and ((self.run_hand_net or 0) / (secs / 60)) or 0
     self.run_hand_net  = 0
     self.run_elapsed   = 0
+    self.run_rate_trace = false
     self.effects_cache       = nil
     self.shove_count         = (self.shove_count or 0) + 1
 end
@@ -469,6 +471,9 @@ GameState.RUN_KEYS = {
     "run_ratchets", "run_money_lost", "run_biggest_pot_t1", "run_biggest_pot",
     -- the rail's earn rate: hand winnings and seconds on the felt this run
     "run_hand_net", "run_elapsed",
+    -- the earn-rate graph: the run's hand winnings in time buckets
+    -- ({ w = seconds a bucket, t = seconds into the last, b = { net } })
+    "run_rate_trace",
 }
 
 -- Set by the constructor, never saved.

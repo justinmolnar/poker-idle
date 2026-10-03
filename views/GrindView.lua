@@ -802,21 +802,37 @@ function GrindView:_buildRateTooltipUncached(br)
     local state = self.game.state
     local rows  = { { text = R.tooltips.rate_lede, style = "sm", color_token = "muted" } }
 
-    -- One line per table that has dealt inside the window.
+    -- One line per stake and game type that has dealt inside the window,
+    -- with a count: a full board is a handful of lines, not one per table.
     local any = false
+    local groups, order = {}, {}
     for _, e in ipairs(br.tables or {}) do
         if (e.hpm or 0) > 0 then
             any = true
-            local tbl   = e.tbl
-            local stake = Lookups.findById(Stakes, tbl.stake_id)
-            local gtype = Lookups.findById(GameTypes, tbl.game_type_id)
-            local label = ((stake and stake.display_name) or tbl.stake_id or "?") .. " · "
-                          .. ((gtype and gtype.short) or tbl.game_type_id or "?")
-            local tok = (e.rate > 0.005 and "good") or (e.rate < -0.005 and "error") or "muted"
-            rows[#rows + 1] = { style = "sm", color_token = tok,
-                text = string.format(R.tooltips.rate_table, label, rate(e.ev_hand, ""),
-                                     math.floor(e.hpm + 0.5), rate(e.rate, "")) }
+            local tbl = e.tbl
+            local key = tostring(tbl.stake_id) .. "|" .. tostring(tbl.game_type_id)
+            local gr = groups[key]
+            if not gr then
+                gr = { tbl = tbl, n = 0, hpm = 0, rate = 0, ev_w = 0 }
+                groups[key] = gr
+                order[#order + 1] = gr
+            end
+            gr.n, gr.hpm, gr.rate = gr.n + 1, gr.hpm + e.hpm, gr.rate + e.rate
+            gr.ev_w = gr.ev_w + (e.ev_hand or 0) * e.hpm
         end
+    end
+    for _, gr in ipairs(order) do
+        local tbl   = gr.tbl
+        local stake = Lookups.findById(Stakes, tbl.stake_id)
+        local gtype = Lookups.findById(GameTypes, tbl.game_type_id)
+        local label = ((stake and stake.display_name) or tbl.stake_id or "?") .. " · "
+                      .. ((gtype and gtype.short) or tbl.game_type_id or "?")
+        if gr.n > 1 then label = label .. " ×" .. gr.n end
+        local ev = (gr.hpm > 0) and (gr.ev_w / gr.hpm) or 0
+        local tok = (gr.rate > 0.005 and "good") or (gr.rate < -0.005 and "error") or "muted"
+        rows[#rows + 1] = { style = "sm", color_token = tok,
+            text = string.format(R.tooltips.rate_table, label, rate(ev, ""),
+                                 math.floor(gr.hpm + 0.5), rate(gr.rate, "")) }
     end
     if not any then
         rows[#rows + 1] = { text = R.tooltips.rate_idle, style = "sm", color_token = "muted" }
@@ -839,69 +855,57 @@ function GrindView:_buildRateTooltipUncached(br)
     -- the right, the way the table headers' history bars are drawn
     -- (views/TablePanel drawHistoryBars). Fixed size so the box never
     -- breathes; the trace is read live.
-    rows[#rows + 1] = { text = R.tooltips.rate_graph, style = "sm", color_token = "muted" }
+    -- The graph: the run's $/min, the whole run, one bar per time bucket
+    -- (GrindController:_tickRateTrace), green above zero and red below.
+    -- Fixed size so the box never breathes; the trace is read live.
+    rows[#rows + 1] = { style = "sm", color_token = "muted",
+        text = string.format(R.tooltips.rate_graph, minutesText(br.run_elapsed)) }
     local s   = self.game.ui_scale or 1
     local TK  = RateTicker
     local W   = math.max(40, math.floor((TK.w or 180) * s))
     local H   = math.max(12, math.floor((TK.h or 36) * s))
-    local slots = math.max(2, math.floor((TK.window_s or 60) / (TK.sample_s or 1)))
-    local ctrl  = self.controller
+    local state_ref = self.game.state
     rows[#rows + 1] = {
         measure = function(_) return W, H end,
         render  = function(x, y, _)
-            local trace = ctrl._rate_trace or {}
-            local n = #trace
-            -- The track the line sits on.
+            local rt = state_ref.run_rate_trace
+            local b  = rt and rt.b
+            -- The finished buckets, and the open one once it has a fair
+            -- share of its width behind it.
+            local n = b and #b or 0
+            if n > 0 and rt.t < rt.w * 0.25 then n = n - 1 end
             Theme.setColor(Theme.border.default, TK.baseline_alpha or 0.18)
-            love.graphics.rectangle("fill", x, y + H - 1, W, 1)
-            if n < 2 then return end
-            local lo, hi = trace[1], trace[1]
-            for i = 2, n do
-                if trace[i] < lo then lo = trace[i] end
-                if trace[i] > hi then hi = trace[i] end
+            if n < 1 then love.graphics.rectangle("fill", x, y + H - 1, W, 1); return end
+            local function rateOf(i)
+                local w = (i == #b) and math.max(rt.t, 1) or rt.w
+                return b[i] / w * 60
             end
-            if hi - lo < 1e-6 then hi = lo + 1 end
-            local step = W / (slots - 1)
-            local top, span = y + 1, H - 3
-            local function py(v) return top + span - (v - lo) / (hi - lo) * span end
-            -- Where the window started: the line's rise or fall reads
-            -- against this mark.
-            local y0 = math.floor(py(trace[1])) + 0.5
-            Theme.setColor(Theme.border.default, TK.baseline_alpha or 0.18)
-            love.graphics.line(x, y0, x + W, y0)
-            -- Segment by segment, coloured by its own direction: a rise is
-            -- a win, a fall a loss, a flat stretch is nothing happening.
-            -- Runs of one colour are drawn as one polyline so the joins
-            -- stay clean.
-            love.graphics.setLineWidth(math.max(1, (TK.line_w or 1.5) * s))
-            local run, run_dir = { x + W - (n - 1) * step, py(trace[1]) }, nil
-            local function flush()
-                if #run >= 4 then
-                    local c = (run_dir == 1 and Theme.sem.won) or (run_dir == -1 and Theme.sem.lost)
-                              or Theme.fg.muted
-                    Theme.setColor(c)
-                    love.graphics.line(run)
+            local lo, hi = 0, 0
+            for i = 1, n do
+                local r = rateOf(i)
+                if r < lo then lo = r end
+                if r > hi then hi = r end
+            end
+            if hi - lo < 1e-9 then hi = lo + 1 end
+            local zero = y + math.floor(H * hi / (hi - lo) + 0.5)
+            love.graphics.rectangle("fill", x, zero, W, 1)
+            local bw = W / n
+            for i = 1, n do
+                local r = rateOf(i)
+                local bx = x + math.floor((i - 1) * bw)
+                local bwi = math.max(1, math.floor(i * bw) - math.floor((i - 1) * bw) - ((bw >= 3) and 1 or 0))
+                if r > 0 and hi > 0 then
+                    Theme.setColor(Theme.sem.won)
+                    local h = math.max(1, math.floor((zero - y) * r / hi + 0.5))
+                    love.graphics.rectangle("fill", bx, zero - h, bwi, h)
+                elseif r < 0 and lo < 0 then
+                    Theme.setColor(Theme.sem.lost)
+                    local h = math.max(1, math.floor((y + H - zero - 1) * r / lo + 0.5))
+                    love.graphics.rectangle("fill", bx, zero + 1, bwi, h)
                 end
             end
-            for i = 2, n do
-                local d  = trace[i] - trace[i - 1]
-                local dir = (d > 1e-6 and 1) or (d < -1e-6 and -1) or 0
-                local px, pyi = x + W - (n - i) * step, py(trace[i])
-                if run_dir ~= nil and dir ~= run_dir then
-                    flush()
-                    run = { run[#run - 1], run[#run] }   -- start the next run where this one ended
-                end
-                run_dir = dir
-                run[#run + 1] = px
-                run[#run + 1] = pyi
-            end
-            flush()
-            love.graphics.setLineWidth(1)
         end,
     }
-
-    -- The takeaway, last and larger, as every breakdown ends.
-    rows[#rows + 1] = { text = rate(br.total, R.labels.rate_unit), style = "md" }
     return rows
 end
 

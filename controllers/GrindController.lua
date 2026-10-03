@@ -1114,18 +1114,11 @@ function GrindController:update(dt)
                 while hc[1] and self.clock - hc[1] > win do table.remove(hc, 1) end
             end
         end
-        -- The ticker: one sample of the run's hand winnings per sample_s,
-        -- the last window's worth kept (the rail tooltip draws it).
-        local per = RateTicker.sample_s or 1
-        local sec = math.floor(self.clock / per)
-        if sec ~= self._rate_trace_sec then
-            self._rate_trace_sec = sec
-            local tr = self._rate_trace
-            if not tr then tr = {}; self._rate_trace = tr end
-            tr[#tr + 1] = st.run_hand_net or 0
-            local cap = math.max(2, math.floor(win / per))
-            while #tr > cap do table.remove(tr, 1) end
-        end
+        -- The earn-rate graph: what the hands won goes into the current
+        -- time bucket of state.run_rate_trace (saved with the run). Past
+        -- `buckets` of them, neighbours merge and the width doubles, so
+        -- the graph always holds the whole run.
+        self:_tickRateTrace(st, dt or 0)
     end
     -- Proc budget is per frame too (services/ProcRegistry).
     if self.game.procs then self.game.procs:beginFrame() end
@@ -2494,7 +2487,7 @@ function GrindController:reloadPool()
     -- The ticker plots the run's winnings; a reloaded pool is a new run
     -- (or a wiped one), so the trace starts over rather than drawing the
     -- reset as a cliff.
-    self._rate_trace, self._rate_trace_sec = nil, nil
+    self._rt_last_net = nil
     -- The Tally Book's streak is the run's, not the save's: a new run
     -- starts it at nothing, the way its tables start fresh.
     self.manual_combo = 0
@@ -3126,6 +3119,37 @@ function GrindController:dealHand(idx)
         self:_announce("on_deal", { table = t, spread = false })
     end
     return ok
+end
+
+function GrindController:_tickRateTrace(st, dt)
+    local net = st.run_hand_net or 0
+    local last = self._rt_last_net
+    self._rt_last_net = net
+    local rt = st.run_rate_trace
+    if not rt then
+        rt = { w = RateTicker.bucket_s or 5, t = 0, b = { 0 } }
+        st.run_rate_trace = rt
+        last = net        -- a fresh graph starts at what the run has now
+    end
+    if last == nil then last = net end   -- first frame after a load
+    local b = rt.b
+    b[#b] = b[#b] + (net - last)
+    rt.t = rt.t + dt
+    while rt.t >= rt.w do
+        rt.t = rt.t - rt.w
+        b[#b + 1] = 0
+        local cap = RateTicker.buckets or 90
+        if #b - 1 >= cap then
+            -- Merge the finished buckets in pairs; the open one carries on.
+            local open = b[#b]
+            local merged, n = {}, #b - 1
+            for i = 1, n - 1, 2 do merged[#merged + 1] = b[i] + b[i + 1] end
+            if n % 2 == 1 then merged[#merged + 1] = b[n] end
+            merged[#merged + 1] = open
+            rt.b, b = merged, merged
+            rt.w = rt.w * 2
+        end
+    end
 end
 
 -- Defensive sound dispatch — single line so each call site stays terse.

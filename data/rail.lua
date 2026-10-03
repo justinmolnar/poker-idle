@@ -58,7 +58,7 @@ return {
         rate_run   = "This run so far: %s over %s on the felt, %s/min.",
         rate_last  = "Last run: %s/min.",
         rate_idle  = "Nothing dealt lately. Deal something.",
-        rate_graph = "The last minute, as it went:",
+        rate_graph = "This run, $/min (%s):",
     },
 
     -- The widest value each readout must hold: its slot is sized to this
