@@ -789,6 +789,7 @@ end
 -- rewritten record serves every button; every field is assigned per
 -- call so nothing is left over from the last one.
 local _btn_opts   = {}
+local _state_fill = { 0, 0, 0 }
 local _dim_border = {}
 local _mini_opts  = {}
 
@@ -799,6 +800,9 @@ local _mini_opts  = {}
 local _face = {}
 local function buttonFace(fx, fy, fw, fh)
     local comp, game, disabled, total_h = _face.comp, _face.game, _face.disabled, _face.total_h
+    -- A disabled button greys its text only in the plain states; can't
+    -- afford, maxed and would strand keep it readable (CR._button).
+    local dim = _face.dim
     -- A drawn face (the book's cover, the room, the gear, the deck's
     -- art) instead of lines; dimmed under a wash while disabled.
     if comp.face_fn then
@@ -832,7 +836,7 @@ local function buttonFace(fx, fy, fw, fh)
         love.graphics.setFont(font)
 
         local color
-        if disabled then
+        if dim then
             color = Theme.fg.disabled
         elseif line.color_token then
             color = Theme.semColor(line.color_token)
@@ -1050,23 +1054,50 @@ function CR._button(comp, px, pw, p, y, game)
         end
     end
 
+    -- Why it can't act, read at a glance (comp.state, set by the builders):
+    --   cant_afford  its own face, darkened; the price in the loss colour
+    --   maxed        its own face, a gold border: done, not blocked
+    --   strand       its own face, darkened, an orange border and warning
+    --   locked       near black, the requirement line
+    --   (none)       today's sunken grey: nothing to act on, a full board
+    local state = disabled and comp.state or nil
+    local disabled_fill = comp.disabled_face_color
+    local dim = disabled
+    if state == "cant_afford" or state == "strand" or state == "maxed" then
+        local f = comp.face_color or Theme.bg.chrome
+        local k = (state == "maxed") and 1 or 0.62
+        _state_fill[1], _state_fill[2], _state_fill[3] = f[1] * k, f[2] * k, f[3] * k
+        disabled_fill = _state_fill
+        border = (state == "maxed" and Theme.sem.chip) or (state == "strand" and Theme.sem.heat)
+                 or Theme.border.default
+        dim = false
+    elseif state == "locked" then
+        local f = Theme.bg.chrome
+        _state_fill[1], _state_fill[2], _state_fill[3] = f[1] * 0.18, f[2] * 0.18, f[3] * 0.18
+        disabled_fill = _state_fill
+    end
+
     local o = _btn_opts
     o.fill_color    = fill
     o.border_color  = border
     o.hovered       = hovered
     o.press_alpha   = press
     o.disabled      = disabled
-    o.disabled_fill = comp.disabled_face_color
+    o.disabled_fill = disabled_fill
     o.depth         = depth
     o.line_width    = comp.border_line_width
     _face.comp, _face.game, _face.disabled, _face.total_h = comp, game, disabled, total_h
+    _face.dim = dim
     -- A disabled button never reaches a click handler (the hit test skips
     -- it), so it registers as a refusal surface (services/ClickFX) under
     -- its press key, and that key's shake moves it.
     local bx = px + p
     if comp.id then
         local key = BTN_KEY[comp.id]
-        if disabled then _stat_opts.poke = key; ClickSurfaces.addLocal("denied", bx, y, content_w, total_h, _stat_opts) end
+        if disabled and state ~= "maxed" then
+            _stat_opts.poke = key
+            ClickSurfaces.addLocal("denied", bx, y, content_w, total_h, _stat_opts)
+        end
         bx = bx + (Poke.offset(key))
     end
     Button.draw(bx, y, content_w, total_h, o, buttonFace)

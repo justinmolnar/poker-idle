@@ -594,6 +594,9 @@ function GrindView:_buildTablesTabComponents()
                 -- the tables it opens play on. (The game type is already
                 -- said by the chrome-colored tab strip above the rows.)
                 face_color   = TablePanel.feltForStake(stake.id),
+                -- A full board is plain grey (said once above); out of
+                -- reach keeps the felt, darkened, the buy-in in red.
+                state        = (cant_afford and not full) and "cant_afford" or nil,
                 -- Gold/Purple trim once this (stake, type) has banked its bounty this run
                 border_color = border_color,
                 -- EV breakdown tooltip only when the table can be opened.
@@ -614,7 +617,8 @@ function GrindView:_buildTablesTabComponents()
                     { text = sub_left, style = "small", color_token = sub_color,
                       -- This row's $/h readout, by name.
                       text_anchor = "add_table_ev:" .. stake.id .. ":" .. gtype_id,
-                      right = sub_right, right_color_token = "muted" },
+                      right = sub_right,
+                      right_color_token = (cant_afford and not full) and "error" or "muted" },
                     -- Its odds (views/OutcomeBar), with a hovered upgrade's
                     -- next level under them.
                     { bar = row_stats or false, ghost = row_ghost, bar_h = math.max(3, math.floor(4 * s_ui)) },
@@ -1169,6 +1173,9 @@ function GrindView:_buildUpgradesTabComponents()
                 -- hints can highlight this card.
                 anchor   = "buy_runup_" .. up.id,
                 disabled = disabled,
+                -- Why it can't act (CR._button draws each differently).
+                state    = (locked and "locked") or (at_max and "maxed")
+                           or (would_strand and "strand") or (cant_afford and "cant_afford") or nil,
                 tooltip  = self:_buildRangeTooltip(up),
                 icon     = up.icon,   -- icon id (data/icons); drawn when art ships
                 -- The rack's face: a muted rose, the same hue the word
@@ -1179,6 +1186,8 @@ function GrindView:_buildUpgradesTabComponents()
                     {
                         text  = desc_text, style = "small",
                         right = cost_text,
+                        -- Out of reach: the price says so.
+                        right_color_token = cant_afford and "error" or nil,
                     },
                 },
             }
