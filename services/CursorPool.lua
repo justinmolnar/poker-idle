@@ -271,10 +271,7 @@ function CursorPool.draw(fonts_or_game)
     local fonts = (type(fonts_or_game) == "table" and (fonts_or_game.fonts or fonts_or_game)) or nil
 
     if #_cursors > 0 then
-        -- The swarm wears the upgrade rose (the colour the word "cursor" is
-        -- printed in), so the player's own white system arrow is the only
-        -- white arrow on a busy board and is not lost among them.
-        Theme.setColor(Theme.sem.upgrade or Theme.fg.heading, 1)
+        Theme.setColor(Theme.fg.heading, 0.95)
         for _, c in ipairs(_cursors) do
             drawShape(c, "fill")
         end
