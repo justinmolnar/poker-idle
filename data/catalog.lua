@@ -103,8 +103,10 @@
 -- renamed fifteen and bumped to 3.
 --
 -- ─── The budget ─────────────────────────────────────────────────────────
--- The WHOLE book is 780 {chip}: the Act 1 shelves (no `act = 2`) 242, the
--- Act 2 shelves 538 (data/balance.lua CATALOG_CHIP_BUDGET). Income per run:
+-- The book as authored is 780 {chip}: the Act 1 shelves (no `act = 2`) 242,
+-- the Act 2 shelves 538. The Act 1 shelves are then scaled by
+-- data/balance.lua ACT1_PRICE_SCALE (0.65: they sell for ~157 in play); the
+-- prices written below are the authored ones (CATALOG_CHIP_BUDGET). Income per run:
 -- a T1-T3 sweep banks 18 (24 with Fight Night), a T1-T6 sweep 84, so Act 1's
 -- five runs bank ~100 and Act 2's six ~450; Act 3 (180 a run) finishes the
 -- book. Prices come from role tiers and read as a ladder down each shelf

@@ -32,9 +32,12 @@ local CatalogLoader = {}
 
 -- Scale a hand-authored cost by run length, relative to the 20-minute
 -- baseline the pacing model is written against.
-function CatalogLoader.itemCost(authored_cost)
+function CatalogLoader.itemCost(authored_cost, item)
     if not authored_cost or authored_cost <= 0 then return 0 end
     local time_scale = (Balance.RUN_MINUTES or 20) / 20.0
+    -- The Act 1 shelves (no `act = 2`) are scaled on their own: Act 1's
+    -- length is set by how many items a 15-chip run buys.
+    if item and item.act ~= 2 then time_scale = time_scale * (Balance.ACT1_PRICE_SCALE or 1) end
     return math.max(1, math.floor(authored_cost * time_scale + 0.5))
 end
 
@@ -119,7 +122,7 @@ function CatalogLoader.deriveAll(items)
     for _, item in ipairs(items) do
         if CatalogLoader.isOwnable(item) then
             item.authored_cost_chip = item.authored_cost_chip or item.cost_chip
-            item.cost_chip = CatalogLoader.itemCost(item.authored_cost_chip)
+            item.cost_chip = CatalogLoader.itemCost(item.authored_cost_chip, item)
 
             item.effects = item.effects or {}
             forceShoveRate(item.effects, item)
