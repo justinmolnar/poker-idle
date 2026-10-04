@@ -30,23 +30,27 @@ love.mouse.newCursor = function(data, hx, hy) made = made + 1; last = data; hot 
 love.mouse.setCursor = function() set = set + 1 end
 
 local PC = require("services.PlayerCursor")
-c.eq(PC.pixelSize(720), 2, "two screen pixels per art pixel at 720p")
-c.eq(PC.pixelSize(1080), 3, "three at 1080p")
+local A = PC.art()
+c.eq(PC.pixelSize(720), 3, "three screen pixels per art pixel at 720p")
+c.eq(PC.pixelSize(1080), 4, "four at 1080p")
 c.eq(PC.pixelSize(2160), Cfg.max_px, "capped at " .. Cfg.max_px)
+c.ok(A.w == width + 2 and A.h == #Cfg.rows + 2, "the rim grows the art by one on every side")
+c.eq(A.grid[1][1], "O", "the rim wraps the tip")
 
 c.ok(PC.apply(), "the cursor is applied")
-c.ok(last and last.w == width * 3 and last.h == #Cfg.rows * 3, "the image is the art at 3x")
-c.ok(hot and hot[1] == 0 and hot[2] == 0, "the hot spot is the tip")
-local tip = last.px[0]
+c.ok(last and last.w == A.w * 4 and last.h == A.h * 4, "the image is the art at 4x")
+c.ok(hot and hot[1] == 4 and hot[2] == 4, "the hot spot is the tip, inside the rim")
+local function at(ax, ay) return last.px[((ay - 1) * 4) * last.w + (ax - 1) * 4] end
+local tip, rim, fill = at(2, 2), at(1, 1), at(3, 4)
 c.ok(tip and tip[1] == 0 and tip[4] == 1, "the tip is the black outline")
-local fill = last.px[(2 * 3 + 1) * last.w + (1 * 3 + 1)]   -- art (2, 3): "#"
-c.ok(fill and fill[1] == 1 and fill[2] == 1 and fill[3] == 1, "the body is white")
-c.ok(last.px[0 * last.w + (5 * 3)] == nil, "clear pixels stay clear")
+c.ok(rim and rim[1] == 1 and rim[2] == 1 and rim[3] == 1, "the rim is white")
+c.ok(fill and fill[1] == Cfg.fill[1] and fill[3] == Cfg.fill[3], "the body is the fill colour")
+c.ok(at(12, 2) == nil, "clear pixels stay clear")
 
 PC.apply()
 c.eq(made, 1, "the same window size builds nothing new")
 height = 720
 PC.apply()
-c.ok(made == 2 and set == 2 and last.w == width * 2, "a smaller window rebuilds it at 2x")
+c.ok(made == 2 and set == 2 and last.w == A.w * 3, "a smaller window rebuilds it at 3x")
 
 if c.report("smoke_cursor") > 0 then os.exit(1) end
