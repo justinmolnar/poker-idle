@@ -159,6 +159,17 @@ do
     frame()
 end
 
+-- A table the next level can't move keeps its card and says why (it
+-- used to get none, so cards came and went as Zoom tables touched the
+-- win-chance ceiling with the board's hand rate).
+do
+    local GV = require("views.GrindView")
+    local OM = require("models.outcome_math")
+    local capped = { win_chance = OM.WC_ABSOLUTE_CAP, win_dist = { small = 1 }, loss_dist = { small = 1 } }
+    local pv = GV.previewText("win_chance", capped, capped)
+    c.ok(pv and pv.none and pv.text:find("ceiling") ~= nil, "a table at the ceiling says so: " .. tostring(pv and pv.text))
+end
+
 -- ── rows ────────────────────────────────────────────────────────────────
 do
     local saved = g.state.bankroll

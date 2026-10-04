@@ -696,6 +696,16 @@ local function pctStr(x) return string.format("%.1f%%", x * 100) end
 local function previewText(metric, now, nxt)
     if not (now and nxt) then return nil end
     local wc0, wc1 = now.win_chance or 0, nxt.win_chance or 0
+    local focus = (metric == "win_chance") and "win" or "stack"
+    -- Nothing moves on this table: say so and why, rather than show no
+    -- card (a table at the win-chance ceiling, a Zoom table lifted there
+    -- by the hands-per-second items, gains nothing from more odds).
+    if not statsDiffer(now, nxt) then
+        local why = (wc0 >= OutcomeMath.WC_ABSOLUTE_CAP - 1e-6) and ("at the ceiling, " .. pctStr(wc0))
+                    or "maxed at this stake"
+        return { text = "No change: " .. why, short = "No change", color = Theme.fg.muted,
+                 now = now, next = nxt, focus = focus, none = true }
+    end
     if metric == "win_chance" then
         local t = "Win " .. pctStr(wc0) .. " {arrow} " .. pctStr(wc1)
         return { text = t, short = t, color = Theme.sem.won, now = now, next = nxt, focus = "win" }
@@ -766,10 +776,19 @@ function GrindView:_updatePreview()
             local memo = self._preview_memo
             local hit = memo[t._id]
             if hit == nil then
-                local now = ctrl:tableStats(t)
-                local n = t:estimateStats(nextctx, ctrl:_tableEvOpts(t))
-                hit = (now and n and statsDiffer(now, n))
-                      and previewText(up.tooltip_metric, now, n) or false
+                -- Priced without the table's passing statuses: a heater
+                -- can push a table to the win-chance ceiling, where the
+                -- next level changes nothing until it burns out, and the
+                -- card came and went with every heater. The upgrade is
+                -- permanent; the comparison is against what lasts (the
+                -- table's position and hand bonuses included, opts.table).
+                local gt = Lookups.findById(GameTypes, t.game_type_id)
+                local st = Lookups.findById(Stakes, t.stake_id)
+                local opts = ctrl:_tableEvOpts(t)
+                local a = gt and st and OutcomeMath.evStats(ctrl.ctx, gt, st, opts)
+                local b = gt and st and OutcomeMath.evStats(nextctx, gt, st, opts)
+                local now, n = a and a.pool, b and b.pool
+                hit = (now and n) and previewText(up.tooltip_metric, now, n) or false
                 memo[t._id] = hit
             end
             nxt = hit or nil
