@@ -3226,7 +3226,7 @@ local function drawPreviewCard(tbl, pv, idx, x, y, w, h, game)
         bx = math.max(x + 4, math.min(bx, x + w - cw - 2 * pad - 4))
         local by = ((a and Anchors.age(ek) <= 1) and a[2] or (y + h - th * 2)) - ch - 2 * pad - 4
         by = math.max(y + 2, by)
-        Theme.setColor(Theme.bg.chrome, 1)
+        Theme.setColor(Theme.bg.chrome, 0.95)
         love.graphics.rectangle("fill", bx, by, cw + 2 * pad, ch + 2 * pad, 4, 4)
         local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 7)
         Theme.setColor(pv.color or Theme.sem.won, pulse)

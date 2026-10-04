@@ -193,9 +193,7 @@ end
 -- Draw laid-out rows in a box at (x, y). `placed` collects each IconText
 -- line's spot for the word hit-test.
 local function drawBox(rows, x, y, box_w, box_h, fonts, max_w, placed)
-    -- Opaque: chip flights and floaters move behind it, and anything
-    -- showing through made it hard to read.
-    Theme.setColor(Theme.bg.window, 1)
+    Theme.setColor(Theme.bg.window, 0.95)
     love.graphics.rectangle("fill", x, y, box_w, box_h, Theme.space.radius)
     Theme.setColor(Theme.border.strong)
     love.graphics.rectangle("line", x, y, box_w, box_h, Theme.space.radius)
