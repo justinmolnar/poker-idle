@@ -3162,7 +3162,6 @@ function GrindView:draw(overlay_fn)
     Perf.enter("sidebars"); self.left_panel:draw(self.game)
                             self.right_panel:draw(self.game);  Perf.exit("sidebars")
     Perf.enter("house");    self:_drawHouse();                 Perf.exit("house")
-    Perf.enter("floaters"); self:_drawFloatingText();          Perf.exit("floaters")
 
     -- Held (dragged) table panel — drawn after the sidebars and floating
     -- text so it rides above them while it's carried around; the chip
@@ -3195,8 +3194,13 @@ function GrindView:draw(overlay_fn)
     -- on top of the press-fade ghost they just dispatched.
     Perf.enter("cursors");  CursorPool.draw(self.game);        Perf.exit("cursors")
 
-    -- A hovered upgrade's cards over the tables it moves: above the flights,
-    -- the floaters and the cursors, so they can be read.
+    -- What a hand resolved to, over the flights, the item triggers and the
+    -- cursors: the showdown hand names, then the result floaters.
+    TablePanel.flushHandLabels(self.game)
+    Perf.enter("floaters"); self:_drawFloatingText();          Perf.exit("floaters")
+
+    -- A hovered upgrade's cards over the tables it moves: above all of
+    -- that, under the tooltip (main), so they can be read.
     TablePanel.flushPreviewCards(self.game)
 
     if break_p then

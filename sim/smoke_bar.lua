@@ -237,4 +237,27 @@ do
     c.ok(HoverService.is("button", "buy_runup_test"), "a disabled button still reports hover")
 end
 
+-- ── hand names on top ───────────────────────────────────────────────────
+-- A resolved hand's name is drawn in the top layer (flushHandLabels, after
+-- the chip flights and cursors), not inside the panel under them.
+do
+    local TP = require("views.TablePanel")
+    local real, named = TP.flushHandLabels, 0
+    TP.flushHandLabels = function(game)
+        local pf = love.graphics.printf
+        love.graphics.printf = function(t, ...) if type(t) == "string" and t ~= "" then named = named + 1 end return pf(t, ...) end
+        real(game)
+        love.graphics.printf = pf
+    end
+    g.sim_frozen = false
+    for _ = 1, 1200 do
+        for _, t in ipairs(w:tables()) do if t.state == "idle" then w.ctrl:dealHand(w:find(t)) end end
+        w:tick(1 / 60)
+        frame()
+        if named > 0 then break end
+    end
+    TP.flushHandLabels = real
+    c.ok(named > 0, "a showdown's hand name is drawn in the top layer")
+end
+
 if c.report("smoke_bar") > 0 then os.exit(1) end

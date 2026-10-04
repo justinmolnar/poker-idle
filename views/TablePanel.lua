@@ -2702,49 +2702,8 @@ local function renderBody(tbl, idx, x, y, w, h, game, controller, hit_boxes, mod
         hb.tooltip_fn, hb.tooltip_arg1, hb.tooltip_arg2 = bandTooltip, tbl, controller
     end
 
-    -- Showdown hand-name label — the prefix-free name ("two pair, Ks and 3s")
-    -- of the WINNING hand, parked AT the winner so position names who: just
-    -- above your hole cards when you win, centered under the winning opp's seat
-    -- when they win (the seat's cards are glowing green to match). Dark pill,
-    -- on top, sized to the text and clamped inside the felt so it never crops.
-    if show_winner then
-        local hand = player_won and hd.player_hand_name or hd.opponent_hand_name
-        if hand and hand ~= "" then
-            local f = fonts.sm
-            love.graphics.setFont(f)
-            local tw = math.min(felt_w - 8, f:getWidth(hand) + 16)
-            local th = f:getHeight() + 4
-
-            -- Center-x + baseline depend on who won.
-            local cx, by
-            if player_won and L.hole then
-                cx = felt_x + felt_w * 0.5
-                by = L.hole.y + math.floor((L.hole.card_h - th) / 2)  -- centered OVER your cards
-            elseif (not player_won) and L.opponents
-                   and hd.opponent_idx and L.opponents.seats[hd.opponent_idx] then
-                local seat = L.opponents.seats[hd.opponent_idx]
-                cx = seat.x + seat.w * 0.5
-                by = L.opponents.y + L.opponents.cards_y_offset
-                     + L.opponents.card_h + 2              -- just under their cards
-            else
-                cx = felt_x + felt_w * 0.5                 -- fallback: top-center
-                by = felt_y + 2
-            end
-
-            -- Clamp the pill fully inside the felt (so a wide name under a
-            -- narrow edge seat slides in rather than cropping).
-            local bx = math.floor(cx - tw / 2)
-            bx = math.max(felt_x + 4, math.min(bx, felt_x + felt_w - 4 - tw))
-
-            Theme.setColor(Theme.bg.window, 0.9)
-            love.graphics.rectangle("fill", bx, by, tw, th, Theme.space.radius)
-            Theme.setColor(Theme.border.soft)
-            love.graphics.rectangle("line", bx, by, tw, th, Theme.space.radius)
-            -- Gold text to match the gold cards it labels (one win language).
-            Theme.setColor(Theme.currency.chip)
-            love.graphics.printf(hand, bx, by + 2, tw, "center")
-        end
-    end
+    -- (The showdown hand-name label is drawn in the top layer, over the
+    -- chip flights: queued by TablePanel.draw, drawn by flushHandLabels.)
 
     if live then
         -- Stack vignette — colored wash over the felt area when a stack
@@ -3198,6 +3157,67 @@ end
 
 -- Pass B. Draw one panel and append any clickable hit-zones to hit_boxes.
 -- `shadow_done`: the caller drew the shadow already (the grid, cache on).
+-- Showdown hand-name labels, queued per table by TablePanel.draw and drawn
+-- by TablePanel.flushHandLabels in the top layer (GrindView: over the chip
+-- flights, item triggers and cursors, under the hover cards and tooltips),
+-- so the name of the hand that just won is never under the chips it pays.
+local _labels, _labels_n = {}, 0
+local function drawHandLabel(tbl, L, felt_x, felt_y, felt_w, fonts)
+    local hd = handData(tbl)
+    local player_won = (hd.outcome_delta or 0) > 0
+-- Showdown hand-name label — the prefix-free name ("two pair, Ks and 3s")
+-- of the WINNING hand, parked AT the winner so position names who: just
+-- above your hole cards when you win, centered under the winning opp's seat
+-- when they win (the seat's cards are glowing green to match). Dark pill,
+-- on top, sized to the text and clamped inside the felt so it never crops.
+    local hand = player_won and hd.player_hand_name or hd.opponent_hand_name
+    if hand and hand ~= "" then
+        local f = fonts.sm
+        love.graphics.setFont(f)
+        local tw = math.min(felt_w - 8, f:getWidth(hand) + 16)
+        local th = f:getHeight() + 4
+
+        -- Center-x + baseline depend on who won.
+        local cx, by
+        if player_won and L.hole then
+            cx = felt_x + felt_w * 0.5
+            by = L.hole.y + math.floor((L.hole.card_h - th) / 2)  -- centered OVER your cards
+        elseif (not player_won) and L.opponents
+               and hd.opponent_idx and L.opponents.seats[hd.opponent_idx] then
+            local seat = L.opponents.seats[hd.opponent_idx]
+            cx = seat.x + seat.w * 0.5
+            by = L.opponents.y + L.opponents.cards_y_offset
+                 + L.opponents.card_h + 2              -- just under their cards
+        else
+            cx = felt_x + felt_w * 0.5                 -- fallback: top-center
+            by = felt_y + 2
+        end
+
+        -- Clamp the pill fully inside the felt (so a wide name under a
+        -- narrow edge seat slides in rather than cropping).
+        local bx = math.floor(cx - tw / 2)
+        bx = math.max(felt_x + 4, math.min(bx, felt_x + felt_w - 4 - tw))
+
+        Theme.setColor(Theme.bg.window, 0.9)
+        love.graphics.rectangle("fill", bx, by, tw, th, Theme.space.radius)
+        Theme.setColor(Theme.border.soft)
+        love.graphics.rectangle("line", bx, by, tw, th, Theme.space.radius)
+        -- Gold text to match the gold cards it labels (one win language).
+        Theme.setColor(Theme.currency.chip)
+        love.graphics.printf(hand, bx, by + 2, tw, "center")
+    end
+end
+
+function TablePanel.flushHandLabels(game)
+    local fonts = game.fonts
+    for i = 1, _labels_n do
+        local e = _labels[i]
+        if fonts then drawHandLabel(e.tbl, e.L, e.fx, e.fy, e.fw, fonts) end
+        e.tbl, e.L = nil, nil
+    end
+    _labels_n = 0
+end
+
 -- A hovered upgrade's change on one table, queued by draw and drawn by
 -- TablePanel.flushPreviewCards after the chip flights, floaters and cursors
 -- so nothing flies over it.
@@ -3438,6 +3458,13 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shad
     -- the felt in its stake's colour, the chip piles, the cards on show.
     do
         local lys = solveLayout(tbl, x, y, w, h, game, controller, s, ui_s, n_tables)
+        -- The showdown hand name, for the top layer (flushHandLabels).
+        if opponentFaceUp(tbl) and lys.L then
+            _labels_n = _labels_n + 1
+            local e = _labels[_labels_n]
+            if not e then e = {}; _labels[_labels_n] = e end
+            e.tbl, e.L, e.fx, e.fy, e.fw = tbl, lys.L, lys.felt_x, lys.felt_y, lys.felt_w
+        end
         ClickSurfaces.addLocal("chrome", x, y, w, h)
         _felt_opts.tint = lys.felt_color
         ClickSurfaces.addLocal("felt", lys.felt_x, lys.felt_y, lys.felt_w, lys.felt_h, _felt_opts)
