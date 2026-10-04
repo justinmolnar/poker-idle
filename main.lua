@@ -626,6 +626,8 @@ local function buildGame()
 end
 
 function love.load()
+    -- Every printed string gets a hard drop shadow (services/TextShadow).
+    require("services.TextShadow").install()
     Game = buildGame()
     -- buildGame may have changed the window (saved display mode); the base
     -- width follows it. SDL's own resize event lands too, but that is a
