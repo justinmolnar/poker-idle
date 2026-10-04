@@ -633,6 +633,8 @@ function love.load()
     -- width follows it. SDL's own resize event lands too, but that is a
     -- frame away and not guaranteed for a same-size setMode.
     love.resize()
+    -- The player's chunky pixel cursor (services/PlayerCursor).
+    require("services.PlayerCursor").apply()
     Game.sprite_loader:loadAll()
     -- The loader indexes every file but decodes none of them: most of the
     -- furniture kit is never placed. Decode up front only what is on screen
@@ -1121,6 +1123,8 @@ function love.resize(w, h)
     -- base dims, never the window size.
     recomputeBase()
     w, h = love.graphics.getDimensions()
+    -- The cursor follows the window's size (rebuilt only when it changes).
+    require("services.PlayerCursor").apply()
     if Game.viewport then
         Game.viewport.w, Game.viewport.h = w, h
     end
