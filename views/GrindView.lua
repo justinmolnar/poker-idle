@@ -38,6 +38,7 @@ local FlightSystem   = require("services.FlightSystem")
 local ChipFlight     = require("views.ChipFlight")
 local ChipPile       = require("views.ChipPile")
 local PanelSheet     = require("views.PanelSheet")
+local CursorIntent   = require("services.CursorIntent")
 -- Tables open and close like windows: OPEN_FROM smaller, over OPEN_SECS / CLOSE_SECS.
 local OPEN_FROM, OPEN_SECS, CLOSE_SECS = 0.15, 0.28, 0.26
 local ClickSurfaces  = require("services.ClickSurfaces")
@@ -1388,6 +1389,10 @@ function GrindView:update(dt)
                 -- hover would tint the wrong panel across a drag-reorder.
                 self.game.hover.set("hit", hb.action .. ":" .. (hb.table_id or hb.idx))
             end
+            -- The player's cursor: an open hand on a header (it can be
+            -- picked up), a pointing hand on anything else that acts.
+            if hb.action == "drag_table" then CursorIntent.mark("open")
+            elseif hb.action then CursorIntent.mark("point") end
             if hb.tooltip then
                 TooltipSvc.set(hb.tooltip, mx, my)
             elseif hb.tooltip_fn then
@@ -1398,6 +1403,9 @@ function GrindView:update(dt)
             end
         end
     end
+
+    -- Carrying a table: a closed hand.
+    if self.drag and self.drag.moved then CursorIntent.mark("fist") end
 
     self:tweenChrome(dt)
     self:_tickRail(dt)

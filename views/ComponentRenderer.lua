@@ -28,6 +28,7 @@ local Anchors     = require("services.AnchorRegistry")
 local Poke          = require("services.Poke")
 local ClickSurfaces = require("services.ClickSurfaces")
 local OutcomeBar    = require("views.OutcomeBar")
+local CursorIntent = require("services.CursorIntent")
 local DIM_BAR       = { alpha = 0.45 }
 -- "button:<id>" and "stat:<id>", the poke keys, built once per id.
 local BTN_KEY  = setmetatable({}, { __index = function(t, k) local v = "button:" .. k; rawset(t, k, v); return v end })
@@ -303,9 +304,10 @@ _hitButton = function(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
                 -- No tooltip on a dead action: it has nothing to tell you.
                 -- (Unlike the parent button, where "can't afford" is the
                 -- information you actually want while deciding to save.)
-                if act.disabled then return nil end
+                if act.disabled then CursorIntent.mark("no"); return nil end
                 hoverTooltip(act)
                 if act.id then HoverSvc.set("button", act.id) end
+                CursorIntent.mark("point")
                 return act
             end
         end
@@ -319,7 +321,14 @@ _hitButton = function(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
         -- Hover is reported even for a disabled button (a maxed or out of
         -- reach upgrade still previews on the board); it just takes no click.
         if comp.id then HoverSvc.set("button", comp.id) end
-        if comp.disabled then return nil end
+        -- The player's cursor: a pointing hand where a click acts, a lock
+        -- on a locked control (refusals read the click registry's denied
+        -- surface; a maxed upgrade is neither).
+        if comp.disabled then
+            if comp.state == "locked" then CursorIntent.mark("lock") end
+            return nil
+        end
+        CursorIntent.mark("point")
         return comp
     end
     return nil

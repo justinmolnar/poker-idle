@@ -69,6 +69,10 @@ function Tooltip.clear()
     _t = nil
 end
 
+-- Is a tooltip up this frame (set by the hover pass, not yet drawn)? The
+-- player's cursor shows its "info" badge on it (services/CursorIntent).
+function Tooltip.showing() return _t ~= nil end
+
 -- A card the player asked for (a click on the thing): shown this frame,
 -- no rest needed. Same rows as set().
 function Tooltip.pin(lines, mx, my)

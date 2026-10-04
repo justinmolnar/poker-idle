@@ -52,6 +52,7 @@ local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
 local Display       = require("services.Display")
 local Motion        = require("services.Motion")
+local CursorIntent  = require("services.CursorIntent")
 
 local StateMachine    = require("controllers.StateMachine")
 local InputController = require("controllers.InputController")
@@ -560,24 +561,30 @@ local function buildGame()
         if g.story_view:isTyping() then g.story_view:revealAll()
         elseif g.story:isHoldingClick() then g.story:advance() end
     end
-    g.input_dispatcher:on("mousepressed",
-        function(x, y)
-            local line = storyVisibleLine()
-            if not line then return false end
-            local forced = g.story:forcedLine()
-            if forced then
-                local marks = HintMarks.fresh(forced.anchor)
-                if #marks == 0 then return false end
-                local pad = math.floor(10 * (g.ui_scale or 1))
-                for _, m in ipairs(marks) do
-                    if x >= m.x - pad and x < m.x + m.w + pad
-                       and y >= m.y - pad and y < m.y + m.h + pad then
-                        return false
-                    end
+    -- Does the story take a click at (x, y)? A visible line takes every
+    -- click, except that a forced line lets one through onto its own
+    -- target. Shared by the click routing below and the player's cursor
+    -- (its hourglass shows exactly where a click would be taken).
+    local function storyTakesClickAt(x, y)
+        local line = storyVisibleLine()
+        if not line then return false end
+        local forced = g.story:forcedLine()
+        if forced then
+            local marks = HintMarks.fresh(forced.anchor)
+            if #marks == 0 then return false end
+            local pad = math.floor(10 * (g.ui_scale or 1))
+            for _, m in ipairs(marks) do
+                if x >= m.x - pad and x < m.x + m.w + pad
+                   and y >= m.y - pad and y < m.y + m.h + pad then
+                    return false
                 end
             end
-            return true
-        end,
+        end
+        return true
+    end
+    g.storyTakesClickAt = storyTakesClickAt
+    g.input_dispatcher:on("mousepressed",
+        storyTakesClickAt,
         storyAdvance)
     g.input_dispatcher:on("keypressed",
         function(key)
@@ -694,6 +701,31 @@ local function glossaryRowsForSpan(span)
     return GlossaryPanel.rowsForSpan(Game, span)
 end
 
+-- The player's cursor for this frame (services/CursorIntent): what the
+-- hover pass marked, the story's hold, the click registry's refusals, an
+-- open tooltip, the button, and the strain glitch.
+local _cursor_opts = {}   -- reused: no table per frame
+local function resolveCursor()
+    local mx, my = love.mouse.getPosition()
+    local waiting = Game.storyTakesClickAt and Game.storyTakesClickAt(mx, my) or false
+    local surf = ClickSurfaces.at(mx, my)
+    local strain = 0
+    local grind = Game.grind
+    if grind and Game.state_machine:current() == "grind" then
+        strain = math.max(0, grind.pool:count() - grind:currentFocusCapacity())
+    end
+    local o = _cursor_opts
+    o.waiting   = waiting
+    o.denied    = (surf and surf.material == "denied") or false
+    o.tooltip   = Tooltip.showing()
+    o.pressed   = love.mouse.isDown(1)
+    o.strain    = strain
+    o.underflow = ShoveRate.underflowed(Game.state and Game.state.bankroll)
+    o.still     = Motion.level("cursors") <= Motion.NONE
+    o.now       = love.timer.getTime()
+    CursorIntent.resolve(o)
+end
+
 function love.update(dt)
     -- Perf's frame boundary is here, before anything else runs, so the
     -- counters a frame reports belong to that frame (F4; free when off).
@@ -717,6 +749,7 @@ function love.update(dt)
     -- read them after.
     HoverService.clear()
     Tooltip.clear()
+    CursorIntent.begin()
     -- A word inside last frame's tooltip under the pointer opens its
     -- glossary card beside the box (only once its beat has played).
     do
@@ -810,6 +843,7 @@ function love.update(dt)
             end
         end
     end
+    resolveCursor()
     Perf.exit("update")
 end
 
