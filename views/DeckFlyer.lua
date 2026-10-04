@@ -584,6 +584,11 @@ function DeckFlyer:_drawClosedOnFelt(W, H, fonts, s)
     if t >= 1 then
         self._felt_rect = { x = x, y = y, w = fw, h = fh, angle = angle }
         Anchors.set("deck:flyer", x, y, fw, fh)
+        -- A click opens it: the player's cursor points.
+        local mx, my = love.mouse.getPosition()
+        if Throw.hitsRotated(self._felt_rect, mx, my) then
+            require("services.CursorIntent").mark("point")
+        end
         ClickSurfaces.add("paper", x, y, fw, fh, { poke = "felt:flyer", poke_kind = "scoot" })
     else
         self._felt_rect = nil

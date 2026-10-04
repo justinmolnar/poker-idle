@@ -599,6 +599,11 @@ function CatalogModal:_drawClosedOnFelt(W, H, page_w, page_h, fonts, s)
     if t >= 1 then
         self._felt_rect = { x = x, y = y, w = cw, h = ch, angle = angle }
         Anchors.set("catalog:book", x, y, cw, ch)
+        -- A click opens it: the player's cursor points.
+        local mx, my = love.mouse.getPosition()
+        if self:_hitsFeltBook(self._felt_rect, mx, my) then
+            require("services.CursorIntent").mark("point")
+        end
         ClickSurfaces.add("paper", x, y, cw, ch, { poke = "felt:book", poke_kind = "scoot" })
     else
         self._felt_rect = nil
