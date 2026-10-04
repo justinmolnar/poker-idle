@@ -1,9 +1,10 @@
 -- services/TextShadow.lua
 --
--- A hard drop shadow under all text. install() wraps love.graphics.print
--- and love.graphics.printf once: each call draws the string again first,
--- in the shadow colour, offset down-right by a fraction of the font's
--- character width (data/text_shadow), then the string itself. Everything
+-- A hard edge under all text. install() wraps love.graphics.print and
+-- love.graphics.printf once: each call first draws the string in the edge
+-- colour stepped down-right pixel by pixel (joined to the letters, like a
+-- border on that side; depth from data/text_shadow), then the string.
+-- Dark text is skipped. Everything
 -- that prints gets it with no call-site changes: the panels' cached
 -- pictures, tooltips, the rail, IconText's words (its icons are shapes and
 -- keep their own look).
@@ -44,14 +45,22 @@ end
 
 -- The shadow pass for one call: returns nothing; leaves the colour as it
 -- found it.
+-- Stepped one pixel at a time (right, down, and the corner) out to the
+-- depth, so the edge is joined to the strokes; dark text is skipped.
 local function shadow(raw, text, x, y, ...)
     local lg = love.graphics
     local r, g, b, a = lg.getColor()
     if a <= 0.01 then return end
+    if (0.2126 * r + 0.7152 * g + 0.0722 * b) < (Cfg.skip_below or 0) then return end
     local o = offsetFor(lg.getFont())
     local c = Cfg.color
     lg.setColor(c[1], c[2], c[3], a * (Cfg.alpha or 1))
-    raw(text, (x or 0) + o, (y or 0) + o, ...)
+    x, y = x or 0, y or 0
+    for d = 1, o do
+        raw(text, x + d, y + d - 1, ...)
+        raw(text, x + d - 1, y + d, ...)
+        raw(text, x + d, y + d, ...)
+    end
     lg.setColor(r, g, b, a)
 end
 
