@@ -714,6 +714,12 @@ local function resolveCursor()
     if grind and Game.state_machine:current() == "grind" then
         strain = math.max(0, grind.pool:count() - grind:currentFocusCapacity())
     end
+    -- A hint bubble is dismissed by a click on it.
+    local b = Game.hint_view and Game.hint_view.bubble_rect
+    if b and mx >= b.x and mx < b.x + b.w and my >= b.y and my < b.y + b.h then
+        local cur = Game.state_machine.current_state
+        if not (cur and cur.hintsBlocked and cur:hintsBlocked()) then CursorIntent.mark("point") end
+    end
     local o = _cursor_opts
     o.waiting   = waiting
     o.denied    = (surf and surf.material == "denied") or false
@@ -843,7 +849,6 @@ function love.update(dt)
             end
         end
     end
-    resolveCursor()
     Perf.exit("update")
 end
 
@@ -1089,6 +1094,9 @@ function love.draw()
     -- the avoid rect.
     Tooltip.setAvoid(Game.story_view.band_rect)
     Tooltip.draw(Game.fonts)
+    -- The player's cursor, after everything has drawn: the buttons and the
+    -- modals mark their hover while drawing, and set tooltips there too.
+    resolveCursor()
     Perf.exit("post")
     -- The game's own draw ends here; the HUD and the blit that follow are
     -- overhead the "draw" meter must not charge to the frame. The blit has

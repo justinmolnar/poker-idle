@@ -13,6 +13,7 @@
 -- The whole visible envelope (face + side, hover lift + press depth) fits
 -- inside the allocated rect (x, y, w, h) — no overflow into adjacent rows.
 
+local CursorIntent = require("services.CursorIntent")
 local Theme  = require("views.Theme")
 local Easing = require("utils.easing")
 
@@ -59,6 +60,9 @@ function Button.draw(x, y, w, h, opts, label_fn)
     local line_width   = opts.line_width or Theme.space.hairline
     local disabled     = opts.disabled
     local hovered      = opts.hovered and not disabled
+    -- The player's cursor: every button drawn hovered and enabled is a
+    -- click that acts (services/CursorIntent).
+    if hovered then CursorIntent.mark("point") end
     -- Press animation continues even when the button transitions to
     -- disabled mid-rise (e.g. a buy that drains the bankroll into the
     -- can't-afford state). The fill colour swaps to bg.sunken via the

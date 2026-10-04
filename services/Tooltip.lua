@@ -24,6 +24,7 @@ local Tooltip = {}
 
 -- Module-private: the current tooltip (lines + anchor) or nil.
 local _t       = nil
+local _shown   = false   -- a tooltip was asked for this frame (showing())
 local _padding = 6
 
 -- Pointer-rest gate: a tooltip appears only after the pointer has been
@@ -53,6 +54,8 @@ function Tooltip.set(text_or_lines, mx, my)
         lines = { text_or_lines }
     end
     mx, my = mx or 0, my or 0
+    -- Asked for: the cursor's "?" shows at once, the box after the dwell.
+    _shown = true
     local t = now()
     -- Re-anchor the rest spot when the pointer strays or the request
     -- chain lapsed (no set() for a few frames = hover ended).
@@ -67,11 +70,13 @@ end
 
 function Tooltip.clear()
     _t = nil
+    _shown = false
 end
 
--- Is a tooltip up this frame (set by the hover pass, not yet drawn)? The
--- player's cursor shows its "info" badge on it (services/CursorIntent).
-function Tooltip.showing() return _t ~= nil end
+-- Was a tooltip asked for this frame (by the update's hover pass or a draw,
+-- whether or not its dwell has passed or it has been drawn yet)? The player's cursor shows its
+-- "info" badge on it (services/CursorIntent). Cleared with the frame.
+function Tooltip.showing() return _shown or _t ~= nil end
 
 -- A card the player asked for (a click on the thing): shown this frame,
 -- no rest needed. Same rows as set().

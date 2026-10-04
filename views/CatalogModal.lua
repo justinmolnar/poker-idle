@@ -2152,6 +2152,22 @@ function CatalogModal:draw()
     -- once the card is open: a stickered card says what the object is and
     -- how to earn it, never what it does.
     if not self.flip_t then
+        -- The player's cursor: a card a click buys points; a sticker that
+        -- can be peeled is picked up.
+        local CI = require("services.CursorIntent")
+        for _, cell in ipairs(self._cells) do
+            if cell.buyable and not self.read_only and mx >= cell.x and mx < cell.x + cell.w
+               and my >= cell.y and my < cell.y + cell.h then
+                CI.mark("point")
+            end
+        end
+        for _, st in ipairs(self._stickers or {}) do
+            if st.x and st.w and mx >= st.x and mx < st.x + st.w
+               and my >= st.y and my < st.y + st.h then
+                CI.mark("open")
+            end
+        end
+        if self._peel then CI.mark("fist") end
         for _, cell in ipairs(self._cells) do
             if cell.revealed and mx >= cell.x and mx < cell.x + cell.w
                and my >= cell.y and my < cell.y + cell.h then

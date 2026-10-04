@@ -219,6 +219,7 @@ function Panel:updateHover(mx, my, game)
                 local tx = self.x + (i - 1) * tab_w
                 if mx >= tx and mx < tx + tab_w then
                     HoverService.set("tab", tab.id)
+            require("services.CursorIntent").mark("point")
                     break
                 end
             end

@@ -373,8 +373,9 @@ function SettingsModal:draw()
 
     local function action_row(label, action, opts)
         opts = opts or {}
-        local hov = HoverSvc.rest("button", "settings_row:" .. label,
-            mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H, 0)
+        local inside = mx >= row_x and mx < row_x + row_w and my >= y and my < y + ROW_H
+        local hov = HoverSvc.rest("button", "settings_row:" .. label, inside and not opts.disabled, 0)
+                    or (inside and opts.disabled)
         Row.draw{ x = row_x, y = y, w = row_w, h = ROW_H,
                   label = label, value = opts.value, fonts = fonts,
                   hovered = hov and not opts.disabled, disabled = opts.disabled }

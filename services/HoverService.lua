@@ -71,6 +71,11 @@ end
 function HoverService.rest(ns, id, hit, secs)
     if not hit then return false end
     HoverService.set(ns, id)
+    -- A button under the pointer: the player's cursor points.
+    if ns == "button" then
+        local ok, CI = pcall(require, "services.CursorIntent")
+        if ok and CI then CI.mark("point") end
+    end
     return HoverService.dwell(ns, id, secs)
 end
 

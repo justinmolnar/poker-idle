@@ -114,6 +114,30 @@ c.eq(pick({ "fist", "point" }, { waiting = true, denied = true }), "wait", "the 
 pick({ "point" }, { pressed = true })
 c.ok(got[2] == true, "the button down is passed on")
 
+-- ── coverage ───────────────────────────────────────────────────────────
+-- The shared marks: any button drawn hovered and enabled points; a disabled
+-- one does not; a button's rest hover points; a tooltip set during a draw
+-- (a modal draws and consumes its own) still counts for the "?".
+do
+    local Button = require("views.Button")
+    local HoverService = require("services.HoverService")
+    local Tooltip = require("services.Tooltip")
+    CI.begin(); Button.draw(0, 0, 50, 20, { hovered = true })
+    c.eq(CI.marked(), "point", "a hovered button points")
+    CI.begin(); Button.draw(0, 0, 50, 20, { hovered = true, disabled = true })
+    c.eq(CI.marked(), nil, "a hovered disabled button does not")
+    CI.begin(); HoverService.rest("button", "x", true, 0)
+    c.eq(CI.marked(), "point", "a button's rest hover points")
+    CI.begin(); HoverService.rest("button", "x", false, 0)
+    c.eq(CI.marked(), nil, "and only when it is hit")
+    Tooltip.clear()
+    Tooltip.set("hello", 10, 10)
+    Tooltip.draw(Stub.font(16))
+    c.ok(Tooltip.showing(), "a tooltip drawn this frame still counts")
+    Tooltip.clear()
+    c.ok(not Tooltip.showing(), "until the next frame")
+end
+
 -- ── glitch ─────────────────────────────────────────────────────────────
 local function glitchSeen(opts)
     CI.reset()
