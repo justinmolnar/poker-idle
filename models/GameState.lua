@@ -90,6 +90,11 @@ function GameState:new(saved)
     -- this run, and over the save's life. The room's card reads both.
     instance.item_fires_run   = {}
     instance.item_fires_life  = {}
+    -- Heaters each item put on a table this run (on_status_applied, by the
+    -- status's source item), and the run before's fires and heaters,
+    -- frozen at resetRun for the shove's recap and the catalog card.
+    instance.item_heaters_run = {}
+    instance.last_item_run    = false
     -- Zoom-first opening (Constants.GTYPE_GATE): HU latches open the
     -- moment a second table is affordable (GrindController update);
     -- 6-max latches from owning the Desk Plant (invalidateEffects).
@@ -259,7 +264,20 @@ function GameState:resetRun()
     self.bankroll            = Constants.GAMEPLAY.INITIAL_BANKROLL
     self.loan_fresh          = true   -- the loan renews: the readout climbs from 0
 
+    -- What each item did this run, frozen for the shove's recap and the
+    -- catalog card ({ [id] = { fires, heaters } }), then started over.
+    do
+        local frozen = {}
+        for id, n in pairs(self.item_fires_run or {}) do
+            frozen[id] = { fires = n, heaters = (self.item_heaters_run or {})[id] or 0 }
+        end
+        for id, n in pairs(self.item_heaters_run or {}) do
+            if not frozen[id] then frozen[id] = { fires = 0, heaters = n } end
+        end
+        self.last_item_run = next(frozen) and frozen or false
+    end
     self.item_fires_run      = {}     -- the room's per-run fire counts start over
+    self.item_heaters_run    = {}
     self.current_stake_id    = "s001"
     self.run_upgrade_levels  = {}
     self.tables = {}
@@ -324,6 +342,8 @@ function GameState:wipeAll()
     self.story_armed  = {}
     self.item_fires_run  = {}
     self.item_fires_life = {}
+    self.item_heaters_run = {}
+    self.last_item_run    = false
     -- Deck state resets to starter-only with all unlock progress lost.
     -- Mirrors the fresh-:new defaults exactly.
     local starter = DeckSpecs[1]
@@ -430,6 +450,33 @@ end
 -- (sim/verify_save_roundtrip) prove that every field is one of the three,
 -- so a new field cannot be silently forgotten by the save.
 
+-- What the items did in the run just played, most active first, at most
+-- `n` rows: { id, fires, heaters }. Reads the live run while it still has
+-- counts (the shove's summary shows before the run is settled), else the
+-- frozen last run.
+function GameState:itemRecap(n)
+    local rows = {}
+    local live = self.item_fires_run or {}
+    if next(live) or next(self.item_heaters_run or {}) then
+        for id, f in pairs(live) do
+            rows[#rows + 1] = { id = id, fires = f, heaters = (self.item_heaters_run or {})[id] or 0 }
+        end
+        for id, h in pairs(self.item_heaters_run or {}) do
+            if not live[id] then rows[#rows + 1] = { id = id, fires = 0, heaters = h } end
+        end
+    elseif self.last_item_run then
+        for id, e in pairs(self.last_item_run) do
+            rows[#rows + 1] = { id = id, fires = e.fires or 0, heaters = e.heaters or 0 }
+        end
+    end
+    table.sort(rows, function(a, b)
+        if a.fires + a.heaters ~= b.fires + b.heaters then return a.fires + a.heaters > b.fires + b.heaters end
+        return a.id < b.id
+    end)
+    for i = #rows, (n or #rows) + 1, -1 do rows[i] = nil end
+    return rows
+end
+
 GameState.META_KEYS = {
     -- identity and progress
     "save_id", "shove_count", "has_shoved", "onboarded", "catalog_seen",
@@ -457,10 +504,12 @@ GameState.META_KEYS = {
     "last_run_money_lost", "last_run_biggest_pot_t1", "last_run_biggest_pot",
     -- what the last run earned a minute, for the rail's earn-rate tooltip
     "last_run_rate",
+    -- what each item did last run, for the shove's recap and the catalog
+    "last_item_run",
 }
 
 GameState.RUN_KEYS = {
-    "bankroll", "item_fires_run", "run_upgrade_levels",
+    "bankroll", "item_fires_run", "item_heaters_run", "run_upgrade_levels",
     -- every open table, hand and all (models/Table:serialize)
     "tables",
     "stakes_won_this_run", "bounty_paid_this_run", "chips_this_run",

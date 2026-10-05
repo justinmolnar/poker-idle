@@ -223,9 +223,20 @@ function CatalogReceipt.itemCard(game, item, corrupted)
     if hasProc(item, corrupted) then
         local run  = (state.item_fires_run  or {})[item.id] or 0
         local life = (state.item_fires_life or {})[item.id] or 0
-        local run_txt = (run == 0 and "Not fired yet this run")
-                     or (run == 1 and "Fired once this run")
-                     or ("Fired " .. run .. " times this run")
+        local run_txt
+        -- Between runs (the shove's catalog) the live count is empty:
+        -- say what it did in the run just played instead.
+        local last = state.last_item_run and state.last_item_run[item.id]
+        local fresh = next(state.item_fires_run or {}) == nil
+        if run == 0 and fresh and last then
+            local lf, lh = last.fires or 0, last.heaters or 0
+            run_txt = "Last run: fired " .. lf .. (lf == 1 and " time" or " times")
+            if lh > 0 then run_txt = run_txt .. ", " .. lh .. (lh == 1 and " heater" or " heaters") end
+        else
+            run_txt = (run == 0 and "Not fired yet this run")
+                   or (run == 1 and "Fired once this run")
+                   or ("Fired " .. run .. " times this run")
+        end
         tt[#tt + 1] = { text = run_txt .. ", " .. life .. " lifetime", style = "sm", color_token = "muted" }
     else
         tt[#tt + 1] = { text = "Always on", style = "sm", color_token = "muted" }

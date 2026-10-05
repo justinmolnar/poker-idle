@@ -583,6 +583,7 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
             local tcx = math.floor(tableCenterX(W))
             local sy  = Y_PLAYER_HOLE + CARD_H + 40 + 17 + Style.summary.gap
             local h   = self.fonts.sm:getHeight() + self.fonts.lg:getHeight()
+                        + self:_recapHeight()
             self.ss:throwChips({ x = tcx - 200, y = sy, w = 400, h = h }, BUILDUP_TUMBLE)
         end)
     end
@@ -1183,6 +1184,71 @@ local function printCentered(text, font, x, y, w)
     local tw = font:getWidth(text)
     love.graphics.print(text, math.floor(x + (w - tw) / 2), y)
 end
+
+-- ── What the items did ─────────────────────────────────────────────────
+-- Under the BANKED line: the run's most active items, each with its icon
+-- and what it did ("Energy Drink  292 fires", "Dogs Playing Poker  11
+-- heaters"), so the catalog's next buy is chosen knowing what the last
+-- ones did. GameState:itemRecap reads the live run, then the frozen one.
+local RECAP_ROWS = 4
+local _recap_names
+local function recapName(id)
+    if not _recap_names then
+        _recap_names = {}
+        for _, it in ipairs(require("data.catalog")) do _recap_names[it.id] = it.name end
+    end
+    return _recap_names[id] or id
+end
+
+function ShoveView:_recapRows()
+    local st = self.game and self.game.state
+    return (st and st.itemRecap) and st:itemRecap(RECAP_ROWS) or {}
+end
+
+function ShoveView:_recapHeight()
+    local rows = self:_recapRows()
+    if #rows == 0 then return 0 end
+    local lh = self.fonts.sm:getHeight() + 4
+    return 6 + lh * (#rows + 1)
+end
+
+function ShoveView:_drawRecap(tcx, y)
+    local rows = self:_recapRows()
+    if #rows == 0 then return y end
+    local fonts = self.fonts
+    local f = fonts.sm
+    local lh = f:getHeight() + 4
+    y = y + 6
+    love.graphics.setFont(f)
+    Theme.setColor(Theme.fg.faint)
+    printCentered("YOUR ITEMS THIS RUN", f, tcx - 200, y, 400)
+    y = y + lh
+    local loader = self.game.sprite_loader
+    local Lookups = require("utils.lookups")
+    local Catalog = require("data.catalog")
+    for _, r in ipairs(rows) do
+        local parts = {}
+        if r.fires > 0 then parts[#parts + 1] = r.fires .. (r.fires == 1 and " fire" or " fires") end
+        if r.heaters > 0 then parts[#parts + 1] = r.heaters .. (r.heaters == 1 and " heater" or " heaters") end
+        local text = recapName(r.id) .. "   " .. table.concat(parts, ", ")
+        local tw = f:getWidth(text)
+        local ih = f:getHeight()
+        local x = tcx - math.floor((tw + ih + 6) / 2)
+        local sprite = loader and loader.itemArt
+                       and loader:itemArt(Lookups.findById(Catalog, r.id), "catalog", nil, {}) or nil
+        if sprite then
+            local sw, sh = sprite:getWidth(), sprite:getHeight()
+            local sc = ih / math.max(1, sh)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(sprite, x + ih * 0.5, y + ih, 0, sc, sc, sw * 0.5, sh)
+        end
+        Theme.setColor(Theme.fg.heading)
+        love.graphics.print(text, x + ih + 6, y)
+        y = y + lh
+    end
+    return y
+end
+
 
 -- Every card in the gauntlet goes through here, so the drop shadow does too.
 -- The shadow tracks the card's VISIBLE width: a hole card mid-flip is scaled
@@ -2224,6 +2290,7 @@ function ShoveView:draw()
                           fonts.lg, Theme.fg.heading, 1, IconText.PLAIN)
             line_y = line_y + fonts.lg:getHeight()
         end
+        line_y = self:_drawRecap(tcx, line_y)
         AnchorRegistry.set("shove:summary", tcx - 200, sy, 400, line_y - sy)
     end
 

@@ -97,4 +97,29 @@ ItemStream.spawn(g, "trophy_shelf", nil, nil, nil, nil, { what = Fx.kinds.bounty
 icons = ItemStream.debugIcons()
 c.ok(#icons == 1 and icons[1].kind == "float", "a fire with no table floats up the table area")
 
+-- ── the last run ────────────────────────────────────────────────────────
+-- What each item did is frozen when the run resets, so the shove's recap
+-- and the catalog card can still say it once the next run's counts start.
+do
+    local st = w.state
+    st.item_fires_run = { energy_drink = 292, dogs_playing_poker = 3 }
+    st.item_heaters_run = { dogs_playing_poker = 11 }
+    local live = st:itemRecap(4)
+    c.ok(live[1] and live[1].id == "energy_drink" and live[1].fires == 292, "the recap reads the live run, most active first")
+    st:resetRun()
+    c.ok(next(st.item_fires_run) == nil and next(st.item_heaters_run) == nil, "the reset starts the counts over")
+    local rows = st:itemRecap(4)
+    c.ok(#rows == 2 and rows[2].id == "dogs_playing_poker" and rows[2].heaters == 11,
+         "and the recap reads the frozen last run, heaters included")
+    local CR = require("views.CatalogReceipt")
+    local Lookups = require("utils.lookups")
+    local Catalog = require("models.catalog_loader").deriveAll(require("data.catalog"))
+    local card = CR.itemCard(g, Lookups.findById(Catalog, "dogs_playing_poker"), false)
+    local said = false
+    for _, r in ipairs(card or {}) do
+        if type(r.text) == "string" and r.text:find("Last run: fired 3 times, 11 heaters", 1, true) then said = true end
+    end
+    c.ok(said, "the catalog card says what it did last run")
+end
+
 if c.report("smoke_itemfx") > 0 then os.exit(1) end

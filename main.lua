@@ -328,6 +328,15 @@ local function buildGame()
     -- An item doing its job is heard (services/ItemFoley: its own sound,
     -- damaged if corrupted)...
     local _stream_opts = {}
+    -- A heater an item put on a table counts for that item this run (the
+    -- shove's recap: "Dogs Playing Poker: 11 heaters").
+    g.event_bus:subscribe("on_status_applied", function(e)
+        local st = g.state
+        if st and e.status == "heater" and e.source and not e.was_refresh then
+            st.item_heaters_run = st.item_heaters_run or {}
+            st.item_heaters_run[e.source] = (st.item_heaters_run[e.source] or 0) + 1
+        end
+    end)
     g.event_bus:subscribe("item_fired", function(e)
         ItemFoley.play(g.state, e.item_id)
         -- ...and counted, this run and for life: the room's card reads both.
