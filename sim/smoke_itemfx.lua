@@ -207,4 +207,51 @@ do
          "the rail shows HANDS/S and HEATERS while their items are owned")
 end
 
+-- ── the drag preview (models/board_preview) ────────────────────────────
+-- The virtual layout of a move agrees with what the controller stamps once
+-- the move is real, and the deltas name what changes.
+do
+    local BP = require("models.board_preview")
+    local TG = require("models.table_grid")
+    local w2 = H.world({ bankroll = 1e9 })
+    for _ = 1, 3 do w2:open("s001", "zoom") end
+    w2:own("yellow_sticky_note")
+    w2:tick(0.05)
+    local tables = w2.ctrl.pool.tables
+    local cols, rows = w2.ctrl.pool:boardShape()
+    local taken = {}
+    for _, t in ipairs(tables) do taken[t.slot] = true end
+    local target
+    for r = 0, rows - 1 do for cc = 0, cols - 1 do
+        local sl = TG.pack(r, cc)
+        if not taken[sl] and not target then target = sl end
+    end end
+    if target then
+        -- A mover whose move changes something (on a 2x2 board with one hole,
+        -- moving the far corner into the hole is symmetric and changes
+        -- nothing, which the preview must also say).
+        local ctx = w2.ctrl.ctx
+        local moved, virt, deltas
+        for _, cand in ipairs(tables) do
+            local v = BP.layout(tables, cand, target, ctx)
+            local cur = BP.layout(tables, cand, cand.slot, ctx)
+            local dl = BP.deltas(tables, v, function(t) return cur[t] end, ctx)
+            if not moved or next(dl) then moved, virt, deltas = cand, v, dl end
+            if next(dl) then break end
+        end
+        w2.ctrl:moveTableToSlot(moved._id, target)
+        w2:tick(0.05)
+        local agree = true
+        for _, t in ipairs(tables) do
+            local v = virt[t]
+            if v.ea ~= (t._empty_adjacent or 0) or v.lonely ~= (t._lonely == true) then agree = false end
+        end
+        c.ok(agree, "the preview's empty sides and isolation match the board after the real move")
+        local any = next(deltas) ~= nil
+        c.ok(any, "and the move's changes are named")
+    else
+        c.ok(true, "(no empty cell on this board; preview check skipped)")
+    end
+end
+
 if c.report("smoke_itemfx") > 0 then os.exit(1) end

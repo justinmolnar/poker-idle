@@ -39,6 +39,7 @@ local ChipFlight     = require("views.ChipFlight")
 local ChipPile       = require("views.ChipPile")
 local PanelSheet     = require("views.PanelSheet")
 local GtypeItems     = require("data.gtype_items")
+local BoardPreview   = require("models.board_preview")
 local CursorIntent   = require("services.CursorIntent")
 -- Tables open and close like windows: OPEN_FROM smaller, over OPEN_SECS / CLOSE_SECS.
 local OPEN_FROM, OPEN_SECS, CLOSE_SECS = 0.15, 0.28, 0.26
@@ -1383,6 +1384,8 @@ function GrindView:update(dt)
     -- The hovered upgrade's preview on the board: after the hit test, which
     -- is what reports this frame's hover (main clears it every frame).
     self:_updatePreview()
+    -- What dropping the held table here would change (memoised on the cell).
+    self:_updateDragPreview()
     -- The chip pile says what it is on hover (its band, from the last draw).
     local pr = self._pile_rect
     if pr and mx >= pr.x and mx < pr.x + pr.w and my >= pr.y and my < pr.y + pr.h then
@@ -2509,6 +2512,12 @@ function GrindView:_drawCenterGrid(W, H)
         local r, c = TableGrid.unpack(slot)
         return origin_x + c * (pw + MARGIN), origin_y + r * (ph + MARGIN)
     end
+    -- The cell geometry, kept for the drag preview (drawn after the grid).
+    do
+        local gg = self._grid_geom
+        if not gg then gg = {}; self._grid_geom = gg end
+        gg.ox, gg.oy, gg.pw, gg.ph, gg.m, gg.cols, gg.rows = origin_x, origin_y, pw, ph, MARGIN, cols, rows
+    end
 
     -- Which cell is the mouse over? Returns nil outside the board.
     local function slotAtPoint(mx, my)
@@ -2688,6 +2697,83 @@ function GrindView:_drawClosing()
             lg.setColor(a, a, a, a)
             lg.draw(g.canvas, cx, cy, 0, sc, sc, g.w * 0.5 + g.pad, g.h * 0.5 + g.pad)
             lg.setBlendMode("alpha")
+        end
+    end
+    lg.setColor(1, 1, 1, 1)
+end
+
+-- ── The drag preview ───────────────────────────────────────────────────
+-- While a table is carried, each table whose position bonuses the drop
+-- would change shows the change at the cell it would end up in ("+10%
+-- odds", "x1.5 lost", "+20% pace", "tilt risk"), and the in-bounds empty
+-- cells that count as empty are outlined while a Sticky Note reads them.
+-- models/board_preview does the arithmetic on a virtual layout; nothing
+-- moves until the drop. Recomputed only when the drop cell changes.
+function GrindView:_updateDragPreview()
+    local d = self.drag
+    if not (d and d.moved and d.drop_slot) then self._drag_prev = nil; return end
+    local dp = self._drag_prev
+    if dp and dp.table_id == d.table_id and dp.slot == d.drop_slot then return end
+    local tables = self.controller.pool.tables
+    local moved
+    for _, t in ipairs(tables) do if t._id == d.table_id then moved = t; break end end
+    if not moved then self._drag_prev = nil; return end
+    local ctx = self.controller.ctx or {}
+    local virt, cols, rows, occ = BoardPreview.layout(tables, moved, d.drop_slot, ctx)
+    local cur = BoardPreview.layout(tables, moved, moved.slot or 0, ctx)
+    local deltas = BoardPreview.deltas(tables, virt, function(t) return cur[t] end, ctx)
+    local empties = {}
+    if (ctx.odds_per_empty_adjacent or 0) > 0 then
+        for r = 0, rows - 1 do
+            for c = 0, cols - 1 do
+                local slot = TableGrid.pack(r, c)
+                local o = occ[slot]
+                if not o or (ctx.six_max_counts_empty and o.game_type_id == "six_max") then
+                    empties[#empties + 1] = slot
+                end
+            end
+        end
+    end
+    self._drag_prev = { table_id = d.table_id, slot = d.drop_slot, deltas = deltas, virt = virt, empties = empties }
+end
+
+function GrindView:_drawDragPreview()
+    local dp, gg = self._drag_prev, self._grid_geom
+    if not (dp and gg) then return end
+    local lg = love.graphics
+    local function cell(slot)
+        local r, c = TableGrid.unpack(slot)
+        return gg.ox + c * (gg.pw + gg.m), gg.oy + r * (gg.ph + gg.m)
+    end
+    -- the cells that count as empty
+    if #dp.empties > 0 then
+        Theme.setColor(Theme.sem.won, 0.45)
+        lg.setLineWidth(2)
+        for _, slot in ipairs(dp.empties) do
+            local x, y = cell(slot)
+            lg.rectangle("line", x + 3, y + 3, gg.pw - 6, gg.ph - 6, 6, 6)
+        end
+        lg.setLineWidth(1)
+    end
+    local f = self.game.fonts.sm
+    lg.setFont(f)
+    local th = f:getHeight()
+    for t, lines in pairs(dp.deltas) do
+        local v = dp.virt[t]
+        if v then
+            local x, y = cell(v.slot)
+            local tw = 0
+            for i, l in ipairs(lines) do tw = tw + f:getWidth(l.text) + (i > 1 and 10 or 0) end
+            local px = math.floor(x + (gg.pw - tw) / 2)
+            local py = math.floor(y + gg.ph * 0.42 - th / 2)
+            Theme.setColor(Theme.bg.chrome, 0.92)
+            lg.rectangle("fill", px - 6, py - 3, tw + 12, th + 6, 4, 4)
+            local cx = px
+            for _, l in ipairs(lines) do
+                Theme.setColor(l.good and Theme.sem.won or Theme.sem.lost)
+                lg.print(l.text, cx, py)
+                cx = cx + f:getWidth(l.text) + 10
+            end
         end
     end
     lg.setColor(1, 1, 1, 1)
@@ -3271,6 +3357,8 @@ function GrindView:draw(overlay_fn)
     -- A hovered upgrade's cards over the tables it moves: above all of
     -- that, under the tooltip (main), so they can be read.
     TablePanel.flushPreviewCards(self.game)
+    -- And while a table is carried: what dropping it here would change.
+    self:_drawDragPreview()
 
     if break_p then
         love.graphics.pop()
