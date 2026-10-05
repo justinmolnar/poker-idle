@@ -1576,6 +1576,7 @@ function Table:applyStatus(kind, spec)
         charges     = (def.lifetime == "charges") and (spec.charges or 0) or nil,
         charges_max = (def.lifetime == "charges") and (spec.charges or 0) or nil,
         source      = spec.source,
+        source_id   = spec.source_id,     -- the table that set it off, if any
     }
     self._status_rev = self._status_rev + 1
     self:_announceStatus(kind, mag, spec.source, false)

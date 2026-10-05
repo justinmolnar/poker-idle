@@ -327,6 +327,7 @@ local function buildGame()
     ClickFX.onPile = function(key, x, y) require("views.ChipPile").pokeColumn(key, x, y) end
     -- An item doing its job is heard (services/ItemFoley: its own sound,
     -- damaged if corrupted)...
+    local _stream_opts = {}
     g.event_bus:subscribe("item_fired", function(e)
         ItemFoley.play(g.state, e.item_id)
         -- ...and counted, this run and for life: the room's card reads both.
@@ -337,9 +338,11 @@ local function buildGame()
             st.item_fires_run[e.item_id]  = (st.item_fires_run[e.item_id]  or 0) + 1
             st.item_fires_life[e.item_id] = (st.item_fires_life[e.item_id] or 0) + 1
         end
-        -- ...and seen: the item's sprite floats up the table area like a
-        -- heart on a live stream, one icon per fire (views/ItemStream).
-        ItemStream.spawn(g, e.item_id, e.x, e.y, e.pw, e.ph)
+        -- ...and seen: its sprite pops on the table it affected with a word
+        -- for what it did, flying there first from the table that set it
+        -- off (views/ItemStream).
+        _stream_opts.what, _stream_opts.targets = e.what, e.targets
+        ItemStream.spawn(g, e.item_id, e.x, e.y, e.pw, e.ph, _stream_opts)
     end)
     g.animations      = AnimationSystem
     g.floating_text   = FloatingText

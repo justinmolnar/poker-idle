@@ -295,6 +295,9 @@ function TableProcs.registerAll(reg)
             t         = spec.t,
             charges   = spec.charges,
             source    = event.ghost,
+            -- And the table that set it off (attribution: which table's
+            -- stack win put a heater here).
+            source_id = event.source and event.source._id or nil,
             -- Ambient sources do not end hands; see Table:_maybeInterrupt.
             no_interrupt = spec.no_interrupt,
             -- Nor do their refreshes count as events; see _announceStatus.

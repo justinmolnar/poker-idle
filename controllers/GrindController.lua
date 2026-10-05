@@ -29,6 +29,16 @@ local ChipData       = require("data.chips")
 local FeedbackIntensity = require("data.feedback_intensity")
 local Denoms         = require("services.DenominationBreakdown")
 local AnchorRegistry = require("services.AnchorRegistry")
+local ItemFx         = require("data.item_fx")
+-- What a proc did, for the board (data/item_fx.lua): by payload kind, and
+-- by status for a status.
+local function procLabel(payload)
+    if not payload then return nil end
+    local e = ItemFx.payload and ItemFx.payload[payload.kind]
+    if e and payload.status and e[payload.status] then return e[payload.status] end
+    if e and e.text then return e end
+    return nil
+end
 local RollingValue = require("services.RollingValue")
 local AwardGlow      = require("views.AwardGlow")
 local StakeThemes    = require("data.stake_themes")
@@ -313,7 +323,10 @@ function GrindController:_route(d)
                 fn(entry.def, d)
                 if d.to ~= before_to or d.status ~= before_status then
                     if entry.def.ghost then
-                        self:procFired(entry.def.ghost, d.to)
+                        -- Shown flying from where it was aimed to where it
+                        -- landed (views/ItemStream).
+                        self:procFired(entry.def.ghost, d.aimed_at or before_to, d.to and { d.to } or nil,
+                                       ItemFx.routed)
                     end
                     return d.to
                 end
@@ -367,7 +380,9 @@ function GrindController:_fireProcs(trigger, source_tbl, extra)
             if entry.def.impact == true then
                 self:_bumpTargets(source_tbl, hit)
             end
-            if entry.def.ghost then self:procFired(entry.def.ghost, source_tbl) end
+            if entry.def.ghost then
+                self:procFired(entry.def.ghost, source_tbl, hit, procLabel(entry.def.payload))
+            end
             -- A proc may have put a status on a table that had none, and
             -- the save arrays hold per-table references. Re-sync so the
             -- new list is reachable from state (existing lists tick in
@@ -492,14 +507,32 @@ end
 -- Ghost + sound for a proc. itemFired keys off ctx.sources[kind], but
 -- every proc shares the kind "proc", so that path would pop every proc
 -- item's sprite at once. The proc names its own item instead.
-function GrindController:procFired(item_id, tbl)
+-- `targets` (optional): the tables it actually landed on, which may not be
+-- `tbl` (a heater on a neighbour, a redirected tilt): the icon flies from
+-- `tbl` to each of them. `what`: { text, color } for what it did there
+-- (data/item_fx.lua).
+local function centerOf(tbl)
+    local pos = tbl and AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
+    if pos then return pos[1], pos[2], pos[3], pos[4] end
+end
+
+function GrindController:procFired(item_id, tbl, targets, what)
     local bus = self.game.event_bus
     if not bus or not item_id then return end
-    local x, y, pw, ph
-    local pos = tbl and AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
-    if pos then x, y, pw, ph = pos[1], pos[2], pos[3], pos[4] end
+    local x, y, pw, ph = centerOf(tbl)
+    local to
+    if targets then
+        for _, t in ipairs(targets) do
+            local tx, ty, tw, th = centerOf(t)
+            if tx then
+                to = to or {}
+                to[#to + 1] = { x = tx, y = ty, w = tw, h = th, id = t._id }
+            end
+        end
+    end
     bus:publish("item_fired", { item_id = item_id, kind = "proc",
-                                x = x, y = y, pw = pw, ph = ph })
+                                x = x, y = y, pw = pw, ph = ph,
+                                table_id = tbl and tbl._id, targets = to, what = what })
 end
 
 -- The zoom-first opening's unlock clock. Two jobs, both cheap:
@@ -2228,12 +2261,12 @@ function GrindController:itemFired(kind, tbl)
     if not bus or not ids then return end
     -- Where the "what fired" ghost shows: the triggering table's centre
     -- anchor, resolved now (the registry is view-written and stales).
-    local x, y, pw, ph
-    local pos = tbl and AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
-    if pos then x, y, pw, ph = pos[1], pos[2], pos[3], pos[4] end
+    local x, y, pw, ph = centerOf(tbl)
+    local what = ItemFx.kinds and ItemFx.kinds[kind]
     for _, id in ipairs(ids) do
         bus:publish("item_fired", { item_id = id, kind = kind,
-                                    x = x, y = y, pw = pw, ph = ph })
+                                    x = x, y = y, pw = pw, ph = ph,
+                                    table_id = tbl and tbl._id, what = what })
     end
 end
 
