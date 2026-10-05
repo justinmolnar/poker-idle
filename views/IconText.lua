@@ -42,6 +42,15 @@
 -- views/Chips / views/Icons / services/SpriteRenderer.
 
 local Icons       = require("views.Icons")
+-- Catalog items by id, for {item:id} (built on first use).
+local _items_by_id
+local function itemById(id)
+    if not _items_by_id then
+        _items_by_id = {}
+        for _, it in ipairs(require("data.catalog")) do _items_by_id[it.id] = it end
+    end
+    return _items_by_id[id]
+end
 local TierGlyph   = require("views.TierGlyph")
 local Theme       = require("views.Theme")
 local FontService = require("services.FontService")
@@ -172,6 +181,9 @@ local function parseUncached(str, pills)
             els[#els + 1] = { kind = "key", s = key }
         elseif token == "chip" or token == "achip" or token == "arrow" then
             els[#els + 1] = { kind = "icon", token = token }
+        elseif token:match("^item:[%w_]+$") then
+            -- A catalog item's art at text height ({item:mirror}).
+            els[#els + 1] = { kind = "item", id = token:sub(6) }
         else
             local pre, name = token:match("^(%w+):(%w+)$")
             name = name or token
@@ -255,6 +267,7 @@ local function elementWidth(el, font, m)
     end
     if el.kind == "key"  then return font:getWidth(el.s) + 2 end
     if el.kind == "icon" then return m.size + m.gap end
+    if el.kind == "item" then return m.size + m.gap end
     if el.kind == "tier" then return TierGlyph.width(el.name, TierGlyph.radius(m.size)) + m.gap end
     return 0
 end
@@ -329,6 +342,17 @@ local function drawElement(game, el, x, y, font, m, color, alpha)
         if el.token == "chip" then Icons.drawChip(game, x, y, m.size, alpha)
         elseif el.token == "achip" then Icons.drawAntiChip(game, x, y, m.size, alpha)
         else drawArrow(x, y, m.size, color, alpha) end
+    elseif el.kind == "item" then
+        local sl = game and game.sprite_loader
+        local item = itemById(el.id)
+        local corrupted = game and game.state and game.state.isCorrupted and game.state:isCorrupted(el.id) or false
+        local sprite = item and sl and sl.itemArt and sl:itemArt(item, "catalog", nil, { corrupted = corrupted }) or nil
+        if sprite then
+            local sw, sh = sprite:getWidth(), sprite:getHeight()
+            local sc = m.size / math.max(1, math.max(sw, sh))
+            love.graphics.setColor(1, 1, 1, alpha or 1)
+            love.graphics.draw(sprite, x + m.size * 0.5, y + m.size * 0.5, 0, sc, sc, sw * 0.5, sh * 0.5)
+        end
     elseif el.kind == "tier" then
         local r = TierGlyph.radius(m.size)
         local w = TierGlyph.width(el.name, r)

@@ -190,6 +190,18 @@ do
         end
         return false
     end
+    -- The add-table rows carry the owned items that make that game type
+    -- better (Zoom: the Energy Drink, the Receipt Printer, the Console).
+    view.selected_gtype = "zoom"
+    local tagged = false
+    for _, comp in ipairs(view:_buildTablesTabComponents() or {}) do
+        local l1 = comp.lines and comp.lines[1]
+        if l1 and type(l1.text) == "string" and l1.text:find("{item:energy_drink}", 1, true)
+           and l1.text:find("{item:receipt_printer}", 1, true) then tagged = true end
+    end
+    c.ok(tagged, "a Zoom add-table row shows the owned Zoom items")
+    local IT = require("views.IconText")
+    c.ok(IT.measure("x{item:energy_drink}", F) > F:getWidth("x"), "IconText draws {item:id} as an icon")
     local rail = view:_buildRailComponents()
     c.ok(hasAnchor(rail, "cell:hands_s") and hasAnchor(rail, "cell:heaters"),
          "the rail shows HANDS/S and HEATERS while their items are owned")
