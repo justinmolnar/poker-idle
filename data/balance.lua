@@ -29,13 +29,12 @@ Balance.T3_MULT                = 3
 -- 84, Act 3 180. `lua sim/lint_catalog_economy.lua` checks the sums; the
 -- Act 1 item count is derived from the catalog (CatalogLoader.act1Count),
 -- never authored here.
-Balance.CATALOG_CHIP_BUDGET    = { act1 = 152, act2 = 546, tol = 6 }
--- The Act 1 shelves' prices, scaled together (CatalogLoader.itemCost): the
--- authored prices keep their order and this sets the level. 0.65 took the
--- median Act 1 from ~62 to ~44 minutes in sim/act1.lua (30 seeds): a 15-chip
--- run buys more items, and every item is the same flat 1% of shove. The
--- budget above is the Act 1 sum after it (authored 234; the Space Heater moved to Act 2).
-Balance.ACT1_PRICE_SCALE       = 0.65
+Balance.CATALOG_CHIP_BUDGET    = { act1 = 130, act2 = 584, tol = 6 }
+-- The Act 1 shelves' prices, scaled together (CatalogLoader.itemCost). At
+-- 1.0 the prices in data/catalog.lua are what the player pays: since
+-- 2026-10-05 they are written per beat (the catalog after shove 1: 1-2;
+-- after 2: 2-5; after 3: 5-7; after 4: 7-9), so the scale is left at 1.
+Balance.ACT1_PRICE_SCALE       = 1.0
 
 -- Shove rate added per catalog item. A FLAT 1%: one item, one point of
 -- shove. The budget above prices items; it does not set what they are

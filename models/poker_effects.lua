@@ -236,6 +236,30 @@ function PokerEffects.registerAll(reg)
     reg:register("held_odds", function(e, ctx)
         ctx.held_odds = (ctx.held_odds or 0) + (e.value or 0)
     end)
+    -- Lava Lamp (2026-10-05): the table the player moved last (t._last_moved,
+    -- stamped by GrindController:moveTableToSlot) plays this much more win
+    -- chance and deals this many times faster, until another is moved.
+    reg:register("moved_odds", function(e, ctx)
+        ctx.moved_odds = (ctx.moved_odds or 0) + (e.value or 0)
+    end)
+    reg:register("moved_pace", function(e, ctx)
+        ctx.moved_pace = math.max(ctx.moved_pace or 1, e.value or 1)
+    end)
+    -- Tally Book (2026-10-05): a hand the player deals themself (not a
+    -- cursor) pays this many times its winnings.
+    reg:register("manual_hand_mult", function(e, ctx)
+        ctx.manual_hand_mult = math.max(ctx.manual_hand_mult or 1, e.value or 1)
+    end)
+    -- Corkboard (2026-10-05): this much more win chance at every table per
+    -- item owned (GameState:computeEffects counts them and adds the shift).
+    reg:register("odds_per_item", function(e, ctx)
+        ctx.odds_per_item = (ctx.odds_per_item or 0) + (e.value or 0)
+    end)
+    -- Wall Clock (2026-10-05): every `value` seconds the table that played
+    -- the most hands in that span catches a heater (GrindController).
+    reg:register("wall_clock_heat", function(e, ctx)
+        ctx.wall_clock_secs = e.value or 60
+    end)
     -- Cutting Board: wins in a row on hands the player dealt multiply the
     -- next player-dealt hand's winnings by 1 + value x streak, up to cap.
     reg:register("manual_combo", function(e, ctx)
@@ -256,6 +280,11 @@ function PokerEffects.registerAll(reg)
     -- Headset: a tilt that ends a Zoom hand does not follow to the next.
     reg:register("zoom_tilt_one_hand", function(_e, ctx)
         ctx.zoom_tilt_one_hand = true
+    end)
+    -- Headset (2026-10-05): a tilted Zoom table deals this many times
+    -- faster while the tilt lasts (Table:paceParts).
+    reg:register("zoom_tilt_pace", function(e, ctx)
+        ctx.zoom_tilt_pace = math.max(ctx.zoom_tilt_pace or 1, e.value or 1)
     end)
     -- Copy Machine: a Zoom hand counts as two in every hand counter.
     reg:register("zoom_hands_count_twice", function(_e, ctx)

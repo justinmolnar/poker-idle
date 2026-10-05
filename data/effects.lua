@@ -129,6 +129,36 @@ Effects.kinds = {
         value_shape = "fraction, e.g. 0.10",
         affects     = "ctx.held_odds",
     },
+    moved_odds = {
+        description = "Lava Lamp: the table the player moved last (t._last_moved) has this much more win chance until another table is moved.",
+        value_shape = "fraction, e.g. 0.10",
+        affects     = "ctx.moved_odds",
+    },
+    moved_pace = {
+        description = "Lava Lamp: the table the player moved last deals this many times faster until another table is moved.",
+        value_shape = "multiplier, e.g. 1.5",
+        affects     = "ctx.moved_pace",
+    },
+    manual_hand_mult = {
+        description = "Tally Book: a hand the player deals themself (not a cursor) pays this many times its winnings.",
+        value_shape = "multiplier, e.g. 1.5",
+        affects     = "ctx.manual_hand_mult",
+    },
+    odds_per_item = {
+        description = "Corkboard: this much more win chance at every table per item owned (computeEffects adds it as a win_chance_shift).",
+        value_shape = "fraction per item, e.g. 0.01",
+        affects     = "ctx.odds_per_item",
+    },
+    wall_clock_heat = {
+        description = "Wall Clock: every `value` seconds the table that played the most hands in that span catches a heater (GrindController).",
+        value_shape = "seconds, e.g. 60",
+        affects     = "ctx.wall_clock_secs",
+    },
+    zoom_tilt_pace = {
+        description = "Headset: a tilted Zoom table deals this many times faster while the tilt lasts (Table:paceParts).",
+        value_shape = "multiplier, e.g. 2.0",
+        affects     = "ctx.zoom_tilt_pace",
+    },
     manual_combo = {
         description = "Cutting Board: wins in a row on hands the player dealt (not a cursor, not a punch) multiply the next player-dealt hand's winnings by 1 + value x streak, capped at cap (GrindController.manual_combo).",
         value_shape = "value = fraction per win, cap = the multiplier's ceiling",

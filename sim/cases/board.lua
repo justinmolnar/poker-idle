@@ -33,8 +33,8 @@ return function(T)
         local w, t = holed()
         w:own("yellow_sticky_note"); w:tick(0.05)
         local e_b, e_a, e_h = t.b._empty_adjacent, t.a._empty_adjacent, t.h._empty_adjacent
-        check("item:yellow_sticky_note", "stamps", e_b == 1 and e_a == 0 and e_h == 2,
-            ("empty cells beside a table: (0,1) sees 1 (the hole at (1,1)), the corner (0,0) sees 0, (2,1) sees 2 (the hole and (2,2)); past the board's edge never counts"):format())
+        check("item:yellow_sticky_note", "stamps", e_b == 1 and e_a == 1 and e_h == 2,
+            ("empty cells beside a table: (0,1) sees 1 (the hole at (1,1)), the corner (0,0) sees 1 (the 6-Max below it counts as empty), (2,1) sees 2 (the hole and (2,2)); past the board's edge never counts"):format())
         -- the hand plays with the bonus: deal at (2,1) with the two empties and read the sampled win chance
         local r = T.stub(OM, "sampleOutcome", function(wc) t.h._seen_wc = wc; return false, "small" end)
         w.ctrl:dealHand(w:find(t.h)); r()
@@ -48,8 +48,8 @@ return function(T)
         local shown_a = w.ctrl:tableStats(t.a)
         local d_h = shown and (shown.win_chance - base) or -1
         local d_a = shown_a and (shown_a.win_chance - base) or -1
-        check("item:yellow_sticky_note", "readout", math.abs(d_h - 0.10) < 1e-6 and math.abs(d_a) < 1e-6,
-            ("the readout shows +%.1f%% at the table with two empties and +%.1f%% at the corner with none"):format(d_h * 100, d_a * 100))
+        check("item:yellow_sticky_note", "readout", math.abs(d_h - 0.10) < 1e-6 and math.abs(d_a - 0.05) < 1e-6,
+            ("the readout shows +%.1f%% at the table with two empties and +%.1f%% at the corner with one (the 6-Max)"):format(d_h * 100, d_a * 100))
     end
 
     if wanted("item:throw_pillow") then
@@ -74,15 +74,15 @@ return function(T)
             ("the lonely table's readout reads x%.2f the paired table's"):format(shown_ratio))
     end
 
-    if wanted("item:comfort_bed") then
+    -- A 6-Max counts as empty space for its neighbours, built in (it was the
+    -- Comfort Bed's effect; the bed is retired).
+    if wanted("item:yellow_sticky_note") then
         local w = T.world()
         local hu  = w:open("s001", "hu",      { 0, 0 })
         local six = w:open("s001", "six_max", { 0, 1 })
         w:tick(0.05)
-        local before_lonely, before_empty = hu._lonely, hu._empty_adjacent
-        w:own("comfort_bed"); w:tick(0.05)
-        check("item:comfort_bed", "counts", before_lonely == false and before_empty == 0 and hu._lonely == true and hu._empty_adjacent == 1,
-            "beside a 6-Max: without the bed the Heads-Up has a neighbour and no empties; with it the 6-Max reads as an empty cell (lonely, 1 empty adjacent)")
+        check("item:yellow_sticky_note", "6-max empty", hu._lonely == true and hu._empty_adjacent == 1,
+            "beside a 6-Max the Heads-Up reads lonely with 1 empty side: a 6-Max counts as empty space, no item needed")
     end
 
     if wanted("item:lava_lamp") then
@@ -90,7 +90,15 @@ return function(T)
         local a = w:open("s001", "hu", { 0, 0 })
         local b = w:open("s001", "hu", { 0, 1 })
         w:own("lava_lamp"); w:tick(0.05)
-        a._held = true   -- what GrindView stamps while the panel is in hand
+        -- Move `a` (to the cell beside b's row end and back is enough): the
+        -- table moved last plays the lamp's odds and pace.
+        local c = w:open("s001", "hu", { 1, 0 })
+        w.ctrl:moveTableToSlot(a._id, require("models.table_grid").pack(1, 1))
+        w:tick(0.05)
+        local _, boost_a = a:paceParts(w.ctrl.ctx)
+        local _, boost_b = b:paceParts(w.ctrl.ctx)
+        check("item:lava_lamp", "pace", math.abs(boost_a - boost_b * 1.5) < 1e-6,
+            ("the table moved last deals at x%.2f the pace of one not moved"):format(boost_a / boost_b))
         local seen
         local r = T.stub(OM, "sampleOutcome", function(wc) seen = wc; return false, "small" end)
         w.ctrl:dealHand(w:find(a)); r()
@@ -99,7 +107,7 @@ return function(T)
         r = T.stub(OM, "sampleOutcome", function(wc) seen_b = wc; return false, "small" end)
         w.ctrl:dealHand(w:find(b)); r()
         check("item:lava_lamp", "odds", math.abs((seen or 0) - base - 0.10) < 1e-6 and math.abs((seen_b or 0) - base) < 1e-6,
-            ("the held table dealt at +%.1f%% odds; the table not in hand at +%.1f%%"):format(((seen or 0) - base) * 100, ((seen_b or 0) - base) * 100))
+            ("the table moved last dealt at +%.1f%% odds; one not moved at +%.1f%%"):format(((seen or 0) - base) * 100, ((seen_b or 0) - base) * 100))
     end
 
     -- ── zoom neighbours, pace ──────────────────────────────────────────
@@ -126,12 +134,16 @@ return function(T)
     end
 
     -- ── the live counts the odds items read ───────────────────────────
+    -- Mirror: a stack win bounces to a table beside it (proc mirror_bounce).
     if wanted("item:mirror") then
         local w = T.world()
-        w:open("s001", "hu"); w:open("s001", "hu"); w:open("s002", "hu"); w:open("s001", "zoom")
+        local a = w:open("s001", "hu",   { 0, 0 })
+        local b = w:open("s001", "zoom", { 0, 1 })
+        local far = w:open("s001", "zoom", { 1, 1 })
         w:own("mirror"); w:tick(0.05)
-        check("item:mirror", "count", w.ctrl.ctx.hu_table_count == 3,
-            ("the controller counts %d Heads-Up tables open (3 opened, plus a Zoom that does not count)"):format(w.ctrl.ctx.hu_table_count or -1))
+        w:announce("on_stack_win", { table = a, out = {} })
+        check("item:mirror", "bounce", (b._next_win_tier_up ~= nil) and far._next_win_tier_up == nil and a._next_win_tier_up == nil,
+            "a stack at the Heads-Up: the Zoom beside it gets its next win one size up; the diagonal one and the winner do not")
     end
 
     if wanted("item:desk_speakers") then

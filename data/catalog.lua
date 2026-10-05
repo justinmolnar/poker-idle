@@ -103,10 +103,9 @@
 -- renamed fifteen and bumped to 3.
 --
 -- ─── The budget ─────────────────────────────────────────────────────────
--- The book as authored is 780 {chip}: the Act 1 shelves (no `act = 2`) 234,
--- the Act 2 shelves 546. The Act 1 shelves are then scaled by
--- data/balance.lua ACT1_PRICE_SCALE (0.65: they sell for ~152 in play); the
--- prices written below are the authored ones (CATALOG_CHIP_BUDGET). Income per run:
+-- The book is 714 {chip}: the Act 1 shelves (no `act = 2`) 130, priced per
+-- beat (the catalog after shove 1: 1-2; after 2: 2-5; after 3: 5-7; after 4:
+-- 7-9), and the Act 2 shelves 584 (data/balance.lua CATALOG_CHIP_BUDGET). Income per run:
 -- a T1-T3 sweep banks 18 (24 with Fight Night), a T1-T6 sweep 84, so Act 1's
 -- five runs bank ~100 and Act 2's six ~450; Act 3 (180 a run) finishes the
 -- book. Prices come from role tiers and read as a ladder down each shelf
@@ -180,12 +179,11 @@ local items = {
         -- The chip engine's throttle: every Heads-Up table open makes every
         -- Heads-Up table hit stacks more. The player picks how hard to lean
         -- on the duel. Heads-Up only: Zoom's stack cell is capped on purpose.
-        effect_text = "Each {k:Heads-Up} table open: +2% {w:stack} {c:chance:odds} at {k:Heads-Up}.",
+        effect_text = "Win a {w:stack}: a table {k:adjacent} to it gets its next {c:won:win} one size up.",
         description = "A nice big one. You should see yourself. And yourself.",
         sprite      = "mirror",
         phase       = "demo",
-        cost_chip     = 4,
-        -- The blue "SEE No." slip points at the Fight Night Poster, the
+        cost_chip     = 2,
         -- Heads-Up intro on page one, resolved by that 4-{chip} purchase —
         -- never a wall (page one's own Gift Box teaches the slip first), and it
         -- keeps the first post-shove catalog down to ONE ready-to-peel
@@ -194,14 +192,14 @@ local items = {
         position    = { x = 160, y = 220 },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "hu_stack_odds_per_hu_table", value = 0.02 },   -- PLACEHOLDER
+            { kind = "proc", proc = "mirror_bounce" },
         },
         corrupt = {
             cost_achip = 2,
             effects = {
-                { kind = "hu_stack_odds_per_hu_table", value = 0.05 },
+                { kind = "proc", proc = "mirror_bounce_corrupt" },
             },
-            effect_text = "Each {k:Heads-Up} table open: +5% {w:stack} {c:chance:odds} at {k:Heads-Up}.",
+            effect_text = "Win a {w:stack}: each table {k:adjacent} to it gets its next {c:won:win} one size up.",
         },
     },
     {
@@ -214,7 +212,7 @@ local items = {
         description = "A duel draws a crowd. The crowd pays.",
         sprite      = "fight_night_poster",
         phase       = "demo",
-        cost_chip   = 4,
+        cost_chip   = 2,
         unlock = {
             kind      = "total_chips_banked",
             threshold = 1,
@@ -245,7 +243,7 @@ local items = {
         description = "Tastes terrible. Works fine.",
         sprite      = "energy_drink",
         phase       = "demo",
-        cost_chip     = 3,
+        cost_chip     = 1,
         position    = { x = 200, y = 220 },
         effects     = {
             { kind = "shove_rate_add" },
@@ -263,22 +261,24 @@ local items = {
         id          = "corkboard",
         refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Corkboard",
-        effect_text = "+5% {c:chance:odds} at {k:every_table}.",
+        effect_text = "+5% {c:chance:odds} at {k:every_table}, and +1% per item you own.",
         description = "Pins, notes, one photo of a beach.",
         sprite      = "corkboard",
         phase       = "demo",
-        cost_chip     = 2,
+        cost_chip     = 1,
         position    = { x = 240, y = 220 },
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "win_chance_shift", amount = 0.05 },
+            { kind = "odds_per_item", value = 0.01 },
         },
         corrupt = {
             cost_achip = 2,
             effects = {
-                { kind = "win_chance_shift", amount = 0.2 },
+                { kind = "win_chance_shift", amount = 0.10 },
+                { kind = "odds_per_item", value = 0.02 },
             },
-            effect_text = "+20% {c:chance:odds} at {k:every_table}.",
+            effect_text = "+10% {c:chance:odds} at {k:every_table}, and +2% per item you own.",
         },
     },
     {
@@ -289,7 +289,7 @@ local items = {
         description = "Pile of bestselling self-help guides.",
         sprite      = "stack_of_books",
         phase       = "demo",
-        cost_chip     = 5,
+        cost_chip     = 3,
         position    = { x = 280, y = 220 },
         unlock = {
             kind      = "total_hands_won",
@@ -332,8 +332,7 @@ local items = {
         description = "A wrapped gift box for starting fresh.",
         sprite      = "starter_gift_box",
         phase       = "demo",
-        cost_chip   = 3,
-        -- Page one's chain teacher: the first "SEE No." slip in the book points
+        cost_chip   = 1,
         -- at the Corkboard, two cards to the left, and the 2-{chip} buy clears it.
         requires    = "corkboard",
         position    = { x = 360, y = 220 },
@@ -358,11 +357,11 @@ local items = {
         -- empty for everything that reads empties while you hold it.
         id          = "lava_lamp",
         name        = "Lava Lamp",
-        effect_text = "The table in your hand: +10% {c:chance:odds} while you hold it.",
+        effect_text = "The table you moved last: deals ×1.5 faster and +10% {c:chance:odds}, until you move another.",
         description = "Soothing to watch. Hypnotic, almost.",
         sprite      = "lava_lamp",
         phase       = "demo",
-        cost_chip   = 6,
+        cost_chip   = 4,
         unlock      = {
             kind      = "total_hands_won",
             threshold = 400,
@@ -371,7 +370,8 @@ local items = {
         position    = { x = 400, y = 220 },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "held_odds", value = 0.10 },   -- PLACEHOLDER
+            { kind = "moved_odds", value = 0.10 },
+            { kind = "moved_pace", value = 1.5 },
         },
     },
     {
@@ -379,6 +379,7 @@ local items = {
         -- on this shelf that reads empty spaces.
         id          = "comfort_bed",
         name        = "Comfort Bed",
+        retired = true,
         effect_text = "A {k:6-Max} counts as an empty space.",
         description = "Restful memory-foam bed. Nothing to think about.",
         sprite      = "comfort_bed",
@@ -408,7 +409,7 @@ local items = {
         -- The Stats shelf's first card and its Act 1 taster: the one
         -- question a partial board asks from the first run (fill the gap,
         -- or leave it for the odds beside it), priced to be bought early.
-        cost_chip   = 3,
+        cost_chip   = 2,
         unlock      = {
             kind      = "total_hands_at_4plus",
             threshold = 100,
@@ -425,11 +426,11 @@ local items = {
         -- table each click; the swarm's deals never touch it.
         id          = "tally_book",
         name        = "Tally Book",
-        effect_text = "{c:won:Wins} in a row on hands you deal yourself: {c:won:winnings} ×1.1 per win, up to ×2. A {c:lost:loss} you dealt ends it.",
+        effect_text = "A hand you deal yourself: {c:won:winnings} ×1.5.",
         description = "You keep your own count.",
         sprite      = "tally_book",
         phase       = "mid",
-        cost_chip   = 7,
+        cost_chip   = 5,
         unlock      = {
             kind      = "total_hands_won",
             threshold = 1200,
@@ -437,7 +438,7 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "manual_combo", value = 0.10, cap = 2.0 },   -- PLACEHOLDER
+            { kind = "manual_hand_mult", value = 1.5 },
         },
     },
     {
@@ -504,7 +505,7 @@ local items = {
         description = "The one with the bulldog. It winks.",
         sprite      = "dogs_playing_poker",
         phase       = "mid",
-        cost_chip   = 6,
+        cost_chip   = 5,
         unlock = {
             kind      = "total_chips_banked",
             threshold = 25,
@@ -526,6 +527,7 @@ local items = {
     {
         id          = "calculator",
         name        = "Calculator",
+        retired = true,
         effect_text = "{c:upgrade:Sharper_Reads}, {c:upgrade:Pot_Control} and {c:upgrade:Cursor_Speed} +15%.",
         see_also    = { "runup:sharper_reads", "runup:pot_control" },
         description = "Solar. Works under the desk lamp.",
@@ -557,15 +559,15 @@ local items = {
         description = "Three rings, one broken clasp.",
         sprite      = "ring_binder",
         phase       = "mid",
-        cost_chip   = 7,
+        cost_chip   = 5,
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "run_upgrade_cost_mult", value = 0.85 },
         },
         unlock = {
             kind      = "total_upgrade_levels",
-            threshold = 90,
-            text      = "{c:upgrade:upgrade} levels bought",
+            threshold = 25,
+            text      = "upgrade levels bought",
         },
         corrupt = {
             cost_achip = 4,
@@ -607,7 +609,7 @@ local items = {
         description = "Desk holder with pens. Nobody counts them.",
         sprite      = "pencil_holder",
         phase       = "mid",
-        cost_chip     = 8,
+        cost_chip     = 7,
         position    = { x = 230, y = 200 },
         effects     = {
             { kind = "shove_rate_add" },
@@ -615,7 +617,7 @@ local items = {
         },
         unlock = {
             kind      = "total_chips_banked",
-            threshold = 150,
+            threshold = 30,
             text      = "{chip} {c:chip:banked}",
         },
         corrupt = {
@@ -633,6 +635,7 @@ local items = {
         -- the slow, deep table itself, and what other items land on it.
         id          = "bonsai",
         name        = "Bonsai",
+        act = 2,
         effect_text = "Opens {k:6-Max}.",
         description = "Grown slow on purpose. The deep game. Worth the wait.",
         sprite      = "bonsai",
@@ -667,6 +670,7 @@ local items = {
         -- taunting costs blinds, not stacks.
         id          = "desk_plant",
         name        = "Desk Plant",
+        act = 2,
         effect_text = "A {c:tilt:tilt} on a {k:6-Max}: smaller {c:lost:losses}.",
         description = "Real. Someone waters it when you're not looking.",
         sprite      = "desk_plant",
@@ -686,12 +690,12 @@ local items = {
         description = "Solid wood, one drawer. Somewhere to put things.",
         sprite      = "desk",
         phase       = "mid",
-        cost_chip     = 6,
+        cost_chip     = 4,
         position    = { x = 330, y = 200 },
         unlock = {
-            kind      = "total_upgrade_levels",
-            threshold = 70,
-            text      = "{c:upgrade:upgrade} levels bought",
+            kind      = "shove_count",
+            threshold = 2,
+            text      = "shoves made",
         },
         effects     = {
             { kind = "shove_rate_add" },
@@ -712,14 +716,14 @@ local items = {
         description = "Discount coupon pad. Sticks where you'll see it.",
         sprite      = "rebuy_sticky_note",
         phase       = "mid",
-        cost_chip   = 8,
+        cost_chip   = 4,
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "rebuy_discount", value = 0.25 },
         },
         unlock = {
             kind      = "total_rebuys",
-            threshold = 300,
+            threshold = 10,
             text      = "rebuys",
         },
         corrupt = {
@@ -737,11 +741,11 @@ local items = {
         description = "Ergonomic. Overload hurts less.",
         sprite      = "gaming_chair",
         phase       = "mid",
-        cost_chip     = 8,
+        cost_chip     = 6,
         unlock = {
-            kind      = "total_hands_overwhelmed",
-            threshold = 25,
-            text      = "hands over the FOCUS cap",
+            kind      = "total_stacks",
+            threshold = 150,
+            text      = "{w:stack} {c:won:wins}",
         },
         position    = { x = 150, y = 400 },
         effects     = {
@@ -762,14 +766,14 @@ local items = {
         -- follow to the next one (Table:_finalizeHand).
         id          = "headset",
         name        = "Headset",
-        effect_text = "{k:Zoom} shakes off a {c:tilt:tilt} after one hand.",
+        effect_text = "A {c:tilt:tilt} at {k:Zoom}: that table deals ×2 faster while it lasts.",
         description = "Foam mic cover. Someone else's earwax.",
         sprite      = "headset",
         phase       = "mid",
-        cost_chip   = 7,
+        cost_chip   = 5,
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "zoom_tilt_one_hand" },
+            { kind = "zoom_tilt_pace", value = 2.0 },
         },
         -- One of the two Zoom cards gated on Zoom hands (the rest count
         -- every hand, so a Heads-Up player still sees the shelf open).
@@ -816,11 +820,11 @@ local items = {
     {
         id          = "compact_fridge",
         name        = "Compact Fridge",
-        effect_text = "Your run's first {l:stack} is voided.",
+        effect_text = "The first {l:stack} at each stake and game type is voided, every run.",
         description = "The cooler. Eats the worst beat.",
         sprite      = "compact_fridge",
         phase       = "mid",
-        cost_chip     = 8,
+        cost_chip     = 5,
         position    = { x = 270, y = 400 },
         effects     = {
             { kind = "shove_rate_add" },
@@ -828,7 +832,7 @@ local items = {
         },
         unlock = {
             kind      = "total_stack_losses",
-            threshold = 450,
+            threshold = 20,
             text      = "{l:stack} {c:lost:losses} taken",
         },
         corrupt = {
@@ -842,40 +846,40 @@ local items = {
     {
         id          = "wall_clock",
         name        = "Wall Clock",
-        effect_text = "Win a hand: 1 in 100 chance {k:a_random_table} catches a {c:heat:heater}.",
+        effect_text = "Every 60 seconds: the table that played the most hands catches a {c:heat:heater}.",
         description = "The second hand ticks a little loud.",
         sprite      = "wall_clock",
         phase       = "mid",
         cost_chip   = 8,
         unlock = {
             kind      = "total_hands_played",
-            threshold = 2500,
+            threshold = 2000,
             text      = "hands played",
         },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "proc", proc = "wall_clock_century" },
+            { kind = "wall_clock_heat", value = 60 },
         },
         corrupt = {
             cost_achip = 7,
             effects = {
-                { kind = "proc",      proc = "wall_clock_century" },
+                { kind = "wall_clock_heat", value = 30 },
                 { kind = "loss_mult", value = 1.5 },
             },
-            effect_text = "Same, and {c:lost:Losses} ×1.5.",
+            effect_text = "Every 30 seconds: the table that played the most hands catches a {c:heat:heater}, and {c:lost:Losses} ×1.5.",
         },
     },
 
     {
         id          = "house_cat",
         name        = "House Cat",
-        effect_text = "Win a hand: 1 in 50 chance {k:a_random_table}'s next {c:won:win} lands one size up.",
+        effect_text = "Every 25th hand the board plays: that table's next {c:won:win} lands one size up.",
         description = "Someone's cat. It has opinions.",
         sprite      = "house_cat",
         phase       = "demo",
         -- The Zoom shelf's first card: Zoom does hands the way Heads-Up
         -- does stacks, and this pays on every hand won, on any table.
-        cost_chip   = 5,
+        cost_chip   = 3,
         unlock = {
             kind      = "total_hands_won",
             threshold = 300,
@@ -890,7 +894,7 @@ local items = {
             effects = {
                 { kind = "proc", proc = "house_cat_nap_corrupt" },
             },
-            effect_text = "Win a hand: 1 in 25 chance {k:a_random_table}'s next {c:won:win} lands one size up.",
+            effect_text = "Every 12th hand the board plays: that table's next {c:won:win} lands one size up.",
         },
     },
     {
@@ -900,13 +904,12 @@ local items = {
         description = "One wick. Surprising reach.",
         sprite      = "candle",
         phase       = "mid",
-        cost_chip   = 6,
-        -- Stacks land ~155 per shove (measured from a real save at
+        cost_chip   = 5,
         -- shove five: 775 stacks), so stack thresholds are per-shove
         -- rates, not "rare event" counts. 600 ≈ shove four.
         unlock = {
             kind      = "total_stacks",
-            threshold = 600,
+            threshold = 150,
             text      = "{w:stack} {c:won:wins}",
         },
         effects     = {
@@ -923,7 +926,7 @@ local items = {
         description = "Room for one more. There is always room for one more.",
         sprite      = "trophy_shelf",
         phase       = "mid",
-        cost_chip   = 8,
+        cost_chip   = 6,
         unlock      = {
             kind      = "total_stacks",
             threshold = 150,
@@ -945,7 +948,7 @@ local items = {
         unlock = {
             kind      = "total_hands_at_gtype",
             gtype     = "hu",
-            threshold = 1000,
+            threshold = 300,
             text      = "Heads-Up hands",
         },
         effects     = {
@@ -962,8 +965,7 @@ local items = {
         description = "Fits in a pocket. Fast games between fast games.",
         sprite      = "handheld",
         phase       = "mid",
-        cost_chip   = 6,
-        -- One of the two Zoom cards gated on Zoom hands.
+        cost_chip   = 3,
         unlock = {
             kind      = "total_hands_at_gtype",
             gtype     = "zoom",
@@ -979,6 +981,7 @@ local items = {
         -- The family pot: the tank's big hand, more often.
         id          = "red_rug",
         name        = "Red Rug",
+        act = 2,
         effect_text = "A {w:large} {c:won:win} at {k:6-Max}: 1 in 3 chance it's a {w:stack}.",
         description = "Really ties the room together.",
         sprite      = "red_rug",
@@ -997,6 +1000,7 @@ local items = {
     {
         id          = "dish_soap",
         name        = "Dish Soap",
+        act = 2,
         effect_text = "A {c:tilt:tilt} aimed at a table: 1 in 4 chance it lands on a table {k:adjacent} to it instead.",
         description = "Cuts through anything.",
         sprite      = "dish_soap",
@@ -1025,7 +1029,7 @@ local items = {
         description = "A new stake is an occasion.",
         sprite      = "bottle_of_wine",
         phase       = "demo",
-        cost_chip     = 5,
+        cost_chip     = 3,
         position    = { x = 600, y = 300 },
         unlock = {
             kind      = "total_busts",
@@ -1131,7 +1135,7 @@ local items = {
         description = "Cardboard storage box of mice.",
         sprite      = "box_of_mice",
         phase       = "late",
-        cost_chip     = 13,
+        cost_chip     = 10,
         slots       = 1,  -- demoted from hero so the whole cursor chain fits one spread
         position    = { x = 100, y = 500 },
         effects     = {
@@ -1367,14 +1371,14 @@ local items = {
         description = "Two slots. One setting. Pops without warning.",
         sprite      = "chrome_toaster",
         phase       = "late",
-        cost_chip   = 5,
+        cost_chip   = 3,
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "proc", proc = "nightstand_rested" },
         },
         unlock = {
             kind      = "total_rebuys",
-            threshold = 60,
+            threshold = 8,
             text      = "rebuys",
         },
         corrupt = {
@@ -1442,22 +1446,20 @@ local items = {
         -- wins).
         id          = "hybrid_console",
         name        = "Hybrid Console",
-        effect_text = "Each hand per second the board plays: +4% {c:chance:odds} at {k:Zoom}.",
+        effect_text = "Each hand per second the board plays: +2% {c:chance:odds} at {k:Zoom}.",
         description = "Docked. The faster the board runs, the better it plays.",
         sprite      = "hybrid_console",
         phase       = "mid",
         cost_chip     = 6,
         unlock = {
             kind      = "total_hands_played",
-            threshold = 600,
+            threshold = 1500,
             text      = "hands played",
         },
         position    = { x = 450, y = 400 },
         effects     = {
             { kind = "shove_rate_add" },
-            -- About +7% on a four-Zoom board (~1.8 hands a second); the
-            -- rail's HANDS/S shows the rate it reads.
-            { kind = "odds_per_hand_per_second", value = 0.04 },
+            { kind = "odds_per_hand_per_second", value = 0.02 },
         },
     },
     {
@@ -1469,7 +1471,7 @@ local items = {
         description = "Spin cycle. It only gets louder.",
         sprite      = "washing_machine",
         phase       = "mid",
-        cost_chip   = 10,
+        cost_chip   = 7,
         unlock      = {
             kind      = "total_hands_played",
             threshold = 1500,
@@ -1554,7 +1556,8 @@ local items = {
         -- clean audio chain (services/MusicDirector).
         id          = "desk_speakers",
         name        = "Desk Speakers",
-        effect_text = "Each {c:heat:heater} burning: +3% {c:chance:odds} at {k:every_table}.",
+        act = 2,
+        effect_text = "Each {c:heat:heater} burning: +1% {c:chance:odds} at {k:every_table}.",
         description = "Two small ones. Turn it up and the whole room feels it.",
         sprite      = "desk_speakers",
         phase       = "mid",
@@ -1566,16 +1569,14 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add" },
-            -- Heaters last about a hand, so one or two burn at once on a
-            -- hot board; the rail's HEATERS shows the count it reads.
-            { kind = "odds_per_heater", value = 0.03 },
+            { kind = "odds_per_heater", value = 0.01 },
         },
         corrupt = {
             cost_achip = 6,
             effects = {
-                { kind = "odds_per_heater", value = 0.06 },
+                { kind = "odds_per_heater", value = 0.03 },
             },
-            effect_text = "Each {c:heat:heater} burning: +6% {c:chance:odds} at {k:every_table}.",
+            effect_text = "Each {c:heat:heater} burning: +3% {c:chance:odds} at {k:every_table}.",
         },
     },
     {

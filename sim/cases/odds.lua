@@ -32,8 +32,8 @@ return function(T)
         local d1 = odds(c, "hu", "s001") - odds(base, "hu", "s001")
         local d2 = odds(c, "six_max", "s002") - odds(base, "six_max", "s002")
         local d3 = odds(c, "six_max", "s004") - odds(base, "six_max", "s004")
-        check("item:corkboard", "odds", math.abs(d1 - 0.05) < 1e-9 and math.abs(d2 - 0.05) < 1e-9,
-            ("+5%% odds at every table: measured %s at NL2 Heads-Up, %s at NL10 6-Max; at a naked NL10K 6-Max only %s shows, because its win chance sits clamped at 0 (5%% - the 6-Max's 8%%) before the item"):format(pct(d1), pct(d2), pct(d3)))
+        check("item:corkboard", "odds", math.abs(d1 - 0.06) < 1e-9 and math.abs(d2 - 0.06) < 1e-9,
+            ("+5%% odds at every table and +1%% per item owned (the Corkboard alone: +6%%): measured %s at NL2 Heads-Up, %s at NL10 6-Max (%s at a naked NL10K 6-Max, clamped)"):format(pct(d1), pct(d2), pct(d3)))
     end
 
     if wanted("item:wall_hook") then
@@ -45,33 +45,23 @@ return function(T)
             ("+1%% odds per table type in play: 3 lanes = %s everywhere, 0 lanes = %s"):format(pct(d3), pct(d0)))
     end
 
-    if wanted("item:mirror") then
-        local c = withOnly({ "mirror" }, nil, { hu_table_count = 3 })
-        local _, s_hu = odds(c, "hu", "s001")
-        local _, s0   = odds(base, "hu", "s001")
-        local _, s_six = odds(c, "six_max", "s001")
-        local _, s_six0 = odds(base, "six_max", "s001")
-        -- the cell is added then the dist renormalised, so the share moves
-        -- by a little less than 3 x 2%; it must move up at HU and not at all at 6-Max
-        check("item:mirror", "stack odds", s_hu > s0 + 0.04 and math.abs(s_six - s_six0) < 1e-9,
-            ("+2%% stack share per Heads-Up table open, at Heads-Up only: 3 tables took the NL2 HU stack share from %.3f to %.3f; 6-Max unchanged (%.3f)"):format(s0, s_hu, s_six))
-    end
+
 
     if wanted("item:desk_speakers") then
         local c = withOnly({ "desk_speakers" }, nil, { heater_count = 4 })
         local d = odds(c, "six_max", "s003") - odds(base, "six_max", "s003")
         local c0 = withOnly({ "desk_speakers" }, nil, { heater_count = 0 })
         local d0 = odds(c0, "six_max", "s003") - odds(base, "six_max", "s003")
-        check("item:desk_speakers", "odds", math.abs(d - 0.12) < 1e-9 and math.abs(d0) < 1e-9,
-            ("+3%% odds everywhere per heater burning: 4 heaters = %s at NL100 6-Max, none = %s"):format(pct(d), pct(d0)))
+        check("item:desk_speakers", "odds", math.abs(d - 0.04) < 1e-9 and math.abs(d0) < 1e-9,
+            ("+1%% odds everywhere per heater burning: 4 heaters = %s at NL100 6-Max, none = %s"):format(pct(d), pct(d0)))
     end
 
     if wanted("item:hybrid_console") then
         local c = withOnly({ "hybrid_console" }, nil, { hands_per_second = 2.5 })
         local dz = odds(c, "zoom", "s002") - odds(base, "zoom", "s002")
         local dh = odds(c, "hu", "s002") - odds(base, "hu", "s002")
-        check("item:hybrid_console", "odds", math.abs(dz - 0.10) < 1e-9 and math.abs(dh) < 1e-9,
-            ("+4%% odds at Zoom per hand per second: 2.5 hands/s = %s at Zoom, %s at Heads-Up"):format(pct(dz), pct(dh)))
+        check("item:hybrid_console", "odds", math.abs(dz - 0.05) < 1e-9 and math.abs(dh) < 1e-9,
+            ("+2%% odds at Zoom per hand per second: 2.5 hands/s = %s at Zoom, %s at Heads-Up"):format(pct(dz), pct(dh)))
     end
 
     -- ── tier shifts (analytic on the resolved dist) ────────────────────
@@ -309,16 +299,6 @@ return function(T)
     end
 
     -- Calculator: the strength multiplier scales the gain, not the level count
-    if wanted("item:calculator") then
-        local lvl = 3
-        local c0 = T.ctxOf({ upgrades = { sharper_reads = lvl } })
-        local c1 = T.ctxOf({ items = { "calculator" }, upgrades = { sharper_reads = lvl } })
-        local wc0 = odds(c0, "six_max", "s001")
-        local wc1 = odds(c1, "six_max", "s001")
-        local naked = odds(base, "six_max", "s001")
-        check("item:calculator", "strength", math.abs((c1.run_upgrade_strength_mult or 1) - 1.15) < 1e-9 and (wc1 - naked) > (wc0 - naked) * 1.1,
-            ("Sharper Reads L%d gains %.4f win chance naked, %.4f with the Calculator (x1.15 strength)"):format(lvl, wc0 - naked, wc1 - naked))
-    end
 
     -- Bookshelf: one more effective level at every stake (the window's ceiling)
     if wanted("item:bookshelf") then

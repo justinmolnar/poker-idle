@@ -52,8 +52,9 @@
 --    the R1 flag, a lifetime_* counter) carries `act = 2`, or a `mystery`
 --    so the demo shows a "???" teaser that peels when Act 2 opens.
 -- 8. THE TIERS price a card by its role on the shelf, then the two acts
---    are summed to data/balance.lua CATALOG_CHIP_BUDGET (152 / 546; the
---    Act 1 tiers below are authored prices, sold at ACT1_PRICE_SCALE):
+--    are summed to data/balance.lua CATALOG_CHIP_BUDGET (130 / 584). Act 1
+--    is priced per beat since 2026-10-05 (after shove 1: 1-2; after 2:
+--    2-5; after 3: 5-7; after 4: 7-9); the Act 1 tiers below are older:
 --        Act 1  intro 2-5 (a key 8-13) · core 5-10 · capstone 12-14
 --        Act 2  cheap 8-10 · core 12-16 · chain link 12-18 · capstone 18-22
 --    Rules 5-8 and the sums: `lua sim/lint_catalog_economy.lua`.
@@ -103,8 +104,8 @@ return {
     -- builds and sit late.
     { id = "stats", title = "Memberships & Vouchers", label = "STATS", tab = { "paper:sticker_counting" },
       items = {
-          "yellow_sticky_note", "stack_of_books", "lava_lamp", "comfort_bed",
-          "tally_book", "throw_pillow", "wall_hook", "nightstand",
+          "yellow_sticky_note", "stack_of_books", "lava_lamp", "tally_book",
+          "throw_pillow", "wall_hook", "nightstand",
       } },
 
     -- The run and the rack: what a run starts with (the Gift Box is the
@@ -114,8 +115,8 @@ return {
     -- repeat and the shelf had eight again.)
     { id = "rack", title = "Desk & Stationery", label = "THE RACK", tab = { "sem:upgrade" },
       items = {
-          "desk", "ring_binder", "calculator", "rebuy_sticky_note",
-          "compact_fridge", "second_monitor", "bookshelf", "cereal_shelf",
+          "desk", "rebuy_sticky_note", "ring_binder", "compact_fridge",
+          "second_monitor", "bookshelf", "cereal_shelf",
       } },
 
     -- THE TABLES, together, in the order a run opens them.
@@ -123,8 +124,8 @@ return {
     -- pay more, and the Mirror throttles how hard the duel hits stacks.
     { id = "hu", title = "Game Room", label = "HEADS-UP", tab = { "gtype:hu" },
       items = {
-          "mirror", "dusty_console", "dogs_playing_poker", "candle",
-          "trophy_shelf", "pencil_holder", "gaming_chair", "tip_jar",
+          "mirror", "dogs_playing_poker", "candle", "dusty_console",
+          "trophy_shelf", "gaming_chair", "pencil_holder", "tip_jar",
       } },
 
     -- Zoom: volume. Heads-Up does stacks, Zoom does hands, so the shelf
@@ -135,8 +136,8 @@ return {
     -- printer and the TV are Act 2's block.
     { id = "zoom", title = "Kitchen & Appliances", label = "ZOOM", tab = { "gtype:zoom" },
       items = {
-          "house_cat", "hybrid_console", "handheld", "headset",
-          "wall_clock", "washing_machine", "receipt_printer", "replay_tv",
+          "house_cat", "handheld", "headset", "hybrid_console",
+          "washing_machine", "wall_clock", "receipt_printer", "replay_tv",
       } },
 
     -- 6-Max: the tank. The Bonsai (the intro) opens the room. The money

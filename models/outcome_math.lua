@@ -500,7 +500,10 @@ function OutcomeMath.sampleOutcome(win_chance, win_dist, loss_dist, ctx, gtype, 
        and love.math.random() < ctx.loss_reroll_chance then
         local won2  = love.math.random() < win_chance
         local tier2 = sampleDist(won2 and win_dist or loss_dist) or "small"
-        if won2 or TIER_INDEX[tier2] < TIER_INDEX[tier] then won, tier = won2, tier2 end
+        if won2 or TIER_INDEX[tier2] < TIER_INDEX[tier] then
+            won, tier = won2, tier2
+            OutcomeMath.last_rerolled = true   -- the deal reads it (Stack of Books' pop)
+        end
     end
 
     -- Standard: a stack loss is rerolled ctx.stack_loss_rerolls times and
@@ -683,6 +686,8 @@ function OutcomeMath.tableWinChanceBonus(ctx, tbl)
         bonus = bonus + ctx.odds_per_empty_adjacent * tbl._empty_adjacent
     end
     if ctx.held_odds and tbl._held then bonus = bonus + ctx.held_odds end
+    -- Lava Lamp: the table moved last.
+    if ctx.moved_odds and tbl._last_moved then bonus = bonus + ctx.moved_odds end
     -- The Red Rug: whoever sits in the board's top-left cell plays a
     -- little better. Slot 0 is the packed (row 0, col 0) cell.
     if (ctx.corner_win_chance or 0) > 0 and (tbl.slot or -1) == 0 then

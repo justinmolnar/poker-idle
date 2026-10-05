@@ -309,6 +309,58 @@ end
 -- Walk the owned routers over one delivery. Each may move it or change
 -- what it is; the first that answers wins, so ownership order decides and
 -- two routers cannot fight over the same delivery every frame.
+-- Items that act on a clock or report a hand after the fact, per frame:
+--   Wall Clock: every ctx.wall_clock_secs, the table with the most hands
+--     in that span catches a heater.
+--   Washing Machine: a streak step (2 or more wins in a row at Zoom) pops
+--     "streak N" on its table, through the item-fire channel.
+--   Stack of Books: a loss it rerolled (t._rerolled, set by the deal) pops
+--     on its table.
+local _streak_word = { text = "", color = "won" }
+local _reroll_word = { text = "rerolled", color = "won" }
+local _clock_word  = { text = "heater", color = "heat" }
+function GrindController:_tickItemClocks(dt)
+    local ctx = self.ctx
+    if not ctx then return end
+    local tables = self.pool and self.pool.tables or {}
+    -- Wall Clock
+    local secs = ctx.wall_clock_secs
+    if secs then
+        self._clock_t = (self._clock_t or 0) + (dt or 0)
+        if self._clock_t >= secs then
+            self._clock_t = 0
+            local best, best_n = nil, 0
+            for _, t in ipairs(tables) do
+                local n = t._clock_hands or 0
+                if n > best_n then best, best_n = t, n end
+                t._clock_hands = 0
+            end
+            if best and best.applyStatus then
+                best:applyStatus("heater", { magnitude = 0.35, t = 6, source = "wall_clock" })
+                self:procFired("wall_clock", best, { best }, _clock_word)
+            end
+        end
+    end
+    for _, t in ipairs(tables) do
+        -- Washing Machine's streak, on its table
+        if ctx.zoom_combo_pace and t.game_type_id == "zoom" then
+            local c = t._combo or 0
+            if c ~= (t._combo_seen or 0) then
+                t._combo_seen = c
+                if c >= 2 then
+                    _streak_word.text = "streak " .. c
+                    self:procFired("washing_machine", t, nil, _streak_word)
+                end
+            end
+        end
+        -- Stack of Books' reroll
+        if t._rerolled then
+            t._rerolled = nil
+            self:itemFired("loss_reroll_chance", t)
+        end
+    end
+end
+
 function GrindController:_route(d)
     local reg = self.game and self.game.procs
     if not (reg and d) then return end
@@ -752,7 +804,9 @@ function GrindController:_evFrameConsts()
     local state = self.game.state
     local mc    = ctx.manual_combo
     local hand_mult = nil
-    if mc then
+    if (ctx.manual_hand_mult or 1) > 1 then
+        hand_mult = ctx.manual_hand_mult
+    elseif mc then
         hand_mult = math.min(mc.cap or 2, 1 + (mc.value or 0) * (self.manual_combo or 0))
     end
     -- Focus is not in here: it slows the table (Table:update's pace),
@@ -783,6 +837,7 @@ local function evSlotMatches(self, slot, tbl)
     return slot.k_adj == (tbl._empty_adjacent or 0)
        and slot.k_lonely == (tbl._lonely and 1 or 0)
        and slot.k_held == (tbl._held and 1 or 0)
+       and slot.k_moved == (tbl._last_moved and 1 or 0)
        and slot.k_slot == (tbl.slot or -1)
        and slot.k_hand_mult == (self._ev_hand_mult or 1)
        and slot.k_overcap == self._ev_overcap
@@ -793,6 +848,7 @@ local function evSlotStamp(self, slot, tbl)
     slot.k_adj       = tbl._empty_adjacent or 0
     slot.k_lonely    = tbl._lonely and 1 or 0
     slot.k_held      = tbl._held and 1 or 0
+    slot.k_moved     = tbl._last_moved and 1 or 0
     slot.k_slot      = tbl.slot or -1
     slot.k_hand_mult = self._ev_hand_mult or 1
     slot.k_overcap   = self._ev_overcap
@@ -1248,7 +1304,9 @@ function GrindController:update(dt)
             local lanes, occupied, slots, tables = sc.lanes, sc.occupied, sc.slots, self.pool.tables
             for k in pairs(occupied) do occupied[k] = nil end
             for i = #slots, 1, -1 do slots[i] = nil end
-            local six_empty = self.ctx.six_max_counts_empty
+            -- A 6-Max counts as empty space for its neighbours: 6-Max's own
+            -- reason to sit on a board (it was the Comfort Bed's effect).
+            local six_empty = true
             local n_lanes = 0
             for _, t in ipairs(tables) do
                 -- The Wall Hook counts table TYPES: a stake at a game type.
@@ -1294,6 +1352,7 @@ function GrindController:update(dt)
             self:_setCtxField("hands_per_second", hps, "odds_per_hand_per_second")
         end
     end
+    self:_tickItemClocks(dt)
     self:_tickGtypeUnlocks()
     self:_tickTimedBuffs(dt)
     self:_tickTournamentAuras(dt)
@@ -1518,9 +1577,12 @@ function GrindController:update(dt)
         -- tables only — an KO r.delta is informational (the bust is already
         -- in tbl.stack), so voiding it there just wastes the once-per-run use.
         if r.delta < 0 and not r.chip_stack_table and self.ctx then
-            if self.ctx.void_first_stack_loss and r.tier == "stack"
-               and not state.first_stack_loss_voided_this_run then
-                state.first_stack_loss_voided_this_run = true
+            local lane = r.table and ((r.table.stake_id or "") .. "|" .. (r.table.game_type_id or "")) or nil
+            state.fridge_lanes_this_run = state.fridge_lanes_this_run or {}
+            if self.ctx.void_first_stack_loss and r.tier == "stack" and lane
+               and not state.fridge_lanes_this_run[lane] then
+                -- The first stack loss at each stake x type this run.
+                state.fridge_lanes_this_run[lane] = true
                 r.delta = 0
                 self:itemFired("void_first_stack_loss", r.table)
             elseif self.ctx.void_first_loss and not state.first_loss_voided_this_run then
@@ -1992,6 +2054,8 @@ function GrindController:update(dt)
         self:_announce("on_hand_played", {
             table = tbl, count = state.total_hands_played, out = resolutions,
         })
+        -- Wall Clock: the hands each table played in the clock's span.
+        if tbl then tbl._clock_hands = (tbl._clock_hands or 0) + 1 end
         -- Cutting Board: only a hand the player dealt moves the streak.
         if tbl and tbl._dealt_by_player then
             tbl._dealt_by_player = nil
@@ -1999,13 +2063,8 @@ function GrindController:update(dt)
             if self.ctx and self.ctx.manual_combo then
                 if r.won then
                     self.manual_combo = (self.manual_combo or 0) + 1
-                    if self.manual_combo >= 2 and self.game.floating_text then
-                        local pos = AnchorRegistry.get(TableModel.anchorKey(tbl, "center"))
-                        if pos then
-                            self.game.floating_text.emit(("COMBO x%d"):format(self.manual_combo),
-                                pos[1] + (pos[3] or 0) * 0.5, pos[2], { color_token = "won" })
-                        end
-                    end
+                    -- (The streak shows through the item-fire pop, the same
+                    -- channel every item uses: no COMBO floater of its own.)
                 else
                     self.manual_combo = 0
                 end
@@ -2654,10 +2713,11 @@ function GrindController:addTable(stake_id, game_type_id)
     -- a table filling an interior hole is NOT last in the array, and
     -- tables[#tables] would hand back somebody else.
     -- Is this the first open table at its stake? (Rolled Vouchers.)
-    local first_at_stake = true
-    for _, t in ipairs(self.pool.tables) do
-        if t.stake_id == stake_id then first_at_stake = false; break end
-    end
+    -- Once per stake per run (closing and reopening does not count again).
+    local st = self.game.state
+    st.stakes_opened_this_run = st.stakes_opened_this_run or {}
+    local first_at_stake = not st.stakes_opened_this_run[stake_id]
+    st.stakes_opened_this_run[stake_id] = true
     local new_tbl = self.pool:addTable(stake_id, game_type_id or "six_max", self.ctx)
     self:invalidateEffects()
     if new_tbl then
@@ -2963,7 +3023,11 @@ function GrindController:moveTableToSlot(table_id, slot)
         if t._id == table_id then from_idx = i; break end
     end
     if not from_idx then return false end   -- table closed mid-drag
+    local moved = self.pool.tables[from_idx]
     if not self.pool:moveToSlot(from_idx, slot) then return false end
+    -- Lava Lamp: the table moved last (one at a time).
+    for _, t in ipairs(self.pool.tables) do t._last_moved = nil end
+    if moved then moved._last_moved = true; moved._status_rev = (moved._status_rev or 0) + 1 end
     -- Cursor claims are keyed by pool index, and pool order is reading
     -- order of the board — so a move can renumber. Release them so no
     -- cursor silently re-aims at whatever table now sits at its index.
@@ -3158,7 +3222,11 @@ function GrindController:dealHand(idx)
     -- the Swarm deck levels on a cursor's chain and not on the player's.
     t._swarm_deal = self._deal_by_cursor == true
     local mc = self.ctx and self.ctx.manual_combo
-    if t._dealt_by_player and mc then
+    local mm = self.ctx and self.ctx.manual_hand_mult
+    if t._dealt_by_player and mm and mm > 1 then
+        -- Tally Book: a hand you deal yourself pays more.
+        t._hand_mult = mm
+    elseif t._dealt_by_player and mc then
         t._hand_mult = math.min(mc.cap or 2, 1 + (mc.value or 0) * (self.manual_combo or 0))
     else
         t._hand_mult = nil

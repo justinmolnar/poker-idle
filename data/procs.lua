@@ -189,14 +189,6 @@ return {
     -- these survive a reload without storing a tally.
 
     -- Wall Clock.
-    wall_clock_century = {
-        trigger = "on_hand_won",
-        chance  = 1/100,
-        target  = { kind = "any_other", pick = "random" },
-        payload = { kind = "apply_status", status = "heater",
-                    magnitude = 0.35, t = 8 },
-        ghost   = "wall_clock",
-    },
 
     -- The Diploma's other half. "For the run" has to include zoom tables
     -- opened AFTER a firing, so each firing also banks its magnitude at
@@ -241,17 +233,35 @@ return {
     -- higher. Wins only: a plain one-shot flag on the table
     -- (Table._next_win_tier_up), consumed by its next winning hand — not
     -- a status, nothing to name. The gentlest possible cross-table proc.
+    -- Mirror (2026-10-05): a stack win bounces. A table beside the winner
+    -- gets its next win one size up; corrupt, every table beside it.
+    mirror_bounce = {
+        trigger = "on_stack_win",
+        target  = { kind = "board_near", radius = 1, pick = "random", exclude_self = true },
+        payload = { kind = "next_win_tier_up" },
+        ghost   = "mirror",
+    },
+    mirror_bounce_corrupt = {
+        trigger = "on_stack_win",
+        target  = { kind = "board_near", radius = 1, exclude_self = true },
+        payload = { kind = "next_win_tier_up" },
+        ghost   = "mirror",
+    },
+
     house_cat_nap = {
-        trigger = "on_hand_won",
-        chance  = 1/50,
-        target  = { kind = "any_other", pick = "random" },
+        -- House Cat (2026-10-05): every 25th hand the board plays, that
+        -- table's next win lands one size up. Volume makes it fire, so a
+        -- fast Zoom board sees it often.
+        trigger = "on_hand_played",
+        every   = 25,
+        target  = { kind = "self" },
         payload = { kind = "next_win_tier_up" },
         ghost   = "house_cat",
     },
     house_cat_nap_corrupt = {
-        trigger = "on_hand_won",
-        chance  = 1/25,
-        target  = { kind = "any_other", pick = "random" },
+        trigger = "on_hand_played",
+        every   = 12,
+        target  = { kind = "self" },
         payload = { kind = "next_win_tier_up" },
         ghost   = "house_cat",
     },

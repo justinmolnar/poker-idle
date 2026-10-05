@@ -238,10 +238,21 @@ return function(T)
     case("house_cat_nap", function()
         local w, six, hu, zoom, ko = board()
         w:own("house_cat")
-        w:announce("on_hand_won", { table = hu, count = 1, out = {} })
-        local other = six._next_win_tier_up or zoom._next_win_tier_up or ko._next_win_tier_up
-        check(key("house_cat_nap"), "lands", other and not hu._next_win_tier_up,
-            "a hand won: a random OTHER table's next win reads one size up; " .. chanceText("house_cat_nap"))
+        w:announce("on_hand_played", { table = hu, count = 24, out = {} })
+        local before = hu._next_win_tier_up
+        w:announce("on_hand_played", { table = hu, count = 25, out = {} })
+        check(key("house_cat_nap"), "lands", before == nil and hu._next_win_tier_up ~= nil
+              and not (six._next_win_tier_up or zoom._next_win_tier_up),
+            "the 25th hand the board plays: THAT table's next win reads one size up (the 24th does nothing, no other table)")
+    end)
+
+    case("mirror_bounce", function()
+        local w, six, hu, zoom = board()
+        w:own("mirror")
+        w:announce("on_stack_win", { table = six, out = {} })
+        local n = ((hu._next_win_tier_up and 1) or 0) + ((zoom._next_win_tier_up and 1) or 0)
+        check(key("mirror_bounce"), "lands", n == 1 and six._next_win_tier_up == nil,
+            ("a stack bounces: ONE adjacent table's next win reads one size up (%d of 2), not the winner's"):format(n))
     end)
 
     case("laminated_blueprint_full_house", function()
@@ -352,14 +363,19 @@ return function(T)
             ("a knockout: one adjacent cash table's next win reads one size up (%d of 2); "):format(n) .. chanceText("tower_upgrade_bump"))
     end)
 
-    case("wall_clock_century", function()
-        local w, six, hu, zoom, ko = board()
-        w:own("wall_clock")
-        w:announce("on_hand_won", { table = hu, count = 1, out = {} })
-        local other = has(six, "heater") or has(zoom, "heater") or has(ko, "heater")
-        check(key("wall_clock_century"), "lands", other and not has(hu, "heater"),
-            "a hand won: a random OTHER table catches a heater; " .. chanceText("wall_clock_century"))
-    end)
+    -- Wall Clock (no proc): every 60 s the table with the most hands in that
+    -- span catches a heater (GrindController:_tickItemClocks).
+    if wanted("item:wall_clock") then
+        local w, six, hu, zoom = board()
+        w:own("wall_clock"); w:tick(0.05)
+        hu._clock_hands, zoom._clock_hands, six._clock_hands = 3, 9, 1
+        w.ctrl._clock_t = 0
+        w.ctrl:_tickItemClocks(59)
+        local early = has(zoom, "heater")
+        w.ctrl:_tickItemClocks(2)
+        check("item:wall_clock", "minute", (not early) and has(zoom, "heater") and not has(hu, "heater"),
+            "after 60 s the table that played the most hands (the Zoom, 9) catches a heater; nothing before the minute, nothing elsewhere")
+    end
 
     -- corrupt-only procs: named, skipped
     for id in pairs(Procs) do
@@ -427,7 +443,13 @@ return function(T)
     rcase("basket_corner", function()
         local w, six, hu, zoom = board()
         w:own({ "dish_soap", "kitchen_bin" })
+        -- The Dish Soap (owned for the chain) rolls first, 1 in 4; keep it
+        -- out of this case so it reads the bin alone, whatever the rng.
+        local soap = Routers.dish_soap_deflect
+        local soap_chance = soap and soap.chance
+        if soap then soap.chance = 0 end
         local to = w:deliver("tilt", zoom)
+        if soap then soap.chance = soap_chance end
         check("router:basket_corner", "corner", to == six,
             "a tilt aimed anywhere lands on the top-left table instead; " .. rtext("basket_corner"))
     end)

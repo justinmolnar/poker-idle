@@ -3279,7 +3279,7 @@ local function drawPaceBadge(tbl, ly, game, controller)
     if not (tbl.paceParts and ly and ly.felt_x) then return end
     local ctx = controller and controller.ctx
     local _, boost = tbl:paceParts(ctx)
-    local combo = (ctx and ctx.zoom_combo_pace and tbl.game_type_id == "zoom") and (tbl._combo or 0) or 0
+    local combo = 0   -- (the streak pops through the item-fire channel now)
     if boost <= 1.05 and combo <= 0 then tbl._pace_q = nil; return end
     local q = math.floor(boost * 10 + 0.5)
     local now = love.timer.getTime()

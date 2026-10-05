@@ -43,6 +43,8 @@ local COUNTER_KINDS = {
     "total_tilts",
     "total_heaters",
     "total_cursor_deals",
+    -- Shoves made (a run-start item's reward is having started runs).
+    "shove_count",
 }
 
 -- Each kind registers a predicate AND a progress reporter reading the same

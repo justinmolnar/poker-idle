@@ -258,4 +258,34 @@ do
     c.eq(TableModel.tierUpCount(t), 1, "an old save's flag reads as one")
 end
 
+-- ── Act 1 beat fixes ───────────────────────────────────────────────────
+do
+    local w3 = H.world({ bankroll = 1e9 })
+    w3:own("bottle_of_wine"); w3:tick(0.05)
+    -- Bottle of Wine: once per stake per run; closing and reopening does
+    -- not light it again.
+    local t1 = w3:open("s002", "zoom"); w3:tick(0.05)
+    local lit1 = t1:hasStatus("heater")
+    w3.ctrl:removeTable(w3:find(t1)); w3:tick(0.05)
+    local t2 = w3:open("s002", "zoom"); w3:tick(0.05)
+    c.ok(lit1 and not t2:hasStatus("heater"), "Bottle of Wine heats a stake's first table once a run, not again on a reopen")
+
+    -- Stack of Books' reroll and the Washing Machine's streak announce on
+    -- their table through the item-fire channel.
+    local seen3 = {}
+    w3.game.event_bus:subscribe("item_fired", function(e) seen3[#seen3 + 1] = { id = e.item_id, what = e.what and e.what.text } end)
+    w3:own("stack_of_books"); w3:own("washing_machine"); w3:tick(0.05)
+    local z = w3:tables()[1]
+    z._rerolled = true
+    z._combo, z._combo_seen = 3, 2
+    w3:tick(0.05); w3.game.event_bus:drain()
+    local books, streak = false, false
+    for _, e in ipairs(seen3) do
+        if e.id == "stack_of_books" then books = true end
+        if e.id == "washing_machine" and e.what == "streak 3" then streak = true end
+    end
+    c.ok(books, "Stack of Books announces a reroll on its table")
+    c.ok(streak or z.game_type_id ~= "zoom", "the Washing Machine's streak pops as 'streak 3' on its table")
+end
+
 if c.report("smoke_itemfx") > 0 then os.exit(1) end

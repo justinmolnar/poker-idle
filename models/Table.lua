@@ -830,8 +830,10 @@ function Table:deal(ctx)
         -- when this hand finalizes, so the fire lives exactly as long as
         -- the mechanic (_finalizeHand).
         if self._forced_next_won ~= nil then self._punch_live = true end
+        OutcomeMath.last_rerolled = false
         won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ec, gtype,
                                               self._forced_next_won)
+        if OutcomeMath.last_rerolled then self._rerolled = true end   -- Stack of Books
         self._forced_next_won = nil
         if won then
             tier = OutcomeMath.applyTierShift(tier, ec.win_tier_shifts, gtype)
@@ -2230,6 +2232,14 @@ function Table:paceParts(ctx)
         if combo and (self._combo or 0) > 0 then
             boost = boost * (1 + math.min(combo.cap or 0.5, (combo.value or 0) * self._combo))
         end
+        -- Headset: a tilted Zoom table deals faster while the tilt lasts.
+        if (pace_ctx.zoom_tilt_pace or 1) > 1 and self:hasStatus("tilt") then
+            boost = boost * pace_ctx.zoom_tilt_pace
+        end
+    end
+    -- Lava Lamp: the table moved last deals faster.
+    if pace_ctx and (pace_ctx.moved_pace or 1) > 1 and self._last_moved then
+        boost = boost * pace_ctx.moved_pace
     end
     return pace_mult, boost
 end

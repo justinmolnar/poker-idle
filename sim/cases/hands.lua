@@ -57,23 +57,13 @@ return function(T)
 
     -- ── Headset: a tilt at Zoom does not follow to the next hand ───────
     if wanted("item:headset") then
-        local function run(own)
-            local w = T.world(); local t = w:open("s001", "zoom"); if own then w:own("headset") end; w:tick(0.05)
-            w.ctrl:dealHand(w:find(t))
-            local guard = 0
-            repeat w:tick(0.05); guard = guard + 1 until (t.script and t.script_idx < #t.script and t.state ~= "idle" and t.state ~= "settling") or guard > 100
-            t:applyStatus("tilt", { magnitude = 0.35, t = 5 })   -- mid-hand: ends this hand as a loss
-            T.untilHands(w, t, 1, 30)
-            -- the interrupted hand's successor is dealt inside _finalizeHand, so
-            -- "the tilt follows" reads as the forced hand already live (_punch_live)
-            local follows = (t._forced_next_won ~= nil) or (t._punch_live == true)
-            return follows, t:hasStatus("tilt"), t.last_results[#t.last_results].won
-        end
-        local follows0, tilt0, won0 = run(false)
-        local follows1, tilt1, won1 = run(true)
-        check("item:headset", "one hand", follows0 == true and tilt0 and follows1 == false and not tilt1 and won0 == false and won1 == false,
-            ("a tilt mid-hand at Zoom ends that hand as a loss either way (won %s / %s); without the Headset the next hand plays as the tilt's forced loss (%s) and the tilt stays (%s), with it nothing follows (%s, tilt %s)"):format(
-                tostring(won0), tostring(won1), tostring(follows0), tostring(tilt0), tostring(follows1), tostring(tilt1)))
+        local w = T.world(); local t = w:open("s001", "zoom"); local u = w:open("s001", "zoom")
+        w:own("headset"); w:tick(0.05)
+        t:applyStatus("tilt", { magnitude = 0.35, t = 5 })
+        local _, bt = t:paceParts(w.ctrl.ctx)
+        local _, bu = u:paceParts(w.ctrl.ctx)
+        check("item:headset", "tilt pace", math.abs(bt - bu * 2) < 1e-6,
+            ("a tilted Zoom table deals at x%.2f the pace of one not tilted"):format(bt / bu))
     end
 
     -- ── Handheld: a loss at Zoom deals the next hand now ───────────────
@@ -119,27 +109,11 @@ return function(T)
     -- ── Cutting Board: the player's own streak ────────────────────────
     if wanted("item:tally_book") then
         local w = T.world(); local t = w:open("s001", "hu"); w:own("tally_book"); w:tick(0.05)
-        local r1 = T.playHand(w, t, { won = true, tier = "medium", bb = 10 })
-        local r2 = T.playHand(w, t, { won = true, tier = "medium", bb = 10 })
-        local r3 = T.playHand(w, t, { won = true, tier = "medium", bb = 10 })
-        local streak = w.ctrl.manual_combo
-        local ratio = r3.delta / r1.delta
-        T.playHand(w, t, { won = true, tier = "medium", bb = 10, cursor = true })
-        local after_cursor = w.ctrl.manual_combo
-        T.playHand(w, t, { won = false, tier = "small", bb = 10 })
-        local after_loss = w.ctrl.manual_combo
-        check("item:tally_book", "streak", streak == 3 and math.abs(ratio - 1.2) < 1e-6,
-            ("three wins dealt by hand: streak %d, the third paid x%.2f the first (1 + 0.1 x 2)"):format(streak, ratio))
-        check("item:tally_book", "cursor", after_cursor == 3 and after_loss == 0,
-            ("a cursor's win left the streak at %d; a loss dealt by hand reset it to %d"):format(after_cursor, after_loss))
-        -- The streak is the run's: a new run (reloadPool, after the shove
-        -- or a quick reset) starts it at nothing.
-        T.playHand(w, t, { won = true, tier = "medium", bb = 10 })
-        T.playHand(w, t, { won = true, tier = "medium", bb = 10 })
-        local before_reset = w.ctrl.manual_combo
-        w.ctrl:reloadPool()
-        check("item:tally_book", "run_reset", before_reset == 2 and w.ctrl.manual_combo == 0,
-            ("streak %d before the run ended, %d after the pool reloaded for the next run"):format(before_reset, w.ctrl.manual_combo))
+        local r_hand = T.playHand(w, t, { won = true, tier = "medium", bb = 10 })
+        local r_cursor = T.playHand(w, t, { won = true, tier = "medium", bb = 10, cursor = true })
+        local ratio = (r_hand and r_cursor and r_cursor.delta > 0) and (r_hand.delta / r_cursor.delta) or 0
+        check("item:tally_book", "self dealt", math.abs(ratio - 1.5) < 1e-6,
+            ("a hand dealt yourself paid x%.2f the same hand dealt by a cursor"):format(ratio))
     end
 
     -- ── Copy Machine: a Zoom hand counts as two ────────────────────────
