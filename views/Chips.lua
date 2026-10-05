@@ -42,6 +42,7 @@
 -- they are what paints the atlas, and they are what draws when
 -- Constants.FEATURES.CHIP_ATLAS is off or canvases are unavailable.
 
+local TextShadow = require("services.TextShadow")
 local ChipData    = require("data.chips")
 local Constants   = require("data.constants")
 local Theme       = require("views.Theme")
@@ -504,8 +505,11 @@ local function paintStamp(spec, alpha, band_hw, escale, denom_idx)
     -- Centred on the LINE box, the same convention every other view
     -- uses (views/Panel, views/CatalogModal and views/GrindView all
     -- centre with `- font:getHeight() * 0.5`).
+    -- No text edge: dark ink on the pale plate reads alone.
+    TextShadow.suspend()
     love.graphics.print(spec.label,
                         math.floor(-fw * 0.5), math.floor(-fh * 0.5))
+    TextShadow.resume()
     if prev then love.graphics.setFont(prev) end
     love.graphics.pop()
 end
@@ -849,7 +853,11 @@ local function paintCell(it)
         local spec = ChipData.denominations[it.d]
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.setFont(_font)
+        -- Baked white and tinted with the ink when drawn: an edge baked in
+        -- beside it would tint dark too and read as the label twice.
+        TextShadow.suspend()
         love.graphics.print(spec.label, 0, 0)
+        TextShadow.resume()
     elseif kind == "plate_fill" or kind == "plate_bezel" then
         local pts = buildPlate(_band_hw * TIERS[it.t], _band_hh * TIERS[it.t])
         love.graphics.setColor(1, 1, 1, 1)
