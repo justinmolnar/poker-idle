@@ -39,6 +39,8 @@ local Ghosts        = require("services.Ghosts")
 local Anchors       = require("services.AnchorRegistry")
 local ClickSurfaces = require("services.ClickSurfaces")
 local OutcomeBar    = require("views.OutcomeBar")
+local TableMods     = require("models.table_modifiers")
+local CatalogData   = require("data.catalog")
 local IconText      = require("views.IconText")
 local Poke          = require("services.Poke")
 local Table         = require("models.Table")
@@ -676,7 +678,7 @@ local function headerText(tbl)
     return header_text
 end
 
-local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, cursor_on, rebuy_cursor_on, s, ui_s)
+local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, cursor_on, rebuy_cursor_on, s, ui_s, game)
     local header_text = headerText(tbl)
     -- Per-stake header chrome: T1 dim grey, T6 near-black with a gold
     -- accent. Falls back to default Theme.bg.chrome.
@@ -797,9 +799,55 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     local name_right = x + 8 + fonts.sm:getWidth(header_text)
     local zone_x     = name_right + 8
     local zone_w     = (x + w - hands_right_offset) - zone_x
+
+    -- What is acting on this table because of where it sits
+    -- (models/table_modifiers): item icons from the right of the zone,
+    -- each with its number when there is room, a tooltip each. They win
+    -- the zone over the history bars, which take what is left.
+    local nm = tbl._mods_n or 0
+    if nm > 0 then
+        local f   = fonts.xs or fonts.sm
+        local ih  = math.max(8, HEADER_H - 8)
+        local gap = 4
+        local right = x + w - hands_right_offset
+        local loader = game and game.sprite_loader
+        for i = nm, 1, -1 do
+            local e = tbl._mods[i]
+            local tw = f:getWidth(e.text)
+            local with_text = (right - (ih + 2 + tw)) >= zone_x + 12
+            local ew = ih + (with_text and (2 + tw) or 0)
+            if right - ew < zone_x then break end
+            local ex = right - ew
+            local ey = y + math.floor((HEADER_H - ih) / 2)
+            local sprite = e.item and loader and loader.itemArt
+                           and loader:itemArt(Lookups.findById(CatalogData, e.item), "catalog", nil, {}) or nil
+            if sprite then
+                local sw, sh = sprite:getWidth(), sprite:getHeight()
+                local sc = ih / math.max(sw, sh)
+                love.graphics.setColor(1, 1, 1, 1)
+                love.graphics.draw(sprite, ex + ih * 0.5, ey + ih * 0.5, 0, sc, sc, sw * 0.5, sh * 0.5)
+            else
+                -- the tier-up: a small up triangle in the chip colour
+                Theme.setColor(Theme.sem.chip)
+                love.graphics.polygon("fill", ex + ih * 0.5, ey + 1, ex + ih - 1, ey + ih - 2, ex + 1, ey + ih - 2)
+            end
+            if with_text then
+                love.graphics.setFont(f)
+                Theme.setColor(Theme.fg.heading)
+                love.graphics.print(e.text, ex + ih + 2, y + math.floor((HEADER_H - f:getHeight()) / 2))
+            end
+            local hb = hbNew(tbl, hit_boxes)
+            hb.x, hb.y, hb.w, hb.h = ex, y, ew, HEADER_H
+            hb.tooltip = e.tip
+            right = ex - gap
+        end
+        zone_w = right - zone_x
+    end
     local graph_h    = math.max(1, math.floor(HistoryBars.layout.graph_h * scale_for_graph))
     local zone_y     = y + math.floor((HEADER_H - graph_h) / 2)
-    drawHistoryBars(tbl, zone_x, zone_y, zone_w, graph_h, scale_for_graph)
+    if zone_w >= 12 then
+        drawHistoryBars(tbl, zone_x, zone_y, zone_w, graph_h, scale_for_graph)
+    end
 
     -- Whole-header grab strip for drag-to-rearrange. Pushed LAST so the
     -- [x]/D/R boxes above win the first-match hit walk; a press anywhere
@@ -2246,6 +2294,8 @@ end
 local function stamp(tbl, x, y, w, controller)
     tbl.x = x
     tbl.y = y
+    -- What is acting on it from where it sits (the header's item row).
+    TableMods.stamp(tbl, controller and controller.ctx)
     -- The panel's width and the board's table count, for anything off the
     -- panel that decides by density: services/FloatingTextSystem drops a
     -- crowded board's floaters.
@@ -2473,7 +2523,7 @@ local function renderBody(tbl, idx, x, y, w, h, game, controller, hit_boxes, mod
     -- catalog-unlocked.
     local cursor_on        = (controller and controller.ctx and controller.ctx.cursor_unlocked) or false
     local rebuy_cursor_on  = (controller and controller.ctx and controller.ctx.cursor_rebuy_unlocked) or false
-    drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, true, cursor_on, rebuy_cursor_on, s, ui_s)
+    drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, true, cursor_on, rebuy_cursor_on, s, ui_s, game)
 
     -- "{chip} banked" or "{achip} banked" trim around the WHOLE panel chrome. Drawn after the
     -- header so it overdraws the header's own border on the top edge/sides.
@@ -2879,6 +2929,7 @@ end
 --   43 desat amount       44 stack pile rev     45 stack pile quiet
 --   46 sheet generation   47 cards in their live window (count)
 --   48 seat row fading in (Zoom reroll)
+--   49 the header's item row (models/table_modifiers signature)
 -- Field 6 is the roll itself while the number rolls (the digits are then
 -- drawn live). A pile in motion, a pot, a pulse, a glow are LIVE layers or
 -- bypass reasons, never keys: the key is only what a resting panel shows.
@@ -2905,7 +2956,7 @@ local function pictureSig(tbl, gtype)
     return sig
 end
 
-local KN = 48
+local KN = 49
 local K  = {}
 -- HUD counters: the first key field that moved on each rebuild ("key:7"),
 -- so a cache that rebuilds at rest names the field that is not resting.
@@ -2983,6 +3034,7 @@ local function buildKey(tbl, idx, w, h, game, controller, ly)
     K[46] = PanelSheet.generation()
     K[47] = dealLiveCount(tbl)
     K[48] = rerollLive(tbl)
+    K[49] = tbl._mods_sig or 0      -- the header's item row (models/table_modifiers)
 end
 
 -- ── The bypass classifier ───────────────────────────────────────────

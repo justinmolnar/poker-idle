@@ -122,4 +122,30 @@ do
     c.ok(said, "the catalog card says what it did last run")
 end
 
+-- ── the header's item row (models/table_modifiers) ─────────────────────
+do
+    local TM = require("models.table_modifiers")
+    local ctx = { odds_per_empty_adjacent = 0.05, lonely_winnings_mult = 1.5,
+                  zoom_block_pace = 0.10, stack_odds_per_hu_table = 0.02, hu_table_count = 3,
+                  sources = { odds_per_empty_adjacent = { "yellow_sticky_note" },
+                              lonely_winnings_mult = { "throw_pillow" },
+                              zoom_block_pace = { "receipt_printer" },
+                              hu_stack_odds_per_hu_table = { "mirror" } } }
+    local t = { game_type_id = "zoom", _empty_adjacent = 2, _lonely = false, _zoom_neighbours = 1 }
+    local n, sig = TM.stamp(t, ctx)
+    c.ok(n == 2 and t._mods[1].item == "yellow_sticky_note" and t._mods[1].text == "+10%",
+         "a gap table shows the Sticky Note at +10% (2 empty sides)")
+    c.ok(t._mods[2].item == "receipt_printer" and t._mods[2].text == "+10%", "and the Receipt Printer's Zoom neighbour")
+    local first = t._mods[1].tip
+    local n2, sig2 = TM.stamp(t, ctx)
+    c.ok(sig2 == sig and t._mods[1].tip == first, "a steady board keeps its signature (the panel does not rebuild)")
+    t._empty_adjacent = 3
+    local _, sig3 = TM.stamp(t, ctx)
+    c.ok(sig3 ~= sig and t._mods[1].text == "+15%", "a neighbour moving changes the row")
+    local h = { game_type_id = "hu", _empty_adjacent = 0, _lonely = true }
+    TM.stamp(h, ctx)
+    c.ok(h._mods_n == 2 and h._mods[1].item == "throw_pillow" and h._mods[2].item == "mirror",
+         "a lone Heads-Up table shows the Pillow and the Mirror")
+end
+
 if c.report("smoke_itemfx") > 0 then os.exit(1) end

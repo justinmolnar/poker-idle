@@ -955,8 +955,19 @@ local function breakdownFromStats(controller, stats)
 end
 
 local function buildEvBreakdownLines(tbl, controller)
-    return breakdownFromStats(controller,
+    local lines = breakdownFromStats(controller,
         controller and controller:tableDebugStats(tbl))
+    -- What is acting on this table from where it sits (the header's item
+    -- row, models/table_modifiers), named with its number.
+    local n = tbl and tbl._mods_n or 0
+    if lines and n > 0 then
+        lines[#lines + 1] = row("", "xs")
+        lines[#lines + 1] = row("From your items here:", "sm", "muted")
+        for i = 1, n do
+            lines[#lines + 1] = row(tbl._mods[i].tip, "sm", "good")
+        end
+    end
+    return lines
 end
 
 -- Public: EV breakdown rows for a hypothetical (stake, gtype) — lets the
