@@ -38,7 +38,6 @@ local FlightSystem   = require("services.FlightSystem")
 local ChipFlight     = require("views.ChipFlight")
 local ChipPile       = require("views.ChipPile")
 local PanelSheet     = require("views.PanelSheet")
-local GtypeItems     = require("data.gtype_items")
 local BoardPreview   = require("models.board_preview")
 local CursorIntent   = require("services.CursorIntent")
 -- Tables open and close like windows: OPEN_FROM smaller, over OPEN_SECS / CLOSE_SECS.
@@ -447,18 +446,6 @@ function GrindView:_buildTablesTabComponents()
     local ctx       = self.controller and self.controller.ctx
     local cursor_on = (ctx and ctx.cursor_unlocked) or false
     local rebuy_on  = (ctx and ctx.cursor_rebuy_unlocked) or false
-    -- The owned items that make this game type better, as icons beside
-    -- every row's stake (data/gtype_items.lua; IconText's {item:id}).
-    local gtypeTags = ""
-    do
-        local owned = {}
-        for _, id in ipairs(state.owned_items or {}) do owned[id] = true end
-        local parts = {}
-        for _, id in ipairs(GtypeItems[gtype_id] or {}) do
-            if owned[id] then parts[#parts + 1] = "{item:" .. id .. "}" end
-        end
-        if #parts > 0 then gtypeTags = "  " .. table.concat(parts) end
-    end
     for _, stake in ipairs(Stakes) do
         -- Bands gate the +ADD-TABLE buttons by milestone (mid after R1,
         -- high after R2, ultra once bought; see stakeVisible →
@@ -635,7 +622,7 @@ function GrindView:_buildTablesTabComponents()
                            or nil,
                 lines = {
                     {
-                        text  = "+ " .. stake.display_name .. gtypeTags, style = "heading",
+                        text  = "+ " .. stake.display_name, style = "heading",
                         -- This row's "+N {chip}" badge, by name, for the
                         -- lines that point at every badge on the strip.
                         right_anchor = "add_table_chip:" .. stake.id .. ":" .. gtype_id,
