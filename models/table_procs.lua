@@ -39,6 +39,13 @@
 -- poke a swept table needed is gone, because the table now announces its
 -- own move to "settling" and whoever wants to make a noise is listening.
 
+-- Pending next-win tier-ups on a table: a count that queues (an old save's
+-- `true` reads as one).
+local function tierUps(t)
+    local v = t and t._next_win_tier_up
+    if v == true then return 1 end
+    return tonumber(v) or 0
+end
 local Lookups    = require("utils.lookups")
 local Stakes     = require("data.stakes")
 local GameTypes  = require("data.game_types")
@@ -242,7 +249,7 @@ function TableProcs.registerAll(reg)
     -- show, or announce, and a refresh is a no-op.
     reg:registerPayload("next_win_tier_up", function(_spec, target, _event)
         if not target then return false end
-        target._next_win_tier_up = true
+        target._next_win_tier_up = tierUps(target) + 1
         return true
     end)
 
@@ -373,7 +380,7 @@ function TableProcs.registerAll(reg)
         if not (target and event.ctrl and event.ctrl.dealIdleTable) then return false end
         -- The spread inherits the source hand's origin: a cursor's chain
         -- stays the swarm's (the Swarm deck counts it), a player's does not.
-        local src = event.table
+        local src = event.source or event.table   -- _fireProcs names it `source`
         return event.ctrl:dealIdleTable(target, { spread = true, by_cursor = src and src._swarm_deal == true })
     end)
 
@@ -463,7 +470,7 @@ function TableProcs.registerAll(reg)
             -- Space Heater: a tilt taken for a neighbour pays that neighbour.
             local ctrl = d.event.ctrl
             if d.status == "tilt" and ctrl and ctrl.ctx and ctrl.ctx.tank_absorb_bumps then
-                target._next_win_tier_up = true
+                target._next_win_tier_up = tierUps(target) + 1
                 if ctrl.itemFired then ctrl:itemFired("tank_absorb_bumps", target) end
             end
             d.to = best
@@ -505,7 +512,7 @@ function TableProcs.registerAll(reg)
             end
             -- Space Heater: the table the tank took it for gets something.
             if ctrl and ctrl.ctx and ctrl.ctx.tank_absorb_bumps then
-                target._next_win_tier_up = true
+                target._next_win_tier_up = tierUps(target) + 1
                 if ctrl.itemFired then ctrl:itemFired("tank_absorb_bumps", target) end
             end
             return best

@@ -62,16 +62,16 @@ return function(T)
         local d = odds(c, "six_max", "s003") - odds(base, "six_max", "s003")
         local c0 = withOnly({ "desk_speakers" }, nil, { heater_count = 0 })
         local d0 = odds(c0, "six_max", "s003") - odds(base, "six_max", "s003")
-        check("item:desk_speakers", "odds", math.abs(d - 0.04) < 1e-9 and math.abs(d0) < 1e-9,
-            ("+1%% odds everywhere per heater burning: 4 heaters = %s at NL100 6-Max, none = %s"):format(pct(d), pct(d0)))
+        check("item:desk_speakers", "odds", math.abs(d - 0.12) < 1e-9 and math.abs(d0) < 1e-9,
+            ("+3%% odds everywhere per heater burning: 4 heaters = %s at NL100 6-Max, none = %s"):format(pct(d), pct(d0)))
     end
 
     if wanted("item:hybrid_console") then
         local c = withOnly({ "hybrid_console" }, nil, { hands_per_second = 2.5 })
         local dz = odds(c, "zoom", "s002") - odds(base, "zoom", "s002")
         local dh = odds(c, "hu", "s002") - odds(base, "hu", "s002")
-        check("item:hybrid_console", "odds", math.abs(dz - 0.05) < 1e-9 and math.abs(dh) < 1e-9,
-            ("+2%% odds at Zoom per hand per second: 2.5 hands/s = %s at Zoom, %s at Heads-Up"):format(pct(dz), pct(dh)))
+        check("item:hybrid_console", "odds", math.abs(dz - 0.10) < 1e-9 and math.abs(dh) < 1e-9,
+            ("+4%% odds at Zoom per hand per second: 2.5 hands/s = %s at Zoom, %s at Heads-Up"):format(pct(dz), pct(dh)))
     end
 
     -- ── tier shifts (analytic on the resolved dist) ────────────────────

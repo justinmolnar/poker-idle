@@ -103,9 +103,9 @@
 -- renamed fifteen and bumped to 3.
 --
 -- ─── The budget ─────────────────────────────────────────────────────────
--- The book as authored is 780 {chip}: the Act 1 shelves (no `act = 2`) 242,
--- the Act 2 shelves 538. The Act 1 shelves are then scaled by
--- data/balance.lua ACT1_PRICE_SCALE (0.65: they sell for ~157 in play); the
+-- The book as authored is 780 {chip}: the Act 1 shelves (no `act = 2`) 234,
+-- the Act 2 shelves 546. The Act 1 shelves are then scaled by
+-- data/balance.lua ACT1_PRICE_SCALE (0.65: they sell for ~152 in play); the
 -- prices written below are the authored ones (CATALOG_CHIP_BUDGET). Income per run:
 -- a T1-T3 sweep banks 18 (24 with Fight Night), a T1-T6 sweep 84, so Act 1's
 -- five runs bank ~100 and Act 2's six ~450; Act 3 (180 a run) finishes the
@@ -579,6 +579,10 @@ local items = {
         -- Tanking pays: the table the tank took a tilt for gets its next
         -- win one size up (the two tilt-taking routers, models/table_procs).
         id          = "space_heater",
+        -- Act 2: it only acts through a 6-Max taking a tilt aimed beside it,
+        -- which needs the Console Television's router or the Anchor deck,
+        -- both Act 2. On the Act 1 shelf it was a card that did nothing.
+        act         = 2,
         name        = "Space Heater",
         effect_text = "A {k:6-Max} takes a {c:tilt:tilt} aimed {k:adjacent} to it: that table's next {c:won:win} is one size up.",
         description = "Hums all night. The cold stops mattering.",
@@ -1312,7 +1316,7 @@ local items = {
         id          = "first_aid_kit",
         act         = 2,
         name        = "First Aid Kit",
-        effect_text = "A {k:knockout}: 1 in 10 chance it pays you the biggest buy-in on your board.",
+        effect_text = "A {k:knockout}: 1 in 4 chance it pays you the biggest buy-in on your board.",
         description = "Wall-mounted. Break glass, sit back down.",
         sprite      = "first_aid_kit",
         phase       = "late",
@@ -1438,7 +1442,7 @@ local items = {
         -- wins).
         id          = "hybrid_console",
         name        = "Hybrid Console",
-        effect_text = "Each hand per second the board plays: +2% {c:chance:odds} at {k:Zoom}.",
+        effect_text = "Each hand per second the board plays: +4% {c:chance:odds} at {k:Zoom}.",
         description = "Docked. The faster the board runs, the better it plays.",
         sprite      = "hybrid_console",
         phase       = "mid",
@@ -1451,7 +1455,9 @@ local items = {
         position    = { x = 450, y = 400 },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "odds_per_hand_per_second", value = 0.02 },   -- PLACEHOLDER
+            -- About +7% on a four-Zoom board (~1.8 hands a second); the
+            -- rail's HANDS/S shows the rate it reads.
+            { kind = "odds_per_hand_per_second", value = 0.04 },
         },
     },
     {
@@ -1548,7 +1554,7 @@ local items = {
         -- clean audio chain (services/MusicDirector).
         id          = "desk_speakers",
         name        = "Desk Speakers",
-        effect_text = "Each {c:heat:heater} burning: +1% {c:chance:odds} at {k:every_table}.",
+        effect_text = "Each {c:heat:heater} burning: +3% {c:chance:odds} at {k:every_table}.",
         description = "Two small ones. Turn it up and the whole room feels it.",
         sprite      = "desk_speakers",
         phase       = "mid",
@@ -1560,14 +1566,16 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "odds_per_heater", value = 0.01 },   -- PLACEHOLDER
+            -- Heaters last about a hand, so one or two burn at once on a
+            -- hot board; the rail's HEATERS shows the count it reads.
+            { kind = "odds_per_heater", value = 0.03 },
         },
         corrupt = {
             cost_achip = 6,
             effects = {
-                { kind = "odds_per_heater", value = 0.03 },
+                { kind = "odds_per_heater", value = 0.06 },
             },
-            effect_text = "Each {c:heat:heater} burning: +3% {c:chance:odds} at {k:every_table}.",
+            effect_text = "Each {c:heat:heater} burning: +6% {c:chance:odds} at {k:every_table}.",
         },
     },
     {
@@ -1627,7 +1635,7 @@ local items = {
         id          = "hot_bath",
         act         = 2,
         name        = "Hot Bath",
-        effect_text = "A {k:knockout}: 1 in 5 chance a table {k:adjacent} to the {k:tournament} catches a {c:heat:heater}.",
+        effect_text = "A {k:knockout}: 1 in 2 chance a table {k:adjacent} to the {k:tournament} catches a {c:heat:heater}.",
         description = "Steam. It gets into the next room.",
         sprite      = "hot_bath",
         phase       = "mid",
@@ -1644,14 +1652,14 @@ local items = {
                 { kind = "proc",      proc = "curved_monitor_heater_corrupt" },
                 { kind = "loss_mult", value = 1.5 },
             },
-            effect_text = "A {k:knockout}: 1 in 3 chance each table {k:adjacent} to the {k:tournament} catches a {c:heat:heater}, and {c:lost:Losses} ×1.5.",
+            effect_text = "A {k:knockout}: 1 in 2 chance each table {k:adjacent} to the {k:tournament} catches a {c:heat:heater}, and {c:lost:Losses} ×1.5.",
         },
     },
     {
         id          = "fresh_towel",
         act         = 2,
         name        = "Fresh Towel",
-        effect_text = "A {k:knockout}: 1 in 6 chance a cash table {k:adjacent} to the {k:tournament} gets its next {c:won:win} one size up.",
+        effect_text = "A {k:knockout}: 1 in 3 chance a cash table {k:adjacent} to the {k:tournament} gets its next {c:won:win} one size up.",
         description = "Folded once. Warm from somewhere.",
         sprite      = "fresh_towel",
         phase       = "mid",
@@ -1669,7 +1677,7 @@ local items = {
                 { kind = "loss_tier_shift", from = "medium", to = "large",
                   chance = 1/3 },
             },
-            effect_text = "A {k:knockout}: 1 in 4 chance every cash table {k:adjacent} to the {k:tournament} gets its next {c:won:win} one size up, and 1 in 3 chance: {l:medium} {arrow} {l:large}.",
+            effect_text = "A {k:knockout}: 1 in 2 chance every cash table {k:adjacent} to the {k:tournament} gets its next {c:won:win} one size up, and 1 in 3 chance: {l:medium} {arrow} {l:large}.",
         },
     },
     {
@@ -1892,7 +1900,7 @@ local items = {
         id          = "box_of_tissues",
         act         = 2,
         name        = "Box of Tissues",
-        effect_text = "A {k:knockout}: 1 in 8 chance a cash table {k:adjacent} to the {k:tournament} gets its buy-in back.",
+        effect_text = "A {k:knockout}: 1 in 3 chance a cash table {k:adjacent} to the {k:tournament} gets its buy-in back.",
         description = "For the busts.",
         sprite      = "box_of_tissues",
         phase       = "late",
@@ -1908,7 +1916,7 @@ local items = {
                 { kind = "proc",          proc = "shredder_refund_corrupt" },
                 { kind = "earnings_mult", value = 0.70 },
             },
-            effect_text = "A {k:knockout}: 1 in 4 chance a cash table {k:adjacent} to the {k:tournament} gets its buy-in back, and {c:won:Winnings} ×0.7.",
+            effect_text = "A {k:knockout}: 1 in 2 chance a cash table {k:adjacent} to the {k:tournament} gets its buy-in back, and {c:won:Winnings} ×0.7.",
         },
     },
     {

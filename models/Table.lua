@@ -838,8 +838,12 @@ function Table:deal(ctx)
             -- House Cat's one-shot (table_procs next_win_tier_up): the next
             -- WIN reads a tier higher. Wins only, so a pending flag rides
             -- through losses untouched until a win spends it.
-            if self._next_win_tier_up then
-                self._next_win_tier_up = nil
+            local pending = Table.tierUpCount(self)
+            if pending > 0 then
+                -- Pending bumps queue up (House Cat, Nightstand, Floor
+                -- Plant...): each win spends one, so two landing on the
+                -- same table lift its next two wins instead of overwriting.
+                self._next_win_tier_up = (pending > 1) and (pending - 1) or nil
                 local rank = OutcomeMath.TIER_INDEX[tier]
                 if rank then
                     tier = OutcomeMath.TIER_KEYS[math.min(#OutcomeMath.TIER_KEYS, rank + 1)]
@@ -2198,6 +2202,14 @@ end
 -- `boost`. Readable while idle (the update stops computing at idle).
 -- The OVERLAY, not the raw ctx: a heated table deals faster, and that is
 -- the most legible thing a status does.
+-- How many next-win tier-ups are waiting on `tbl` (a count; an old save's
+-- `true` reads as one).
+function Table.tierUpCount(tbl)
+    local v = tbl and tbl._next_win_tier_up
+    if v == true then return 1 end
+    return tonumber(v) or 0
+end
+
 function Table:paceParts(ctx)
     local gtype = Lookups.findById(GameTypesData, self.game_type_id)
     local pace_mult = (gtype and gtype.pace_mult) or 1

@@ -52,7 +52,7 @@
 --    the R1 flag, a lifetime_* counter) carries `act = 2`, or a `mystery`
 --    so the demo shows a "???" teaser that peels when Act 2 opens.
 -- 8. THE TIERS price a card by its role on the shelf, then the two acts
---    are summed to data/balance.lua CATALOG_CHIP_BUDGET (157 / 538; the
+--    are summed to data/balance.lua CATALOG_CHIP_BUDGET (152 / 546; the
 --    Act 1 tiers below are authored prices, sold at ACT1_PRICE_SCALE):
 --        Act 1  intro 2-5 (a key 8-13) · core 5-10 · capstone 12-14
 --        Act 2  cheap 8-10 · core 12-16 · chain link 12-18 · capstone 18-22

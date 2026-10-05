@@ -254,4 +254,18 @@ do
     end
 end
 
+-- ── tier-ups queue ─────────────────────────────────────────────────────
+-- Two next-win bumps landing on one table (House Cat, Nightstand, Floor
+-- Plant...) queue up instead of the second overwriting the first.
+do
+    local t = w:tables()[1]
+    t._next_win_tier_up = nil
+    local pay = g.procs.payloads.next_win_tier_up
+    pay({ kind = "next_win_tier_up" }, t, {})
+    pay({ kind = "next_win_tier_up" }, t, {})
+    c.eq(TableModel.tierUpCount(t), 2, "two bumps on one table queue (the next two wins go up)")
+    t._next_win_tier_up = true
+    c.eq(TableModel.tierUpCount(t), 1, "an old save's flag reads as one")
+end
+
 if c.report("smoke_itemfx") > 0 then os.exit(1) end

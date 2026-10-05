@@ -27,7 +27,7 @@ designer's. Act 1 timings below are conditional on the policy as written.
 
 ## Result
 
-- Act 1 cleared in a median **44 minutes** (range 20-77) over 30 of 30 seeds.
+- Act 1 cleared in a median **44 minutes** (range 20-81) over 30 of 30 seeds.
 - Median **4 shoves**.
 
 ## Per shove, seed 1

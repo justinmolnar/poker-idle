@@ -47,22 +47,23 @@
 --
 -- So every on_ko proc carries a `chance`, rolled once per event in
 -- services/ProcRegistry before targeting. At ~45s between knockouts:
---   chance 0.20 -> something lands every ~4 min
---   chance 0.15 -> every ~5 min
---   chance 0.12 -> every ~6 min
+--   chance 1/2 -> something lands every ~1.5 min
+--   chance 1/3 -> every ~2.3 min
+--   chance 1/4 -> every ~3 min
 -- Two tournaments overlapping shorten the gap but do not stack power
 -- (statuses refresh, they don't add).
 --
--- These rates were set when KO ran ~3.4s a hand. It now runs ~18.3s.
--- Raise them here if the support kit needs to be felt more often; that is
--- one number per proc and nothing else.
+-- The rates were first set when KO ran ~3.4s a hand; at ~18.3s they landed
+-- every 4 to 6 minutes, too rarely to be felt. Raised (2026-10-04) to 1 in
+-- 2 / 3 / 4, read straight off the cards; the corrupt forms hit every
+-- adjacent table at 1 in 2. None fires on every knockout.
 
 return {
 
     -- The aura. A knockout heats a neighbouring table.
     curved_monitor_heater = {
         trigger = "on_ko",
-        chance  = 1/5,
+        chance  = 1/2,
         target  = { kind = "board_near", radius = 1, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true },
         payload = { kind = "apply_status", status = "heater",
@@ -79,7 +80,7 @@ return {
     -- plan never scheduled.
     tower_upgrade_bump = {
         trigger = "on_ko",
-        chance  = 1/6,
+        chance  = 1/3,
         target  = { kind = "board_near", radius = 1, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "next_win_tier_up" },
@@ -89,7 +90,7 @@ return {
     -- The healer. A knockout sometimes buys back a neighbour's buy-in.
     shredder_refund = {
         trigger = "on_ko",
-        chance  = 1/8,
+        chance  = 1/3,
         target  = { kind = "board_near", radius = 1, pick = "random", pick_n_field = "ko_targets_add",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "refund_buyin", chance = 1.0 },
@@ -294,7 +295,7 @@ return {
     -- quietly pay for the rest of the board.
     first_aid_kit_biggest = {
         trigger = "on_ko",
-        chance  = 1/10,
+        chance  = 1/4,
         target  = { kind = "none" },
         payload = { kind = "pay_biggest_buyin" },
         ghost   = "first_aid_kit",
@@ -365,7 +366,7 @@ return {
 
     curved_monitor_heater_corrupt = {
         trigger = "on_ko",
-        chance  = 1/3,
+        chance  = 1/2,
         target  = { kind = "board_near", radius = 1, exclude_self = true },
         payload = { kind = "apply_status", status = "heater",
                     magnitude = 0.35, t = 6,
@@ -376,7 +377,7 @@ return {
 
     tower_upgrade_bump_corrupt = {
         trigger = "on_ko",
-        chance  = 0.25,
+        chance  = 1/2,
         target  = { kind = "board_near", radius = 1, exclude_self = true,
                     where = { chip_stack_table = false } },
         payload = { kind = "next_win_tier_up" },
@@ -394,7 +395,7 @@ return {
 
     shredder_refund_corrupt = {
         trigger = "on_ko",
-        chance  = 0.25,
+        chance  = 1/2,
         target  = { kind = "board_near", radius = 1, pick = "random",
                     exclude_self = true, where = { chip_stack_table = false } },
         payload = { kind = "refund_buyin", chance = 1.0 },

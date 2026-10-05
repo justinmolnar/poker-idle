@@ -409,7 +409,7 @@ return function(T)
         local w2, s2, h2 = board()
         w2:deck("anchor", 1); w2:own("space_heater")
         w2:deliver("tilt", h2)
-        check("item:space_heater", "bump", h2._next_win_tier_up == true,
+        check("item:space_heater", "bump", (tonumber(h2._next_win_tier_up) or 0) >= 1,
             "the Heads-Up the 6-Max took a tilt for gets its next win one size up")
     end)
 
