@@ -240,12 +240,14 @@ return {
         target  = { kind = "board_near", radius = 1, pick = "random", exclude_self = true },
         payload = { kind = "next_win_tier_up" },
         ghost   = "mirror",
+        impact  = true,    -- a blow: the winner punches the table it bounces to
     },
     mirror_bounce_corrupt = {
         trigger = "on_stack_win",
         target  = { kind = "board_near", radius = 1, exclude_self = true },
         payload = { kind = "next_win_tier_up" },
         ghost   = "mirror",
+        impact  = true,    -- a blow: the winner punches the table it bounces to
     },
 
     house_cat_nap = {
