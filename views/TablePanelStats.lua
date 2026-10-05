@@ -1204,11 +1204,11 @@ function TablePanelStats.barLegendLines(tbl, controller)
     local lines = { row("Each hand, by outcome:", "sm", "muted") }
     for _, t in ipairs({ "stack", "large", "medium", "small" }) do
         local p = wc * ((stats.win_dist or {})[t] or 0)
-        lines[#lines + 1] = iconRow(game, string.format("{w:%s} %s win  %s", t, TIER_NAME[t], fmtPctClean(p * 100)), "sm")
+        lines[#lines + 1] = iconRow(game, string.format("{w:%s} %s win  %.1f%%", t, TIER_NAME[t], p * 100), "sm")
     end
     for _, t in ipairs({ "small", "medium", "large", "stack" }) do
         local p = (1 - wc) * ((stats.loss_dist or {})[t] or 0)
-        lines[#lines + 1] = iconRow(game, string.format("{l:%s} %s loss  %s", t, TIER_NAME[t], fmtPctClean(p * 100)), "sm")
+        lines[#lines + 1] = iconRow(game, string.format("{l:%s} %s loss  %.1f%%", t, TIER_NAME[t], p * 100), "sm")
     end
     return lines
 end

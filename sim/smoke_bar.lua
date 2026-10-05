@@ -170,6 +170,27 @@ do
     c.ok(pv and pv.none and pv.text:find("ceiling") ~= nil, "a table at the ceiling says so: " .. tostring(pv and pv.text))
 end
 
+-- The bar's legend reads each tier's chance per hand as a percent, and
+-- they add up to 100 (it once printed them a hundred times too big).
+do
+    local TPS = require("views.TablePanelStats")
+    local t1 = w:tables()[1]
+    local lines = TPS.barLegendLines(t1, w.ctrl)
+    local total, ok = 0, true
+    local pr = love.graphics.print
+    for i = 2, #lines do
+        local txt
+        local IconText = require("views.IconText")
+        local real = IconText.draw
+        IconText.draw = function(_, str) txt = str end
+        lines[i].render(0, 0, g.fonts)
+        IconText.draw = real
+        local v = tonumber((txt or ""):match("([%d%.]+)%%"))
+        if not v or v > 100 then ok = false else total = total + v end
+    end
+    c.ok(ok and math.abs(total - 100) < 1, string.format("the legend's eight chances add up to 100%% (%.1f)", total))
+end
+
 -- ── rows ────────────────────────────────────────────────────────────────
 do
     local saved = g.state.bankroll
