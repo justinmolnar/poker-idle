@@ -404,11 +404,10 @@ end
 -- the controller, which is the authority.
 local function canBuy(w, it)
     if not it or it.cost_chip == nil or it.cost_chip <= 0 then return false end
-    if it.hidden or it.granted_at_start then return false end
+    if it.hidden or it.retired or it.granted_at_start then return false end
     if EXCLUDE[it.id] or owned(w, it.id) then return false end
     if it.requires and not owned(w, it.requires) then return false end
-    if it.unlock and w.game.unlock_rules
-       and not w.game.unlock_rules:check(it.unlock, w.state) then return false end
+    if not require("models.catalog_loader").unlocked(it, w.state, w.game.unlock_rules) then return false end
     return w.state.chips >= it.cost_chip
 end
 

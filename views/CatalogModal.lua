@@ -22,6 +22,7 @@
 -- guarded model mutation (the model still owns its own state — the
 -- controller is the layer the view talks to).
 
+local CatalogLoader = require("models.catalog_loader")
 local Anchors        = require("services.AnchorRegistry")
 local Paper          = require("views.widgets.Paper")
 local Theme        = require("views.Theme")
@@ -225,9 +226,7 @@ end
 -- the same UnlockRegistry the decks use (see models/catalog_unlock_rules).
 -- Live-checked; the conditions are monotonic counters so once met they stay.
 local function catalogUnlocked(game, item, state)
-    if not item.unlock then return true end
-    if not (game and game.unlock_rules) then return true end
-    return game.unlock_rules:check(item.unlock, state)
+    return CatalogLoader.unlocked(item, state, game and game.unlock_rules)
 end
 
 -- Has the player pulled this item's sticker off? (models/GameState.peeled_items)

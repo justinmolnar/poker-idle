@@ -686,8 +686,7 @@ function OutcomeMath.tableWinChanceBonus(ctx, tbl)
         bonus = bonus + ctx.odds_per_empty_adjacent * tbl._empty_adjacent
     end
     if ctx.held_odds and tbl._held then bonus = bonus + ctx.held_odds end
-    -- Lava Lamp: the table moved last.
-    if ctx.moved_odds and tbl._last_moved then bonus = bonus + ctx.moved_odds end
+
     -- The Red Rug: whoever sits in the board's top-left cell plays a
     -- little better. Slot 0 is the packed (row 0, col 0) cell.
     if (ctx.corner_win_chance or 0) > 0 and (tbl.slot or -1) == 0 then

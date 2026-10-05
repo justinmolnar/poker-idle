@@ -251,20 +251,19 @@ return {
     },
 
     house_cat_nap = {
-        -- House Cat (2026-10-05): every 25th hand the board plays, that
-        -- table's next win lands one size up. Volume makes it fire, so a
-        -- fast Zoom board sees it often.
-        trigger = "on_hand_played",
-        every   = 25,
+        -- House Cat (2026-10-05): a hand won, 1 in 4 the cat sits on that
+        -- table and it deals its next hand by itself.
+        trigger = "on_hand_won",
+        chance  = 1/4,
         target  = { kind = "self" },
-        payload = { kind = "next_win_tier_up" },
+        payload = { kind = "deal_next" },
         ghost   = "house_cat",
     },
     house_cat_nap_corrupt = {
-        trigger = "on_hand_played",
-        every   = 12,
+        trigger = "on_hand_won",
+        chance  = 1/2,
         target  = { kind = "self" },
-        payload = { kind = "next_win_tier_up" },
+        payload = { kind = "deal_next" },
         ghost   = "house_cat",
     },
 

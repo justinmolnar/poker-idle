@@ -288,4 +288,21 @@ do
     c.ok(streak or z.game_type_id ~= "zoom", "the Washing Machine's streak pops as 'streak 3' on its table")
 end
 
+-- ── Act 2 items wait for Act 2 ─────────────────────────────────────────
+do
+    local w4 = H.world({ bankroll = 1e9 })
+    local st = w4.state
+    st.chips = 999
+    st.total_hands_won = 5000         -- the Tally Book's own unlock, met
+    st.shove_r1_won = false
+    local CL = require("models.catalog_loader")
+    local Catalog = CL.deriveAll(require("data.catalog"))
+    local tb
+    for _, it in ipairs(Catalog) do if it.id == "tally_book" then tb = it end end
+    c.ok(tb and tb.unlock and tb.unlock.mystery, "an Act 2 item reads ??? in Act 1 (its unlock carries the mystery)")
+    c.ok(not w4.ctrl:buyCatalogItem("tally_book"), "an Act 2 item can't be bought in Act 1, whatever its own unlock")
+    st.shove_r1_won = true
+    c.ok(w4.ctrl:buyCatalogItem("tally_book"), "once Act 2 opens it can")
+end
+
 if c.report("smoke_itemfx") > 0 then os.exit(1) end

@@ -14,6 +14,7 @@ return {
             tilt   = { text = "tilt",    color = "tilt" },
         },
         deal              = { text = "dealt",        color = "won" },
+        deal_next         = { text = "deals itself", color = "won" },
         free_rebuy        = { text = "free rebuy",   color = "won" },
         next_win_tier_up  = { text = "next win up",  color = "chip" },
         pay_biggest_buyin = { text = "buy-in paid",  color = "won" },

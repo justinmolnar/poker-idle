@@ -129,15 +129,10 @@ Effects.kinds = {
         value_shape = "fraction, e.g. 0.10",
         affects     = "ctx.held_odds",
     },
-    moved_odds = {
-        description = "Lava Lamp: the table the player moved last (t._last_moved) has this much more win chance until another table is moved.",
-        value_shape = "fraction, e.g. 0.10",
-        affects     = "ctx.moved_odds",
-    },
-    moved_pace = {
-        description = "Lava Lamp: the table the player moved last deals this many times faster until another table is moved.",
-        value_shape = "multiplier, e.g. 1.5",
-        affects     = "ctx.moved_pace",
+    held_pace = {
+        description = "Lava Lamp: the table in the player's hand (t._held) deals this many times faster while held.",
+        value_shape = "multiplier, e.g. 3.0",
+        affects     = "ctx.held_pace",
     },
     manual_hand_mult = {
         description = "Tally Book: a hand the player deals themself (not a cursor) pays this many times its winnings.",
@@ -145,14 +140,14 @@ Effects.kinds = {
         affects     = "ctx.manual_hand_mult",
     },
     odds_per_item = {
-        description = "Corkboard: this much more win chance at every table per item owned (computeEffects adds it as a win_chance_shift).",
-        value_shape = "fraction per item, e.g. 0.01",
+        description = "Corkboard: this much more win chance at every table per item owned, up to cap (computeEffects adds it as a win_chance_shift).",
+        value_shape = "value = fraction per item, cap = the most it adds, e.g. 0.01 / 0.10",
         affects     = "ctx.odds_per_item",
     },
-    wall_clock_heat = {
-        description = "Wall Clock: every `value` seconds the table that played the most hands in that span catches a heater (GrindController).",
-        value_shape = "seconds, e.g. 60",
-        affects     = "ctx.wall_clock_secs",
+    age_pace = {
+        description = "Wall Clock: a table deals faster the longer it has been open this run, 1 + value per minute up to cap (Table:paceParts, t._age_min).",
+        value_shape = "value = pace per minute, cap = the most, e.g. 0.10 / 2.0",
+        affects     = "ctx.age_pace",
     },
     zoom_tilt_pace = {
         description = "Headset: a tilted Zoom table deals this many times faster while the tilt lasts (Table:paceParts).",

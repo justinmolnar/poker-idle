@@ -9,6 +9,7 @@
 -- controller. Effects context is cached and only recomputed when an item is
 -- bought or run state changes (cheap, since we're not doing it per-frame).
 
+local CatalogLoader = require("models.catalog_loader")
 local TablePool      = require("models.TablePool")
 local ShoveRate = require("models.shove_rate")
 local TableModel     = require("models.Table")            -- only for anchorKey()
@@ -310,38 +311,32 @@ end
 -- what it is; the first that answers wins, so ownership order decides and
 -- two routers cannot fight over the same delivery every frame.
 -- Items that act on a clock or report a hand after the fact, per frame:
---   Wall Clock: every ctx.wall_clock_secs, the table with the most hands
---     in that span catches a heater.
+--   Wall Clock: each table's minutes open this run (t._age_min), which
+--     Table:paceParts turns into pace.
+--   House Cat: a table the cat sat on (t._self_deal) deals its next hand
+--     the moment it is idle.
 --   Washing Machine: a streak step (2 or more wins in a row at Zoom) pops
 --     "streak N" on its table, through the item-fire channel.
 --   Stack of Books: a loss it rerolled (t._rerolled, set by the deal) pops
 --     on its table.
 local _streak_word = { text = "", color = "won" }
 local _reroll_word = { text = "rerolled", color = "won" }
-local _clock_word  = { text = "heater", color = "heat" }
 function GrindController:_tickItemClocks(dt)
     local ctx = self.ctx
     if not ctx then return end
     local tables = self.pool and self.pool.tables or {}
-    -- Wall Clock
-    local secs = ctx.wall_clock_secs
-    if secs then
-        self._clock_t = (self._clock_t or 0) + (dt or 0)
-        if self._clock_t >= secs then
-            self._clock_t = 0
-            local best, best_n = nil, 0
-            for _, t in ipairs(tables) do
-                local n = t._clock_hands or 0
-                if n > best_n then best, best_n = t, n end
-                t._clock_hands = 0
-            end
-            if best and best.applyStatus then
-                best:applyStatus("heater", { magnitude = 0.35, t = 6, source = "wall_clock" })
-                self:procFired("wall_clock", best, { best }, _clock_word)
-            end
-        end
-    end
+    local now = self.clock or 0
     for _, t in ipairs(tables) do
+        -- Wall Clock: minutes open this run (a table from a reload starts now)
+        if ctx.age_pace then
+            t._opened_clock = t._opened_clock or now
+            t._age_min = (now - t._opened_clock) / 60
+        end
+        -- House Cat: the cat's table deals its next hand by itself
+        if t._self_deal and t.state == "idle" then
+            t._self_deal = nil
+            self:dealIdleTable(t, { by_cursor = false })
+        end
         -- Washing Machine's streak, on its table
         if ctx.zoom_combo_pace and t.game_type_id == "zoom" then
             local c = t._combo or 0
@@ -837,7 +832,6 @@ local function evSlotMatches(self, slot, tbl)
     return slot.k_adj == (tbl._empty_adjacent or 0)
        and slot.k_lonely == (tbl._lonely and 1 or 0)
        and slot.k_held == (tbl._held and 1 or 0)
-       and slot.k_moved == (tbl._last_moved and 1 or 0)
        and slot.k_slot == (tbl.slot or -1)
        and slot.k_hand_mult == (self._ev_hand_mult or 1)
        and slot.k_overcap == self._ev_overcap
@@ -848,7 +842,6 @@ local function evSlotStamp(self, slot, tbl)
     slot.k_adj       = tbl._empty_adjacent or 0
     slot.k_lonely    = tbl._lonely and 1 or 0
     slot.k_held      = tbl._held and 1 or 0
-    slot.k_moved     = tbl._last_moved and 1 or 0
     slot.k_slot      = tbl.slot or -1
     slot.k_hand_mult = self._ev_hand_mult or 1
     slot.k_overcap   = self._ev_overcap
@@ -1577,12 +1570,9 @@ function GrindController:update(dt)
         -- tables only — an KO r.delta is informational (the bust is already
         -- in tbl.stack), so voiding it there just wastes the once-per-run use.
         if r.delta < 0 and not r.chip_stack_table and self.ctx then
-            local lane = r.table and ((r.table.stake_id or "") .. "|" .. (r.table.game_type_id or "")) or nil
-            state.fridge_lanes_this_run = state.fridge_lanes_this_run or {}
-            if self.ctx.void_first_stack_loss and r.tier == "stack" and lane
-               and not state.fridge_lanes_this_run[lane] then
-                -- The first stack loss at each stake x type this run.
-                state.fridge_lanes_this_run[lane] = true
+            if self.ctx.void_first_stack_loss and r.tier == "stack"
+               and not state.first_stack_loss_voided_this_run then
+                state.first_stack_loss_voided_this_run = true
                 r.delta = 0
                 self:itemFired("void_first_stack_loss", r.table)
             elseif self.ctx.void_first_loss and not state.first_loss_voided_this_run then
@@ -2054,8 +2044,7 @@ function GrindController:update(dt)
         self:_announce("on_hand_played", {
             table = tbl, count = state.total_hands_played, out = resolutions,
         })
-        -- Wall Clock: the hands each table played in the clock's span.
-        if tbl then tbl._clock_hands = (tbl._clock_hands or 0) + 1 end
+
         -- Cutting Board: only a hand the player dealt moves the streak.
         if tbl and tbl._dealt_by_player then
             tbl._dealt_by_player = nil
@@ -2642,8 +2631,7 @@ function GrindController:buyCatalogItem(item_id)
     end
     -- Defensive unlock gate: a locked item can't be bought even if the UI is
     -- bypassed. Reuses the same registry the catalog silhouettes check.
-    if item and item.unlock and self.game.unlock_rules
-       and not self.game.unlock_rules:check(item.unlock, self.game.state) then
+    if item and not CatalogLoader.unlocked(item, self.game.state, self.game.unlock_rules) then
         return false
     end
     local chips_before = self.game.state.chips
@@ -2721,6 +2709,7 @@ function GrindController:addTable(stake_id, game_type_id)
     local new_tbl = self.pool:addTable(stake_id, game_type_id or "six_max", self.ctx)
     self:invalidateEffects()
     if new_tbl then
+        new_tbl._opened_clock = self.clock or 0   -- the Wall Clock's age
         self:_announce("on_table_open", { table = new_tbl, first_at_stake = first_at_stake })
     end
     -- Adding into a hole renumbers pool order the same way a drag does;
@@ -3023,11 +3012,7 @@ function GrindController:moveTableToSlot(table_id, slot)
         if t._id == table_id then from_idx = i; break end
     end
     if not from_idx then return false end   -- table closed mid-drag
-    local moved = self.pool.tables[from_idx]
     if not self.pool:moveToSlot(from_idx, slot) then return false end
-    -- Lava Lamp: the table moved last (one at a time).
-    for _, t in ipairs(self.pool.tables) do t._last_moved = nil end
-    if moved then moved._last_moved = true; moved._status_rev = (moved._status_rev or 0) + 1 end
     -- Cursor claims are keyed by pool index, and pool order is reading
     -- order of the board — so a move can renumber. Release them so no
     -- cursor silently re-aims at whatever table now sits at its index.

@@ -376,6 +376,14 @@ function TableProcs.registerAll(reg)
     -- A payload's deal is a deal like any other (it announces, anything
     -- listening sees it), marked `spread` so a spreading proc can decline
     -- to spread again off it (`when = { spread = false }`).
+    -- House Cat: the table deals its next hand by itself, the moment it is
+    -- idle (GrindController:_tickItemClocks spends the mark).
+    reg:registerPayload("deal_next", function(_spec, target, _event)
+        if not target then return false end
+        target._self_deal = true
+        return true
+    end)
+
     reg:registerPayload("deal", function(_spec, target, event)
         if not (target and event.ctrl and event.ctrl.dealIdleTable) then return false end
         -- The spread inherits the source hand's origin: a cursor's chain

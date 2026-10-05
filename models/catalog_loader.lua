@@ -118,8 +118,26 @@ end
 
 -- Price and rate every item in place. Returns the same list, so callers can
 -- write `local Catalog = CatalogLoader.deriveAll(require("data.catalog"))`.
+-- Can this item be bought now? An Act 2 item (act = 2) waits for Act 2 (the
+-- first runout won, state.shove_r1_won) whatever its own unlock says; then
+-- its unlock condition, through the game's unlock registry. One check for
+-- the catalog's silhouettes, the buy and the sims.
+function CatalogLoader.unlocked(item, state, reg)
+    if not item then return false end
+    if item.act == 2 and not (state and state.shove_r1_won) then return false end
+    if not item.unlock or not reg then return true end
+    return reg:check(item.unlock, state)
+end
+
 function CatalogLoader.deriveAll(items)
     for _, item in ipairs(items) do
+        -- An Act 2 item shows as a "???" teaser through Act 1 (the sticker
+        -- speaks once Act 2 opens): its unlock gains the mystery condition,
+        -- and one with no unlock of its own gets Act 2 as its unlock.
+        if item.act == 2 and not item.retired and CatalogLoader.isOwnable(item) then
+            item.unlock = item.unlock or { kind = "shove_r1_won", threshold = 1, text = "Act 2" }
+            item.unlock.mystery = item.unlock.mystery or { kind = "shove_r1_won" }
+        end
         if CatalogLoader.isOwnable(item) then
             item.authored_cost_chip = item.authored_cost_chip or item.cost_chip
             item.cost_chip = CatalogLoader.itemCost(item.authored_cost_chip, item)

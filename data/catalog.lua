@@ -103,9 +103,9 @@
 -- renamed fifteen and bumped to 3.
 --
 -- ─── The budget ─────────────────────────────────────────────────────────
--- The book is 714 {chip}: the Act 1 shelves (no `act = 2`) 130, priced per
+-- The book is 711 {chip}: the Act 1 shelves (no `act = 2`) 117, priced per
 -- beat (the catalog after shove 1: 1-2; after 2: 2-5; after 3: 5-7; after 4:
--- 7-9), and the Act 2 shelves 584 (data/balance.lua CATALOG_CHIP_BUDGET). Income per run:
+-- 7-9), and the Act 2 shelves 594 (data/balance.lua CATALOG_CHIP_BUDGET). Income per run:
 -- a T1-T3 sweep banks 18 (24 with Fight Night), a T1-T6 sweep 84, so Act 1's
 -- five runs bank ~100 and Act 2's six ~450; Act 3 (180 a run) finishes the
 -- book. Prices come from role tiers and read as a ladder down each shelf
@@ -261,7 +261,7 @@ local items = {
         id          = "corkboard",
         refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Corkboard",
-        effect_text = "+5% {c:chance:odds} at {k:every_table}, and +1% per item you own.",
+        effect_text = "+5% {c:chance:odds} at {k:every_table}, and +1% per item you own, up to +10%.",
         description = "Pins, notes, one photo of a beach.",
         sprite      = "corkboard",
         phase       = "demo",
@@ -270,15 +270,15 @@ local items = {
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "win_chance_shift", amount = 0.05 },
-            { kind = "odds_per_item", value = 0.01 },
+            { kind = "odds_per_item", value = 0.01, cap = 0.10 },
         },
         corrupt = {
             cost_achip = 2,
             effects = {
                 { kind = "win_chance_shift", amount = 0.10 },
-                { kind = "odds_per_item", value = 0.02 },
+                { kind = "odds_per_item", value = 0.01, cap = 0.20 },
             },
-            effect_text = "+10% {c:chance:odds} at {k:every_table}, and +2% per item you own.",
+            effect_text = "+10% {c:chance:odds} at {k:every_table}, and +1% per item you own, up to +20%.",
         },
     },
     {
@@ -357,7 +357,7 @@ local items = {
         -- empty for everything that reads empties while you hold it.
         id          = "lava_lamp",
         name        = "Lava Lamp",
-        effect_text = "The table you moved last: deals ×1.5 faster and +10% {c:chance:odds}, until you move another.",
+        effect_text = "The table in your hand: deals ×3 faster and +10% {c:chance:odds} while you hold it.",
         description = "Soothing to watch. Hypnotic, almost.",
         sprite      = "lava_lamp",
         phase       = "demo",
@@ -370,8 +370,8 @@ local items = {
         position    = { x = 400, y = 220 },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "moved_odds", value = 0.10 },
-            { kind = "moved_pace", value = 1.5 },
+            { kind = "held_odds", value = 0.10 },
+            { kind = "held_pace", value = 3.0 },
         },
     },
     {
@@ -426,6 +426,7 @@ local items = {
         -- table each click; the swarm's deals never touch it.
         id          = "tally_book",
         name        = "Tally Book",
+        act         = 2,
         effect_text = "A hand you deal yourself: {c:won:winnings} ×1.5.",
         description = "You keep your own count.",
         sprite      = "tally_book",
@@ -766,6 +767,7 @@ local items = {
         -- follow to the next one (Table:_finalizeHand).
         id          = "headset",
         name        = "Headset",
+        act         = 2,
         effect_text = "A {c:tilt:tilt} at {k:Zoom}: that table deals ×2 faster while it lasts.",
         description = "Foam mic cover. Someone else's earwax.",
         sprite      = "headset",
@@ -820,20 +822,20 @@ local items = {
     {
         id          = "compact_fridge",
         name        = "Compact Fridge",
-        effect_text = "The first {l:stack} at each stake and game type is voided, every run.",
+        effect_text = "Your run's first {l:stack} is voided.",
         description = "The cooler. Eats the worst beat.",
         sprite      = "compact_fridge",
         phase       = "mid",
-        cost_chip     = 5,
+        cost_chip     = 2,
         position    = { x = 270, y = 400 },
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "void_first_stack_loss" },
         },
         unlock = {
-            kind      = "total_stack_losses",
-            threshold = 20,
-            text      = "{l:stack} {c:lost:losses} taken",
+            kind      = "has_shoved",
+            threshold = 1,
+            text      = "your first shove",
         },
         corrupt = {
             cost_achip = 6,
@@ -846,7 +848,7 @@ local items = {
     {
         id          = "wall_clock",
         name        = "Wall Clock",
-        effect_text = "Every 60 seconds: the table that played the most hands catches a {c:heat:heater}.",
+        effect_text = "A table deals faster the longer it stays open this run: +10% pace a minute, up to ×2.",
         description = "The second hand ticks a little loud.",
         sprite      = "wall_clock",
         phase       = "mid",
@@ -858,22 +860,22 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "wall_clock_heat", value = 60 },
+            { kind = "age_pace", value = 0.10, cap = 2.0 },
         },
         corrupt = {
             cost_achip = 7,
             effects = {
-                { kind = "wall_clock_heat", value = 30 },
+                { kind = "age_pace", value = 0.20, cap = 3.0 },
                 { kind = "loss_mult", value = 1.5 },
             },
-            effect_text = "Every 30 seconds: the table that played the most hands catches a {c:heat:heater}, and {c:lost:Losses} ×1.5.",
+            effect_text = "A table deals faster the longer it stays open this run: +20% pace a minute, up to ×3, and {c:lost:Losses} ×1.5.",
         },
     },
 
     {
         id          = "house_cat",
         name        = "House Cat",
-        effect_text = "Every 25th hand the board plays: that table's next {c:won:win} lands one size up.",
+        effect_text = "Win a hand: 1 in 4 chance that table deals its next hand by itself.",
         description = "Someone's cat. It has opinions.",
         sprite      = "house_cat",
         phase       = "demo",
@@ -894,7 +896,7 @@ local items = {
             effects = {
                 { kind = "proc", proc = "house_cat_nap_corrupt" },
             },
-            effect_text = "Every 12th hand the board plays: that table's next {c:won:win} lands one size up.",
+            effect_text = "Win a hand: 1 in 2 chance that table deals its next hand by itself.",
         },
     },
     {

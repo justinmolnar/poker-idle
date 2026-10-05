@@ -2237,9 +2237,14 @@ function Table:paceParts(ctx)
             boost = boost * pace_ctx.zoom_tilt_pace
         end
     end
-    -- Lava Lamp: the table moved last deals faster.
-    if pace_ctx and (pace_ctx.moved_pace or 1) > 1 and self._last_moved then
-        boost = boost * pace_ctx.moved_pace
+    -- Lava Lamp: the table in your hand deals faster while you hold it.
+    if pace_ctx and (pace_ctx.held_pace or 1) > 1 and self._held then
+        boost = boost * pace_ctx.held_pace
+    end
+    -- Wall Clock: the longer the table has been open this run, the faster.
+    local age = pace_ctx and pace_ctx.age_pace
+    if age and (self._age_min or 0) > 0 then
+        boost = boost * math.min(age.cap or 2, 1 + (age.value or 0) * self._age_min)
     end
     return pace_mult, boost
 end

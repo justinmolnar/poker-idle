@@ -90,15 +90,11 @@ return function(T)
         local a = w:open("s001", "hu", { 0, 0 })
         local b = w:open("s001", "hu", { 0, 1 })
         w:own("lava_lamp"); w:tick(0.05)
-        -- Move `a` (to the cell beside b's row end and back is enough): the
-        -- table moved last plays the lamp's odds and pace.
-        local c = w:open("s001", "hu", { 1, 0 })
-        w.ctrl:moveTableToSlot(a._id, require("models.table_grid").pack(1, 1))
-        w:tick(0.05)
+        a._held = true   -- what GrindView stamps while the panel is in hand
         local _, boost_a = a:paceParts(w.ctrl.ctx)
         local _, boost_b = b:paceParts(w.ctrl.ctx)
-        check("item:lava_lamp", "pace", math.abs(boost_a - boost_b * 1.5) < 1e-6,
-            ("the table moved last deals at x%.2f the pace of one not moved"):format(boost_a / boost_b))
+        check("item:lava_lamp", "pace", math.abs(boost_a - boost_b * 3) < 1e-6,
+            ("the table in your hand deals at x%.2f the pace of one not held"):format(boost_a / boost_b))
         local seen
         local r = T.stub(OM, "sampleOutcome", function(wc) seen = wc; return false, "small" end)
         w.ctrl:dealHand(w:find(a)); r()
@@ -107,7 +103,7 @@ return function(T)
         r = T.stub(OM, "sampleOutcome", function(wc) seen_b = wc; return false, "small" end)
         w.ctrl:dealHand(w:find(b)); r()
         check("item:lava_lamp", "odds", math.abs((seen or 0) - base - 0.10) < 1e-6 and math.abs((seen_b or 0) - base) < 1e-6,
-            ("the table moved last dealt at +%.1f%% odds; one not moved at +%.1f%%"):format(((seen or 0) - base) * 100, ((seen_b or 0) - base) * 100))
+            ("the held table dealt at +%.1f%% odds; the table not in hand at +%.1f%%"):format(((seen or 0) - base) * 100, ((seen_b or 0) - base) * 100))
     end
 
     -- ── zoom neighbours, pace ──────────────────────────────────────────

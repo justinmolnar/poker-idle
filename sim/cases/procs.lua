@@ -238,12 +238,14 @@ return function(T)
     case("house_cat_nap", function()
         local w, six, hu, zoom, ko = board()
         w:own("house_cat")
-        w:announce("on_hand_played", { table = hu, count = 24, out = {} })
-        local before = hu._next_win_tier_up
-        w:announce("on_hand_played", { table = hu, count = 25, out = {} })
-        check(key("house_cat_nap"), "lands", before == nil and hu._next_win_tier_up ~= nil
-              and not (six._next_win_tier_up or zoom._next_win_tier_up),
-            "the 25th hand the board plays: THAT table's next win reads one size up (the 24th does nothing, no other table)")
+        w:announce("on_hand_won", { table = hu, count = 1, out = {} })
+        check(key("house_cat_nap"), "lands", hu._self_deal == true and not (six._self_deal or zoom._self_deal),
+            "a hand won: THAT table is marked to deal its next hand by itself, no other table; " .. chanceText("house_cat_nap"))
+        -- ...and the controller deals it the moment it is idle
+        hu.state = "idle"
+        w.ctrl:_tickItemClocks(0.016)
+        check(key("house_cat_nap"), "deals", hu._self_deal == nil and hu.state ~= "idle",
+            "the marked table deals its next hand by itself once it is idle")
     end)
 
     case("mirror_bounce", function()
@@ -363,18 +365,20 @@ return function(T)
             ("a knockout: one adjacent cash table's next win reads one size up (%d of 2); "):format(n) .. chanceText("tower_upgrade_bump"))
     end)
 
-    -- Wall Clock (no proc): every 60 s the table with the most hands in that
-    -- span catches a heater (GrindController:_tickItemClocks).
+    -- Wall Clock (no proc): a table deals faster the longer it has been open
+    -- this run, +10% a minute up to x2 (Table:paceParts on t._age_min).
     if wanted("item:wall_clock") then
         local w, six, hu, zoom = board()
         w:own("wall_clock"); w:tick(0.05)
-        hu._clock_hands, zoom._clock_hands, six._clock_hands = 3, 9, 1
-        w.ctrl._clock_t = 0
-        w.ctrl:_tickItemClocks(59)
-        local early = has(zoom, "heater")
-        w.ctrl:_tickItemClocks(2)
-        check("item:wall_clock", "minute", (not early) and has(zoom, "heater") and not has(hu, "heater"),
-            "after 60 s the table that played the most hands (the Zoom, 9) catches a heater; nothing before the minute, nothing elsewhere")
+        local _, b0 = zoom:paceParts(w.ctrl.ctx)
+        zoom._opened_clock = (w.ctrl.clock or 0) - 5 * 60
+        w.ctrl:_tickItemClocks(0.016)
+        local _, b5 = zoom:paceParts(w.ctrl.ctx)
+        zoom._opened_clock = (w.ctrl.clock or 0) - 30 * 60
+        w.ctrl:_tickItemClocks(0.016)
+        local _, b30 = zoom:paceParts(w.ctrl.ctx)
+        check("item:wall_clock", "age", math.abs(b5 / b0 - 1.5) < 0.01 and math.abs(b30 / b0 - 2.0) < 0.01,
+            ("a table open 5 minutes deals at x%.2f, 30 minutes at x%.2f (capped at x2)"):format(b5 / b0, b30 / b0))
     end
 
     -- corrupt-only procs: named, skipped

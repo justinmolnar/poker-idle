@@ -205,7 +205,6 @@ function GameState:new(saved)
     instance.first_loss_voided_this_run       = false
     instance.first_stack_loss_voided_this_run = false
     instance.stakes_opened_this_run = {}
-    instance.fridge_lanes_this_run  = {}
     instance.denied_copied_this_run           = false
     instance.first_bounty_this_run            = false
     instance.first_anti_this_run              = false   -- corrupted Fridge latch
@@ -299,7 +298,6 @@ function GameState:resetRun()
     self.first_loss_voided_this_run       = false
     self.first_stack_loss_voided_this_run = false
     self.stakes_opened_this_run   = {}   -- Bottle of Wine: once per stake per run
-    self.fridge_lanes_this_run    = {}   -- Compact Fridge: once per stake x type per run
     self.denied_copied_this_run           = false
     self.first_bounty_this_run            = false
     self.first_anti_this_run              = false
@@ -520,7 +518,7 @@ GameState.RUN_KEYS = {
     "anti_stakes_won_this_run", "anti_chips_this_run",
     "shove_pending", "perks_pending",
     "first_loss_voided_this_run", "first_stack_loss_voided_this_run",
-    "stakes_opened_this_run", "fridge_lanes_this_run",
+    "stakes_opened_this_run",
     "denied_copied_this_run", "first_bounty_this_run", "first_anti_this_run",
     "run_ratchets", "run_money_lost", "run_biggest_pot_t1", "run_biggest_pot",
     -- the rail's earn rate: hand winnings and seconds on the felt this run
@@ -622,8 +620,10 @@ function GameState:computeEffects(registry, catalog, run_upgrades, transient_par
 
     -- Corkboard: so much more win chance per item owned, everywhere.
     if (ctx.odds_per_item or 0) > 0 and n_items > 0 then
+        local add = ctx.odds_per_item * n_items
+        if (ctx.odds_per_item_cap or 0) > 0 then add = math.min(add, ctx.odds_per_item_cap) end
         ctx.win_chance_shifts = ctx.win_chance_shifts or {}
-        ctx.win_chance_shifts[#ctx.win_chance_shifts + 1] = { amount = ctx.odds_per_item * n_items }
+        ctx.win_chance_shifts[#ctx.win_chance_shifts + 1] = { amount = add }
     end
 
     -- Decks stack: every unlocked deck contributes its banked passive at

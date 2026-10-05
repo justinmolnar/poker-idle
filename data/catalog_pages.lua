@@ -52,7 +52,7 @@
 --    the R1 flag, a lifetime_* counter) carries `act = 2`, or a `mystery`
 --    so the demo shows a "???" teaser that peels when Act 2 opens.
 -- 8. THE TIERS price a card by its role on the shelf, then the two acts
---    are summed to data/balance.lua CATALOG_CHIP_BUDGET (130 / 584). Act 1
+--    are summed to data/balance.lua CATALOG_CHIP_BUDGET (117 / 594). Act 1
 --    is priced per beat since 2026-10-05 (after shove 1: 1-2; after 2:
 --    2-5; after 3: 5-7; after 4: 7-9); the Act 1 tiers below are older:
 --        Act 1  intro 2-5 (a key 8-13) · core 5-10 · capstone 12-14
@@ -115,7 +115,7 @@ return {
     -- repeat and the shelf had eight again.)
     { id = "rack", title = "Desk & Stationery", label = "THE RACK", tab = { "sem:upgrade" },
       items = {
-          "desk", "rebuy_sticky_note", "ring_binder", "compact_fridge",
+          "compact_fridge", "desk", "rebuy_sticky_note", "ring_binder",
           "second_monitor", "bookshelf", "cereal_shelf",
       } },
 
