@@ -148,4 +148,51 @@ do
          "a lone Heads-Up table shows the Pillow and the Mirror")
 end
 
+-- ── counters where they act ─────────────────────────────────────────────
+do
+    -- The pace's speed-up, readable on its own (the badge's number).
+    local z = w:open("s001", "zoom")
+    z._zoom_neighbours = 2
+    local base_mult, boost0 = z:paceParts({})
+    local _, boost = z:paceParts({ zoom_block_pace = 0.10 })
+    c.ok(math.abs(boost - boost0 * 1.2) < 1e-9, "two Zoom neighbours with the Receipt Printer: x1.2 pace")
+
+    -- The board on screen: the badge and the rail's live counters.
+    local F = Stub.font(16)
+    g.fonts = { lg = F, md = F, sm = F, xs = F, micro = F }
+    g.state_machine = { states = {}, switch = function() end, current = function() return "grind" end }
+    g.sprite_loader = { getSprite = function() return img end, getSpriteFor = function() return img end,
+        hasSprite = function() return true end, backColor = function() return { 0.5, 0.5, 0.5 } end,
+        setSprite = function() end, itemArt = function() return img, nil, nil, false end }
+    Stub.recorder()
+    love.graphics.newFont = function() return F end
+    love.graphics.getFont = function() return F end
+    love.graphics.newShader = function() return { send = function() end } end
+    w:own("receipt_printer"); w:own("hybrid_console"); w:own("desk_speakers")
+    w:tick(0.05)
+    local view = require("views.GrindView"):new(g, w.ctrl)
+    g.sim_frozen = true
+    local printed = {}
+    local pr = love.graphics.print
+    love.graphics.print = function(t, ...) if type(t) == "string" then printed[#printed + 1] = t end return pr(t, ...) end
+    for _ = 1, 3 do
+        AR.tick(); require("services.HoverService").clear()
+        view:update(1 / 60); view:draw(nil)
+    end
+    love.graphics.print = pr
+    local badge = false
+    for _, t in ipairs(printed) do if t:find(" pace", 1, true) then badge = true end end
+    c.ok(badge, "a sped-up Zoom table shows its pace badge")
+    local function hasAnchor(comps, name)
+        for _, cmp in ipairs(comps or {}) do
+            if cmp.anchor == name then return true end
+            if cmp.children and hasAnchor(cmp.children, name) then return true end
+        end
+        return false
+    end
+    local rail = view:_buildRailComponents()
+    c.ok(hasAnchor(rail, "cell:hands_s") and hasAnchor(rail, "cell:heaters"),
+         "the rail shows HANDS/S and HEATERS while their items are owned")
+end
+
 if c.report("smoke_itemfx") > 0 then os.exit(1) end

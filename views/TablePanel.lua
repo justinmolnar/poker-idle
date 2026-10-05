@@ -3270,6 +3270,43 @@ function TablePanel.flushHandLabels(game)
     _labels_n = 0
 end
 
+-- The pace badge: how much faster than its game type's own speed items
+-- and statuses are dealing this table ("x1.6 pace"), at the felt's top
+-- left, popping each time it climbs; and the Washing Machine's streak
+-- beside it when it is owned ("3 in a row"). A live layer: it changes by
+-- the hand. Only past x1.05, so a plain table shows nothing.
+local function drawPaceBadge(tbl, ly, game, controller)
+    if not (tbl.paceParts and ly and ly.felt_x) then return end
+    local ctx = controller and controller.ctx
+    local _, boost = tbl:paceParts(ctx)
+    local combo = (ctx and ctx.zoom_combo_pace and tbl.game_type_id == "zoom") and (tbl._combo or 0) or 0
+    if boost <= 1.05 and combo <= 0 then tbl._pace_q = nil; return end
+    local q = math.floor(boost * 10 + 0.5)
+    local now = love.timer.getTime()
+    if tbl._pace_q ~= q or tbl._pace_combo ~= combo then
+        if (tbl._pace_q or 0) < q or (tbl._pace_combo or 0) < combo then tbl._pace_pop_t = now end
+        tbl._pace_q, tbl._pace_combo = q, combo
+        local t = (boost > 1.05) and string.format("x%.1f pace", q / 10) or ""
+        if combo > 0 then t = t .. ((t ~= "") and "  " or "") .. combo .. " in a row" end
+        tbl._pace_text = t
+    end
+    local f = game.fonts and (game.fonts.xs or game.fonts.sm)
+    if not f or (tbl._pace_text or "") == "" then return end
+    local pop = math.max(0, 1 - (now - (tbl._pace_pop_t or -10)) / 0.35)
+    local sc = 1 + 0.35 * pop
+    local tw, th = f:getWidth(tbl._pace_text), f:getHeight()
+    local bx, by = ly.felt_x + 6, ly.felt_y + 6
+    love.graphics.push()
+    love.graphics.translate(bx, by)
+    love.graphics.scale(sc, sc)
+    Theme.setColor(Theme.bg.chrome, 0.85)
+    love.graphics.rectangle("fill", -3, -2, tw + 6, th + 4, 3, 3)
+    Theme.setColor(Theme.sem.won)
+    love.graphics.setFont(f)
+    love.graphics.print(tbl._pace_text, 0, 0)
+    love.graphics.pop()
+end
+
 -- A hovered upgrade's change on one table, queued by draw and drawn by
 -- TablePanel.flushPreviewCards after the chip flights, floaters and cursors
 -- so nothing flies over it.
@@ -3510,6 +3547,7 @@ function TablePanel.draw(tbl, idx, x, y, w, h, game, controller, hit_boxes, shad
     -- the felt in its stake's colour, the chip piles, the cards on show.
     do
         local lys = solveLayout(tbl, x, y, w, h, game, controller, s, ui_s, n_tables)
+        drawPaceBadge(tbl, lys, game, controller)
         -- The showdown hand name, for the top layer (flushHandLabels).
         if opponentFaceUp(tbl) and lys.L then
             _labels_n = _labels_n + 1

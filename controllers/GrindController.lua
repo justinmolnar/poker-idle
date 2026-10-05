@@ -3463,13 +3463,24 @@ end
 -- update() with (prev_state, new_state, table). Tables share a single
 -- audio queue (sounds clone-on-play), so multiple tables' transitions in
 -- the same frame don't cut each other off.
+local _deal_opts = {}
 function GrindController:_playStateTransitionSound(_prev, new_state, t)
     local sounds = self.game.sounds
     if not sounds or not sounds.playNamed then return end
 
     if new_state == "dealing" or new_state == "flop"
        or new_state == "turn" or new_state == "river" then
-        sounds.playNamed("card_dealt")
+        -- A table items have sped up deals with a higher card snap, so a
+        -- fast Zoom block sounds fast (up to +30% at x2.2).
+        local pitch = nil
+        if t and t.paceParts then
+            local _, boost = t:paceParts(self.ctx)
+            if boost > 1.02 then
+                _deal_opts.pitch = 1 + math.min(0.3, (boost - 1) * 0.25)
+                pitch = _deal_opts
+            end
+        end
+        sounds.playNamed("card_dealt", pitch)
     elseif new_state == "showdown" then
         sounds.playNamed("hole_card_flip")
     elseif new_state == "settling" then

@@ -1928,6 +1928,10 @@ function GrindView:_railInputs(arr)
     n = n + 1; arr[n] = (state.shove_count or 0) > 0
     n = n + 1; arr[n] = (self._focus_kick or 0) > 0.01
     n = n + 1; arr[n] = pct
+    -- The live counters show only while an item reads them.
+    local cx = ctrl.ctx or {}
+    n = n + 1; arr[n] = (cx.odds_per_hand_per_second or 0) > 0
+    n = n + 1; arr[n] = (cx.odds_per_heater or 0) > 0
     return n
 end
 
@@ -2016,6 +2020,23 @@ function GrindView:_buildRailComponents()
         tooltip = focus_tip,
         w = fl(SP.stat_bar_w * s) + SP.stat_gap + reserveW(fonts.sm, R.reserve.tables) }, face_bottom)
     rc.tables = tables
+    -- The counters an owned item reads, beside TABLES while it is owned:
+    -- the board's hands a second (Hybrid Console) and the heaters burning
+    -- (Desk Speakers). Values refreshed in _refreshRail; each pops when it
+    -- climbs.
+    local cx = ctrl.ctx or {}
+    rc.hands_s, rc.heaters = nil, nil
+    local live_stats = {}
+    if (cx.odds_per_hand_per_second or 0) > 0 then
+        rc.hands_s = railStat({ label = R.labels.hands_s, value = "", value_color = { 1, 1, 1, 1 },
+            anchor = "cell:hands_s", w = reserveW(fonts.md or fonts.sm, R.reserve.hands_s) }, face_bottom)
+        live_stats[#live_stats + 1] = rc.hands_s
+    end
+    if (cx.odds_per_heater or 0) > 0 then
+        rc.heaters = railStat({ label = R.labels.heaters, value = "", value_color = { 1, 1, 1, 1 },
+            anchor = "cell:heaters", w = reserveW(fonts.md or fonts.sm, R.reserve.heaters) }, face_bottom)
+        live_stats[#live_stats + 1] = rc.heaters
+    end
 
     -- ── The money: what is tied up at the tables, and the bankroll under its pile ──
     local broken = self:_broken()
@@ -2122,7 +2143,9 @@ function GrindView:_buildRailComponents()
     -- move as one; the space left over spreads evenly between the groups.
     local money = railGroup({ tied, bankroll }, gap)
     money.anchor = "rail:money"   -- the pile stands over this group
-    local watch = railGroup({ focus, tables }, gap)
+    local watch_kids = { focus, tables }
+    for _, st in ipairs(live_stats) do watch_kids[#watch_kids + 1] = st end
+    local watch = railGroup(watch_kids, gap)
     watch.anchor = "rail:focus"   -- the alarm plate (drawChrome) and the strain shader's hole (main.lua)
     local chips_g = anti and railGroup({ banked, anti, shove }, gap) or railGroup({ banked, shove }, gap)
     return {
@@ -2173,6 +2196,24 @@ end
 -- Only fields that leave the tree's shape alone are touched here: a
 -- stat's value, colour, scale and dim, and SHOVE's right badge (whose
 -- line height memo is dropped with it).
+-- One live item counter on the rail: its value when the tenth moves, a pop
+-- each time it climbs, the colour easing back from white.
+local function liveRailStat(c, v, fmt, base, now)
+    if not c then return end
+    local q = math.floor(v * 10 + 0.5)
+    if c._q ~= q then
+        if c._q and q > c._q then c._pop_t = now end
+        c._q = q
+        c.value = string.format(fmt, v)
+    end
+    local pop = math.max(0, 1 - (now - (c._pop_t or -10)) / 0.4)
+    c.value_scale = 1 + 0.35 * pop
+    local vc = c.value_color
+    vc[1] = base[1] + (1 - base[1]) * pop
+    vc[2] = base[2] + (1 - base[2]) * pop
+    vc[3] = base[3] + (1 - base[3]) * pop
+end
+
 function GrindView:_refreshRail()
     local rc = self._rail_c
     if not rc then return end
@@ -2195,6 +2236,13 @@ function GrindView:_refreshRail()
     fc[1] = base[1] + (1 - base[1]) * fpop
     fc[2] = base[2] + (1 - base[2]) * fpop
     fc[3] = base[3] + (1 - base[3]) * fpop
+
+    -- The live item counters: the value when its tenth moves, a pop each
+    -- time it climbs, the colour easing back from white.
+    local cx = ctrl.ctx or {}
+    local now = love.timer.getTime()
+    liveRailStat(rc.hands_s, cx.hands_per_second or 0, "%.1f", Theme.sem.won, now)
+    liveRailStat(rc.heaters, cx.heater_count or 0, "%d", Theme.sem.heat, now)
 
     -- TIED UP.
     local d_tied = self.displayed_tied or ctrl:tiedUp()

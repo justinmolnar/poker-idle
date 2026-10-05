@@ -14,6 +14,9 @@ return {
         focus    = "FOCUS",
         over_focus = "OVER FOCUS",  -- the same cell, once the board is past the cap
         tables   = "TABLES",        -- after the focus bar: "1 / 4 TABLES"
+        -- Live counters an owned item reads, shown only while it is owned:
+        hands_s  = "HANDS/S",       -- the board's hands a second (Hybrid Console)
+        heaters  = "HEATERS",       -- heaters burning now (Desk Speakers)
         next     = "NEXT",          -- after the count: "+3 NEXT"
         shove    = "SHOVE",
         deck     = "DECK",          -- the deck button, open with no deck in play yet
@@ -63,6 +66,8 @@ return {
         tied_up  = "$999.99",
         focus    = "100%",
         tables   = "99 / 99",
+        hands_s  = "99.9",
+        heaters  = "99",
         chips    = "999",
         next     = "+99",
         rate     = "999%",

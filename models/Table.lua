@@ -1313,32 +1313,7 @@ function Table:_update(dt, ctx)
         return nil
     end
 
-    local gtype = Lookups.findById(GameTypesData,self.game_type_id)
-    local pace_mult = (gtype and gtype.pace_mult) or 1
-    -- ctx.hand_pace_mult (Energy Drink, future pace items) compounds on
-    -- top of the gtype baseline.
-    -- The OVERLAY, not the raw ctx: a heated table deals faster, and that
-    -- is the most legible thing a status does. Safe because _tickStatuses
-    -- above runs on raw dt, so a status that speeds a table up cannot
-    -- shorten itself by doing so.
-    local pace_ctx = self:effectiveCtx(self._last_ctx)
-    local ctx_pace = (pace_ctx and pace_ctx.hand_pace_mult) or 1
-    -- Game-type scoped pace (Firehose): this table's own entry.
-    local by_g = pace_ctx and pace_ctx.hand_pace_mult_by_gtype
-    if by_g and by_g[self.game_type_id] then ctx_pace = ctx_pace * by_g[self.game_type_id] end
-    if self.game_type_id == "zoom" and pace_ctx then
-        -- Receipt Printer: a Zoom in a block of Zooms deals faster per
-        -- Zoom neighbour (the controller stamps the count each frame).
-        local block = pace_ctx.zoom_block_pace
-        if block and (self._zoom_neighbours or 0) > 0 then
-            ctx_pace = ctx_pace * (1 + block * self._zoom_neighbours)
-        end
-        -- Washing Machine: wins in a row spin the table faster, capped.
-        local combo = pace_ctx.zoom_combo_pace
-        if combo and (self._combo or 0) > 0 then
-            ctx_pace = ctx_pace * (1 + math.min(combo.cap or 0.5, (combo.value or 0) * self._combo))
-        end
-    end
+    local pace_mult, ctx_pace = self:paceParts()
     -- Focus: the board's factor, stamped by GrindController:update every
     -- frame. Over capacity every table plays slower; the hand pays in
     -- full. 1 when nothing has stamped it (a table outside the grind).
@@ -2214,6 +2189,37 @@ function Table:debugStats(ctx, opts)
     return OutcomeMath.evStats(self:effectiveCtx(ctx),
         Lookups.findById(GameTypesData, self.game_type_id),
         Lookups.findById(StakesData, self.stake_id), opts)
+end
+
+-- The table's pace, in two parts: its game type's own (`pace_mult`) and
+-- what items and statuses add on top (`boost`: Firehose, the Receipt
+-- Printer's Zoom block, the Washing Machine's streak, a heater...). The
+-- update deals at pace_mult * boost * focus; the view's pace badge shows
+-- `boost`. Readable while idle (the update stops computing at idle).
+-- The OVERLAY, not the raw ctx: a heated table deals faster, and that is
+-- the most legible thing a status does.
+function Table:paceParts(ctx)
+    local gtype = Lookups.findById(GameTypesData, self.game_type_id)
+    local pace_mult = (gtype and gtype.pace_mult) or 1
+    local pace_ctx = self:effectiveCtx(ctx or self._last_ctx)
+    local boost = (pace_ctx and pace_ctx.hand_pace_mult) or 1
+    -- Game-type scoped pace (Firehose): this table's own entry.
+    local by_g = pace_ctx and pace_ctx.hand_pace_mult_by_gtype
+    if by_g and by_g[self.game_type_id] then boost = boost * by_g[self.game_type_id] end
+    if self.game_type_id == "zoom" and pace_ctx then
+        -- Receipt Printer: a Zoom in a block of Zooms deals faster per
+        -- Zoom neighbour (the controller stamps the count each frame).
+        local block = pace_ctx.zoom_block_pace
+        if block and (self._zoom_neighbours or 0) > 0 then
+            boost = boost * (1 + block * self._zoom_neighbours)
+        end
+        -- Washing Machine: wins in a row spin the table faster, capped.
+        local combo = pace_ctx.zoom_combo_pace
+        if combo and (self._combo or 0) > 0 then
+            boost = boost * (1 + math.min(combo.cap or 0.5, (combo.value or 0) * self._combo))
+        end
+    end
+    return pace_mult, boost
 end
 
 function Table:estimateStats(ctx, opts)
