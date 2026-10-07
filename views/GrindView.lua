@@ -1046,14 +1046,14 @@ end
 -- The "i" beside Sharper Reads and Pot Control: the full breakdown of the
 -- next level, a table of the stakes it moves by the open game types, each
 -- cell "now {arrow} next". Sharper Reads: the odds. Pot Control: the stack
--- win, then the stack loss when it moves. Memoised per display revision.
+-- win. Memoised per display revision.
 local _info_memo = Memo.new("upgrade_info")
 local GT_PILL = { zoom = "{t:zoom}", hu = "{t:hu}", six_max = "{t:6m}", ko = "{t:ko}" }
 -- One decimal: a level moves odds by a point or two, whole percents would
 -- often read "52% -> 52%".
 local function pctCell(v) return string.format("%.1f%%", v * 100) end
 -- One table as a tooltip row, laid out like the board: the metric in the
--- corner, the game-type pills across in the strip's order, stake names
+-- corner (ODDS / STACK WINS), the game-type pills across in the strip's order, stake names
 -- down, each cell "now {arrow} next" (a dash where the level moves nothing).
 -- Ruled: a shaded header row, a line under it and between columns.
 local CELL_PAD_X, CELL_PAD_Y = 8, 3
@@ -1123,14 +1123,13 @@ local function gridRow(game, title, cols, rows_)
     }
 end
 
--- The shares a table shows, from a pool: odds, stack wins, stack losses
--- (absolute shares of all hands) and, for a tournament, the chance of 1st.
+-- The shares a table shows, from a pool: odds, stack wins (an absolute
+-- share of all hands) and, for a tournament, the chance of 1st.
 local function shares(pool)
     local wc = pool.win_chance or 0
     return {
         odds  = wc,
         swin  = wc * ((pool.win_dist or {}).stack or 0),
-        sloss = (1 - wc) * ((pool.loss_dist or {}).stack or 0),
         first = pool.pos_probs and pool.pos_probs[1],
     }
 end
@@ -1147,11 +1146,11 @@ function GrindView:_upgradeInfoRowsUncached(up)
     end
     local sharper = up.tooltip_metric == "win_chance"
     local function cell(a, b) return pctCell(a) .. " {arrow} " .. pctCell(b) end
-    local win_rows, loss_rows, any_loss = {}, {}, false
+    local win_rows = {}
     for _, stake in ipairs(Stakes) do
         if stakeVisible(self, stake) then
             local name = stake.display_name or stake.id
-            local wr_, lr_ = { name = name, cells = {} }, { name = name, cells = {} }
+            local wr_ = { name = name, cells = {} }
             local moved = false
             for ci, c in ipairs(cols) do
                 local nxt = self:_stakePreview(up, stake, c.g)
@@ -1170,13 +1169,10 @@ function GrindView:_upgradeInfoRowsUncached(up)
                         wr_.cells[ci] = cell(a.odds, b.odds); moved = true
                     else
                         wr_.cells[ci] = cell(a.swin, b.swin); moved = true
-                        if math.abs(b.sloss - a.sloss) > 0.00005 then
-                            lr_.cells[ci] = cell(a.sloss, b.sloss); any_loss = true
-                        end
                     end
                 end
             end
-            if moved then win_rows[#win_rows + 1] = wr_; loss_rows[#loss_rows + 1] = lr_ end
+            if moved then win_rows[#win_rows + 1] = wr_ end
         end
     end
     if #win_rows == 0 then
@@ -1187,22 +1183,6 @@ function GrindView:_upgradeInfoRowsUncached(up)
         rows[#rows + 1] = gridRow(self.game, "ODDS", cols, win_rows)
     else
         rows[#rows + 1] = gridRow(self.game, "STACK WINS", cols, win_rows)
-        if any_loss then
-            -- Losses never apply to a tournament's column: leave it out.
-            local lcols, lrows = {}, {}
-            for ci, c in ipairs(cols) do
-                if not c.g.chip_stack_table then lcols[#lcols + 1] = ci end
-            end
-            local cs = {}
-            for _, ci in ipairs(lcols) do cs[#cs + 1] = cols[ci] end
-            for _, r in ipairs(loss_rows) do
-                local nr = { name = r.name, cells = {} }
-                for k, ci in ipairs(lcols) do nr.cells[k] = r.cells[ci] end
-                lrows[#lrows + 1] = nr
-            end
-            rows[#rows + 1] = { text = "", style = "sm" }
-            rows[#rows + 1] = gridRow(self.game, "STACK LOSSES", cs, lrows)
-        end
     end
     if has_ko then
         rows[#rows + 1] = _blurbRow(self, "{t:ko}: your chance of finishing 1st.")
