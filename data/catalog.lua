@@ -157,7 +157,7 @@ local items = {
         id          = "wall_hook",
         act         = 2,
         name        = "Wall Hook",
-        effect_text = "Each table type you sit at (stake and game): +1% {c:chance:odds} at {t:any}.",
+        effect_text = "Each table type you sit at (stake and game): +1% {c:chance:odds}.",
         description = "Sturdy wall hook for hanging your hat and gear.",
         sprite      = "wall_hook",
         phase       = "mid",
@@ -261,7 +261,7 @@ local items = {
         id          = "corkboard",
         refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Corkboard",
-        effect_text = "+5% {c:chance:odds} at {t:any}, and +1% per item you own, up to +10%.",
+        effect_text = "+5% {c:chance:odds}, and +1% per item you own, up to +10%.",
         description = "Pins, notes, one photo of a beach.",
         sprite      = "corkboard",
         phase       = "demo",
@@ -278,7 +278,7 @@ local items = {
                 { kind = "win_chance_shift", amount = 0.10 },
                 { kind = "odds_per_item", value = 0.01, cap = 0.20 },
             },
-            effect_text = "+10% {c:chance:odds} at {t:any}, and +1% per item you own, up to +20%.",
+            effect_text = "+10% {c:chance:odds}, and +1% per item you own, up to +20%.",
         },
     },
     {
@@ -793,7 +793,7 @@ local items = {
         -- as a "???" (the mystery below) and peels when Act 2 opens. In the
         -- demo build it is a permanent "???": the tease is the point.
         name        = "Prize Vase",
-        effect_text = "Win a {t:ko}: +1% {c:chance:odds} at {t:any} for the run.",
+        effect_text = "Win a {t:ko}: +1% {c:chance:odds} for the run.",
         readout     = { kind = "run_ratchet", effect = "win_chance_shift", field = "amount" },
         description = "Came with a ribbon. The ribbon didn't last.",
         sprite      = "prize_vase",
@@ -816,7 +816,7 @@ local items = {
             effects = {
                 { kind = "proc", proc = "prize_vase_ratchet_corrupt" },
             },
-            effect_text = "Win a {t:ko}: +3% {c:chance:odds} at {t:any} for the run.",
+            effect_text = "Win a {t:ko}: +3% {c:chance:odds} for the run.",
         },
     },
     {
@@ -1559,7 +1559,7 @@ local items = {
         id          = "desk_speakers",
         name        = "Desk Speakers",
         act = 2,
-        effect_text = "Each {c:heat:heater} burning: +1% {c:chance:odds} at {t:any}.",
+        effect_text = "Each {c:heat:heater} burning: +1% {c:chance:odds}.",
         description = "Two small ones. Turn it up and the whole room feels it.",
         sprite      = "desk_speakers",
         phase       = "mid",
@@ -1578,7 +1578,7 @@ local items = {
             effects = {
                 { kind = "odds_per_heater", value = 0.03 },
             },
-            effect_text = "Each {c:heat:heater} burning: +3% {c:chance:odds} at {t:any}.",
+            effect_text = "Each {c:heat:heater} burning: +3% {c:chance:odds}.",
         },
     },
     {
@@ -1704,7 +1704,7 @@ local items = {
         id          = "rubber_duck",
         act         = 2,
         name        = "Rubber Duck",
-        effect_text = "A {t:ko} win pays +2% {c:chance:odds} at {t:any} for the run.",
+        effect_text = "A {t:ko} win pays +2% {c:chance:odds} for the run.",
         allow_numbers = { 2 },
         see_also    = { "prize_vase" },
         description = "Squeak. It saw the whole thing.",
@@ -1778,7 +1778,7 @@ local items = {
         id          = "bookshelf",
         act         = 2,
         name        = "Bookshelf",
-        effect_text = "{c:upgrade:Sharper_Reads} and {c:upgrade:Pot_Control}: +1 effective level at every stake.",
+        effect_text = "{c:upgrade:Sharper_Reads} and {c:upgrade:Pot_Control}: +1 effective level.",
         description = "Every book on it is about the same thing.",
         sprite      = "bookshelf",
         phase       = "late",
@@ -1797,7 +1797,7 @@ local items = {
             effects = {
                 { kind = "run_upgrade_bonus_levels", value = 4 },
             },
-            effect_text = "{c:upgrade:Sharper_Reads} and {c:upgrade:Pot_Control}: +4 effective levels at every stake.",
+            effect_text = "{c:upgrade:Sharper_Reads} and {c:upgrade:Pot_Control}: +4 effective levels.",
         },
     },
     {

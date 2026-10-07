@@ -53,10 +53,9 @@ local RunUpgrades = {
     {
         id          = "sharper_reads",
         name        = "Sharper Reads",
-        description = "+{c:chance:odds} at {t:any}",
+        description = "+{c:chance:odds}",
         tooltip_blurb = {
-            "Raises your {c:chance:odds} of winning a hand,",
-            "at every stake and game type.",
+            "Raises your {c:chance:odds} of winning a hand.",
         },
         icon        = "sharper_reads",
         -- Drives a per-stake range tooltip (win chance, current → next level).
@@ -84,7 +83,7 @@ local RunUpgrades = {
         name        = "Pot Control",
         description = "More {w:stack}, fewer {l:stack}.",
         tooltip_blurb = {
-            "More {w:stack}, fewer {l:stack}, at every stake.",
+            "More {w:stack}, fewer {l:stack}.",
             "{w:stack} are the wins that pay {chip}.",
         },
         icon        = "pot_control",

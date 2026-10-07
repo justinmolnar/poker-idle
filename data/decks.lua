@@ -189,7 +189,7 @@ local Decks = {
             text    = "One-game board deal speed ×1.25.",
             effects = { { kind = "pure_board_pace", value = 1.25 } },
         },
-        bonus       = { text = "+{n}% {c:won:winnings} when {t:any} is one game", per_level = 20, compound = true },
+        bonus       = { text = "+{n}% {c:won:winnings} when the board is one game", per_level = 20, compound = true },
         flavor_text = "One game. Every table. Perfect execution.",
         unlock = {
             kind      = "total_hands_at_4plus",
