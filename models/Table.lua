@@ -468,7 +468,7 @@ function Table:serialize()
         _ko_hand = self._ko_hand,
         -- A tournament hand in flight: its chips were settled at the deal.
         _ko_flow = self._ko_flow, _ko_in = self._ko_in, _ko_amount = self._ko_amount,
-        _sat_out = self._sat_out,
+        _sat_out = self._sat_out, _ko_pair = self._ko_pair,
         ko = self.ko and self.ko:serialize() or nil,
         opponents = (function()
             local out = {}
@@ -561,6 +561,7 @@ function Table.restore(rec, ctx, poker_events, effects_registry, bus)
     t._ko_hand             = rec._ko_hand
     t._ko_flow, t._ko_in, t._ko_amount = rec._ko_flow, rec._ko_in, rec._ko_amount
     t._sat_out = rec._sat_out
+    t._ko_pair = rec._ko_pair
     t.ko = KoSession.restore(rec.ko)
     -- A tournament marked mid-run without its per-seat state cannot deal
     -- (the first hand nil-indexes seat_busted). Restart it cleanly. With
@@ -723,18 +724,19 @@ function Table:undoChipFlow()
     return true
 end
 
--- Decide a tournament hand's chips (KoModel.settleHand): the per-seat
--- deltas and the seats in the pot, for the side the hand went and what it
--- is worth (outcome_delta, multipliers in). Called at the deal, and again
--- when a punch flips the hand (:interrupt).
+-- Decide the player's tournament hand's chips (KoModel.settle): heads-up
+-- against the other seat drawn for the hand, for the side the hand went
+-- and what it is worth (outcome_delta, multipliers in). Called at the
+-- deal, and again when a punch flips the hand (:interrupt).
 function Table:_settleKoHand(gtype, won)
-    local n = (gtype.seats or 0) + 1
-    local alive = {}
-    for s = 1, n do alive[s] = not self.seat_busted[s] end
+    local n    = (gtype.seats or 0) + 1
+    local me   = self.player_seat_fixed
+    local pair = self._ko_pair or {}
+    local opp  = (pair[1] == me) and pair[2] or pair[1]
     self._ko_amount = self._ko_amount or math.abs(self.outcome_delta or 0)
-    self._ko_flow, self._ko_in = KoModel.settleHand(self.seat_stacks, alive,
-        self.player_seat_fixed, n, won, self._ko_amount, gtype.seats or 1,
-        love.math.random)
+    if not opp then self._ko_flow, self._ko_in = {}, { [me] = true }; return end
+    self._ko_flow, self._ko_in = KoModel.settle(self.seat_stacks, n,
+        won and me or opp, won and opp or me, self._ko_amount)
 end
 
 -- Point the script's push at the seat the chips go to, and show that seat
@@ -812,17 +814,19 @@ function Table:deal(ctx)
         self._pre_hand_bust_count = (self.bust_order and #self.bust_order) or 0
     end
 
-    -- Tournaments: the player is in about gtype.player_in_hand of the
-    -- hands; the rest two opponents play (KoModel.settleFieldHand), which
-    -- is how the field busts itself. Never a hand a punch is owed to.
+    -- Tournaments: every hand is two live seats, drawn at random, heads-up
+    -- (KoModel.pickPair). The player is one seat among them; a hand they
+    -- are not drawn into the other two play. A punch owed to the player
+    -- always draws them in.
     local sat_out = false
-    if gtype.chip_stack_table and self.seat_stacks and self._forced_next_won == nil
-       and (gtype.player_in_hand or 1) < 1 then
-        local opps = 0
-        for sseat = 1, (gtype.seats or 0) + 1 do
-            if sseat ~= self.player_seat_fixed and not self.seat_busted[sseat] then opps = opps + 1 end
-        end
-        sat_out = opps >= 2 and love.math.random() >= gtype.player_in_hand
+    if gtype.chip_stack_table and self.seat_stacks then
+        local n, me = (gtype.seats or 0) + 1, self.player_seat_fixed
+        local alive = {}
+        for sseat = 1, n do alive[sseat] = not self.seat_busted[sseat] end
+        local a, b = KoModel.pickPair(alive, n, love.math.random,
+                                      (self._forced_next_won ~= nil) and me or nil)
+        self._ko_pair = { a, b }
+        sat_out = (a ~= me and b ~= me)
     end
     self._sat_out = sat_out or nil
 
@@ -836,8 +840,7 @@ function Table:deal(ctx)
         if sat_out then
             -- A hand the player sits out: only its size is rolled (the
             -- field's pot, at the size of a hand the player would lose).
-            local _, _, kld = OutcomeMath.koSqueeze(wc, wd, ld, gtype)
-            won, tier = false, OutcomeMath.sampleDist(kld) or "small"
+            won, tier = false, OutcomeMath.sampleDist(ld) or "small"
         else
             -- Desk Plant (ctx.tilted_loss_dist_shifts): a tilt's forced hand
             -- loses smaller here. Only the hand a tilt decides, only at the
@@ -881,12 +884,6 @@ function Table:deal(ctx)
             -- when this hand finalizes, so the fire lives exactly as long as
             -- the mechanic (_finalizeHand).
             if self._forced_next_won ~= nil then self._punch_live = true end
-            -- A tournament hand is squeezed toward a coinflip (gtype
-            -- edge_squeeze): over a whole tournament a per-hand edge
-            -- compounds. The readout squeezes the same (evStats).
-            if gtype.chip_stack_table then
-                wc, wd, ld = OutcomeMath.koSqueeze(wc, wd, ld, gtype)
-            end
             OutcomeMath.last_rerolled = false
             won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ec, gtype,
                                                   self._forced_next_won)
@@ -1011,19 +1008,19 @@ function Table:deal(ctx)
     -- in GrindController, where live bankroll is available (a tournament
     -- gets it on its payout, not its chips).
 
-    -- A tournament hand's chips: who pays whom, by the one rule the
-    -- readout plays too (KoModel.settleHand). Decided here with the money;
-    -- the script below only animates it, and _reconcileChipFlow applies it.
+    -- A tournament hand's chips: who pays whom, by the rules the readout
+    -- plays too (KoModel). Decided here with the money; the script below
+    -- only animates it, and _reconcileChipFlow applies it.
     if gtype.chip_stack_table and self.seat_stacks then
         if sat_out then
-            -- Not the player's pot: no multipliers, no money.
+            -- Not the player's pot: a fair flip between the two drawn,
+            -- no multipliers, no money.
             self.outcome_delta = 0
             self._ko_amount = magnitude_bb * hand_bb
-            local n = (gtype.seats or 0) + 1
-            local alive = {}
-            for sseat = 1, n do alive[sseat] = not self.seat_busted[sseat] end
-            self._ko_flow, self._ko_in = KoModel.settleFieldHand(self.seat_stacks, alive,
-                self.player_seat_fixed, n, self._ko_amount, love.math.random)
+            local a, b = self._ko_pair[1], self._ko_pair[2]
+            if love.math.random() < 0.5 then a, b = b, a end
+            self._ko_flow, self._ko_in = KoModel.settle(self.seat_stacks,
+                (gtype.seats or 0) + 1, a, b, self._ko_amount)
         else
             self:_settleKoHand(gtype, won)
         end

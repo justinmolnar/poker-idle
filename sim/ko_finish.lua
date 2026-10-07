@@ -1,7 +1,7 @@
 -- sim/ko_finish.lua
 --
 -- Tournaments played through the real engine (GrindController, Table,
--- HandScript, KoModel.settleHand): a KO table dealt, played to the end,
+-- HandScript, KoModel): a KO table dealt, played to the end,
 -- re-entered, many times.
 --
 -- Asserts (default):
@@ -10,7 +10,7 @@
 --             are 1..8
 --   readout   evStats' chance of 1st is within 4 points of the rate the
 --             table reaches (NL2 bare, NL10 with Sharper Reads + Pot
---             Control 5)
+--             Control 8)
 --   reach     the readout's 1st place rises with Sharper Reads, Pot
 --             Control, a winnings multiplier and a position bonus
 --   punches   a heater at the start of every tournament raises the real
@@ -120,9 +120,9 @@ for f in pairs(bare.finishes) do if f < 1 or f > 8 then in_range = false end end
 c.ok(in_range, "finishes are 1..8")
 c.ok(math.abs(bare.first - bare.readout) <= 0.04,
      ("NL2 bare: the readout's 1st (%.1f%%) is what the table reaches (%.1f%%)"):format(bare.readout * 100, bare.first * 100))
-local up = play(1000, "s002", { upgrades = { sharper_reads = 5, pot_control = 5 } })
+local up = play(2000, "s002", { upgrades = { sharper_reads = 8, pot_control = 8 } })
 c.ok(math.abs(up.first - up.readout) <= 0.04,
-     ("NL10 SR+PC 5: the readout's 1st (%.1f%%) is what the table reaches (%.1f%%)"):format(up.readout * 100, up.first * 100))
+     ("NL10 SR+PC 8: the readout's 1st (%.1f%%) is what the table reaches (%.1f%%)"):format(up.readout * 100, up.first * 100))
 
 -- ── reach: the readout moves with the build ─────────────────────────────
 do

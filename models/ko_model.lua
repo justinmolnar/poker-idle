@@ -2,25 +2,25 @@
 --
 -- A tournament's chip rules, and the readout they add up to.
 --
--- KoModel.settleHand is THE rule for who pays whom in a tournament hand:
--- models/Table:deal calls it for every hand a KO table plays, and
--- KoModel.run plays the same rule a couple of thousand times for the
--- readout (finish odds, length). One function, so the number on the felt
+-- Every tournament hand is two live seats, drawn at random from everyone
+-- still in, playing heads-up for effective stacks (nobody wins more off a
+-- seat than they risked against it). The player is just one of the seats:
+-- when they are drawn it is their hand (their odds, sizes and multipliers
+-- decide it); when they are not, the other two play it at even odds. So a
+-- player with no edge finishes every place about equally often, and only
+-- their edge moves that. models/Table:deal plays these rules every hand;
+-- KoModel.run plays them a couple of thousand times for the readout
+-- (finish odds, length). One set of functions, so the number on the felt
 -- is what the table does.
 --
 --   * every seat sits down with `depth` big blinds (gtype.starting_stack_bb);
---   * the player is in `involve` of the hands (gtype.player_in_hand); the
---     rest two live opponents play at a loss-sized pot (settleFieldHand);
---   * wc / wd / ld arrive squeezed toward a coinflip (OutcomeMath.koSqueeze);
---   * each hand the player wins with `wc`, at a tier drawn from wd / ld, a
---     magnitude from the game type's pot bands, times that tier's
---     multiplier, in the tournament's big blind (average live stack /
---     depth, doubled every `level_hands` hands: the blind clock);
---   * settleHand moves the chips: the pot is multiway. A win (capped by the
---     seats rule, seats x the player's stack) is paid half each by two live
---     opponents, then by the biggest stacks. A loss (capped by the player's
---     stack) goes to one live opponent, and a second opponent in the pot
---     pays that winner as much again (the field busts each other too);
+--   * pickPair draws the hand's two seats (the player always, when a punch
+--     is owed to them);
+--   * the player's hand: wins with `wc`, a tier from wd / ld, a magnitude
+--     from the pot bands, times that tier's multiplier, in the
+--     tournament's big blind (average live stack / depth, doubled every
+--     `level_hands` hands);
+--   * the field's hand: a fair flip at the size of a hand from ld;
 --   * seats at zero are out; the player's finish is the seats still in
 --     (plus those out in the same hand holding more) plus one.
 --
@@ -34,84 +34,31 @@ local RUNS      = 2000
 local MAX_HANDS = 400
 local TIERS     = { "small", "medium", "large", "stack" }
 
--- One hand's chips. stacks[seat] and alive[seat] (true = still in) for
--- seats 1..n; `amount` is what the hand is worth (the outcome's chips,
--- multipliers in); rnd() returns [0, 1). Returns the per-seat deltas and
--- the seats in the pot. Does not touch `stacks`.
-function KoModel.settleHand(stacks, alive, player, n, won, amount, seats_rule, rnd)
-    local deltas, involved = {}, { [player] = true }
-    for s = 1, n do deltas[s] = 0 end
-    local opps = {}
-    for s = 1, n do
-        if s ~= player and alive[s] then opps[#opps + 1] = s end
+-- The hand's two seats, drawn from the live ones. `force` (a seat) is
+-- always one of them. Returns a, b (a == force when given).
+function KoModel.pickPair(alive, n, rnd, force)
+    local live = {}
+    for s = 1, n do if alive[s] and s ~= force then live[#live + 1] = s end end
+    if force then
+        if #live == 0 then return force, nil end
+        return force, live[1 + math.floor(rnd() * #live)]
     end
-    if #opps == 0 then return deltas, involved end
-    local fi = 1 + math.floor(rnd() * #opps)
-    local first = opps[fi]
-    local second
-    if #opps > 1 then
-        local si = 1 + math.floor(rnd() * (#opps - 1))
-        if si >= fi then si = si + 1 end
-        second = opps[si]
-    end
-    involved[first] = true
-    if second then involved[second] = true end
-    local mine = stacks[player] or 0
-    local function left_of(s) return (stacks[s] or 0) + deltas[s] end
-
-    if won then
-        local amt  = math.min(amount, (seats_rule or 1) * mine)
-        local owed = amt
-        for _, s in ipairs(second and { first, second } or { first }) do
-            local take = math.min(second and amt / 2 or amt, left_of(s))
-            deltas[s] = deltas[s] - take
-            owed = owed - take
-        end
-        if owed > 1e-9 then
-            table.sort(opps, function(a, b) return left_of(a) > left_of(b) end)
-            for _, s in ipairs(opps) do
-                if owed <= 1e-9 then break end
-                local take = math.min(owed, left_of(s))
-                if take > 0 then
-                    deltas[s] = deltas[s] - take
-                    owed = owed - take
-                    involved[s] = true
-                end
-            end
-        end
-        deltas[player] = amt - math.max(0, owed)
-    else
-        local amt = math.min(amount, mine)
-        deltas[player] = -amt
-        deltas[first]  = deltas[first] + amt
-        if second then
-            local take = math.min(amt, left_of(second))
-            deltas[second] = deltas[second] - take
-            deltas[first]  = deltas[first] + take
-        end
-    end
-    return deltas, involved
+    if #live < 2 then return live[1], nil end
+    local ai = 1 + math.floor(rnd() * #live)
+    local bi = 1 + math.floor(rnd() * (#live - 1))
+    if bi >= ai then bi = bi + 1 end
+    return live[ai], live[bi]
 end
 
--- A hand the player sits out: two live opponents play it, one wins
--- `amount` off the other (capped by what the loser holds). Same return
--- shape as settleHand; the player is not in the pot.
-function KoModel.settleFieldHand(stacks, alive, player, n, amount, rnd)
-    local deltas, involved = {}, {}
+-- One heads-up hand's chips: `winner` takes `amount` off `loser`, capped
+-- by both stacks (effective stacks). Returns per-seat deltas (1..n) and
+-- the two seats in the pot. Does not touch `stacks`.
+function KoModel.settle(stacks, n, winner, loser, amount)
+    local deltas = {}
     for s = 1, n do deltas[s] = 0 end
-    local opps = {}
-    for s = 1, n do
-        if s ~= player and alive[s] then opps[#opps + 1] = s end
-    end
-    if #opps < 2 then return deltas, involved end
-    local wi = 1 + math.floor(rnd() * #opps)
-    local li = 1 + math.floor(rnd() * (#opps - 1))
-    if li >= wi then li = li + 1 end
-    local w, l = opps[wi], opps[li]
-    local take = math.min(amount, stacks[l] or 0)
-    deltas[l], deltas[w] = -take, take
-    involved[w], involved[l] = true, true
-    return deltas, involved
+    local take = math.min(amount, stacks[winner] or 0, stacks[loser] or 0)
+    deltas[loser], deltas[winner] = -take, take
+    return deltas, { [winner] = true, [loser] = true }
 end
 
 -- Park-Miller: exact in doubles, the same on LuaJIT and PUC Lua.
@@ -132,27 +79,23 @@ end
 
 local memo, memo_n = {}, 0
 
--- in = { wc, wd, ld, win_mult = {tier = m}, loss_mult = {tier = m},
---        bands = { win = {tier = {lo, hi}}, loss = {...} },
---        n_seats, depth, seats_rule, level_hands, key }
--- -> { pos_probs = {1..n}, exp_hands }
 -- Inputs are rounded to half a percent before they key the memo and the
 -- run, so a readout whose odds tick by a hair (a heater landing, an item's
 -- count moving) reuses its result instead of playing the field again.
 local function q(v) return math.floor((v or 0) * 200 + 0.5) / 200 end
 
+-- in = { wc, wd, ld, win_mult = {tier = m}, loss_mult = {tier = m},
+--        bands = { win = {tier = {lo, hi}}, loss = {...} },
+--        n_seats, depth, level_hands, key }
+-- -> { pos_probs = {1..n}, exp_hands }
 function KoModel.run(inp)
     local wd, ld, wm, lm = {}, {}, {}, {}
     for _, t in ipairs(TIERS) do
         wd[t], ld[t] = q(inp.wd[t]), q(inp.ld[t])
         wm[t], lm[t] = q(inp.win_mult[t] or 1), q(inp.loss_mult[t] or 1)
     end
-    inp = { wc = q(inp.wc), wd = wd, ld = ld, win_mult = wm, loss_mult = lm,
-            bands = inp.bands, n_seats = inp.n_seats, depth = inp.depth,
-            seats_rule = inp.seats_rule, level_hands = inp.level_hands, key = inp.key,
-            involve = inp.involve }
-    local parts = { ("%.3f"):format(inp.wc), inp.n_seats, inp.depth, inp.seats_rule, inp.level_hands,
-                    inp.involve or 1 }
+    local wc = q(inp.wc)
+    local parts = { ("%.3f"):format(wc), inp.n_seats, inp.depth, inp.level_hands }
     for _, t in ipairs(TIERS) do
         parts[#parts + 1] = ("%.3f/%.3f/%.3f/%.3f"):format(wd[t], ld[t], wm[t], lm[t])
     end
@@ -176,22 +119,22 @@ function KoModel.run(inp)
             local bb = math.max(1, total / n_alive / depth)
                      * 2 ^ ((hands - 1) / inp.level_hands)
             for s = 1, n do pre[s] = stacks[s] end
+            local a, b = KoModel.pickPair(alive, n, rnd)
             local deltas
-            if n_alive > 2 and rnd() >= (inp.involve or 1) then
-                -- The player sits this one out: the field plays it, at the
-                -- size of a hand the player loses (their dist, no mults).
-                local tier = pick(inp.ld)
-                local band = inp.bands.loss[tier]
-                local mag  = band and (band.lo + (band.hi - band.lo) * rnd()) or 1
-                deltas = KoModel.settleFieldHand(stacks, alive, 1, n, mag * bb, rnd)
-            else
-                local won  = rnd() < inp.wc
-                local tier = pick(won and inp.wd or inp.ld)
+            if a == 1 or b == 1 then
+                local opp  = (a == 1) and b or a
+                local won  = rnd() < wc
+                local tier = pick(won and wd or ld)
                 local band = (won and inp.bands.win or inp.bands.loss)[tier]
                 local mag  = band and (band.lo + (band.hi - band.lo) * rnd()) or 1
-                local mult = (won and inp.win_mult or inp.loss_mult)[tier] or 1
-                deltas = KoModel.settleHand(stacks, alive, 1, n, won,
-                                            mag * bb * mult, inp.seats_rule, rnd)
+                local mult = (won and wm or lm)[tier] or 1
+                deltas = KoModel.settle(stacks, n, won and 1 or opp, won and opp or 1, mag * bb * mult)
+            else
+                local tier = pick(ld)
+                local band = inp.bands.loss[tier]
+                local mag  = band and (band.lo + (band.hi - band.lo) * rnd()) or 1
+                if rnd() < 0.5 then a, b = b, a end
+                deltas = KoModel.settle(stacks, n, a, b, mag * bb)
             end
             for s = 1, n do stacks[s] = stacks[s] + deltas[s] end
             local out_now = {}

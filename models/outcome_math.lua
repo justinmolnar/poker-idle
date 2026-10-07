@@ -261,26 +261,6 @@ local function fillRatio(units, window, ctx)
 end
 OutcomeMath.fillRatio = fillRatio
 
--- A tournament's hand, squeezed toward a coinflip by gtype.edge_squeeze
--- (1 = the cash hand as is, 0 = an even flip at even sizes): the win
--- chance toward 50%, and the win and loss tier shapes toward their mean.
--- The sign of the edge stays (a stake you out-gear still favours you, one
--- that out-gears you still doesn't), its size shrinks, because over a
--- whole tournament a per-hand edge compounds. Money multipliers are not
--- squeezed. Table:deal and the readout (evStats) both apply it.
-function OutcomeMath.koSqueeze(wc, wd, ld, gtype)
-    local k = gtype and gtype.edge_squeeze
-    if not k or k >= 1 then return wc, wd, ld end
-    local nwd, nld = {}, {}
-    for _, t in ipairs(TIER_KEYS) do
-        local a, b = (wd and wd[t]) or 0, (ld and ld[t]) or 0
-        local m = (a + b) / 2
-        nwd[t] = m + (a - m) * k
-        nld[t] = m + (b - m) * k
-    end
-    return 0.5 + ((wc or 0.5) - 0.5) * k, nwd, nld
-end
-
 -- Linear interpolation between two distributions (per-tier).
 local function lerpDist(naked, capped, t)
     local d = {}
@@ -964,14 +944,11 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
             bands.win[t]  = tierBand(t, gtype, true)
             bands.loss[t] = tierBand(t, gtype, false)
         end
-        local kwc, kwd, kld = OutcomeMath.koSqueeze(wc, wd, ld, gtype)
         local sim = KoModel.run({
-            wc = kwc, wd = kwd, ld = kld, win_mult = win_m, loss_mult = loss_m,
+            wc = wc, wd = wd, ld = ld, win_mult = win_m, loss_mult = loss_m,
             bands = bands, n_seats = n_seats,
             depth = gtype.starting_stack_bb or 10,
             level_hands = gtype.blind_level_hands or 1e9,
-            involve = gtype.player_in_hand or 1,
-            seats_rule = gtype.seats or 1,
             key = gtype.id,
         })
 
