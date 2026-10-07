@@ -53,7 +53,7 @@ local RunUpgrades = {
     {
         id          = "sharper_reads",
         name        = "Sharper Reads",
-        description = "+{c:chance:odds}",
+        description = "Win more hands.",
         tooltip_blurb = {
             "Raises your {c:chance:odds} of winning a hand.",
         },
