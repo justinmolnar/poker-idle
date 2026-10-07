@@ -39,6 +39,10 @@ love.graphics.print = pr
 c.ok((rec.calls.rectangle or 0) >= 4, ("the pill and the tabletop draw as rects (%d)"):format(rec.calls.rectangle or 0))
 c.ok(printed, "the code 6M is printed")
 
+local bare = IconText.spans("{table} ADD TABLE", F)
+c.ok(bare[1] and bare[1].kind == "icon" and bare[1].token == "table" and bare[1].w > 0,
+     "{table} is the tabletop icon alone (ADD TABLE's header)")
+
 local lit = IconText.spans("{t:nope}", F)
 c.eq(#lit, 0, "an unknown {t:…} stays literal text")
 

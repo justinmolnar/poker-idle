@@ -7,6 +7,8 @@
 -- Tokens (a token holds only word characters, "_", "-" and ":"):
 --   {chip} {achip}                   → the Gold Chip / anti-chip glyphs
 --   {arrow}                          → a right-pointing "becomes" arrow
+--   {table}                          → the tabletop icon alone (the table
+--                                      pills' icon, e.g. by ADD TABLE)
 --   {small} {medium} {large} {stack} → outcome-tier glyphs via TierGlyph; a
 --                                      win/loss prefix may be given as
 --                                      "{l:large}" / "{w:small}" (absent → win)
@@ -189,7 +191,7 @@ local function parseUncached(str, pills)
             els[#els + 1] = { kind = "tint", s = word, color = tint, cat = cat, glyph = WORD_GLYPH[cat] }
         elseif key then
             els[#els + 1] = { kind = "key", s = key }
-        elseif token == "chip" or token == "achip" or token == "arrow" then
+        elseif token == "chip" or token == "achip" or token == "arrow" or token == "table" then
             els[#els + 1] = { kind = "icon", token = token }
         elseif token:match("^t:[%w_]+$") and TABLE_PILLS[token:sub(3)] then
             local t = TABLE_PILLS[token:sub(3)]
@@ -279,6 +281,7 @@ local function elementWidth(el, font, m)
         return w
     end
     if el.kind == "key"  then return font:getWidth(el.s) + 2 end
+    if el.kind == "icon" and el.token == "table" then return math.floor(m.ink * 1.5) + m.gap end
     if el.kind == "icon" then return m.size + m.gap end
     if el.kind == "item" then return m.size + m.gap end
     if el.kind == "table" then
@@ -323,6 +326,17 @@ local function drawPill(el, x, y, font, m, color, alpha)
     end
 end
 
+-- The tabletop: a rounded rail (the heading colour) around felt, iw x ih.
+local function drawTabletop(ix, iy, iw, ih, alpha)
+    local tp = Theme.table_pill or {}
+    local ir = math.max(1, math.floor(ih * 0.4))
+    Theme.setColor(Theme.fg.heading, alpha)
+    love.graphics.rectangle("fill", ix, iy, iw, ih, ir)
+    Theme.setColor(tp.felt or Theme.bg.felt, alpha)
+    local inset = math.max(1, math.floor(ih * 0.2))
+    love.graphics.rectangle("fill", ix + inset, iy + inset, iw - inset * 2, ih - inset * 2, math.max(1, ir - inset))
+end
+
 -- A table pill: the felt tab, the tabletop (a rounded rail around felt, at
 -- the ink height, 1.5:1), then the code.
 local function drawTable(el, x, y, font, m, alpha)
@@ -337,13 +351,8 @@ local function drawTable(el, x, y, font, m, alpha)
     Theme.setColor(tp.rim or Theme.fg.heading, alpha)
     love.graphics.setLineWidth(1)
     love.graphics.rectangle("line", x + 0.5, py + 0.5, w - 1, ph - 1, r)
-    local ix, iy, ih = x + m.pad_x, y + m.ink_y, m.ink
-    local ir = math.max(1, math.floor(ih * 0.4))
-    Theme.setColor(Theme.fg.heading, alpha)
-    love.graphics.rectangle("fill", ix, iy, iw, ih, ir)
-    Theme.setColor(tp.felt or Theme.bg.felt, alpha)
-    local inset = math.max(1, math.floor(ih * 0.2))
-    love.graphics.rectangle("fill", ix + inset, iy + inset, iw - inset * 2, ih - inset * 2, math.max(1, ir - inset))
+    local ix = x + m.pad_x
+    drawTabletop(ix, y + m.ink_y, iw, m.ink, alpha)
     Theme.setColor(Theme.fg.heading, alpha)
     love.graphics.setFont(font)
     love.graphics.print(el.s, ix + iw + m.gap, y)
@@ -383,6 +392,7 @@ local function drawElement(game, el, x, y, font, m, color, alpha)
     elseif el.kind == "icon" then
         if el.token == "chip" then Icons.drawChip(game, x, y, m.size, alpha)
         elseif el.token == "achip" then Icons.drawAntiChip(game, x, y, m.size, alpha)
+        elseif el.token == "table" then drawTabletop(x, y + m.ink_y, math.floor(m.ink * 1.5), m.ink, alpha)
         else drawArrow(x, y, m.size, color, alpha) end
     elseif el.kind == "table" then
         drawTable(el, x, y, font, m, alpha)

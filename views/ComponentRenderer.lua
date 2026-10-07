@@ -775,23 +775,31 @@ function CR._drawComp(comp, px, pw, p, y, game, _scroll_view)
     return def.draw(comp, px, pw, p, y, game)
 end
 
+-- A label's text: through IconText when it carries {tokens} (an icon beside
+-- the words, e.g. ADD TABLE's tabletop), a plain print otherwise.
+local function labelSay(game, text, x, y, font, color)
+    if text:find("{", 1, true) then
+        IconText.draw(game, text, x, y, font, color, 1, IconText.PLAIN)
+    else
+        Theme.setColor(color)
+        love.graphics.print(text, x, y)
+    end
+end
+
 function CR._label(comp, px, pw, p, y, game)
     local h     = comp.h or 24
     local style = comp.style or "body"
-
-    love.graphics.setFont(style == "small" and game.fonts.sm or game.fonts.md)
-
+    local font  = style == "small" and game.fonts.sm or game.fonts.md
+    love.graphics.setFont(font)
+    local text = comp.text or ""
     if style == "heading" then
-        Theme.setColor(Theme.fg.heading)
-        love.graphics.print(comp.text or "", px + p, y + 4)
+        labelSay(game, text, px + p, y + 4, font, Theme.fg.heading)
         Theme.setColor(Theme.border.default)
         love.graphics.rectangle("fill", px + p, y + h - 2, pw - p * 2, Theme.space.hairline)
     elseif style == "muted" then
-        Theme.setColor(Theme.fg.muted)
-        love.graphics.print(comp.text or "", px + p, y + 4)
+        labelSay(game, text, px + p, y + 4, font, Theme.fg.muted)
     else
-        Theme.setColor(Theme.fg.primary)
-        love.graphics.print(comp.text or "", px + p, y + 4)
+        labelSay(game, text, px + p, y + 4, font, Theme.fg.primary)
     end
     return h
 end

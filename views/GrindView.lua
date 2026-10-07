@@ -418,7 +418,7 @@ function GrindView:_buildTablesTabComponents()
     local components = {}
     local s_ui = self.game.ui_scale or 1
     components[#components + 1] = {
-        type = "label", style = "muted", text = "ADD TABLE",
+        type = "label", style = "muted", text = "{table} ADD TABLE",
         h = self.game.fonts.md:getHeight() + math.floor(10 * s_ui),
     }
 
