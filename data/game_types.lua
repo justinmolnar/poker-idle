@@ -72,15 +72,20 @@ local ko_entry = {
         -- bust), so a tournament closes out in a handful of hands however
         -- the chips move. Table:koBigBlind.
         blind_level_hands   = 2,
-        -- The player's odds in a tournament hand, against the field: the
-        -- whole cash edge at the stake (odds, pot sizes, multipliers) maps
-        -- from lo (none of it) to hi (all of it). hi stays under even, so
-        -- 1st is the rarest finish, then 2nd, then 3rd. OutcomeMath.koOdds.
-        ko_odds             = { lo = 0.35, hi = 0.48 },
-        -- The hands the player sits out are played this many times bigger
-        -- than theirs: the field gambles and busts itself while the player
-        -- grinds, so the finishes peak around 3rd-5th and 7th/8th are rare.
-        field_pot_mult      = 3,
+        -- The player's odds in a tournament hand, against the field, by
+        -- how many seats are still in. The whole cash edge at the stake
+        -- (odds, pot sizes, multipliers, as one number) maps from lo (none
+        -- of it) to hi (all of it) at each point; counts in between are
+        -- straight lines. A strong build rolls a full table and rarely
+        -- goes out early, but the last three are as good as anyone, so 3rd
+        -- is the likeliest finish, 2nd rarer, 1st the rarest; a stronger
+        -- build moves the whole spread up. OutcomeMath.koOdds / koOddsAt.
+        ko_odds = {
+            [8] = { lo = 0.40, hi = 0.85 },
+            [4] = { lo = 0.32, hi = 0.55 },
+            [3] = { lo = 0.26, hi = 0.38 },
+            [2] = { lo = 0.28, hi = 0.42 },
+        },
         auto_deal           = true,
     }
 

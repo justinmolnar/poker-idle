@@ -15,8 +15,8 @@
 --             finish is in the middle (3rd-6th), 8th is never it
 --   reach     the readout's 1st place rises with Sharper Reads, Pot
 --             Control, a winnings multiplier and a position bonus
---   punches   a heater at the start of every tournament raises the real
---             1st-place rate; a tilt lowers it
+--   punches   a heater at three seats left raises the real 1st-place
+--             rate; a tilt at the start lowers it
 --   size-up   a pending "next win one size up" lifts a tournament win
 --   void      The Fridge voids a tournament stack loss: the seats go back
 --
@@ -163,8 +163,20 @@ end
 -- ── punches ─────────────────────────────────────────────────────────────
 do
     local base   = play(300, "s002", { upgrades = { sharper_reads = 5, pot_control = 5 } })
+    -- At three seats left, where a hand decides a place.
+    local function threeLeft(t)
+        local left = 0
+        for _, b in pairs(t.seat_busted or {}) do if not b then left = left + 1 end end
+        return left <= 3
+    end
     local heated = play(300, "s002", { upgrades = { sharper_reads = 5, pot_control = 5 },
-        each_tournament = function(_, t) t:applyStatus("heater", { magnitude = 0.35, t = 6 }) end })
+        each_tournament = function(_, t) t._test_heated = nil end,
+        each_tick = function(_, t)
+            if t.ko:isPlaying() and not t._test_heated and threeLeft(t) then
+                t._test_heated = true
+                t:applyStatus("heater", { magnitude = 0.35, t = 6 })
+            end
+        end })
     local tilted = play(300, "s002", { upgrades = { sharper_reads = 5, pot_control = 5 },
         each_tournament = function(_, t) t:applyStatus("tilt", { magnitude = 0.35, t = 6 }) end })
     c.ok(heated.first > base.first, ("a heater raises 1st place (%.1f%% -> %.1f%%)"):format(base.first * 100, heated.first * 100))

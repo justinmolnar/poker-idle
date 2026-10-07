@@ -889,11 +889,15 @@ function Table:deal(ctx)
                 -- A tournament hand: the player's odds against the field
                 -- and the shared pot sizes (OutcomeMath.koOdds; the whole
                 -- cash edge is inside them). A punch still decides the side.
-                local kwc, sizes = OutcomeMath.koOdds(ec, gtype, stake, self)
+                local points, sizes = OutcomeMath.koOdds(ec, gtype, stake, self)
                 if self._forced_next_won ~= nil then
                     won = self._forced_next_won
                 else
-                    won = love.math.random() < kwc
+                    local left = 0
+                    for sseat = 1, (gtype.seats or 0) + 1 do
+                        if not self.seat_busted[sseat] then left = left + 1 end
+                    end
+                    won = love.math.random() < OutcomeMath.koOddsAt(points, gtype, left)
                 end
                 tier = OutcomeMath.sampleDist(sizes) or "small"
             else
@@ -1034,7 +1038,7 @@ function Table:deal(ctx)
             -- Not the player's pot: a fair flip between the two drawn,
             -- no multipliers, no money.
             self.outcome_delta = 0
-            self._ko_amount = magnitude_bb * hand_bb * (gtype.field_pot_mult or 1)
+            self._ko_amount = magnitude_bb * hand_bb
             local a, b = self._ko_pair[1], self._ko_pair[2]
             if love.math.random() < 0.5 then a, b = b, a end
             self._ko_flow, self._ko_in = KoModel.settle(self.seat_stacks,

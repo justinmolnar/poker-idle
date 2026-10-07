@@ -16,13 +16,12 @@
 --   * every seat sits down with `depth` big blinds (gtype.starting_stack_bb);
 --   * pickPair draws the hand's two seats (the player always, when a punch
 --     is owed to them);
---   * the player's hand: wins with `wc`, a tier from wd / ld, a magnitude
+--   * the player's hand: wins with the odds for the seats still in
+--     (odds_at, OutcomeMath.koOddsPoints), a tier from wd / ld, a magnitude
 --     from the pot bands, times that tier's multiplier, in the
 --     tournament's big blind (average live stack / depth, doubled every
 --     `level_hands` hands);
---   * the field's hand: a fair flip at the size of a hand from ld, times
---     `field_mult` (gtype.field_pot_mult: the field gambles, the player
---     grinds, so the finishes peak in the middle);
+--   * the field's hand: a fair flip at the size of a hand from ld;
 --   * seats at zero are out; the player's finish is the seats still in
 --     (plus those out in the same hand holding more) plus one.
 --
@@ -63,6 +62,26 @@ function KoModel.settle(stacks, n, winner, loser, amount)
     return deltas, { [winner] = true, [loser] = true }
 end
 
+-- { [seats left] = odds } at a few counts -> the odds at every count
+-- 2..n, in straight lines between the given points (flat past the ends).
+function KoModel.oddsBySeats(points, n)
+    local ks = {}
+    for k in pairs(points) do ks[#ks + 1] = k end
+    table.sort(ks)
+    local out = {}
+    for c = 2, n do
+        local lo, hi
+        for _, k in ipairs(ks) do
+            if k <= c then lo = k end
+            if k >= c and not hi then hi = k end
+        end
+        lo, hi = lo or hi, hi or lo
+        if lo == hi then out[c] = points[lo]
+        else out[c] = points[lo] + (points[hi] - points[lo]) * (c - lo) / (hi - lo) end
+    end
+    return out
+end
+
 -- Park-Miller: exact in doubles, the same on LuaJIT and PUC Lua.
 local seed
 local function rnd()
@@ -88,7 +107,7 @@ local function q(v) return math.floor((v or 0) * 200 + 0.5) / 200 end
 
 -- in = { wc, wd, ld, win_mult = {tier = m}, loss_mult = {tier = m},
 --        bands = { win = {tier = {lo, hi}}, loss = {...} },
---        n_seats, depth, level_hands, field_mult, key }
+--        n_seats, depth, level_hands, key, odds_at = { [seats left] = odds } }
 -- -> { pos_probs = {1..n}, exp_hands }
 function KoModel.run(inp)
     local wd, ld, wm, lm = {}, {}, {}, {}
@@ -96,8 +115,15 @@ function KoModel.run(inp)
         wd[t], ld[t] = q(inp.wd[t]), q(inp.ld[t])
         wm[t], lm[t] = q(inp.win_mult[t] or 1), q(inp.loss_mult[t] or 1)
     end
-    local wc = q(inp.wc)
-    local parts = { ("%.3f"):format(wc), inp.n_seats, inp.depth, inp.level_hands, inp.field_mult or 1 }
+    -- The player's odds at each count of seats still in (inp.odds_at:
+    -- { [seats left] = odds }, filled in straight lines between the
+    -- points given; a bare wc is the same odds throughout).
+    local odds = KoModel.oddsBySeats(inp.odds_at or { [inp.n_seats] = inp.wc, [2] = inp.wc }, inp.n_seats)
+    for k = 2, inp.n_seats do odds[k] = q(odds[k]) end
+    local wc = odds[inp.n_seats]
+    local oparts = {}
+    for k = 2, inp.n_seats do oparts[#oparts + 1] = ("%.3f"):format(odds[k]) end
+    local parts = { table.concat(oparts, "/"), inp.n_seats, inp.depth, inp.level_hands }
     for _, t in ipairs(TIERS) do
         parts[#parts + 1] = ("%.3f/%.3f/%.3f/%.3f"):format(wd[t], ld[t], wm[t], lm[t])
     end
@@ -125,7 +151,7 @@ function KoModel.run(inp)
             local deltas
             if a == 1 or b == 1 then
                 local opp  = (a == 1) and b or a
-                local won  = rnd() < wc
+                local won  = rnd() < odds[n_alive]
                 local tier = pick(won and wd or ld)
                 local band = (won and inp.bands.win or inp.bands.loss)[tier]
                 local mag  = band and (band.lo + (band.hi - band.lo) * rnd()) or 1
@@ -136,7 +162,7 @@ function KoModel.run(inp)
                 local band = inp.bands.loss[tier]
                 local mag  = band and (band.lo + (band.hi - band.lo) * rnd()) or 1
                 if rnd() < 0.5 then a, b = b, a end
-                deltas = KoModel.settle(stacks, n, a, b, mag * bb * (inp.field_mult or 1))
+                deltas = KoModel.settle(stacks, n, a, b, mag * bb)
             end
             for s = 1, n do stacks[s] = stacks[s] + deltas[s] end
             local out_now = {}

@@ -261,15 +261,14 @@ local function fillRatio(units, window, ctx)
 end
 OutcomeMath.fillRatio = fillRatio
 
--- A tournament hand: the player's odds against the field, and the pot
--- sizes both sides play. The whole cash edge at this stake (odds, pot
--- sizes and every multiplier, as one number from -1 to 1: what the player
--- expects to net per hand over what moves) maps onto gtype.ko_odds, which
--- stays under even. However strong the build, the player is never better
--- than the field, so 1st is the rarest finish, then 2nd, then 3rd; a
--- better build closes the gap. Both sides play the same pot sizes (the
+-- A tournament hand: the player's odds against the field (by seats left),
+-- and the pot sizes both sides play. The whole cash edge at this stake
+-- (odds, pot sizes and every multiplier, as one number from -1 to 1: what
+-- the player expects to net per hand over what moves) maps onto
+-- gtype.ko_odds (koOddsPoints). Both sides play the same pot sizes (the
 -- win and loss shapes averaged), so nothing but the odds tilts a hand.
--- THE definition: Table:deal and evStats both read it.
+-- THE definition: Table:deal and evStats both read it. Returns the odds
+-- points ({ [seats left] = odds }), the sizes and the edge.
 function OutcomeMath.koOdds(ctx, gtype, stake, tbl)
     ctx = ctx or {}
     local wc, wd, ld = OutcomeMath.resolvedOutcome(ctx, gtype, stake)
@@ -287,8 +286,23 @@ function OutcomeMath.koOdds(ctx, gtype, stake, tbl)
     end
     local moved = wc * ew + (1 - wc) * el
     local edge  = (moved > 0) and ((wc * ew - (1 - wc) * el) / moved) or 0
-    local band  = gtype.ko_odds or { lo = 0.25, hi = 0.45 }
-    return band.lo + (band.hi - band.lo) * (1 + edge) / 2, sizes, edge
+    return OutcomeMath.koOddsPoints(edge, gtype), sizes, edge
+end
+
+-- The player's tournament odds at each count of seats still in, for an
+-- edge (-1..1): gtype.ko_odds' points, each lo + (hi - lo) x (1 + edge) / 2.
+-- KoModel.oddsBySeats fills the counts between them.
+function OutcomeMath.koOddsPoints(edge, gtype)
+    local u, pts = (1 + (edge or 0)) / 2, {}
+    for seats, b in pairs(gtype.ko_odds or { [2] = { lo = 0.35, hi = 0.48 } }) do
+        pts[seats] = b.lo + (b.hi - b.lo) * u
+    end
+    return pts
+end
+
+-- The player's odds in a tournament hand with `seats_left` still in.
+function OutcomeMath.koOddsAt(points, gtype, seats_left)
+    return KoModel.oddsBySeats(points, (gtype.seats or 0) + 1)[seats_left] or 0.5
 end
 
 -- Linear interpolation between two distributions (per-tier).
@@ -964,7 +978,7 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
         -- the odds, not on the chips.
         local buy_in  = stake.buy_in or 0
         local n_seats = (gtype.seats or 0) + 1
-        local kwc, sizes = OutcomeMath.koOdds(ctx, gtype, stake, opts and opts.table)
+        local points, sizes = OutcomeMath.koOdds(ctx, gtype, stake, opts and opts.table)
         local one, bands = {}, { win = {}, loss = {} }
         for _, t in ipairs(TIER_KEYS) do
             one[t] = 1
@@ -972,11 +986,10 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
             bands.loss[t] = tierBand(t, gtype, false)
         end
         local sim = KoModel.run({
-            wc = kwc, wd = sizes, ld = sizes, win_mult = one, loss_mult = one,
+            odds_at = points, wd = sizes, ld = sizes, win_mult = one, loss_mult = one,
             bands = bands, n_seats = n_seats,
             depth = gtype.starting_stack_bb or 10,
             level_hands = gtype.blind_level_hands or 1e9,
-            field_mult = gtype.field_pot_mult or 1,
             key = gtype.id,
         })
 
