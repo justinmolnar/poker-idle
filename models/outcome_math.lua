@@ -39,9 +39,8 @@ local Lookups       = require("utils.lookups")
 local ShoveRate = require("models.shove_rate")
 local StakesData    = require("data.stakes")
 local PotTiers      = require("data.pot_tiers")
-local KoFinishDist = require("data.ko_finish_dist")
 local KoPayouts    = require("data.ko_payouts")
-local KoHandCount  = require("data.ko_hand_count")
+local KoModel      = require("models.ko_model")
 local Perf         = require("services.Perf")
 
 local OutcomeMath = {}
@@ -261,41 +260,6 @@ local function fillRatio(units, window, ctx)
     return r
 end
 OutcomeMath.fillRatio = fillRatio
-
--- How far a tournament's finish odds sit between KoFinishDist.naked and
--- .capped: the player's effective per-hand win chance over THIS STAKE's
--- bar (data/ko_finish_dist wc_ref, one per stake), raised to the
--- curve exponent. Deliberately NOT clamped at 1: the bar rises with the
--- tier, and a player who out-powers it keeps gaining (the caller floors
--- any weight the extrapolation drives below zero). The stake's difficulty
--- rides in twice — through eff_wc and through the bar.
-function OutcomeMath.koFinishFill(eff_wc, stake)
-    local refs = KoFinishDist.wc_ref
-    local ref
-    if type(refs) == "table" then
-        local idx = stake and Lookups.indexById(StakesData, stake.id)
-        ref = (idx and refs[idx]) or KoFinishDist.wc_ref_default or refs[#refs] or 1
-    else
-        ref = refs or 0.75
-    end
-    local f = (eff_wc or 0) / ref
-    if f < 0 then f = 0 end
-    return f ^ (KoFinishDist.curve or 1)
-end
-
--- What Pot Control (and anything else that reshapes the stack tiers) is
--- worth in a tournament: the stack edge (stack-win share minus stack-loss
--- share) gained over the stake's naked dists, at the player's own win
--- chance so odds aren't counted twice. Added to the win chance before the
--- bar (koFinishFill), weighted by KoFinishDist.stack_weight: stacking
--- people wins tournaments, getting stacked busts you.
-function OutcomeMath.koStackGain(wc, wd, ld, stake)
-    if not (stake and stake.win_dist and stake.loss_dist) then return 0 end
-    wc = wc or 0
-    local dw = ((wd and wd.stack) or 0) - (stake.win_dist.stack or 0)
-    local dl = ((ld and ld.stack) or 0) - (stake.loss_dist.stack or 0)
-    return (KoFinishDist.stack_weight or 0) * (wc * dw - (1 - wc) * dl)
-end
 
 -- Linear interpolation between two distributions (per-tier).
 local function lerpDist(naked, capped, t)
@@ -922,8 +886,8 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
     if not wc then return nil end
     wc, wd, ld = OutcomeMath.rerollAdjusted(wc, wd, ld, ctx)
     -- opts.table: price THIS table, position and hand included, the way
-    -- Table:deal will play it. Cash tables only, as in the deal.
-    if opts and opts.table and not gtype.chip_stack_table then
+    -- Table:deal will play it.
+    if opts and opts.table then
         local bonus = OutcomeMath.tableWinChanceBonus(ctx, opts.table)
         if bonus > 0 then wc = math.min(WC_ABSOLUTE_CAP, wc + bonus) end
     end
@@ -964,55 +928,48 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
     end
 
     if gtype.chip_stack_table then
-        local buy_in = stake.buy_in or 0
-        local n_seats = (gtype.seats or 0) + 1  -- 7 opps + player = 8
-
-        -- Finish odds follow the effective win chance (mirror of
-        -- KoSession:planRun), so this readout and the plan agree.
-        local ko_wc, ko_wd, ko_ld = OutcomeMath.buildOutcome(ctx, gtype, stake)
-        local auto_win_total = 0
-        if ctx.auto_win_chances then
-            for _, e in ipairs(ctx.auto_win_chances) do
-                if OutcomeMath.shiftApplies(e, gtype) then
-                    auto_win_total = auto_win_total + (e.amount or 0)
-                end
-            end
+        -- A tournament plays the same hands for its chips (Table:deal);
+        -- its finish odds and length are those hands played out
+        -- (models/ko_model). The multipliers are the hand's, without the
+        -- bankroll factor, which a tournament takes on its payout.
+        local buy_in  = stake.buy_in or 0
+        local n_seats = (gtype.seats or 0) + 1
+        local chip_opts = {}
+        for k, v in pairs(opts or {}) do chip_opts[k] = v end
+        chip_opts.bankroll = nil
+        local win_m, loss_m, bands = {}, {}, { win = {}, loss = {} }
+        for _, t in ipairs(TIER_KEYS) do
+            win_m[t]  = OutcomeMath.payoutMult(ctx, stake, t, true,  chip_opts)
+            loss_m[t] = OutcomeMath.payoutMult(ctx, stake, t, false, chip_opts)
+            bands.win[t]  = tierBand(t, gtype, true)
+            bands.loss[t] = tierBand(t, gtype, false)
         end
-        -- Unclamped on purpose (see koFinishFill); weights floor at 0.
-        local eff_fill = OutcomeMath.koFinishFill(ko_wc + OutcomeMath.koStackGain(ko_wc, ko_wd, ko_ld, stake), stake)
-                       + auto_win_total
+        local sim = KoModel.run({
+            wc = wc, wd = wd, ld = ld, win_mult = win_m, loss_mult = loss_m,
+            bands = bands, n_seats = n_seats,
+            depth = gtype.starting_stack_bb or 10,
+            level_hands = gtype.blind_level_hands or 1e9,
+            seats_rule = gtype.seats or 1,
+            key = gtype.id,
+        })
 
-        local raw_weights = {}
-        local total_weight = 0
-        for pos = 1, n_seats do
-            local naked  = KoFinishDist.naked[pos]  or 0
-            local capped = KoFinishDist.capped[pos] or naked
-            local w = naked + (capped - naked) * eff_fill
-            if w < 0 then w = 0 end
-            raw_weights[pos] = w
-            total_weight = total_weight + w
-        end
-
-        local boost = ctx.ko_payout_boost or 0
+        local boost   = ctx.ko_payout_boost or 0
         local payouts = KoPayouts[boost] or KoPayouts[0]
-
         local exp_payout = 0
-        local exp_hands  = 0
-        local pos_probs  = {}
         for pos = 1, n_seats do
-            local prob = (total_weight > 0) and (raw_weights[pos] / total_weight) or 0
-            pos_probs[pos] = prob
-            local key = n_seats - pos + 1
-            local mult = payouts[key] or 0
-            exp_payout = exp_payout + prob * mult * buy_in
-            local hc = KoHandCount[pos]
-            local avg_h = hc and ((hc.lo + hc.hi) * 0.5) or 8
-            exp_hands = exp_hands + prob * avg_h
+            exp_payout = exp_payout + (sim.pos_probs[pos] or 0)
+                       * (payouts[n_seats - pos + 1] or 0) * buy_in
         end
-
-        local net_ev_run = exp_payout - buy_in
+        local sc = ctx.earnings_scale_by_bankroll
+        if sc and opts and opts.bankroll then
+            local m = ShoveRate.bankrollMultiplier(opts.bankroll)
+            if type(sc) == "table" and sc.cap then m = math.min(m, sc.cap) end
+            exp_payout = exp_payout * m
+        end
+        local exp_hands   = sim.exp_hands
+        local net_ev_run  = exp_payout - buy_in
         local ev_per_hand = (exp_hands > 0) and (net_ev_run / exp_hands) or 0
-        local roi_pct = (buy_in > 0) and ((net_ev_run / buy_in) * 100) or 0
+        local roi_pct     = (buy_in > 0) and ((net_ev_run / buy_in) * 100) or 0
 
         return {
             stake = stake,
@@ -1027,41 +984,7 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
                 roi_pct     = roi_pct,
                 exp_payout  = exp_payout,
                 exp_hands   = exp_hands,
-                pos_probs   = pos_probs,
-                buy_in      = buy_in,
-                win_avg_bb  = win_avg,
-                loss_avg_bb = loss_avg,
-            },
-        }
-    elseif gtype.hand_count and not gtype.chip_stack_table then
-        local buy_in = stake.buy_in or 0
-        local cap = gtype.hand_count or 8
-        local boost = ctx.ko_payout_boost or 0
-        local payouts = KoPayouts[boost] or KoPayouts[0]
-
-        local function finishOdds(k)
-            return (k >= cap) and (wc ^ k) or (wc ^ k) * (1 - wc)
-        end
-        local exp_mult = 0
-        for k, mult in pairs(payouts) do
-            exp_mult = exp_mult + finishOdds(k) * mult
-        end
-        local net_ev_run = buy_in * (exp_mult - 1)
-        local ev_per_hand = (cap > 0) and (net_ev_run / cap) or 0
-        local roi_pct = (buy_in > 0) and ((net_ev_run / buy_in) * 100) or 0
-
-        return {
-            stake = stake,
-            gtype = gtype,
-            per_tier = per_tier,
-            pool = {
-                win_chance  = wc,
-                win_dist    = wd,
-                loss_dist   = ld,
-                ev_per_hand = ev_per_hand,
-                net_ev_run  = net_ev_run,
-                roi_pct     = roi_pct,
-                exp_hands   = cap,
+                pos_probs   = sim.pos_probs,
                 buy_in      = buy_in,
                 win_avg_bb  = win_avg,
                 loss_avg_bb = loss_avg,

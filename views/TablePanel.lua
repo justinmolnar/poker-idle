@@ -2418,7 +2418,7 @@ local function solveLayout(tbl, x, y, w, h, game, controller, s, ui_s, n_tables)
     local sizes  = cardSizesFor(w)
     local gtype  = Lookups.findById(GameTypes, tbl.game_type_id)
     ly.gtype = gtype
-    ly.is_tournament = (gtype and (gtype.chip_stack_table or gtype.hand_count)) and true or false
+    ly.is_tournament = (gtype and gtype.chip_stack_table) and true or false
     local sm_h2  = fonts.sm:getHeight()
     local md_h   = fonts.md:getHeight()
     local xs_h   = (fonts.xs or fonts.sm):getHeight()   -- opp names + pot text reserve
@@ -2722,30 +2722,11 @@ local function renderBody(tbl, idx, x, y, w, h, game, controller, hit_boxes, mod
     -- so the cached path draws it over the blit (drawLive).
     if live and L.pot then drawPotLabel(tbl, L.pot, fonts, anims_on) end
 
-    -- Legacy KO: the binary-outcome pot is always empty, so the felt-center
-    -- pot slot shows the HAND x/x tournament counter instead (the payout ladder
-    -- spans the full bottom band below).
-    if L.pot and tbl.state ~= "idle"
-       and gtype and gtype.hand_count and not gtype.chip_stack_table then
-        local hands_won = (tbl.ko and tbl.ko.hands_won) or 0
-        local fh  = fonts.sm:getHeight()
-        -- Center vertically in the OPEN gap between the community and hole cards
-        -- (L.pot.text_y is offset low for the cash pile, which lands on the
-        -- hole cards when there's no pile).
-        local top = (L.community and (L.community.y + L.community.card_h)) or L.pot.text_y
-        local bot = (L.hole and L.hole.y) or (top + fh)
-        local hy  = top + math.floor((bot - top - fh) / 2)
-        Theme.setColor(Theme.fg.heading)
-        love.graphics.setFont(fonts.sm)
-        love.graphics.printf(string.format("HAND %d/%d", hands_won, gtype.hand_count or 8),
-            L.pot.text_x, hy, L.pot.text_w, "center")
-    end
-
     -- Payout-bar hover (tournaments): a tooltip-only hit_box over the
     -- bottom band. Lazy (tooltip_fn): the lines were built for every
     -- tournament panel every frame for a tooltip at most one can show.
     if hit_boxes and L.bottom and L.bottom.band
-       and gtype and (gtype.chip_stack_table or gtype.hand_count) then
+       and gtype and gtype.chip_stack_table then
         local b  = L.bottom.band
         local hb = hbNew(tbl, hit_boxes)
         hb.x, hb.y, hb.w, hb.h = b.x, b.y, b.w, b.h

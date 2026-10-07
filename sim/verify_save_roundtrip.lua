@@ -133,7 +133,6 @@ for i = 1, 8 do
     pcall(function() w:open(Stakes[1].id, (i % 2 == 0) and "zoom" or "six_max") end)
 end
 w:tick(1.0)
-
 local tables = w:tables()
 ok(#tables >= 4, "the fixture opened tables: " .. #tables)
 
@@ -313,6 +312,43 @@ do
     good = pcall(function() w4.ctrl:reloadPool() end)
     ok(good, "wipeAll produces records the pool accepts")
     ok(#w4:tables() == 0, "a wiped state has no tables")
+end
+
+-- A tournament in progress comes back as it was and plays on. Its own
+-- world, so its rolls do not move the board above.
+do
+    local wk = H.world()
+    local ko_before = wk:open(Stakes[1].id, "ko")
+    ko_before:deal(wk.ctrl.ctx)
+    for _ = 1, 300 do ko_before:update(0.1, wk.ctrl.ctx) end
+    if ko_before.state == "idle" and ko_before.ko:isPlaying() then ko_before:deal(wk.ctrl.ctx) end
+    for _ = 1, 3 do ko_before:update(0.1, wk.ctrl.ctx) end
+    ok(ko_before.ko:isPlaying() and ko_before.state ~= "idle", "the fixture has a tournament mid-hand")
+
+    wk.state.tables = wk.ctrl.pool:serialize()
+    local bytes = json.decode(json.encode({ meta = wk.state:serializeMeta(), run = wk.state:serializeRun() }))
+    coerceIntKeys(bytes)
+    local wk2 = H.world()
+    wk2.state:applySaved(bytes)
+    wk2.ctrl:reloadPool()
+    local ko_after = wk2:tables()[1]
+    ok(ko_after and ko_after.ko:isPlaying(), "a tournament in progress survives the reload")
+    if ko_after then
+        local same = true
+        for sseat, v in pairs(ko_before.seat_stacks or {}) do
+            if (ko_after.seat_stacks or {})[sseat] ~= v then same = false end
+        end
+        ok(same, "its seat stacks come back")
+        ok(ko_after._ko_hand == ko_before._ko_hand, "its blind clock comes back")
+        ok(ko_after._ko_flow ~= nil, "the hand in flight keeps its settled chips")
+        local played = ko_after.hands_played
+        wk2:tick(30.0)
+        local sum = 0
+        for _, v in pairs(ko_after.seat_stacks or {}) do sum = sum + v end
+        ok(ko_after.hands_played > played or not ko_after.ko:isPlaying(), "the restored tournament plays on")
+        ok(not ko_after.ko:isPlaying() or math.abs(sum - 80 * Stakes[1].bb) < 1e-4,
+           "and its chips still add up")
+    end
 end
 
 -- ─── Report ────────────────────────────────────────────────────────────

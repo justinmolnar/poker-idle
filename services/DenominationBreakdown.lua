@@ -17,6 +17,9 @@
 
 local DenominationBreakdown = {}
 
+-- LuaJIT has math.log10; plain Lua 5.2+ (the sims) does not.
+local log10 = math.log10 or function(x) return math.log(x) / math.log(10) end
+
 -- Hard ceiling on tokens returned, whatever the amount.
 --
 -- Without it this is unbounded: the fill loop emits one token per unit of
@@ -50,7 +53,7 @@ end
 -- numbers read "small" and very large ones read "stack".
 function DenominationBreakdown.tierFromAmount(amount)
     if amount <= 0 then return "small" end
-    local mag = math.log10(amount)
+    local mag = log10(amount)
     if mag < 1 then return "small"    end   -- < 10
     if mag < 3 then return "medium"   end   -- < 1k
     if mag < 5 then return "large"  end   -- < 100k

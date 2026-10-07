@@ -51,6 +51,7 @@ local Card          = require("models.Card")
 local HandEval      = require("models.HandEval")
 local HandRealism   = require("models.HandRealism")
 local KoSession    = require("models.KoSession")
+local KoModel      = require("models.ko_model")
 local StakesData    = require("data.stakes")
 local GameTypesData = require("data.game_types")
 local NameData      = require("data.opponent_names")
@@ -464,6 +465,9 @@ function Table:serialize()
         button_seat = self.button_seat, bust_order = self.bust_order,
         last_finish = self.last_finish,
         _pre_hand_bust_count = self._pre_hand_bust_count,
+        _ko_hand = self._ko_hand,
+        -- A tournament hand in flight: its chips were settled at the deal.
+        _ko_flow = self._ko_flow, _ko_in = self._ko_in, _ko_amount = self._ko_amount,
         ko = self.ko and self.ko:serialize() or nil,
         opponents = (function()
             local out = {}
@@ -553,13 +557,15 @@ function Table.restore(rec, ctx, poker_events, effects_registry, bus)
     t.bust_order           = rec.bust_order
     t.last_finish          = rec.last_finish
     t._pre_hand_bust_count = rec._pre_hand_bust_count
+    t._ko_hand             = rec._ko_hand
+    t._ko_flow, t._ko_in, t._ko_amount = rec._ko_flow, rec._ko_in, rec._ko_amount
     t.ko = KoSession.restore(rec.ko)
     -- A tournament marked mid-run without its per-seat state cannot deal
-    -- (the first hand nil-indexes seat_busted). Restart it cleanly.
-    if t.ko.state == "playing" and not (t.seat_stacks and t.ko.plan) then
+    -- (the first hand nil-indexes seat_busted). Restart it cleanly. With
+    -- its seats it simply plays on: every hand is live.
+    if t.ko.state == "playing" and not (t.seat_stacks and t.seat_busted) then
         t.ko.hands_won = 0
         t.ko.state     = nil
-        t.ko.plan      = nil
     end
     return t
 end
@@ -628,6 +634,7 @@ function Table:_initChipStackIfNeeded(stake, gtype)
     self.button_seat       = love.math.random(1, n_seats)
     self.bust_order        = {}
     self.last_finish       = nil
+    self._ko_hand          = 0
     -- tbl.stack mirrors seat_stacks[player_seat_fixed] for visual reads
     -- (chip pile + the felt's money label). The reconciliation pass keeps
     -- these in sync after every hand.
@@ -649,25 +656,30 @@ function Table:_reconcileChipFlow()
     if not ps or not ps.winner then return 0 end
     if not self.seat_stacks then return 0 end
 
+    -- The seats as they stood before this hand: a voided loss puts them
+    -- back (:undoChipFlow), and same-hand busts rank by them (_finalizeHand).
+    local pre = { stacks = {}, busted = {}, n_bust = #(self.bust_order or {}), stack = self.stack }
+    for k, v in pairs(self.seat_stacks) do pre.stacks[k] = v end
+    for k, v in pairs(self.seat_busted or {}) do pre.busted[k] = v end
+    self._pre_flow = pre
+
     local player_seat = self.player_seat_fixed
     local old_stack   = self.seat_stacks[player_seat] or 0
     local busted_opps = nil
 
+    -- The hand's chips were decided at the deal (:_settleKoHand); the
+    -- script only animated them.
+    local flow    = self._ko_flow or {}
+    self._ko_flow, self._ko_in = nil, nil
     local n_seats = ps.n_seats or 0
     for seat = 1, n_seats do
         if not self.seat_busted[seat] then
-            local contributed = (ps.per_seat_total and ps.per_seat_total[seat]) or 0
-            local stack       = (self.seat_stacks[seat] or 0) - contributed
-            if seat == ps.winner then
-                stack = stack + (ps.pot_at_push or 0)
-            end
-            -- Round to cents to kill float residuals. Without this, a
-            -- seat can be left with $0.001 from accumulated FP drift,
-            -- which is below the writer's r2() threshold for blinds —
-            -- they post $0.00, neither contribute nor get whittled
-            -- down, and "live" at 0bb display forever. Rounding folds
-            -- the residual cleanly into the bust check below.
-            stack = math.floor(stack * 100 + 0.5) / 100
+            local stack = (self.seat_stacks[seat] or 0) + (flow[seat] or 0)
+            -- Round off float residue (a millionth of a dollar), so a seat
+            -- the rule drained is exactly 0 for the bust check below.
+            -- Not to cents: at NL2 a cent is half a big blind, and the
+            -- chips on the table must add up.
+            stack = math.floor(stack * 1e6 + 0.5) / 1e6
             if stack <= 0 then
                 stack = 0
                 if not self.seat_busted[seat] then
@@ -693,6 +705,76 @@ function Table:_reconcileChipFlow()
     return new_stack - old_stack, busted_opps
 end
 
+-- A voided loss on a tournament (The Fridge, Rubber Duck): the hand
+-- pushes. Every seat goes back to where it stood before the hand, busts
+-- included, so the chips the winner took come back too.
+function Table:undoChipFlow()
+    local pre = self._pre_flow
+    if not (pre and self.seat_stacks) then return false end
+    for k, v in pairs(pre.stacks) do self.seat_stacks[k] = v end
+    for k, v in pairs(pre.busted) do self.seat_busted[k] = v end
+    if self.bust_order then
+        for i = #self.bust_order, pre.n_bust + 1, -1 do self.bust_order[i] = nil end
+    end
+    self.stack = pre.stack
+    self.outcome_delta = 0
+    return true
+end
+
+-- Decide a tournament hand's chips (KoModel.settleHand): the per-seat
+-- deltas and the seats in the pot, for the side the hand went and what it
+-- is worth (outcome_delta, multipliers in). Called at the deal, and again
+-- when a punch flips the hand (:interrupt).
+function Table:_settleKoHand(gtype, won)
+    local n = (gtype.seats or 0) + 1
+    local alive = {}
+    for s = 1, n do alive[s] = not self.seat_busted[s] end
+    self._ko_amount = self._ko_amount or math.abs(self.outcome_delta or 0)
+    self._ko_flow, self._ko_in = KoModel.settleHand(self.seat_stacks, alive,
+        self.player_seat_fixed, n, won, self._ko_amount, gtype.seats or 1,
+        love.math.random)
+end
+
+-- Point the script's push at the seat the chips go to, and show that seat
+-- as the hand's opponent (the writer picks a winner of its own).
+function Table:_pointKoPush()
+    local flow = self._ko_flow
+    local last = self.script and self.script[#self.script]
+    if not (flow and last and last.kind == "pot_push") then return end
+    local best, best_d = nil, 0
+    for seat, d in pairs(flow) do
+        if d > best_d then best, best_d = seat, d end
+    end
+    if not best then return end
+    last.seat = best
+    local me = self.player_seat_fixed
+    if best ~= me then
+        local idx = (best < me) and best or (best - 1)
+        if idx >= 1 and idx <= #self.opponents then self.opponent_idx = idx end
+    end
+end
+
+-- The tournament's big blind: the average live stack over the starting
+-- depth, doubled every gtype.blind_level_hands hands (the blind clock). It
+-- starts at the stake's blind and grows as the hands go by and as seats
+-- bust and the chips gather in fewer stacks, so the pots grow with it.
+-- Every price a tournament hand has (its pot, its blinds) is in this unit.
+function Table:koBigBlind(stake, gtype)
+    local bb = (stake and stake.bb) or 0
+    if not (self.seat_stacks and self.seat_busted) then return bb end
+    local total, alive = 0, 0
+    for s = 1, (gtype.seats or 0) + 1 do
+        if not self.seat_busted[s] then
+            total = total + (self.seat_stacks[s] or 0)
+            alive = alive + 1
+        end
+    end
+    local depth = gtype.starting_stack_bb or 10
+    if alive == 0 or depth <= 0 then return bb end
+    local level = 2 ^ (math.max(0, (self._ko_hand or 1) - 1) / (gtype.blind_level_hands or 1e9))
+    return math.max(bb, total / alive / depth) * level
+end
+
 -- ─── Per-hand math ────────────────────────────────────────────────────
 
 function Table:deal(ctx)
@@ -716,75 +798,23 @@ function Table:deal(ctx)
     self.opponent_idx = love.math.random(1, n_opps)
     if not self.opponents[self.opponent_idx] then return false end
 
-    -- Chip-stack tournaments: initialize seat stacks + bust state on
-    -- the first deal of a fresh KO run, then roll the tournament plan.
-    -- Subsequent deals reuse the per-seat state and pull the next hand's
-    -- pre-rolled outcome from the plan. See models/KoSession.
-    local forced_winner_seat = nil
+    -- Tournaments: seat the field on the first deal of a run (every seat
+    -- at starting_stack_bb). Then the hand is the same hand a cash table
+    -- plays, priced in the tournament's big blind (:koBigBlind).
     if gtype.chip_stack_table then
         self:_initChipStackIfNeeded(stake, gtype)
-        if not self.ko:isPlaying() then
-            self.ko:begin()
-            local n_seats = (gtype.seats or 0) + 1
-            self.ko:planRun(ctx, gtype, stake, self.player_seat_fixed, n_seats)
-        end
-        -- Snapshot bust count BEFORE this hand so :reconcile in
-        -- _finalizeHand can identify new busts this hand only.
+        self.ko:begin()
+        self._ko_hand = (self._ko_hand or 0) + 1   -- the blind clock
+        self._ko_amount = nil                      -- this hand's worth, set below
+        -- Bust count BEFORE this hand, so _finalizeHand sees this hand's.
         self._pre_hand_bust_count = (self.bust_order and #self.bust_order) or 0
     end
 
-    -- Outcome resolution: plan-driven for tournaments, sample-driven
-    -- for cash. Both paths produce (won, tier); chip-stack tables also
-    -- produce a forced_winner_seat + forced_bust_seats that flow into
-    -- HandScript.write.
     local won, tier
-    local forced_bust_seats = nil
-    if gtype.chip_stack_table and self.ko:isPlaying() then
-        local entry = self.ko:currentHand()
-        if entry then
-            won                 = entry.won
-            tier                = entry.tier
-            forced_winner_seat  = entry.forced_winner
-            forced_bust_seats   = entry.bust_seats
-            -- A latched punch (heater/tilt — Table:interrupt defers the
-            -- whole thing to this hand on tournaments) overrides the
-            -- plan's side for THIS hand only. On a flip the plan's winner
-            -- and scheduled busts belonged to the other direction — drop
-            -- them; HandScript's alive-guard and KoSession:reconcile
-            -- re-steer the schedule from the next hand. The tier stays
-            -- the plan's: the punch decides who, not how big.
-            if self._forced_next_won ~= nil then
-                local fw = self._forced_next_won
-                self._forced_next_won = nil
-                self._punch_live = true
-                if fw == false then self._tilt_spent_pending = true end
-                if fw ~= won then
-                    won                = fw
-                    forced_winner_seat = fw and self.player_seat_fixed or nil
-                    forced_bust_seats  = nil
-                end
-            end
-        else
-            -- Plan exhausted (all n_hands played + reconcile's extension
-            -- window burned). Settle at current standings instead of
-            -- falling into live per-hand rolls — that regime lets the
-            -- player structurally outlast the field and produced 50-100
-            -- hand near-guaranteed wins.
-            local n_seats = (gtype.seats or 0) + 1
-            local alive_opps = 0
-            for s = 1, n_seats do
-                if s ~= self.player_seat_fixed and not self.seat_busted[s] then
-                    alive_opps = alive_opps + 1
-                end
-            end
-            self:_endTournament(alive_opps + 1, n_seats)
-            return false
-        end
-    else
-        -- Cash-table path: roll the 3-distribution outcome live. Tier-
-        -- shift perks (Self-Help Book / Lava Lamp on win, Stress Ball /
-        -- Worry Stone on loss) chain on top — only the cash path uses
-        -- these; tournaments shape difficulty via the plan instead.
+    do
+        -- Roll the 3-distribution outcome live. Tier-shift perks
+        -- (Self-Help Book / Lava Lamp on win, Stress Ball / Worry Stone on
+        -- loss) chain on top.
         local ec = self:effectiveCtx(ctx)
         local wc, wd, ld = OutcomeMath.buildOutcome(ec, gtype, stake)
         -- Desk Plant (ctx.tilted_loss_dist_shifts): a tilt's forced hand
@@ -813,8 +843,7 @@ function Table:deal(ctx)
         -- way. Only the side: the tier still rolls — from the forced side's
         -- distribution, which is why the flag goes INTO sampleOutcome — so
         -- a forced win on a heated table is a win of whatever size, one
-        -- rung better. Same shape as the tournament branch above taking
-        -- `won` from its plan, for exactly one hand.
+        -- rung better.
         -- A consumed forced LOSS is a tilt running its course: the punch's
         -- second half is spent on this hand. Latched here, announced when
         -- the hand finishes (on_tilt_spent — the Waste Basket's moment).
@@ -859,9 +888,6 @@ function Table:deal(ctx)
     -- Everything below prices the hand, so it reads THIS table's ctx —
     -- the global rollup plus whatever statuses are riding on this table.
     -- Identical to `ctx` (same object) whenever nothing is active.
-    -- Deliberately after the KO branch above: a tournament's outcomes
-    -- come from a plan rolled once at the start, so a transient status
-    -- must not be baked into it.
     local ectx = self:effectiveCtx(ctx)
 
     -- Per-resolve tier bump + payout double (Maniac capstone). Generic
@@ -895,6 +921,9 @@ function Table:deal(ctx)
     end
 
     local magnitude_bb = OutcomeMath.rollTierMagnitude(tier, gtype, won)
+    -- The hand's big blind: the stake's at a cash table, the tournament's
+    -- (growing) one at a tournament. The money below is in it.
+    local hand_bb = gtype.chip_stack_table and self:koBigBlind(stake, gtype) or stake.bb
 
     self.outcome_won     = won
     self.outcome_tier    = tier
@@ -908,6 +937,11 @@ function Table:deal(ctx)
         earnings_mult = earnings_mult * (1.0 + ectx.earnings_per_tier * tier_idx)
     end
     local loss_mult     = ectx.loss_mult     or 1
+    -- Corrupted Gaming Chair on a tournament: its chips are priced here
+    -- (a cash table's loss is scaled at resolve, in GrindController).
+    if gtype.chip_stack_table and self._overcap and ectx.overcap_loss_mult then
+        loss_mult = loss_mult * ectx.overcap_loss_mult
+    end
     -- This table's own winnings: the Throw Pillow's isolation and the
     -- Tally Book's streak (fixed at this hand's deal). Shared with the
     -- readout: OutcomeMath.tableEarningsMult.
@@ -928,7 +962,7 @@ function Table:deal(ctx)
     local stack_mult  = (won and tier == "stack")
                           and (ectx.stack_mult or 1) or 1
     if won then
-        local raw_win = magnitude_bb * stake.bb
+        local raw_win = magnitude_bb * hand_bb
         -- The seats rule: the most a hand can pay is one stack from each
         -- opponent matching your all-in — max win = seats × stack (HU:
         -- one stack; 6-max: five). Shares its definition with the
@@ -942,10 +976,18 @@ function Table:deal(ctx)
     else
         -- Loss side already capped downstream: GrindController clamps
         -- stack at 0 in its resolution loop.
-        self.outcome_delta = -magnitude_bb * stake.bb * loss_mult * payout_double
+        self.outcome_delta = -magnitude_bb * hand_bb * loss_mult * payout_double
     end
     -- earnings_scale_by_bankroll (Bank capstone) is applied at resolve time
-    -- in GrindController, where live bankroll is available.
+    -- in GrindController, where live bankroll is available (a tournament
+    -- gets it on its payout, not its chips).
+
+    -- A tournament hand's chips: who pays whom, by the one rule the
+    -- readout plays too (KoModel.settleHand). Decided here with the money;
+    -- the script below only animates it, and _reconcileChipFlow applies it.
+    if gtype.chip_stack_table and self.seat_stacks then
+        self:_settleKoHand(gtype, won)
+    end
 
     -- Cards last, and cards only: the money above is already final. The
     -- outcome's tier picks the matchup this hand SHOWS, so a stack that
@@ -954,8 +996,8 @@ function Table:deal(ctx)
         won, tier, { policy = ShowdownRealism, gtype_id = self.game_type_id })
     -- Point of no return: the new hand is real, so the previous hand's
     -- residue leaves the felt. Cleared HERE and not at the top of :deal
-    -- so a failed deal attempt (missing gtype, no opponents, exhausted
-    -- KO plan) leaves the last result visible instead of blanking it.
+    -- so a failed deal attempt (missing gtype, no opponents) leaves the
+    -- last result visible instead of blanking it.
     -- The view mucks what is being swept: a one-shot it nils after use.
     self.swept_hand      = self.last_hand
     self.last_hand       = nil
@@ -1065,7 +1107,10 @@ function Table:deal(ctx)
         for i = 1, n_seats do
             local is_alive = true
             if gtype.chip_stack_table and self.seat_busted then
+                -- Seats out of the tournament, and seats not in this pot,
+                -- sit the hand out.
                 is_alive = not self.seat_busted[i]
+                           and (not self._ko_in or self._ko_in[i] == true)
             end
             if is_alive then
                 self.playback_state.in_seats[i] = true
@@ -1078,44 +1123,35 @@ function Table:deal(ctx)
         -- stack. The bb-tier roll can exceed what the player can actually
         -- put in; without this cap the script keeps generating call
         -- events past the all-in point and the displayed stack tries to
-        -- drain below zero. For chip-stack tables, also cap at the
-        -- biggest alive opponent stack so the pot is feasible.
-        local stake_bb        = (stake and stake.bb) or 0
+        -- drain below zero.
+        local stake_bb        = hand_bb or 0
         local effective_bb    = magnitude_bb
-        -- Cash tables: THE POT IS WHAT YOU WIN. The writer's contract
-        -- builds pot_total = target + player's match (2× target), so a
-        -- win hands it HALF the payout — the final pot lands at exactly
-        -- outcome_delta, and "pot $145, +$145" replaces the old
-        -- "pot $145, +$77" (real-poker net accounting, which read as a
-        -- 50% rake). outcome_delta carries the item multipliers that raw
-        -- magnitude_bb does not, so this also keeps the pot in the same
-        -- universe as the payout under x25 items. Losses keep the full
-        -- figure: you lose your own contribution, and that contribution
-        -- must BE the loss. Chip-stack tournaments are exempt — their
-        -- magnitude drives real chip flow between seat stacks.
-        if not gtype.chip_stack_table and stake_bb > 0 then
+        -- THE POT IS WHAT YOU WIN. The writer's contract builds pot_total =
+        -- target + player's match, and hands the winner the opponents'
+        -- side. Cash tables: the final pot lands at exactly outcome_delta,
+        -- so a win sizes the target at half the payout ("pot $145, +$145",
+        -- not the old "pot $145, +$77"). Tournaments move real chips: the
+        -- target IS the chips won or lost, so it is the delta itself.
+        -- outcome_delta carries the item multipliers that raw magnitude_bb
+        -- does not, which keeps the pot in the same universe as the
+        -- payout. Losses keep the full figure: you lose your own
+        -- contribution, and that contribution must BE the loss.
+        if stake_bb > 0 then
             local payout_bb = math.abs(self.outcome_delta or 0) / stake_bb
-            effective_bb = won and (payout_bb * 0.5) or payout_bb
+            if gtype.chip_stack_table and self._ko_flow then
+                payout_bb = math.abs(self._ko_flow[player_seat] or 0) / stake_bb
+            end
+            effective_bb = (won and not gtype.chip_stack_table) and (payout_bb * 0.5) or payout_bb
         end
         if stake_bb > 0 and (self.stack or 0) > 0 then
             local stack_bb = (self.stack or 0) / stake_bb
             -- Wins clamp at the SEATS RULE (one stack from each opponent
             -- matching your all-in) — the same definition the payout cap
             -- uses in :deal, so the cinematic and the money can't drift.
-            -- Losses clamp at one stack: you can only lose your own.
+            -- Losses clamp at one stack: you can only lose your own. What
+            -- the opponents can actually cover is the writer's own cap.
             local cap_bb = won and OutcomeMath.maxWinBB(gtype, stack_bb) or stack_bb
             if effective_bb > cap_bb then effective_bb = cap_bb end
-        end
-        if gtype.chip_stack_table and stake_bb > 0 and self.seat_stacks then
-            local max_opp = 0
-            for seat = 1, n_seats do
-                if seat ~= player_seat and not self.seat_busted[seat] then
-                    local s_chips = self.seat_stacks[seat] or 0
-                    if s_chips > max_opp then max_opp = s_chips end
-                end
-            end
-            local opp_bb = max_opp / stake_bb
-            if effective_bb > opp_bb then effective_bb = opp_bb end
         end
         -- Per-seat stack table passed to the writer so it can cap any
         -- single seat's contribution at their remaining chips (emits
@@ -1148,13 +1184,6 @@ function Table:deal(ctx)
                 tier               = tier,
                 gtype_id           = gtype.id,
                 stake_bb           = stake_bb,
-                -- Tournament plan supplies the winner_seat on player-loss
-                -- hands and the scheduled bust target(s) on bust hands.
-                -- Nil for cash games — the writer falls back to its
-                -- existing random pick. Dead seats are guarded against
-                -- inside HandScript.
-                forced_winner_seat = forced_winner_seat,
-                forced_bust_seats  = forced_bust_seats,
             },
             {
                 n_seats     = n_seats,
@@ -1169,6 +1198,7 @@ function Table:deal(ctx)
             PokerEventTimings,
             HandStructure)
         self.script           = result.events
+        if gtype.chip_stack_table then self:_pointKoPush() end
         self.script_total     = result.total_duration
         self.timeline         = nil
         self.phase_idx        = nil
@@ -1815,13 +1845,6 @@ function Table:interrupt(want_win, ctx, landed_kind)
 
     -- No live hand — there is only the next, already latched.
     if self.state == "idle" or self.state == "settling" then return true end
-    -- Tournaments: no mid-hand rewrite of a scripted multiway hand (the
-    -- pot is the bust schedule, _reconcileChipFlow owns the delta). The
-    -- whole punch defers to the next hand, where the deal override
-    -- rewrites the PLAN's outcome instead (see the chip-stack branch of
-    -- :deal).
-    local gtype = Lookups.findById(GameTypesData, self.game_type_id)
-    if gtype and gtype.chip_stack_table then return true end
     -- Script spent / missing: nothing left to fast-forward.
     if not self.script or self.script_idx >= #self.script then return true end
     -- Once per hand. An interrupt resolves a hand, a resolution fires
@@ -1850,16 +1873,18 @@ function Table:interrupt(want_win, ctx, landed_kind)
         -- view reads outcome_delta and outcome_tier at the moment pot_push
         -- dispatches, so both have to be final BEFORE the drain -- which
         -- means projecting rather than measuring. Deterministic, no rolls.
+        -- The player's seat in THIS hand's script (cash tables re-seat
+        -- every hand; a tournament's is fixed).
         local ps = self.playback_state or {}
+        local me = ps.player_seat
         local pot = ps.pot or 0
-        local mine = (ps.per_seat_total
-                      and ps.per_seat_total[self.player_seat_fixed]) or 0
+        local mine = (ps.per_seat_total and ps.per_seat_total[me]) or 0
         for i = self.script_idx + 1, #self.script - 1 do
             local ev = self.script[i]
             local amt = ev and ev.amount or 0
             if amt > 0 then
                 pot = pot + amt
-                if ev.seat == self.player_seat_fixed then mine = mine + amt end
+                if ev.seat == me then mine = mine + amt end
             end
         end
 
@@ -1880,10 +1905,10 @@ function Table:interrupt(want_win, ctx, landed_kind)
         end
         -- The push goes to whoever now wins it.
         if want_win then
-            last.seat = self.player_seat_fixed
-        elseif last.seat == self.player_seat_fixed then
-            for s in pairs((self.playback_state or {}).in_seats or {}) do
-                if s ~= self.player_seat_fixed then last.seat = s; break end
+            last.seat = me
+        elseif last.seat == me then
+            for s in pairs(ps.in_seats or {}) do
+                if s ~= me then last.seat = s; break end
             end
         end
 
@@ -1900,6 +1925,17 @@ function Table:interrupt(want_win, ctx, landed_kind)
                 * OutcomeMath.tiltedLossMult(ectx, self.game_type_id)
         end
         last.amount = pot
+        -- A tournament's chips follow the flip: the same hand's worth,
+        -- settled the other way (and the push goes where they go).
+        local gtype = Lookups.findById(GameTypesData, self.game_type_id)
+        if gtype and gtype.chip_stack_table and self.seat_stacks then
+            if not want_win and self._ko_amount then
+                local ectx = self:effectiveCtx(ctx or self._last_ctx)
+                self._ko_amount = self._ko_amount * OutcomeMath.tiltedLossMult(ectx, self.game_type_id)
+            end
+            self:_settleKoHand(gtype, want_win)
+            self:_pointKoPush()
+        end
     end
 
     -- Deal the next hand the same way this one just went. One hand is a
@@ -2040,15 +2076,14 @@ function Table:_finalizeHand()
 
     -- Tournament auto-advance for chip-stack tables. On each hand:
     --   * Bump ko.hands_won (lifetime deck-XP / stat tracking).
-    --   * Reconcile the plan against actual chip flow.
-    --   * Advance the plan cursor.
-    --   * Detect end conditions:
-    --       - Player busted → settle with finish_position based on
-    --         bust order (1 = winner, n_seats = first bust).
-    --       - All non-player seats busted → player wins, finish 1.
-    --       - Else → auto-deal the next hand.
-    -- We re-use the latest ctx stashed on :update / :deal so the new
-    -- hand samples WC against the player's current effects rollup.
+    --   * End conditions:
+    --       - Player busted: finish = the seats still in, plus those who
+    --         went out in the same hand holding more chips before it
+    --         (the bigger stack places higher), plus one.
+    --       - Every other seat busted: the player wins, finish 1.
+    --       - Else: deal the next hand.
+    -- The next hand reads the latest ctx stashed on :update / :deal, so
+    -- it plays against the player's current effects rollup.
     local gtype = Lookups.findById(GameTypesData,self.game_type_id)
     if gtype and gtype.chip_stack_table and self.ko:isPlaying() then
         if self.outcome_won then
@@ -2056,27 +2091,6 @@ function Table:_finalizeHand()
         end
         local n_seats = (gtype.seats or 0) + 1
         local player_seat = self.player_seat_fixed
-
-        -- Build the list of seats that busted DURING this hand (not
-        -- cumulative). _pre_hand_bust_count was snapshotted in :deal.
-        local new_busts = {}
-        local pre_count = self._pre_hand_bust_count or 0
-        if self.bust_order then
-            for i = pre_count + 1, #self.bust_order do
-                new_busts[#new_busts + 1] = self.bust_order[i]
-            end
-        end
-
-        -- Advance the plan cursor BEFORE reconcile so reconcile's two
-        -- arithmetic anchors line up:
-        --   * "next_hand_idx - 1" identifies the hand that just finished
-        --     (used to decide which scheduled busts were expected).
-        --   * "next_hand_idx" identifies the upcoming hand (used to
-        --     overwrite the re-attack outcome).
-        self.ko:advanceHand()
-        -- Patch the plan: drop seats that busted incidentally; re-attack
-        -- planned busts that didn't materialize (extends up to +3 hands).
-        self.ko:reconcile(new_busts, self.seat_busted, n_seats, player_seat)
 
         local player_busted = self.seat_busted and self.seat_busted[player_seat] == true
         local alive_opps = 0
@@ -2086,13 +2100,14 @@ function Table:_finalizeHand()
             end
         end
         if player_busted then
-            -- Player's finish position = (alive_opps_when_player_busts) + 1.
-            -- If 5 opps alive when player busts: player is 6th (3rd place
-            -- among 8 seats once the other 5 also bust). Player's order
-            -- among finishers is determined by who's still alive AT THE
-            -- MOMENT they bust.
-            local finish_position = alive_opps + 1
-            self:_endTournament(finish_position, n_seats)
+            local pre = self._pre_flow and self._pre_flow.stacks or {}
+            local mine = pre[player_seat] or 0
+            local ahead = 0
+            for i = (self._pre_hand_bust_count or 0) + 1, #(self.bust_order or {}) do
+                local sseat = self.bust_order[i]
+                if sseat ~= player_seat and (pre[sseat] or 0) > mine then ahead = ahead + 1 end
+            end
+            self:_endTournament(alive_opps + ahead + 1, n_seats)
         elseif alive_opps == 0 then
             self:_endTournament(1, n_seats)
         elseif gtype.auto_deal then
@@ -2123,7 +2138,7 @@ function Table:_endTournament(finish_position, n_seats)
     -- the open tournament tables (GrindController:invalidateEffects), so
     -- closing the table is what retires its contribution.
     self.ko.finish_count = (self.ko.finish_count or 0) + 1
-    self.ko:settle(buy_in, payouts, finish_position, n_seats, self._last_ctx)
+    self.ko:settle(buy_in, payouts, finish_position, n_seats)
     -- Per-seat state (seat_stacks / seat_busted / player_seat_fixed /
     -- button_seat / bust_order) is left in place — the post-tournament
     -- panel renders the final bust pattern until the player rebuys.

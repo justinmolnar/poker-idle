@@ -155,6 +155,7 @@ function GameState:new(saved)
     instance.total_tilts             = 0   -- fresh tilt statuses suffered, lifetime
     instance.total_heaters           = 0   -- fresh heaters caught, lifetime (story: first_heat)
     instance.total_cursor_deals      = 0   -- DEAL clicks made by cursors, lifetime (cursor item gates)
+    instance.cursor_defaults         = {}  -- the cursor DEAL / REBUY settings, for tables opened later
     instance.total_hands_by_gtype    = {}  -- game_type_id → hands resolved there
 
     -- Lifetime counters (persist forever; drive deck unlocks). Bumped

@@ -1248,7 +1248,13 @@ function GrindController:update(dt)
         -- Printer's count below, so a table opening or closing moves every
         -- table's pace the same frame.
         local focus_pace = self:currentFocusMult()
-        for _, t in ipairs(self.pool.tables) do t._focus_pace = focus_pace end
+        local overcap    = self.pool:count() > self:currentFocusCapacity()
+        for _, t in ipairs(self.pool.tables) do
+            t._focus_pace = focus_pace
+            -- A tournament prices the Corrupted Gaming Chair into its own
+            -- chips at the deal (Table:deal); a cash table at resolve.
+            t._overcap = overcap
+        end
         -- Every table over the cap is a moment: the overload sound on
         -- each step further over, pitched lower each time (the rail's
         -- alarm and the frame kick on the same frame).
@@ -1399,6 +1405,14 @@ function GrindController:update(dt)
             local center = AnchorRegistry.get(TableModel.anchorKey(t, "center"))
                            or { 0, 0 }
 
+            -- The bankroll factor (the Bank capstone) lands on the payout,
+            -- the tournament's money, as it lands on a cash hand at resolve.
+            local sc = payout > 0 and self.ctx and self.ctx.earnings_scale_by_bankroll
+            if sc then
+                local m = ShoveRate.bankrollMultiplier(self.game.state.bankroll)
+                if type(sc) == "table" and sc.cap then m = math.min(m, sc.cap) end
+                payout = payout * m
+            end
             if payout > 0 then
                 self.game.state.bankroll = self.game.state.bankroll + payout
                 self:_emitKoPayoutChips(t, payout)
@@ -1545,7 +1559,7 @@ function GrindController:update(dt)
         -- hand slower (Table:update's pace), and the hand pays in full.
         -- Corrupted Gaming Chair: no focus penalty, but every table past
         -- the cap loses bigger.
-        if r.delta < 0 and self.ctx and self.ctx.overcap_loss_mult
+        if r.delta < 0 and not r.chip_stack_table and self.ctx and self.ctx.overcap_loss_mult
            and self.pool:count() > self:currentFocusCapacity() then
             r.delta = r.delta * self.ctx.overcap_loss_mult
         end
@@ -1554,8 +1568,10 @@ function GrindController:update(dt)
         -- bankroll multiplier (the BANK number), read live here so the
         -- effects cache never has to carry live bankroll. The card says
         -- "multiplied by your bankroll multiplier" and means it.
+        -- (A tournament's hands move chips, not money: it takes the BANK
+        -- number on its payout, at the drain.)
         local sc = self.ctx and self.ctx.earnings_scale_by_bankroll
-        if sc then
+        if sc and not r.chip_stack_table then
             local m = ShoveRate.bankrollMultiplier(self.game.state.bankroll)
             if type(sc) == "table" then
                 if sc.cap then m = math.min(m, sc.cap) end
@@ -1566,19 +1582,26 @@ function GrindController:update(dt)
 
         -- Once-per-run loss voids: The Fridge (first stack-tier stack loss)
         -- then Rubber Duck (first loss of any size). Zero the delta before it
-        -- lands on stack/bankroll, so the beat simply didn't happen. Cash
-        -- tables only — an KO r.delta is informational (the bust is already
-        -- in tbl.stack), so voiding it there just wastes the once-per-run use.
-        if r.delta < 0 and not r.chip_stack_table and self.ctx then
+        -- lands on stack/bankroll, so the beat simply didn't happen. On a
+        -- tournament the chips already moved: the hand pushes, every seat
+        -- back where it stood (Table:undoChipFlow), busts included.
+        if r.delta < 0 and self.ctx then
+            local which
             if self.ctx.void_first_stack_loss and r.tier == "stack"
                and not state.first_stack_loss_voided_this_run then
                 state.first_stack_loss_voided_this_run = true
-                r.delta = 0
-                self:itemFired("void_first_stack_loss", r.table)
+                which = "void_first_stack_loss"
             elseif self.ctx.void_first_loss and not state.first_loss_voided_this_run then
                 state.first_loss_voided_this_run = true
+                which = "void_first_loss"
+            end
+            if which then
                 r.delta = 0
-                self:itemFired("void_first_loss", r.table)
+                if r.chip_stack_table and r.table then
+                    r.table:undoChipFlow()
+                    r.busted_seats, r.busted_total = nil, nil
+                end
+                self:itemFired(which, r.table)
             end
         end
 
@@ -1890,10 +1913,10 @@ function GrindController:update(dt)
         -- rolled it. Without this gate a heater converts every stack-tier
         -- cooler into a bounty + cascade, and a tilt-flipped "cooler" feeds
         -- the tilt procs that caused it.
-        if r.delta > 0 and r.tier == "stack" and not r.chip_stack_table and not r.flipped then
+        if r.delta > 0 and r.tier == "stack" and not r.flipped then
             self:_announce("on_stack_win", { table = r.table, out = resolutions })
         end
-        if r.delta < 0 and r.tier == "stack" and not r.chip_stack_table and not r.flipped then
+        if r.delta < 0 and r.tier == "stack" and not r.flipped then
             self:_announce("on_stack_loss", { table = r.table, out = resolutions })
         end
 
@@ -2138,8 +2161,6 @@ function GrindController:update(dt)
             elseif r.delta < 0 then
             end
             if r.won and r.tier == "stack" and not r.flipped then
-            end
-            if r.won and gtype_id == "ko" then
             end
             if n_tables >= 4 then
             end

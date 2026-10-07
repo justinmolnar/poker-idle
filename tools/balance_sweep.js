@@ -59,8 +59,8 @@ const A = {
 /* ═══════════════════════ engine boot (same as the Sim tab) ═══════════════════════ */
 const LUA_SEEDS = ["models.poker_effects", "models.outcome_math", "models.shove_rate",
   "services.EffectsRegistry", "utils.lookups", "data.stakes", "data.game_types",
-  "data.pot_tiers", "data.bankroll_tiers", "data.constants", "data.ko_finish_dist",
-  "data.ko_payouts", "data.ko_hand_count", "data.run_upgrades", "data.effects",
+  "data.pot_tiers", "data.bankroll_tiers", "data.constants",
+  "data.ko_payouts", "data.run_upgrades", "models.ko_model", "data.effects",
   "data.catalog", "data.catalog_pages", "data.procs", "data.routers", "data.balance",
   "models.Decks", "data.decks", "models.UpgradePricing"];
 

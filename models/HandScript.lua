@@ -6,12 +6,7 @@
 --     -> { events = { ... }, total_duration = N }
 --
 -- Inputs:
---   outcome    = { won, magnitude_bb, tier, gtype_id, stake_bb,
---                  forced_winner_seat?, forced_bust_seats? }
---     forced_winner_seat — KO plan: this alive seat wins the pot.
---     forced_bust_seats  — KO plan: these alive seats stay in through a
---       forced showdown so stack caps drain them (their bust is the
---       point of the hand). Dead/winner seats are ignored.
+--   outcome    = { won, magnitude_bb, tier, gtype_id, stake_bb }
 --   table_ctx  = { n_seats, player_seat, button_seat,
 --                  alive_seats = { [seat] = true } | nil,
 --                  seat_stacks = { [seat] = $ } | nil }
@@ -274,17 +269,10 @@ local function plan(outcome, table_ctx, structure_data)
                                     "showdown_chance_by_tier")[tier] or 0.5
     local showdown = love.math.random() < showdown_p
 
-    -- Pick the winner seat. outcome.forced_winner_seat (set by KO plan
-    -- generation in models/KoSession) overrides the random pick when
-    -- the seat is alive; otherwise we fall back to player-on-win /
-    -- random-alive-on-loss. The alive guard makes plan drift safe — if
-    -- the plan named a seat that has since busted, the writer recovers
-    -- cleanly and KoSession:reconcile patches the schedule on the next
-    -- hand.
+    -- Pick the winner seat: the player on a win, a random live opponent
+    -- on a loss.
     local winner_seat
-    if outcome.forced_winner_seat and alive_seats[outcome.forced_winner_seat] then
-        winner_seat = outcome.forced_winner_seat
-    elseif outcome.won then
+    if outcome.won then
         winner_seat = player
     else
         local picks = {}
@@ -297,24 +285,6 @@ local function plan(outcome, table_ctx, structure_data)
             winner_seat = player    -- degenerate: no alive opps. Player wins.
         end
     end
-
-    -- Scheduled bust targets (KO plan, outcome.forced_bust_seats).
-    -- Filtered to alive non-winner seats — same drift-safety as the
-    -- forced-winner guard above. A hand with targets is forced to
-    -- SHOWDOWN so they stay in through the later (biggest) streets: their
-    -- calls hit capChips → genuine all_in events → per_seat_total drains
-    -- their whole stack → Table:_reconcileChipFlow busts them on
-    -- schedule. (With 2+ targets the even pot split can leave a target
-    -- short — KoSession:reconcile re-attacks it next hand.)
-    local bust_targets = {}
-    if outcome.forced_bust_seats then
-        for _, s in ipairs(outcome.forced_bust_seats) do
-            if alive_seats[s] and s ~= winner_seat then
-                bust_targets[#bust_targets + 1] = s
-            end
-        end
-    end
-    if #bust_targets > 0 then showdown = true end
 
     -- Multiway coverage: when the pot needs more than any single
     -- opponent can put in, enough of them have to stay in to cover it.
@@ -362,7 +332,7 @@ local function plan(outcome, table_ctx, structure_data)
     local street_pots = splitPot(pot_total, n_streets_played)
 
     -- Forced stays: the winner never folds; the player follows the
-    -- showdown/fold-out rule; scheduled bust targets ride to the end.
+    -- showdown/fold-out rule; the seats covering the pot ride to the end.
     -- Computed BEFORE K_at_end so the survivor floor counts them.
     local stays = { [winner_seat] = true }
     if showdown then
@@ -370,14 +340,13 @@ local function plan(outcome, table_ctx, structure_data)
     elseif outcome.won then
         stays[player] = true
     end
-    for _, s in ipairs(bust_targets) do stays[s] = true end
     for _, s in ipairs(coverage_seats) do stays[s] = true end
     local n_stays = 0
     for _ in pairs(stays) do n_stays = n_stays + 1 end
 
     -- Plan the K_stay (seats still in) at the END of each street.
     -- Always start at K=n_alive. End at 1 (fold-out) or the showdown
-    -- floor (2, or more when bust targets are forced to the end — the
+    -- floor (2, or more when covering seats are forced to the end — the
     -- per-seat split math then sizes calls against the real headcount).
     local K_at_end = {}
     local last_K = showdown and math.max(2, n_stays) or 1

@@ -56,26 +56,23 @@ local ko_entry = {
         -- run as long as 6-max's. It is never the quick one.
         pace_mult = 0.18,
         rerolls_opponents = false,
-        -- 8-max knockout: each seat sits down with starting_stack_bb at
-        -- table init. Hands play normally (no binary_outcome), with real
-        -- chip flow into the pot. Seats bust at 0 chips. Tournament ends
-        -- when the player busts OR is the last seat standing. Payout
-        -- read from data/ko_payouts.lua keyed by finish position
-        -- (1st=8, 2nd=7, 3rd=6, 4th-8th=0).
+        -- 8-max knockout: a cash table whose money is the chips on it.
+        -- Each seat sits down with starting_stack_bb; every hand plays
+        -- through the cash pipeline (Table:deal) in the tournament's big
+        -- blind, which grows as seats bust (Table:koBigBlind). Seats bust
+        -- at 0 chips. Ends when the player busts OR is the last seat
+        -- standing. Payout from data/ko_payouts.lua by finish position.
         chip_stack_table    = true,
-        -- Turbo stacks: shallow enough that any big pot a seat stays deep
-        -- in is a genuine all-in (the writer's capChips path), which is
-        -- what makes the plan's scheduled busts actually land. At 100bb
-        -- busts almost never materialized and tournaments dragged 50+
-        -- hands in the fallback regime.
+        -- Turbo stacks: ten big blinds, so a big pot is an all-in and a
+        -- tournament plays out in a handful of hands. Pot sizes for these
+        -- stacks: data/pot_tiers.lua by_gtype.ko.
         starting_stack_bb   = 10,
+        -- The blind clock: the tournament's big blind doubles every this
+        -- many hands (on top of growing with the average stack as seats
+        -- bust), so a tournament closes out in a handful of hands however
+        -- the chips move. Table:koBigBlind.
+        blind_level_hands   = 3,
         auto_deal           = true,
-        -- No per-gtype dist_shifts: tournament difficulty + length is
-        -- driven by the two-level outcome model in models/KoSession
-        -- (data/ko_finish_dist.lua + data/ko_hand_count.lua). The
-        -- planner picks finish_position + n_hands once per tournament
-        -- and pre-rolls per-hand outcomes; per-hand tier mass doesn't
-        -- need a separate crush on top.
     }
 
 return {

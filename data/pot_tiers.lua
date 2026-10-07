@@ -15,11 +15,10 @@
 -- Partial overrides fall through PER TIER, so a gtype block may override
 -- only its stack cell.
 --
--- ko is pinned to an explicit empty block ON PURPOSE: tournament plans
--- are SERIALIZED (GameState.active_table_ko_plans) and their bust
--- schedules project seat stacks via tierAvgBB — shifting ko bands
--- invalidates every saved mid-tournament plan. Never give ko bands
--- without a save migration.
+-- ko is a tournament: every seat starts with 10 big blinds (gtype
+-- starting_stack_bb) and the big blind grows as the field shrinks
+-- (Table:koBigBlind), so its bands are sized against a 10bb stack, in
+-- that growing blind. A stack is an all-in.
 --
 -- Pure data; no logic. Consumers go through OutcomeMath.rollTierMagnitude
 -- / tierAvgBB; nothing else reads this file directly.
@@ -40,7 +39,22 @@ return {
         },
     },
     by_gtype = {
-        ko = {},   -- frozen on default; see header
+        -- KO — the turbo. Ten big blinds a seat: a small pot is a blind or
+        -- so, a large one half a stack, a stack the whole thing.
+        ko = {
+            win = {
+                small   = { lo = 0.5,  hi = 1.5  },
+                medium  = { lo = 1.5,  hi = 3.5  },
+                large   = { lo = 4.0,  hi = 7.0  },
+                stack = { lo = 10.0, hi = 15.0 },
+            },
+            loss = {
+                small   = { lo = 0.5,  hi = 1.5  },
+                medium  = { lo = 1.5,  hi = 3.5  },
+                large   = { lo = 4.0,  hi = 7.0  },
+                stack = { lo = 10.0, hi = 15.0 },
+            },
+        },
 
         -- 6-MAX — the tank. Five opponents, so five stacks can go in:
         -- the biggest pots in the game, and the reason to sit a slow
