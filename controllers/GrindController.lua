@@ -2710,6 +2710,10 @@ function GrindController:addTable(stake_id, game_type_id)
     self:invalidateEffects()
     if new_tbl then
         new_tbl._opened_clock = self.clock or 0   -- the Wall Clock's age
+        -- A new table takes the last cursor setting made for its group (or
+        -- the master switch's), so muting NL10 keeps the next NL10 muted.
+        new_tbl.cursor_muted       = self:_cursorDefault("deal", stake_id, new_tbl.game_type_id)
+        new_tbl.cursor_rebuy_muted = self:_cursorDefault("rebuy", stake_id, new_tbl.game_type_id)
         self:_announce("on_table_open", { table = new_tbl, first_at_stake = first_at_stake })
     end
     -- Adding into a hole renumbers pool order the same way a drag does;
@@ -3160,10 +3164,41 @@ function GrindController:typeCursorState(stake_id, gtype_id)
     return total, deal_muted, rebuy_muted
 end
 
+-- The remembered cursor settings, for tables opened later: state.cursor_defaults
+-- = { deal = { [key] = muted }, rebuy = {...} }, key "stake:gtype", "stake:*"
+-- or "*" (the master). A wider setting clears the narrower ones under it, so
+-- the latest click always wins.
+local function cursorKey(stake_id, gtype_id)
+    if stake_id == nil and gtype_id == nil then return "*" end
+    return (stake_id or "*") .. ":" .. (gtype_id or "*")
+end
+function GrindController:_rememberCursor(kind, stake_id, gtype_id, muted)
+    local st = self.game.state
+    st.cursor_defaults = st.cursor_defaults or {}
+    local d = st.cursor_defaults[kind] or {}
+    st.cursor_defaults[kind] = d
+    local key = cursorKey(stake_id, gtype_id)
+    for k in pairs(d) do
+        local s, g = k:match("^(.-):(.+)$")
+        if key == "*" or (s and (stake_id == nil or s == stake_id) and (gtype_id == nil or g == gtype_id)) then
+            d[k] = nil
+        end
+    end
+    d[key] = muted and true or false
+end
+function GrindController:_cursorDefault(kind, stake_id, gtype_id)
+    local d = ((self.game.state.cursor_defaults or {})[kind]) or {}
+    for _, k in ipairs({ cursorKey(stake_id, gtype_id), cursorKey(stake_id, nil), cursorKey(nil, gtype_id), "*" }) do
+        if d[k] ~= nil then return d[k] end
+    end
+    return false
+end
+
 -- Set (not toggle) the cursor-deal mute across a combo. Setting rather than
 -- toggling is what makes a group control predictable: a mixed group snaps to
 -- one state instead of inverting each table into a different mixed state.
 function GrindController:setTypeCursorMute(stake_id, gtype_id, muted)
+    self:_rememberCursor("deal", stake_id, gtype_id, muted)
     local n = 0
     for _, t in ipairs(self.pool.tables) do
         if tableMatches(t, stake_id, gtype_id) then
@@ -3175,6 +3210,7 @@ function GrindController:setTypeCursorMute(stake_id, gtype_id, muted)
 end
 
 function GrindController:setTypeCursorRebuyMute(stake_id, gtype_id, muted)
+    self:_rememberCursor("rebuy", stake_id, gtype_id, muted)
     local n = 0
     for _, t in ipairs(self.pool.tables) do
         if tableMatches(t, stake_id, gtype_id) then

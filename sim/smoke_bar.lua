@@ -4,7 +4,8 @@
 --   segments  eight segments, as wide as their absolute chances, filling the
 --             bar exactly; the win/loss split where the win chance says
 --   tooltip   pot_control's and sharper_reads' tooltips name the stakes
---             they move ("Affects: NL2"), no graph
+--             the next level moves, no numbers; their "i" builds the full
+--             breakdown grid (stake x game type, now -> next)
 --   preview   hovering an upgrade gives every table it moves its own
 --             metric, now and next (tbl._preview.text: "Win" for Sharper
 --             Reads, "Stack win" for Pot Control), drawn as a live layer:
@@ -80,12 +81,24 @@ for _ = 1, 4 do frame() end
 for _, id in ipairs({ "pot_control", "sharper_reads" }) do
     local up = Lookups.findById(RunUpgrades, id)
     local rows = view:_buildRangeTooltipUncached(up)
-    local header, lines = false, 0
+    local header, names, pct = false, false, false
     for _, r in ipairs(rows or {}) do
         if type(r) == "table" and r.text == "NEXT LEVEL" then header = true end
-        if type(r) == "table" and r.measure and r.render then lines = lines + 1 end
+        if type(r) == "table" and r.text and r.text:find("NL") then names = true end
+        if type(r) == "table" and r.text and r.text:find("%%") then pct = true end
     end
-    c.ok(header and lines >= 1, id .. "'s tooltip lists what the next level does per stake (" .. lines .. " lines)")
+    c.ok(header and names and not pct, id .. "'s tooltip names the stakes the next level moves, no numbers")
+    local info = view:_upgradeInfoRowsUncached(up)
+    local grids = 0
+    for _, r in ipairs(info or {}) do
+        if type(r) == "table" and r.measure and r.render then
+            grids = grids + 1
+            local gw, gh = r.measure(g.fonts)
+            c.ok(gw > 0 and gh > 0, id .. "'s breakdown grid measures")
+            r.render(0, 0, g.fonts)
+        end
+    end
+    c.ok(grids >= 1, id .. "'s i shows a breakdown grid (" .. grids .. ")")
 end
 
 -- ── preview ─────────────────────────────────────────────────────────────
@@ -280,6 +293,28 @@ do
     end
     TP.flushHandLabels = real
     c.ok(named > 0, "a showdown's hand name is drawn in the top layer")
+end
+
+-- ── cursor settings carry to new tables ─────────────────────────────────
+do
+    local cw = H.world({ bankroll = 1e9 })
+    local ctrl = cw.ctrl
+    cw:open("s001", "zoom")
+    ctrl:setTypeCursorMute("s001", "zoom", true)
+    ctrl:setTypeCursorRebuyMute("s001", "zoom", true)
+    cw:open("s001", "zoom")
+    local last
+    for _, t in ipairs(ctrl.pool.tables) do last = t end
+    local total, dm, rm = ctrl:typeCursorState("s001", "zoom")
+    c.ok(total == 2 and dm == 2 and rm == 2, "a new table joins its group's cursor DEAL/REBUY off (" .. dm .. "/" .. rm .. " of " .. total .. ")")
+    ctrl:setTypeCursorMute(nil, nil, false)
+    cw:open("s001", "zoom")
+    total, dm = ctrl:typeCursorState("s001", "zoom")
+    c.ok(total == 3 and dm == 0, "the master switch overrides the group's setting for later tables")
+    ctrl:setTypeCursorMute(nil, nil, true)
+    cw:open("s001", "zoom")
+    total, dm = ctrl:typeCursorState("s001", "zoom")
+    c.ok(total == 4 and dm == 4, "the master OFF carries to new tables")
 end
 
 if c.report("smoke_bar") > 0 then os.exit(1) end

@@ -502,6 +502,8 @@ GameState.META_KEYS = {
     "total_upgrade_levels", "total_hands_overwhelmed", "total_hands_at_4plus",
     "total_chips_banked", "total_ko_wins", "total_tilts", "total_heaters",
     "total_cursor_deals", "total_hands_by_gtype", "total_money_won",
+    -- the cursor DEAL / REBUY settings, for tables opened later
+    "cursor_defaults",
     -- what the last run left behind, for the starting perks
     "last_run_money_lost", "last_run_biggest_pot_t1", "last_run_biggest_pot",
     -- what the last run earned a minute, for the rail's earn-rate tooltip

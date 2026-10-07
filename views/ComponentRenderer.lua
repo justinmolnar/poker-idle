@@ -307,7 +307,8 @@ _hitButton = function(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
                 if act.disabled then CursorIntent.mark("no"); return nil end
                 hoverTooltip(act)
                 if act.id then HoverSvc.set("button", act.id) end
-                CursorIntent.mark("point")
+                -- A hover-only action (the upgrade "i") is a clue, not a click.
+                CursorIntent.mark(act.hover_only and "info" or "point")
                 return act
             end
         end
