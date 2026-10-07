@@ -79,10 +79,6 @@ local RunUpgrades = {
         id          = "pot_control",
         name        = "Pot Control",
         description = "More {w:stack}, fewer {l:stack}.",
-        tooltip_blurb = {
-            "More {w:stack}, fewer {l:stack}.",
-            "{w:stack} are the wins that pay {chip}.",
-        },
         icon        = "pot_control",
         -- Drives a per-stake range tooltip (Stack rate, current → next level).
         tooltip_metric = "win_dist",

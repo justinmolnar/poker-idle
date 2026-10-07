@@ -1015,24 +1015,77 @@ end
 -- The upgrade tooltip's reach: every stake its next level moves (at any
 -- game type), in ladder order. The change itself is drawn on those tables and add-table rows while the
 -- button is hovered.
-function GrindView:_upgradeAffectsRows(up)
-    local names = {}
+-- The upgrade tooltip: what the next level does at each stake it moves,
+-- one line per stake ("NL2  +5% odds"; Pot Control: the stack win up and
+-- the stack loss down). Priced at the game type with the most open tables
+-- at that stake (Zoom when none is open there).
+local function pctDelta(v)
+    local p = v * 100
+    -- Small moves (a stack share per level) keep two decimals so they never
+    -- read +0%; a whole number drops its ".0".
+    local t = (math.abs(p) < 1) and string.format("%+.2f%%", p) or string.format("%+.1f%%", p)
+    return (t:gsub("%.0%%$", "%%"))
+end
+function GrindView:_upgradeNextRows(up)
+    local ctrl = self.controller
+    local open = {}
+    for _, t in ipairs(ctrl.pool.tables) do
+        local by = open[t.stake_id]
+        if not by then by = {}; open[t.stake_id] = by end
+        by[t.game_type_id] = (by[t.game_type_id] or 0) + 1
+    end
+    local rows = { { text = "NEXT LEVEL", style = "sm", color_token = "muted" } }
     for _, stake in ipairs(Stakes) do
         if stakeVisible(self, stake) then
-            for _, gtype in ipairs(GameTypes) do
-                if self:_stakePreview(up, stake, gtype) then
-                    names[#names + 1] = stake.display_name or stake.id
-                    break
+            local best, best_n = "zoom", 0
+            for gid, n in pairs(open[stake.id] or {}) do
+                if n > best_n then best, best_n = gid, n end
+            end
+            local gtype = Lookups.findById(GameTypes, best)
+            local nxt = gtype and self:_stakePreview(up, stake, gtype)
+            local now = nxt and ctrl:evStats(stake, gtype)
+            now = now and now.pool
+            if nxt and now then
+                local name = stake.display_name or stake.id
+                local line
+                if up.tooltip_metric == "win_chance" then
+                    local d = (nxt.win_chance or 0) - (now.win_chance or 0)
+                    line = ("%s   %s {c:chance:odds}"):format(name, pctDelta(d))
+                else
+                    -- Pot Control: the game type where the next level moves
+                    -- stacks most at this stake (Zoom's stacks only emerge
+                    -- halfway up, so the most-open table can read zero).
+                    local best_g, best_sw, best_sl = nil, 0, 0
+                    for _, g in ipairs(GameTypes) do
+                        if ctrl:gtypeAvailable(g.id) and not g.chip_stack_table then
+                            local n2 = self:_stakePreview(up, stake, g)
+                            local n0 = n2 and ctrl:evStats(stake, g)
+                            n0 = n0 and n0.pool
+                            if n2 and n0 then
+                                local wc0, wc1 = n0.win_chance or 0, n2.win_chance or 0
+                                local sw = wc1 * ((n2.win_dist or {}).stack or 0) - wc0 * ((n0.win_dist or {}).stack or 0)
+                                local sl = (1 - wc1) * ((n2.loss_dist or {}).stack or 0) - (1 - wc0) * ((n0.loss_dist or {}).stack or 0)
+                                if math.abs(sw) + math.abs(sl) > math.abs(best_sw) + math.abs(best_sl) then
+                                    best_g, best_sw, best_sl = g, sw, sl
+                                end
+                            end
+                        end
+                    end
+                    if best_g then
+                        local pill = ({ zoom = "zoom", hu = "hu", six_max = "6m", ko = "ko" })[best_g.id] or best_g.id
+                        line = ("%s   {t:%s} {w:stack} %s"):format(name, pill, pctDelta(best_sw))
+                        if math.abs(best_sl) >= 0.00005 then
+                            line = line .. ("   {l:stack} %s"):format(pctDelta(best_sl))
+                        end
+                    end
                 end
+                if line then rows[#rows + 1] = _blurbRow(self, line) end
             end
         end
     end
-    local rows = {}
-    if #names == 0 then
-        rows[#rows + 1] = { text = "The next level changes nothing at your stakes.", style = "sm", color_token = "muted" }
-        return rows
+    if #rows == 1 then
+        return { { text = "The next level changes nothing at your stakes.", style = "sm", color_token = "muted" } }
     end
-    rows[#rows + 1] = { text = "Affects: " .. table.concat(names, ", "), style = "sm", color_token = "good" }
     return rows
 end
 
@@ -1070,10 +1123,7 @@ function GrindView:_buildRangeTooltipUncached(up)
         if self.controller:getRunUpgradeLevel(up.id) >= self.controller:getRunUpgradeMaxLevel(up) then
             rows[#rows + 1] = { text = "MAX", style = "sm", color_token = "muted" }
         else
-            -- blank spacer between the blurb and the reach line
-            if #rows > 0 then rows[#rows + 1] = { text = "", style = "sm", color_token = "muted" } end
-
-            for _, r in ipairs(self:_upgradeAffectsRows(up)) do rows[#rows + 1] = r end
+            for _, r in ipairs(self:_upgradeNextRows(up)) do rows[#rows + 1] = r end
         end
     end
 

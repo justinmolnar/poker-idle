@@ -80,11 +80,12 @@ for _ = 1, 4 do frame() end
 for _, id in ipairs({ "pot_control", "sharper_reads" }) do
     local up = Lookups.findById(RunUpgrades, id)
     local rows = view:_buildRangeTooltipUncached(up)
-    local affects = false
+    local header, lines = false, 0
     for _, r in ipairs(rows or {}) do
-        if type(r) == "table" and type(r.text) == "string" and r.text:find("^Affects: NL2") then affects = true end
+        if type(r) == "table" and r.text == "NEXT LEVEL" then header = true end
+        if type(r) == "table" and r.measure and r.render then lines = lines + 1 end
     end
-    c.ok(affects, id .. "'s tooltip names the stakes it moves")
+    c.ok(header and lines >= 1, id .. "'s tooltip lists what the next level does per stake (" .. lines .. " lines)")
 end
 
 -- ── preview ─────────────────────────────────────────────────────────────
