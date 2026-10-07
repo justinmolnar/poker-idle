@@ -50,7 +50,7 @@
 local ko_entry = {
         id   = "ko",
         name = "Tournament",
-        short = "8-MAX KO",
+        short = "KO",
         seats = 7,              -- 7 opponents + player = 8 seated total
         -- Eight seated is the most crowded felt in the game, so its hands
         -- run as long as 6-max's. It is never the quick one.
