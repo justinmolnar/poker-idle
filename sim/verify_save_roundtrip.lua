@@ -341,11 +341,11 @@ do
         ok(same, "its seat stacks come back")
         ok(ko_after._ko_hand == ko_before._ko_hand, "its blind clock comes back")
         ok(ko_after._ko_flow ~= nil, "the hand in flight keeps its settled chips")
-        local played = ko_after.hands_played
+        local played = ko_after._ko_hand or 0   -- every deal, sat out or not
         wk2:tick(30.0)
         local sum = 0
         for _, v in pairs(ko_after.seat_stacks or {}) do sum = sum + v end
-        ok(ko_after.hands_played > played or not ko_after.ko:isPlaying(), "the restored tournament plays on")
+        ok((ko_after._ko_hand or 0) > played or not ko_after.ko:isPlaying(), "the restored tournament plays on")
         ok(not ko_after.ko:isPlaying() or math.abs(sum - 80 * Stakes[1].bb) < 1e-4,
            "and its chips still add up")
     end

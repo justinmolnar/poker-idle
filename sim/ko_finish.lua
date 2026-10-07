@@ -120,7 +120,7 @@ for f in pairs(bare.finishes) do if f < 1 or f > 8 then in_range = false end end
 c.ok(in_range, "finishes are 1..8")
 c.ok(math.abs(bare.first - bare.readout) <= 0.04,
      ("NL2 bare: the readout's 1st (%.1f%%) is what the table reaches (%.1f%%)"):format(bare.readout * 100, bare.first * 100))
-local up = play(500, "s002", { upgrades = { sharper_reads = 5, pot_control = 5 } })
+local up = play(1000, "s002", { upgrades = { sharper_reads = 5, pot_control = 5 } })
 c.ok(math.abs(up.first - up.readout) <= 0.04,
      ("NL10 SR+PC 5: the readout's 1st (%.1f%%) is what the table reaches (%.1f%%)"):format(up.readout * 100, up.first * 100))
 

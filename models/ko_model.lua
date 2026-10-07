@@ -9,6 +9,9 @@
 -- is what the table does.
 --
 --   * every seat sits down with `depth` big blinds (gtype.starting_stack_bb);
+--   * the player is in `involve` of the hands (gtype.player_in_hand); the
+--     rest two live opponents play at a loss-sized pot (settleFieldHand);
+--   * wc / wd / ld arrive squeezed toward a coinflip (OutcomeMath.koSqueeze);
 --   * each hand the player wins with `wc`, at a tier drawn from wd / ld, a
 --     magnitude from the game type's pot bands, times that tier's
 --     multiplier, in the tournament's big blind (average live stack /
@@ -90,6 +93,27 @@ function KoModel.settleHand(stacks, alive, player, n, won, amount, seats_rule, r
     return deltas, involved
 end
 
+-- A hand the player sits out: two live opponents play it, one wins
+-- `amount` off the other (capped by what the loser holds). Same return
+-- shape as settleHand; the player is not in the pot.
+function KoModel.settleFieldHand(stacks, alive, player, n, amount, rnd)
+    local deltas, involved = {}, {}
+    for s = 1, n do deltas[s] = 0 end
+    local opps = {}
+    for s = 1, n do
+        if s ~= player and alive[s] then opps[#opps + 1] = s end
+    end
+    if #opps < 2 then return deltas, involved end
+    local wi = 1 + math.floor(rnd() * #opps)
+    local li = 1 + math.floor(rnd() * (#opps - 1))
+    if li >= wi then li = li + 1 end
+    local w, l = opps[wi], opps[li]
+    local take = math.min(amount, stacks[l] or 0)
+    deltas[l], deltas[w] = -take, take
+    involved[w], involved[l] = true, true
+    return deltas, involved
+end
+
 -- Park-Miller: exact in doubles, the same on LuaJIT and PUC Lua.
 local seed
 local function rnd()
@@ -125,8 +149,10 @@ function KoModel.run(inp)
     end
     inp = { wc = q(inp.wc), wd = wd, ld = ld, win_mult = wm, loss_mult = lm,
             bands = inp.bands, n_seats = inp.n_seats, depth = inp.depth,
-            seats_rule = inp.seats_rule, level_hands = inp.level_hands, key = inp.key }
-    local parts = { ("%.3f"):format(inp.wc), inp.n_seats, inp.depth, inp.seats_rule, inp.level_hands }
+            seats_rule = inp.seats_rule, level_hands = inp.level_hands, key = inp.key,
+            involve = inp.involve }
+    local parts = { ("%.3f"):format(inp.wc), inp.n_seats, inp.depth, inp.seats_rule, inp.level_hands,
+                    inp.involve or 1 }
     for _, t in ipairs(TIERS) do
         parts[#parts + 1] = ("%.3f/%.3f/%.3f/%.3f"):format(wd[t], ld[t], wm[t], lm[t])
     end
@@ -150,13 +176,23 @@ function KoModel.run(inp)
             local bb = math.max(1, total / n_alive / depth)
                      * 2 ^ ((hands - 1) / inp.level_hands)
             for s = 1, n do pre[s] = stacks[s] end
-            local won  = rnd() < inp.wc
-            local tier = pick(won and inp.wd or inp.ld)
-            local band = (won and inp.bands.win or inp.bands.loss)[tier]
-            local mag  = band and (band.lo + (band.hi - band.lo) * rnd()) or 1
-            local mult = (won and inp.win_mult or inp.loss_mult)[tier] or 1
-            local deltas = KoModel.settleHand(stacks, alive, 1, n, won,
-                                              mag * bb * mult, inp.seats_rule, rnd)
+            local deltas
+            if n_alive > 2 and rnd() >= (inp.involve or 1) then
+                -- The player sits this one out: the field plays it, at the
+                -- size of a hand the player loses (their dist, no mults).
+                local tier = pick(inp.ld)
+                local band = inp.bands.loss[tier]
+                local mag  = band and (band.lo + (band.hi - band.lo) * rnd()) or 1
+                deltas = KoModel.settleFieldHand(stacks, alive, 1, n, mag * bb, rnd)
+            else
+                local won  = rnd() < inp.wc
+                local tier = pick(won and inp.wd or inp.ld)
+                local band = (won and inp.bands.win or inp.bands.loss)[tier]
+                local mag  = band and (band.lo + (band.hi - band.lo) * rnd()) or 1
+                local mult = (won and inp.win_mult or inp.loss_mult)[tier] or 1
+                deltas = KoModel.settleHand(stacks, alive, 1, n, won,
+                                            mag * bb * mult, inp.seats_rule, rnd)
+            end
             for s = 1, n do stacks[s] = stacks[s] + deltas[s] end
             local out_now = {}
             for s = 2, n do

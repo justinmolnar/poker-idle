@@ -382,6 +382,34 @@ function GrindController:_route(d)
     end
 end
 
+-- Knockouts. Fired ONCE per hand carrying the seat count, not once per
+-- seat: a multi-bust puts two seats out on the same hand, and firing twice
+-- would be a no-op for a refreshing status while double-paying a
+-- chance-based one. Payloads that should scale read event.n instead.
+-- From every tournament hand, the player's or one the field played.
+function GrindController:_announceKnockouts(r, resolutions, state)
+    if r.busted_seats then
+        -- The view's KO moment: one intent per eliminated seat (the
+        -- announce below stays once-per-hand for the procs). Not a
+        -- chip burst — GrindView routes it to the seat flash, the KO
+        -- floater and the knock.
+        for _, seat in ipairs(r.busted_seats) do
+            self.pending_bursts[#self.pending_bursts + 1] = {
+                kind = "seat_ko", table = r.table, seat = seat,
+            }
+        end
+        self:_announce("on_ko", {
+            table = r.table, n = #r.busted_seats, out = resolutions,
+            busted_total = r.busted_total,
+            seats = r.busted_seats,
+        })
+        -- Circuit Pro levels on knockouts.
+        if Decks.systemUnlocked(state) then
+            self:_grantDeckXp({ type = "ko", n = #r.busted_seats })
+        end
+    end
+end
+
 function GrindController:_fireProcs(trigger, source_tbl, extra)
     local list = self.proc_index and self.proc_index[trigger]
     if not list then return end
@@ -1555,6 +1583,12 @@ function GrindController:update(dt)
 
     local state      = self.game.state
     for _, r in ipairs(resolutions) do
+        -- A tournament hand the player sat out: the field's knockouts, and
+        -- nothing of the player's (no money, no counts, no events).
+        if r.sat_out then
+            self:_announceKnockouts(r, resolutions, state)
+            goto continue
+        end
         -- Focus does not touch the delta: an over-cap board plays every
         -- hand slower (Table:update's pace), and the hand pays in full.
         -- Corrupted Gaming Chair: no focus penalty, but every table past
@@ -1882,31 +1916,8 @@ function GrindController:update(dt)
         -- WINS only: a stack LOSS setting off your engine would read as
         -- being rewarded for getting stacked. Flip the `r.delta > 0` here
         -- if that ever seems worth trying.
-        -- Knockouts. Fired ONCE per hand carrying the seat count, not once
-        -- per seat: a scheduled multi-bust puts two seats out on the same
-        -- hand, and firing twice would be a no-op for a refreshing status
-        -- while double-paying a chance-based one. Payloads that should
-        -- scale read event.n instead.
-        if r.busted_seats then
-            -- The view's KO moment: one intent per eliminated seat (the
-            -- announce below stays once-per-hand for the procs). Not a
-            -- chip burst — GrindView routes it to the seat flash, the KO
-            -- floater and the knock.
-            for _, seat in ipairs(r.busted_seats) do
-                self.pending_bursts[#self.pending_bursts + 1] = {
-                    kind = "seat_ko", table = r.table, seat = seat,
-                }
-            end
-            self:_announce("on_ko", {
-                table = r.table, n = #r.busted_seats, out = resolutions,
-                busted_total = r.busted_total,
-                seats = r.busted_seats,
-            })
-            -- Circuit Pro levels on knockouts.
-            if Decks.systemUnlocked(state) then
-                self:_grantDeckXp({ type = "ko", n = #r.busted_seats })
-            end
-        end
+        -- Knockouts (one announce per hand; see :_announceKnockouts).
+        self:_announceKnockouts(r, resolutions, state)
         -- `not r.flipped` throughout: a hand whose side a heater or tilt
         -- FLIPPED keeps its tier for the felt (the cards played out), but a
         -- manufactured stack is not the chip event — the dists never
@@ -2206,6 +2217,7 @@ function GrindController:update(dt)
                 end
             end
         end
+        ::continue::
     end
 
     -- Resolutions just mutated per-table state (incl. KoSession fields

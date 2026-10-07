@@ -468,6 +468,7 @@ function Table:serialize()
         _ko_hand = self._ko_hand,
         -- A tournament hand in flight: its chips were settled at the deal.
         _ko_flow = self._ko_flow, _ko_in = self._ko_in, _ko_amount = self._ko_amount,
+        _sat_out = self._sat_out,
         ko = self.ko and self.ko:serialize() or nil,
         opponents = (function()
             local out = {}
@@ -559,6 +560,7 @@ function Table.restore(rec, ctx, poker_events, effects_registry, bus)
     t._pre_hand_bust_count = rec._pre_hand_bust_count
     t._ko_hand             = rec._ko_hand
     t._ko_flow, t._ko_in, t._ko_amount = rec._ko_flow, rec._ko_in, rec._ko_amount
+    t._sat_out = rec._sat_out
     t.ko = KoSession.restore(rec.ko)
     -- A tournament marked mid-run without its per-seat state cannot deal
     -- (the first hand nil-indexes seat_busted). Restart it cleanly. With
@@ -810,6 +812,20 @@ function Table:deal(ctx)
         self._pre_hand_bust_count = (self.bust_order and #self.bust_order) or 0
     end
 
+    -- Tournaments: the player is in about gtype.player_in_hand of the
+    -- hands; the rest two opponents play (KoModel.settleFieldHand), which
+    -- is how the field busts itself. Never a hand a punch is owed to.
+    local sat_out = false
+    if gtype.chip_stack_table and self.seat_stacks and self._forced_next_won == nil
+       and (gtype.player_in_hand or 1) < 1 then
+        local opps = 0
+        for sseat = 1, (gtype.seats or 0) + 1 do
+            if sseat ~= self.player_seat_fixed and not self.seat_busted[sseat] then opps = opps + 1 end
+        end
+        sat_out = opps >= 2 and love.math.random() >= gtype.player_in_hand
+    end
+    self._sat_out = sat_out or nil
+
     local won, tier
     do
         -- Roll the 3-distribution outcome live. Tier-shift perks
@@ -817,71 +833,84 @@ function Table:deal(ctx)
         -- loss) chain on top.
         local ec = self:effectiveCtx(ctx)
         local wc, wd, ld = OutcomeMath.buildOutcome(ec, gtype, stake)
-        -- Desk Plant (ctx.tilted_loss_dist_shifts): a tilt's forced hand
-        -- loses smaller here. Only the hand a tilt decides, only at the
-        -- shape's game type; the shape is additive and renormalised.
-        if self._forced_next_won == false and ec.tilted_loss_dist_shifts then
-            local shifted = false
-            for _, sh in ipairs(ec.tilted_loss_dist_shifts) do
-                if OutcomeMath.shiftApplies(sh, gtype) then
-                    OutcomeMath.distAddInPlace(ld, sh.shift)
-                    shifted = true
-                end
-            end
-            if shifted then OutcomeMath.distClampAndNormalize(ld) end
-        end
-        -- This table's own odds: empty cells beside it (Yellow Sticky
-        -- Note; a 6-Max counts with the Comfort Bed), the table in the
-        -- player's hand (Lava Lamp), the top-left corner (Red Rug). One
-        -- definition shared with the readout (OutcomeMath.tableWinChanceBonus),
-        -- capped like the rollup's own shifts.
-        do
-            local bonus = OutcomeMath.tableWinChanceBonus(ec, self)
-            if bonus > 0 then wc = math.min(OutcomeMath.WC_ABSOLUTE_CAP, wc + bonus) end
-        end
-        -- A hand that was interrupted forces the NEXT one to go the same
-        -- way. Only the side: the tier still rolls — from the forced side's
-        -- distribution, which is why the flag goes INTO sampleOutcome — so
-        -- a forced win on a heated table is a win of whatever size, one
-        -- rung better.
-        -- A consumed forced LOSS is a tilt running its course: the punch's
-        -- second half is spent on this hand. Latched here, announced when
-        -- the hand finishes (on_tilt_spent — the Waste Basket's moment).
-        if self._forced_next_won == false then
-            self._tilt_spent_pending = true
-        elseif self._forced_next_won == true then
-            -- The heater's forced hand, mirror of the tilt latch: pays
-            -- Hot Hand's mult below and announces on_heat_spent when the
-            -- hand finishes.
-            self._heat_hand = true
-        end
-        -- This hand spends the punch: the status that latched it expires
-        -- when this hand finalizes, so the fire lives exactly as long as
-        -- the mechanic (_finalizeHand).
-        if self._forced_next_won ~= nil then self._punch_live = true end
-        OutcomeMath.last_rerolled = false
-        won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ec, gtype,
-                                              self._forced_next_won)
-        if OutcomeMath.last_rerolled then self._rerolled = true end   -- Stack of Books
-        self._forced_next_won = nil
-        if won then
-            tier = OutcomeMath.applyTierShift(tier, ec.win_tier_shifts, gtype)
-            -- House Cat's one-shot (table_procs next_win_tier_up): the next
-            -- WIN reads a tier higher. Wins only, so a pending flag rides
-            -- through losses untouched until a win spends it.
-            local pending = Table.tierUpCount(self)
-            if pending > 0 then
-                -- Pending bumps queue up (House Cat, Nightstand, Floor
-                -- Plant...): each win spends one, so two landing on the
-                -- same table lift its next two wins instead of overwriting.
-                self._next_win_tier_up = (pending > 1) and (pending - 1) or nil
-                local rank = OutcomeMath.TIER_INDEX[tier]
-                if rank then
-                    tier = OutcomeMath.TIER_KEYS[math.min(#OutcomeMath.TIER_KEYS, rank + 1)]
-                end
-            end
+        if sat_out then
+            -- A hand the player sits out: only its size is rolled (the
+            -- field's pot, at the size of a hand the player would lose).
+            local _, _, kld = OutcomeMath.koSqueeze(wc, wd, ld, gtype)
+            won, tier = false, OutcomeMath.sampleDist(kld) or "small"
         else
-            tier = OutcomeMath.applyTierShift(tier, ec.loss_tier_shifts, gtype)
+            -- Desk Plant (ctx.tilted_loss_dist_shifts): a tilt's forced hand
+            -- loses smaller here. Only the hand a tilt decides, only at the
+            -- shape's game type; the shape is additive and renormalised.
+            if self._forced_next_won == false and ec.tilted_loss_dist_shifts then
+                local shifted = false
+                for _, sh in ipairs(ec.tilted_loss_dist_shifts) do
+                    if OutcomeMath.shiftApplies(sh, gtype) then
+                        OutcomeMath.distAddInPlace(ld, sh.shift)
+                        shifted = true
+                    end
+                end
+                if shifted then OutcomeMath.distClampAndNormalize(ld) end
+            end
+            -- This table's own odds: empty cells beside it (Yellow Sticky
+            -- Note; a 6-Max counts with the Comfort Bed), the table in the
+            -- player's hand (Lava Lamp), the top-left corner (Red Rug). One
+            -- definition shared with the readout (OutcomeMath.tableWinChanceBonus),
+            -- capped like the rollup's own shifts.
+            do
+                local bonus = OutcomeMath.tableWinChanceBonus(ec, self)
+                if bonus > 0 then wc = math.min(OutcomeMath.WC_ABSOLUTE_CAP, wc + bonus) end
+            end
+            -- A hand that was interrupted forces the NEXT one to go the same
+            -- way. Only the side: the tier still rolls — from the forced side's
+            -- distribution, which is why the flag goes INTO sampleOutcome — so
+            -- a forced win on a heated table is a win of whatever size, one
+            -- rung better.
+            -- A consumed forced LOSS is a tilt running its course: the punch's
+            -- second half is spent on this hand. Latched here, announced when
+            -- the hand finishes (on_tilt_spent — the Waste Basket's moment).
+            if self._forced_next_won == false then
+                self._tilt_spent_pending = true
+            elseif self._forced_next_won == true then
+                -- The heater's forced hand, mirror of the tilt latch: pays
+                -- Hot Hand's mult below and announces on_heat_spent when the
+                -- hand finishes.
+                self._heat_hand = true
+            end
+            -- This hand spends the punch: the status that latched it expires
+            -- when this hand finalizes, so the fire lives exactly as long as
+            -- the mechanic (_finalizeHand).
+            if self._forced_next_won ~= nil then self._punch_live = true end
+            -- A tournament hand is squeezed toward a coinflip (gtype
+            -- edge_squeeze): over a whole tournament a per-hand edge
+            -- compounds. The readout squeezes the same (evStats).
+            if gtype.chip_stack_table then
+                wc, wd, ld = OutcomeMath.koSqueeze(wc, wd, ld, gtype)
+            end
+            OutcomeMath.last_rerolled = false
+            won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ec, gtype,
+                                                  self._forced_next_won)
+            if OutcomeMath.last_rerolled then self._rerolled = true end   -- Stack of Books
+            self._forced_next_won = nil
+            if won then
+                tier = OutcomeMath.applyTierShift(tier, ec.win_tier_shifts, gtype)
+                -- House Cat's one-shot (table_procs next_win_tier_up): the next
+                -- WIN reads a tier higher. Wins only, so a pending flag rides
+                -- through losses untouched until a win spends it.
+                local pending = Table.tierUpCount(self)
+                if pending > 0 then
+                    -- Pending bumps queue up (House Cat, Nightstand, Floor
+                    -- Plant...): each win spends one, so two landing on the
+                    -- same table lift its next two wins instead of overwriting.
+                    self._next_win_tier_up = (pending > 1) and (pending - 1) or nil
+                    local rank = OutcomeMath.TIER_INDEX[tier]
+                    if rank then
+                        tier = OutcomeMath.TIER_KEYS[math.min(#OutcomeMath.TIER_KEYS, rank + 1)]
+                    end
+                end
+            else
+                tier = OutcomeMath.applyTierShift(tier, ec.loss_tier_shifts, gtype)
+            end
         end
     end
 
@@ -894,7 +923,7 @@ function Table:deal(ctx)
     -- capability flags — one-step, non-chaining bump via the shared tier
     -- ranking; magnitude double applied below.
     local payout_double = 1.0
-    if ectx then
+    if ectx and not sat_out then
         if ectx.tier_bump_chance and love.math.random() < ectx.tier_bump_chance then
             local rank = OutcomeMath.TIER_INDEX[tier]
             if rank then
@@ -986,7 +1015,18 @@ function Table:deal(ctx)
     -- readout plays too (KoModel.settleHand). Decided here with the money;
     -- the script below only animates it, and _reconcileChipFlow applies it.
     if gtype.chip_stack_table and self.seat_stacks then
-        self:_settleKoHand(gtype, won)
+        if sat_out then
+            -- Not the player's pot: no multipliers, no money.
+            self.outcome_delta = 0
+            self._ko_amount = magnitude_bb * hand_bb
+            local n = (gtype.seats or 0) + 1
+            local alive = {}
+            for sseat = 1, n do alive[sseat] = not self.seat_busted[sseat] end
+            self._ko_flow, self._ko_in = KoModel.settleFieldHand(self.seat_stacks, alive,
+                self.player_seat_fixed, n, self._ko_amount, love.math.random)
+        else
+            self:_settleKoHand(gtype, won)
+        end
     end
 
     -- Cards last, and cards only: the money above is already final. The
@@ -1139,7 +1179,8 @@ function Table:deal(ctx)
         if stake_bb > 0 then
             local payout_bb = math.abs(self.outcome_delta or 0) / stake_bb
             if gtype.chip_stack_table and self._ko_flow then
-                payout_bb = math.abs(self._ko_flow[player_seat] or 0) / stake_bb
+                payout_bb = (self._sat_out and (self._ko_amount or 0)
+                             or math.abs(self._ko_flow[player_seat] or 0)) / stake_bb
             end
             effective_bb = (won and not gtype.chip_stack_table) and (payout_bb * 0.5) or payout_bb
         end
@@ -1231,7 +1272,8 @@ function Table:deal(ctx)
     -- Past every early-out above, so a hand that never started never
     -- burns a charge. Timed statuses are untouched here — they run on
     -- the clock, not on hands.
-    self:_spendStatusCharges()
+    -- (A hand the player sat out spends nothing of theirs.)
+    if not sat_out then self:_spendStatusCharges() end
     return true
 end
 
@@ -1406,6 +1448,9 @@ function Table:_update(dt, ctx)
                 x     = self.x,
                 y     = self.y,
                 chip_stack_table = gtype and gtype.chip_stack_table or false,
+                -- A tournament hand the player sat out: only its knockouts
+                -- reach the controller.
+                sat_out = self._sat_out,
                 felt_pot = self.playback_state and self.playback_state.pot_at_push or 0,
                 -- The player's own money in the pot. What a win NATURALLY
                 -- pays is pot minus this (your own chips coming back are
@@ -1843,8 +1888,9 @@ function Table:interrupt(want_win, ctx, landed_kind)
         self._punch_live = nil
     end
 
-    -- No live hand — there is only the next, already latched.
-    if self.state == "idle" or self.state == "settling" then return true end
+    -- No live hand — there is only the next, already latched. (Nor is a
+    -- tournament hand the player sat out theirs to end.)
+    if self.state == "idle" or self.state == "settling" or self._sat_out then return true end
     -- Script spent / missing: nothing left to fast-forward.
     if not self.script or self.script_idx >= #self.script then return true end
     -- Once per hand. An interrupt resolves a hand, a resolution fires
@@ -1966,17 +2012,23 @@ end
 -- has one tidy call site at end-of-list.
 function Table:_finalizeHand()
     self.view_rev = (self.view_rev or 0) + 1
-    self.last_results[#self.last_results + 1] = {
-        won   = self.outcome_won,
-        delta = self.outcome_delta,
-        tier  = self.outcome_tier,
-    }
-    if #self.last_results > LAST_RESULTS_CAP then
-        table.remove(self.last_results, 1)
+    -- A tournament hand the player sat out is not one of their hands: no
+    -- result, no count, no streak.
+    local sat_out = self._sat_out
+    self._sat_out = nil
+    if not sat_out then
+        self.last_results[#self.last_results + 1] = {
+            won   = self.outcome_won,
+            delta = self.outcome_delta,
+            tier  = self.outcome_tier,
+        }
+        if #self.last_results > LAST_RESULTS_CAP then
+            table.remove(self.last_results, 1)
+        end
+        self.hands_played  = self.hands_played + 1
+        -- Wins in a row (the Washing Machine's combo; drawn on the panel).
+        self._combo = self.outcome_won and ((self._combo or 0) + 1) or 0
     end
-    self.hands_played  = self.hands_played + 1
-    -- Wins in a row (the Washing Machine's combo; drawn on the panel).
-    self._combo = self.outcome_won and ((self._combo or 0) + 1) or 0
     -- Headset (ctx.zoom_tilt_one_hand): at Zoom a tilt that ended THIS
     -- hand does not follow to the next. New table, new people. The tilt
     -- has run its course here, so its "spent" beat fires now.

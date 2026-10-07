@@ -72,6 +72,15 @@ local ko_entry = {
         -- bust), so a tournament closes out in a handful of hands however
         -- the chips move. Table:koBigBlind.
         blind_level_hands   = 3,
+        -- The player is in about this share of the hands; the field plays
+        -- the rest among itself (KoModel.settleFieldHand), which is how
+        -- seats bust without the player and places 2nd-6th happen.
+        player_in_hand      = 0.5,
+        -- Each tournament hand the player plays is squeezed toward a
+        -- coinflip by this much (OutcomeMath.koSqueeze): the cash edge a
+        -- stake gives, compounded over a tournament, made covering a
+        -- stake with upgrades a near-certain 1st. 1 = no squeeze.
+        edge_squeeze        = 0.35,
         auto_deal           = true,
     }
 
