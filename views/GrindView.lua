@@ -1030,11 +1030,17 @@ function GrindView:_upgradeNextRows(up)
     if #names == 0 then
         return { { text = "The next level changes nothing at your stakes.", style = "sm", color_token = "muted" } }
     end
-    return {
-        { text = "NEXT LEVEL", style = "sm", color_token = "muted" },
-        { text = table.concat(names, ", "), style = "sm", color_token = "heading" },
-        { text = "Hover the i for the numbers.", style = "sm", color_token = "muted" },
-    }
+    -- One sentence: what the next level does, and where.
+    local where = names[#names]
+    if #names > 1 then
+        where = table.concat(names, ", ", 1, #names - 1) .. " and " .. where
+    end
+    local str = (up.tooltip_metric == "win_chance")
+        and ("Your next level raises your {c:chance:odds} at " .. where .. ".")
+        or  ("Your next level means more {w:stack} and fewer {l:stack} at " .. where .. ".")
+    local row = _blurbRow(self, str)
+    row.say = str
+    return { row, { text = "Hover the i for the numbers.", style = "sm", color_token = "muted" } }
 end
 
 -- The "i" beside Sharper Reads and Pot Control: the full breakdown of the

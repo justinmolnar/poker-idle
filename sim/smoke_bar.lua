@@ -4,7 +4,7 @@
 --   segments  eight segments, as wide as their absolute chances, filling the
 --             bar exactly; the win/loss split where the win chance says
 --   tooltip   pot_control's and sharper_reads' tooltips name the stakes
---             the next level moves, no numbers; their "i" builds the full
+--             the next level moves, as one sentence, no numbers; their "i" builds the full
 --             breakdown grid (stake x game type, now -> next)
 --   preview   hovering an upgrade gives every table it moves its own
 --             metric, now and next (tbl._preview.text: "Win" for Sharper
@@ -83,8 +83,8 @@ for _, id in ipairs({ "pot_control", "sharper_reads" }) do
     local rows = view:_buildRangeTooltipUncached(up)
     local header, names, pct = false, false, false
     for _, r in ipairs(rows or {}) do
-        if type(r) == "table" and r.text == "NEXT LEVEL" then header = true end
-        if type(r) == "table" and r.text and r.text:find("NL") then names = true end
+        if type(r) == "table" and r.say and r.say:find("^Your next level") then header = true end
+        if type(r) == "table" and r.say and r.say:find("NL") then names = true end
         if type(r) == "table" and r.text and r.text:find("%%") then pct = true end
     end
     c.ok(header and names and not pct, id .. "'s tooltip names the stakes the next level moves, no numbers")
