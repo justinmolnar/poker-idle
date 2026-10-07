@@ -295,6 +295,19 @@ do
     c.ok(named > 0, "a showdown's hand name is drawn in the top layer")
 end
 
+-- ── Pot Control counts in a tournament ──────────────────────────────────
+do
+    local OM = require("models.outcome_math")
+    local ko = Lookups.findById(require("data.game_types"), "ko")
+    local s1 = require("data.stakes")[1]
+    local function first(d)
+        local ctx = { win_chance_fills = {}, win_dist_fills = {}, loss_dist_fills = {} }
+        for i = 1, d do ctx.win_dist_fills[i] = { strength = 1 }; ctx.loss_dist_fills[i] = { strength = 1 } end
+        return OM.evStats(ctx, ko, s1).pool.pos_probs[1]
+    end
+    c.ok(first(5) > first(0) + 0.02, ("Pot Control raises a tournament's chance of 1st (%.1f%% -> %.1f%%)"):format(first(0) * 100, first(5) * 100))
+end
+
 -- ── cursor settings carry to new tables ─────────────────────────────────
 do
     local cw = H.world({ bankroll = 1e9 })

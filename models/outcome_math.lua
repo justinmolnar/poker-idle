@@ -283,6 +283,20 @@ function OutcomeMath.koFinishFill(eff_wc, stake)
     return f ^ (KoFinishDist.curve or 1)
 end
 
+-- What Pot Control (and anything else that reshapes the stack tiers) is
+-- worth in a tournament: the stack edge (stack-win share minus stack-loss
+-- share) gained over the stake's naked dists, at the player's own win
+-- chance so odds aren't counted twice. Added to the win chance before the
+-- bar (koFinishFill), weighted by KoFinishDist.stack_weight: stacking
+-- people wins tournaments, getting stacked busts you.
+function OutcomeMath.koStackGain(wc, wd, ld, stake)
+    if not (stake and stake.win_dist and stake.loss_dist) then return 0 end
+    wc = wc or 0
+    local dw = ((wd and wd.stack) or 0) - (stake.win_dist.stack or 0)
+    local dl = ((ld and ld.stack) or 0) - (stake.loss_dist.stack or 0)
+    return (KoFinishDist.stack_weight or 0) * (wc * dw - (1 - wc) * dl)
+end
+
 -- Linear interpolation between two distributions (per-tier).
 local function lerpDist(naked, capped, t)
     local d = {}
@@ -955,7 +969,7 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
 
         -- Finish odds follow the effective win chance (mirror of
         -- KoSession:planRun), so this readout and the plan agree.
-        local ko_wc = OutcomeMath.buildOutcome(ctx, gtype, stake)
+        local ko_wc, ko_wd, ko_ld = OutcomeMath.buildOutcome(ctx, gtype, stake)
         local auto_win_total = 0
         if ctx.auto_win_chances then
             for _, e in ipairs(ctx.auto_win_chances) do
@@ -965,7 +979,8 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
             end
         end
         -- Unclamped on purpose (see koFinishFill); weights floor at 0.
-        local eff_fill = OutcomeMath.koFinishFill(ko_wc, stake) + auto_win_total
+        local eff_fill = OutcomeMath.koFinishFill(ko_wc + OutcomeMath.koStackGain(ko_wc, ko_wd, ko_ld, stake), stake)
+                       + auto_win_total
 
         local raw_weights = {}
         local total_weight = 0

@@ -211,7 +211,9 @@ function KoSession:planRun(ctx, gtype, stake, player_seat, n_seats)
     --    climbing; weights that extrapolate below zero are floored.
     --    auto_win_total pushes the fill up directly, so KO Pro biases
     --    toward top finishes. (Mirrored in OutcomeMath.evStats.)
-    local eff_fill    = OutcomeMath.koFinishFill(wc, stake) + auto_win_total
+    -- The stack edge (Pot Control) counts alongside the win chance.
+    local eff_fill    = OutcomeMath.koFinishFill(wc + OutcomeMath.koStackGain(wc, win_dist, loss_dist, stake), stake)
+                        + auto_win_total
 
     local finish_weights = {}
     for pos = 1, n_seats do

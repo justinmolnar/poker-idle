@@ -1052,84 +1052,127 @@ local GT_PILL = { zoom = "{t:zoom}", hu = "{t:hu}", six_max = "{t:6m}", ko = "{t
 -- One decimal: a level moves odds by a point or two, whole percents would
 -- often read "52% -> 52%".
 local function pctCell(v) return string.format("%.1f%%", v * 100) end
--- One grid as a tooltip row: header pills across, stake names down, cells.
+-- One table as a tooltip row, laid out like the board: the metric in the
+-- corner, the game-type pills across in the strip's order, stake names
+-- down, each cell "now {arrow} next" (a dash where the level moves nothing).
+-- Ruled: a shaded header row, a line under it and between columns.
+local CELL_PAD_X, CELL_PAD_Y = 8, 3
 local function gridRow(game, title, cols, rows_)
+    local function layout(f)
+        local lh = f:getHeight() + CELL_PAD_Y * 2
+        local w0 = f:getWidth(title)
+        for _, r in ipairs(rows_) do w0 = math.max(w0, f:getWidth(r.name)) end
+        local cw = { w0 + CELL_PAD_X * 2 }
+        for ci, c in ipairs(cols) do
+            local w = IconText.measure(c.head, f)
+            for _, r in ipairs(rows_) do w = math.max(w, IconText.measure(r.cells[ci] or "-", f)) end
+            cw[ci + 1] = w + CELL_PAD_X * 2
+        end
+        local W = 0
+        for _, w in ipairs(cw) do W = W + w end
+        return cw, W, lh
+    end
     return {
         measure = function(fonts)
-            local f = fonts.sm
-            local pad = 10
-            local lw = f:getWidth(title)
-            for _, r in ipairs(rows_) do lw = math.max(lw, f:getWidth(r.name)) end
-            local cw = {}
-            for ci, c in ipairs(cols) do
-                local w = IconText.measure(c.head, f)
-                for _, r in ipairs(rows_) do w = math.max(w, IconText.measure(r.cells[ci] or "", f)) end
-                cw[ci] = w
-            end
-            local W = lw + pad
-            for _, w in ipairs(cw) do W = W + w + pad end
-            return W, (f:getHeight() + 4) * (#rows_ + 1)
+            local _, W, lh = layout(fonts.sm)
+            return W, lh * (#rows_ + 1)
         end,
         render = function(x, y, fonts)
             local f = fonts.sm
-            local pad = 10
-            local lh = f:getHeight() + 4
-            local lw = f:getWidth(title)
-            for _, r in ipairs(rows_) do lw = math.max(lw, f:getWidth(r.name)) end
-            local cx = x + lw + pad
+            local cw, W, lh = layout(f)
+            local H = lh * (#rows_ + 1)
+            -- the header band and the rules
+            Theme.setColor(Theme.border.soft, 0.6)
+            love.graphics.rectangle("fill", x, y, W, lh)
+            Theme.setColor(Theme.border.default)
+            love.graphics.setLineWidth(1)
+            love.graphics.rectangle("line", x + 0.5, y + 0.5, W - 1, H - 1)
+            love.graphics.line(x, y + lh + 0.5, x + W, y + lh + 0.5)
+            local cx = x
+            for ci = 1, #cw - 1 do
+                cx = cx + cw[ci]
+                love.graphics.line(cx + 0.5, y, cx + 0.5, y + H)
+            end
+            -- the corner and the stake names
             love.graphics.setFont(f)
             Theme.setColor(Theme.fg.muted)
-            love.graphics.print(title, x, y)
+            love.graphics.print(title, x + CELL_PAD_X, y + CELL_PAD_Y)
+            Theme.setColor(Theme.fg.heading)
+            for ri, r in ipairs(rows_) do
+                love.graphics.print(r.name, x + CELL_PAD_X, y + lh * ri + CELL_PAD_Y)
+            end
+            -- the pills and the cells, centred in their columns
+            cx = x + cw[1]
             for ci, c in ipairs(cols) do
-                local w = IconText.measure(c.head, f)
-                for _, r in ipairs(rows_) do w = math.max(w, IconText.measure(r.cells[ci] or "", f)) end
-                IconText.draw(game, c.head, cx, y, f, Theme.fg.heading, 1)
+                local w = cw[ci + 1]
+                IconText.draw(game, c.head, cx + math.floor((w - IconText.measure(c.head, f)) / 2), y + CELL_PAD_Y, f, Theme.fg.heading, 1)
                 for ri, r in ipairs(rows_) do
-                    if r.cells[ci] then
-                        IconText.draw(game, r.cells[ci], cx, y + lh * ri, f, Theme.fg.heading, 1, IconText.PLAIN)
+                    local str = r.cells[ci]
+                    local cy = y + lh * ri + CELL_PAD_Y
+                    if str then
+                        IconText.draw(game, str, cx + math.floor((w - IconText.measure(str, f, IconText.PLAIN)) / 2), cy, f, Theme.fg.heading, 1, IconText.PLAIN)
+                    else
+                        Theme.setColor(Theme.fg.muted)
+                        love.graphics.setFont(f)
+                        love.graphics.print("-", cx + math.floor((w - f:getWidth("-")) / 2), cy)
                     end
                 end
-                cx = cx + w + pad
-            end
-            for ri, r in ipairs(rows_) do
-                Theme.setColor(Theme.fg.heading)
-                love.graphics.setFont(f)
-                love.graphics.print(r.name, x, y + lh * ri)
+                cx = cx + w
             end
         end,
     }
 end
 
+-- The shares a table shows, from a pool: odds, stack wins, stack losses
+-- (absolute shares of all hands) and, for a tournament, the chance of 1st.
+local function shares(pool)
+    local wc = pool.win_chance or 0
+    return {
+        odds  = wc,
+        swin  = wc * ((pool.win_dist or {}).stack or 0),
+        sloss = (1 - wc) * ((pool.loss_dist or {}).stack or 0),
+        first = pool.pos_probs and pool.pos_probs[1],
+    }
+end
+
 function GrindView:_upgradeInfoRowsUncached(up)
     local ctrl = self.controller
-    local cols = {}
-    for _, g in ipairs(GameTypes) do
-        if ctrl:gtypeAvailable(g.id) and not g.chip_stack_table then
-            cols[#cols + 1] = { g = g, head = GT_PILL[g.id] or g.short or g.id }
+    local cols, has_ko = {}, false
+    for _, gid in ipairs(STRIP_ORDER) do
+        local g = Lookups.findById(GameTypes, gid)
+        if g and ctrl:gtypeAvailable(gid) then
+            cols[#cols + 1] = { g = g, head = GT_PILL[gid] or g.short or gid }
+            if g.chip_stack_table then has_ko = true end
         end
     end
+    local sharper = up.tooltip_metric == "win_chance"
+    local function cell(a, b) return pctCell(a) .. " {arrow} " .. pctCell(b) end
     local win_rows, loss_rows, any_loss = {}, {}, false
     for _, stake in ipairs(Stakes) do
         if stakeVisible(self, stake) then
-            local wr_, lr_ = { name = stake.display_name or stake.id, cells = {} }, { name = stake.display_name or stake.id, cells = {} }
+            local name = stake.display_name or stake.id
+            local wr_, lr_ = { name = name, cells = {} }, { name = name, cells = {} }
             local moved = false
             for ci, c in ipairs(cols) do
                 local nxt = self:_stakePreview(up, stake, c.g)
                 local now = ctrl:evStats(stake, c.g)
                 now = now and now.pool
                 if nxt and now then
-                    moved = true
-                    if up.tooltip_metric == "win_chance" then
-                        wr_.cells[ci] = pctCell(now.win_chance or 0) .. " {arrow} " .. pctCell(nxt.win_chance or 0)
+                    local a, b = shares(now), shares(nxt)
+                    if c.g.chip_stack_table then
+                        -- A tournament: what both upgrades move is the
+                        -- chance of finishing 1st.
+                        if a.first and b.first and math.abs(b.first - a.first) > 0.0005 then
+                            wr_.cells[ci] = cell(a.first, b.first)
+                            moved = true
+                        end
+                    elseif sharper then
+                        wr_.cells[ci] = cell(a.odds, b.odds); moved = true
                     else
-                        local wc0, wc1 = now.win_chance or 0, nxt.win_chance or 0
-                        local sw0 = wc0 * ((now.win_dist or {}).stack or 0)
-                        local sw1 = wc1 * ((nxt.win_dist or {}).stack or 0)
-                        local sl0 = (1 - wc0) * ((now.loss_dist or {}).stack or 0)
-                        local sl1 = (1 - wc1) * ((nxt.loss_dist or {}).stack or 0)
-                        wr_.cells[ci] = pctCell(sw0) .. " {arrow} " .. pctCell(sw1)
-                        lr_.cells[ci] = pctCell(sl0) .. " {arrow} " .. pctCell(sl1)
-                        if math.abs(sl1 - sl0) > 0.00005 then any_loss = true end
+                        wr_.cells[ci] = cell(a.swin, b.swin); moved = true
+                        if math.abs(b.sloss - a.sloss) > 0.00005 then
+                            lr_.cells[ci] = cell(a.sloss, b.sloss); any_loss = true
+                        end
                     end
                 end
             end
@@ -1139,15 +1182,30 @@ function GrindView:_upgradeInfoRowsUncached(up)
     if #win_rows == 0 then
         return { { text = "The next level changes nothing at your stakes.", style = "sm", color_token = "muted" } }
     end
-    local rows = { { text = "NEXT LEVEL", style = "sm", color_token = "muted" } }
-    if up.tooltip_metric == "win_chance" then
-        rows[#rows + 1] = gridRow(self.game, "odds", cols, win_rows)
+    local rows = { { text = "YOUR NEXT LEVEL", style = "sm", color_token = "muted" } }
+    if sharper then
+        rows[#rows + 1] = gridRow(self.game, "ODDS", cols, win_rows)
     else
-        rows[#rows + 1] = gridRow(self.game, "stack wins", cols, win_rows)
+        rows[#rows + 1] = gridRow(self.game, "STACK WINS", cols, win_rows)
         if any_loss then
+            -- Losses never apply to a tournament's column: leave it out.
+            local lcols, lrows = {}, {}
+            for ci, c in ipairs(cols) do
+                if not c.g.chip_stack_table then lcols[#lcols + 1] = ci end
+            end
+            local cs = {}
+            for _, ci in ipairs(lcols) do cs[#cs + 1] = cols[ci] end
+            for _, r in ipairs(loss_rows) do
+                local nr = { name = r.name, cells = {} }
+                for k, ci in ipairs(lcols) do nr.cells[k] = r.cells[ci] end
+                lrows[#lrows + 1] = nr
+            end
             rows[#rows + 1] = { text = "", style = "sm" }
-            rows[#rows + 1] = gridRow(self.game, "stack losses", cols, loss_rows)
+            rows[#rows + 1] = gridRow(self.game, "STACK LOSSES", cs, lrows)
         end
+    end
+    if has_ko then
+        rows[#rows + 1] = _blurbRow(self, "{t:ko}: your chance of finishing 1st.")
     end
     return rows
 end

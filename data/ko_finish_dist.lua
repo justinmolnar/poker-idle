@@ -38,6 +38,12 @@ return {
     wc_ref = { 1.00, 1.10, 1.20, 1.30, 1.40, 1.50, 1.60, 1.70, 1.80, 2.00 },
     wc_ref_default = 1.60,   -- any stake past the list
 
+    -- How much the stack edge gained over the stake's naked dists (Pot
+    -- Control: more stack wins, fewer stack losses) counts toward the win
+    -- chance measured against the bar. 1 = a point of stack edge is worth a
+    -- point of win chance; 0.5 keeps a Pot Control level (twice the price)
+    -- worth about half a Sharper Reads level at NL2. (OutcomeMath.koStackGain.)
+    stack_weight = 0.5,
     -- Exponent on the fill. 1 = the old linear blend; 2 = convex.
     curve = 2,
 
