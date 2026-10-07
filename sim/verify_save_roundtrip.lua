@@ -321,8 +321,14 @@ do
     local ko_before = wk:open(Stakes[1].id, "ko")
     ko_before:deal(wk.ctrl.ctx)
     for _ = 1, 300 do ko_before:update(0.1, wk.ctrl.ctx) end
-    if ko_before.state == "idle" and ko_before.ko:isPlaying() then ko_before:deal(wk.ctrl.ctx) end
-    for _ = 1, 3 do ko_before:update(0.1, wk.ctrl.ctx) end
+    -- Then catch a hand early in its script (not settling: its chips are
+    -- still to land).
+    for _ = 1, 200 do
+        if ko_before.state == "idle" then break end
+        ko_before:update(0.1, wk.ctrl.ctx)
+    end
+    if ko_before.ko:isPlaying() then ko_before:deal(wk.ctrl.ctx) end
+    ko_before:update(0.1, wk.ctrl.ctx)
     ok(ko_before.ko:isPlaying() and ko_before.state ~= "idle", "the fixture has a tournament mid-hand")
 
     wk.state.tables = wk.ctrl.pool:serialize()

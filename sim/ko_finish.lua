@@ -11,6 +11,8 @@
 --   readout   evStats' chance of 1st is within 4 points of the rate the
 --             table reaches (NL2 bare, NL10 with Sharper Reads + Pot
 --             Control 8)
+--   shape     1st is the rarest finish, then 2nd, then 3rd; the most likely
+--             finish is in the middle (3rd-6th), 8th is never it
 --   reach     the readout's 1st place rises with Sharper Reads, Pot
 --             Control, a winnings multiplier and a position bonus
 --   punches   a heater at the start of every tournament raises the real
@@ -124,6 +126,23 @@ local up = play(2000, "s002", { upgrades = { sharper_reads = 8, pot_control = 8 
 c.ok(math.abs(up.first - up.readout) <= 0.04,
      ("NL10 SR+PC 8: the readout's 1st (%.1f%%) is what the table reaches (%.1f%%)"):format(up.readout * 100, up.first * 100))
 
+-- ── shape: 1st rarest, then 2nd, then 3rd; the peak in the middle ───────
+do
+    local gtype = H.Lookups.findById(H.GameTypes, "ko")
+    for _, cs in ipairs({ { "s001", 0 }, { "s001", 5 }, { "s002", 5 }, { "s002", 8 },
+                          { "s003", 11 }, { "s004", 14 }, { "s004", 17 } }) do
+        local stake = H.Lookups.findById(H.Stakes, cs[1])
+        local p = OutcomeMath.evStats(H.ctxOf({ upgrades = { sharper_reads = cs[2], pot_control = cs[2] } }),
+                                      gtype, stake).pool.pos_probs
+        local peak = 1
+        for f = 2, 8 do if p[f] > p[peak] then peak = f end end
+        local label = ("%s L%d"):format(stake.display_name, cs[2])
+        c.ok(p[1] < p[2] and p[2] < p[3],
+             ("%s: 1st (%.1f%%) < 2nd (%.1f%%) < 3rd (%.1f%%)"):format(label, p[1] * 100, p[2] * 100, p[3] * 100))
+        c.ok(peak >= 3 and peak <= 6, ("%s: the most likely finish is in the middle (%d)"):format(label, peak))
+        c.ok(p[8] < p[peak], ("%s: 8th (%.1f%%) is not the most likely"):format(label, p[8] * 100))
+    end
+end
 -- ── reach: the readout moves with the build ─────────────────────────────
 do
     local gtype = H.Lookups.findById(H.GameTypes, "ko")

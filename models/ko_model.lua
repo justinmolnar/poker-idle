@@ -20,7 +20,9 @@
 --     from the pot bands, times that tier's multiplier, in the
 --     tournament's big blind (average live stack / depth, doubled every
 --     `level_hands` hands);
---   * the field's hand: a fair flip at the size of a hand from ld;
+--   * the field's hand: a fair flip at the size of a hand from ld, times
+--     `field_mult` (gtype.field_pot_mult: the field gambles, the player
+--     grinds, so the finishes peak in the middle);
 --   * seats at zero are out; the player's finish is the seats still in
 --     (plus those out in the same hand holding more) plus one.
 --
@@ -86,7 +88,7 @@ local function q(v) return math.floor((v or 0) * 200 + 0.5) / 200 end
 
 -- in = { wc, wd, ld, win_mult = {tier = m}, loss_mult = {tier = m},
 --        bands = { win = {tier = {lo, hi}}, loss = {...} },
---        n_seats, depth, level_hands, key }
+--        n_seats, depth, level_hands, field_mult, key }
 -- -> { pos_probs = {1..n}, exp_hands }
 function KoModel.run(inp)
     local wd, ld, wm, lm = {}, {}, {}, {}
@@ -95,7 +97,7 @@ function KoModel.run(inp)
         wm[t], lm[t] = q(inp.win_mult[t] or 1), q(inp.loss_mult[t] or 1)
     end
     local wc = q(inp.wc)
-    local parts = { ("%.3f"):format(wc), inp.n_seats, inp.depth, inp.level_hands }
+    local parts = { ("%.3f"):format(wc), inp.n_seats, inp.depth, inp.level_hands, inp.field_mult or 1 }
     for _, t in ipairs(TIERS) do
         parts[#parts + 1] = ("%.3f/%.3f/%.3f/%.3f"):format(wd[t], ld[t], wm[t], lm[t])
     end
@@ -134,7 +136,7 @@ function KoModel.run(inp)
                 local band = inp.bands.loss[tier]
                 local mag  = band and (band.lo + (band.hi - band.lo) * rnd()) or 1
                 if rnd() < 0.5 then a, b = b, a end
-                deltas = KoModel.settle(stacks, n, a, b, mag * bb)
+                deltas = KoModel.settle(stacks, n, a, b, mag * bb * (inp.field_mult or 1))
             end
             for s = 1, n do stacks[s] = stacks[s] + deltas[s] end
             local out_now = {}

@@ -261,6 +261,36 @@ local function fillRatio(units, window, ctx)
 end
 OutcomeMath.fillRatio = fillRatio
 
+-- A tournament hand: the player's odds against the field, and the pot
+-- sizes both sides play. The whole cash edge at this stake (odds, pot
+-- sizes and every multiplier, as one number from -1 to 1: what the player
+-- expects to net per hand over what moves) maps onto gtype.ko_odds, which
+-- stays under even. However strong the build, the player is never better
+-- than the field, so 1st is the rarest finish, then 2nd, then 3rd; a
+-- better build closes the gap. Both sides play the same pot sizes (the
+-- win and loss shapes averaged), so nothing but the odds tilts a hand.
+-- THE definition: Table:deal and evStats both read it.
+function OutcomeMath.koOdds(ctx, gtype, stake, tbl)
+    ctx = ctx or {}
+    local wc, wd, ld = OutcomeMath.resolvedOutcome(ctx, gtype, stake)
+    wc, wd, ld = OutcomeMath.rerollAdjusted(wc, wd, ld, ctx)
+    if tbl then
+        local bonus = OutcomeMath.tableWinChanceBonus(ctx, tbl)
+        if bonus > 0 then wc = math.min(WC_ABSOLUTE_CAP, wc + bonus) end
+    end
+    local opts = { table_mult = tbl and OutcomeMath.tableEarningsMult(ctx, tbl) or nil }
+    local ew, el, sizes = 0, 0, {}
+    for _, t in ipairs(TIER_KEYS) do
+        ew = ew + (wd[t] or 0) * OutcomeMath.tierAvgBB(t, gtype, true)  * OutcomeMath.payoutMult(ctx, stake, t, true,  opts)
+        el = el + (ld[t] or 0) * OutcomeMath.tierAvgBB(t, gtype, false) * OutcomeMath.payoutMult(ctx, stake, t, false, opts)
+        sizes[t] = ((wd[t] or 0) + (ld[t] or 0)) / 2
+    end
+    local moved = wc * ew + (1 - wc) * el
+    local edge  = (moved > 0) and ((wc * ew - (1 - wc) * el) / moved) or 0
+    local band  = gtype.ko_odds or { lo = 0.25, hi = 0.45 }
+    return band.lo + (band.hi - band.lo) * (1 + edge) / 2, sizes, edge
+end
+
 -- Linear interpolation between two distributions (per-tier).
 local function lerpDist(naked, capped, t)
     local d = {}
@@ -928,27 +958,25 @@ function OutcomeMath.evStats(ctx, gtype, stake, opts)
     end
 
     if gtype.chip_stack_table then
-        -- A tournament plays the same hands for its chips (Table:deal);
-        -- its finish odds and length are those hands played out
-        -- (models/ko_model). The multipliers are the hand's, without the
-        -- bankroll factor, which a tournament takes on its payout.
+        -- A tournament plays its hands for chips (Table:deal) at the odds
+        -- and sizes koOdds gives; its finish odds and length are those
+        -- hands played out (models/ko_model). The multipliers are inside
+        -- the odds, not on the chips.
         local buy_in  = stake.buy_in or 0
         local n_seats = (gtype.seats or 0) + 1
-        local chip_opts = {}
-        for k, v in pairs(opts or {}) do chip_opts[k] = v end
-        chip_opts.bankroll = nil
-        local win_m, loss_m, bands = {}, {}, { win = {}, loss = {} }
+        local kwc, sizes = OutcomeMath.koOdds(ctx, gtype, stake, opts and opts.table)
+        local one, bands = {}, { win = {}, loss = {} }
         for _, t in ipairs(TIER_KEYS) do
-            win_m[t]  = OutcomeMath.payoutMult(ctx, stake, t, true,  chip_opts)
-            loss_m[t] = OutcomeMath.payoutMult(ctx, stake, t, false, chip_opts)
+            one[t] = 1
             bands.win[t]  = tierBand(t, gtype, true)
             bands.loss[t] = tierBand(t, gtype, false)
         end
         local sim = KoModel.run({
-            wc = wc, wd = wd, ld = ld, win_mult = win_m, loss_mult = loss_m,
+            wc = kwc, wd = sizes, ld = sizes, win_mult = one, loss_mult = one,
             bands = bands, n_seats = n_seats,
             depth = gtype.starting_stack_bb or 10,
             level_hands = gtype.blind_level_hands or 1e9,
+            field_mult = gtype.field_pot_mult or 1,
             key = gtype.id,
         })
 

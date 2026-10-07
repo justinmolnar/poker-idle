@@ -838,9 +838,9 @@ function Table:deal(ctx)
         local ec = self:effectiveCtx(ctx)
         local wc, wd, ld = OutcomeMath.buildOutcome(ec, gtype, stake)
         if sat_out then
-            -- A hand the player sits out: only its size is rolled (the
-            -- field's pot, at the size of a hand the player would lose).
-            won, tier = false, OutcomeMath.sampleDist(ld) or "small"
+            -- A hand the player sits out: only its size is rolled.
+            local _, sizes = OutcomeMath.koOdds(ec, gtype, stake, self)
+            won, tier = false, OutcomeMath.sampleDist(sizes) or "small"
         else
             -- Desk Plant (ctx.tilted_loss_dist_shifts): a tilt's forced hand
             -- loses smaller here. Only the hand a tilt decides, only at the
@@ -885,8 +885,21 @@ function Table:deal(ctx)
             -- the mechanic (_finalizeHand).
             if self._forced_next_won ~= nil then self._punch_live = true end
             OutcomeMath.last_rerolled = false
-            won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ec, gtype,
-                                                  self._forced_next_won)
+            if gtype.chip_stack_table then
+                -- A tournament hand: the player's odds against the field
+                -- and the shared pot sizes (OutcomeMath.koOdds; the whole
+                -- cash edge is inside them). A punch still decides the side.
+                local kwc, sizes = OutcomeMath.koOdds(ec, gtype, stake, self)
+                if self._forced_next_won ~= nil then
+                    won = self._forced_next_won
+                else
+                    won = love.math.random() < kwc
+                end
+                tier = OutcomeMath.sampleDist(sizes) or "small"
+            else
+                won, tier = OutcomeMath.sampleOutcome(wc, wd, ld, ec, gtype,
+                                                      self._forced_next_won)
+            end
             if OutcomeMath.last_rerolled then self._rerolled = true end   -- Stack of Books
             self._forced_next_won = nil
             if won then
@@ -1004,6 +1017,11 @@ function Table:deal(ctx)
         -- stack at 0 in its resolution loop.
         self.outcome_delta = -magnitude_bb * hand_bb * loss_mult * payout_double
     end
+    -- A tournament hand's chips are the pot itself: the build's multipliers
+    -- already made its odds (OutcomeMath.koOdds), so they don't land twice.
+    if gtype.chip_stack_table then
+        self.outcome_delta = (won and 1 or -1) * magnitude_bb * hand_bb
+    end
     -- earnings_scale_by_bankroll (Bank capstone) is applied at resolve time
     -- in GrindController, where live bankroll is available (a tournament
     -- gets it on its payout, not its chips).
@@ -1016,7 +1034,7 @@ function Table:deal(ctx)
             -- Not the player's pot: a fair flip between the two drawn,
             -- no multipliers, no money.
             self.outcome_delta = 0
-            self._ko_amount = magnitude_bb * hand_bb
+            self._ko_amount = magnitude_bb * hand_bb * (gtype.field_pot_mult or 1)
             local a, b = self._ko_pair[1], self._ko_pair[2]
             if love.math.random() < 0.5 then a, b = b, a end
             self._ko_flow, self._ko_in = KoModel.settle(self.seat_stacks,
