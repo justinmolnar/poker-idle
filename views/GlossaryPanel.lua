@@ -20,6 +20,9 @@
 -- outgrows the screen. MVC: reads state, never mutates it.
 
 local Theme    = require("views.Theme")
+-- A table pill's glossary term, by its id (data/terms.lua `tables`).
+local TABLE_GLOSS = {}
+for _, t in ipairs(require("data.terms").tables or {}) do TABLE_GLOSS[t.id] = t.gloss end
 local IconText = require("views.IconText")
 local Anchors  = require("services.AnchorRegistry")
 local Glossary = require("data.glossary")
@@ -112,6 +115,7 @@ function GlossaryPanel.rowsForSpan(game, span)
     if not (span and game and game.state and game.fonts) then return nil end
     local key
     if span.kind == "icon" then key = span.token
+    elseif span.kind == "table" then key = TABLE_GLOSS[span.token]
     elseif span.kind == "tint" or span.kind == "key" then key = (span.text or ""):lower()
     end
     if not key then return nil end

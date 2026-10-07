@@ -390,6 +390,34 @@ local function checkKeywords(f)
     end
 end
 
+-- ── table pills ({t:…}) ────────────────────────────────────────────────
+-- A {t:…} must name a listed table pill; a rule line must not carry a table
+-- word bare (data/terms.lua `tables` words): it writes the pill.
+local TABLE_IDS, TABLE_WORDS = {}, {}
+for _, t in ipairs(Terms.tables or {}) do
+    TABLE_IDS[t.id] = true
+    for _, w in ipairs(t.words or {}) do TABLE_WORDS[#TABLE_WORDS + 1] = { w = w:lower(), id = t.id } end
+end
+table.sort(TABLE_WORDS, function(a, b) return #a.w > #b.w end)   -- longest first
+
+local function checkTables(f)
+    local text = f.text
+    for id in text:gmatch("{t:([^}]*)}") do
+        if not TABLE_IDS[id] then
+            err(f.where, ("{t:%s} is not a listed table pill (data/terms.lua tables)"):format(id), text)
+        end
+    end
+    if f.kind ~= "rule" then return end
+    local bare = text:gsub("{[^}]*}", " "):lower()
+    for _, tw in ipairs(TABLE_WORDS) do
+        local pat = "%f[%w]" .. tw.w:gsub("%-", "%%-") .. "%f[%W]"
+        if bare:find(pat) then
+            err(f.where, ("bare table word %q in a rule line (write {t:%s})"):format(tw.w, tw.id), text)
+            bare = bare:gsub(pat, " ")
+        end
+    end
+end
+
 -- The noise guard: a rule line carries at most two pills, three tints and
 -- three keywords.
 local function checkNoise(f)
@@ -462,6 +490,7 @@ for _, f in ipairs(Fields) do
     end
     checkSkeleton(f)
     checkKeywords(f)
+    checkTables(f)
     checkNoise(f)
 end
 

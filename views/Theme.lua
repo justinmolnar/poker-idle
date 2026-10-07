@@ -22,6 +22,7 @@ Theme.debug = PaletteData.debug
 Theme.currency = PaletteData.currency
 Theme.card  = PaletteData.card
 Theme.paper = PaletteData.paper
+Theme.table_pill = PaletteData.table_pill
 
 -- ─── Active-palette dispatch ────────────────────────────────────────
 -- Per-palette tables (bg/fg/border/data/status/tint) are repointed by

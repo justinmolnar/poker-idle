@@ -273,6 +273,16 @@ Theme.currency = {
     achip_ring= { 0.35, 0.15, 0.55 },   -- darker rim
 }
 
+-- ─── Table pills (theme-invariant) ─────────────────────────────────
+-- Every table reference in the copy ({t:zoom}, {t:adjacent}...) is one pill
+-- family: a felt-green tab with a tabletop icon (views/IconText). Felt is the
+-- table's own colour, so the pill reads "a table" before its code is read.
+Theme.table_pill = {
+    fill = { 0.20, 0.42, 0.27 },   -- the pill
+    rim  = { 0.30, 0.58, 0.38 },   -- its edge
+    felt = { 0.13, 0.30, 0.19 },   -- the tabletop's felt (its rail is the text colour)
+}
+
 -- ─── Paper (theme-invariant) ────────────────────────────────────────
 -- The catalog, the flyer and the receipt are printed objects: cream stock,
 -- black ink, a red rubber stamp, white vinyl stickers. These are the

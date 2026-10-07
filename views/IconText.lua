@@ -19,7 +19,13 @@
 --                                      heat or tilt word gets its status
 --                                      glyph in front (Icons.drawFlame /
 --                                      drawTilt).
---   {k:<text>}                       → a keyword (Zoom, Heads-Up, a knockout):
+--   {t:<id>}                         → a table pill (zoom, hu, 6m, ko, any,
+--                                      adjacent, random, this): felt green,
+--                                      a tabletop icon and a short code
+--                                      (ZOOM, HU, ADJACENT...). The pill is
+--                                      the table noun. Ids and codes:
+--                                      data/terms.lua `tables`.
+--   {k:<text>}                       → a keyword (a knockout, a rebuy):
 --                                      the word embossed, printed four times
 --                                      offset by a pixel in Theme.embossFor
 --                                      (the text colour) then once in the
@@ -73,6 +79,10 @@ local function drawArrow(x, y, size, color, alpha)
 end
 
 local OUTCOME = { w = "win", l = "loss" }
+
+-- Table pills by id (data/terms.lua `tables`).
+local TABLE_PILLS = {}
+for _, t in ipairs(require("data.terms").tables or {}) do TABLE_PILLS[t.id] = t end
 
 -- Meanings whose words wear a glyph in front.
 local WORD_GLYPH = { heat = "heater", tilt = "tilt" }
@@ -181,6 +191,9 @@ local function parseUncached(str, pills)
             els[#els + 1] = { kind = "key", s = key }
         elseif token == "chip" or token == "achip" or token == "arrow" then
             els[#els + 1] = { kind = "icon", token = token }
+        elseif token:match("^t:[%w_]+$") and TABLE_PILLS[token:sub(3)] then
+            local t = TABLE_PILLS[token:sub(3)]
+            els[#els + 1] = { kind = "table", s = t.code, token = t.id }
         elseif token:match("^item:[%w_]+$") then
             -- A catalog item's art at text height ({item:mirror}).
             els[#els + 1] = { kind = "item", id = token:sub(6) }
@@ -268,6 +281,9 @@ local function elementWidth(el, font, m)
     if el.kind == "key"  then return font:getWidth(el.s) + 2 end
     if el.kind == "icon" then return m.size + m.gap end
     if el.kind == "item" then return m.size + m.gap end
+    if el.kind == "table" then
+        return font:getWidth(el.s) + m.pad_x * 2 + math.floor(m.ink * 1.5) + m.gap
+    end
     if el.kind == "tier" then return TierGlyph.width(el.name, TierGlyph.radius(m.size)) + m.gap end
     return 0
 end
@@ -307,6 +323,32 @@ local function drawPill(el, x, y, font, m, color, alpha)
     end
 end
 
+-- A table pill: the felt tab, the tabletop (a rounded rail around felt, at
+-- the ink height, 1.5:1), then the code.
+local function drawTable(el, x, y, font, m, alpha)
+    local tp = Theme.table_pill or {}
+    local iw = math.floor(m.ink * 1.5)
+    local w  = font:getWidth(el.s) + m.pad_x * 2 + iw + m.gap
+    local py = y + m.ink_y - m.pad_y
+    local ph = m.ink + m.pad_y * 2
+    local r  = Theme.space.radius
+    Theme.setColor(tp.fill or Theme.sem.won, alpha)
+    love.graphics.rectangle("fill", x, py, w, ph, r)
+    Theme.setColor(tp.rim or Theme.fg.heading, alpha)
+    love.graphics.setLineWidth(1)
+    love.graphics.rectangle("line", x + 0.5, py + 0.5, w - 1, ph - 1, r)
+    local ix, iy, ih = x + m.pad_x, y + m.ink_y, m.ink
+    local ir = math.max(1, math.floor(ih * 0.4))
+    Theme.setColor(Theme.fg.heading, alpha)
+    love.graphics.rectangle("fill", ix, iy, iw, ih, ir)
+    Theme.setColor(tp.felt or Theme.bg.felt, alpha)
+    local inset = math.max(1, math.floor(ih * 0.2))
+    love.graphics.rectangle("fill", ix + inset, iy + inset, iw - inset * 2, ih - inset * 2, math.max(1, ir - inset))
+    Theme.setColor(Theme.fg.heading, alpha)
+    love.graphics.setFont(font)
+    love.graphics.print(el.s, ix + iw + m.gap, y)
+end
+
 local function drawKeyword(el, x, y, font, color, alpha)
     love.graphics.setFont(font)
     local halo = Theme.embossFor(color)
@@ -342,6 +384,8 @@ local function drawElement(game, el, x, y, font, m, color, alpha)
         if el.token == "chip" then Icons.drawChip(game, x, y, m.size, alpha)
         elseif el.token == "achip" then Icons.drawAntiChip(game, x, y, m.size, alpha)
         else drawArrow(x, y, m.size, color, alpha) end
+    elseif el.kind == "table" then
+        drawTable(el, x, y, font, m, alpha)
     elseif el.kind == "item" then
         local sl = game and game.sprite_loader
         local item = itemById(el.id)

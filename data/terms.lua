@@ -50,9 +50,24 @@ return {
     -- {k:…} that is not here and asks for one on a bare keyword in a rule
     -- line. The House's own lines are never embossed.
     keywords = {
-        "Zoom", "Heads-Up", "6-Max", "tournament", "tournaments",
-        "knockout", "knockouts", "rebuy", "adjacent",
-        "a random table", "every table", "first place",
+        "knockout", "knockouts", "rebuy", "first place",
+    },
+
+    -- Table pills: every table reference in rule copy is {t:<id>}, drawn as
+    -- one felt-green pill with a tabletop icon and a short code
+    -- (views/IconText). The pill IS the table noun: "a {t:zoom}", "an
+    -- {t:adjacent}", "{t:this} deals". `words` are what the lint asks to be
+    -- written as the pill in a rule line; `gloss` is the glossary term the
+    -- pill opens on hover.
+    tables = {
+        { id = "zoom",     code = "ZOOM",     words = { "Zoom" },            gloss = "zoom" },
+        { id = "hu",       code = "HU",       words = { "Heads-Up" },        gloss = "heads-up" },
+        { id = "6m",       code = "6M",       words = { "6-Max" },           gloss = "6-max" },
+        { id = "ko",       code = "KO",       words = { "tournament", "tournaments" }, gloss = "tournament" },
+        { id = "any",      code = "ANY",      words = { "every table" } },
+        { id = "adjacent", code = "ADJACENT", words = { "adjacent" },        gloss = "adjacent" },
+        { id = "random",   code = "RANDOM",   words = { "a random table" },  gloss = "a random table" },
+        { id = "this",     code = "THIS",     words = {} },
     },
     -- The other UI nouns (catalog, deck, room, readout, stickers, glossary)
     -- are NOT tinted: paper and chrome, no colour of their own to lend.

@@ -106,10 +106,10 @@ local Decks = {
             { kind = "hand_pace_mult", value = 1.15, gtype = "zoom" },
         },
         capstone  = {
-            text    = "Win a {w:stack} at {k:Zoom}: every {k:Zoom} table catches a {c:heat:heater}.",
+            text    = "Win a {w:stack} at a {t:zoom}: every {t:zoom} catches a {c:heat:heater}.",
             effects = { { kind = "proc", proc = "firehose_cascade" } },
         },
-        bonus       = { text = "{k:Zoom} deal speed +{n}%", per_level = 15, compound = true },
+        bonus       = { text = "{t:zoom} deal speed +{n}%", per_level = 15, compound = true },
         flavor_text = "Hands are hands. Open the valve.",
         unlock = {
             kind      = "hands_at_gtype",
@@ -133,10 +133,10 @@ local Decks = {
             { kind = "win_chance_shift", amount = 0.03, gtype = "hu" },
         },
         capstone  = {
-            text    = "At {k:Heads-Up}, 1 in 2 chance: {l:stack} {arrow} {l:large}.",
+            text    = "At a {t:hu}, 1 in 2 chance: {l:stack} {arrow} {l:large}.",
             effects = { { kind = "loss_tier_shift", from = "stack", to = "large", chance = 1/2, gtype = "hu" } },
         },
-        bonus       = { text = "+{n}% {c:chance:odds} at {k:Heads-Up}", per_level = 3 },
+        bonus       = { text = "+{n}% {c:chance:odds} at {t:hu}", per_level = 3 },
         flavor_text = "One opponent. One stack. Take it.",
         unlock = {
             kind      = "hands_at_gtype",
@@ -189,7 +189,7 @@ local Decks = {
             text    = "One-game board deal speed ×1.25.",
             effects = { { kind = "pure_board_pace", value = 1.25 } },
         },
-        bonus       = { text = "+{n}% {c:won:winnings} when {k:every_table} is one game", per_level = 20, compound = true },
+        bonus       = { text = "+{n}% {c:won:winnings} when {t:any} is one game", per_level = 20, compound = true },
         flavor_text = "One game. Every table. Perfect execution.",
         unlock = {
             kind      = "total_hands_at_4plus",
@@ -212,7 +212,7 @@ local Decks = {
             { kind = "heater_win_mult", value = 1.25 },
         },
         capstone  = {
-            text    = "A {c:heat:heater} ends: 1 in 4 chance a table {k:adjacent} to it catches one.",
+            text    = "A {c:heat:heater} ends: 1 in 4 chance an {t:adjacent} catches one.",
             effects = { { kind = "proc", proc = "hot_hand_spread" } },
         },
         bonus       = { text = "+{n}% on the hand a {c:heat:heater} deals for you", per_level = 25, compound = true },
@@ -316,10 +316,10 @@ local Decks = {
             { kind = "tilted_loss_mult", value = 0.8, gtype = "six_max" },
         },
         capstone  = {
-            text    = "A {c:tilt:tilt} on a {k:6-Max} ends: a table {k:adjacent} to it catches a {c:heat:heater}.",
+            text    = "A {c:tilt:tilt} on a {t:6m} ends: an {t:adjacent} catches a {c:heat:heater}.",
             effects = { { kind = "proc", proc = "anchor_convert" } },
         },
-        bonus       = { text = "-{n}% on {c:tilt:tilted} {k:6-Max} {c:lost:losses}", per_level = 20, compound = true },
+        bonus       = { text = "-{n}% on {c:tilt:tilted} {t:6m} {c:lost:losses}", per_level = 20, compound = true },
         flavor_text = "Somebody has to take the hit. Sit them at the big table.",
         unlock = {
             kind      = "total_tilts",
@@ -342,7 +342,7 @@ local Decks = {
             { kind = "ko_targets_add", value = 1 },
         },
         capstone  = {
-            text    = "{k:First_place}: {k:every_table} catches a {c:heat:heater}.",
+            text    = "{k:First_place}: {t:any} catches a {c:heat:heater}.",
             effects = { { kind = "proc", proc = "circuit_pro_final" } },
         },
         bonus       = { text = "Each {k:knockout} reaches {n} more table", per_level = 1 },
