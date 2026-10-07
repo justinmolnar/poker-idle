@@ -291,12 +291,18 @@ end
 -- inert, a slot to want. The story beats do the explaining when each opens.
 -- Hover is the renderer's (CR._button lightens the face): a key tinted
 -- here on hover would make the pointer a rebuild key for the whole tab.
+local STRIP_ORDER = { "zoom", "hu", "six_max", "ko" }
+
 function GrindView:_makeGameTypeStrip()
     local fh        = self.game.fonts.sm:getHeight()
     local s         = self.game.ui_scale or 1
     local KEY_DEPTH = 10
     local kids = {}
-    for _, gt in ipairs(GameTypes) do
+    -- In unlock order, left to right: Zoom opens first, then Heads-Up,
+    -- 6-Max, the tournament (not the data order).
+    for _, gid in ipairs(STRIP_ORDER) do
+        local gt = Lookups.findById(GameTypes, gid)
+        if gt then
         local locked = not self.controller:gtypeAvailable(gt.id)
         local active = (gt.id == self.selected_gtype) and not locked
         local id     = "gtype:" .. gt.id
@@ -336,6 +342,7 @@ function GrindView:_makeGameTypeStrip()
                   color_token = active and "heading" or "muted" },
             } or {},
         }
+        end
     end
     return { type = "row", gap = 2, children = kids }
 end
