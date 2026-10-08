@@ -3072,8 +3072,8 @@ function GrindView:_drawHouseBody()
     local ah = r.h - (inset + fl(2 * s)) * 2
     self:_drawPortrait(ax, ay, aw, ah)
 
-    -- The intercom, bolted straight onto the poster's bottom-left: how
-    -- the House speaks. Lit, breathing and rattling while a story line
+    -- The intercom, bolted onto the poster's top-left, under the House's
+    -- text box (the box's tail points down at it): how the House speaks. Lit, breathing and rattling while a story line
     -- is up; dead otherwise.
     do
         local sw2 = fl(52 * s)
@@ -3087,7 +3087,7 @@ function GrindView:_drawHouseBody()
            and sv and sv.isTyping and sv:isTyping() then
             speaking = 1
         end
-        local spx, spy = ax + fl(6 * s), ay + ah - sh2 - fl(6 * s)
+        local spx, spy = ax + fl(6 * s), ay + fl(6 * s)
         ClickSurfaces.addLocal("speaker", spx, spy, sw2, sh2, { poke = "house:speaker" })
         Poke.draw("house:speaker", spx + sw2 * 0.5, spy + sh2 * 0.5,
                   HouseArt.drawSpeaker, spx, spy, sw2, sh2, speaking, love.timer.getTime())

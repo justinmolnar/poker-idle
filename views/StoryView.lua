@@ -206,6 +206,29 @@ function StoryView:draw(line, opts)
     love.graphics.rectangle("line", px, py, pw, ph, fl(4 * s))
     love.graphics.setLineWidth(1)
 
+    -- A fixed box (the grind's, right above the poster) points at the
+    -- speaker with a plain tail: a short triangle from its bottom edge to
+    -- the speaker's top, filled with the box and outlined on its two
+    -- sides, so box and tail read as one balloon.
+    if fixed and spk and spk[3] then
+        local tipx = spk[1] + spk[3] * 0.5
+        local tipy = spk[2] - fl(1 * s)
+        local half = fl(9 * s)
+        local edge = fl(10 * s)
+        local cx = math.min(px + pw - half - edge, math.max(px + half + edge, tipx))
+        local by = py + ph
+        if tipy > by + fl(2 * s) then
+            local lw = Theme.space.line_strong or 2
+            Theme.setColor(Theme.bg.window, 0.96)
+            love.graphics.polygon("fill", cx - half, by - lw, cx + half, by - lw, tipx, tipy)
+            Theme.setColor(Theme.border.strong)
+            love.graphics.setLineWidth(lw)
+            love.graphics.line(cx - half, by - lw * 0.5, tipx, tipy, cx + half, by - lw * 0.5)
+            love.graphics.setLineWidth(1)
+        end
+        spk = nil   -- the free balloon's shout tail is not drawn
+    end
+
     -- The tail leaves whichever edge FACES the speaker (a level speaker
     -- gets a side tail, one above gets a top tail), so the sawtooth
     -- never stretches into a sideways bolt. Fill first (covers the panel
