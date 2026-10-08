@@ -129,6 +129,23 @@ local PILL_GAP             = 4
 local PANEL_MAX_W = 520
 local PANEL_MAX_H = 390
 
+-- The right column's measures for a window: the layout below and
+-- GrindView.storyBoxRect (which every screen's House box uses) both read
+-- these, so the box sits in the same place whether the grind drew or not.
+local function rightColumnW(W) return math.max(320, math.floor(W * 0.22)) end
+local function marginFor(s)    return math.floor(12 * s) end
+local function houseHFor(s)    return math.floor(184 * s) end
+
+-- The House's text box height: STORY_BOX_LINES lines of the small font,
+-- its padding and the "click" cue row (views/StoryView).
+local STORY_BOX_LINES = 3
+local function storyBoxH(game)
+    local s  = game.ui_scale or 1
+    local fh = (game.fonts and game.fonts.sm and game.fonts.sm:getHeight())
+               or math.floor(16 * s)
+    return math.floor(10 * s) * 2 + fh * STORY_BOX_LINES + fh + math.floor(4 * s)
+end
+
 -- Recompute the window-relative layout values from current dimensions
 -- and the active fonts. Called on init and on resize. Reassigns the
 -- file-local upvalues above so every reference inside instance methods
@@ -149,12 +166,12 @@ local function recomputeLayout(W, H, fonts, state)
     PANEL_MAX_H = math.floor(390 * s)
 
     -- The poster, the pile band and the table chrome bits scale too.
-    HOUSE_H              = math.floor(184 * s)
+    HOUSE_H              = houseHFor(s)
     BOTTOM_BAND_H        = math.floor(90  * s)
     PANEL_REMOVE_BTN_SIZE = math.floor(22 * s)
     PILL_H               = math.floor(18 * s)
     PILL_GAP             = math.floor(4  * s)
-    MARGIN               = math.floor(12 * s)
+    MARGIN               = marginFor(s)
 
     -- Sidebars: window-fraction with absolute minimums. The minimum
     -- is NOT layout-scale-multiplied — at 720p the heading text on
@@ -162,7 +179,7 @@ local function recomputeLayout(W, H, fonts, state)
     -- px to fit on a single line at the design font size, and a
     -- scaled-down minimum (220 * 1.0) lets it wrap.
     LEFT_W  = math.max(290, math.floor(W * 0.18))
-    RIGHT_W = math.max(320, math.floor(W * 0.22))
+    RIGHT_W = rightColumnW(W)
 
     -- The rail: as tall as a small label's glyphs, a gap, a value's glyphs
     -- and a button's chunk, no more (the fonts' line boxes carry leading
@@ -2967,22 +2984,18 @@ end
 -- Drawn from shapes until art lands: a framed poster with a gold-roofed
 -- house glyph.
 -- The House's text box: a fixed rect directly above the poster, the
--- poster's width, STORY_BOX_LINES lines of the small font tall (plus its
--- padding and the "click" cue row). It never moves or resizes; text that
--- needs more lines pages (views/StoryView, the "story:box" anchor).
-local STORY_BOX_LINES = 3
-function GrindView:_storyBoxH()
-    local s  = self.game.ui_scale or 1
-    local fh = (self.game.fonts and self.game.fonts.sm and self.game.fonts.sm:getHeight())
-               or math.floor(16 * s)
-    local pad = math.floor(10 * s)
-    return pad * 2 + fh * STORY_BOX_LINES + fh + math.floor(4 * s)
+-- poster's width. It never moves or resizes; text that needs more lines
+-- pages (views/StoryView). Computed from the window alone, so every screen
+-- puts it in the same place, the grind drawn or not.
+function GrindView.storyBoxRect(game)
+    local W, H = love.graphics.getDimensions()
+    local s  = require("services.FontService").layoutScale(W, H)
+    local rw, m, hh = rightColumnW(W), marginFor(s), houseHFor(s)
+    local h = storyBoxH(game)
+    return { x = W - rw + m, y = H - m - hh - m - h, w = rw - 2 * m, h = h }
 end
-function GrindView:_storyBoxRect()
-    local r = self:_houseRect()
-    local h = self:_storyBoxH()
-    return { x = r.x, y = r.y - MARGIN - h, w = r.w, h = h }
-end
+function GrindView:_storyBoxH()    return storyBoxH(self.game) end
+function GrindView:_storyBoxRect() return GrindView.storyBoxRect(self.game) end
 
 function GrindView:_houseRect()
     local W, H = love.graphics.getDimensions()

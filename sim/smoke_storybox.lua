@@ -6,7 +6,7 @@
 --   small   it speaks in the small font
 --   pages   a block longer than the box holds is cut into pages, and a
 --           click turns the page (nextPage) before the story moves on
---   free    without the anchor the box is the old one, sized to its text
+--   screens on a screen with no grind the box is the same computed rect
 --
 -- Standalone: `lua sim/smoke_storybox.lua` from the repo root.
 
@@ -55,17 +55,14 @@ end
 c.eq(turned, pages - 1, "a click turns each page until the last")
 c.ok(not sv:nextPage(), "on the last page a click goes to the story")
 
--- Without the fixed anchor: the old free panel.
-Anchors.tick()
-local function freeFrame(line)
-    Anchors.tick()
-    Anchors.set("story:band", 0, 600, 1200, 40)
-    for _ = 1, 3 do Anchors.tick() end
-    Anchors.set("story:band", 0, 600, 1200, 40)
-    sv:draw(line, { holding = true })
-    return sv.band_rect
-end
-local fr = freeFrame({ text = "Deal.", beat = "u", index = 1 })
-c.ok(fr and fr.w ~= BOX[3], "without the box the panel is the free one")
+-- Another screen (no grind, no "story:box" anchor): the same box, the
+-- same place, computed for the window.
+for _ = 1, 3 do Anchors.tick() end
+Anchors.set("story:band", 0, 600, 1200, 40)
+sv:draw({ text = "Deal.", beat = "u", index = 1 }, { holding = true })
+local want = require("views.GrindView").storyBoxRect(game)
+local got = sv.band_rect
+c.ok(got and got.x == want.x and got.y == want.y and got.w == want.w and got.h == want.h,
+     "on another screen the box is the same rect the grind gives it")
 
 if c.report("smoke_storybox") > 0 then os.exit(1) end
