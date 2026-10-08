@@ -15,6 +15,12 @@
 -- A faint "click" cue sits in the panel's corner while a block is waiting
 -- on the player.
 --
+-- A screen can instead give a FIXED box (the anchor "story:box", a rect):
+-- the grind's, above the House's poster. That box never moves, buzzes or
+-- resizes; the text is the small font, wrapped to it, and a block that
+-- needs more lines than it holds pages: the box shows what fits, and a
+-- click shows the rest (:nextPage) before one advances the story.
+--
 -- ShoveView draws its own one-line headline through drawLine, which is the
 -- plain caption style (no box); the shove's band was designed that way.
 
@@ -64,7 +70,9 @@ function StoryView:draw(line, opts)
     opts = opts or {}
     self.band_rect = nil
     if not line then return end
-    local band = HintMarks.freshAnchor("story:band")
+    local fixed = HintMarks.freshAnchor("story:box")
+    if fixed and not fixed[3] then fixed = nil end
+    local band = fixed or HintMarks.freshAnchor("story:band")
     if not band or not band[3] then return end
     local marks = line.anchor and HintMarks.fresh(line.anchor) or {}
     -- Presence follows the target: a block about a widget that is not on
@@ -77,9 +85,9 @@ function StoryView:draw(line, opts)
     local s     = game.ui_scale or 1
     local fl    = math.floor
     local W, H  = love.graphics.getDimensions()
-    local font  = fonts[line.font or "md"] or fonts.md
-    local pad   = fl(PAD_BASE * s)
-    local pw    = math.min(band[3], fl(MAX_W_BASE * s))
+    local font  = fixed and fonts.sm or (fonts[line.font or "md"] or fonts.md)
+    local pad   = fixed and fl(10 * s) or fl(PAD_BASE * s)
+    local pw    = fixed and band[3] or math.min(band[3], fl(MAX_W_BASE * s))
 
     -- Typewriter: the block SPEAKS itself in, word by word. The reveal
     -- window is what everything else keys on — the balloon buzz here,
@@ -92,22 +100,33 @@ function StoryView:draw(line, opts)
     -- the House reads the numbers off the player's actual game
     -- (models/story_dynamic), and everything below uses the resolved text.
     local key = tostring(line.beat or "") .. ":" .. tostring(line.index or 0)
+        .. (fixed and ":box" or "")
     local rv = self._reveal
+    local lh    = font:getHeight()
+    local cue_h = fonts.sm:getHeight() + fl(4 * s)
     if not rv or rv.key ~= key then
         local text = StoryDynamic.resolve(game, tostring(line.text))
-        local words = {}
-        for wd in text:gmatch("%S+") do words[#words + 1] = wd end
-        rv = { key = key, text = text, words = words, shown = 0, acc = 0 }
+        rv = { key = key, text = text, page = 1 }
+        -- A fixed box pages: the block wrapped to the box, cut into pages
+        -- of the lines it holds. A free panel is one page, sized to it.
+        local all = HintView.wrapLines(text, font, pw - pad * 2)
+        local per = fixed and math.max(1, fl((band[4] - pad * 2 - cue_h) / lh)) or #all
+        rv.pages = {}
+        for i = 1, #all, math.max(1, per) do
+            local pg = {}
+            for j = i, math.min(#all, i + per - 1) do pg[#pg + 1] = all[j] end
+            rv.pages[#rv.pages + 1] = table.concat(pg, " ")
+        end
+        if #rv.pages == 0 then rv.pages[1] = "" end
         self._reveal = rv
+        self:_startPage(rv)
         RadioVoice.lineStarted()
     end
 
-    local lines = HintView.wrapLines(rv.text, font, pw - pad * 2)
-    local lh    = font:getHeight()
+    local lines = HintView.wrapLines(rv.pages[rv.page], font, pw - pad * 2)
     -- A cue row is always reserved (drawn only on a finished hold), so the
     -- panel never resizes the instant the typewriter completes.
-    local cue_h = fonts.sm:getHeight() + fl(4 * s)
-    local ph    = pad + #lines * lh + cue_h + pad
+    local ph    = fixed and band[4] or (pad + #lines * lh + cue_h + pad)
     if rv.shown < #rv.words then
         -- Motion: Medium speaks twice as fast; Low and below the whole
         -- block is there at once.
@@ -127,19 +146,24 @@ function StoryView:draw(line, opts)
                                   font, pw - pad * 2)
     end
 
-    -- Centred on the band; grows away from the nearer screen edge.
+    -- Centred on the band; grows away from the nearer screen edge. A fixed
+    -- box is exactly its rect.
     local bx, by, bw, bh = band[1], band[2], band[3], band[4]
     local px = fl(bx + (bw - pw) / 2)
     local py
-    if by + bh / 2 > H / 2 then py = by + bh - ph else py = by end
-    py = math.max(fl(4 * s), math.min(py, H - ph - fl(4 * s)))
+    if fixed then
+        py = by
+    else
+        if by + bh / 2 > H / 2 then py = by + bh - ph else py = by end
+        py = math.max(fl(4 * s), math.min(py, H - ph - fl(4 * s)))
+    end
 
     -- Never sit on what you're pointing at. If the panel covers more than
     -- ~30% of any of this line's marks, slide it up until clear of the
     -- topmost such mark (down past the bottom one when up would leave the
     -- screen). The box saying "BANKED is yours to keep" was covering the
     -- banked readout.
-    if #marks > 0 then
+    if #marks > 0 and not fixed then
         local gap = fl(8 * s)
         local top, bottom
         for _, m in ipairs(marks) do
@@ -167,7 +191,7 @@ function StoryView:draw(line, opts)
     -- tail, never the text — buzzes while he talks.
     local spk = HintMarks.freshAnchor("house:speaker")
     local jx, jy = 0, 0
-    if spk and spk[3] and typing then
+    if spk and spk[3] and typing and not fixed then
         local t = love.timer.getTime()
         jx = math.sin(t * 43) * 0.8 * s
         jy = math.cos(t * 57) * 0.6 * s
@@ -253,8 +277,9 @@ function StoryView:draw(line, opts)
 
     -- The advance affordance: play is blocked while a line is up, and any
     -- click continues, so the cue says exactly that — centred in the
-    -- reserved bottom row, pulsing hard enough to be found.
-    if opts.holding and not typing then
+    -- reserved bottom row, pulsing hard enough to be found. A page with
+    -- more after it waits on a click too, line held or not.
+    if (opts.holding or rv.page < #rv.pages) and not typing then
         local cf  = fonts.sm
         local cw  = cf:getWidth(CUE_TEXT)
         local pulse = Motion.at("text", Motion.HIGH)
@@ -266,6 +291,23 @@ function StoryView:draw(line, opts)
     end
 
     self.band_rect = { x = px, y = py, w = pw, h = ph }
+end
+
+-- A page starts its typewriter from nothing.
+function StoryView:_startPage(rv)
+    rv.words = {}
+    for wd in (rv.pages[rv.page] or ""):gmatch("%S+") do rv.words[#rv.words + 1] = wd end
+    rv.shown, rv.acc = 0, 0
+end
+
+-- The block's next page, if it has one: true when it turned a page (the
+-- click is spent on that, not on advancing the story).
+function StoryView:nextPage()
+    local rv = self._reveal
+    if not (rv and rv.pages and rv.page < #rv.pages) then return false end
+    rv.page = rv.page + 1
+    self:_startPage(rv)
+    return true
 end
 
 -- True while the current block is mid-typewriter — the "speaking"

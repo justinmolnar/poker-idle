@@ -252,8 +252,9 @@ function GrindView:_buildPanels()
     -- after each bust. The chip shop is only accessible between runs.
 
     -- Right panel runs to the bottom of the screen (the rail stops at its
-    -- edge) and reserves THE HOUSE poster at its foot.
-    local right_panel_h = H - HOUSE_H - 2 * MARGIN
+    -- edge) and reserves THE HOUSE poster at its foot, with the House's
+    -- text box between them (:_storyBoxRect).
+    local right_panel_h = H - HOUSE_H - 2 * MARGIN - self:_storyBoxH() - MARGIN
     self.right_panel = Panel:new(W - RIGHT_W, 0, RIGHT_W, right_panel_h)
     self.right_panel:registerTab({
         id       = "upgrades",
@@ -2965,6 +2966,24 @@ end
 -- and the "?" help-desk button lives in its corner (TUTORIAL builds).
 -- Drawn from shapes until art lands: a framed poster with a gold-roofed
 -- house glyph.
+-- The House's text box: a fixed rect directly above the poster, the
+-- poster's width, STORY_BOX_LINES lines of the small font tall (plus its
+-- padding and the "click" cue row). It never moves or resizes; text that
+-- needs more lines pages (views/StoryView, the "story:box" anchor).
+local STORY_BOX_LINES = 3
+function GrindView:_storyBoxH()
+    local s  = self.game.ui_scale or 1
+    local fh = (self.game.fonts and self.game.fonts.sm and self.game.fonts.sm:getHeight())
+               or math.floor(16 * s)
+    local pad = math.floor(10 * s)
+    return pad * 2 + fh * STORY_BOX_LINES + fh + math.floor(4 * s)
+end
+function GrindView:_storyBoxRect()
+    local r = self:_houseRect()
+    local h = self:_storyBoxH()
+    return { x = r.x, y = r.y - MARGIN - h, w = r.w, h = h }
+end
+
 function GrindView:_houseRect()
     local W, H = love.graphics.getDimensions()
     return {
@@ -3343,6 +3362,10 @@ function GrindView:_drawBankrollChips(W, H)
     -- so the words end where the chips begin instead of over them.
     local strip_h = math.floor(40 * (self.game.ui_scale or 1))
     AnchorRegistry.set("story:band", band_x, band_y - strip_h, band_w, strip_h)
+    -- ...but on this screen the box is fixed above the poster: same place,
+    -- same size, whatever it says.
+    local sb = self:_storyBoxRect()
+    AnchorRegistry.set("story:box", sb.x, sb.y, sb.w, sb.h)
 
     -- A collection, not a breakdown of the scalar (views/ChipPile). Chips
     -- flown here — a table cashing out, a stack-cap overflow — are

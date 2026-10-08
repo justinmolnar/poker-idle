@@ -571,6 +571,7 @@ local function buildGame()
     -- applies — the wait owns the release — so the click just dies here.
     local function storyAdvance()
         if g.story_view:isTyping() then g.story_view:revealAll()
+        elseif g.story_view:nextPage() then   -- the rest of a block that didn't fit
         elseif g.story:isHoldingClick() then g.story:advance() end
     end
     -- Does the story take a click at (x, y)? A visible line takes every
