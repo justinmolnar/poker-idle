@@ -1,11 +1,11 @@
 -- views/widgets/Hatch.lua
 --
--- Faint diagonal hatching over a rect, in the theme's disabled ink: the
--- quiet "nobody presses this for you" mark. A table's DEAL button wears
--- it while the cursors don't deal there, and so does an add-table row or
--- the Cursor upgrade whose tables they don't deal at (views/TablePanel,
--- views/ComponentRenderer). Clipped by geometry, so it draws the same
--- inside a scrolled or cached panel. Still: it never moves.
+-- Diagonal hatching over a rect, in the theme's disabled ink: the "nobody
+-- presses this for you" mark on an add-table row or the Cursor upgrade
+-- whose tables the cursors deal at none of (views/ComponentRenderer). A
+-- table says it with a NO CURSORS pill in its header (views/TablePanel).
+-- Clipped by geometry, so it draws the same inside a scrolled or cached
+-- panel. Still: it never moves.
 
 local Theme = require("views.Theme")
 

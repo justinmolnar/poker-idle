@@ -1000,10 +1000,10 @@ local function buttonFace(fx, fy, fw, fh)
       end
     end
 
-    -- Faint hatching (views/widgets/Hatch): the cursors deal at none of
-    -- this button's tables. views/GrindView sets comp.no_cursors.
+    -- Hatching (views/widgets/Hatch): the cursors deal at none of this
+    -- button's tables. views/GrindView sets comp.no_cursors.
     if comp.no_cursors then
-        Hatch.draw(fx + 2, fy + 2, fw - 4, fh - 4, 0.22, 9, 1.5)
+        Hatch.draw(fx + 2, fy + 2, fw - 4, fh - 4, 0.45, 10, 2.5)
     end
 
     -- Render action sub-buttons inside the post-press face rect
