@@ -317,10 +317,18 @@ do
     local P = view._grid_pos
     local t1 = w:tables()[1]
     local was = t1.cursor_muted == true
-    view:mousepressed(P[1] + 5, P[2] + 30, 2)
+    -- Through the state, the way LOVE delivers it (the view alone passed
+    -- while the state dropped every right-click on the floor).
+    local GrindState = require("states.GrindState")
+    local st = setmetatable({ view = view }, { __index = GrindState })
+    st:mousepressed(P[1] + 5, P[2] + 30, 2)
     c.ok((t1.cursor_muted == true) ~= was, "right-clicking a table flips its cursor switch")
-    view:mousepressed(P[1] + 5, P[2] + 30, 2)
+    st:mousepressed(P[1] + 5, P[2] + 30, 2)
     c.ok((t1.cursor_muted == true) == was, "right-clicking it again flips it back")
+    st.catalog_modal = {}
+    st:mousepressed(P[1] + 5, P[2] + 30, 2)
+    c.ok((t1.cursor_muted == true) == was, "a right-click does nothing through an open modal")
+    st.catalog_modal = nil
     -- The master (the Cursor upgrade's id) and a group (an add-table row).
     -- (The controller's summary is rebuilt every frame; here by hand.)
     w.ctrl:_rebuildPoolSummary()

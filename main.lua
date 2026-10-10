@@ -578,7 +578,10 @@ local function buildGame()
     -- click, except that a forced line lets one through onto its own
     -- target. Shared by the click routing below and the player's cursor
     -- (its hourglass shows exactly where a click would be taken).
-    local function storyTakesClickAt(x, y)
+    local function storyTakesClickAt(x, y, b)
+        -- Left clicks only: a right-click goes through to the board (the
+        -- cursor switches, which the first_cursors line itself teaches).
+        if b and b ~= 1 then return false end
         local line = storyVisibleLine()
         if not line then return false end
         local forced = g.story:forcedLine()

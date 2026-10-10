@@ -405,6 +405,15 @@ function GrindState:keypressed(key)
 end
 
 function GrindState:mousepressed(x, y, b)
+    -- Right-click: the cursor switches (GrindView:_rightClick), on the
+    -- board itself only, never through a modal.
+    if b == 2 then
+        if not (self.help_panel or self.analytics_modal or self.catalog_modal
+                or self.deck_roster_modal or self.settings_modal) then
+            self.view:mousepressed(x, y, b)
+        end
+        return
+    end
     if b ~= 1 then return end
     -- Hint-log panel: clicks inside are consumed (hover does the work);
     -- clicking anywhere else slides it away.
