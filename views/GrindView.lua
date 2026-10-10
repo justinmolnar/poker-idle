@@ -19,7 +19,6 @@ local Format         = require("utils.format")
 local Panel          = require("views.Panel")
 local CR             = require("views.ComponentRenderer")
 local HoverSvc       = require("services.HoverService")
-local Caution        = require("views.widgets.Caution")
 local TablePanel     = require("views.TablePanel")
 local TablePanelStats = require("views.TablePanelStats")
 local TablePanelEffects = require("views.TablePanelEffects")
@@ -589,18 +588,15 @@ function GrindView:_buildTablesTabComponents()
                                 (gtype_obj and gtype_obj.name) or "",
                                 open_n == 1 and "" or "s") },
             }
-            -- Cursors off at this row's tables: caution tape on the button
-            -- (all of them) or down its left edge (some). Right-click the
-            -- row to switch (:_rightClick).
-            local caution = nil
-            if cursor_on and not none and deal_muted > 0 then
-                caution = (deal_muted >= open_n) and "all" or "some"
-            end
+            -- The cursors deal at none of this row's tables: faint hatching
+            -- on the button (each table's own DEAL says so too). Right-click
+            -- the row to switch (:_rightClick).
+            local no_cursors = cursor_on and not none and deal_muted >= open_n
 
             components[#components + 1] = {
                 type     = "button",
                 actions  = actions,
-                caution  = caution,
+                no_cursors = no_cursors,
                 id       = "add_table:" .. stake.id .. ":" .. gtype_id,
                 -- Named hint-anchor (same string as the id) so tutorial
                 -- hints can highlight this button. Once this combo has
@@ -1346,16 +1342,14 @@ function GrindView:_buildUpgradesTabComponents()
             -- Which row that is comes from data/run_upgrades.lua, not from a
             -- name matched here.
             -- The Cursor upgrade is the master switch (right-click it,
-            -- :_rightClick): caution tape on it while the cursors deal at
-            -- none of the open tables, down its edge while at only some.
-            local up_actions, up_caution
+            -- :_rightClick): faint hatching on it while the cursors deal at
+            -- none of the open tables.
+            local up_actions, up_no_cursors
             if up.cursor_master_controls then
                 local ctx = self.controller and self.controller.ctx
                 if ctx and ctx.cursor_unlocked then
                     local total, deal_muted = self.controller:typeCursorState(nil, nil)
-                    if total > 0 and deal_muted > 0 then
-                        up_caution = (deal_muted >= total) and "all" or "some"
-                    end
+                    up_no_cursors = total > 0 and deal_muted >= total
                 end
             end
 
@@ -1375,7 +1369,7 @@ function GrindView:_buildUpgradesTabComponents()
             components[#components + 1] = {
                 type     = "button",
                 actions  = up_actions,
-                caution  = up_caution,
+                no_cursors = up_no_cursors,
                 id       = "buy_runup_" .. up.id,
                 -- Named hint-anchor (same string as the id) so tutorial
                 -- hints can highlight this card.
@@ -3471,7 +3465,6 @@ function GrindView:draw(overlay_fn)
     end
     Perf.enter("rail");     self:drawChrome(W);               Perf.exit("rail")
     Perf.enter("grid");     self:_drawCenterGrid(W, H);       Perf.exit("grid")
-    self:_drawCursorCaution()
     self:_drawClosing()
     do
         local list, n = self.table_panels, self._panels_n or 0
@@ -3806,31 +3799,6 @@ function GrindView:_handleSidebarButton(id)
     end
     -- buy_catalog_ removed — catalog purchases now happen in the post-bust
     -- CatalogModal (see views/CatalogModal.lua).
-end
-
--- A table the cursors don't deal at wears caution tape: a crawling yellow
--- and black border round the whole panel and a NO CURSORS plate across the
--- top of the felt. Live (over the cached panels) so the tape can crawl.
-function GrindView:_drawCursorCaution()
-    local ctx = self.controller and self.controller.ctx
-    if not (ctx and ctx.cursor_unlocked) then return end
-    local P = self._grid_pos
-    if not P then return end
-    local s = self.game.ui_scale or 1
-    local thick = math.max(4, math.floor(6 * s))
-    local font = self.game.fonts.sm
-    local phase = Caution.phase()
-    for i, t in ipairs(self.controller.pool.tables) do
-        if t.cursor_muted then
-            local k = i * 4
-            local px, py, pw, ph = P[k - 3], P[k - 2], P[k - 1], P[k]
-            if px and pw and pw > thick * 4 then
-                Caution.frame(px, py, pw, ph, thick, 1, phase)
-                Caution.plate("NO CURSORS", font, px + pw / 2,
-                              py + math.floor(ph * 0.17), 1, phase)
-            end
-        end
-    end
 end
 
 -- Right-click: the cursor switch for what is under the pointer. A table

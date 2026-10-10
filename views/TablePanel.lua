@@ -19,6 +19,7 @@
 -- face-up only on showdown and settling.
 
 local Theme         = require("views.Theme")
+local Hatch       = require("views.widgets.Hatch")
 local Constants     = require("data.constants")
 local Decks         = require("models.Decks")
 local PokerEventAnims = require("views.PokerEventAnims")
@@ -730,8 +731,8 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
                or "Close this table — refunds the current stack."
     end
 
-    -- (Cursors off at this table is shown by GrindView's caution tape;
-    -- right-click the table to switch it.)
+    -- (Cursors off at this table is shown on its DEAL button: faint
+    -- hatching and a "no cursors" caption. Right-click the table to switch.)
     local hands_right_offset = REMOVE_BTN_SIZE + 4 + 4
 
     -- History bars — fit them into the gap between the stake-name text
@@ -1896,7 +1897,7 @@ end
 -- DEAL / REBUY action. The CursorPool still finds the same `action="deal"`
 -- entries and clicks at the rect's center, which sits over the visual
 -- button so the click animation feels natural.
-local function drawFeltButton(tbl, x, y, w, h, fonts, hit_boxes, idx, label, action, fill_color, enabled, table_id, label_cy)
+local function drawFeltButton(tbl, x, y, w, h, fonts, hit_boxes, idx, label, action, fill_color, enabled, table_id, label_cy, no_cursors)
     -- ONE deal-ready overlay for every idle table; `label_cy` is only a
     -- layout param (the residue's pot gap, a number, nil without residue).
     -- With the last hand still on the felt the button moves out of the
@@ -1957,6 +1958,17 @@ local function drawFeltButton(tbl, x, y, w, h, fonts, hit_boxes, idx, label, act
     love.graphics.setLineWidth(1)
     _renderFeltButton(bx, by, btn_w, btn_h, fonts, label, fill_color,
                       enabled, hovered, press)
+    -- The cursors don't press this one (right-click the table to switch):
+    -- faint hatching over the button and a quiet caption under it.
+    if no_cursors then
+        Hatch.draw(bx + 2, by + 2, btn_w - 4, btn_h - 4, 0.30, 7, 1.5)
+        local cf = fonts.xs or fonts.sm
+        if cf then
+            love.graphics.setFont(cf)
+            Theme.setColor(Theme.fg.muted, 0.85)
+            love.graphics.printf("no cursors", bx, by + btn_h + 2, btn_w, "center")
+        end
+    end
 
     if enabled then
         local hb = hbNew(tbl, hit_boxes)
@@ -2607,6 +2619,9 @@ local function renderBody(tbl, idx, x, y, w, h, game, controller, hit_boxes, mod
                 label_cy = felt_y + felt_h / 2
             end
         end
+        -- The cursors don't deal (or rebuy) here: the button says so.
+        local no_cursors = tbl.cursor_muted == true and controller ~= nil
+            and controller.ctx ~= nil and controller.ctx.cursor_unlocked == true
         if (tbl.stack or 0) <= 0 then
             local cost      = rebuyCost(tbl, idx, controller)
             local can_rebuy = state.bankroll >= cost
@@ -2623,14 +2638,15 @@ local function renderBody(tbl, idx, x, y, w, h, game, controller, hit_boxes, mod
             end
             local hb = drawFeltButton(tbl, felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, tbl._rebuy_label, "rebuy",
-                Theme.sem.lost, can_rebuy, tbl._id, label_cy)
+                Theme.sem.lost, can_rebuy, tbl._id, label_cy,
+                no_cursors and controller.ctx.cursor_rebuy_unlocked)
             -- The cursor switch covers rebuys too: a table the cursors
             -- don't deal at, they don't rebuy either (services/CursorPool).
             if hb then hb.cursor_muted = tbl.cursor_muted == true end
         else
             local hb = drawFeltButton(tbl, felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, "DEAL", "deal",
-                dealFillForStake(tbl.stake_id), true, tbl._id, label_cy)
+                dealFillForStake(tbl.stake_id), true, tbl._id, label_cy, no_cursors)
             -- Tag the just-pushed DEAL hit_box so CursorPool can skip
             -- this table when the player has muted it. Mouse-click hit
             -- testing in GrindView ignores this field — muted tables
