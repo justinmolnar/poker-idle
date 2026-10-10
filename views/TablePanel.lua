@@ -19,7 +19,6 @@
 -- face-up only on showdown and settling.
 
 local Theme         = require("views.Theme")
-local CursorGlyph = require("views.widgets.CursorGlyph")
 local Constants     = require("data.constants")
 local Decks         = require("models.Decks")
 local PokerEventAnims = require("views.PokerEventAnims")
@@ -653,13 +652,6 @@ local function btnOpts(fill, border, hovered, press, disabled, depth, line_width
     return o
 end
 local _lbl_fonts, _lbl_color, _lbl_text, _lbl_muted = nil, nil, nil, false
--- The cursor switch's face (Button.draw calls it with the face rect).
-local _glyph_off = false
-local function cursorGlyphFace(fx, fy, fw, fh)
-    local pad = math.max(2, math.floor(fw * 0.14))
-    CursorGlyph.draw(fx + pad, fy + pad, fw - pad * 2, fh - pad * 2, _glyph_off)
-end
-
 local function headerLabel(fx, fy, fw, fh)
     local f = _lbl_fonts.sm
     Theme.setColor(_lbl_color)
@@ -738,33 +730,9 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
                or "Close this table — refunds the current stack."
     end
 
-    -- The cursor switch fills in left of the [×]: the cursors' own arrow,
-    -- slashed red while they don't deal at this table
-    -- (views/widgets/CursorGlyph). Click it, or right-click the table.
+    -- (Cursors off at this table is shown by GrindView's caution tape;
+    -- right-click the table to switch it.)
     local hands_right_offset = REMOVE_BTN_SIZE + 4 + 4
-    local next_btn_x         = rb_x - REMOVE_BTN_SIZE - 4
-
-    if cursor_on then
-        local cb_x = next_btn_x
-        local cb_y = y + 3
-        local muted = tbl.cursor_muted == true
-        local cid     = Table.rollingKey(tbl, "toggle_cursor")
-        local hovered = Hover.is("hit", cid)
-        local press   = ClickFlash.alpha("hit", cid)
-        _glyph_off = muted
-        Button.draw(cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE,
-            btnOpts(muted and Theme.bg.sunken or Theme.bg.widget_hover,
-                    muted and Theme.sem.lost or Theme.fg.heading,
-                    hovered, press, nil, 2),
-            cursorGlyphFace)
-        local hb = hbNew(tbl, hit_boxes)
-        hb.x, hb.y, hb.w, hb.h = cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE
-        hb.action, hb.idx, hb.table_id = "toggle_cursor", idx, tbl._id
-        hb.tooltip = muted and "Cursors don't deal here. Click (or right-click the table) to let them."
-                           or  "Cursors deal here. Click (or right-click the table) to stop them."
-        next_btn_x         = next_btn_x - REMOVE_BTN_SIZE - 4
-        hands_right_offset = hands_right_offset + REMOVE_BTN_SIZE + 4
-    end
 
     -- History bars — fit them into the gap between the stake-name text
     -- and the buttons on the right. Vertically centered in the header
@@ -2879,9 +2847,9 @@ end
 --   25 (unused)           26 banked             27 anti_banked
 --   28 busted             29 rebuy cost         30 can_rebuy
 --   31 ko_payout_boost    32 pending_close      33 cursor_muted
---   34 (unused)           35 hover X            36 hover cursor switch
+--   34 (unused)           35 hover X            36 (unused)
 --   37 (unused)           38 hover DEAL/REBUY   39 flash X (/16)
---   40 flash switch (/16) 41 (unused)           42 flash DEAL (/16)
+--   40 (unused)           41 (unused)           42 flash DEAL (/16)
 --   43 desat amount       44 stack pile rev     45 stack pile quiet
 --   46 sheet generation   47 cards in their live window (count)
 --   48 seat row fading in (Zoom reroll)
@@ -2936,7 +2904,6 @@ local function buildKey(tbl, idx, w, h, game, controller, ly)
     end
     local cursor_on       = (ctx and ctx.cursor_unlocked) or false
     local rid  = Table.rollingKey(tbl, "remove_table")
-    local cid  = Table.rollingKey(tbl, "toggle_cursor")
     local fid  = ACTION_KEY[busted and "rebuy" or "deal"][tbl._id]
     local RS   = FeltStyle.residue or EMPTY
     K[1]  = tbl.view_rev
@@ -2975,11 +2942,11 @@ local function buildKey(tbl, idx, w, h, game, controller, ly)
     K[33] = tbl.cursor_muted == true
     K[34] = false   -- (was the rebuy switch; kept so the key's slots don't renumber)
     K[35] = Hover.is("hit", rid)
-    K[36] = cursor_on and Hover.is("hit", cid) or false
+    K[36] = false   -- (was the cursor switch's hover)
     K[37] = false   -- (was the rebuy switch's hover)
     K[38] = Hover.dwell("hit", fid)
     K[39] = math.floor(ClickFlash.alpha("hit", rid) * 16)
-    K[40] = math.floor(ClickFlash.alpha("hit", cid) * 16)
+    K[40] = 0       -- (was the cursor switch's flash)
     K[41] = 0   -- (was the rebuy switch's flash)
     K[42] = math.floor(ClickFlash.alpha("hit", fid) * 16)
     K[43] = residueOf(tbl) and (RS.desat or 0.85) or 0

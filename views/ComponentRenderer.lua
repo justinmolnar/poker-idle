@@ -36,6 +36,7 @@ local STAT_KEY = setmetatable({}, { __index = function(t, k) local v = "stat:" .
 local MiniButton  = require("views.widgets.MiniButton")
 local Perf        = require("services.Perf")
 local Tooltip     = require("services.Tooltip")
+local Caution     = require("views.widgets.Caution")
 
 -- A component's tooltip on hover: `tooltip` is the lines themselves;
 -- `tooltip_fn(comp, game)` builds (or fetches from a memo) the lines for
@@ -999,6 +1000,18 @@ local function buttonFace(fx, fy, fw, fh)
       end
     end
 
+    -- Caution tape (views/widgets/Caution): the cursors don't deal at all
+    -- of this button's tables ("all": a full border) or at some ("some":
+    -- down the left edge). views/GrindView sets comp.caution.
+    if comp.caution then
+        local thick = math.max(3, math.floor(5 * ((game and game.ui_scale) or 1)))
+        if comp.caution == "all" then
+            Caution.frame(fx, fy, fw, fh, thick)
+        else
+            Caution.edge(fx, fy, fh, thick)
+        end
+    end
+
     -- Render action sub-buttons inside the post-press face rect
     if comp.actions then
         for i, act in ipairs(comp.actions) do
@@ -1013,7 +1026,6 @@ local function buttonFace(fx, fy, fw, fh)
             m.x, m.y, m.size = ax, ay, size
             m.label      = act.label
             m.icon       = act.icon
-            m.glyph      = act.glyph
             m.game       = game
             m.fonts      = game and game.fonts
             m.muted      = act.muted

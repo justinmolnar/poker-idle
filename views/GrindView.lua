@@ -18,6 +18,8 @@ local Theme          = require("views.Theme")
 local Format         = require("utils.format")
 local Panel          = require("views.Panel")
 local CR             = require("views.ComponentRenderer")
+local HoverSvc       = require("services.HoverService")
+local Caution        = require("views.widgets.Caution")
 local TablePanel     = require("views.TablePanel")
 local TablePanelStats = require("views.TablePanelStats")
 local TablePanelEffects = require("views.TablePanelEffects")
@@ -587,26 +589,18 @@ function GrindView:_buildTablesTabComponents()
                                 (gtype_obj and gtype_obj.name) or "",
                                 open_n == 1 and "" or "s") },
             }
-            -- The cursor switch for this row's tables: the cursors' own
-            -- arrow, slashed red while they don't deal here. The same glyph
-            -- every table header shows (views/widgets/CursorGlyph). A
-            -- right-click on the row flips it too.
-            if cursor_on then
-                local all_off = (not none) and deal_muted >= open_n
-                actions[#actions + 1] = {
-                    id = "type_cursor_deal" .. suffix, glyph = "cursor",
-                    disabled = none,
-                    muted = all_off,
-                    tooltip = none and nil
-                              or all_off
-                              and "Cursors don't deal these tables. Click (or right-click the row) to let them."
-                              or  "Cursors deal these tables. Click (or right-click the row) to stop them.",
-                }
+            -- Cursors off at this row's tables: caution tape on the button
+            -- (all of them) or down its left edge (some). Right-click the
+            -- row to switch (:_rightClick).
+            local caution = nil
+            if cursor_on and not none and deal_muted > 0 then
+                caution = (deal_muted >= open_n) and "all" or "some"
             end
 
             components[#components + 1] = {
                 type     = "button",
                 actions  = actions,
+                caution  = caution,
                 id       = "add_table:" .. stake.id .. ":" .. gtype_id,
                 -- Named hint-anchor (same string as the id) so tutorial
                 -- hints can highlight this button. Once this combo has
@@ -1351,22 +1345,17 @@ function GrindView:_buildUpgradesTabComponents()
             -- two toggles as the per-stake rows, scoped to every open table.
             -- Which row that is comes from data/run_upgrades.lua, not from a
             -- name matched here.
-            local up_actions
+            -- The Cursor upgrade is the master switch (right-click it,
+            -- :_rightClick): caution tape on it while the cursors deal at
+            -- none of the open tables, down its edge while at only some.
+            local up_actions, up_caution
             if up.cursor_master_controls then
                 local ctx = self.controller and self.controller.ctx
                 if ctx and ctx.cursor_unlocked then
                     local total, deal_muted = self.controller:typeCursorState(nil, nil)
-                    local none = total == 0
-                    local all_off = (not none) and deal_muted >= total
-                    up_actions = { {
-                        id = "type_cursor_deal", glyph = "cursor",
-                        disabled = none,
-                        muted = all_off,
-                        tooltip = none and nil
-                                  or all_off
-                                  and "Cursors don't deal anywhere. Click (or right-click this upgrade) to let them."
-                                  or  "Cursors deal. Click (or right-click this upgrade) to stop them everywhere.",
-                    } }
+                    if total > 0 and deal_muted > 0 then
+                        up_caution = (deal_muted >= total) and "all" or "some"
+                    end
                 end
             end
 
@@ -1386,6 +1375,7 @@ function GrindView:_buildUpgradesTabComponents()
             components[#components + 1] = {
                 type     = "button",
                 actions  = up_actions,
+                caution  = up_caution,
                 id       = "buy_runup_" .. up.id,
                 -- Named hint-anchor (same string as the id) so tutorial
                 -- hints can highlight this card.
@@ -3481,6 +3471,7 @@ function GrindView:draw(overlay_fn)
     end
     Perf.enter("rail");     self:drawChrome(W);               Perf.exit("rail")
     Perf.enter("grid");     self:_drawCenterGrid(W, H);       Perf.exit("grid")
+    self:_drawCursorCaution()
     self:_drawClosing()
     do
         local list, n = self.table_panels, self._panels_n or 0
@@ -3560,7 +3551,6 @@ end
 -- rebuy) are deliberately NOT here — they fire on mouse-DOWN, unchanged.
 local HEADER_DRAG_ACTIONS = {
     remove_table        = true,
-    toggle_cursor       = true,
     drag_table          = true,
 }
 local DRAG_PROMOTE_PX = 4    -- < the 8px grid-freeze deadzone; promote
@@ -3818,6 +3808,31 @@ function GrindView:_handleSidebarButton(id)
     -- CatalogModal (see views/CatalogModal.lua).
 end
 
+-- A table the cursors don't deal at wears caution tape: a crawling yellow
+-- and black border round the whole panel and a NO CURSORS plate across the
+-- top of the felt. Live (over the cached panels) so the tape can crawl.
+function GrindView:_drawCursorCaution()
+    local ctx = self.controller and self.controller.ctx
+    if not (ctx and ctx.cursor_unlocked) then return end
+    local P = self._grid_pos
+    if not P then return end
+    local s = self.game.ui_scale or 1
+    local thick = math.max(4, math.floor(6 * s))
+    local font = self.game.fonts.sm
+    local phase = Caution.phase()
+    for i, t in ipairs(self.controller.pool.tables) do
+        if t.cursor_muted then
+            local k = i * 4
+            local px, py, pw, ph = P[k - 3], P[k - 2], P[k - 1], P[k]
+            if px and pw and pw > thick * 4 then
+                Caution.frame(px, py, pw, ph, thick, 1, phase)
+                Caution.plate("NO CURSORS", font, px + pw / 2,
+                              py + math.floor(ph * 0.17), 1, phase)
+            end
+        end
+    end
+end
+
 -- Right-click: the cursor switch for what is under the pointer. A table
 -- stops (or lets) the cursors dealing there; an add-table row, its whole
 -- group; the Cursor upgrade, every table (data/story first_cursors).
@@ -3828,12 +3843,20 @@ function GrindView:_rightClick(x, y)
         if x >= panel.x and x < panel.x + panel.w then
             local comps = panel:getComponents()
             if not comps then return end
-            local hit = CR.hitTest(comps, panel.x, panel.w, x, panel:toContentY(y), self.game)
-            local id = hit and hit.id
-            if id == "buy_runup_cursor" then
+            -- Whatever button is under the pointer, affordable or not: a
+            -- disabled button gives no hit, but it does report the hover.
+            HoverSvc.clearNamespace("button")
+            CR.hitTest(comps, panel.x, panel.w, x, panel:toContentY(y), self.game)
+            if HoverSvc.is("button", "buy_runup_cursor") then
                 self:_handleSidebarButton("type_cursor_deal")
-            elseif id and id:match("^add_table:") then
-                self:_handleSidebarButton("type_cursor_deal:" .. id:sub(#"add_table:" + 1))
+                return
+            end
+            for _, comp in ipairs(comps) do
+                local id = comp.id
+                if id and id:match("^add_table:") and HoverSvc.is("button", id) then
+                    self:_handleSidebarButton("type_cursor_deal:" .. id:sub(#"add_table:" + 1))
+                    return
+                end
             end
             return
         end
@@ -3858,7 +3881,6 @@ local HIT_BOX_HANDLERS = {
     deal                = function(self, hb) self.controller:dealHand(hb.idx)              end,
     rebuy               = function(self, hb) self.controller:rebuyTable(hb.idx)            end,
     remove_table        = function(self, hb) self.controller:removeTable(hb.idx)           end,
-    toggle_cursor       = function(self, hb) self.controller:toggleCursorMute(hb.idx)      end,
 }
 
 function GrindView:_handleHitBox(hb)

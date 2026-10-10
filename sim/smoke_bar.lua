@@ -329,6 +329,25 @@ do
     st:mousepressed(P[1] + 5, P[2] + 30, 2)
     c.ok((t1.cursor_muted == true) == was, "a right-click does nothing through an open modal")
     st.catalog_modal = nil
+    -- An add-table row you can't afford (a disabled button) still takes
+    -- the right-click: sweep down the left column until one switches.
+    local bank = w.state.bankroll
+    w.state.bankroll = 0
+    view:update(0.016)
+    pcall(function() view:draw() end)
+    w.ctrl:_rebuildPoolSummary()
+    local _, before = w.ctrl:typeCursorState("s001", "zoom")
+    local hit_row = false
+    for yy = 40, 880, 6 do
+        st:mousepressed(math.floor(view.left_panel.w / 2), yy, 2)
+        w.ctrl:_rebuildPoolSummary()
+        local _, now = w.ctrl:typeCursorState("s001", "zoom")
+        if now ~= before then hit_row = true; break end
+    end
+    c.ok(hit_row, "right-clicking an add-table row you can't afford switches its tables")
+    w.state.bankroll = bank
+    w.ctrl:setTypeCursorMute(nil, nil, false)
+    view:update(0.016)
     -- The master (the Cursor upgrade's id) and a group (an add-table row).
     -- (The controller's summary is rebuilt every frame; here by hand.)
     w.ctrl:_rebuildPoolSummary()
