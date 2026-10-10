@@ -308,18 +308,41 @@ do
     c.ok(first(5) > first(0) + 0.02, ("Pot Control raises a tournament's chance of 1st (%.1f%% -> %.1f%%)"):format(first(0) * 100, first(5) * 100))
 end
 
+-- ── right-click: the cursor switch for what is under the pointer ───────
+do
+    w:own({ "box_of_mice" })
+    w.ctrl.ctx.cursor_unlocked = true
+    view:update(0.016)
+    pcall(function() view:draw() end)
+    local P = view._grid_pos
+    local t1 = w:tables()[1]
+    local was = t1.cursor_muted == true
+    view:mousepressed(P[1] + 5, P[2] + 30, 2)
+    c.ok((t1.cursor_muted == true) ~= was, "right-clicking a table flips its cursor switch")
+    view:mousepressed(P[1] + 5, P[2] + 30, 2)
+    c.ok((t1.cursor_muted == true) == was, "right-clicking it again flips it back")
+    -- The master (the Cursor upgrade's id) and a group (an add-table row).
+    -- (The controller's summary is rebuilt every frame; here by hand.)
+    w.ctrl:_rebuildPoolSummary()
+    view:_handleSidebarButton("type_cursor_deal")
+    w.ctrl:_rebuildPoolSummary()
+    local total, dm = w.ctrl:typeCursorState(nil, nil)
+    c.ok(dm == total, "the Cursor upgrade's switch stops them everywhere (" .. dm .. "/" .. total .. ")")
+    view:_handleSidebarButton("type_cursor_deal:s001:zoom")
+    w.ctrl:_rebuildPoolSummary()
+    total, dm = w.ctrl:typeCursorState("s001", "zoom")
+    c.ok(dm == 0, "an add-table row's switch lets them deal its tables again")
+end
+
 -- ── cursor settings carry to new tables ─────────────────────────────────
 do
     local cw = H.world({ bankroll = 1e9 })
     local ctrl = cw.ctrl
     cw:open("s001", "zoom")
     ctrl:setTypeCursorMute("s001", "zoom", true)
-    ctrl:setTypeCursorRebuyMute("s001", "zoom", true)
     cw:open("s001", "zoom")
-    local last
-    for _, t in ipairs(ctrl.pool.tables) do last = t end
-    local total, dm, rm = ctrl:typeCursorState("s001", "zoom")
-    c.ok(total == 2 and dm == 2 and rm == 2, "a new table joins its group's cursor DEAL/REBUY off (" .. dm .. "/" .. rm .. " of " .. total .. ")")
+    local total, dm = ctrl:typeCursorState("s001", "zoom")
+    c.ok(total == 2 and dm == 2, "a new table joins its group's cursor switch, off (" .. dm .. " of " .. total .. ")")
     ctrl:setTypeCursorMute(nil, nil, false)
     cw:open("s001", "zoom")
     total, dm = ctrl:typeCursorState("s001", "zoom")

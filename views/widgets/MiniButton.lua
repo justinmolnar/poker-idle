@@ -17,6 +17,8 @@
 --   x, y, size    (required)        — square rect
 --   label         (string)          — 1-2 chars, drawn when the icon is absent
 --   icon          (icon id)         — preferred; silently skipped if unshipped
+--   glyph         ("cursor")        — a drawn glyph (views/widgets/CursorGlyph):
+--                                      the cursors' arrow, slashed when muted
 --   game          — required for icon lookup
 --   fonts         — DI'd font set; uses .sm
 --   muted         (bool)            — the OFF state: greyed, with a strike
@@ -34,6 +36,7 @@
 -- world shoves every other element on the row sideways.
 
 local Theme  = require("views.Theme")
+local CursorGlyph = require("views.widgets.CursorGlyph")
 local Button = require("views.Button")
 local Icons  = require("views.Icons")
 
@@ -48,6 +51,11 @@ local _cur  = {}
 local function face(fx, fy, fw, fh)
     local opts, size, fonts, off, dead, ink = _cur.opts, _cur.size, _cur.fonts, _cur.off, _cur.dead, _cur.ink
     local drew = false
+    if opts.glyph == "cursor" then
+        local pad = math.max(2, math.floor(fw * 0.14))
+        CursorGlyph.draw(fx + pad, fy + pad, fw - pad * 2, fh - pad * 2, off and not dead, dead and 0.4 or 1)
+        return   -- the glyph carries its own off state (the slash)
+    end
     if opts.icon and opts.game then
         local pad = math.max(1, math.floor(fw * 0.15))
         drew = Icons.draw(opts.game, opts.icon,

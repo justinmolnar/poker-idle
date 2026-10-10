@@ -107,7 +107,7 @@ function CursorPool.update(dt, hit_boxes, ctx, dispatcher, panels, hooks)
             if hb.action == "deal" and not hb.cursor_muted and hb.idx then
                 deal_hbs[hb.idx] = hb
             elseif rebuy_unlocked and hb.action == "rebuy"
-                   and not hb.cursor_rebuy_muted and hb.idx then
+                   and not hb.cursor_muted and hb.idx then
                 deal_hbs[hb.idx] = hb
             end
         end

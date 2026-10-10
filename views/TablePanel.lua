@@ -19,6 +19,7 @@
 -- face-up only on showdown and settling.
 
 local Theme         = require("views.Theme")
+local CursorGlyph = require("views.widgets.CursorGlyph")
 local Constants     = require("data.constants")
 local Decks         = require("models.Decks")
 local PokerEventAnims = require("views.PokerEventAnims")
@@ -652,6 +653,13 @@ local function btnOpts(fill, border, hovered, press, disabled, depth, line_width
     return o
 end
 local _lbl_fonts, _lbl_color, _lbl_text, _lbl_muted = nil, nil, nil, false
+-- The cursor switch's face (Button.draw calls it with the face rect).
+local _glyph_off = false
+local function cursorGlyphFace(fx, fy, fw, fh)
+    local pad = math.max(2, math.floor(fw * 0.14))
+    CursorGlyph.draw(fx + pad, fy + pad, fw - pad * 2, fh - pad * 2, _glyph_off)
+end
+
 local function headerLabel(fx, fy, fw, fh)
     local f = _lbl_fonts.sm
     Theme.setColor(_lbl_color)
@@ -678,7 +686,7 @@ local function headerText(tbl)
     return header_text
 end
 
-local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, cursor_on, rebuy_cursor_on, s, ui_s, game)
+local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, cursor_on, s, ui_s, game)
     local header_text = headerText(tbl)
     -- Per-stake header chrome: T1 dim grey, T6 near-black with a gold
     -- accent. Falls back to default Theme.bg.chrome.
@@ -730,14 +738,12 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
                or "Close this table — refunds the current stack."
     end
 
-    -- Header toggle buttons fill in left of the [×] from right to left.
-    -- D shows when the cursor system itself is unlocked; R shows when
-    -- the cursor-rebuy upgrade is owned. Each is independent so an
-    -- edge-case state where only one is owned still renders correctly.
+    -- The cursor switch fills in left of the [×]: the cursors' own arrow,
+    -- slashed red while they don't deal at this table
+    -- (views/widgets/CursorGlyph). Click it, or right-click the table.
     local hands_right_offset = REMOVE_BTN_SIZE + 4 + 4
     local next_btn_x         = rb_x - REMOVE_BTN_SIZE - 4
 
-    -- Cursor-deal toggle "D" — green (matches the DEAL button it gates).
     if cursor_on then
         local cb_x = next_btn_x
         local cb_y = y + 3
@@ -745,46 +751,17 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
         local cid     = Table.rollingKey(tbl, "toggle_cursor")
         local hovered = Hover.is("hit", cid)
         local press   = ClickFlash.alpha("hit", cid)
-        local active_color = Theme.fg.heading        -- DEAL is lit, not green (green is a hand won)
-        _lbl_fonts, _lbl_text, _lbl_muted = fonts, "D", muted
-        _lbl_color = muted and Theme.fg.disabled or active_color
+        _glyph_off = muted
         Button.draw(cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE,
             btnOpts(muted and Theme.bg.sunken or Theme.bg.widget_hover,
-                    muted and Theme.border.soft or active_color,
+                    muted and Theme.sem.lost or Theme.fg.heading,
                     hovered, press, nil, 2),
-            headerLabel)
+            cursorGlyphFace)
         local hb = hbNew(tbl, hit_boxes)
         hb.x, hb.y, hb.w, hb.h = cb_x, cb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE
         hb.action, hb.idx, hb.table_id = "toggle_cursor", idx, tbl._id
-        hb.tooltip = muted and "Unmute: allow cursors to deal at this table."
-                           or  "Mute: stop the cursor swarm from dealing at this table."
-        next_btn_x         = next_btn_x - REMOVE_BTN_SIZE - 4
-        hands_right_offset = hands_right_offset + REMOVE_BTN_SIZE + 4
-    end
-
-    -- Cursor-rebuy toggle "R" — red (matches the REBUY button it gates).
-    -- Independent of the D toggle: visible whenever the rebuy upgrade is
-    -- owned, even if the cursor-system unlock somehow weren't.
-    if rebuy_cursor_on then
-        local rcb_x = next_btn_x
-        local rcb_y = y + 3
-        local rmuted = tbl.cursor_rebuy_muted == true
-        local rcid     = Table.rollingKey(tbl, "toggle_rebuy_cursor")
-        local rhovered = Hover.is("hit", rcid)
-        local rpress   = ClickFlash.alpha("hit", rcid)
-        local r_active_color = Theme.sem.lost        -- REBUY follows a loss and spends money
-        _lbl_fonts, _lbl_text, _lbl_muted = fonts, "R", rmuted
-        _lbl_color = rmuted and Theme.fg.disabled or r_active_color
-        Button.draw(rcb_x, rcb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE,
-            btnOpts(rmuted and Theme.bg.sunken or Theme.bg.widget_hover,
-                    rmuted and Theme.border.soft or r_active_color,
-                    rhovered, rpress, nil, 2),
-            headerLabel)
-        local hb = hbNew(tbl, hit_boxes)
-        hb.x, hb.y, hb.w, hb.h = rcb_x, rcb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE
-        hb.action, hb.idx, hb.table_id = "toggle_rebuy_cursor", idx, tbl._id
-        hb.tooltip = rmuted and "Unmute: cursors will rebuy this table."
-                            or  "Mute: cursors won't rebuy this table."
+        hb.tooltip = muted and "Cursors don't deal here. Click (or right-click the table) to let them."
+                           or  "Cursors deal here. Click (or right-click the table) to stop them."
         next_btn_x         = next_btn_x - REMOVE_BTN_SIZE - 4
         hands_right_offset = hands_right_offset + REMOVE_BTN_SIZE + 4
     end
@@ -2522,8 +2499,7 @@ local function renderBody(tbl, idx, x, y, w, h, game, controller, hit_boxes, mod
     -- The "C" cursor mute toggle only renders once the cursor system is
     -- catalog-unlocked.
     local cursor_on        = (controller and controller.ctx and controller.ctx.cursor_unlocked) or false
-    local rebuy_cursor_on  = (controller and controller.ctx and controller.ctx.cursor_rebuy_unlocked) or false
-    drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, true, cursor_on, rebuy_cursor_on, s, ui_s, game)
+    drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, true, cursor_on, s, ui_s, game)
 
     -- "{chip} banked" or "{achip} banked" trim around the WHOLE panel chrome. Drawn after the
     -- header so it overdraws the header's own border on the top edge/sides.
@@ -2680,10 +2656,9 @@ local function renderBody(tbl, idx, x, y, w, h, game, controller, hit_boxes, mod
             local hb = drawFeltButton(tbl, felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, tbl._rebuy_label, "rebuy",
                 Theme.sem.lost, can_rebuy, tbl._id, label_cy)
-            -- Tag the rebuy hit_box with the per-table rebuy-mute flag
-            -- so CursorPool can skip this table when the player has
-            -- opted out of auto-rebuy here.
-            if hb then hb.cursor_rebuy_muted = tbl.cursor_rebuy_muted == true end
+            -- The cursor switch covers rebuys too: a table the cursors
+            -- don't deal at, they don't rebuy either (services/CursorPool).
+            if hb then hb.cursor_muted = tbl.cursor_muted == true end
         else
             local hb = drawFeltButton(tbl, felt_x, felt_y, felt_w, felt_h,
                 fonts, hit_boxes, idx, "DEAL", "deal",
@@ -2901,12 +2876,12 @@ end
 --   16 h                  17 ui_s               18 fonts.sm (id)
 --   19 Theme.bg (id)      20 layout L (id)      21 back sprite
 --   22 Motion.rev         23 steady felt light  24 cursor_on
---   25 rebuy_cursor_on    26 banked             27 anti_banked
+--   25 (unused)           26 banked             27 anti_banked
 --   28 busted             29 rebuy cost         30 can_rebuy
 --   31 ko_payout_boost    32 pending_close      33 cursor_muted
---   34 cursor_rebuy_muted 35 hover X            36 hover D
---   37 hover R            38 hover DEAL/REBUY   39 flash X (/16)
---   40 flash D (/16)      41 flash R (/16)      42 flash DEAL (/16)
+--   34 (unused)           35 hover X            36 hover cursor switch
+--   37 (unused)           38 hover DEAL/REBUY   39 flash X (/16)
+--   40 flash switch (/16) 41 (unused)           42 flash DEAL (/16)
 --   43 desat amount       44 stack pile rev     45 stack pile quiet
 --   46 sheet generation   47 cards in their live window (count)
 --   48 seat row fading in (Zoom reroll)
@@ -2960,10 +2935,8 @@ local function buildKey(tbl, idx, w, h, game, controller, ly)
         ko_n, depth_n = kos, depthBB(tbl)
     end
     local cursor_on       = (ctx and ctx.cursor_unlocked) or false
-    local rebuy_cursor_on = (ctx and ctx.cursor_rebuy_unlocked) or false
     local rid  = Table.rollingKey(tbl, "remove_table")
     local cid  = Table.rollingKey(tbl, "toggle_cursor")
-    local rcid = Table.rollingKey(tbl, "toggle_rebuy_cursor")
     local fid  = ACTION_KEY[busted and "rebuy" or "deal"][tbl._id]
     local RS   = FeltStyle.residue or EMPTY
     K[1]  = tbl.view_rev
@@ -2990,7 +2963,7 @@ local function buildKey(tbl, idx, w, h, game, controller, ly)
     K[22] = Motion.rev
     K[23] = 0   -- the felt light is a live layer now; was the steady-light flag
     K[24] = cursor_on
-    K[25] = rebuy_cursor_on
+    K[25] = false   -- (was the rebuy switch's unlock)
     K[26] = (controller and controller:bountyBanked(tbl.stake_id, tbl.game_type_id)) and true or false
     K[27] = (controller and controller.antiBountyBanked
              and controller:antiBountyBanked(tbl.stake_id, tbl.game_type_id)) and true or false
@@ -3000,14 +2973,14 @@ local function buildKey(tbl, idx, w, h, game, controller, ly)
     K[31] = ctx and ctx.ko_payout_boost
     K[32] = tbl.pending_close == true
     K[33] = tbl.cursor_muted == true
-    K[34] = tbl.cursor_rebuy_muted == true
+    K[34] = false   -- (was the rebuy switch; kept so the key's slots don't renumber)
     K[35] = Hover.is("hit", rid)
     K[36] = cursor_on and Hover.is("hit", cid) or false
-    K[37] = rebuy_cursor_on and Hover.is("hit", rcid) or false
+    K[37] = false   -- (was the rebuy switch's hover)
     K[38] = Hover.dwell("hit", fid)
     K[39] = math.floor(ClickFlash.alpha("hit", rid) * 16)
     K[40] = math.floor(ClickFlash.alpha("hit", cid) * 16)
-    K[41] = math.floor(ClickFlash.alpha("hit", rcid) * 16)
+    K[41] = 0   -- (was the rebuy switch's flash)
     K[42] = math.floor(ClickFlash.alpha("hit", fid) * 16)
     K[43] = residueOf(tbl) and (RS.desat or 0.85) or 0
     K[44] = ChipPile.rev(you_key)

@@ -217,7 +217,6 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
         -- player keep auto-deal on but block auto-rebuy at specific
         -- tables (e.g., let a busted experiment table die instead of
         -- bleeding more buy-ins).
-        cursor_rebuy_muted  = false,
 
         x = 0, y = 0,
         _pending_resolution = nil,
@@ -444,7 +443,6 @@ function Table:serialize()
         -- money and per-table toggles
         stack = self.stack, pending_close = self.pending_close,
         cursor_muted = self.cursor_muted,
-        cursor_rebuy_muted = self.cursor_rebuy_muted,
         _hand_mult = self._hand_mult,
         _fast_fold_pending = self._fast_fold_pending,
         _pending_buyin = self._pending_buyin,
@@ -535,7 +533,6 @@ function Table.restore(rec, ctx, poker_events, effects_registry, bus)
     if rec.stack then t.stack = rec.stack end
     t.pending_close       = rec.pending_close == true
     t.cursor_muted        = rec.cursor_muted == true
-    t.cursor_rebuy_muted  = rec.cursor_rebuy_muted == true
     t._hand_mult          = rec._hand_mult
     t._fast_fold_pending  = rec._fast_fold_pending
     t._pending_buyin      = rec._pending_buyin

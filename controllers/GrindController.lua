@@ -74,7 +74,7 @@ local TOURNEY_TICK = 0.5
 local NEIGHBOUR_DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 
 -- Returned for a combo with no tables open. Read-only.
-local EMPTY_SUMMARY = { open = 0, deal = 0, rebuy = 0, pending = 0 }
+local EMPTY_SUMMARY = { open = 0, deal = 0, pending = 0 }
 
 local GrindController = {}
 GrindController.__index = GrindController
@@ -2745,8 +2745,7 @@ function GrindController:addTable(stake_id, game_type_id)
         new_tbl._opened_clock = self.clock or 0   -- the Wall Clock's age
         -- A new table takes the last cursor setting made for its group (or
         -- the master switch's), so muting NL10 keeps the next NL10 muted.
-        new_tbl.cursor_muted       = self:_cursorDefault("deal", stake_id, new_tbl.game_type_id)
-        new_tbl.cursor_rebuy_muted = self:_cursorDefault("rebuy", stake_id, new_tbl.game_type_id)
+        new_tbl.cursor_muted = self:_cursorDefault("deal", stake_id, new_tbl.game_type_id)
         self:_announce("on_table_open", { table = new_tbl, first_at_stake = first_at_stake })
     end
     -- Adding into a hole renumbers pool order the same way a drag does;
@@ -3028,16 +3027,6 @@ function GrindController:toggleCursorMute(idx)
     return true
 end
 
--- Toggle the per-table cursor-rebuy opt-out. Only meaningful when the
--- catalog perk `cursor_rebuy_unlocked` is owned (the [R] header toggle
--- is hidden otherwise). Persisted with the table's own record.
-function GrindController:toggleCursorRebuyMute(idx)
-    local t = self.pool:get(idx)
-    if not t then return false end
-    t.cursor_rebuy_muted = not (t.cursor_rebuy_muted == true)
-    return true
-end
-
 -- Seat a table (identified by its runtime _id — indices go stale between
 -- the drag's frames) in a specific board cell. An empty cell moves it; an
 -- occupied one swaps the two. Called from GrindView's drag drop, outside
@@ -3099,15 +3088,14 @@ end
 -- sidebars key their retained trees on it (views/Panel inputs), which is
 -- what lets a board that is merely playing leave them alone.
 local function commitBucket(e)
-    local moved = e.open ~= e.n_open or e.deal ~= e.n_deal
-               or e.rebuy ~= e.n_rebuy or e.pending ~= e.n_pending
-    e.open, e.deal, e.rebuy, e.pending = e.n_open, e.n_deal, e.n_rebuy, e.n_pending
+    local moved = e.open ~= e.n_open or e.deal ~= e.n_deal or e.pending ~= e.n_pending
+    e.open, e.deal, e.pending = e.n_open, e.n_deal, e.n_pending
     return moved
 end
 
 local function newBucket()
-    return { open = 0, deal = 0, rebuy = 0, pending = 0,
-             n_open = 0, n_deal = 0, n_rebuy = 0, n_pending = 0 }
+    return { open = 0, deal = 0, pending = 0,
+             n_open = 0, n_deal = 0, n_pending = 0 }
 end
 
 function GrindController:_rebuildPoolSummary()
@@ -3119,11 +3107,11 @@ function GrindController:_rebuildPoolSummary()
     end
     for _, by_gtype in pairs(sum.by_stake) do
         for _, e in pairs(by_gtype) do
-            e.n_open, e.n_deal, e.n_rebuy, e.n_pending = 0, 0, 0, 0
+            e.n_open, e.n_deal, e.n_pending = 0, 0, 0
         end
     end
     local tot = sum.total
-    tot.n_open, tot.n_deal, tot.n_rebuy, tot.n_pending = 0, 0, 0, 0
+    tot.n_open, tot.n_deal, tot.n_pending = 0, 0, 0
 
     for _, t in ipairs(self.pool.tables) do
         local by_gtype = sum.by_stake[t.stake_id]
@@ -3136,9 +3124,6 @@ function GrindController:_rebuildPoolSummary()
         e.n_open, tot.n_open = e.n_open + 1, tot.n_open + 1
         if t.cursor_muted == true then
             e.n_deal, tot.n_deal = e.n_deal + 1, tot.n_deal + 1
-        end
-        if t.cursor_rebuy_muted == true then
-            e.n_rebuy, tot.n_rebuy = e.n_rebuy + 1, tot.n_rebuy + 1
         end
         if t.pending_close then
             e.n_pending, tot.n_pending = e.n_pending + 1, tot.n_pending + 1
@@ -3185,20 +3170,19 @@ end
 -- ON or OFF for the group.
 function GrindController:typeCursorState(stake_id, gtype_id)
     local e = self:_summaryFor(stake_id, gtype_id)
-    if e then return e.open, e.deal, e.rebuy end
-    local total, deal_muted, rebuy_muted = 0, 0, 0
+    if e then return e.open, e.deal end
+    local total, deal_muted = 0, 0
     for _, t in ipairs(self.pool.tables) do
         if tableMatches(t, stake_id, gtype_id) then
             total = total + 1
             if t.cursor_muted == true       then deal_muted  = deal_muted + 1 end
-            if t.cursor_rebuy_muted == true then rebuy_muted = rebuy_muted + 1 end
         end
     end
-    return total, deal_muted, rebuy_muted
+    return total, deal_muted
 end
 
 -- The remembered cursor settings, for tables opened later: state.cursor_defaults
--- = { deal = { [key] = muted }, rebuy = {...} }, key "stake:gtype", "stake:*"
+-- = { deal = { [key] = muted } }, key "stake:gtype", "stake:*"
 -- or "*" (the master). A wider setting clears the narrower ones under it, so
 -- the latest click always wins.
 local function cursorKey(stake_id, gtype_id)
@@ -3242,17 +3226,6 @@ function GrindController:setTypeCursorMute(stake_id, gtype_id, muted)
     return n
 end
 
-function GrindController:setTypeCursorRebuyMute(stake_id, gtype_id, muted)
-    self:_rememberCursor("rebuy", stake_id, gtype_id, muted)
-    local n = 0
-    for _, t in ipairs(self.pool.tables) do
-        if tableMatches(t, stake_id, gtype_id) then
-            t.cursor_rebuy_muted = muted and true or false
-            n = n + 1
-        end
-    end
-    return n
-end
 
 -- Click-to-deal entry point. Triggers the per-hand state machine on a
 -- specific table. Returns false if the table is already animating a hand

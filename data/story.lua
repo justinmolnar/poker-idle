@@ -414,8 +414,7 @@ return {
                   anchor = "gtype:ko" },
             },
         },
-        -- The right-click controls this describes are not wired yet; the
-        -- copy leads, the mechanic follows.
+        -- The right-click controls this describes: views/GrindView:_rightClick.
         {
             id      = "first_cursors",
             screen  = "grind",

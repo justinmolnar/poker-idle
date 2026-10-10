@@ -467,10 +467,9 @@ function GrindView:_buildTablesTabComponents()
     local gtype_id  = self.selected_gtype
     local gtype_obj = Lookups.findById(GameTypes, gtype_id)
     -- Cursor perks gate the per-row cursor toggles, same two flags the
-    -- per-table [D] / [R] header buttons read.
+    -- per-table cursor switch reads.
     local ctx       = self.controller and self.controller.ctx
     local cursor_on = (ctx and ctx.cursor_unlocked) or false
-    local rebuy_on  = (ctx and ctx.cursor_rebuy_unlocked) or false
     for _, stake in ipairs(Stakes) do
         -- Bands gate the +ADD-TABLE buttons by milestone (mid after R1,
         -- high after R2, ultra once bought; see stakeVisible →
@@ -564,7 +563,7 @@ function GrindView:_buildTablesTabComponents()
             -- the whole pool. Always present, greyed when the row has no open
             -- tables — appearing on the first buy-in would shove the row's
             -- text sideways every time you opened or closed a table.
-            local open_n, deal_muted, rebuy_muted =
+            local open_n, deal_muted =
                 self.controller:typeCursorState(stake.id, gtype_id)
             local none    = open_n == 0
             local pending = self.controller:typePendingCloses(stake.id, gtype_id)
@@ -588,32 +587,21 @@ function GrindView:_buildTablesTabComponents()
                                 (gtype_obj and gtype_obj.name) or "",
                                 open_n == 1 and "" or "s") },
             }
-            -- Cursor controls mirror the per-table [D] / [R] header toggles,
-            -- applied to the whole group. Same letters and same colours so
-            -- the two read as the same control.
+            -- The cursor switch for this row's tables: the cursors' own
+            -- arrow, slashed red while they don't deal here. The same glyph
+            -- every table header shows (views/widgets/CursorGlyph). A
+            -- right-click on the row flips it too.
             if cursor_on then
+                local all_off = (not none) and deal_muted >= open_n
                 actions[#actions + 1] = {
-                    id = "type_cursor_deal" .. suffix, label = "D",
-                    tint_token = Theme.fg.heading,
+                    id = "type_cursor_deal" .. suffix, glyph = "cursor",
                     disabled = none,
-                    muted = (not none) and deal_muted >= open_n,
+                    muted = all_off,
                     tooltip = none and nil
-                              or (deal_muted >= open_n)
-                              and "Let cursors deal these tables"
-                              or  "Stop cursors dealing these tables",
+                              or all_off
+                              and "Cursors don't deal these tables. Click (or right-click the row) to let them."
+                              or  "Cursors deal these tables. Click (or right-click the row) to stop them.",
                 }
-                if rebuy_on then
-                    actions[#actions + 1] = {
-                        id = "type_cursor_rebuy" .. suffix, label = "R",
-                        tint_token = Theme.sem.lost,
-                        disabled = none,
-                        muted = (not none) and rebuy_muted >= open_n,
-                        tooltip = none and nil
-                                  or (rebuy_muted >= open_n)
-                                  and "Let cursors rebuy these tables"
-                                  or  "Stop cursors rebuying these tables",
-                    }
-                end
             end
 
             components[#components + 1] = {
@@ -1367,31 +1355,18 @@ function GrindView:_buildUpgradesTabComponents()
             if up.cursor_master_controls then
                 local ctx = self.controller and self.controller.ctx
                 if ctx and ctx.cursor_unlocked then
-                    local total, deal_muted, rebuy_muted =
-                        self.controller:typeCursorState(nil, nil)
+                    local total, deal_muted = self.controller:typeCursorState(nil, nil)
                     local none = total == 0
+                    local all_off = (not none) and deal_muted >= total
                     up_actions = { {
-                        id = "type_cursor_deal", label = "D",
-                        tint_token = Theme.status.good,
+                        id = "type_cursor_deal", glyph = "cursor",
                         disabled = none,
-                        muted = (not none) and deal_muted >= total,
+                        muted = all_off,
                         tooltip = none and nil
-                                  or (deal_muted >= total)
-                                  and "Let cursors deal every table"
-                                  or  "Stop cursors dealing any table",
+                                  or all_off
+                                  and "Cursors don't deal anywhere. Click (or right-click this upgrade) to let them."
+                                  or  "Cursors deal. Click (or right-click this upgrade) to stop them everywhere.",
                     } }
-                    if ctx.cursor_rebuy_unlocked then
-                        up_actions[#up_actions + 1] = {
-                            id = "type_cursor_rebuy", label = "R",
-                            tint_token = Theme.status.error,
-                            disabled = none,
-                            muted = (not none) and rebuy_muted >= total,
-                            tooltip = none and nil
-                                      or (rebuy_muted >= total)
-                                      and "Let cursors rebuy every table"
-                                      or  "Stop cursors rebuying any table",
-                        }
-                    end
                 end
             end
 
@@ -3586,7 +3561,6 @@ end
 local HEADER_DRAG_ACTIONS = {
     remove_table        = true,
     toggle_cursor       = true,
-    toggle_rebuy_cursor = true,
     drag_table          = true,
 }
 local DRAG_PROMOTE_PX = 4    -- < the 8px grid-freeze deadzone; promote
@@ -3688,6 +3662,7 @@ function GrindView:chromeMousepressed(x, y)
 end
 
 function GrindView:mousepressed(x, y, b)
+    if b == 2 then return self:_rightClick(x, y) end
     if b ~= 1 then return end
 
     -- The rail first.
@@ -3834,12 +3809,6 @@ function GrindView:_handleSidebarButton(id)
         self.controller:setTypeCursorMute(s_id, g_id, muted < total)
         return
     end
-    s_id, g_id, ok = scopeOf("type_cursor_rebuy")
-    if ok then
-        local total, _, muted = self.controller:typeCursorState(s_id, g_id)
-        self.controller:setTypeCursorRebuyMute(s_id, g_id, muted < total)
-        return
-    end
     local up_id = id:match("^buy_runup_(.+)$")
     if up_id then
         self.controller:buyRunUpgrade(up_id)
@@ -3847,6 +3816,39 @@ function GrindView:_handleSidebarButton(id)
     end
     -- buy_catalog_ removed — catalog purchases now happen in the post-bust
     -- CatalogModal (see views/CatalogModal.lua).
+end
+
+-- Right-click: the cursor switch for what is under the pointer. A table
+-- stops (or lets) the cursors dealing there; an add-table row, its whole
+-- group; the Cursor upgrade, every table (data/story first_cursors).
+function GrindView:_rightClick(x, y)
+    local ctx = self.controller and self.controller.ctx
+    if not (ctx and ctx.cursor_unlocked) then return end
+    for _, panel in ipairs({ self.right_panel, self.left_panel }) do
+        if x >= panel.x and x < panel.x + panel.w then
+            local comps = panel:getComponents()
+            if not comps then return end
+            local hit = CR.hitTest(comps, panel.x, panel.w, x, panel:toContentY(y), self.game)
+            local id = hit and hit.id
+            if id == "buy_runup_cursor" then
+                self:_handleSidebarButton("type_cursor_deal")
+            elseif id and id:match("^add_table:") then
+                self:_handleSidebarButton("type_cursor_deal:" .. id:sub(#"add_table:" + 1))
+            end
+            return
+        end
+    end
+    local P = self._grid_pos
+    if not P then return end
+    for i, t in ipairs(self.controller.pool.tables) do
+        local k = i * 4
+        local px, py, pw, ph = P[k - 3], P[k - 2], P[k - 1], P[k]
+        if px and x >= px and x < px + pw and y >= py and y < py + ph then
+            self.controller:toggleCursorMute(i)
+            ClickFlash.press("hit", "toggle_cursor:" .. (t._id or i))
+            return
+        end
+    end
 end
 
 -- Hit-box action handlers. Adding a new clickable region = one entry here
@@ -3857,7 +3859,6 @@ local HIT_BOX_HANDLERS = {
     rebuy               = function(self, hb) self.controller:rebuyTable(hb.idx)            end,
     remove_table        = function(self, hb) self.controller:removeTable(hb.idx)           end,
     toggle_cursor       = function(self, hb) self.controller:toggleCursorMute(hb.idx)      end,
-    toggle_rebuy_cursor = function(self, hb) self.controller:toggleCursorRebuyMute(hb.idx) end,
 }
 
 function GrindView:_handleHitBox(hb)

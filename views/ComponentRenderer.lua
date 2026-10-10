@@ -1013,6 +1013,7 @@ local function buttonFace(fx, fy, fw, fh)
             m.x, m.y, m.size = ax, ay, size
             m.label      = act.label
             m.icon       = act.icon
+            m.glyph      = act.glyph
             m.game       = game
             m.fonts      = game and game.fonts
             m.muted      = act.muted
