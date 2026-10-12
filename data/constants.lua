@@ -19,6 +19,9 @@ local C = {}
 -- pure packager, it rewrites nothing. Set to true before building the
 -- demo for itch.
 C.DEMO = false
+-- A playtest build: the demo cut with the hand log on. Stamped by the
+-- build tool, never committed true.
+C.PLAYTEST = false
 
 -- Per-feature flags derived from C.DEMO; override an individual entry
 -- below the assignment if you need a non-default mix for testing.
@@ -53,8 +56,15 @@ C.FEATURES = {
     DECKS       = not C.DEMO,
 
     -- Wire the developer hotkeys (F2/F6/F7/backtick/-/=, H/J in grind,
-    -- R/[/]/D in shove). Off in shipping builds.
+    -- R/[/]/D in shove). Off in shipping builds; also the room editor's
+    -- draft layouts, the shove's debug overlay, the profiler.
     DEV_HOTKEYS = not C.DEMO,
+
+    -- The gameplay analytics: the first-run consent ask, its Settings
+    -- row, and the local hand log (services/HandAnalytics). Off in the
+    -- demo, which asks nothing and records nothing; a playtest build
+    -- turns it back on (the build tool stamps C.PLAYTEST).
+    ANALYTICS   = not C.DEMO or C.PLAYTEST == true,
 }
 
 -- Stake band → the state flag that unlocks it (false = always available).
@@ -91,12 +101,6 @@ C.TITLE       = "I hardly know'er"
 C.TITLE_SETUP = "Poker?"
 C.BUILD       = "0.1.0"
 C.STEAM_URL   = ""
-
-C.WINDOW = {
-    title  = "I hardly know'er",
-    width  = 1280,
-    height = 720,
-}
 
 C.DEBUG = {
     -- The catalog treats every `requires` chain as met: no "SEE No." slips,

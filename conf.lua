@@ -34,7 +34,9 @@ end
 function love.conf(t)
     t.identity = "poker-idle"
     t.version  = ON_12 and "12.0" or "11.4"
-    t.console  = true
+    -- No console window: a shipped build opens the game and nothing else.
+    -- Dev runs get one from lovec.exe; a crash writes crash.log (main.lua).
+    t.console  = false
 
     t.window.title      = "I hardly know'er"
     -- Default opens at 1600×900, the base frame's size at 16:9. The game

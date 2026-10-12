@@ -51,7 +51,10 @@ local AnchorRegistry  = require("services.AnchorRegistry")
 local ShaderRegistry  = require("services.ShaderRegistry")
 local HandAnalytics   = require("services.HandAnalytics")
 local Perf            = require("services.Perf")
-local Profiler        = require("services.Profiler")
+-- The sampling profiler is dev tooling (Ctrl+F4): shipped builds get a
+-- stand-in and leave the module out (build-tools/demo_cut.py).
+local Profiler        = Constants.FEATURES.DEV_HOTKEYS and require("services.Profiler")
+                        or { update = function() end }
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
@@ -60,7 +63,6 @@ local Motion        = require("services.Motion")
 local CursorIntent  = require("services.CursorIntent")
 
 local StateMachine    = require("controllers.StateMachine")
-local InputController = require("controllers.InputController")
 
 local GameState        = require("models.GameState")
 local Decks            = require("models.Decks")
@@ -90,7 +92,6 @@ local Story            = require("data.story")
 local PokerActionApply = require("models.poker_action_apply")
 local GrindState   = require("states.GrindState")
 local ShoveState   = require("states.ShoveState")
-local CreditsState = require("states.CreditsState")
 local TitleState   = require("states.TitleState")
 local RoomState    = require("states.RoomState")
 
@@ -256,6 +257,7 @@ local SETTINGS_KEYS = {
     "volume", "sfx_volume", "music_volume",
     "analytics_consent",
     "display_mode", "display_w", "display_h",   -- desktop only
+    "vsync", "fps_cap",                         -- desktop only
     "room_lights_off",
     "motion_cards", "motion_chips", "motion_tables", "motion_cursors",
     "motion_paper", "motion_text", "motion_shine", "motion_ui",
@@ -504,7 +506,11 @@ local function buildGame()
     end
     g.state_machine:register("grind",   GrindState:new(g))
     g.state_machine:register("shove",   ShoveState:new(g))
-    g.state_machine:register("credits", CreditsState:new(g))
+    -- The ending. The demo can't reach it (R2 is forced lost), so the
+    -- demo leaves the module out.
+    if not Constants.FEATURES.DEMO_CUT then
+        g.state_machine:register("credits", require("states.CreditsState"):new(g))
+    end
     g.state_machine:register("title",   TitleState:new(g))
     g.state_machine:register("room",    RoomState:new(g))
 
@@ -547,7 +553,6 @@ local function buildGame()
     g.startNewGame = function() g.newGame(true) end
 
     g.input_dispatcher = InputDispatcher:new()
-    g.input_controller = InputController:new(g)
 
     -- STORY LINES ARE MODAL. While a line is visible the game keeps
     -- simulating, but the PLAYER is paused: every gameplay click and key
@@ -647,6 +652,7 @@ local function buildGame()
         d:on("textinput",     nil, function(text)        sm:textinput(text)         end)
         d:on("wheelmoved",    nil, function(x, y)        sm:wheelmoved(x, y)        end)
     else
+        g.input_controller = require("controllers.InputController"):new(g)
         g.input_controller:wire()
     end
 
@@ -661,6 +667,11 @@ function love.load()
     -- width follows it. SDL's own resize event lands too, but that is a
     -- frame away and not guaranteed for a same-size setMode.
     love.resize()
+    -- The window's icon (desktop; the web page carries its own). Nothing
+    -- until the art exists: the build warns, the game runs without it.
+    if Display.isDesktop() and love.filesystem.getInfo("assets/icon.png") then
+        pcall(function() love.window.setIcon(love.image.newImageData("assets/icon.png")) end)
+    end
     -- The player's chunky pixel cursor (services/PlayerCursor).
     require("services.PlayerCursor").apply()
     Game.sprite_loader:loadAll()
@@ -700,7 +711,7 @@ function love.load()
     end
 
     do local M, m, r = love.getVersion(); print(("[main] LÖVE %d.%d.%d, audio device switching %s"):format(M, m, r, (love.audio and love.audio.setPlaybackDevice) and "ON" or "OFF (needs LÖVE 12)")) end
-    print("[main] Poker Idle booted. Active state: " .. tostring(Game.state_machine:current()))
+    print("[main] " .. Constants.TITLE .. " booted. Active state: " .. tostring(Game.state_machine:current()))
     -- Text diagnostics: every layer between a glyph and the screen.
     pcall(function()
         local ww, wh = _realDimensions()
@@ -756,6 +767,9 @@ local function resolveCursor()
 end
 
 function love.update(dt)
+    -- The frame cap (Settings; desktop): sleeps out the rest of the last
+    -- frame's budget before this one starts. Nothing when off.
+    Display.frameWait()
     -- Perf's frame boundary is here, before anything else runs, so the
     -- counters a frame reports belong to that frame (F4; free when off).
     Perf.beginFrame(dt)
@@ -1284,6 +1298,20 @@ function love.errorhandler(msg)
     pcall(function() print("[crash] " .. trace) end)
     local saved = false
     pcall(function() saved = flushSave() end)
+    -- The report, as crash.log in the save directory: the console is off
+    -- in shipped builds and stdout goes nowhere, and this is the file a
+    -- player can send.
+    local log_path = nil
+    pcall(function()
+        local v = { love.getVersion() }
+        local head = ("%s build %s on LOVE %s.%s.%s (%s), %s\n\n"):format(
+            tostring(Constants.TITLE), tostring(Constants.BUILD), tostring(v[1]), tostring(v[2]), tostring(v[3]),
+            love.system and love.system.getOS and love.system.getOS() or "?",
+            os.date("%Y-%m-%d %H:%M:%S"))
+        if love.filesystem.write("crash.log", head .. trace .. "\n") then
+            log_path = love.filesystem.getSaveDirectory() .. "/crash.log"
+        end
+    end)
 
     pcall(function()
         love.graphics.reset()
@@ -1297,6 +1325,10 @@ function love.errorhandler(msg)
     local lines = { "The game crashed.", "" }
     if saved then
         lines[#lines + 1] = "Your progress was saved."
+        lines[#lines + 1] = ""
+    end
+    if log_path then
+        lines[#lines + 1] = "The report is in " .. log_path
         lines[#lines + 1] = ""
     end
     local n = 0

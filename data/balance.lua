@@ -102,7 +102,7 @@ Balance.UPGRADE_REFERENCE = {
 -- uses. CURSOR_FIRE is what a lit cursor (the Desk Lamp) leaves on the
 -- table it deals. Read by GrindController:onCursorClash / onLitCursorDeal.
 Balance.CURSOR_CLASH = {
-    chance = 1/4,                                  -- PLACEHOLDER: the designer's number
+    chance = 1/4,
     tilt   = { magnitude = 0.35, t = 5 },
     heater = { magnitude = 0.35, t = 6 },
 }

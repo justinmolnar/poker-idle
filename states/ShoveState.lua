@@ -19,7 +19,6 @@
 local Theme              = require("views.Theme")
 local HoldPress = require("services.HoldPress")
 local ShoveView          = require("views.ShoveView")
-local Overlay            = require("views.ShoveDebugOverlay")
 local CatalogModal       = require("views.CatalogModal")
 local DeckFlyer          = require("views.DeckFlyer")
 local ChipTake           = require("views.ChipTake")
@@ -34,6 +33,12 @@ local FlightSystem       = require("services.FlightSystem")
 local ClickFlash         = require("services.ClickFlash")
 local Constants          = require("data.constants")
 local ShoveRate          = require("models.shove_rate")
+-- The debug overlay (R/[/]/D, the attempt stats) is dev tooling: shipped
+-- builds get a silent stand-in and leave the module out.
+local Overlay = Constants.FEATURES.DEV_HOTKEYS and require("views.ShoveDebugOverlay")
+    or { new = function() return { attempts = 0, wins = 0, visible = false,
+                                   resetStats = function() end, recordAttempt = function() end,
+                                   draw = function() end } end }
 local HandAnalytics      = require("services.HandAnalytics")
 
 local ShoveState = {}
@@ -478,8 +483,8 @@ end
 
 function ShoveState:update(dt)
     -- A `pause` beat stops the shove's clock under the House's line: the
-    -- buildup, the deal and the holds wait for the click.
-    if self.game.sim_frozen then dt = 0 end
+    -- buildup, the deal and the holds wait for the click. Settings too.
+    if self.game.sim_frozen or self.settings_modal then dt = 0 end
     self.view:update(dt)
 
     -- Buildup just finished — kick off the actual gauntlet. The view

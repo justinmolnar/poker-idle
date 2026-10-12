@@ -15,10 +15,17 @@ local RoomLighting   = require("views.RoomLighting")
 local RoomLights     = require("data.room_lights")
 local ShoveDecor     = require("views.ShoveDecor")
 local RoomPlacement  = require("models.room_placement")
-local LayersPanel    = require("views.RoomLayersPanel")
 local Scrollbar      = require("views.Scrollbar")
 local LIGHTS_DRAFT   = "room_lights_draft.lua"
 local Constants      = require("data.constants")
+-- The editor's layers panel, loaded the first time the editor touches it
+-- (every call site is an editor path): dev tooling the build leaves out
+-- of shipped copies.
+local LayersPanel = setmetatable({}, { __index = function(t, k)
+    local m = require("views.RoomLayersPanel")
+    setmetatable(t, { __index = m })
+    return m[k]
+end })
 
 -- The editor autosaves a draft next to the game's saves (DRAFT_FILE) so a
 -- crash or a closed window loses seconds, not the session. The draft
@@ -214,9 +221,11 @@ function RoomView:new(game)
     end
     self.catalog_by_id = catalog_by_id
 
-    -- Load all layout positions: the autosaved draft, else room_layout
-    local Layout = loadDraft() or Layout
-    loadLightsDraft()
+    -- Load all layout positions: the autosaved draft (dev builds: the
+    -- editor's), else room_layout. A shipped build reads the layout the
+    -- editor exported and nothing else.
+    local Layout = (Constants.FEATURES.DEV_HOTKEYS and loadDraft()) or Layout
+    if Constants.FEATURES.DEV_HOTKEYS then loadLightsDraft() end
     local _migrate_dx = true
     local placed = {}
     for id, info in pairs(Layout) do

@@ -22,6 +22,7 @@ local Slider        = require("views.widgets.Slider")
 local Dropdown      = require("views.widgets.Dropdown")
 local TooltipSvc    = require("services.Tooltip")
 local HoverSvc      = require("services.HoverService")
+local Constants     = require("data.constants")
 
 local SettingsModal = {}
 SettingsModal.__index = SettingsModal
@@ -201,6 +202,17 @@ local ACTION_HANDLERS = {
         Display.commit(g.settings, g.save_service,
             { display_mode = Display.nextMode(g.settings.display_mode) })
     end,
+    -- VSync on/off and the frame cap, through the same apply + persist.
+    vsync     = function(self)
+        local g = self.game
+        if not (g and g.settings) then return end
+        Display.commit(g.settings, g.save_service, { vsync = not (g.settings.vsync ~= false) })
+    end,
+    fps_cap   = function(self)
+        local g = self.game
+        if not (g and g.settings) then return end
+        Display.commit(g.settings, g.save_service, { fps_cap = Display.nextFpsCap(g.settings.fps_cap) })
+    end,
 }
 
 function SettingsModal:_runAction(action)
@@ -356,11 +368,13 @@ function SettingsModal:draw()
     self._modal.w = MODAL_W
     self._modal:setTitle((self._page == "motion") and "Motion" or "Settings")
 
-    -- master, sfx, music, [display, resolution], motion, analytics, save,
-    -- load, new game, quit — the bracketed two are desktop only. The
-    -- Motion page: all-motion, one per group, back.
+    -- master, sfx, music, [display, resolution, vsync, frame cap], motion,
+    -- (analytics), save, load, new game, quit — the bracketed four are
+    -- desktop only, analytics where it exists. The Motion page:
+    -- all-motion, one per group, back.
     local show_display = self._res_dd ~= nil and self.game.settings ~= nil
-    local rows = show_display and 11 or 9
+    local rows = show_display and 13 or 9
+    if not Constants.FEATURES.ANALYTICS then rows = rows - 1 end
     if self._menu then rows = rows - 2 end
     if self._page == "motion" then rows = 2 + #Motion.GROUPS end
     local body_h = rows * ROW_H + (rows - 1) * ROW_GAP
@@ -468,6 +482,14 @@ function SettingsModal:draw()
             self._res_popup = { x = row_x, y = y + ROW_H + math.floor(2 * s), w = row_w }
             y = y + ROW_H + ROW_GAP
         end
+        action_row("VSync", "vsync", {
+            value = (st.vsync ~= false) and "On" or "Off",
+            tip   = "Frames wait for the display's refresh: no tearing. Off, the frame cap sets the pace.",
+        })
+        action_row("Frame cap", "fps_cap", {
+            value = Display.fpsCapLabel(st.fps_cap),
+            tip   = "The most frames a second the game draws. Off is as many as the display takes.",
+        })
     end
 
     -- Motion levels live on their own page (they are nine rows).
@@ -477,7 +499,8 @@ function SettingsModal:draw()
     })
 
     -- Analytics consent — same checkbox style as the onboarding modal.
-    do
+    -- Only where analytics exist (the demo has none).
+    if Constants.FEATURES.ANALYTICS then
         -- Strict true: consent is tri-state and nil means "never asked" —
         -- displaying that as ON contradicted the send gate, which treats
         -- anything but true as off.

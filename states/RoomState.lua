@@ -479,8 +479,8 @@ function RoomState:keypressed(key)
         return true
     end
 
-    -- ESC or Tab exits the RoomState back to Grind
-    if key == "escape" or key == "tab" then
+    -- ESC exits the RoomState back to Grind
+    if key == "escape" then
         self.game.state_machine:switch("grind")
     end
 end

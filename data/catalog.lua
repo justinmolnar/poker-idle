@@ -259,7 +259,6 @@ local items = {
     },
     {
         id          = "corkboard",
-        refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
         name        = "Corkboard",
         effect_text = "+5% {c:chance:odds}, and +1% per item you own, up to +10%.",
         description = "Pins, notes, one photo of a beach.",
@@ -298,7 +297,7 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "loss_reroll_chance", value = 1/6 },   -- PLACEHOLDER
+            { kind = "loss_reroll_chance", value = 1/6 },
         },
     },
     {
@@ -417,7 +416,7 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "odds_per_empty_adjacent", value = 0.05 },   -- PLACEHOLDER
+            { kind = "odds_per_empty_adjacent", value = 0.05 },
         },
     },
     {
@@ -936,7 +935,7 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "bounty_double_chance", value = 1/4 },   -- PLACEHOLDER
+            { kind = "bounty_double_chance", value = 1/4 },
         },
     },
     {
@@ -955,7 +954,7 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "stack_mult",     value = 1.5 },   -- PLACEHOLDER
+            { kind = "stack_mult",     value = 1.5 },
         },
     },
     {
@@ -1481,7 +1480,7 @@ local items = {
         },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "zoom_combo_pace", value = 0.05, cap = 0.50 },   -- PLACEHOLDER
+            { kind = "zoom_combo_pace", value = 0.05, cap = 0.50 },
         },
     },
     {

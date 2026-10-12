@@ -181,7 +181,8 @@ function GrindState:enter()
     -- finalizes; if consent is already set (dev machine), finalize
     -- straight away.
     if not self.game.state.onboarded then
-        if self.game.settings
+        if Constants.FEATURES.ANALYTICS
+           and self.game.settings
            and self.game.settings.analytics_consent == nil then
             self.analytics_modal = AnalyticsConsentModal:new(self.game)
         else
@@ -220,7 +221,8 @@ function GrindState:update(dt)
     -- The House has the floor on a `pause` beat: the tables, the cursors
     -- and the status clocks stand still until the click. The view still
     -- runs its hover pass with no time.
-    if self.game.sim_frozen then
+    -- Settings open: the same stillness. A menu is not play time.
+    if self.game.sim_frozen or self.settings_modal then
         self.view:update(0)
         return
     end
@@ -367,13 +369,6 @@ function GrindState:keypressed(key)
         if key == "escape" or self.deck_roster_modal:consumeKey(key) then
             self:closeDeckRoster()
         end
-        return
-    end
-    -- Tab sits BELOW the modal blocks on purpose: it used to be checked
-    -- first, which let it yank the screen to the Room out from under any
-    -- open modal.
-    if key == "tab" then
-        self.game.state_machine:switch("room")
         return
     end
     -- ESC outside any modal opens the settings modal (which carries its own

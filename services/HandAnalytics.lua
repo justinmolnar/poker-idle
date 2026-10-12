@@ -244,7 +244,8 @@ function HandAnalytics.startRun(state)
     -- flag, so it is raised here for that build.
     _is_web = detectWeb()
     if _is_web then Constants.DEBUG.HAND_ANALYTICS = true end
-    _enabled = Constants.DEBUG.HAND_ANALYTICS or _is_web
+    _enabled = (Constants.DEBUG.HAND_ANALYTICS or _is_web)
+               and Constants.FEATURES.ANALYTICS ~= false
     if not _enabled then return end
 
     -- Anything still pending belongs to the run being left.

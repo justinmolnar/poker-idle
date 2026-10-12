@@ -29,11 +29,11 @@ local _file_sources = {}   -- { [path] = love.audio.Source }   prototype/cloned 
 -- the browser GC caught up. Browser-side that GC was lazy enough to
 -- compound with other heap pressure into observable lag.
 local _clone_pool   = {}   -- { [path] = { source, source, ... } }
-local _master       = 1.0  -- master volume 0–1
+local _master       = 0.8  -- master volume 0–1; prefs override
 -- Channel volumes under the master: every play()/playFile() (all effects,
 -- the intercom voice included) rides _sfx; services/MusicDirector reads
 -- _music. Settings exposes all three as Master / SFX / Music.
-local _sfx          = 1.0
+local _sfx          = 0.8
 local _music        = 0.5  -- music defaults to 50%; prefs override
 -- Discovered sounds (services/SoundLoader) sit behind data/sounds.lua: a
 -- name with no preset plays the file that shares its name, following

@@ -9,7 +9,7 @@ local ActionModal = require("views.widgets.ActionModal")
 local AnalyticsConsentModal = {}
 
 local BODY = {
-    "Poker Idle is in early development and needs balancing data to improve.",
+    require("data.constants").TITLE .. " is in early development and needs balancing data to improve.",
     "If you opt in, the game sends anonymous gameplay summaries: hand outcomes, upgrade choices, shove rates, and session length. The data contains no personal information — no name, account, or device ID. Your IP MAY appear in standard server request logs, as with any web request (unavoidable) but is not used or looked at in any way.",
     "This data is used only to spot balance problems and guide what gets built next. Knowing how different players approach the game helps tune odds, payouts, and pacing.",
     "You can change this any time in Settings.",
