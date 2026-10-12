@@ -39,11 +39,13 @@ C.FEATURES = {
     -- The kill switch: false draws every panel in full every frame, the
     -- single pass that shipped before.
     PANEL_CACHE = true,
-    -- The demo cut. Hard-stops the gauntlet at the cliffhanger with the
-    -- demo-end modal; suppresses the R2/R3 cinematic; collapses the
-    -- result-chip strip to a single slot; keeps the act flags and the
-    -- act-break milestone from being recorded. The coordinated effects
-    -- exist together — flipping individual pieces produces broken UI.
+    -- The demo cut. R2 is forced lost and R1's readout capped at 99%
+    -- (models/shove_rate); the act flags and the act-break milestone are
+    -- never recorded (states/ShoveState), so the demo stays Act 1 shaped
+    -- and ends on its first R1 win — state.demo_ended, which lands the
+    -- flyer with the demo's ending inside (views/DeckFlyer). Act 2
+    -- catalog entries are stripped at load (data/catalog.lua) as a belt
+    -- over the build, which cuts them from the files.
     DEMO_CUT    = C.DEMO,
 
     -- Deck system. Belt over the real gate (the R1 win the demo never

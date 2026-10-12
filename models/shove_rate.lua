@@ -118,19 +118,20 @@ local function buildRates(catalog, deck, mult, tier, mult3)
     local r1   = clamp01(raw1)
     local r2   = clamp01(raw2)
     local r3   = clamp01(raw3)
-    -- Demo builds hard-gate R2 to a loss: the prototype IS runout 1, and
-    -- win-R1/lose-R2 is the deterministic cliffhanger the end-of-demo
-    -- modal hangs off. Full builds keep the real formula — the dealer's
-    -- cheats HALVE the factors, they don't nullify them, so a deeply
-    -- overshot player (raw_r1 ≥ 200% / 400%) genuinely beats cheat 1 /
-    -- cheat 2. Zeroing these universally made the full game unwinnable.
+    -- The demo hard-gates R2 to a loss: the demo IS runout 1, and
+    -- win-R1/lose-R2 is the cliffhanger it ends on (the flyer that lands
+    -- after it: states/ShoveState throwFlyer). Full builds keep the real
+    -- formula — the dealer's cheats HALVE the factors, they don't nullify
+    -- them, so a deeply overshot player (raw_r1 ≥ 200% / 400%) genuinely
+    -- beats cheat 1 / cheat 2. Zeroing these universally made the full
+    -- game unwinnable.
     if Constants.FEATURES and Constants.FEATURES.DEMO_CUT then
         r2 = 0
         r3 = 0
     end
 
     -- Demo-cut only: cap r1 + raw_r1 to 99% so the headline shove%
-    -- never reads 100% / overshoot during the prototype build. Outside
+    -- never reads 100% / overshoot in the demo. Outside
     -- the demo, raw_r1 stays uncapped so a deeply-grinded player can
     -- read "220%" / "350%" — the "undeniable edge against a cheating
     -- dealer" reading. r1 (the actual outcome roll) is still clamped

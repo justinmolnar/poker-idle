@@ -37,6 +37,7 @@ function GameState:new(saved)
     instance.cleared     = false   -- true once the gauntlet is beaten — gates the credits screen on boot
     instance.shove_r1_won = false  -- true once the player has won at least Runout 1 of the shove gauntlet
     instance.shove_r2_won = false  -- true once the player has won at least Runout 2 of the shove gauntlet
+    instance.demo_ended   = false  -- the demo: true once its first R1 win has been played out (states/ShoveState)
     instance.anti_chips  = 0
     instance.corrupted_items = {}
     -- Item ids whose COMING SOON sticker the player has physically peeled off.
@@ -332,6 +333,7 @@ function GameState:wipeAll()
     self.cleared     = false
     self.shove_r1_won = false
     self.shove_r2_won = false
+    self.demo_ended  = false
     self.anti_chips  = 0
     self.corrupted_items = {}
     self.peeled_items    = {}
@@ -487,7 +489,7 @@ GameState.META_KEYS = {
     -- the catalog
     "owned_items", "corrupted_items", "peeled_items", "item_fires_life",
     -- acts and gates
-    "shove_r1_won", "shove_r2_won", "ultra_unlocked",
+    "shove_r1_won", "shove_r2_won", "ultra_unlocked", "demo_ended",
     "hu_unlocked", "six_max_unlocked", "gtype_announced",
     -- decks
     "unlocked_decks", "deck_levels", "deck_xp", "active_deck_id", "decks_unseen",

@@ -33,6 +33,7 @@ local Sticker     = require("views.widgets.Sticker")
 local Decal       = require("services.Decal")
 local Throw       = require("services.Throw")
 local Decks       = require("models.Decks")
+local Constants   = require("data.constants")
 local DeckArt     = require("views.DeckArt")
 local CardSprites = require("views.CardSprites")
 local IconText    = require("views.IconText")
@@ -131,13 +132,26 @@ local SELL      = "TWELVE DESIGNS. NO CHARGE."
 local SELL_OPEN = "Twelve designs to choose from. Pick yours for the next run."
 local TERMS     = "Only the deck in play levels. The rest keep their bonuses. Level 5 earns the capstone."
 
--- opts: on_felt, throw_key, read_only, scrim, avoid ({x,y,w,h} to land clear of)
+-- The demo's inside (opts.demo): the cover is the full game's — the system
+-- the player was about to get — and the spread, instead of the roster,
+-- says the demo ends here, where the rest is, and that the felt stays open.
+-- The sticker is the title's, so it is the same sticker peeled twice.
+local DEMO_HEADLINE = "THAT'S THE DEMO."
+local DEMO_BODY     = "Thanks for playing. Mail order decks, the bigger stakes, the tournament room and the rest of the House are in the full game."
+local DEMO_FOOT     = "Stay as long as you like. The tables are open, but there's nothing more to unlock."
+local DEMO_STICKER  = { "WISHLIST", "on Steam" }
+local DEMO_UTM      = "utm_source=demo&utm_medium=flyer"
+
+-- opts: on_felt, throw_key, read_only, scrim, avoid ({x,y,w,h} to land
+-- clear of), demo (the demo's inside; no decks to unlock or pick)
 function DeckFlyer:new(game, opts)
     opts = opts or {}
-    Decks.checkPendingUnlocks(game.state, game.unlock_rules)
+    local demo = opts.demo == true
+    if not demo then Decks.checkPendingUnlocks(game.state, game.unlock_rules) end
     local on_felt = opts.on_felt == true
     return setmetatable({
         game        = game,
+        demo        = demo,
         read_only   = opts.read_only == true,
         on_felt     = on_felt,
         scrim       = opts.scrim ~= false and not on_felt,
@@ -200,6 +214,17 @@ function DeckFlyer:consumeMouse(mx, my, button)
     end
     if button ~= 1 or self._resolved then return true end
     if self._open_t < 1 then return true end
+
+    -- The demo's sticker opens the store page.
+    local st = self._demo_sticker
+    if st and mx >= st.x and mx < st.x + st.w and my >= st.y and my < st.y + st.h then
+        require("services.ClickFlash").click()
+        local url = Constants.STEAM_URL
+        if url and url ~= "" and love.system and love.system.openURL then
+            pcall(love.system.openURL, url .. (url:find("?", 1, true) and "&" or "?") .. DEMO_UTM)
+        end
+        return true
+    end
 
     for _, tile in ipairs(self._tiles) do
         if mx >= tile.x and mx < tile.x + tile.w and my >= tile.y and my < tile.y + tile.h then
@@ -498,7 +523,7 @@ local function drawCover(self, w, h, fonts, s)
     local cx   = fl((w - cw) / 2)
     local cy   = hy + fonts.lg:getHeight() + fl(24 * s)
     CardSprites.shadow(cx, cy, cw, ch, _alpha, fl(4 * s))
-    CardSprites.back(game.sprite_loader, spec and spec.sprite, cx, cy, cw, ch, _alpha)
+    CardSprites.back(spec and game.sprite_loader or nil, spec and spec.sprite, cx, cy, cw, ch, _alpha)
     col(P.edge)
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", cx, cy, cw, ch, Theme.space.radius)
@@ -611,6 +636,7 @@ function DeckFlyer:_drawTileLeaf(k, lx, ly, lw, lh, fonts, s, register, mx, my)
     local reg    = self.game.unlock_rules
     local specs  = Decks.all()
     drawLeaf(lx, ly, lw, lh, s)
+    if self.demo then return end   -- blank stock; the page is drawn across the spread
 
     local ty0 = ly + pad + mastHeight(fonts, s)
     for row = 0, ROWS - 1 do
@@ -638,10 +664,50 @@ function DeckFlyer:_drawColumnLeaf(lx, ly, lw, lh, fonts, s)
     local fl  = math.floor
     local pad = fl(LEAF_PAD_BASE * s)
     drawLeaf(lx, ly, lw, lh, s)
+    if self.demo then return end
     local state  = self.game.state
     local detail = Decks.specById(self._detail_id) or Decks.specById(state.active_deck_id) or Decks.all()[1]
     drawColumn(self, detail, lx + pad, ly + pad + mastHeight(fonts, s), lw - pad * 2, fl(GRID_H_BASE * s),
                fonts, s, Decks.isUnlocked(state, detail, self.game.unlock_rules))
+end
+
+-- The demo's page, across the open spread: the imprint, the headline, the
+-- body, the WISHLIST sticker (when there is a store page), the foot.
+function DeckFlyer:_drawDemoPage(sx, sy, sw, lh, fonts, s, mx, my)
+    local fl  = math.floor
+    local tw  = fl(sw * 0.62)
+    local tx  = sx + fl((sw - tw) / 2)
+    local y   = sy + fl(lh * 0.16)
+    col(P.muted)
+    love.graphics.setFont(fonts.sm)
+    love.graphics.printf(IMPRINT, sx, y, sw, "center")
+    y = y + fonts.sm:getHeight() + fl(10 * s)
+    col(P.heading)
+    love.graphics.setFont(fonts.lg)
+    love.graphics.printf(DEMO_HEADLINE, sx, y, sw, "center")
+    y = y + fonts.lg:getHeight() + fl(18 * s)
+    y = iconWrapCentered(self.game, DEMO_BODY, tx, y, tw, fonts.md, P.primary, _alpha)
+    y = y + fl(26 * s)
+
+    self._demo_sticker = nil
+    local url = Constants.STEAM_URL
+    if url and url ~= "" then
+        local w = Sticker.widthFor(fonts, s, DEMO_STICKER[1], DEMO_STICKER[2])
+        local h = Sticker.heightFor(fonts, s, true)
+        local x = sx + fl((sw - w) / 2)
+        local _, _, rot = Decal.place("deck:wishlist", { dx = 0, dy = 0, angle = 0.08, base_angle = -0.05 })
+        Sticker.draw{
+            game = self.game, fonts = fonts, x = x, y = y, w = w, h = h,
+            title = DEMO_STICKER[1], line = DEMO_STICKER[2], scale = s, rotation = rot,
+        }
+        self._demo_sticker = { x = x, y = y, w = w, h = h }
+        Anchors.set("deck:wishlist", x, y, w, h)
+        if mx >= x and mx < x + w and my >= y and my < y + h then
+            require("services.CursorIntent").mark("point")
+        end
+        y = y + h + fl(26 * s)
+    end
+    iconWrapCentered(self.game, DEMO_FOOT, tx, y, tw, fonts.sm, P.muted, _alpha)
 end
 
 function DeckFlyer:draw()
@@ -719,7 +785,10 @@ function DeckFlyer:draw()
     if done then
         drawFold(x2, sy + 2, lh - 4, s)
         drawFold(x3, sy + 2, lh - 4, s)
-
+    end
+    if done and self.demo then
+        self:_drawDemoPage(sx, sy, sw, lh, fonts, s, mx, my)
+    elseif done then
         -- Masthead across the spread, in the band the leaves keep clear.
         local cy = sy + pad
         col(P.muted)

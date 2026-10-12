@@ -668,11 +668,9 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
         t = t + (Style.pot.take_secs or 1)
     end
 
-    -- Demo cut stops here — R2 / R3 (the dealer's cheats) stay
-    -- unrevealed, so first-time players never see the 6th community
-    -- card or the second chip slot. Win → prototype-end modal; loss
-    -- → standard prestige. R2 / R3 visuals run when DEMO_CUT is off.
-    if r.outcomes[1] and not Constants.FEATURES.DEMO_CUT then
+    -- R1 won: the dealer's cheats. (The demo plays these too — its R2 is
+    -- forced lost in models/shove_rate, and that loss is where it ends.)
+    if r.outcomes[1] then
         -- ── The panic ─────────────────────────────────────────────────
         -- The player just WON a runout, and the felt says so: their cards
         -- lit, the pot flying to them, confetti. Hold there. The House's
@@ -1824,8 +1822,7 @@ end
 -- positions 6 and 7 like any other community card. They land on the BASE and
 -- MULT readouts and bury them, and the seven-card line is complete.
 --
--- Under FEATURES.DEMO_CUT the timeline never creates board_6 / board_7, so this
--- draws nothing and needs no flag of its own.
+-- A timeline that never dealt board_6 / board_7 (R1 lost) draws nothing here.
 local CHEAT_SLOTS = { 6, 7 }   -- the two board slots a cheat card lands in
 function ShoveView:_drawCheatCards(result, eval)
     if not (Style.cheat.enabled and result) then return end

@@ -20,7 +20,6 @@ local Theme              = require("views.Theme")
 local HoldPress = require("services.HoldPress")
 local ShoveView          = require("views.ShoveView")
 local Overlay            = require("views.ShoveDebugOverlay")
-local DemoEndModal       = require("views.DemoEndModal")
 local CatalogModal       = require("views.CatalogModal")
 local DeckFlyer          = require("views.DeckFlyer")
 local ChipTake           = require("views.ChipTake")
@@ -60,7 +59,6 @@ function ShoveState:new(game)
         _confirm             = nil,    -- the maxed-deck warning on CONTINUE
         _deck_warned         = false,  -- warned once this shove
         settings_modal       = nil,    -- ESC overlay (volume, display, save, quit)
-        demo_end_modal       = nil,    -- the demo build's end-of-content screen
         _ended_handled       = false,  -- guard so _onGauntletEnded fires once per gauntlet
     }, ShoveState)
     self.view    = ShoveView:new(game, self)
@@ -89,7 +87,6 @@ function ShoveState:fullReset()
     self.deck_flyer          = nil
     self._confirm            = nil
     self._deck_warned        = false
-    self.demo_end_modal = nil
     self.settings_modal      = nil
     self._ended_handled      = false
     self.view:resetTimeline()
@@ -184,9 +181,9 @@ end
 function ShoveState:exit() end
 
 -- The catalog and deck select are teachable and stay open to hints;
--- settings is a menu and the prototype-end modal is a hard stop.
+-- settings is a menu.
 function ShoveState:hintsBlocked()
-    return (self.settings_modal or self.demo_end_modal) ~= nil
+    return self.settings_modal ~= nil
 end
 
 function ShoveState:_beginGauntlet()
@@ -267,6 +264,12 @@ function ShoveState:settleRun()
     }
     self:_recordActFlags()
     if result.won then state.cleared = true end
+    -- The demo's ending. Its R1 win opens nothing (the act flags stay
+    -- unrecorded, R2 is forced lost: models/shove_rate), but it ends the
+    -- demo: from here the flyer lands with the ending inside (throwFlyer).
+    if Constants.FEATURES.DEMO_CUT and result.outcomes and result.outcomes[1] == true and not result.won then
+        state.demo_ended = true
+    end
 
     state:resetRun()             -- clears shove_pending
     state.perks_pending = true
@@ -327,22 +330,10 @@ function ShoveState:_onGauntletEnded()
     -- no-op unless the timeline was skipped past its settle.
     --
     -- (Under DEMO_CUT the flags are never recorded at all: the gauntlet
-    -- stays Act 1 shaped forever, R2 is never rolled, every future R1 win
-    -- repeats the same cliffhanger, and nothing downstream unlocks.)
+    -- stays Act 1 shaped forever, R2 is forced lost, every R1 win repeats
+    -- the same cliffhanger, and nothing downstream unlocks. The flyer
+    -- that lands after it is the demo's ending: state.demo_ended.)
     self:settleRun()
-
-    -- Demo-cut intercept: when FEATURES.DEMO_CUT is on, winning R1 then
-    -- losing R2 is the natural cliffhanger that ends the demo. Show the
-    -- demo-end modal instead of the bust prestige flow. The
-    -- player chooses Continue (resetRun + grind) or Exit to Title.
-    if Constants.FEATURES.DEMO_CUT
-       and not result.won
-       and result.busted_at == 2
-       and result.outcomes
-       and result.outcomes[1] == true then
-        self.demo_end_modal = DemoEndModal:new(self.game)
-        return
-    end
 
     if result.won then
         -- The last frame of the ending, so credits can fade in over the
@@ -361,36 +352,6 @@ function ShoveState:_onGauntletEnded()
         if self.view and not self.view.take then self:throwChips() end
         self:_dismissCatalogAndReturn()
     end
-end
-
--- Demo-end resolution. "Continue Playing" routes through the
--- catalog (mirrors the standard post-bust flow — same chance to spend
--- banked chips before the next run starts). "Exit to Title" skips the
--- catalog and drops the player back at the start screen with their
--- current run reset.
-function ShoveState:_resolveDemoEnd(choice)
-    self.demo_end_modal = nil
-
-    if choice == "exit" then
-        -- The run already settled and saved at the summary beat; all that
-        -- is owed is the perks the catalog earned.
-        self:settleRun()
-        if self.game.grind then self.game.grind:applyPendingPerks() end
-        self.game.save()
-        self.gauntlet       = nil
-        self._ended_handled = false
-        self.view:resetTimeline()
-        self.game.state_machine:switch("title")
-        return
-    end
-
-    -- "continue" path: open the catalog (player banked chips this run;
-    -- this is the moment to spend it). The catalog's Continue button
-    -- runs _dismissCatalogAndReturn which handles the run reset and
-    -- the switch back to grind.
-    self.game.state.catalog_seen = true
-    self.catalog_modal = CatalogModal:new(self.game,
-        { intro_callout = self:_catalogIntroPending() })
 end
 
 -- The catalog's one-time tutorial lede shows on the first post-shove
@@ -448,12 +409,17 @@ end
 -- The dealer throws the deck flyer after the book, once decks exist. It
 -- lands clear of the book (the book's resting rect is known ahead of its
 -- landing) and starts folded. Only the felt's CONTINUE leaves.
+--
+-- In the demo decks never exist; the flyer lands once the demo has ended
+-- (settleRun) and its inside is the demo's ending (views/DeckFlyer, demo).
 function ShoveState:throwFlyer()
     if self.deck_flyer then return end
-    if not Decks.systemUnlocked(self.game.state) then return end
+    local state = self.game.state
+    local demo  = Constants.FEATURES.DEMO_CUT and state.demo_ended == true
+    if not (demo or Decks.systemUnlocked(state)) then return end
     local W, H = love.graphics.getDimensions()
     self.deck_flyer = DeckFlyer:new(self.game, {
-        on_felt   = true, scrim = false,
+        on_felt   = true, scrim = false, demo = demo,
         throw_key = "flyer:" .. tostring(self:_nextThrowId()),
         avoid     = self.catalog_modal and self.catalog_modal:feltRect(W, H) or nil,
     })
@@ -530,8 +496,7 @@ function ShoveState:update(dt)
     if self.gauntlet
        and self.gauntlet.state == "finished"
        and not self.view:isAnimating()
-       and not self._ended_handled
-       and not self.demo_end_modal then
+       and not self._ended_handled then
         self:_onGauntletEnded()
     end
 end
@@ -539,9 +504,7 @@ end
 function ShoveState:draw()
     self.view:draw()
     self.overlay:draw()
-    if self.demo_end_modal then
-        self.demo_end_modal:draw()
-    elseif self.catalog_modal or self.deck_flyer then
+    if self.catalog_modal or self.deck_flyer then
         -- Whatever is folded/closed sits on the felt; the open one draws
         -- last, on top of everything.
         local open_obj
@@ -616,14 +579,7 @@ function ShoveState:keypressed(key)
         if key == "escape" then self:closeSettings() end
         return
     end
-    -- Modals consume input first; sequence is demo-end →
-    -- prestige → catalog → grind.
-    if self.demo_end_modal then
-        self.demo_end_modal:consumeKey(key)
-        local r = self.demo_end_modal:resolved()
-        if r then self:_resolveDemoEnd(r) end
-        return
-    end
+    -- Modals consume input first; sequence is prestige → catalog → grind.
     if self._confirm then
         self._confirm:consumeKey(key)
         if self._confirm:resolved() then self._confirm = nil end
@@ -707,13 +663,6 @@ function ShoveState:mousepressed(mx, my, button)
     if self.settings_modal then
         local consumed = self.settings_modal:consumeMouse(mx, my, button)
         if not consumed then self:closeSettings() end
-        return
-    end
-    -- Demo-end modal sits above the post-bust flow.
-    if self.demo_end_modal then
-        self.demo_end_modal:consumeMouse(mx, my, button)
-        local r = self.demo_end_modal:resolved()
-        if r then self:_resolveDemoEnd(r) end
         return
     end
     -- Prestige modal: click Continue to advance to catalog.
