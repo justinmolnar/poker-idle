@@ -605,12 +605,25 @@ end
 -- own framing, lit, under the vignette. The shove's count, the title and
 -- the room screen all draw exactly this and lay their own things over it
 -- (the count's halo, the wordmark, the manifest). scene = { fixture =
--- level 0..1, speaker, item_tint, item_scale }.
+-- level 0..1, speaker, item_tint, item_scale, fit }.
 function RoomView:drawScene(W, H, scene)
     scene = scene or {}
     Theme.setColor(Theme.bg.sunken)
     love.graphics.rectangle("fill", 0, 0, W, H)
     local zoom, dy = self:frameOpts(H)
+    -- scene.fit (a share of the frame): frame the room itself instead of
+    -- the layout's framing, zoomed until its extent (floor and walls, from
+    -- the last draw) fills that share, centred. The security monitor's
+    -- camera (views/CrtMonitor via ShoveView) frames the room this way.
+    local v = self._view
+    local b = v and v.bounds
+    if scene.fit and b and b.x2 and v.cy then
+        local bw, bh = b.x2 - b.x1, b.y2 - b.y1
+        if bw > 0 and bh > 0 then
+            zoom = math.min(W * scene.fit / bw, H * scene.fit / bh)
+            dy   = math.floor(H * 0.5 - v.cy - (b.cy - v.cy) * zoom)
+        end
+    end
     self:draw(true, {
         zoom       = zoom,
         dy         = dy,
