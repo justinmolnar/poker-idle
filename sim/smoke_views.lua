@@ -618,7 +618,10 @@ do
         -- The skip cue: said while the room counts, not once it has locked.
         c.eq(sv:skipCue(), "click to skip", "a click skips the room count")
         sv.room_locked = true
-        c.eq(sv:skipCue(), nil, "no cue once the count has locked")
+        c.eq(sv:skipCue(), "click to skip", "the cue stays through the lock (a click cuts to the buildup)")
+        sv.room_total = 99
+        sv:skip()
+        c.ok(sv.phase_t >= 99, "a click after the lock jumps to the cut")
         sv.phase = "hold"
         c.eq(sv:skipCue(), nil, "no cue on a hold (CONTINUE is the control)")
     else

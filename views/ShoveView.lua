@@ -1007,6 +1007,12 @@ function ShoveView:skip()
     -- Room-skip: every item counted, the number locks, the lock plays out
     -- and the cut follows. No pops, no sounds.
     if self.phase == "room" then
+        -- Already locked: the click cuts to the buildup now instead of
+        -- sitting out the lock's pause.
+        if self.room_locked then
+            self.phase_t = math.max(self.phase_t, self.room_total or 0)
+            return
+        end
         for i = self.room_count + 1, #self.room_ids do
             self.room_lit[self.room_ids[i]] = true
             self.room_lit_at[self.room_ids[i]] = love.timer.getTime() - Style.room.halo.glow_secs
@@ -1993,8 +1999,8 @@ end
 -- under the catalog or the flyer, or while the House is talking (the box
 -- takes the click). Muted, pulsing like the box's own cue.
 function ShoveView:skipCue()
-    if self.phase == "room" then
-        return (not self.room_locked) and "click to skip" or nil
+    if self.phase == "room" or self.phase == "buildup" then
+        return "click to skip"
     elseif self.phase == "buildup" then
         return "click to skip"
     elseif self.phase == "running" and self.timeline and self.elapsed < self.total_duration then
