@@ -392,7 +392,13 @@ return {
             id      = "catalog_browse",
             screen  = "grind",
             pause   = true,
-            trigger = { kind = "catalog_open" },
+            -- The book open ON THE GRIND: a trigger arms wherever it is
+            -- true, and the post-shove book is open on the felt too, so
+            -- without the screen the beat armed there and played on the
+            -- first click back on the grind.
+            trigger = { kind = "all",
+                        { kind = "screen", name = "grind" },
+                        { kind = "catalog_open" } },
             lines = {
                 { text = "Window shopping. Look through the book all you like from here.",
                   anchor = "catalog:book" },
