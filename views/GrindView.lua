@@ -2247,7 +2247,7 @@ function GrindView:_buildRailComponents()
     -- A readout like the bankroll: the count big, the chip beside it at
     -- the same size, on the bottom line with the money.
     local chips = railStat({ icon = "chip", value = "", value_style = "lg",
-        h = face_bottom - tied_h, align = "center",
+        h = face_bottom, align = "center",   -- the whole height, bottom-aligned: its baseline is the money's
         value_color = Theme.fg.heading, tooltip = CHIPS_TIP,
         w = fl(fonts.lg:getHeight() * SP.stat_glyph) + SP.stat_pad + reserveW(fonts.lg, R.reserve.chips) }, face_bottom)
     rc.chips = chips
