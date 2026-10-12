@@ -1,16 +1,17 @@
 -- views/TitleView.lua
 --
 -- The title screen: the room before you wake up. The fixture is off, the
--- emitters and the House's print are the only light, and the name is
+-- emitters and the House's print are the only light (the room is dark
+-- in play too; the big light is the shove's count's), and the name is
 -- dealt onto the dark as letter cards, one card per letter, the
--- apostrophe a gold chip. The menu sits low; Continue is the light
--- switch (states/TitleState blooms the fixture and cuts on the settle).
+-- apostrophe a gold chip. The menu sits low; Continue fades the title
+-- out over the dark room and cuts (states/TitleState).
 --
 -- Drawing only. states/TitleState owns the clock and the flow and hands
 -- this a plain table each frame:
 --   t             seconds since enter
 --   skip          true once a click completed the deal in place
---   leave_t       seconds since the light switch was thrown, or nil
+--   leave_t       seconds since Continue / New Game, or nil
 --   speaker       0..1, the wall intercom's rattle (the idle key-ups)
 --   has_save      whether Continue is on the menu
 --   room_view     the player's room (views/RoomView), or nil
@@ -29,8 +30,6 @@ local Decal        = require("services.Decal")
 local CardSprites  = require("views.CardSprites")
 local Chips        = require("views.Chips")
 local ShoveDecor   = require("views.ShoveDecor")
-local RoomLighting = require("views.RoomLighting")
-local RoomLights   = require("data.room_lights")
 local LabelButton  = require("views.widgets.LabelButton")
 local Sticker      = require("views.widgets.Sticker")
 local IconText     = require("views.IconText")
@@ -57,7 +56,7 @@ local T = {
     chip_drop  = 0.25,   -- the apostrophe, after the last card lands
     menu_at    = 1.20,   -- the menu fades in (never gated on the deal)
     menu_fade  = 0.30,
-    leave      = 0.60,   -- the fixture's settle (data/room_lights bloom)
+    leave      = 0.60,   -- the title's fade out, then the cut
     -- At rest (cinematics High and up): the row breathes, and now and
     -- then one card turns over, sits on its back, and turns back.
     idle_from  = 2.50,   -- after the deal is done
@@ -428,12 +427,11 @@ function TitleView:draw(st)
     local sc    = sched.scale
     local t     = st.skip and math.max(st.t, sched.done_at) or st.t
 
-    -- Leaving: the fixture blooms on the room's own curve, the title
-    -- fades over the same window.
+    -- Leaving: the title fades over the dark room; the room stays as it
+    -- is (no light comes on — the room is dark in play as well).
     local fixture = 0
     local title_a = 1
     if st.leave_t then
-        fixture = RoomLighting.fixtureLevel(RoomLights.fixture, st.leave_t)
         title_a = 1 - clamp01(st.leave_t / T.leave)
     end
 

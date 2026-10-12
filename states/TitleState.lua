@@ -11,7 +11,7 @@
 --   • Exit       — desktop only (a browser tab can't quit itself).
 --   • delete save — a small link in the corner; confirms.
 --
--- Continue and New Game are the light switch: `lights_on` plays, the
+-- Continue and New Game fade the title out over the dark room; the
 -- fixture blooms on the room's own curve and the switch happens on the
 -- settle, so a new game's "Morning, princess" lands seconds after the
 -- tube comes on. At cinematics Low or None the switch is immediate.
@@ -127,7 +127,7 @@ function TitleState:update(dt)
         if Motion.at("cinematics", Motion.HIGH) then self.speaker = 1 end
     end
 
-    -- The light coming on.
+    -- The title fading out.
     if self.leave then
         self.leave.t = self.leave.t + dt
         if self.leave.t >= TitleView.LEAVE_SECS then
@@ -154,11 +154,10 @@ end
 
 -- ── Leaving ───────────────────────────────────────────────────────────
 
--- Throw the switch. The action runs when the fixture settles; at Low and
--- None (nothing travels) it runs now, after the sound.
+-- Leave: the title fades out over the dark room and the action runs on
+-- the cut; at Low and None (nothing travels) it runs now.
 function TitleState:_leave(action)
     if self.leave then return end
-    SoundService.playNamed("lights_on")
     if Motion.scale("cinematics") <= 0 then
         self:_go(action)
         return
@@ -167,10 +166,6 @@ function TitleState:_leave(action)
 end
 
 function TitleState:_go(action)
-    -- The tube's hum is layered under lights_on and runs until stopped
-    -- (the shove intro stops it at its switch-off); the cut to the game
-    -- is where it ends here.
-    SoundService.stopNamed("lights_on")
     if action == "new" then
         if self.game.startNewGame then self.game.startNewGame() end
     elseif action == "continue" then
