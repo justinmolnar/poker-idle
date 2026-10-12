@@ -284,53 +284,8 @@ function RoomState:draw()
     AnchorRegistry.set("story:band", fl(16 * s), H - self:_railH() - fl(60 * s), W - fl(32 * s), fl(44 * s))
     local mx, my = love.mouse.getPosition()
 
-    -- DESIGNER button + unlock-cheat status: dev tooling, not demo content.
-    -- The editor's EXPORT writes into the source tree, which doesn't even
-    -- exist on the web build. Under the bar, at the right.
-    if Constants.FEATURES.DEV_HOTKEYS then
-    local btn_h = fl(30 * s)
-    local btn_y = top_h + fl(8 * s)
-    local des_w = fl(140 * s)
-    local des_x = W - des_w - fl(16 * s)
-    self._designer_rect = { x = des_x, y = btn_y, w = des_w, h = btn_h }
-    local is_editing = self.room_view and self.room_view.editor_mode
-
-    local des_hov = mx >= des_x and mx < des_x + des_w and my >= btn_y and my < btn_y + btn_h
-
-    LabelButton.draw{
-        x = des_x, y = btn_y, w = des_w, h = btn_h,
-        text        = is_editing and "DESIGNER: ON [F3]" or "DESIGNER [F3]",
-        fonts       = fonts,
-        hovered     = des_hov,
-        fill_override = is_editing and { 0.20, 0.50, 0.30 } or nil,
-    }
-
-    -- Developer unlock cheat status (dev builds only, like the U key it
-    -- serves). owned_items is an ARRAY of ids (see GameState) — build a
-    -- set to test membership.
-    if Constants.FEATURES.DEV_HOTKEYS then
-        local Catalog = require("data.catalog")
-        local owned_set = {}
-        for _, id in ipairs(self.game.state.owned_items) do owned_set[id] = true end
-        local is_unlocked = true
-        for _, item in ipairs(Catalog) do
-            if not item.granted_at_start and not owned_set[item.id] then
-                is_unlocked = false
-                break
-            end
-        end
-        love.graphics.setFont(fonts.sm)
-        if is_unlocked then
-            Theme.setColor(Theme.fg.heading)
-            love.graphics.print("ALL UNLOCKED [U]", des_x - fl(140 * s), btn_y + fl(10 * s))
-        else
-            Theme.setColor(Theme.fg.muted)
-            love.graphics.print("UNLOCK ALL [U]", des_x - fl(140 * s), btn_y + fl(10 * s))
-        end
-    end
-    else
-        self._designer_rect = nil
-    end
+    -- (The editor is F3, the unlock cheat U: dev keys, no buttons. The
+    -- designer is the one person who knows them.)
 
     if view_last then
         self:_drawRoom(W, H)
@@ -377,28 +332,31 @@ function RoomState:_drawRoom(W, H)
 end
 
 -- Where the manifest lies: the paper's own width, down the right side,
--- under the bar and clear of the story band.
+-- under the count that heads it and clear of the story band.
 function RoomState:_manifestRect(W, H)
     local s, fl = self.game.ui_scale or 1, math.floor
     local pw, m = CatalogReceipt.paperWidth(s), fl(EDGE * s)
-    local top_h = self:_topBarH()
+    local top_h = self:_topBarH() + m + self.game.fonts.lg:getHeight() + m
     -- The rail stops left of this column, so the paper runs to the band.
-    return { x = W - pw - m, y = top_h + m, w = pw, h = H - top_h - m - fl(BAND_CLEAR * s) }
+    return { x = W - pw - m, y = top_h, w = pw, h = H - top_h - fl(BAND_CLEAR * s) }
 end
 
 -- The count: the number the shove's count reaches, the same word beside
--- it, in the top-left corner — a readout, off the room (the shove's
--- camera puts its own over the tube; here the room fills the screen).
+-- it, heading the manifest — the things you own, then the list of them.
 function RoomState:_drawCount(W, H)
     local fonts = self.game.fonts
     local s     = self.game.ui_scale or 1
     local fl    = math.floor
     local n     = #self.game.state:countedItems(Catalog)
-    local x, y  = fl(EDGE * s), fl(EDGE * s)
-    ShoveDecor.drawCount(fonts, s, n, "THINGS YOU OWN", x, y, { pop_id = "room_screen_count" })
-    local lg_h  = fonts.lg:getHeight()
-    local w     = fonts.lg:getWidth(tostring(n)) + fl(10 * s) + fonts.sm:getWidth("THINGS YOU OWN")
-    AnchorRegistry.set("room:count", x, y, w, lg_h)
+    local mr    = self:_manifestRect(W, H)
+    local nw    = fonts.lg:getWidth(tostring(n))
+    local w     = nw + fl(10 * s) + fonts.sm:getWidth("THINGS YOU OWN")
+    -- drawCount centres the NUMBER on x; the number and its word are
+    -- centred over the paper as one.
+    local x     = fl(mr.x + mr.w * 0.5 - w * 0.5 + nw * 0.5)
+    local y     = self:_topBarH() + fl(EDGE * s)
+    ShoveDecor.drawCount(fonts, s, n, "THINGS YOU OWN", x, y, { pop_id = "room_screen_count", center = true })
+    AnchorRegistry.set("room:count", x - fl(nw * 0.5), y, w, fonts.lg:getHeight())
 end
 
 -- The room editor's keys (F3 to enter/exit, -/= FPS, [ ] frame, ...)
@@ -496,16 +454,6 @@ function RoomState:mousepressed(x, y, button)
     elseif gv and gv:chromeMousepressed(x, y) then
         return
     end
-    -- DESIGNER (dev builds only), under the bar at the right.
-    local dr = self._designer_rect
-    if dr and Constants.FEATURES.DEV_HOTKEYS
-       and x >= dr.x and x < dr.x + dr.w and y >= dr.y and y < dr.y + dr.h then
-        if self.room_view then
-            self.room_view.editor_mode = not self.room_view.editor_mode
-        end
-        return
-    end
-
     -- Otherwise forward to RoomView (the editor's own targets)...
     if self.room_view and self.room_view:mousepressed(x, y, button) then return end
 
