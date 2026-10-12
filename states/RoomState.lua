@@ -386,18 +386,19 @@ function RoomState:_manifestRect(W, H)
     return { x = W - pw - m, y = top_h + m, w = pw, h = H - top_h - m - fl(BAND_CLEAR * s) }
 end
 
--- The count: the number the shove's count reaches, where the shove puts
--- it (centred, at the room's counter line), the same word beside it.
+-- The count: the number the shove's count reaches, the same word beside
+-- it, in the top-left corner — a readout, off the room (the shove's
+-- camera puts its own over the tube; here the room fills the screen).
 function RoomState:_drawCount(W, H)
     local fonts = self.game.fonts
     local s     = self.game.ui_scale or 1
+    local fl    = math.floor
     local n     = #self.game.state:countedItems(Catalog)
-    local c     = ShoveDecor.drawRoomCounter(fonts, s, W, H, n, "THINGS YOU OWN",
-                                             { pop_id = "room_screen_count" })
+    local x, y  = fl(EDGE * s), fl(EDGE * s)
+    ShoveDecor.drawCount(fonts, s, n, "THINGS YOU OWN", x, y, { pop_id = "room_screen_count" })
     local lg_h  = fonts.lg:getHeight()
-    local w     = fonts.lg:getWidth(tostring(n)) + math.floor(10 * s) + fonts.sm:getWidth("THINGS YOU OWN")
-    AnchorRegistry.set("room:count", math.floor(c.x - fonts.lg:getWidth(tostring(n)) * 0.5),
-                       c.y - lg_h * 0.5, w, lg_h)
+    local w     = fonts.lg:getWidth(tostring(n)) + fl(10 * s) + fonts.sm:getWidth("THINGS YOU OWN")
+    AnchorRegistry.set("room:count", x, y, w, lg_h)
 end
 
 -- The room editor's keys (F3 to enter/exit, -/= FPS, [ ] frame, ...)

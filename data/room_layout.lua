@@ -8,7 +8,7 @@ return {
         -- How the room is framed when it is the whole screen (the shove's
         -- count and the room screen share it): drawn this big, and this
         -- far down as a fraction of the height.
-        view = { zoom = 1.90, dy = -0.04 },
+        view = { zoom = 2.10, dy = -0.03 },
     },
     ["TinyHouse_0.17(@Pixel_Salvaje)/Computer/OldPC_B_Tile"] = { gx = 1.125, gy = 2.000, w = 1, h = 1, z_offset = 3, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70, flip_x = true, dx = -8, layer = 1, homes = { { on = "desk", u = -0.500, v = -0.500, z_offset = 54, w = 1, h = 1, dx = 7, layer = 1, scale = 0.60, f = 3 } } },
     bookshelf            = { gx = 0.500, gy = 0.000, w = 2, h = 1, z_offset = 9, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70, flip_x = true, frame = 2, dx = 4 },
