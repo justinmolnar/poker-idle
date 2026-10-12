@@ -399,11 +399,10 @@ return {
             trigger = { kind = "all",
                         { kind = "screen", name = "grind" },
                         { kind = "catalog_open" } },
+            -- No anchor: the book is the whole screen.
             lines = {
-                { text = "Window shopping. Look through the book all you like from here.",
-                  anchor = "catalog:book" },
-                { text = "Orders are taken after a shove, not before. Nothing sells on the grind.",
-                  anchor = "catalog:book" },
+                { text = "Browse all you like." },
+                { text = "You buy after a shove. Not before." },
             },
         },
 
