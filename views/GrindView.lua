@@ -2244,10 +2244,12 @@ function GrindView:_buildRailComponents()
     local bankroll = { type = "column", children = { rate, bank } }
 
     -- ── The chips: yours, banked as they are won ──
-    local count_h = fonts.md:getBaseline()   -- the count's glyphs
-    local chips = railStat({ icon = "chip", value = "", h = count_h, valign = "top",
+    -- A readout like the bankroll: the count big, the chip beside it at
+    -- the same size, on the bottom line with the money.
+    local chips = railStat({ icon = "chip", value = "", value_style = "lg",
+        h = face_bottom - tied_h, align = "center",
         value_color = Theme.fg.heading, tooltip = CHIPS_TIP,
-        w = glyph_w + reserveW(fonts.md, R.reserve.chips) }, face_bottom)
+        w = fl(fonts.lg:getHeight() * SP.stat_glyph) + SP.stat_pad + reserveW(fonts.lg, R.reserve.chips) }, face_bottom)
     rc.chips = chips
     local banked = { type = "column", anchor = "cell:chips", children = { chips } }
     local anti
