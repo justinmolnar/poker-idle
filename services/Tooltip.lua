@@ -44,7 +44,9 @@ end
 -- `{ text, style, color_token }` where style ∈ "sm" | "md" | "lg" picks
 -- the font from the fonts table at draw time. mx/my anchor near the
 -- mouse cursor. Shown only once the pointer has rested for the dwell.
-function Tooltip.set(text_or_lines, mx, my)
+-- `clear_of` (optional, a rect {x, y, w, h}): the box must not cover it,
+-- and goes above it when it would (a held button has to show its fill).
+function Tooltip.set(text_or_lines, mx, my, clear_of)
     if not text_or_lines then return end
     local lines
     if type(text_or_lines) == "table" then
@@ -65,7 +67,7 @@ function Tooltip.set(text_or_lines, mx, my)
     end
     _last_req = t
     if (t - _rest_since) < Constants.HOVER.DWELL then return end
-    _t = { lines = lines, mx = mx, my = my }
+    _t = { lines = lines, mx = mx, my = my, clear_of = clear_of }
 end
 
 function Tooltip.clear()
@@ -320,6 +322,10 @@ function Tooltip.draw(font_or_fonts)
     -- The avoid rect wins over the default spot: go above the cursor.
     if intersects(x, y, box_w, box_h, _avoid) then
         y = _t.my - box_h - 14
+    end
+    -- So does the asker's own rect: go above it.
+    if intersects(x, y, box_w, box_h, _t.clear_of) then
+        y = _t.clear_of.y - box_h - 6
     end
     if y < 4 then y = 4 end
 

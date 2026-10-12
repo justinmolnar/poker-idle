@@ -7,6 +7,7 @@
 --   early     let go before the end, nothing fires and the fill drains
 --   off       slide off the button, nothing fires
 --   grind     the rail's SHOVE goes through the hold (GrindView)
+--   tooltip   a held button's tooltip sits above it, off the fill
 --
 -- Standalone: `lua sim/smoke_hold.lua` from the repo root.
 
@@ -70,6 +71,23 @@ do
     c.eq(shoved, 0, "clicking SHOVE does not shove")
     HoldPress.update(D * 1.1)
     c.eq(shoved, 1, "holding SHOVE to the end shoves")
+end
+
+-- tooltip: a held button's tooltip stays off the button (above it)
+do
+    local Tooltip = require("services.Tooltip")
+    local clock = 0
+    love.timer.getTime = function() return clock end
+    local F = Stub.font(16)
+    local btn = { x = 300, y = 860, w = 200, h = 40 }   -- the rail, at the bottom
+    for _ = 1, 30 do
+        Tooltip.set({ "Shove now. Everything on the board goes in." }, 400, 880, btn)
+        clock = clock + 0.05
+    end
+    Tooltip.draw({ sm = F, md = F })
+    local t = Tooltip.last
+    c.ok(t and t.y + t.h <= btn.y, ("the tooltip sits above the button (bottom %s, button top %d)"):format(
+        t and tostring(t.y + t.h) or "?", btn.y))
 end
 
 if c.report("smoke_hold") > 0 then os.exit(1) end

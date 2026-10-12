@@ -2283,6 +2283,7 @@ function GrindView:_buildRailComponents()
         -- Held, not clicked (services/HoldPress): the face fills under the
         -- press and the shove goes when it is full.
         hold_id = "shove", hold_color = Theme.sem.chip,
+        tooltip_clear_of = "btn:shove",   -- the tooltip sits above, off the fill
         w = fonts.md:getWidth(R.labels.shove) + fonts.sm:getWidth(R.reserve.rate) + fl(SP.shove_button_pad * s),
         face_h = face_h, depth = depth,
         disabled = not can_shove,

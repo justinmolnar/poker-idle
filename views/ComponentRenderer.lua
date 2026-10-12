@@ -48,7 +48,14 @@ local function hoverTooltip(comp)
     if lines == nil and comp.tooltip_fn then lines = comp.tooltip_fn(comp, comp.__game) end
     if lines then
         local mx, my = love.mouse.getPosition()
-        Tooltip.set(lines, mx, my)
+        -- comp.tooltip_clear_of names an anchor (its own, usually) the box
+        -- must stay off: a held button (SHOVE) has to show its fill.
+        local clear
+        if comp.tooltip_clear_of then
+            local a = Anchors.get(comp.tooltip_clear_of)
+            if a then clear = { x = a[1], y = a[2], w = a[3], h = a[4] } end
+        end
+        Tooltip.set(lines, mx, my, clear)
     end
 end
 
