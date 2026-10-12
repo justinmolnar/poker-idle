@@ -635,6 +635,8 @@ function CatalogModal:closeToFelt()
 end
 
 function CatalogModal:isOpen() return self._open end
+-- Landed, closed, on the felt: the moment it can be pointed at.
+function CatalogModal:isLanded() return self._throw_t >= 1 and not self._open end
 
 function CatalogModal:consumeMouse(mx, my, button)
     -- Closed on the felt: a click on the book opens it. Anything else

@@ -36,7 +36,12 @@ function HintCtx.fill(ctx, deps)
     ctx.shove_pot_landed = is_shove and sv and sv.buildup_chips ~= nil
                            and (sv.buildup_arrived_count or 0) >= #sv.buildup_chips
                            and #sv.buildup_chips > 0 or false
-    ctx.catalog_open     = cur and (cur.catalog_modal ~= nil) or false
+    -- The book: OPEN (the spread, either screen), or landed closed on the
+    -- felt (the beat that points at it). A book thrown but still shut is
+    -- not open: the lesson about its pages waits for the click.
+    ctx.catalog_open     = cur and cur.catalog_modal ~= nil and cur.catalog_modal:isOpen() or false
+    ctx.catalog_landed   = cur and cur.catalog_modal ~= nil and cur.catalog_modal.isLanded ~= nil
+                           and cur.catalog_modal:isLanded() or false
     -- The deck flyer: open (either screen), or landed folded on the felt.
     ctx.deck_flyer_open   = cur and ((cur.deck_flyer and cur.deck_flyer:isOpen())
                                   or (cur.deck_roster_modal and cur.deck_roster_modal:isOpen())) or false

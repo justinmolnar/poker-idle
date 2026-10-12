@@ -328,9 +328,17 @@ return {
             id      = "first_catalog",
             screen  = "shove",
             pause   = true,
-            trigger = { kind = "catalog_open" },
+            -- The book has landed, shut: the player is sent to open it
+            -- (forced, so the click on the book is the book's), and the
+            -- pages are explained once it is open.
+            trigger = { kind = "catalog_landed" },
             lines = {
-                { text = "Before you head back, have a look at the catalog. Anything in here you keep.{page}Buy it once, and it'll be delivered right to your room.",
+                { text = "Before you head back, have a look at the catalog. Anything in here you keep.",
+                  anchor = "catalog:book",
+                  force  = true,
+                  cue    = "Open the catalog",
+                  wait   = { kind = "catalog_open" } },
+                { text = "Buy it once, and it'll be delivered right to your room.",
                   anchor = "catalog:book" },
                 { text = "That stamp's the price. Stickered ones aren't ready yet.",
                   anchor = { "catalog:price:first", "catalog:sticker:first" },
@@ -351,7 +359,9 @@ return {
                 { text = "Same loan, same terms. That's a run.",
                   anchor = "cell:bankroll" },
                 { text = "Your {c:upgrade:upgrades} went with it. Those reset.",
-                  anchor = { "buy_runup_sharper_reads", "buy_runup_pot_control" } },
+                  -- Every row on the rack, whichever the player has bought.
+                  anchor = { "buy_runup_sharper_reads", "buy_runup_pot_control", "buy_runup_focus",
+                             "buy_runup_cursor", "buy_runup_cursor_speed" } },
                 { text = "Let's take a look at your room.",
                   anchor = "btn:room",
                   force  = true,

@@ -271,6 +271,11 @@ function HintRules.registerAll(reg)
         return ctx.catalog_open == true
     end)
 
+    -- The book has landed, shut, on the felt (the beat that points at it).
+    reg:register("catalog_landed", function(_cond, ctx)
+        return ctx.catalog_landed == true
+    end)
+
     reg:register("deck_flyer_open", function(_cond, ctx)
         return ctx.deck_flyer_open == true
     end)
