@@ -27,6 +27,7 @@
 -- advance-on-action path.
 
 local Theme       = require("views.Theme")
+local ShaderRegistry = require("services.ShaderRegistry")
 local IconText    = require("views.IconText")
 local Anchors     = require("services.AnchorRegistry")
 local HintMarks   = require("views.HintMarks")
@@ -238,6 +239,42 @@ function HintView:_drawDim(holes, alpha_scale)
         Theme.setColor(Theme.debug.hud_bg, dim)
         love.graphics.rectangle("fill", 0, 0, W, H)
         Theme.setColor(WHITE)
+        return
+    end
+
+    -- The spotlight shader (shaders/spotlight.frag): the dim, the holes,
+    -- a dithered falloff, the light bleeding out of each hole and a
+    -- travelling edge, in one pass. It draws the edge, so the marks' own
+    -- stroke stands down for this frame (HintMarks.skip_once).
+    local shader = ShaderRegistry.get and ShaderRegistry.get("spotlight")
+    if shader then
+        local s  = self.game.ui_scale or 1
+        local hs = {}
+        for i = 1, math.min(8, #holes) do
+            local h = holes[i]
+            if h.is_rect == false then
+                hs[i] = { h.x, h.y, -(math.floor(18 * s)), 0 }
+            else
+                hs[i] = { h.x, h.y, h.w, h.h }
+            end
+        end
+        local bg = Theme.debug.hud_bg
+        local gl = (Theme.currency and Theme.currency.chip) or Theme.fg.heading
+        pcall(shader.send, shader, "u_holes", unpack(hs))
+        pcall(shader.send, shader, "u_n", #hs)
+        pcall(shader.send, shader, "u_dim", dim)
+        pcall(shader.send, shader, "u_dim_rgb", { bg[1], bg[2], bg[3] })
+        pcall(shader.send, shader, "u_glow", { gl[1], gl[2], gl[3] })
+        pcall(shader.send, shader, "u_pad", 10 * s)
+        pcall(shader.send, shader, "u_feather", 56 * s)
+        pcall(shader.send, shader, "u_time", Motion.time("text", love.timer.getTime()))
+        pcall(shader.send, shader, "u_anim", Motion.at("text", Motion.HIGH) and 1 or 0)
+        love.graphics.push("all")
+        love.graphics.setShader(shader)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.rectangle("fill", 0, 0, W, H)
+        love.graphics.pop()
+        HintMarks.skip_once = true
         return
     end
 

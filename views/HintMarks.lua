@@ -37,6 +37,8 @@ end
 
 -- Pulsing double ring around each mark.
 function HintMarks.draw(game, marks)
+    -- The spotlight shader drew the edges this frame (views/HintView).
+    if HintMarks.skip_once then HintMarks.skip_once = false; return end
     local s  = game.ui_scale or 1
     local fl = math.floor
     -- Below High the mark holds still: a steady outline, no breathing.
