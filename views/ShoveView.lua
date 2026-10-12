@@ -1990,18 +1990,16 @@ end
 -- grind, views/GrindView _buildRailComponents). Kept numerically similar
 -- rather than shared so this view does not require the grind view.
 -- What a click does right now, said at the bottom of the screen: "click
--- to skip" while the room counts (until it locks) or the pot builds,
--- "click to speed up" while the hand runs (a click lands it on the next
--- thing worth reading). Nothing on a hold (CONTINUE is the control),
--- under the catalog or the flyer, or while the House is talking (the box
--- takes the click). Muted, pulsing like the box's own cue.
+-- to skip" while the room counts (until it locks), the pot builds, or
+-- the hand runs — a click jumps to the next thing worth reading every
+-- time, so it is the one phrase. Nothing on a hold (CONTINUE is the
+-- control), under the catalog or the flyer, or while the House is
+-- talking (the box takes the click). Muted, pulsing like the box's own cue.
 function ShoveView:skipCue()
     if self.phase == "room" or self.phase == "buildup" then
         return "click to skip"
-    elseif self.phase == "buildup" then
-        return "click to skip"
     elseif self.phase == "running" and self.timeline and self.elapsed < self.total_duration then
-        return "click to speed up"
+        return "click to skip"
     end
     return nil
 end
