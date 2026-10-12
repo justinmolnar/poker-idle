@@ -18,6 +18,7 @@ local Theme          = require("views.Theme")
 local Format         = require("utils.format")
 local Panel          = require("views.Panel")
 local CR             = require("views.ComponentRenderer")
+local HoldPress      = require("services.HoldPress")
 local HoverSvc       = require("services.HoverService")
 local TablePanel     = require("views.TablePanel")
 local TablePanelStats = require("views.TablePanelStats")
@@ -2279,6 +2280,9 @@ function GrindView:_buildRailComponents()
         right = rate_txt, right_color_token = rate_tok, right_anchor = "cell:shove" }
     rc.shove_line = can_shove and shove_line or nil
     local shove = { type = "button", id = "shove", anchor = "btn:shove",
+        -- Held, not clicked (services/HoldPress): the face fills under the
+        -- press and the shove goes when it is full.
+        hold_id = "shove", hold_color = Theme.sem.chip,
         w = fonts.md:getWidth(R.labels.shove) + fonts.sm:getWidth(R.reserve.rate) + fl(SP.shove_button_pad * s),
         face_h = face_h, depth = depth,
         disabled = not can_shove,
@@ -3639,7 +3643,13 @@ end
 -- click was the rail's (a control, or its ground).
 function GrindView:chromeMousepressed(x, y)
     local id = self:chromeHit(x, y)
-    if id then self:_handleSidebarButton(id) end
+    if id == "shove" then
+        -- SHOVE is held, not clicked: it fires when the fill is full.
+        HoldPress.begin("shove", function() self:_handleSidebarButton("shove") end,
+            function(mx, my) return self:chromeHit(mx, my) == "shove" end)
+    elseif id then
+        self:_handleSidebarButton(id)
+    end
     local r = self.rail
     return id ~= nil or (r ~= nil and y >= r.y and x >= r.x and x < r.x + r.w)
 end

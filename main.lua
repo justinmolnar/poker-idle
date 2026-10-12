@@ -8,6 +8,7 @@
 -- reach into this file's `Game` from elsewhere.
 
 local Constants     = require("data.constants")
+local HoldPress = require("services.HoldPress")
 local Catalog       = require("data.catalog")
 local RunUpgrades   = require("data.run_upgrades")
 
@@ -761,6 +762,8 @@ function love.update(dt)
                             analyticsWriter)
     end
     markMouseStale()
+    -- Hold-to-press buttons (SHOVE, the shove's CONTINUE) fill and fire.
+    HoldPress.update(dt)
     -- Follow Windows' default audio output (LÖVE 12; inert on 11).
     Perf.enter("audio_device")
     AudioDevice.tick(dt)

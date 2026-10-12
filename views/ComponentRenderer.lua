@@ -36,6 +36,7 @@ local STAT_KEY = setmetatable({}, { __index = function(t, k) local v = "stat:" .
 local MiniButton  = require("views.widgets.MiniButton")
 local Perf        = require("services.Perf")
 local Tooltip     = require("services.Tooltip")
+local HoldPress   = require("services.HoldPress")
 local Hatch       = require("views.widgets.Hatch")
 
 -- A component's tooltip on hover: `tooltip` is the lines themselves;
@@ -833,6 +834,11 @@ local function buttonFace(fx, fy, fw, fh)
             Theme.setColor(Theme.bg.sunken, 0.6)
             love.graphics.rectangle("fill", fx, fy, fw, fh, Theme.space.radius)
         end
+    end
+    -- A hold-to-press button (services/HoldPress): the face fills left to
+    -- right under its text while it is held.
+    if comp.hold_id then
+        HoldPress.drawFill(comp.hold_id, fx, fy, fw, fh, comp.hold_color, 0.35, Theme.space.radius)
     end
     -- Measure total lines height to center text stack vertically on the button face
     local total_lines_h = 0

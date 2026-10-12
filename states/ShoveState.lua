@@ -17,6 +17,7 @@
 -- the gauntlet. SPACE during animation skips the cinematic.
 
 local Theme              = require("views.Theme")
+local HoldPress = require("services.HoldPress")
 local ShoveView          = require("views.ShoveView")
 local Overlay            = require("views.ShoveDebugOverlay")
 local DemoEndModal       = require("views.DemoEndModal")
@@ -728,8 +729,11 @@ function ShoveState:mousepressed(mx, my, button)
         -- CONTINUE works whether the paper is open or closed, so it is
         -- tested before anything on the felt gets the click.
         if self.view:hitContinue(mx, my) then
-            ClickFlash.press("continue_btn", "continue_btn")
-            self:_continueFromHold()
+            -- Held, not clicked (services/HoldPress).
+            HoldPress.begin("continue", function()
+                ClickFlash.press("continue_btn", "continue_btn")
+                self:_continueFromHold()
+            end, function(px, py) return self.view:hitContinue(px, py) end)
             return
         end
         -- The open one owns the click (dead space folds it back).
@@ -752,8 +756,10 @@ function ShoveState:mousepressed(mx, my, button)
     -- on the felt does nothing. During the deal a click fast-forwards.
     if self.view:isHolding() then
         if self.view:hitContinue(mx, my) then
-            ClickFlash.press("continue_btn", "continue_btn")
-            self.view:advance()
+            HoldPress.begin("continue", function()
+                ClickFlash.press("continue_btn", "continue_btn")
+                self.view:advance()
+            end, function(px, py) return self.view:hitContinue(px, py) end)
         end
     elseif self.view:isAnimating() then
         self.view:skip()

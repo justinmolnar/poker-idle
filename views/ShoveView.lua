@@ -23,6 +23,7 @@
 -- R3 chip. SPACE during animation calls :skip() to fast-forward.
 
 local Theme                  = require("views.Theme")
+local HoldPress = require("services.HoldPress")
 local Format = require("utils.format")
 local Easing                 = require("utils.easing")
 local HandEval               = require("models.HandEval")
@@ -2338,6 +2339,9 @@ function ShoveView:draw()
             press_alpha  = ClickFlash.alpha("continue_btn", "continue_btn"),
             depth        = 5,
         }, function(fx, fy, fw, fh)
+            -- Held, not clicked: the face fills left to right under the
+            -- press (services/HoldPress).
+            HoldPress.drawFill("continue", fx, fy, fw, fh, room.fg.heading, 0.30, Theme.space.radius)
             local f = self.fonts.lg
             love.graphics.setFont(f)
             Theme.setColor(room.fg.heading)
