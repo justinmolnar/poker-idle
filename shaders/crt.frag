@@ -18,21 +18,24 @@ float rand(vec2 co) {
 }
 
 vec4 effect(vec4 color, Image tex, vec2 uv, vec2 sc) {
-    // Barrel: the middle of the tube bulges toward the viewer.
-    vec2 q  = uv * 2.0 - 1.0;
-    float r2 = dot(q, q);
-    q *= 1.0 + u_curve * r2;
-    vec2 duv = q * 0.5 + 0.5;
-
-    // The tube's face: a rounded rect, soft at its edge.
-    float rad  = 0.10;
+    // The tube's face fills the screen rect up to the bezel, its corners
+    // rounded off; a soft edge.
+    vec2  q    = uv * 2.0 - 1.0;
+    float rad  = 0.07;
     vec2  e    = abs(q) - vec2(1.0 - rad);
     float d    = length(max(e, 0.0)) - rad;
-    float face = 1.0 - smoothstep(-0.012, 0.0, d);
+    float face = 1.0 - smoothstep(-0.010, 0.0, d);
     if (face <= 0.0) return vec4(0.0, 0.0, 0.0, 0.0);
 
+    // Barrel, inside the face: the middle of the picture bulges toward the
+    // viewer while the corners still reach the corners, so the picture
+    // runs right to the bezel (no black band round it).
+    float r2 = dot(q, q);
+    vec2 qd  = q * (1.0 + u_curve * r2) / (1.0 + u_curve * 2.0);
+    vec2 duv = qd * 0.5 + 0.5;
+
     // A little colour fringe, stronger toward the edges.
-    vec2 off = q * 0.0022 * r2;
+    vec2 off = qd * 0.0022 * r2;
     float rr = Texel(tex, clamp(duv + off, 0.0, 1.0)).r;
     vec4  gg = Texel(tex, clamp(duv, 0.0, 1.0));
     float bb = Texel(tex, clamp(duv - off, 0.0, 1.0)).b;

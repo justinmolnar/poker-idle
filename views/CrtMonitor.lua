@@ -49,7 +49,7 @@ function CrtMonitor.layout(W, H)
     -- are fixed shares of the height; the screen keeps the frame's aspect,
     -- so whatever width is left over is plastic at the sides (the speaker
     -- grilles live there).
-    local margin = math.max(4, math.floor(H * 0.012))
+    local margin = math.max(4, math.floor(H * 0.035))
     local cw, ch = W - margin * 2, H - margin * 2
     local top, bottom = math.floor(ch * 0.065), math.floor(ch * 0.12)
     local sh = ch - top - bottom
@@ -166,9 +166,10 @@ local function drawCase(game, L, s)
     love.graphics.polygon("fill", sx2, sy1, ox2, oy1, ox2, oy2, sx2, sy2)
     setC(C.case_lo)
     love.graphics.rectangle("line", ox1 + 0.5, oy1 + 0.5, op.w - 1, op.h - 1, fl(4 * s))
-    -- The tube's glass behind the picture.
+    -- The tube's glass behind the picture, square to the bezel's inner
+    -- edge (the tube's rounded corners show dark glass, never the case).
     setC(C.glass)
-    love.graphics.rectangle("fill", sx1, sy1, sc.w, sc.h, fl(20 * s))
+    love.graphics.rectangle("fill", sx1, sy1, sc.w, sc.h)
 
     -- Speaker grilles in the side plastic: rows of short slots, centred
     -- in each side panel beside the tube.
