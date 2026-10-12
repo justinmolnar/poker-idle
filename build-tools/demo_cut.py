@@ -10,20 +10,22 @@ file's braces and knows Lua strings and comments, so an entry is the whole
 lines it spans, plus the comment lines directly above it. MANIFEST (bottom)
 says, per file, which entries go:
 
-  data/catalog.lua        act = 2, requires_act3, and CUT_IDS (the Prize
-                          Vase: a tease that needs the tournament room)
+  data/catalog.lua        act = 2 and requires_act3
   data/stakes.lua         everything above KEEP_STAKES
-  data/game_types.lua     ko (its local block and its place in the list)
-                          and six_max
   data/story.lua          CUT_BEATS
-  data/glossary.lua       CUT_GLOSSARY
   data/catalog_pages.lua  cut item ids out of every department; a
                           department left empty goes
   data/decks.lua          every deck but the starter
   data/room_layout.lua    entries keyed by a cut item
   data/room_lights.lua    emitters keyed by a cut item
-  data/pot_tiers.lua      the cut game types' bands
   data/procs.lua          procs nothing in the staged tree names
+
+What STAYS, on purpose — the demo shows the player what it does not have:
+the 6-MAX and TOURNAMENTS keys on the strip (data/game_types.lua and
+pot_tiers.lua keep ko and six_max; their gates never open in the demo),
+the Prize Vase's "???" card (its mystery is the R1 win the demo never
+records), and the glossary's "???" rows for 6-Max, tournaments, knockouts
+and decks (their beats are cut, so they are never taught).
   assets/sprites/aliases.json   aliases of cut items
   data/run_upgrades.lua   every derived ladder (fill_scaled, maxes_at) is
                           priced on the FULL data first and written in as
@@ -42,12 +44,10 @@ import re
 import subprocess
 import sys
 
-CUT_IDS      = {"prize_vase"}
+CUT_IDS      = set()
 KEEP_STAKES  = {"s001", "s002", "s003"}
-CUT_GTYPES   = {"ko", "six_max"}
 CUT_BEATS    = {"six_max_open", "first_tournament", "act2", "act2_decks",
                 "the_top_table", "underflow"}
-CUT_GLOSSARY = {"six_max", "tournaments", "knockouts", "decks"}
 KEEP_DECKS   = {"standard"}
 CUT_MODULES  = ["views/RoomLayersPanel.lua", "views/ShoveDebugOverlay.lua",
                 "services/Profiler.lua", "controllers/InputController.lua",
@@ -286,7 +286,7 @@ def run(stage):
     write(rp, text)
     log(f"run_upgrades: wrote {n_priced} priced ladders")
 
-    # 1. The catalog: Act 2, Act 3, the Prize Vase. Collect the ids.
+    # 1. The catalog: Act 2, Act 3. Collect the ids.
     cut_ids = set(CUT_IDS)
 
     def catalog_rule(key, body):
@@ -305,16 +305,8 @@ def run(stage):
                                  lambda k, b: field(b, "id") is not None and field(b, "id") not in KEEP_STAKES,
                                  "stakes"))
 
-    # 3. Game types: ko is a local block spliced into the list; six_max a list entry.
-    cut_entries(data("game_types.lua"), 0, lambda k, b: k == "ko_entry", "game_types (ko block)")
-    replace_once(data("game_types.lua"), "    ko_entry,\n", "", "game_types (ko in the list)")
-    cut_entries(data("game_types.lua"), 4, lambda k, b: field(b, "id") in CUT_GTYPES, "game_types")
-
-    # 4. Story beats.
+    # 3. Story beats.
     cut_entries(data("story.lua"), 8, lambda k, b: field(b, "id") in CUT_BEATS, "story")
-
-    # 5. Glossary rows.
-    cut_entries(data("glossary.lua"), 4, lambda k, b: field(b, "id") in CUT_GLOSSARY, "glossary")
 
     # 6. Catalog pages: the cut items out of every department, then the empties.
     text = read(data("catalog_pages.lua"))
@@ -336,9 +328,6 @@ def run(stage):
     write(data("room_layout.lua"), text)
     log(f"room_layout: dropped {n_homes} home(s) on cut items")
     cut_entries(data("room_lights.lua"), 8, lambda k, b: k in cut_ids, "room_lights")
-
-    # 9. Pot tiers for the cut game types.
-    cut_entries(data("pot_tiers.lua"), 8, lambda k, b: k in CUT_GTYPES, "pot_tiers")
 
     # 10. The modules: dev tooling and the ending.
     for rel in CUT_MODULES:
@@ -371,8 +360,8 @@ def run(stage):
             f.write("\n")
         log(f"aliases: cut {before - len(aliases['aliases'])}")
 
-    log(f"done: {len(cut_ids)} catalog items, {len(cut_stakes)} stakes, {len(CUT_GTYPES)} game types, "
-        f"{len(CUT_BEATS)} beats, {len(CUT_GLOSSARY)} glossary rows")
+    log(f"done: {len(cut_ids)} catalog items, {len(cut_stakes)} stakes, {len(CUT_BEATS)} beats; "
+        "the locked keys, the ??? card and the ??? glossary rows stay")
     return sorted(cut_ids)
 
 

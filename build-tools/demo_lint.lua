@@ -7,14 +7,15 @@
 --   flags      C.DEMO is true on the stage; STEAM_URL set (else a warning:
 --              no WISHLIST sticker)
 --   catalog    no Act 2 or Act 3 entry; every requires chain resolves;
---              every proc an item names exists; the Prize Vase is gone
---   stakes     s001-s003 only; game types zoom and hu only; decks: the
---              starter only
+--              every proc an item names exists; the Prize Vase stays, a
+--              "???" the demo never opens
+--   stakes     s001-s003 only; all four game types, with ko and six_max
+--              gated (the strip's locked keys); decks: the starter only
 --   story      no cut beat; no line names a cut table ({t:6m}, {t:ko}); no
 --              trigger names a cut game type; every anchor is a name a
 --              staged view registers
---   glossary   every row's beat exists; catalog pages: every item exists,
---              no empty department
+--   glossary   every row's beat exists or is cut (a "???" row forever);
+--              catalog pages: every item exists, no empty department
 --   room       every placed catalog id is staged; every home's target is
 --              placed; every Act 1 item with art has a place in the room
 --              (the designer's export) — a failure, or a warning with
@@ -105,7 +106,8 @@ for _, it in ipairs(Catalog) do
         if e.kind == "proc" then ok(Procs[e.proc] ~= nil, it.id .. ": corrupt proc " .. tostring(e.proc) .. " is gone") end
     end
 end
-ok(by_id.prize_vase == nil, "the Prize Vase is gone")
+ok(by_id.prize_vase ~= nil and by_id.prize_vase.unlock and by_id.prize_vase.unlock.mystery ~= nil,
+   "the Prize Vase stays, as a mystery")
 
 -- ── stakes, game types, decks ────────────────────────────────────────
 print("stakes, game types, decks")
@@ -117,8 +119,10 @@ for _, s in ipairs(Stakes) do ok(keep_stakes[s.id], "stake " .. tostring(s.id) .
 ok(#Stakes == 3, "three stakes (" .. #Stakes .. ")")
 local gt_ids = {}
 for _, g in ipairs(GameTypes) do gt_ids[g.id] = true end
-ok(gt_ids.zoom and gt_ids.hu and not gt_ids.ko and not gt_ids.six_max and #GameTypes == 2,
-   "the game types are zoom and hu")
+ok(gt_ids.zoom and gt_ids.hu and gt_ids.ko and gt_ids.six_max, "all four game types are on the strip")
+ok(Constants.GTYPE_GATE.ko ~= false and Constants.GTYPE_GATE.six_max ~= false,
+   "ko and six_max are gated (locked keys)")
+ok(by_id.desk_plant == nil, "nothing in the demo can open 6-Max (the Desk Plant is cut)")
 ok(#Decks == 1 and Decks[1].id == "standard", "the starter is the only deck")
 
 -- ── story ────────────────────────────────────────────────────────────
@@ -167,8 +171,10 @@ end
 -- ── glossary, catalog pages ──────────────────────────────────────────
 print("glossary, catalog pages")
 local Glossary = require("data.glossary")
+-- A row whose beat is cut is a "???" the demo never fills: the tease.
 for _, row in ipairs(Glossary) do
-    ok(beat_ids[row.beat], "glossary " .. tostring(row.id) .. ": beat " .. tostring(row.beat) .. " is gone")
+    ok(beat_ids[row.beat] or cut_beats[row.beat],
+       "glossary " .. tostring(row.id) .. ": beat " .. tostring(row.beat) .. " is neither staged nor cut")
 end
 local Pages = require("data.catalog_pages")
 for _, d in ipairs(Pages) do
