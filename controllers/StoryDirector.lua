@@ -186,7 +186,17 @@ function StoryDirector:_blockedFn(ctx)
         if cond and cond.fresh_inner then
             local ok = rules:check(cond.fresh_inner, ctx)
             if not cond.seen_false then
-                if not ok then cond.seen_false = true end
+                -- Seen false for a MOMENT, not a frame: a rack rebuilding
+                -- after a buy drops the hover for one tick, which used to
+                -- count as "the pointer left" and pass the wait at once.
+                local t = love.timer and love.timer.getTime() or 0
+                if ok then
+                    cond.false_since = nil
+                elseif not cond.false_since then
+                    cond.false_since = t
+                elseif t - cond.false_since >= 0.3 then
+                    cond.seen_false = true
+                end
                 return true
             end
             return not ok

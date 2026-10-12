@@ -79,10 +79,11 @@ for _, f in ipairs(Fields) do
         -- every {token} must have become an element: a token the parser
         -- did not recognise prints literally on the card ({k:6-Max} did,
         -- before "-" joined the token class)
-        -- ({n} and {dyn:…} are substituted before the renderer sees them)
+        -- ({n} and {dyn:…} are substituted before the renderer sees them;
+        -- {page} is a page break the House's box consumes: views/StoryView)
         local braces, tokens = 0, 0
         for tok in f.text:gmatch("{([^}]*)}") do
-            if tok ~= "n" and not tok:match("^dyn:") then braces = braces + 1 end
+            if tok ~= "n" and tok ~= "page" and not tok:match("^dyn:") then braces = braces + 1 end
         end
         for _, sp in ipairs(spans) do if sp.kind ~= "pill" then tokens = tokens + 1 end end
         if tokens < braces then
