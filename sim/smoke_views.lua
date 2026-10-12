@@ -622,6 +622,14 @@ do
         sv.room_total = 99
         sv:skip()
         c.ok(sv.phase_t >= 99, "a click after the lock jumps to the cut")
+        -- The buildup draws the cue too (its draw path returns early).
+        local reached = 0
+        local orig_cue = sv._drawSkipCue
+        sv._drawSkipCue = function(self2, ...) reached = reached + 1; return orig_cue(self2, ...) end
+        local ok_b, err_b = pcall(function() sv:beginBuildup({}); sv:draw() end)
+        c.ok(ok_b, "the buildup draws: " .. tostring(err_b))
+        c.ok(reached > 0 and sv:skipCue() == "click to skip", "the buildup draws the skip cue (" .. reached .. ")")
+        sv._drawSkipCue = orig_cue
         sv.phase = "hold"
         c.eq(sv:skipCue(), nil, "no cue on a hold (CONTINUE is the control)")
     else

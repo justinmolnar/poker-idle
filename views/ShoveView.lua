@@ -2229,6 +2229,7 @@ function ShoveView:draw()
         -- The numbers in flight ride above the fade: ITEMS sits where the
         -- room left it while the felt comes up, then lifts off.
         self:_drawBaseFlight()
+        self:_drawSkipCue(W, H)   -- this path returns before the end of draw
         return
     end
 
