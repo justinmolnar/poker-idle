@@ -2195,13 +2195,11 @@ function CatalogModal:draw()
                 local rows = CatalogReceipt.itemCard(self.game, cell.item, corrupted)
                 -- Appended here, not in itemCard (the receipt and the room
                 -- share that card and know nothing of the balance): what
-                -- buying it would leave, or how far off it is; and the
-                -- read-only note, on the card the player is looking at.
-                if rows and not owned_now then
+                -- buying it would leave, or how far off it is. The
+                -- read-only book says nothing extra: the House said it once.
+                if rows and not owned_now and not self.read_only then
                     local cost, have = cell.item.cost_chip or 0, state.chips or 0
-                    if self.read_only then
-                        rows[#rows + 1] = TooltipSvc.iconRow(self.game, "Buy after a shove.", Theme.fg.muted)
-                    elseif have >= cost then
+                    if have >= cost then
                         rows[#rows + 1] = TooltipSvc.iconRow(self.game, ("Leaves %d {chip}"):format(have - cost), Theme.fg.muted)
                     else
                         rows[#rows + 1] = TooltipSvc.iconRow(self.game, ("%d {chip} short"):format(cost - have), Theme.fg.muted)
