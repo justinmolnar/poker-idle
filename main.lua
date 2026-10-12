@@ -9,8 +9,9 @@
 
 local Constants     = require("data.constants")
 local HoldPress = require("services.HoldPress")
--- The story dim's strength, as a share of the hint dim (views/HintView
--- DIM_BASE): every House line, forced ones at the full hint dim.
+-- The story dim's strength for a House line with nothing to point at, as
+-- a share of the hint dim (views/HintView DIM_BASE); lines with targets
+-- get the full dim.
 local STORY_DIM = 0.45
 local Catalog       = require("data.catalog")
 local RunUpgrades   = require("data.run_upgrades")
@@ -1085,17 +1086,20 @@ function love.draw()
             Game.hint_view:draw(Game.hints:activeHint(), Game.hints.paused)
             -- Every visible story line dims the screen — the player is in
             -- a conversation and play is input-blocked, so the frame says
-            -- so. One steady strength for every line, with holes over the
-            -- line's targets when it has any; a FORCED line (one waiting
-            -- on an action) gets the full hint dim, so the strength itself
-            -- says "act". StoryView then draws the marks and the panel.
+            -- so. A line with targets gets the full hint dim with holes
+            -- over them (the contrast is the point); a line with nothing
+            -- to point at gets STORY_DIM, a lighter wash. StoryView then
+            -- draws the marks and the panel.
             do
                 local line = (not Game.story:isPaused())
                              and Game.story:currentLine() or nil
                 if line then
                     local holes = line.anchor
                                   and HintMarks.fresh(line.anchor) or {}
-                    Game.hint_view:_drawDim(holes, line.forced and 1.0 or STORY_DIM)
+                    -- Targets get the full dim, so the holes over them
+                    -- stand out; a line with nothing to point at gets the
+                    -- lighter wash (still enough to say something is up).
+                    Game.hint_view:_drawDim(holes, (#holes > 0 or line.forced) and 1.0 or STORY_DIM)
                 end
             end
             -- The story band, last, so it is never under a hint's dim.
