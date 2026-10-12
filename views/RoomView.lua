@@ -18,14 +18,20 @@ local RoomPlacement  = require("models.room_placement")
 local Scrollbar      = require("views.Scrollbar")
 local LIGHTS_DRAFT   = "room_lights_draft.lua"
 local Constants      = require("data.constants")
--- The editor's layers panel, loaded the first time the editor touches it
--- (every call site is an editor path): dev tooling the build leaves out
--- of shipped copies.
-local LayersPanel = setmetatable({}, { __index = function(t, k)
-    local m = require("views.RoomLayersPanel")
-    setmetatable(t, { __index = m })
-    return m[k]
-end })
+-- The editor's layers panel: dev tooling the build leaves out of shipped
+-- copies, loaded the first time the editor touches it. The mouse paths
+-- below ask it about every move and release, editor or not, so a build
+-- without the module answers every call with "not mine".
+local LayersPanel
+if Constants.FEATURES.DEV_HOTKEYS then
+    LayersPanel = setmetatable({}, { __index = function(t, k)
+        local m = require("views.RoomLayersPanel")
+        setmetatable(t, { __index = m })
+        return m[k]
+    end })
+else
+    LayersPanel = setmetatable({}, { __index = function() return function() return false end end })
+end
 
 -- The editor autosaves a draft next to the game's saves (DRAFT_FILE) so a
 -- crash or a closed window loses seconds, not the session. The draft

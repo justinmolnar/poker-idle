@@ -356,6 +356,13 @@ do
         for key, inst in pairs(built) do
             g.state_machine.current = function() return key end
             inst:draw(); inst:draw()
+            -- The pointer moves, scrolls, presses and lets go on every
+            -- screen: the paths a cut module could still be asked on.
+            if inst.mousemoved    then inst:mousemoved(10, 10) end
+            if inst.wheelmoved    then inst:wheelmoved(0, 1) end
+            if inst.mousepressed  then inst:mousepressed(10, 10, 1) end
+            if inst.mousereleased then inst:mousereleased(10, 10, 1) end
+            inst:draw()
         end
         -- The book, with its stubs, draws.
         local cm = require("views.CatalogModal"):new(g, {})
