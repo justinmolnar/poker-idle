@@ -336,27 +336,33 @@ end
 function RoomState:_manifestRect(W, H)
     local s, fl = self.game.ui_scale or 1, math.floor
     local pw, m = CatalogReceipt.paperWidth(s), fl(EDGE * s)
-    local top_h = self:_topBarH() + m + self.game.fonts.lg:getHeight() + m
+    local top_h = self:_topBarH() + m + self.game.fonts.md:getHeight() + m
     -- The rail stops left of this column, so the paper runs to the band.
     return { x = W - pw - m, y = top_h, w = pw, h = H - top_h - fl(BAND_CLEAR * s) }
 end
 
--- The count: the number the shove's count reaches, the same word beside
--- it, heading the manifest — the things you own, then the list of them.
+-- The count, heading the manifest: the number and its word on one line,
+-- the paper's own sizes (its names' font for the number, its small for
+-- the word), centred over the paper.
 function RoomState:_drawCount(W, H)
     local fonts = self.game.fonts
     local s     = self.game.ui_scale or 1
     local fl    = math.floor
     local n     = #self.game.state:countedItems(Catalog)
     local mr    = self:_manifestRect(W, H)
-    local nw    = fonts.lg:getWidth(tostring(n))
-    local w     = nw + fl(10 * s) + fonts.sm:getWidth("THINGS YOU OWN")
-    -- drawCount centres the NUMBER on x; the number and its word are
-    -- centred over the paper as one.
-    local x     = fl(mr.x + mr.w * 0.5 - w * 0.5 + nw * 0.5)
-    local y     = self:_topBarH() + fl(EDGE * s)
-    ShoveDecor.drawCount(fonts, s, n, "THINGS YOU OWN", x, y, { pop_id = "room_screen_count", center = true })
-    AnchorRegistry.set("room:count", x - fl(nw * 0.5), y, w, fonts.lg:getHeight())
+    local num, word = tostring(n), "THINGS YOU OWN"
+    local nf, wf = fonts.md, fonts.sm
+    local gap   = fl(8 * s)
+    local w     = nf:getWidth(num) + gap + wf:getWidth(word)
+    local x     = fl(mr.x + (mr.w - w) * 0.5)
+    local base  = self:_topBarH() + fl(EDGE * s) + nf:getBaseline()
+    love.graphics.setFont(nf)
+    Theme.setColor(Theme.fg.heading)
+    love.graphics.print(num, x, base - nf:getBaseline())
+    love.graphics.setFont(wf)
+    Theme.setColor(Theme.fg.muted)
+    love.graphics.print(word, x + nf:getWidth(num) + gap, base - wf:getBaseline())
+    AnchorRegistry.set("room:count", x, base - nf:getBaseline(), w, nf:getHeight())
 end
 
 -- The room editor's keys (F3 to enter/exit, -/= FPS, [ ] frame, ...)
