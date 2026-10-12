@@ -25,32 +25,48 @@ local RoomLighting = {}
 local _canvas = nil
 local _quad   = nil   -- a 1x1 white image: the shader's quad, with 0..1 tex coords
 
--- An emitting item's light (shaders/room_light.frag): a pool on the floor
--- at its foot, an iso ellipse, and the thing itself lit. `r` is the item's
--- rect (room space), `e` its entry in data/room_lights.lua. Without the
--- shader (it failed to compile) the old disc stands in.
+-- An emitting item's light (shaders/room_light.frag): the thing itself
+-- lit, and its light on what is round it — on the floor at its foot for
+-- a floor item, on the wall around it for a wall item (the layout's
+-- align, left_wall / right_wall). `r` is the item's rect (room space),
+-- `e` its entry in data/room_lights.lua; e.radius is the reach in sprite
+-- widths, as the disc had it. Without the shader (it failed to compile)
+-- the old disc stands in.
 local function drawEmitter(r, e, alpha, anim)
-    local R  = r.w * e.radius                       -- the reach, as the disc had it
+    local R  = r.w * e.radius
     local cx = r.x + r.w * 0.5
-    local foot = r.y + r.h * 0.94                   -- the sprite's bottom, less its padding
     local shader = _quad and ShaderRegistry.get and ShaderRegistry.get("room_light")
     if not shader then
         ShoveDecor.drawLight(cx - R, r.y + r.h * 0.5 - R, R * 2, R * 2, e.color, alpha)
         return
     end
-    local prx, pry = R * 1.9, R * 0.95              -- the floor from the iso angle; the disc's reach was R
-    local bcx, bcy = cx, r.y + r.h * 0.5
-    local brx, bry = r.w * 1.0, r.h * 0.9
-    local x0 = cx - math.max(prx, brx)
-    local x1 = cx + math.max(prx, brx)
-    local y0 = math.min(bcy - bry, foot - pry)
-    local y1 = foot + pry
+    local align = r.obj and r.obj.align
+    local on_wall = align == "left_wall" or align == "right_wall"
+    local bcx, bcy = cx, r.y + r.h * 0.5          -- the body: the sprite, a little past its edges
+    local brx, bry = r.w * 0.75, r.h * 0.65
+    local pcx, pcy, prx, pry
+    if on_wall then
+        -- Around it on the wall: wider than tall, a touch below centre
+        -- (light on a wall falls down it).
+        pcx, pcy = cx, r.y + r.h * 0.6
+        prx, pry = R * 1.3, math.max(r.h * 0.9, R * 0.9)
+    else
+        -- On the floor at its foot: the iso ellipse.
+        pcx, pcy = cx, r.y + r.h * 0.96
+        prx, pry = R * 1.3, R * 0.65
+    end
+    -- The quad holds both falloffs with room for the edge fade.
+    local pad = 1.18
+    local x0 = math.min(pcx - prx * pad, bcx - brx * pad)
+    local x1 = math.max(pcx + prx * pad, bcx + brx * pad)
+    local y0 = math.min(pcy - pry * pad, bcy - bry * pad)
+    local y1 = math.max(pcy + pry * pad, bcy + bry * pad)
     local qw, qh = x1 - x0, y1 - y0
     if qw <= 0 or qh <= 0 then return end
     ShaderRegistry.apply("room_light", {
         u_color  = { e.color[1], e.color[2], e.color[3] },
         u_alpha  = alpha,
-        u_pool_c = { (cx - x0) / qw, (foot - y0) / qh },
+        u_pool_c = { (pcx - x0) / qw, (pcy - y0) / qh },
         u_pool_r = { prx / qw, pry / qh },
         u_body_c = { (bcx - x0) / qw, (bcy - y0) / qh },
         u_body_r = { brx / qw, bry / qh },
