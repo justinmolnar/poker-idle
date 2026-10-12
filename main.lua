@@ -269,7 +269,6 @@ local SETTINGS_KEYS = {
     "analytics_consent",
     "display_mode", "display_w", "display_h",   -- desktop only
     "vsync", "fps_cap",                         -- desktop only
-    "room_lights_off",
     "motion_cards", "motion_chips", "motion_tables", "motion_cursors",
     "motion_paper", "motion_text", "motion_shine", "motion_ui",
     "motion_cinematics",
@@ -412,7 +411,7 @@ local function buildGame()
     -- hand-edited file cannot put junk on the settings table, and so a key
     -- that is added here is the only place it needs adding — the old
     -- version of this was a hardcoded literal plus a `motion_` prefix
-    -- passthrough, and `room_lights_off` fell between the two: written on
+    -- passthrough, and one key fell between the two: written on
     -- every toggle, never read back, dead at every launch.
     g.settings = {}
     for _, k in ipairs(SETTINGS_KEYS) do g.settings[k] = prefs[k] end
@@ -698,7 +697,6 @@ function love.load()
     -- Bake THE HOUSE's wall portrait (procedural, views/HouseArt) into
     -- the sprite pool so the room draws it like any other wall item.
     require("views.HouseArt").bake(Game.sprite_loader)
-    require("views.RoomFixtures").bake(Game.sprite_loader)
 
     -- Compile shaders at boot. ShaderRegistry caches by name; compile
     -- failures log a warning and degrade gracefully (no crash).

@@ -85,11 +85,6 @@ function RoomState:enter()
     -- The chrome's numbers snap to the state: no tween across the cut.
     local gv = self:_grindView()
     if gv and gv.resetDisplays then gv:resetDisplays() end
-    -- The lights stay how you left them.
-    local settings = self.game.settings
-    if settings and settings.room_lights_off ~= nil then
-        self.room_view.fixture_off = settings.room_lights_off == true
-    end
     self:_queuePopIn()
 end
 
@@ -359,7 +354,10 @@ end
 -- own zoom control and its unframed view.
 function RoomState:_drawRoom(W, H)
     local rv = self.room_view
-    local fixture = rv.fixture_off and 0 or 1
+    -- The room is dark, lit by the things in it that make light; the big
+    -- light only comes on for the shove's count. The editor keeps its
+    -- own ON/OFF to see the room both ways.
+    local fixture = (rv.editor_mode and not rv.fixture_off) and 1 or 0
     if rv.editor_mode then
         rv:draw(true, { lighting = { fixture = fixture, emitters = true } })
         return
@@ -400,24 +398,6 @@ function RoomState:_drawCount(W, H)
     local w     = fonts.lg:getWidth(tostring(n)) + math.floor(10 * s) + fonts.sm:getWidth("THINGS YOU OWN")
     AnchorRegistry.set("room:count", math.floor(c.x - fonts.lg:getWidth(tostring(n)) * 0.5),
                        c.y - lg_h * 0.5, w, lg_h)
-end
-
--- The light switch: the fixture off and on, the tube's hum with it, and
--- the choice kept in settings so the room stays how you left it.
-function RoomState:_toggleLights()
-    local rv = self.room_view
-    rv.fixture_off = not rv.fixture_off
-    if rv.fixture_off then
-        SoundService.stopNamed("lights_on")   -- the hum ends with the tube
-        SoundService.playNamed("lights_off")
-    else
-        SoundService.playNamed("lights_on")
-    end
-    local g = self.game
-    if g.settings then
-        g.settings.room_lights_off = rv.fixture_off
-        if g.save_service and g.save_service.saveSettings then g.save_service:saveSettings(g.settings) end
-    end
 end
 
 -- The room editor's keys (F3 to enter/exit, -/= FPS, [ ] frame, ...)
@@ -535,11 +515,6 @@ function RoomState:mousepressed(x, y, button)
         local item = row and row.item
         if not item then
             local hit = rv:hitAt(x, y)
-            if hit and hit.id == "light_switch" then
-                ClickFlash.took()
-                self:_toggleLights()
-                return
-            end
             local id = rv:catalogIdOf(hit)
             item = id and rv.catalog_by_id[id]
         end

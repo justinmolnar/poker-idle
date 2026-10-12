@@ -448,7 +448,7 @@ end
 -- onto the left-wall plane with the kit-style drop shadow, downsampled to
 -- sprite size and injected as `name`. Guarded like SpriteLoader.resample:
 -- any failure leaves the loader untouched (the room falls back to its iso
--- box). THE HOUSE's print and the room's fittings (views/RoomFixtures)
+-- box). THE HOUSE's print
 -- both bake through here.
 function HouseArt.bakeWallSprite(sprite_loader, name, flat_w, flat_h, paint)
     if not (sprite_loader and sprite_loader.setSprite) then return false end

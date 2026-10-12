@@ -398,6 +398,7 @@ function RoomView:new(game)
         group_of         = group_of,   -- placeable idx -> group (auto-expand)
         browser_tab      = 1,          -- 1: Catalog Items, 2: Flavor Assets
         editor_mode      = false,      -- true = grid lines, placement selector, mouse controls
+        fixture_off      = true,       -- the editor's ROOM LIGHT preview: dark, as play is
         selected_idx     = 1,          -- active item index in the placeable list
         active_w         = 1,          -- current placement footprint width
         active_h         = 1,          -- current placement footprint height
@@ -1013,7 +1014,6 @@ function RoomView:draw(full_screen, opts)
         local sprite, shader_name, shader_params, animated = game.sprite_loader:itemArt(
             cat_item, "room", obj, {
                 corrupted = corrupted_set[obj.id],
-                sprite    = ((obj.sprite or obj.id) == "light_switch" and self.fixture_off) and "light_switch_off" or nil,
             })
         if sprite then
             local draw_gx, draw_gy

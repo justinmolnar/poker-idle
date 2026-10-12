@@ -425,9 +425,8 @@ ok(#wanted > 50, "boot manifest looks empty: " .. #wanted .. " names")
 -- into an ignored allowlist. Anything not on this list fails.
 local KNOWN_GAPS = {
     -- Baked procedurally into the pool AFTER the preload runs, by
-    -- views/HouseArt.bake and views/RoomFixtures.bake. Never files.
+    -- views/HouseArt.bake. Never files.
     house_poster_wall  = "baked at boot by HouseArt",
-    light_switch       = "baked at boot by RoomFixtures",
     -- A room_layout id whose art is the baked house_poster_wall above; the
     -- manifest asks for both the id and its sprite field.
     the_house_poster   = "layout id, draws through house_poster_wall",

@@ -1697,7 +1697,6 @@ function GrindView:_roomThumb()
     local t = self._room_thumb
     if not t then t = {}; self._room_thumb = t end
     local dirty = t.owned  ~= (st.owned_rev or 0)
-               or t.lights ~= (rv.fixture_off and 1 or 0)
                or t.unseen ~= #(st.room_unseen or {})
                or t.w ~= W or t.h ~= H
     if not dirty and t.canvas then return t.canvas, t.box end
@@ -1710,7 +1709,6 @@ function GrindView:_roomThumb()
         canvas = fresh
     end
     t.owned  = st.owned_rev or 0
-    t.lights = rv.fixture_off and 1 or 0
     t.unseen = #(st.room_unseen or {})
     t.w, t.h = W, H
     local prev = love.graphics.getCanvas()
@@ -1719,7 +1717,7 @@ function GrindView:_roomThumb()
     love.graphics.setScissor()
     love.graphics.setCanvas(canvas)
     love.graphics.clear(0, 0, 0, 0)
-    rv:draw(true, { zoom = 1, dy = 0, lighting = { fixture = rv.fixture_off and 0 or 1, emitters = true } })
+    rv:draw(true, { zoom = 1, dy = 0, lighting = { fixture = 0, emitters = true } })   -- dark, as the room is
     love.graphics.setCanvas(prev)
     love.graphics.pop()
     -- The room's extent: the floor's corners and the union of what stands
