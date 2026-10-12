@@ -910,9 +910,22 @@ function RoomView:draw(full_screen, opts)
                 show = not obj.hidden and not (self.anchors_off and self.anchors_off[obj.id])
             else
                 -- Catalog items (and numbered copies of them) need owning;
-                -- flavor is the room itself and is always there.
+                -- flavor is the room itself and is always there. A flavor
+                -- entry with no art is a stray (an id the catalog has since
+                -- dropped, kept by a saved layout draft): in play it is not
+                -- drawn at all, never the fallback cube. The editor still
+                -- shows it, so it can be cleaned up.
                 local needs = self:_catalogBase(obj)
-                show = (needs == nil or owned_set[needs]) and r.shown
+                if needs == nil and not self:_hasArt(obj) then
+                    if not self._stray_said then self._stray_said = {} end
+                    if not self._stray_said[obj.id] then
+                        self._stray_said[obj.id] = true
+                        print("[room] layout entry '" .. tostring(obj.id) .. "' is not a catalog item and has no art; not drawn")
+                    end
+                    show = false
+                else
+                    show = (needs == nil or owned_set[needs]) and r.shown
+                end
             end
             if show then
                 fields.__src   = obj
@@ -2454,6 +2467,14 @@ end
 
 -- The catalog id an entry needs owned to show, or nil for flavor.
 -- Numbered copies (rubber_duck_2) need their base item.
+-- Does a placed object have art to draw (its sprite, or a sprite of its
+-- own id)? Without a loader, assume yes.
+function RoomView:_hasArt(obj)
+    local loader = self.game and self.game.sprite_loader
+    if not (loader and loader.hasSprite) then return true end
+    return loader:hasSprite(obj.sprite or obj.id)
+end
+
 function RoomView:_catalogBase(obj)
     if self.catalog_by_id[obj.id] then return obj.id end
     if obj.sprite and self.catalog_by_id[obj.sprite] then return obj.sprite end

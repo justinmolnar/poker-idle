@@ -606,6 +606,26 @@ do
             c.ok(again, MODULES[key] .. " draws a second frame: " .. tostring(err2))
         end
     end
+    -- A stray layout entry (an id the catalog dropped, kept by a saved
+    -- draft) with no art is not drawn in play: no fallback cube.
+    local rs = built.room and built.room.room_view
+    if rs and rs.placed then
+        local stray = { id = "framed_diploma", gx = 1, gy = 1, w = 1, h = 1, z_offset = 0, sh = 16, color = { 1, 1, 1 }, scale = 1 }
+        rs.placed[#rs.placed + 1] = stray
+        local orig_has = g.sprite_loader.hasSprite
+        g.sprite_loader.hasSprite = function(_, name) return name ~= "framed_diploma" end
+        rs._render_list, rs._render_rev = nil, nil
+        pcall(function() built.room:draw() end)
+        local drawn = false
+        for _, f in ipairs(rs._render_list or {}) do if f.__src == stray then drawn = true end end
+        c.ok(not drawn, "a stray layout entry with no art is not drawn in play")
+        g.sprite_loader.hasSprite = orig_has
+        table.remove(rs.placed)
+        rs._render_list, rs._render_rev = nil, nil
+    else
+        c.ok(false, "the room state has a room view to test strays with")
+    end
+
     -- The shove's room phase, the room before the shove: it plays on the
     -- House's security monitor (views/CrtMonitor).
     local sv = built.shove and built.shove.view
