@@ -1429,10 +1429,7 @@ function ShoveView:_drawRoomCount(W, H)
         local counted = self.room_id_set
         self.room_view:drawScene(W, H, {
             fixture = level,
-            -- The camera frames the room, not the layout: close in, the
-            -- wall tops and the floor's front corner just off the tube.
-            fit     = 0.90,
-            fit_h   = 1.10,
+            fit     = 0.86,   -- the camera frames the room, not the layout
             -- Things still to be counted are dark shapes; counted ones, and
             -- the room's own flavor, are themselves.
             item_tint = function(obj) if counted[obj.id] and not lit[obj.id] then return sil end end,

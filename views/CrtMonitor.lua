@@ -36,8 +36,6 @@ local C = {
     ink       = { 0.92, 0.94, 0.92 },
 }
 
-local SCREEN_H = 0.75   -- the screen's height, of the frame's
-local MAX_W    = 0.90   -- ...and its width at most, of the frame's
 local CURVE    = 0.085  -- the tube's bulge (crt.frag u_curve)
 
 local function setC(c, a) love.graphics.setColor(c[1], c[2], c[3], a or 1) end
@@ -47,13 +45,24 @@ local function setC(c, a) love.graphics.setColor(c[1], c[2], c[3], a or 1) end
 -- round it, deeper at the bottom for the control strip. The opening is the
 -- recessed bezel between the case face and the tube.
 function CrtMonitor.layout(W, H)
-    local sh = math.floor(H * SCREEN_H)
+    -- The case fills the frame, a thin margin round it. Top and bottom
+    -- are fixed shares of the height; the screen keeps the frame's aspect,
+    -- so whatever width is left over is plastic at the sides (the speaker
+    -- grilles live there).
+    local margin = math.max(4, math.floor(H * 0.012))
+    local cw, ch = W - margin * 2, H - margin * 2
+    local top, bottom = math.floor(ch * 0.065), math.floor(ch * 0.12)
+    local sh = ch - top - bottom
     local sw = math.floor(sh * W / H)
-    if sw > W * MAX_W then sw = math.floor(W * MAX_W); sh = math.floor(sw * H / W) end
-    local side, top, bottom = math.floor(sh * 0.085), math.floor(sh * 0.075), math.floor(sh * 0.14)
-    local cw, ch = sw + side * 2, sh + top + bottom
-    local cx = math.floor((W - cw) / 2)
-    local cy = math.floor((H - ch) / 2)
+    if sw > cw - math.floor(ch * 0.10) then
+        sw = cw - math.floor(ch * 0.10)
+        sh = math.floor(sw * H / W)
+        local spare = ch - sh
+        top    = math.floor(spare * 0.35)
+        bottom = spare - top
+    end
+    local side = math.floor((cw - sw) / 2)
+    local cx, cy = margin, margin
     local inset = math.floor(sh * 0.045)
     -- The strip sits in the band between the bezel's foot and the case's.
     local below = (cy + ch) - (cy + top + sh + inset)
@@ -63,6 +72,7 @@ function CrtMonitor.layout(W, H)
         opening = { x = cx + side - inset, y = cy + top - inset,
                     w = sw + inset * 2, h = sh + inset * 2 },
         screen  = { x = cx + side, y = cy + top, w = sw, h = sh },
+        side    = side,
         strip   = { x = cx + side, y = cy + top + sh + inset + math.floor((below - st_h) / 2),
                     w = sw, h = st_h },
     }
@@ -159,6 +169,26 @@ local function drawCase(game, L, s)
     -- The tube's glass behind the picture.
     setC(C.glass)
     love.graphics.rectangle("fill", sx1, sy1, sc.w, sc.h, fl(20 * s))
+
+    -- Speaker grilles in the side plastic: rows of short slots, centred
+    -- in each side panel beside the tube.
+    local panel = op.x - c.x
+    if panel > fl(30 * s) then
+        local gw   = fl(panel * 0.42)
+        local slot = math.max(2, fl(3 * s))
+        local gap  = slot * 2
+        local rows = fl(sc.h * 0.45 / gap)
+        local gy0  = sc.y + fl(sc.h * 0.5 - rows * gap * 0.5)
+        for _, gx in ipairs({ c.x + fl((panel - gw) / 2), op.x + op.w + fl((panel - gw) / 2) }) do
+            for k = 0, rows - 1 do
+                local yy = gy0 + k * gap
+                setC(C.case_lo, 0.95)
+                love.graphics.rectangle("fill", gx, yy, gw, slot, slot * 0.5)
+                setC(C.case_hi, 0.25)
+                love.graphics.line(gx + 1, yy + slot + 0.5, gx + gw - 1, yy + slot + 0.5)
+            end
+        end
+    end
 
     -- The control strip, recessed.
     setC(C.case_lo)
