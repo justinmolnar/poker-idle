@@ -10,7 +10,12 @@ file's braces and knows Lua strings and comments, so an entry is the whole
 lines it spans, plus the comment lines directly above it. MANIFEST (bottom)
 says, per file, which entries go:
 
-  data/catalog.lua        act = 2 and requires_act3
+  data/catalog.lua        an Act 2 card becomes a STUB — its id, name, art,
+                          flavour, price and place, `act = 2` and
+                          `demo_locked = true`, nothing else: the book keeps
+                          the card under a FULL GAME sticker, the demo ships
+                          none of what it does; a retired Act 2 card and an
+                          Act 3 card (requires_act3) go
   data/stakes.lua         everything above KEEP_STAKES
   data/story.lua          CUT_BEATS
   data/catalog_pages.lua  cut item ids out of every department; a
@@ -21,11 +26,12 @@ says, per file, which entries go:
   data/procs.lua          procs nothing in the staged tree names
 
 What STAYS, on purpose — the demo shows the player what it does not have:
-the 6-MAX and TOURNAMENTS keys on the strip (data/game_types.lua and
-pot_tiers.lua keep ko and six_max; their gates never open in the demo),
-the Prize Vase's "???" card (its mystery is the R1 win the demo never
-records), and the glossary's "???" rows for 6-Max, tournaments, knockouts
-and decks (their beats are cut, so they are never taught).
+every full-game card's place in the book (the stubs above), the 6-MAX and
+TOURNAMENTS keys on the strip (data/game_types.lua and pot_tiers.lua keep
+ko and six_max; their gates never open in the demo), the Prize Vase's
+"???" card (its mystery is the R1 win the demo never records), and the
+glossary's "???" rows for 6-Max, tournaments, knockouts and decks (their
+beats are cut, so they are never taught).
   assets/sprites/aliases.json   aliases of cut items
   data/run_upgrades.lua   every derived ladder (fill_scaled, maxes_at) is
                           priced on the FULL data first and written in as
@@ -214,12 +220,16 @@ def prune_homes(text, cut_ids):
 
 
 def cut_entries(path, indent, rule, label):
-    """Remove every entry at `indent` for which rule(key, body) is true.
+    """Remove every entry at `indent` for which rule(key, body) is true;
+    a rule returning a string REPLACES the entry with that text instead.
     Returns the removed entries' keys/ids."""
     text = read(path)
     gone = []
     for start, end, key, body in reversed(entries(text, indent)):
-        if rule(key, body):
+        r = rule(key, body)
+        if isinstance(r, str):
+            text = text[:start] + r + text[end:]
+        elif r:
             gone.append(key or field(body, "id") or inline_field(body, "id") or "?")
             text = text[:start] + text[end:]
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -232,6 +242,27 @@ def cut_entries(path, indent, rule, label):
 def read(path):
     with open(path, encoding="utf-8") as f:
         return f.read()
+
+
+STUB_FIELDS = ("name", "sprite", "description", "phase", "cost_chip", "authored_cost_chip")
+
+
+def stub_entry(body):
+    """A full-game card's stub: the fields the book needs to print its
+    place, and nothing it does. Raw field text is kept as written."""
+    lines = []
+    iid = field(body, "id")
+    lines.append(f'        id          = "{iid}",')
+    for name in STUB_FIELDS:
+        m = re.search(r'^\s*%s\s*=\s*("(?:[^"\\]|\\.)*"|[^,\n]+)' % name, body, re.M)
+        if m:
+            lines.append(f"        {name:<11} = {m.group(1).strip()},")
+    m = re.search(r"^\s*position\s*=\s*(\{[^}]*\})", body, re.M)
+    if m:
+        lines.append(f"        position    = {m.group(1)},")
+    lines.append("        act         = 2,")
+    lines.append("        demo_locked = true,   -- the demo's stub: the card's place, under a FULL GAME sticker (demo_cut.py)")
+    return "    {\n" + "\n".join(lines) + "\n    },\n"
 
 
 def write(path, text):
@@ -286,19 +317,28 @@ def run(stage):
     write(rp, text)
     log(f"run_upgrades: wrote {n_priced} priced ladders")
 
-    # 1. The catalog: Act 2, Act 3. Collect the ids.
-    cut_ids = set(CUT_IDS)
+    # 1. The catalog: an Act 2 card becomes its stub; a retired one and an
+    #    Act 3 card go. `cut_ids` is everything that no longer works
+    #    (stubs included: nothing can own them); `gone_ids` what left the
+    #    book, for the pages and the art.
+    cut_ids, gone_ids, stub_ids = set(CUT_IDS), set(CUT_IDS), set()
 
     def catalog_rule(key, body):
         iid = field(body, "id")
         if iid is None:
             return False
-        if re.search(r"^\s*act\s*=\s*2\b", body, re.M) or re.search(r"^\s*requires_act3\b", body, re.M) \
-           or iid in CUT_IDS:
-            cut_ids.add(iid)
+        act2 = re.search(r"^\s*act\s*=\s*2\b", body, re.M) is not None
+        act3 = re.search(r"^\s*requires_act3\b", body, re.M) is not None
+        retired = re.search(r"^\s*retired\s*=\s*true", body, re.M) is not None
+        if iid in CUT_IDS or act3 or (act2 and retired):
+            cut_ids.add(iid); gone_ids.add(iid)
             return True
+        if act2:
+            cut_ids.add(iid); stub_ids.add(iid)
+            return stub_entry(body)
         return False
     cut_entries(data("catalog.lua"), 4, catalog_rule, "catalog")
+    log(f"catalog: {len(stub_ids)} stubs ({', '.join(sorted(stub_ids))})")
 
     # 2. Stakes.
     cut_stakes = set(cut_entries(data("stakes.lua"), 4,
@@ -308,9 +348,10 @@ def run(stage):
     # 3. Story beats.
     cut_entries(data("story.lua"), 8, lambda k, b: field(b, "id") in CUT_BEATS, "story")
 
-    # 6. Catalog pages: the cut items out of every department, then the empties.
+    # 6. Catalog pages: the gone items out of every department, then the
+    #    empties (a stub keeps its place).
     text = read(data("catalog_pages.lua"))
-    for iid in sorted(cut_ids):
+    for iid in sorted(gone_ids):
         text = re.sub(r'"%s",?[ \t]*' % re.escape(iid), "", text)
     text = re.sub(r"[ \t]+\n", "\n", text)
     write(data("catalog_pages.lua"), text)
@@ -354,14 +395,14 @@ def run(stage):
         with open(ap, encoding="utf-8") as f:
             aliases = json.load(f)
         before = len(aliases.get("aliases", {}))
-        aliases["aliases"] = {k: v for k, v in aliases.get("aliases", {}).items() if k not in cut_ids}
+        aliases["aliases"] = {k: v for k, v in aliases.get("aliases", {}).items() if k not in gone_ids}
         with open(ap, "w", encoding="utf-8", newline="\n") as f:
             json.dump(aliases, f, indent=2, ensure_ascii=False)
             f.write("\n")
         log(f"aliases: cut {before - len(aliases['aliases'])}")
 
-    log(f"done: {len(cut_ids)} catalog items, {len(cut_stakes)} stakes, {len(CUT_BEATS)} beats; "
-        "the locked keys, the ??? card and the ??? glossary rows stay")
+    log(f"done: {len(stub_ids)} catalog stubs, {len(gone_ids)} catalog items gone, {len(cut_stakes)} stakes, "
+        f"{len(CUT_BEATS)} beats; the stubs, the locked keys, the ??? card and the ??? glossary rows stay")
     return sorted(cut_ids)
 
 

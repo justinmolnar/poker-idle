@@ -2020,12 +2020,17 @@ local items = {
 
 -- The demo ends at the Act 1 cliffhanger: Act 2+ entries (bands C and
 -- D, the Act 3 section) are stripped at module load — the only branch
--- in this file. GameState:computeEffects iterates this catalog, so a
--- live save that owns one of them no-ops cleanly here while
--- owned_items keeps the purchase for the full build.
+-- in this file — except the demo's STUBS (demo_locked: the build's cut,
+-- build-tools/demo_cut.py, keeps a full-game card's place in the book
+-- under a FULL GAME sticker and takes its effects, chains and unlock).
+-- GameState:computeEffects iterates this catalog, so a live save that
+-- owns one of them no-ops cleanly here while owned_items keeps the
+-- purchase for the full build.
 if Constants.FEATURES.DEMO_CUT then
     for i = #items, 1, -1 do
-        if items[i].act == 2 or items[i].requires_act3 then table.remove(items, i) end
+        if (items[i].act == 2 and not items[i].demo_locked) or items[i].requires_act3 then
+            table.remove(items, i)
+        end
     end
 end
 

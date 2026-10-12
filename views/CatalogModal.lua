@@ -241,6 +241,11 @@ end
 -- waiting to be pulled off.
 local STICKER_TITLE = "COMING SOON!"
 local STICKER_READY = "PEEL TO OPEN"
+-- The demo's stub of a full-game card (demo_locked: the build's cut keeps
+-- the card's place in the book and takes everything else): the sticker
+-- says where the thing is instead of counting.
+local STICKER_DEMO  = "FULL GAME"
+local STICKER_DEMO_LINE = "not in the demo"
 
 -- How far right the sticker has to be dragged (as a fraction of its own
 -- width) before letting go actually removes it. Under this it springs back.
@@ -977,7 +982,9 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         -- card is never hidden, the reason is.
         local mystery = item.unlock.mystery
         local known = (not mystery) or (reg and reg:check(mystery, state))
-        if not known then
+        if item.demo_locked then
+            st_line, st_counter, st_frac = STICKER_DEMO_LINE, nil, 0
+        elseif not known then
             st_line, st_counter, st_frac = "???", nil, 0
         else
             local cur, target
@@ -991,7 +998,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
         -- Sized to its own text, then clamped to the band. A sticker stretched
         -- across the whole card is 80% blank paper and its fill stops meaning
         -- anything.
-        local want_w = Sticker.widthFor(fonts, s, STICKER_TITLE, st_line, st_counter)
+        local want_w = Sticker.widthFor(fonts, s, item.demo_locked and STICKER_DEMO or STICKER_TITLE, st_line, st_counter)
         if hero then
             st_w = math.min(w * 0.62, want_w)
             st_x = x + (w - st_w) * 0.5
@@ -1214,7 +1221,7 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
             peel     = peel,
             -- Once the condition is met the sticker stops counting down and
             -- starts asking to be removed.
-            title    = met and STICKER_READY or STICKER_TITLE,
+            title    = met and STICKER_READY or (item.demo_locked and STICKER_DEMO) or STICKER_TITLE,
             line     = st_line,
             counter  = st_counter,
             progress = st_frac,

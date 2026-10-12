@@ -57,12 +57,14 @@ with each artefact's size and sha256. `build/` is gitignored.
 ## The demo cut
 
 The demo is Act 1: Zoom and Heads-Up at NL2–NL100, the first shove, the
-cheat, the flyer. `demo_cut.py` cuts, from the staged copy only: catalog
-entries with `act = 2` or `requires_act3`; stakes above `s003`; the Act 2
+cheat, the flyer. `demo_cut.py` cuts, from the staged copy only: what Act 2
+catalog cards DO (each becomes a stub — id, name, art, flavour, price,
+place, `demo_locked` — under a FULL GAME sticker; retired Act 2 and Act 3
+cards go); stakes above `s003`; the Act 2
 story beats; every deck but the starter; room layout and light entries of
 cut items; procs nothing names; sprite aliases of cut items; and the dev
-modules. What stays is the promise of more: the 6-MAX and TOURNAMENTS keys
-on the strip (locked; nothing in the demo opens them), the Prize Vase's
+modules. What stays is the promise of more: every card's place in the
+book, the 6-MAX and TOURNAMENTS keys on the strip (locked; nothing in the demo opens them), the Prize Vase's
 "???" card, the glossary's "???" rows (`RoomLayersPanel`, `ShoveDebugOverlay`,
 `Profiler`, `InputController`, `CreditsState`). `maxes_at = "s005"` on the
 run upgrades becomes the level it resolved to, so the demo prices exactly

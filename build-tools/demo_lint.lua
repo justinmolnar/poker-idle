@@ -6,9 +6,11 @@
 --
 --   flags      C.DEMO is true on the stage; STEAM_URL set (else a warning:
 --              no WISHLIST sticker)
---   catalog    no Act 2 or Act 3 entry; every requires chain resolves;
---              every proc an item names exists; the Prize Vase stays, a
---              "???" the demo never opens
+--   catalog    every Act 2 entry is a stub (demo_locked: no effect, proc,
+--              corruption, chain or unlock of its own) and no Act 3
+--              entry remains; every requires chain resolves; every proc an
+--              item names exists; the Prize Vase stays, a "???" the demo
+--              never opens
 --   stakes     s001-s003 only; all four game types, with ko and six_max
 --              gated (the strip's locked keys); decks: the starter only
 --   story      no cut beat; no line names a cut table ({t:6m}, {t:ko}); no
@@ -95,8 +97,16 @@ local Procs   = require("data.procs")
 local CatalogLoader = require("models.catalog_loader")
 local by_id = {}
 for _, it in ipairs(Catalog) do by_id[it.id] = it end
+local n_stubs = 0
 for _, it in ipairs(Catalog) do
-    ok(it.act ~= 2, it.id .. ": act = 2 survived the cut")
+    if it.act == 2 then
+        n_stubs = n_stubs + 1
+        ok(it.demo_locked == true, it.id .. ": an Act 2 card that is not a stub")
+        local effects = 0
+        for _, e in ipairs(it.effects or {}) do if e.kind ~= "shove_rate_add" then effects = effects + 1 end end
+        ok(effects == 0 and it.corrupt == nil and it.requires == nil and it.readout == nil,
+           it.id .. ": a stub with something left in it")
+    end
     ok(not it.requires_act3, it.id .. ": requires_act3 survived the cut")
     if it.requires then ok(by_id[it.requires] ~= nil, it.id .. ": requires " .. tostring(it.requires) .. ", which is gone") end
     for _, e in ipairs(it.effects or {}) do
@@ -108,6 +118,7 @@ for _, it in ipairs(Catalog) do
 end
 ok(by_id.prize_vase ~= nil and by_id.prize_vase.unlock and by_id.prize_vase.unlock.mystery ~= nil,
    "the Prize Vase stays, as a mystery")
+ok(n_stubs > 0, "the full game's cards keep their places (" .. n_stubs .. " stubs)")
 
 -- ── stakes, game types, decks ────────────────────────────────────────
 print("stakes, game types, decks")
@@ -122,7 +133,8 @@ for _, g in ipairs(GameTypes) do gt_ids[g.id] = true end
 ok(gt_ids.zoom and gt_ids.hu and gt_ids.ko and gt_ids.six_max, "all four game types are on the strip")
 ok(Constants.GTYPE_GATE.ko ~= false and Constants.GTYPE_GATE.six_max ~= false,
    "ko and six_max are gated (locked keys)")
-ok(by_id.desk_plant == nil, "nothing in the demo can open 6-Max (the Desk Plant is cut)")
+ok(by_id.desk_plant == nil or by_id.desk_plant.demo_locked == true,
+   "nothing in the demo can open 6-Max (the Desk Plant is a stub)")
 ok(#Decks == 1 and Decks[1].id == "standard", "the starter is the only deck")
 
 -- ── story ────────────────────────────────────────────────────────────
@@ -204,7 +216,7 @@ for id, info in pairs(Layout) do
 end
 local unplaced = {}
 for _, it in ipairs(Catalog) do
-    if CatalogLoader.isOwnable(it) and not it.retired and not it.hidden then
+    if CatalogLoader.isOwnable(it) and not it.retired and not it.hidden and not it.demo_locked then
         local base = it.sprite or it.id
         if not (placed[it.id] or placed[base]) then unplaced[#unplaced + 1] = it.id end
     end
@@ -345,10 +357,20 @@ do
             g.state_machine.current = function() return key end
             inst:draw(); inst:draw()
         end
+        -- The book, with its stubs, draws.
+        local cm = require("views.CatalogModal"):new(g, {})
+        cm:draw(); cm:draw()
         return hands
     end)
     ok(booted, "the staged game boots and plays: " .. tostring(err))
     if booted then print(("  %d hands played, four screens drawn"):format(err)) end
+    -- After the boot the catalog is derived (the harness ran deriveAll):
+    -- every stub wears the Act 2 mystery, the "???" the demo never opens.
+    for _, it in ipairs(Catalog) do
+        if it.demo_locked then
+            ok(it.unlock ~= nil and it.unlock.mystery ~= nil, it.id .. ": a stub without its Act 2 mystery")
+        end
+    end
 end
 
 print(("demo_lint: %d failure(s), %d warning(s)"):format(fails, warns))
