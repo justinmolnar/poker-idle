@@ -613,14 +613,15 @@ function RoomView:drawScene(W, H, scene)
     local zoom, dy = self:frameOpts(H)
     -- scene.fit (a share of the frame): frame the room itself instead of
     -- the layout's framing, zoomed until its extent (floor and walls, from
-    -- the last draw) fills that share, centred. The security monitor's
+    -- the last draw) fills that share, centred. scene.fit_h, when given, is
+    -- the height's share (over 1 crops the wall tops and the floor's tip). The security monitor's
     -- camera (views/CrtMonitor via ShoveView) frames the room this way.
     local v = self._view
     local b = v and v.bounds
     if scene.fit and b and b.x2 and v.cy then
         local bw, bh = b.x2 - b.x1, b.y2 - b.y1
         if bw > 0 and bh > 0 then
-            zoom = math.min(W * scene.fit / bw, H * scene.fit / bh)
+            zoom = math.min(W * scene.fit / bw, H * (scene.fit_h or scene.fit) / bh)
             dy   = math.floor(H * 0.5 - v.cy - (b.cy - v.cy) * zoom)
         end
     end

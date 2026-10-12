@@ -167,22 +167,24 @@ local function drawCase(game, L, s)
     love.graphics.rectangle("fill", st.x, st.y + 1, st.w, st.h - 1, fl(5 * s))
     local fonts = game and game.fonts or {}
     local lf = fonts.xs or fonts.micro or fonts.sm
-    local bh = fl(st.h * 0.42)
-    local bw = fl(bh * 1.7)
+    -- The channel buttons: raised keys with their label on the key, the
+    -- first one lit (the channel on the screen).
+    local bh = fl(st.h * 0.66)
+    local bw = lf and math.max(fl(bh * 1.9), lf:getWidth("CH4") + fl(bh * 0.8)) or fl(bh * 1.9)
     local by = st.y + fl((st.h - bh) / 2)
     for i = 0, 3 do
-        local bx = st.x + fl(st.h * 0.6) + i * (bw + fl(bw * 0.55))
+        local bx = st.x + fl(st.h * 0.35) + i * (bw + fl(bh * 0.35))
         setC(C.case_lo)
-        love.graphics.rectangle("fill", bx, by + 1, bw, bh, fl(2 * s))
+        love.graphics.rectangle("fill", bx, by + 2, bw, bh, fl(3 * s))
         setC(C.button)
-        love.graphics.rectangle("fill", bx, by, bw, bh, fl(2 * s))
-        setC(C.case_hi, 0.30)
-        love.graphics.line(bx + 2, by + 1, bx + bw - 2, by + 1)
+        love.graphics.rectangle("fill", bx, by, bw, bh, fl(3 * s))
+        setC(C.case_hi, 0.35)
+        love.graphics.line(bx + 3, by + 1, bx + bw - 3, by + 1)
         if lf then
             love.graphics.setFont(lf)
-            setC(C.label, 0.8)
             local t = "CH" .. (i + 1)
-            love.graphics.print(t, bx + fl((bw - lf:getWidth(t)) / 2), by - lf:getHeight() - 1)
+            if i == 0 then setC(C.led, 0.9) else setC(C.label, 0.75) end
+            love.graphics.print(t, bx + fl((bw - lf:getWidth(t)) / 2), by + fl((bh - lf:getHeight()) / 2))
         end
     end
     if lf then
@@ -204,7 +206,7 @@ local function drawCase(game, L, s)
     if lf then
         setC(C.label, 0.7)
         local t = "POWER"
-        love.graphics.print(t, lx - fl(lf:getWidth(t) / 2), ly + lr * 2)
+        love.graphics.print(t, lx - lr * 3 - fl(lf:getWidth(t)) - 2, fl(ly - lf:getHeight() / 2))
     end
 end
 
