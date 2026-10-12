@@ -35,10 +35,28 @@ end
 
 -- The editor autosaves a draft next to the game's saves (DRAFT_FILE) so a
 -- crash or a closed window loses seconds, not the session. The draft
--- loads over data/room_layout.lua; EXPORT writes the data file itself
--- (when running from source) and clears the draft; RESET goes back to
--- the data file.
+-- loads over data/room_layout.lua WHILE IT IS THE NEWER OF THE TWO: an
+-- export, or a layout change committed since the draft was written (a
+-- fixture added in the data, a stale id dropped), makes the data file
+-- newer and the draft stands down. A draft from a month ago used to win
+-- forever: the dev build showed a room without its light switch while
+-- the shipped build had it. EXPORT writes the data file itself (when
+-- running from source) and clears the draft; RESET goes back to the data
+-- file.
 local DRAFT_FILE = "room_layout_draft.lua"
+-- Is the draft newer than the data file it drafts? Without a modtime on
+-- either (an older LÖVE), the draft wins as it always did.
+local function draftIsCurrent(draft_file, data_file)
+    local d = love.filesystem.getInfo(draft_file)
+    local s = love.filesystem.getInfo(data_file)
+    if not d then return false end
+    if not (s and s.modtime and d.modtime) then return true end
+    if d.modtime < s.modtime then
+        print(("[room-editor] %s is older than %s; using the data file"):format(draft_file, data_file))
+        return false
+    end
+    return true
+end
 local DRAFT_BAK  = "room_layout_draft.bak.lua"   -- the draft before the last write
 local function countItems(layout)
     local n = 0
@@ -53,6 +71,7 @@ end
 local loadLightsDraft   -- defined below new(); forward declared
 local function loadDraft()
     if not (love and love.filesystem and love.filesystem.getInfo(DRAFT_FILE)) then return nil end
+    if not draftIsCurrent(DRAFT_FILE, "data/room_layout.lua") then return nil end
     local ok, chunk = pcall(love.filesystem.load, DRAFT_FILE)
     if not ok or not chunk then return nil end
     local ok2, layout = pcall(chunk)
@@ -2939,6 +2958,7 @@ end
 -- data file's contents in place, so RoomLighting sees it without a rebind.
 loadLightsDraft = function()
     if not (love and love.filesystem and love.filesystem.getInfo(LIGHTS_DRAFT)) then return end
+    if not draftIsCurrent(LIGHTS_DRAFT, "data/room_lights.lua") then return end
     local ok, chunk = pcall(love.filesystem.load, LIGHTS_DRAFT)
     if not ok or not chunk then return end
     local ok2, t = pcall(chunk)
