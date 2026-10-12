@@ -120,4 +120,25 @@ local got = sv.band_rect
 c.ok(got and got.x == want.x and got.y == want.y and got.w == want.w and got.h == want.h,
      "on another screen the box is the same rect the grind gives it")
 
+-- The hover lesson's tooltip: visible only once drawn; held while the next
+-- line explains it; released on the click that moves on.
+do
+    local Tooltip = require("services.Tooltip")
+    local clock = 0
+    love.timer.getTime = function() return clock end
+    local F2 = Stub.font(16)
+    c.ok(not Tooltip.visible(), "no tooltip drawn, none visible")
+    for _ = 1, 30 do Tooltip.set({ "Odds at every size." }, 100, 100); clock = clock + 0.05 end
+    Tooltip.draw({ sm = F2, md = F2 })
+    c.ok(Tooltip.visible(), "a drawn tooltip is visible")
+    c.ok(Tooltip.hold(), "it can be held")
+    clock = clock + 5
+    Tooltip.draw({ sm = F2, md = F2 })          -- no set() this frame: the pointer left
+    c.ok(Tooltip.visible(), "the held tooltip stays up with the pointer gone")
+    Tooltip.release()
+    clock = clock + 5
+    Tooltip.draw({ sm = F2, md = F2 })
+    c.ok(not Tooltip.visible(), "released, it goes")
+end
+
 if c.report("smoke_storybox") > 0 then os.exit(1) end

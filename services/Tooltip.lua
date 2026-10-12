@@ -80,6 +80,24 @@ end
 -- "info" badge on it (services/CursorIntent). Cleared with the frame.
 function Tooltip.showing() return _shown or _t ~= nil end
 
+-- Was a tooltip actually DRAWN just now (its dwell passed, the box is on
+-- screen)? The story's hover lessons wait on this, not on the pointer
+-- merely crossing the target.
+function Tooltip.visible()
+    return Tooltip.last ~= nil and (now() - (Tooltip.last.at or -1)) < 0.1
+end
+
+-- Hold the tooltip drawn last: it stays up, where it was, whatever the
+-- pointer does, until release(). The story holds the one its hover lesson
+-- opened while the next line explains it.
+local _last_t, _held = nil, nil
+function Tooltip.hold()
+    if _last_t then _held = _last_t end
+    return _held ~= nil
+end
+function Tooltip.release() _held = nil end
+function Tooltip.held() return _held ~= nil end
+
 -- A card the player asked for (a click on the thing): shown this frame,
 -- no rest needed. Same rows as set().
 function Tooltip.pin(lines, mx, my)
@@ -291,10 +309,12 @@ function Tooltip.sideShowing() return _side ~= nil and _side ~= false end
 -- like game.fonts ({ sm = Font, md = Font, lg = Font }). Structured
 -- lines use the table to pick per-line sizing.
 function Tooltip.draw(font_or_fonts)
+    if not _t and _held then _t = _held end   -- the held card stays up
     if not _t then
         if not _side_pinned then Tooltip.last = nil end
         return
     end
+    _last_t = _t
     local fonts, default_font
     if type(font_or_fonts) == "table" then
         fonts        = font_or_fonts

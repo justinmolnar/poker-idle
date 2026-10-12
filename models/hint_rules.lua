@@ -16,6 +16,7 @@
 -- their array part.
 
 local Stakes        = require("data.stakes")
+local Tooltip = require("services.Tooltip")
 local RunUpgrades   = require("data.run_upgrades")
 local Lookups       = require("utils.lookups")
 local Anchors       = require("services.AnchorRegistry")
@@ -207,6 +208,9 @@ function HintRules.registerAll(reg)
     -- anchors count (the widget drew this frame).
     reg:register("hovering", function(cond, ctx)
         if not (love and love.mouse) then return false end
+        -- The lesson is the tooltip: the wait passes once it is actually
+        -- on screen (its dwell elapsed), not on a pointer brushing past.
+        if not Tooltip.visible() then return false end
         local names = cond.anchor
         if type(names) ~= "table" then names = { names } end
         local fresh = ctx.anchor_fresh

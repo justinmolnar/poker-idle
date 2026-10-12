@@ -35,6 +35,7 @@
 --          save = fn() }
 
 local Timeline  = require("services.Timeline")
+local Tooltip = require("services.Tooltip")
 
 local StoryDirector = {}
 StoryDirector.__index = StoryDirector
@@ -102,6 +103,7 @@ end
 -- a condition arrives into silence.
 function StoryDirector:advance()
     if not self:isHoldingClick() then return false end
+    Tooltip.release()
     self.timeline:advance()
     self.timeline:setLine(nil)
     self._anchor_missing_t = 0
@@ -137,7 +139,13 @@ function StoryDirector:update(dt, ctx, blocked)
     if blocked then return end
 
     if self.beat then
+        local before = self:currentLine()
         self:_drive(dt, ctx)
+        -- A hover lesson's wait just passed: hold the tooltip it opened
+        -- while the next line explains it (released on the click that
+        -- moves on from that line: advance()).
+        local after = self:currentLine()
+        if before and after ~= before and before.wait_hover then Tooltip.hold() end
         return
     end
 
@@ -240,6 +248,7 @@ function StoryDirector:_start(beat, ctx)
         tl:say(t, { beat = beat.id, index = i, text = line.text,
                     anchor = line.anchor, font = line.font,
                     force = line.force, grant = line.grant,
+                    wait_hover = (line.wait and line.wait.kind == "hovering") or nil,
                     -- The box's bottom row: a forced line (one that waits
                     -- on an action) names it (data/story.lua `cue`).
                     forced = (line.force and line.wait ~= nil) or nil,
@@ -305,6 +314,7 @@ function StoryDirector:sayOnce(text)
 end
 
 function StoryDirector:_finish()
+    Tooltip.release()
     local state = self.game.state
     if state and self.beat and not self.beat.transient then
         if state.story_seen  then state.story_seen[self.beat.id] = true end
