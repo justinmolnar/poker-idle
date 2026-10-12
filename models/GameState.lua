@@ -47,7 +47,7 @@ function GameState:new(saved)
     instance.peeled_items    = {}
     instance.ultra_unlocked = false
     instance.onboarded   = false   -- true once the intro how-to-play modal has been dismissed
-    instance.catalog_seen = false  -- true once the post-shove catalog has opened — gates the top-bar CATALOG button (TUTORIAL builds)
+    instance.catalog_seen = false  -- true once the post-shove catalog has opened — gates the top-bar CATALOG button
     -- Tutorial hints already delivered (hint id → true). Meta-side so a
     -- prestige doesn't re-teach; see controllers/HintController.lua.
     instance.hints_seen = {}

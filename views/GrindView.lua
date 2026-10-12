@@ -472,6 +472,7 @@ function GrindView:_buildTablesTabComponents()
     -- per-table cursor switch reads.
     local ctx       = self.controller and self.controller.ctx
     local cursor_on = (ctx and ctx.cursor_unlocked) or false
+    local first_open_row = false   -- "add_table:open" names the first row with open tables
     for _, stake in ipairs(Stakes) do
         -- Bands gate the +ADD-TABLE buttons by milestone (mid after R1,
         -- high after R2, ultra once bought; see stakeVisible →
@@ -607,7 +608,10 @@ function GrindView:_buildTablesTabComponents()
                 anchor       = "add_table:" .. stake.id .. ":" .. gtype_id,
                 -- The row that has banked, under one shared name, for the
                 -- lines about the button that paid.
-                anchor_also  = banked and "add_table:banked" or nil,
+                -- "add_table:open": the first row with open tables, for the
+                -- cursor beat's "right click a table button".
+                anchor_also  = { banked and "add_table:banked" or nil,
+                                 (open_n > 0 and not first_open_row) and "add_table:open" or nil },
                 badge_anchor = banked and "chip_badge:banked" or nil,
                 disabled = disabled,
                 -- The stake row wears its stake's felt — the same color
@@ -649,6 +653,7 @@ function GrindView:_buildTablesTabComponents()
                                     focus = row_pv and row_pv.focus, highlight = row_pv and row_pv.color } or nil,
                 },
             }
+            if open_n > 0 then first_open_row = true end
         end
     end
 
@@ -1360,7 +1365,7 @@ function GrindView:_buildUpgradesTabComponents()
                 up_actions = up_actions or {}
                 local view = self
                 up_actions[#up_actions + 1] = {
-                    id = "info:" .. up.id, label = "i",
+                    id = "info:" .. up.id, label = "i", anchor = "info:" .. up.id,
                     hover_only = true,
                     tint_token = Theme.fg.heading,
                     tooltip_fn = function() return view:_upgradeInfoRows(up) end,
@@ -2944,7 +2949,7 @@ end
 
 -- Sits above the SHOVE button (what you shove against). The tutorial's
 -- hint bubbles speak from it (views/HintView anchors them to "house"),
--- and the "?" help-desk button lives in its corner (TUTORIAL builds).
+-- and the "?" help-desk button lives in its corner.
 -- Drawn from shapes until art lands: a framed poster with a gold-roofed
 -- house glyph.
 -- The House's text box: a fixed rect directly above the poster, the
@@ -2969,7 +2974,7 @@ function GrindView:_houseRect()
         h = HOUSE_H,
     }
 end
--- The "?" badge in the poster's bottom-right corner (TUTORIAL builds only).
+-- The "?" badge in the poster's bottom-right corner.
 function GrindView:_houseHelpBtnRect()
     local r  = self:_houseRect()
     local s  = self.game.ui_scale or 1

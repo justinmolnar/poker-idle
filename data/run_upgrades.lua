@@ -113,8 +113,9 @@ local RunUpgrades = {
         name          = "Cursor",
         description   = "+1 {c:upgrade:cursor}. It deals for you.",
         tooltip_blurb = {
-            "One more {c:upgrade:cursor}. It clicks DEAL for you,",
-            "and {k:REBUY} once the Wacom Tablet is owned.",
+            "One more {c:upgrade:cursor}. It clicks DEAL for you.",
+            "Right click a table, a table button, or this",
+            "upgrade to stop them dealing there.",
         },
         icon          = "cursor",
         requires      = "box_of_mice",

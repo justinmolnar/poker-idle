@@ -7,6 +7,9 @@
 --   pages   a block longer than the box holds is cut into pages, and a
 --           click turns the page (nextPage) before the story moves on
 --   screens on a screen with no grind the box is the same computed rect
+--   breaks  a newline is a line, {page} a page, and a page keeps its breaks
+--   cues    a click line says click; a forced line names its action
+--   pulse   a block records its landing for the border pulse
 --
 -- Standalone: `lua sim/smoke_storybox.lua` from the repo root.
 
@@ -30,6 +33,58 @@ local function frame(line)
     Anchors.set("story:band", 0, 600, 1200, 40)
     sv:draw(line, { holding = true })
     return sv.band_rect
+end
+
+-- A newline is a line; {page} is a page; a page keeps its breaks.
+do
+    local l = { text = "Payouts come in many sizes.\n{w:small} {w:stack}\nKeep playing.", beat = "nl", index = 1 }
+    frame(l)
+    sv:revealAll()
+    local rv = sv._reveal
+    c.eq(#rv.pages, 1, "three short lines fit one page")
+    local n = select(2, rv.pages[1]:gsub("\n", ""))
+    c.eq(n, 2, "the page keeps its two line breaks")
+    local l2 = { text = "First page.{page}Second page.", beat = "pg", index = 1 }
+    frame(l2)
+    c.eq(#sv._reveal.pages, 2, "{page} ends a page")
+    c.eq(sv._reveal.pages[1], "First page.", "the first page is what came before {page}")
+    sv:revealAll()
+    c.ok(sv:nextPage() and sv._reveal.pages[sv._reveal.page] == "Second page.", "the click turns to the second page")
+end
+
+-- The bottom row: a click line says click; a forced line says its cue.
+do
+    local texts
+    local orig_print = love.graphics.print
+    love.graphics.print = function(t, ...) if type(t) == "string" then texts[t] = true end end
+    local function printed(line)
+        frame(line)
+        sv:revealAll()
+        texts = {}
+        frame(line)
+        return texts
+    end
+    local t1 = printed({ text = "Deal.", beat = "cue", index = 1 })
+    c.ok(t1["click anywhere to continue"], "a click line shows the continue cue")
+    local t2 = printed({ text = "Deal.", beat = "cue", index = 2, forced = true, cue = "Deal" })
+    c.ok(t2["Deal"] and not t2["click anywhere to continue"], "a forced line shows its own cue instead")
+    local t3 = printed({ text = "Deal.", beat = "cue", index = 3, forced = true })
+    c.ok(t3["Your move"], "a forced line with no cue says Your move")
+    love.graphics.print = orig_print
+end
+
+-- The landing pulse decays.
+do
+    local Motion = require("services.Motion")
+    local t0 = 100
+    love.timer.getTime = function() return t0 end
+    local l = { text = "Hello.", beat = "pulse", index = 1 }
+    frame(l)
+    local landed = sv._reveal.landed
+    c.ok(landed == t0, "a block records when it landed")
+    love.timer.getTime = function() return t0 + 2 end
+    frame(l)
+    c.ok(sv._reveal.landed == t0, "the landing time holds while the block is up (the pulse has decayed)")
 end
 
 local short = { text = "Deal.", beat = "t", index = 1 }

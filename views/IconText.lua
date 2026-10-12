@@ -199,6 +199,9 @@ local function parseUncached(str, pills)
         elseif token:match("^item:[%w_]+$") then
             -- A catalog item's art at text height ({item:mirror}).
             els[#els + 1] = { kind = "item", id = token:sub(6) }
+        elseif token == "page" then
+            -- A page break in the House's copy (views/StoryView cuts the
+            -- block there before it draws); nothing on the line itself.
         else
             local pre, name = token:match("^(%w+):(%w+)$")
             name = name or token

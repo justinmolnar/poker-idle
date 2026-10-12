@@ -1042,6 +1042,11 @@ local function buttonFace(fx, fy, fw, fh)
             m.hovered    = act.id and HoverSvc.is("button", act.id)
             m.press_alpha = (act.id and ClickFlash.alpha("button", act.id)) or 0
             MiniButton.draw(m)
+            -- A named action (the upgrade's "i") is a hint target.
+            if act.anchor then
+                local sx, sy = love.graphics.transformPoint(ax, ay)
+                Anchors.set(act.anchor, sx, sy, size, size)
+            end
         end
     end
 end
@@ -1157,7 +1162,13 @@ function CR._button(comp, px, pw, p, y, game)
         local sx, sy = love.graphics.transformPoint(px + p, y)
         Anchors.set(comp.anchor, sx, sy, content_w, total_h)
         -- A second, shared name for the same rect (e.g. add_table:banked).
-        if comp.anchor_also then Anchors.set(comp.anchor_also, sx, sy, content_w, total_h) end
+        if comp.anchor_also then
+            if type(comp.anchor_also) == "table" then
+                for _, name in pairs(comp.anchor_also) do Anchors.set(name, sx, sy, content_w, total_h) end
+            else
+                Anchors.set(comp.anchor_also, sx, sy, content_w, total_h)
+            end
+        end
     end
     -- The overlay: a second button straddling this one's top edge.
     if comp.overlay then

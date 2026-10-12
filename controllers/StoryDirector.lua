@@ -239,7 +239,11 @@ function StoryDirector:_start(beat, ctx)
         if line.show then tl:wait(t, line.show) end
         tl:say(t, { beat = beat.id, index = i, text = line.text,
                     anchor = line.anchor, font = line.font,
-                    force = line.force, grant = line.grant })
+                    force = line.force, grant = line.grant,
+                    -- The box's bottom row: a forced line (one that waits
+                    -- on an action) names it (data/story.lua `cue`).
+                    forced = (line.force and line.wait ~= nil) or nil,
+                    cue = line.cue })
         local hold = line.hold
         if hold == nil and line.wait == nil then hold = "click" end
         if hold == "click" then
@@ -265,6 +269,26 @@ function StoryDirector:_start(beat, ctx)
     -- Land the first line now rather than a tick later.
     tl:update(0, self:_blockedFn(ctx))
     if tl:isDone() then self:_finish() end
+end
+
+-- Dev: play a beat on demand, whatever its trigger, in story order (step
+-- +1 the next, -1 the previous), from its first line. The beat is played
+-- as a transient copy, so it is never marked seen and never un-armed; a
+-- beat on another screen waits until the player is there, as usual.
+-- Returns the beat's id, or nil with nothing to play.
+function StoryDirector:replay(step)
+    local beats = self.story and self.story.beats
+    if not (beats and #beats > 0) then return nil end
+    local n = #beats
+    local i = ((self._replay_i or 0) + (step or 1) - 1) % n + 1
+    self._replay_i = i
+    local src = beats[i]
+    local beat = {}
+    for k, v in pairs(src) do beat[k] = v end
+    beat.transient = true
+    self.beat, self.timeline = nil, nil
+    self:_start(beat, self._last_ctx or {})
+    return src.id
 end
 
 -- One line outside the script: an item's house_line when it is clicked

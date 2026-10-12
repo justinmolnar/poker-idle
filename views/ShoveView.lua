@@ -1986,6 +1986,59 @@ end
 -- less margins, 64*s tall (the rail's SHOVE button lives there on the
 -- grind, views/GrindView _buildRailComponents). Kept numerically similar
 -- rather than shared so this view does not require the grind view.
+-- What a click does right now, said at the bottom of the screen: "click
+-- to skip" while the room counts (until it locks) or the pot builds,
+-- "click to speed up" while the hand runs (a click lands it on the next
+-- thing worth reading). Nothing on a hold (CONTINUE is the control),
+-- under the catalog or the flyer, or while the House is talking (the box
+-- takes the click). Muted, pulsing like the box's own cue.
+function ShoveView:skipCue()
+    if self.phase == "room" then
+        return (not self.room_locked) and "click to skip" or nil
+    elseif self.phase == "buildup" then
+        return "click to skip"
+    elseif self.phase == "running" and self.timeline and self.elapsed < self.total_duration then
+        return "click to speed up"
+    end
+    return nil
+end
+
+function ShoveView:_drawSkipCue(W, H)
+    local text = self:skipCue()
+    if not text then return end
+    local host = self.game
+    if host and host.story and host.story.currentLine and host.story:currentLine()
+       and not (host.story.isPaused and host.story:isPaused()) then
+        return
+    end
+    local f = self.fonts and (self.fonts.md or self.fonts.sm)
+    if not f then return end
+    local s  = (host and host.ui_scale) or 1
+    local fl = math.floor
+    -- A plate at the bottom centre: inside the tube's bottom edge while
+    -- the room counts, above the screen's bottom edge on the felt.
+    local pad_x, pad_y = fl(14 * s), fl(6 * s)
+    local pw, ph = f:getWidth(text) + pad_x * 2, f:getHeight() + pad_y * 2
+    local px = fl((W - pw) / 2)
+    local py
+    if self.phase == "room" then
+        local sc = CrtMonitor.layout(W, H).screen
+        py = sc.y + sc.h - fl(sc.h * 0.06) - ph
+    else
+        py = H - fl(22 * s) - ph
+    end
+    local beat = Motion.at("text", Motion.HIGH)
+        and (0.8 + 0.2 * math.sin(love.timer.getTime() * 3)) or 1
+    Theme.setColor(Theme.bg.window, 0.88)
+    love.graphics.rectangle("fill", px, py, pw, ph, fl(4 * s))
+    Theme.setColor(Theme.border.strong, beat)
+    love.graphics.setLineWidth(1)
+    love.graphics.rectangle("line", px + 0.5, py + 0.5, pw - 1, ph - 1, fl(4 * s))
+    love.graphics.setFont(f)
+    Theme.setColor(Theme.fg.heading, beat)
+    love.graphics.print(text, px + pad_x, py + pad_y)
+end
+
 function ShoveView:_continueRect()
     local W, H = love.graphics.getDimensions()
     local s = self.game.ui_scale or 1
@@ -2117,6 +2170,7 @@ function ShoveView:draw()
     end
     if self.phase == "room" then
         self:_drawRoomCount(W, H)
+        self:_drawSkipCue(W, H)
         return
     end
 
@@ -2329,6 +2383,8 @@ function ShoveView:draw()
     if self.ending then
         self:_drawPile()
     end
+
+    self:_drawSkipCue(W, H)
 
     -- Leaving is a deliberate act on a button, never a stray click on the
     -- felt. The button is the grind's SHOVE button: same rect, same face,

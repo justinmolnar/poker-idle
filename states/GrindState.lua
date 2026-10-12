@@ -47,10 +47,7 @@ function GrindState:new(game)
         -- DECK chip; swap is still restricted to the post-shove flow.
         deck_roster_modal  = nil,
         settings_modal     = nil,
-        -- One-page how-to-play. Prototype builds (ONBOARDING_MODAL)
-        -- auto-open it on first grind; TUTORIAL builds never show it —
-        -- their "?" opens the hint log instead.
-        -- The glossary behind "?" on the House poster (TUTORIAL builds).
+        -- The glossary behind "?" on the House poster.
         -- A slide-in side panel, NOT a modal — the grind stays visible
         -- so hovering a log entry can spotlight its targets in-game.
         help_panel         = nil,

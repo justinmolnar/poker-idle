@@ -36,6 +36,8 @@ StoryView.__index = StoryView
 local PAD_BASE    = 10
 local WORDS_PER_SEC = 9     -- typewriter reveal rate (the speaking cadence)
 local CUE_TEXT    = "click anywhere to continue"
+local FORCE_CUE   = "Your move"   -- a forced line with no cue of its own
+local PULSE_SECS  = 0.5           -- the box's border brightens as a block lands
 
 function StoryView:new(game)
     return setmetatable({
@@ -103,15 +105,19 @@ function StoryView:draw(line, opts)
     local rv = self._reveal
     if not rv or rv.key ~= key or rv.w ~= pw then
         local text = StoryDynamic.resolve(game, tostring(line.text))
-        rv = { key = key, text = text, page = 1, w = pw }
-        -- Cut into pages of the lines the box holds.
-        local all = HintView.wrapLines(text, font, pw - pad * 2)
+        rv = { key = key, text = text, page = 1, w = pw, landed = love.timer.getTime() }
+        -- Pages: the block is cut at every {page} first, then each part
+        -- into pages of the lines the box holds. A page keeps its own
+        -- line breaks (a newline in the copy is a line, not a space).
         local per = math.max(1, fl((ph - pad * 2 - cue_h) / lh))
         rv.pages = {}
-        for i = 1, #all, per do
-            local pg = {}
-            for j = i, math.min(#all, i + per - 1) do pg[#pg + 1] = all[j] end
-            rv.pages[#rv.pages + 1] = table.concat(pg, " ")
+        for part in (text .. "{page}"):gmatch("(.-){page}") do
+            local all = HintView.wrapLines(part, font, pw - pad * 2)
+            for i = 1, #all, per do
+                local pg = {}
+                for j = i, math.min(#all, i + per - 1) do pg[#pg + 1] = all[j] end
+                rv.pages[#rv.pages + 1] = table.concat(pg, "\n")
+            end
         end
         if #rv.pages == 0 then rv.pages[1] = "" end
         self._reveal = rv
@@ -131,15 +137,29 @@ function StoryView:draw(line, opts)
         rv.shown = math.min(#rv.words, math.floor(rv.acc))
     end
     local typing = rv.shown < #rv.words
-    local shown_lines = HintView.wrapLines(
-        typing and table.concat(rv.words, " ", 1, rv.shown) or rv.pages[rv.page],
-        font, pw - pad * 2)
-    if typing and rv.shown == 0 then shown_lines = {} end
+    -- The words shown so far, with the page's line breaks kept (a word is
+    -- "\n" where the copy broke the line).
+    local shown_lines
+    if typing then
+        shown_lines = (rv.shown == 0) and {}
+            or HintView.wrapLines((table.concat(rv.words, " ", 1, rv.shown):gsub(" ?\n ?", "\n")), font, pw - pad * 2)
+    else
+        shown_lines = HintView.wrapLines(rv.pages[rv.page], font, pw - pad * 2)
+    end
 
+    -- The landing: the border brightens the moment a block lands and
+    -- settles back over PULSE_SECS, so the eye finds the box. Still below
+    -- Medium motion.
+    local pulse = 0
+    if Motion.at("text", Motion.MEDIUM) then
+        pulse = math.max(0, 1 - (love.timer.getTime() - (rv.landed or 0)) / PULSE_SECS)
+    end
     Theme.setColor(Theme.bg.window, 0.96)
     love.graphics.rectangle("fill", px, py, pw, ph, fl(4 * s))
-    Theme.setColor(Theme.border.strong)
-    love.graphics.setLineWidth(Theme.space.line_strong or 2)
+    local bc, hc = Theme.border.strong, Theme.fg.heading
+    love.graphics.setColor(bc[1] + (hc[1] - bc[1]) * pulse, bc[2] + (hc[2] - bc[2]) * pulse,
+                           bc[3] + (hc[3] - bc[3]) * pulse, 1)
+    love.graphics.setLineWidth((Theme.space.line_strong or 2) + fl(2 * s * pulse))
     love.graphics.rectangle("line", px, py, pw, ph, fl(4 * s))
     love.graphics.setLineWidth(1)
 
@@ -170,29 +190,44 @@ function StoryView:draw(line, opts)
         IconText.draw(game, l, px + pad, ty + (i - 1) * lh, font, Theme.fg.heading)
     end
 
-    -- The advance affordance: play is blocked while a line is up, and any
-    -- click continues, so the cue says exactly that, centred in the
-    -- reserved bottom row and pulsing hard enough to be found. A page with
-    -- more after it waits on a click too, line held or not.
-    if (opts.holding or rv.page < #rv.pages) and not typing then
+    -- The bottom row says what moves things on. A click line: the muted
+    -- "click anywhere to continue". A FORCED line, on its last page: the
+    -- action it waits for (line.cue, or "Your move") in the chip gold,
+    -- pulsing. A page with more after it waits on a click too.
+    if not typing then
         local cf  = fonts.sm
-        local cw  = cf:getWidth(CUE_TEXT)
-        local pulse = Motion.at("text", Motion.HIGH)
-            and (0.55 + 0.35 * math.sin(love.timer.getTime() * 3)) or 0.8
-        love.graphics.setFont(cf)
-        Theme.setColor(Theme.fg.muted, pulse)
-        love.graphics.print(CUE_TEXT,
-            fl(px + (pw - cw) / 2), py + ph - pad - cf:getHeight())
+        local more = rv.page < #rv.pages
+        local text, color
+        if line.forced and not more then
+            text, color = line.cue or FORCE_CUE, (Theme.currency and Theme.currency.chip) or Theme.sem.chip or Theme.fg.heading
+        elseif opts.holding or more then
+            text, color = CUE_TEXT, Theme.fg.heading
+        end
+        if text then
+            local cw  = cf:getWidth(text)
+            local beat = Motion.at("text", Motion.HIGH)
+                and (0.55 + 0.35 * math.sin(love.timer.getTime() * 3)) or 0.8
+            love.graphics.setFont(cf)
+            Theme.setColor(color, beat)
+            love.graphics.print(text, fl(px + (pw - cw) / 2), py + ph - pad - cf:getHeight())
+        end
     end
 
     self.band_rect = { x = px, y = py, w = pw, h = ph }
 end
 
--- A page starts its typewriter from nothing.
+-- A page starts its typewriter from nothing. Its line breaks are words of
+-- their own ("\n"), so the reveal keeps them.
 function StoryView:_startPage(rv)
     rv.words = {}
-    for wd in (rv.pages[rv.page] or ""):gmatch("%S+") do rv.words[#rv.words + 1] = wd end
+    local page = rv.pages[rv.page] or ""
+    for para in (page .. "\n"):gmatch("(.-)\n") do
+        for wd in para:gmatch("%S+") do rv.words[#rv.words + 1] = wd end
+        rv.words[#rv.words + 1] = "\n"
+    end
+    rv.words[#rv.words] = nil   -- the trailing break
     rv.shown, rv.acc = 0, 0
+    rv.landed = love.timer.getTime()
 end
 
 -- The block's next page, if it has one: true when it turned a page (the

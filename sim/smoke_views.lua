@@ -615,6 +615,12 @@ do
         sv.room_lights = "on"
         local drew, err = pcall(function() sv:_drawRoomCount(1600, 900) end)
         c.ok(drew, "the shove's room count draws through the security monitor: " .. tostring(err))
+        -- The skip cue: said while the room counts, not once it has locked.
+        c.eq(sv:skipCue(), "click to skip", "a click skips the room count")
+        sv.room_locked = true
+        c.eq(sv:skipCue(), nil, "no cue once the count has locked")
+        sv.phase = "hold"
+        c.eq(sv:skipCue(), nil, "no cue on a hold (CONTINUE is the control)")
     else
         c.ok(false, "the shove view has a room view to draw the count with")
     end

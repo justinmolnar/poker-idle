@@ -121,9 +121,9 @@ C.DEBUG = {
 C.GAMEPLAY = {
     INITIAL_BANKROLL       = 2,        -- starting $ each run (just barely covers a $0.01/$0.02 buy-in)
     INITIAL_CHIP           = 0,        -- meta currency (Gold Chips) starts at zero
-    -- TUTORIAL builds: SHOVE (button + top-bar %) doesn't exist until the
-    -- first-ever run has banked this many chips — the prestige reveals
-    -- itself with something worth banking. Later runs are ungated.
+    -- SHOVE (button + top-bar %) doesn't exist until the first-ever run
+    -- has banked this many chips: the prestige reveals itself with
+    -- something worth banking. Later runs are ungated.
     SHOVE_UNLOCK_CHIPS     = 3,
     INITIAL_ACTIVE_TABLES  = 0,        -- fresh save / resetRun: no tables opened. Player buys first for the buy-in ($2 at $0.01/$0.02).
     -- The old 0.90 shove-rate soft cap is gone. Shove rate now multi-

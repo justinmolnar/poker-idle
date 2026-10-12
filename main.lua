@@ -9,6 +9,9 @@
 
 local Constants     = require("data.constants")
 local HoldPress = require("services.HoldPress")
+-- The story dim's strength, as a share of the hint dim (views/HintView
+-- DIM_BASE): every House line, forced ones at the full hint dim.
+local STORY_DIM = 0.45
 local Catalog       = require("data.catalog")
 local RunUpgrades   = require("data.run_upgrades")
 
@@ -1082,22 +1085,17 @@ function love.draw()
             Game.hint_view:draw(Game.hints:activeHint(), Game.hints.paused)
             -- Every visible story line dims the screen — the player is in
             -- a conversation and play is input-blocked, so the frame says
-            -- so. Two looks: a line pointing at something on screen gets
-            -- the full spotlight dim with holes over its targets (forced
-            -- or not); a line with nothing to point at (or whose target
-            -- graced away) gets a quarter-strength wash. StoryView then
-            -- draws the marks and the panel over it.
+            -- so. One steady strength for every line, with holes over the
+            -- line's targets when it has any; a FORCED line (one waiting
+            -- on an action) gets the full hint dim, so the strength itself
+            -- says "act". StoryView then draws the marks and the panel.
             do
                 local line = (not Game.story:isPaused())
                              and Game.story:currentLine() or nil
                 if line then
                     local holes = line.anchor
                                   and HintMarks.fresh(line.anchor) or {}
-                    if #holes > 0 then
-                        Game.hint_view:_drawDim(holes)
-                    else
-                        Game.hint_view:_drawDim({}, 0.25)
-                    end
+                    Game.hint_view:_drawDim(holes, line.forced and 1.0 or STORY_DIM)
                 end
             end
             -- The story band, last, so it is never under a hint's dim.

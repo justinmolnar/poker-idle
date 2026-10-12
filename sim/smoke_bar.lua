@@ -361,6 +361,14 @@ do
     c.ok(dm == 0, "an add-table row's switch lets them deal its tables again")
 end
 
+-- ── the Cursor upgrade's tooltip names right-click ──────────────────────
+do
+    local up = Lookups.findById(RunUpgrades, "cursor")
+    local joined = table.concat(up.tooltip_blurb or {}, " ")
+    c.ok(joined:lower():find("right click", 1, true) ~= nil, "the Cursor tooltip says right click")
+    c.ok(not joined:find("REBUY", 1, true), "and no longer mentions REBUY")
+end
+
 -- ── cursor settings carry to new tables ─────────────────────────────────
 do
     local cw = H.world({ bankroll = 1e9 })

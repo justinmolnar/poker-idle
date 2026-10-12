@@ -32,6 +32,17 @@ function InputController:wire()
 
     -- ── keypressed ────────────────────────────────────────────────────────
 
+    -- F8 / Shift+F8: play the next / previous story beat, whatever its
+    -- trigger (StoryDirector:replay), to check every line's copy, split,
+    -- highlight and cue in place.
+    dispatcher:on("keypressed",
+        function(key) return key == "f8" and game.story ~= nil end,
+        function()
+            local back = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+            local id = game.story:replay(back and -1 or 1)
+            print("[story] replay " .. tostring(id))
+        end)
+
     -- F2: toggle grind ↔ shove. Useful while iterating on either screen.
     dispatcher:on("keypressed",
         function(key) return key == "f2" end,

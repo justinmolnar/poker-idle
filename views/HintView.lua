@@ -70,7 +70,9 @@ function HintView:new(game)
 end
 
 -- Word-wrap `str` (with inline {icon} markers) to max_w using IconText
--- measurement. Returns the line list + the widest line's width.
+-- measurement. A newline in `str` always starts a line (the House's beats
+-- break their own lines: data/story.lua). Returns the line list + the
+-- widest line's width.
 local function wrapLines(str, font, max_w)
     local space_w = font:getWidth(" ")
     local lines, widest = {}, 0
@@ -82,18 +84,20 @@ local function wrapLines(str, font, max_w)
             line, line_w = nil, 0
         end
     end
-    for word in str:gmatch("%S+") do
-        local ww = IconText.measure(word, font)
-        if not line then
-            line, line_w = word, ww
-        elseif line_w + space_w + ww <= max_w then
-            line, line_w = line .. " " .. word, line_w + space_w + ww
-        else
-            flush()
-            line, line_w = word, ww
+    for para in (str .. "\n"):gmatch("(.-)\n") do
+        for word in para:gmatch("%S+") do
+            local ww = IconText.measure(word, font)
+            if not line then
+                line, line_w = word, ww
+            elseif line_w + space_w + ww <= max_w then
+                line, line_w = line .. " " .. word, line_w + space_w + ww
+            else
+                flush()
+                line, line_w = word, ww
+            end
         end
+        flush()
     end
-    flush()
     return lines, widest
 end
 

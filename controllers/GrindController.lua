@@ -2548,7 +2548,7 @@ function GrindController:wouldStrandRun(cost)
     return (self.game.state.bankroll - cost) < cheapest
 end
 
--- TUTORIAL builds hide SHOVE entirely until the first-ever run banks
+-- SHOVE is hidden entirely until the first-ever run banks
 -- SHOVE_UNLOCK_CHIPS — the prestige reveals itself when there's something
 -- worth banking (the shove_ready hint fires at the same moment). Anyone
 -- who has shoved before keeps the button from hand one. No softlock:
