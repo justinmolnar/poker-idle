@@ -1503,6 +1503,7 @@ function GrindController:update(dt)
                         self:itemFired("stack_chip_add", t)
                         self:itemFired("chip_award_mult", t)
                         state.chips_this_run = state.chips_this_run + award
+                        state.chips = state.chips + award   -- banked now; the run's count is for the shove gate and the take
                         -- Bounty Hunter levels on chips banked; its Stack
                         -- shift keys on which lanes are still unbanked,
                         -- so the rollup has to see this bank now.
@@ -1521,6 +1522,7 @@ function GrindController:update(dt)
                         local cp = self:bountyAward(t.stake_id, t.game_type_id, { roll = true })
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
+                            state.chips = state.chips + cp
                             state.total_chips_banked = (state.total_chips_banked or 0) + cp
                             self:_recordBountyPaid(key, cp)
                         end
@@ -1956,11 +1958,12 @@ function GrindController:update(dt)
                         end
                         self:itemFired("stack_chip_add", tbl)
                         self:itemFired("chip_award_mult", tbl)
-                        -- Pending chips — commit to state.chips at SHOVE
-                        -- time. The float is the satisfying "you locked a
-                        -- bounty" signal; the top bar's chip figure stays
-                        -- static until shove pulls the trigger on banking.
+                        -- Banked now: the chips are meta and nothing
+                        -- spends them before the catalog, so the count
+                        -- on the rail moves as the float lands. The run's
+                        -- own count stays for the shove gate and the take.
                         state.chips_this_run = state.chips_this_run + award
+                        state.chips = state.chips + award
                         -- Bounty Hunter levels on chips banked; its Stack
                         -- shift keys on which lanes are still unbanked,
                         -- so the rollup has to see this bank now.
@@ -1989,6 +1992,7 @@ function GrindController:update(dt)
                         local cp = self:bountyAward(tbl.stake_id, tbl.game_type_id, { roll = true })
                         if cp > 0 then
                             state.chips_this_run = state.chips_this_run + cp
+                            state.chips = state.chips + cp
                             state.total_chips_banked = (state.total_chips_banked or 0) + cp
                             self:_recordBountyPaid(key, cp)
                             self.game.floating_text.emit(
@@ -2592,7 +2596,7 @@ end
 -- perks, rebuild the pool. Caller persists.
 function GrindController:quickReset()
     local state = self.game.state
-    state.chips = state.chips + (state.chips_this_run or 0)
+    -- The chips were banked as they were won; the anti-chips bank here.
     state.anti_chips = (state.anti_chips or 0) + (state.anti_chips_this_run or 0)
     state:resetRun()
     self:invalidateEffects()
@@ -3591,21 +3595,20 @@ end
 
 -- SHOVE-button intent: the COMMIT. Banks the run's pending chips (locked-in
 -- bounties only convert to spendable chips if the player actually pulls the
--- trigger), zeroes the pending counters IN THE SAME WRITE, records the
+-- trigger), zeroes the run's counters IN THE SAME WRITE, records the
 -- commit in state.shove_pending, saves, and flips the state machine to the
 -- gauntlet. The zero + shove_pending + immediate save are load-bearing:
 -- autosave and love.quit both fire from the shove screen, and before this a
--- save written there carried banked chips AND a still-pending
--- chips_this_run AND the un-reset run — close on the shove screen, reload,
--- and the same run re-banked the same chips forever. Now the bank and the
--- spend of the run are one atomic fact on disk; the shove screen reads the
--- banked amount from shove_pending.chips for its readout, and TitleState
--- routes a save with shove_pending straight back into the shove.
+-- save written there carried the anti-chips AND a still-pending run count
+-- AND the un-reset run — close on the shove screen, reload, and the same
+-- run re-banked forever. Now the run's end is one atomic fact on disk; the
+-- shove screen reads the run's chips from shove_pending.chips for its
+-- take and its readout (they were banked as they were won), and
+-- TitleState routes a save with shove_pending straight back into the shove.
 function GrindController:initiateShove()
     local state = self.game.state
     local banked      = state.chips_this_run or 0
     local anti_banked = state.anti_chips_this_run or 0
-    state.chips      = state.chips + banked
     state.anti_chips = (state.anti_chips or 0) + anti_banked
     state.chips_this_run      = 0
     state.anti_chips_this_run = 0

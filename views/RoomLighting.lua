@@ -19,9 +19,47 @@ local ShoveDecor = require("views.ShoveDecor")
 local Lights     = require("data.room_lights")
 
 local Motion     = require("services.Motion")
+local ShaderRegistry = require("services.ShaderRegistry")
 local RoomLighting = {}
 
 local _canvas = nil
+local _quad   = nil   -- a 1x1 white image: the shader's quad, with 0..1 tex coords
+
+-- An emitting item's light (shaders/room_light.frag): a pool on the floor
+-- at its foot, an iso ellipse, and the thing itself lit. `r` is the item's
+-- rect (room space), `e` its entry in data/room_lights.lua. Without the
+-- shader (it failed to compile) the old disc stands in.
+local function drawEmitter(r, e, alpha, anim)
+    local R  = r.w * e.radius                       -- the reach, as the disc had it
+    local cx = r.x + r.w * 0.5
+    local foot = r.y + r.h * 0.94                   -- the sprite's bottom, less its padding
+    local shader = _quad and ShaderRegistry.get and ShaderRegistry.get("room_light")
+    if not shader then
+        ShoveDecor.drawLight(cx - R, r.y + r.h * 0.5 - R, R * 2, R * 2, e.color, alpha)
+        return
+    end
+    local prx, pry = R * 1.15, R * 0.55             -- the floor from the iso angle
+    local bcx, bcy = cx, r.y + r.h * 0.5
+    local brx, bry = r.w * 0.85, r.h * 0.70
+    local x0 = cx - math.max(prx, brx)
+    local x1 = cx + math.max(prx, brx)
+    local y0 = math.min(bcy - bry, foot - pry)
+    local y1 = foot + pry
+    local qw, qh = x1 - x0, y1 - y0
+    if qw <= 0 or qh <= 0 then return end
+    ShaderRegistry.apply("room_light", {
+        u_color  = { e.color[1], e.color[2], e.color[3] },
+        u_alpha  = alpha,
+        u_pool_c = { (cx - x0) / qw, (foot - y0) / qh },
+        u_pool_r = { prx / qw, pry / qh },
+        u_body_c = { (bcx - x0) / qw, (bcy - y0) / qh },
+        u_body_r = { brx / qw, bry / qh },
+        u_anim   = anim,
+    })
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(_quad, x0, y0, 0, qw, qh)
+    ShaderRegistry.apply(nil)
+end
 
 -- The fixture's level over seconds since switch-on. Fluorescent: straight
 -- up to the peak, then eases down to 1.0; off is 0 and instant.
@@ -57,6 +95,14 @@ function RoomLighting.draw(room_view, L, W, H)
         if ok and c then _canvas = c end
     end
     if not _canvas then return end
+    if not _quad and love.image and love.image.newImageData then
+        local ok, img = pcall(function()
+            local d = love.image.newImageData(1, 1)
+            d:setPixel(0, 0, 1, 1, 1, 1)
+            return love.graphics.newImage(d)
+        end)
+        if ok and img then _quad = img end
+    end
 
     -- ── The lightmap ───────────────────────────────────────────────
     local prev = love.graphics.getCanvas()
@@ -92,18 +138,17 @@ function RoomLighting.draw(room_view, L, W, H)
     end
 
     if L.emitters ~= false then
-        local now = (love.timer and love.timer.getTime()) or 0
+        local now  = (love.timer and love.timer.getTime()) or 0
+        local anim = Motion.at("shine", Motion.HIGH) and 1 or 0
         for _, r in ipairs(room_view._hit_rects or {}) do
             local id = r.obj and r.obj.id
             local e  = id and Lights.emitters[id]
             if e and (not L.lit or L.lit(id)) then
                 local al = e.alpha
-                if e.pulse and Motion.at("shine", Motion.HIGH) then
+                if e.pulse and anim == 1 then
                     al = al * (1 + e.pulse.amount * math.sin(now * 2 * math.pi / e.pulse.secs))
                 end
-                local d  = r.w * e.radius * 2
-                local cx, cy = r.x + r.w * 0.5, r.y + r.h * 0.5
-                ShoveDecor.drawLight(cx - d * 0.5, cy - d * 0.5, d, d, e.color, al)
+                drawEmitter(r, e, al, anim)
             end
         end
     end

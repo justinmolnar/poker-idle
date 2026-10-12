@@ -239,7 +239,7 @@ return {
                   anchor = { "add_table_chip:s001:zoom", "add_table_chip:s002:zoom", "add_table_chip:s003:zoom",
                              "add_table_chip:s001:hu",   "add_table_chip:s002:hu",   "add_table_chip:s003:hu" } },
                 { text = "Get 3 {chip}, and you'll get your first answer.",
-                  anchor = { "chip_badge:banked", "chip_badge:shove" } },
+                  anchor = { "cell:chips", "chip_badge:banked" } },
                 { text = "While we're here, hover the readout under a table. Go on, don't keep me waiting.",
                   anchor = { "ev:1", "ev:2", "ev:3", "ev:4" },
                   force  = true,
@@ -263,7 +263,7 @@ return {
             screen  = "grind",
             trigger = { kind = "chips_this_run", min = Constants.GAMEPLAY.SHOVE_UNLOCK_CHIPS },
             lines = {
-                { text = "Three! Look at you. So here's your answer.", anchor = "chip_badge:shove" },
+                { text = "Three! Look at you. So here's your answer.", anchor = "cell:chips" },
                 { text = "There's only one way out of here. Straight through the {c:chip:door}.", anchor = "btn:shove" },
                 { text = "But first, you gotta get past me. One hand, everything you have goes in. Winner takes all.",
                   anchor = "btn:shove" },
@@ -373,6 +373,21 @@ return {
                 { text = "Your shot on the SHOVE: items in your room, multiplied by your total bankroll." },
                 { text = "So it's about {chip} now. Every table pays one. Collect, then shove. You'll get it. Next time.",
                   anchor = "room:play" },
+            },
+        },
+
+        -- A11. The book from the desk: the grind's catalog button opens it
+        -- read-only. Looking is free; the order desk is the shove's.
+        {
+            id      = "catalog_browse",
+            screen  = "grind",
+            pause   = true,
+            trigger = { kind = "catalog_open" },
+            lines = {
+                { text = "Window shopping. Look through the book all you like from here.",
+                  anchor = "catalog:book" },
+                { text = "Orders are taken after a shove, not before. Nothing sells on the grind.",
+                  anchor = "catalog:book" },
             },
         },
 

@@ -715,6 +715,7 @@ function love.load()
     ShaderRegistry.loadFromFile("desaturate", "shaders/desaturate.frag")
     ShaderRegistry.loadFromFile("crt", "shaders/crt.frag")
     ShaderRegistry.loadFromFile("spotlight", "shaders/spotlight.frag")
+    ShaderRegistry.loadFromFile("room_light", "shaders/room_light.frag")
 
     if Constants.DEBUG.START_IN_SHOVE then
         Game.state_machine:switch("shove")

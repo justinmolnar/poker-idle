@@ -2243,20 +2243,13 @@ function GrindView:_buildRailComponents()
     rc.bank = bank
     local bankroll = { type = "column", children = { rate, bank } }
 
-    -- ── The chips: banked (yours) and next (this run's, banked when you shove) ──
-    -- The chips on top, what the next shove adds under them, on the
-    -- bottom line with everything else.
+    -- ── The chips: yours, banked as they are won ──
     local count_h = fonts.md:getBaseline()   -- the count's glyphs
     local chips = railStat({ icon = "chip", value = "", h = count_h, valign = "top",
         value_color = Theme.fg.heading, tooltip = CHIPS_TIP,
         w = glyph_w + reserveW(fonts.md, R.reserve.chips) }, face_bottom)
-    local chips_next = railStat({ value = "", value_style = "sm",
-        h = face_bottom - count_h,
-        value_color_token = "faint", value_anchor = "chip_badge:shove",
-        tooltip = CHIPS_TIP,
-        w = reserveW(fonts.sm, R.reserve.next .. " " .. R.labels.next) }, face_bottom)
-    rc.chips, rc.chips_next = chips, chips_next
-    local banked = { type = "column", anchor = "cell:chips", children = { chips, chips_next } }
+    rc.chips = chips
+    local banked = { type = "column", anchor = "cell:chips", children = { chips } }
     local anti
     if state.shove_r2_won then
         local achips = railStat({ icon = "achip", value = "", h = count_h, valign = "top",
@@ -2447,21 +2440,13 @@ function GrindView:_refreshRail()
     if r._q ~= rq then r._q = rq; r.value = TablePanelStats.rateLabel(rv, R.labels.rate_unit) end
     r.value_color = (rv > 0.005 and Theme.sem.won) or (rv < -0.005 and Theme.sem.lost) or Theme.fg.muted
 
-    -- The chips, and what the next shove adds.
-    local pending  = state.chips_this_run or 0
-    local chip_dim = (state.shove_count or 0) == 0 and pending == 0
+    -- The chips: dim until the first one.
     local d_chips  = self.displayed_chips or state.chips or 0
+    local chip_dim = (state.shove_count or 0) == 0 and d_chips < 1
     local c  = rc.chips
     local cq = math.floor(d_chips)
     if c._q ~= cq then c._q = cq; c.value = chipsText(d_chips) end
     c.dim = chip_dim
-    local cn = rc.chips_next
-    if cn._q ~= pending then
-        cn._q = pending
-        cn.value = "+" .. pending .. " " .. R.labels.next
-        cn.value_color_token = (pending > 0) and "chip" or "faint"
-    end
-    cn.dim = chip_dim
     local a = rc.achips
     if a then
         local d_achips = self.displayed_anti_chips or state.anti_chips or 0

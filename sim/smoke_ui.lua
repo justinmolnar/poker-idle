@@ -225,12 +225,12 @@ do
     c.eq(select(3, delta(before)), 0, "...without rebuilding the rail")
     c.ok(view.rail:getComponents()[2]._rl ~= nil, "...and the row layout memo survives the refresh")
 
-    -- The run's chips, and the badge's colour with them.
-    was = rc.chips_next.value
-    g.state.chips_this_run = (g.state.chips_this_run or 0) + 3
-    frame()
-    c.ok(rc.chips_next.value ~= was, "the NEXT badge moved with this run's chips")
-    c.eq(rc.chips_next.value_color_token, "chip", "the NEXT badge is gold with chips pending")
+    -- The chips: banked as they are won, the count moves at once.
+    was = rc.chips.value
+    g.state.chips = (g.state.chips or 0) + 3
+    frame(1)
+    c.ok(rc.chips.value ~= was, "the chip count moved with the bank: " .. tostring(was) .. " -> " .. tostring(rc.chips.value))
+    c.ok(rc.chips_next == nil, "there is no NEXT badge: nothing waits for the shove")
     c.eq(select(3, delta(before)), 0, "the chips leave the rail's shape alone")
 
     -- A readout at rest is not formatted again: the same string object.

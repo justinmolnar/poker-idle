@@ -17,7 +17,7 @@ return {
         -- Live counters an owned item reads, shown only while it is owned:
         hands_s  = "HANDS/S",       -- the board's hands a second (Hybrid Console)
         heaters  = "HEATERS",       -- heaters burning now (Desk Speakers)
-        next     = "NEXT",          -- after the count: "+3 NEXT"
+        next     = "NEXT",          -- after the anti-chip count: "+3 NEXT"
         shove    = "SHOVE",
         deck     = "DECK",          -- the deck button, open with no deck in play yet
         quick_reset = "Quick reset",
@@ -36,17 +36,17 @@ return {
         catalog  = "The catalog. Everything you can buy for your room.",
         cash_out = "Every table's stack back to your bankroll.",
         bankroll = "Your bankroll: the money you play with.",
-        banked   = "Spend them in the catalog; NEXT banks when you shove.",
+        banked   = "Yours to keep. Spend them in the catalog, after a shove.",
         -- FOCUS: the first line, then the numbers the builder formats.
         focus    = "FOCUS is how fast every table plays.",
         focus_ok = "Stays 100%% at or under %d tables.",
         focus_pen = "Each table over drops it %.0f%% (floor %.0f%%).",
         focus_cap = "Hard cap: %d tables.",
         -- SHOVE, unlocked: the lede, the run's take, then the rate breakdown.
-        shove_lede = "One all-in hand at this rate. Win or lose, the run's {chip} bank for the catalog and a new run starts.",
-        shove_take = "Banks +%d {chip} for the catalog.",
+        shove_lede = "One all-in hand at this rate. Win or lose, the catalog opens after and a new run starts.",
+        shove_take = "+%d {chip} this run.",
         shove_lock = "Click to lock this rate.",
-        quick_reset = { "Banks your {chip} and starts over at $2. No Shove." },
+        quick_reset = { "Starts over at $2. No Shove." },
         deck_click  = "Click to see your decks",
         -- The earn rate over the bankroll: the lede, one line per table
         -- (the builder formats the numbers), the run's actual, the graph.

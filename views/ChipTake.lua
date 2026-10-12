@@ -16,7 +16,8 @@
 --           is stable across frames and different from every other
 --   chip    views/Chips.drawGlyph, the currency gold by default
 --   flight  services/Tumble.wrap with the pour's preset (ShoveView passes it)
---   glow    views/ShoveDecor.drawLight, the soft quad the room's emitters use
+--   glow    shaders/radial_glow.frag (the stack-win halo: a white-hot
+--           core, a long soft tail) over the room's light quad
 --   knobs   data/shove_style.lua `take`
 --
 -- Motion: the flights tumble on the "chips" group; at LOW the chips are
@@ -28,6 +29,7 @@ local Decal      = require("services.Decal")
 local Tumble     = require("services.Tumble")
 local Motion     = require("services.Motion")
 local ShoveDecor = require("views.ShoveDecor")
+local ShaderRegistry = require("services.ShaderRegistry")
 local Style      = require("data.shove_style")
 
 local ChipTake = {}
@@ -141,9 +143,10 @@ function ChipTake.done(take)
 end
 
 -- The glow under every landed chip: bright on landing, settling to a
--- faint rest, breathing a little at high motion. Additive, like the
--- room's lightmap; nothing draws when the light quad was never built
--- (the headless stub).
+-- rest, breathing a little at high motion. Additive; through the
+-- stack-win halo shader when it compiled (a white-hot core and a long
+-- soft tail), the plain light quad otherwise. Nothing draws when the
+-- light quad was never built (the headless stub).
 function ChipTake.drawLights(take)
     if not take or not ShoveDecor.hasLight() then return end
     local G = cfg().glow or {}
@@ -151,6 +154,8 @@ function ChipTake.drawLights(take)
     local breathe = Motion.at("shine", Motion.HIGH)
         and (1 + 0.08 * math.sin(take.t * 2.2)) or 1
     local a0, a1, fade = G.alpha or 0.30, G.rest or 0.07, G.fade_secs or 2.5
+    local color  = G.color or Theme.currency.chip
+    local shader = ShaderRegistry.get and ShaderRegistry.get("radial_glow")
     love.graphics.setBlendMode("add")
     for _, c in ipairs(take.chips) do
         if c.landed then
@@ -158,7 +163,13 @@ function ChipTake.drawLights(take)
             local k   = math.min(1, age / fade)
             local a   = (a0 + (a1 - a0) * k) * breathe
             if take.low then a = a * math.min(1, take.t / 0.5) end
-            ShoveDecor.drawLight(c.x - d / 2, c.y - d / 2, d, d, G.color or Theme.currency.chip, a)
+            if shader then
+                ShaderRegistry.apply("radial_glow", { u_color = { color[1], color[2], color[3] }, u_intensity = a })
+                ShoveDecor.drawLight(c.x - d / 2, c.y - d / 2, d, d, { 1, 1, 1 }, 1)
+                ShaderRegistry.apply(nil)
+            else
+                ShoveDecor.drawLight(c.x - d / 2, c.y - d / 2, d, d, color, a)
+            end
         end
     end
     love.graphics.setBlendMode("alpha")

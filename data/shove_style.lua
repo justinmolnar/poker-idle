@@ -275,7 +275,7 @@ return {
         land_pitch  = { from = 0.9, to = 1.4 },
         -- The glow under each landed chip: this bright on landing, settling
         -- to `rest` over fade_secs; diameter d_mult chip radii.
-        glow        = { d_mult = 2.8, alpha = 0.30, rest = 0.07, fade_secs = 2.5,
+        glow        = { d_mult = 3.6, alpha = 0.70, rest = 0.22, fade_secs = 2.5,
                         color = { 1.00, 0.85, 0.35 } },
     },
 
