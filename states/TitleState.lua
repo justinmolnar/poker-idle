@@ -11,10 +11,10 @@
 --   • Exit       — desktop only (a browser tab can't quit itself).
 --   • delete save — a small link in the corner; confirms.
 --
--- Continue and New Game fade the title out over the dark room; the
--- fixture blooms on the room's own curve and the switch happens on the
--- settle, so a new game's "Morning, princess" lands seconds after the
--- tube comes on. At cinematics Low or None the switch is immediate.
+-- Continue and New Game fade the title out over the dark room and cut
+-- on the fade's end (no light comes on: the room is dark in play, the
+-- big light is the shove's count's). At cinematics Low or None the cut
+-- is immediate.
 --
 -- Between clicks the intercom keys up now and then: static, no words
 -- (services/RadioVoice with nothing typing plays the key-up alone) and
