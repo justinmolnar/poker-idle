@@ -45,9 +45,12 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 p) {
     float spill = 1.0 - smoothstep(0.0, 1.0, rp * 0.55 + dither);
     spill = spill * spill * spill;
 
-    // Hot at the source.
+    // Hot at the source. The thing itself is lit near fully whatever its
+    // reach: a monitor in a dark room is a bright screen first, a pool
+    // second. The pool and the spill carry the item's own strength.
     float core = clamp(1.0 - rb * 2.4, 0.0, 1.0);
     vec3  c = mix(u_color, vec3(1.0, 0.98, 0.92), core * 0.45);
-    float a = max(max(pool, spill * 0.45), body) * u_alpha;
-    return vec4(c, a) * color;
+    float lit = max(u_alpha, 0.85);
+    float a = max(max(pool * u_alpha * 1.6, spill * 0.5 * u_alpha), body * lit);
+    return vec4(c, min(a, 1.0)) * color;
 }

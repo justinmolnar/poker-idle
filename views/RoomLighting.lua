@@ -38,9 +38,9 @@ local function drawEmitter(r, e, alpha, anim)
         ShoveDecor.drawLight(cx - R, r.y + r.h * 0.5 - R, R * 2, R * 2, e.color, alpha)
         return
     end
-    local prx, pry = R * 1.15, R * 0.55             -- the floor from the iso angle
+    local prx, pry = R * 1.9, R * 0.95              -- the floor from the iso angle; the disc's reach was R
     local bcx, bcy = cx, r.y + r.h * 0.5
-    local brx, bry = r.w * 0.85, r.h * 0.70
+    local brx, bry = r.w * 1.0, r.h * 0.9
     local x0 = cx - math.max(prx, brx)
     local x1 = cx + math.max(prx, brx)
     local y0 = math.min(bcy - bry, foot - pry)
