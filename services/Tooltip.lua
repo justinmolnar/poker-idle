@@ -114,6 +114,17 @@ function Tooltip.setAvoid(rect)
     _avoid = rect
 end
 
+-- The pointer's own reach from the hot spot, in frame units: the chunky
+-- pixel pointer (with its "?" badge) must never lie on the words. Set by
+-- main.lua from services/PlayerCursor.extents whenever the cursor is
+-- rebuilt; the default spot sits below it, and nothing the placement does
+-- may put the box back under it.
+local _cursor = { left = 0, up = 0, right = 0, down = 0 }
+function Tooltip.setCursorClearance(c)
+    _cursor = { left = c.left or 0, up = c.up or 0, right = c.right or 0, down = c.down or 0 }
+end
+function Tooltip.cursorClearance() return _cursor end
+
 local function intersects(x, y, w, h, r)
     return r ~= nil
        and x < r.x + r.w and x + w > r.x
@@ -334,20 +345,37 @@ function Tooltip.draw(font_or_fonts)
     -- Anchor near cursor; flip to the left if the right edge would clip,
     -- and clamp to screen bounds.
     local screen_w, screen_h = love.graphics.getDimensions()
+    local cur = _cursor
     local x = _t.mx + 14
-    local y = _t.my + 14
+    local y = _t.my + math.max(14, cur.down + 6)
     if x + box_w > screen_w then x = _t.mx - box_w - 8 end
     if x < 4 then x = 4 end
     if y + box_h > screen_h then y = screen_h - box_h - 4 end
     -- The avoid rect wins over the default spot: go above the cursor.
     if intersects(x, y, box_w, box_h, _avoid) then
-        y = _t.my - box_h - 14
+        y = _t.my - cur.up - box_h - 8
     end
     -- So does the asker's own rect: go above it.
     if intersects(x, y, box_w, box_h, _t.clear_of) then
         y = _t.clear_of.y - box_h - 6
     end
     if y < 4 then y = 4 end
+    -- The pointer itself. Wherever the above landed the box (a clamp at
+    -- the screen's edge, a flip), if the pointer's art would cover it,
+    -- move it: above the pointer, else beside it.
+    local cr = { x = _t.mx - cur.left - 2, y = _t.my - cur.up - 2,
+                 w = cur.left + cur.right + 4, h = cur.up + cur.down + 4 }
+    if intersects(x, y, box_w, box_h, cr) then
+        local above = cr.y - box_h - 6
+        if above >= 4 and not intersects(x, above, box_w, box_h, _avoid)
+           and not intersects(x, above, box_w, box_h, _t.clear_of) then
+            y = above
+        elseif cr.x + cr.w + 6 + box_w <= screen_w then
+            x = cr.x + cr.w + 6
+        else
+            x = math.max(4, cr.x - box_w - 6)
+        end
+    end
 
     local placed = {}
     drawBox(rows, x, y, box_w, box_h, fonts, MAX_W, placed)

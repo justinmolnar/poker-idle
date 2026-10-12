@@ -191,6 +191,25 @@ local function releaseSet(set)
     end
 end
 
+-- How far the pointer's art reaches from the hot spot, in screen pixels,
+-- the largest of every kind (a badge makes the "?" pointer the widest):
+-- { left, up, right, down }. The tooltip keeps its words clear of this
+-- (services/Tooltip.setCursorClearance). `px` defaults to the size the
+-- set was built at, else the window's.
+function PlayerCursor.extents(px)
+    px = px or _px or PlayerCursor.pixelSize(love.graphics and love.graphics.getHeight and love.graphics.getHeight())
+    local e = { left = 0, up = 0, right = 0, down = 0 }
+    for kind in pairs(Cfg.kinds) do
+        local a = PlayerCursor.art(kind)
+        e.left  = math.max(e.left,  a.hot[1] - 1)
+        e.up    = math.max(e.up,    a.hot[2] - 1)
+        e.right = math.max(e.right, a.w - a.hot[1] + 1)
+        e.down  = math.max(e.down,  a.h - a.hot[2] + 1)
+    end
+    for k, v in pairs(e) do e[k] = v * px end
+    return e
+end
+
 function PlayerCursor.available()
     return (love.mouse and love.mouse.newCursor and love.mouse.setCursor and love.image
             and love.image.newImageData) and true or false

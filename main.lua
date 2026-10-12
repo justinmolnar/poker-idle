@@ -188,6 +188,17 @@ local function unitsToFrame(x, y)
     return (x * d - ox) / s, (y * d - oy) / s, s / d
 end
 
+-- The pointer's reach, in frame units, for the tooltip to keep clear of
+-- (services/Tooltip.setCursorClearance). Re-read whenever the cursor set
+-- is rebuilt: its pixel size follows the window's height.
+local function syncCursorClearance()
+    local ext = require("services.PlayerCursor").extents()
+    if not ext then return end
+    local s = fitTransform()
+    s = (s and s > 0) and s or 1
+    Tooltip.setCursorClearance({ left = ext.left / s, up = ext.up / s, right = ext.right / s, down = ext.down / s })
+end
+
 love.graphics.getDimensions = function() return BASE_W, BASE_H end
 love.graphics.getWidth      = function() return BASE_W end
 love.graphics.getHeight     = function() return BASE_H end
@@ -674,6 +685,7 @@ function love.load()
     end
     -- The player's chunky pixel cursor (services/PlayerCursor).
     require("services.PlayerCursor").apply()
+    syncCursorClearance()
     Game.sprite_loader:loadAll()
     -- The loader indexes every file but decodes none of them: most of the
     -- furniture kit is never placed. Decode up front only what is on screen
@@ -1204,6 +1216,7 @@ function love.resize(w, h)
     w, h = love.graphics.getDimensions()
     -- The cursor follows the window's size (rebuilt only when it changes).
     require("services.PlayerCursor").apply()
+    syncCursorClearance()
     if Game.viewport then
         Game.viewport.w, Game.viewport.h = w, h
     end
