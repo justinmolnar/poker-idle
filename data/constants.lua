@@ -15,9 +15,9 @@ local C = {}
 -- Things that always run regardless of this flag: auto-save, the title
 -- screen, the dealer-always-cheats outcome.
 --
--- itch/web builds ship whatever is committed here — build_web.py is a
--- pure packager, it rewrites nothing. Set to true before building the
--- demo for itch.
+-- Committed false, always. The build tool (build-tools/build.py --demo)
+-- sets it true on its staged copy of the source, never here, and cuts the
+-- Act 2 data out of that copy (build-tools/demo_cut.py).
 C.DEMO = false
 -- A playtest build: the demo cut with the hand log on. Stamped by the
 -- build tool, never committed true.

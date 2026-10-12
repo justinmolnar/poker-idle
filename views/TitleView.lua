@@ -353,6 +353,7 @@ function TitleView:_menuItems(has_save)
     if has_save then items[#items + 1] = { id = "continue", label = "Continue" } end
     items[#items + 1] = { id = "new",      label = "New Game" }
     items[#items + 1] = { id = "settings", label = "Settings" }
+    items[#items + 1] = { id = "credits",  label = "Credits" }
     if isDesktop() then items[#items + 1] = { id = "exit", label = "Exit" } end
     return items
 end

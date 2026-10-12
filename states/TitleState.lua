@@ -23,6 +23,7 @@
 local Theme         = require("views.Theme")
 local ConfirmDialog = require("views.widgets.ConfirmDialog")
 local SettingsModal = require("views.SettingsModal")
+local CreditsPanel  = require("views.CreditsPanel")
 local TitleView     = require("views.TitleView")
 local Constants     = require("data.constants")
 local SoundService  = require("services.SoundService")
@@ -50,6 +51,7 @@ function TitleState:new(game)
         _chip_played   = false,
         _confirm       = nil,
         settings_modal = nil,
+        credits_panel  = nil,      -- the Credits menu item (views/CreditsPanel)
     }, TitleState)
 end
 
@@ -64,6 +66,7 @@ function TitleState:enter()
     self._chip_played  = false
     self._confirm      = nil
     self.settings_modal = nil
+    self.credits_panel = nil
     self.view:reset()
 end
 
@@ -145,6 +148,7 @@ function TitleState:draw()
         room_view = self:_roomView(),
     }
     if self.settings_modal then self.settings_modal:draw() end
+    if self.credits_panel then self.credits_panel:draw() end
     if self._confirm then self._confirm:draw(self.game.fonts) end
 end
 
@@ -207,6 +211,10 @@ local BUTTON_HANDLERS = {
         self.settings_modal = SettingsModal:new(self.game, { menu = true })
         require("services.SoundService").playNamed("modal_open")
     end,
+    credits = function(self)
+        self.credits_panel = CreditsPanel:new(self.game)
+        require("services.SoundService").playNamed("modal_open")
+    end,
     exit = function(self)
         self._confirm = ConfirmDialog:new{
             prompt        = "Quit the game?",
@@ -241,10 +249,16 @@ function TitleState:closeSettings()
     self.settings_modal = nil
 end
 
+function TitleState:closeCredits()
+    if self.credits_panel then require("services.SoundService").playNamed("modal_close") end
+    self.credits_panel = nil
+end
+
 -- ── Input ─────────────────────────────────────────────────────────────
 
 function TitleState:mousepressed(x, y, button)
     if SettingsModal.route(self, "mousepressed", x, y, button) then return end
+    if CreditsPanel.route(self, "mousepressed", x, y, button) then return end
     if self._confirm then
         self._confirm:consumeMouse(x, y, button)
         if self._confirm:resolved() then self._confirm = nil end
@@ -265,19 +279,23 @@ function TitleState:mousepressed(x, y, button)
 end
 
 function TitleState:mousereleased(x, y, button)
-    SettingsModal.route(self, "mousereleased", x, y, button)
+    if SettingsModal.route(self, "mousereleased", x, y, button) then return end
+    CreditsPanel.route(self, "mousereleased", x, y, button)
 end
 
 function TitleState:mousemoved(x, y)
-    SettingsModal.route(self, "mousemoved", x, y)
+    if SettingsModal.route(self, "mousemoved", x, y) then return end
+    CreditsPanel.route(self, "mousemoved", x, y)
 end
 
 function TitleState:wheelmoved(x, y)
-    SettingsModal.route(self, "wheelmoved", x, y)
+    if SettingsModal.route(self, "wheelmoved", x, y) then return end
+    CreditsPanel.route(self, "wheelmoved", x, y)
 end
 
 function TitleState:keypressed(key)
     if SettingsModal.route(self, "keypressed", key) then return end
+    if CreditsPanel.route(self, "keypressed", key) then return end
     if self._confirm then
         self._confirm:consumeKey(key)
         if self._confirm:resolved() then self._confirm = nil end

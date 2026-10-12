@@ -1,0 +1,54 @@
+I HARDLY KNOW'ER
+(c) 2026 Justin Molnar. All rights reserved.
+
+A `covers:` line credits a whole folder or pack as one (build-tools/credits.py
+drops these lines from the shipped text and uses them for coverage). A TODO
+fails a demo or release build until it is filled in.
+
+ENGINE
+  LÖVE (love2d.org) — zlib/libpng licence. The desktop build runs LÖVE 12;
+  the web build runs love.js 11.4 (Davidobot, MIT), the Emscripten port.
+  SDL, OpenAL Soft, LuaJIT and the rest of LÖVE's dependencies under their
+  own licences: see license.txt beside the game.
+
+MUSIC
+covers: assets/audio/music/
+  TODO: the ten noir tracks (Saxophone in the Rain … Case Closed) — the
+  pack's name, its author, the licence it was bought under.
+
+ROOM ART
+covers: assets/sprites/TinyHouse
+  TinyHouse 0.17 by @Pixel_Salvaje — TODO: the store page and the licence.
+
+CARDS
+covers: assets/sprites/cards/
+  TODO: the card fronts and backs — author, source, licence.
+
+FONT
+  Thin Sans (assets/fonts/Thin Sans.ttf) — TODO: author and licence.
+
+CASINO SOUNDS
+covers: assets/audio/uVegas
+covers: assets/audio/felt/card_degraded_
+  uVegas Authentic Casino Chips & Cards Sounds v1.0 (uvegas.online) — a
+  purchased pack, royalty-free for commercial use; every chip, card and coin
+  on the felt. The degraded card deals (felt/card_degraded_1..3) are
+  rendered in-house from its card deal.
+
+THE INTERCOM
+covers: assets/audio/radio/
+  TODO: the intercom's static and voice (noise9.wav, voice1.wav) — made
+  in-house, or their source.
+
+OTHER SOUNDS
+covers: assets/audio/whoosh.mp3
+covers: assets/audio/flip_card.mp3
+covers: assets/audio/impact_heavy.mp3
+covers: assets/audio/positive_ding.mp3
+covers: assets/audio/shuffle.mp3
+  TODO: whoosh.mp3 (the room's numbers lifting off) and the four loose
+  MP3s beside it — source and licence, or drop the unused four.
+
+Felt, interface, music-bed, room and item sounds: Freesound (CC0) and
+Pixabay (Content License) recordings, each credited below — processed
+in-house (cropped, faded, levelled).

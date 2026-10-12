@@ -2723,7 +2723,8 @@ function GrindController:addTable(stake_id, game_type_id)
     -- Defensive gate re-check, like buyCatalogItem re-checks its unlock:
     -- the strip hides locked tabs from clicks, but nothing else should
     -- trust the view.
-    if not self:gtypeAvailable(game_type_id or "six_max") then return false end
+    game_type_id = game_type_id or GameTypes[1].id
+    if not self:gtypeAvailable(game_type_id) then return false end
     local stake = Lookups.findById(Stakes,stake_id)
     if not stake then return false end
     local mult = self:buyInMultFor(stake)
@@ -2739,7 +2740,7 @@ function GrindController:addTable(stake_id, game_type_id)
     st.stakes_opened_this_run = st.stakes_opened_this_run or {}
     local first_at_stake = not st.stakes_opened_this_run[stake_id]
     st.stakes_opened_this_run[stake_id] = true
-    local new_tbl = self.pool:addTable(stake_id, game_type_id or "six_max", self.ctx)
+    local new_tbl = self.pool:addTable(stake_id, game_type_id, self.ctx)
     self:invalidateEffects()
     if new_tbl then
         new_tbl._opened_clock = self.clock or 0   -- the Wall Clock's age

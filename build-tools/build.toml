@@ -1,0 +1,21 @@
+# build-tools/build.toml — what the build stamps and where it publishes.
+# Committed; nothing secret lives here (steamcmd asks for its own password).
+
+# The store page the demo's WISHLIST sticker opens (title screen, the
+# flyer). Empty: no sticker.
+steam_url = ""
+
+[steam]
+# Your Steamworks login, the demo's app and depot ids (Steamworks → the
+# demo app → SteamPipe → Depots). The full game's ids go in app_id/depot_id.
+user          = ""
+demo_app_id   = ""
+demo_depot_id = ""
+app_id        = ""
+depot_id      = ""
+# steamcmd = "C:/steamcmd/steamcmd.exe"   # when it is not on PATH
+
+[itch]
+# user/game on itch.io, as butler names it.
+target = ""
+# butler = "C:/butler/butler.exe"         # when it is not on PATH

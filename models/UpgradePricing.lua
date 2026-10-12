@@ -199,7 +199,11 @@ function UpgradePricing.apply(run_upgrades, registry)
     local roundSig = UpgradePricing.roundPrice
 
     for _, u in ipairs(run_upgrades) do
-        if u.fill_scaled then
+        if u.costs and u.max_level then
+            -- Already priced: the demo cut writes the full game's ladder
+            -- into the data (build-tools/demo_cut.py), so a build with
+            -- fewer stakes prices exactly as the full game does.
+        elseif u.fill_scaled then
             local mult = u.cost_mult or 1
             u.costs = {}
             for L = 1, max_level do u.costs[L] = roundSig(base[L] * mult) end

@@ -1,0 +1,13 @@
+# build-tools/engine.lock — the LÖVE 12 build the win64 target is made from.
+# build.py refuses a zip whose sha256 is not this one, so every desktop
+# build runs the engine that was played through. To move to a newer build:
+# fetch it (docs/build.md), unpack it, update the three fields, play it
+# through, commit.
+label  = "love-12.0-win64 nightly, love2d/love main 4e167072 (2026-08-26, CI run 32927750822)"
+zip    = "C:/love12/love-12.0-win64.zip"
+sha256 = "686e421fb5e8f4044a8f703a47cfe09e1b38c403189d589a46c8d7d25c08eb4e"
+dir    = "C:/love12/engine/love-12.0-win64"
+
+# Version info rcedit writes onto the exe (when build-tools/bin/rcedit-x64.exe is present).
+company   = "Justin Molnar"
+copyright = "(c) 2026 Justin Molnar"

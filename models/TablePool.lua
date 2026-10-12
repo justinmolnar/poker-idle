@@ -88,9 +88,10 @@ function TablePool:restoreFromState(ctx)
         end
         if stake_ok and gtype_id then
             -- An unknown gtype (a deprecated mode from a prior build)
-            -- downgrades to six_max so the table can still be rebuilt.
+            -- downgrades to the first game type so the table can still
+            -- be rebuilt.
             if not gtypeExists(gtype_id) then
-                rec = setmetatable({ game_type_id = "six_max" }, { __index = rec })
+                rec = setmetatable({ game_type_id = GameTypes[1].id }, { __index = rec })
             end
             local t = Table.restore(rec, ctx, self.poker_events,
                                     self.effects_registry, self.bus)

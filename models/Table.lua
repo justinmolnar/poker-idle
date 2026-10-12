@@ -149,7 +149,7 @@ function Table:new(stake_id, game_type_id, ctx, poker_events, effects_registry, 
     local self = setmetatable({
         _id           = id,
         stake_id      = stake_id,
-        game_type_id  = game_type_id or "six_max",
+        game_type_id  = game_type_id or GameTypesData[1].id,
         opponents     = {},
         state         = "idle",
         state_timer   = 0,
