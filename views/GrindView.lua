@@ -2244,10 +2244,11 @@ function GrindView:_buildRailComponents()
     local bankroll = { type = "column", children = { rate, bank } }
 
     -- ── The chips: yours, banked as they are won ──
-    -- A readout like the bankroll: the count big, the chip beside it at
-    -- the same size, on the bottom line with the money.
+    -- One readout with nothing over it: the count big, the chip beside
+    -- it at the same size, centred in the rail's height like the button
+    -- next to it (the bankroll sits low because its rate sits over it).
     local chips = railStat({ icon = "chip", value = "", value_style = "lg",
-        h = face_bottom, align = "center",   -- the whole height, bottom-aligned: its baseline is the money's
+        h = face_bottom, align = "center", valign = "center",
         value_color = Theme.fg.heading, tooltip = CHIPS_TIP,
         w = fl(fonts.lg:getHeight() * SP.stat_glyph) + SP.stat_pad + reserveW(fonts.lg, R.reserve.chips) }, face_bottom)
     rc.chips = chips
