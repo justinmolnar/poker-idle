@@ -3,7 +3,7 @@
 -- The House's security monitor (views/CrtMonitor) for the room before the
 -- shove:
 --   layout   the case sits inside the frame, the screen inside the case,
---            at the frame's aspect, at a few window sizes
+--            and the picture's cropped band matches the screen's aspect
 --   draw     headless (no shader), it draws the case and the picture once
 --   shove    the shove's room count draws through it without error
 --
@@ -26,7 +26,9 @@ for _, wh in ipairs({ { 1600, 900 }, { 1280, 720 }, { 2133, 900 } }) do
          ("%dx%d: the case is inside the frame"):format(W, H))
     c.ok(sc.x > cs.x and sc.y > cs.y and sc.x + sc.w < cs.x + cs.w and sc.y + sc.h < cs.y + cs.h,
          ("%dx%d: the screen is inside the case"):format(W, H))
-    c.ok(math.abs(sc.w / sc.h - W / H) < 0.02, ("%dx%d: the screen keeps the frame's aspect"):format(W, H))
+    local cr = L.crop
+    c.ok(cr and cr.h <= H and math.abs(W / cr.h - sc.w / sc.h) < 0.02,
+         ("%dx%d: the picture's band has the screen's aspect (no stretch)"):format(W, H))
 end
 
 local calls = 0

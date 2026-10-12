@@ -1423,6 +1423,15 @@ function ShoveView:_drawRoomCount(W, H)
     -- The House watches the room through its security camera: the picture
     -- (the room and the count's flashes) plays on a CRT monitor
     -- (views/CrtMonitor). The counter and the House's line stay crisp on top.
+    -- One camera of many: the House watches a building of small rooms and
+    -- this is the player's, its number fixed for the save (never 1).
+    local cam, cams = 1, 48
+    do
+        local id = tostring((self.game.state and self.game.state.save_id) or "")
+        local h = 0
+        for i = 1, #id do h = (h * 31 + id:byte(i)) % 1000003 end
+        cam = 2 + h % (cams - 1)
+    end
     CrtMonitor.draw(self.game, W, H, function()
         local lit  = self.room_lit
         local sil  = R.silhouette
@@ -1497,7 +1506,7 @@ function ShoveView:_drawRoomCount(W, H)
             ::continue::
         end
         love.graphics.pop()
-    end)
+    end, { cam = cam, cams = cams })
 
     -- The counter once the lights are on, and through the dark after.
     if self.room_lights ~= "off" then drawCounter() end

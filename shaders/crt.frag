@@ -12,6 +12,7 @@ extern float u_time;    // seconds
 extern vec2  u_res;     // the screen rect, pixels
 extern float u_curve;   // barrel strength (0.08 reads as a tube)
 extern float u_anim;    // 1 animated, 0 still
+extern vec4  u_rect;    // the picture's part on the tube, in texture uv (x, y, w, h)
 
 float rand(vec2 co) {
     return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
@@ -20,7 +21,8 @@ float rand(vec2 co) {
 vec4 effect(vec4 color, Image tex, vec2 uv, vec2 sc) {
     // The tube's face fills the screen rect up to the bezel, its corners
     // rounded off; a soft edge.
-    vec2  q    = uv * 2.0 - 1.0;
+    vec2  local = (uv - u_rect.xy) / u_rect.zw;
+    vec2  q    = local * 2.0 - 1.0;
     float rad  = 0.07;
     vec2  e    = abs(q) - vec2(1.0 - rad);
     float d    = length(max(e, 0.0)) - rad;
@@ -32,10 +34,10 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 sc) {
     // runs right to the bezel (no black band round it).
     float r2 = dot(q, q);
     vec2 qd  = q * (1.0 + u_curve * r2) / (1.0 + u_curve * 2.0);
-    vec2 duv = qd * 0.5 + 0.5;
+    vec2 duv = u_rect.xy + (qd * 0.5 + 0.5) * u_rect.zw;
 
     // A little colour fringe, stronger toward the edges.
-    vec2 off = qd * 0.0022 * r2;
+    vec2 off = qd * 0.0022 * r2 * u_rect.zw;
     float rr = Texel(tex, clamp(duv + off, 0.0, 1.0)).r;
     vec4  gg = Texel(tex, clamp(duv, 0.0, 1.0));
     float bb = Texel(tex, clamp(duv - off, 0.0, 1.0)).b;
@@ -46,7 +48,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 sc) {
     c = mix(c, vec3(gray), 0.28) * vec3(0.96, 1.01, 1.03);
 
     // Scanlines, one every 3 screen pixels, and a faint shadow mask.
-    float sl   = sin(duv.y * u_res.y * 1.0472);
+    float sl   = sin(local.y * u_res.y * 1.0472);
     float line = 0.80 + 0.20 * sl * sl;
     float mask = 0.94 + 0.06 * sin(sc.x * 2.0944);
     c *= line * mask;
@@ -57,7 +59,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 sc) {
     // The moving parts: grain, a slow bright band rolling down, flicker.
     float t = u_time * u_anim;
     c += (rand(duv * u_res + vec2(t * 37.0, t * 11.0)) - 0.5) * 0.07 * u_anim;
-    float band = fract(duv.y - t * 0.11) - 0.5;
+    float band = fract(local.y - t * 0.11) - 0.5;
     c *= 1.0 + 0.07 * exp(-band * band * 70.0) * u_anim;
     c *= 1.0 + 0.012 * sin(t * 58.0) * u_anim;
 

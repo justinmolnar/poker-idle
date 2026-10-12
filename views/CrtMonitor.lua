@@ -32,6 +32,7 @@ local C = {
     label     = { 0.66, 0.65, 0.60 },
     screw     = { 0.52, 0.51, 0.48 },
     led       = { 0.35, 0.95, 0.40 },
+    lcd       = { 0.05, 0.10, 0.06 },
     rec       = { 0.95, 0.20, 0.18 },
     ink       = { 0.92, 0.94, 0.92 },
 }
@@ -61,7 +62,12 @@ function CrtMonitor.layout(W, H)
         top    = math.floor(spare * 0.35)
         bottom = spare - top
     end
-    local side = math.floor((cw - sw) / 2)
+    -- Half the plastic the frame's aspect would leave at the sides; the
+    -- screen takes the rest, wider than the picture, which is cropped top
+    -- and bottom to fit it (L.crop) rather than stretched.
+    local side = math.floor((cw - sw) / 4)
+    sw = cw - side * 2
+    local crop_h = math.min(H, math.floor(W * sh / sw))
     local cx, cy = margin, margin
     local inset = math.floor(sh * 0.045)
     -- The strip sits in the band between the bezel's foot and the case's.
@@ -73,30 +79,32 @@ function CrtMonitor.layout(W, H)
                     w = sw + inset * 2, h = sh + inset * 2 },
         screen  = { x = cx + side, y = cy + top, w = sw, h = sh },
         side    = side,
+        crop    = { y = math.floor((H - crop_h) / 2), h = crop_h },
         strip   = { x = cx + side, y = cy + top + sh + inset + math.floor((below - st_h) / 2),
                     w = sw, h = st_h },
     }
 end
 
 -- The camera overlay, in picture space (it bends with the tube).
-local function drawOverlay(game, W, H, anim)
+local function drawOverlay(game, W, H, anim, crop, cam)
     local fonts = game and game.fonts or {}
     local f = fonts.md or fonts.sm
     if not f then return end
     love.graphics.setFont(f)
-    local pad = math.floor(H * 0.06)
+    local y0, ch = crop.y, crop.h
+    local pad = math.floor(ch * 0.06)
     local function label(txt, x, y, c)
         setC({ 0, 0, 0 }, 0.6)
         love.graphics.print(txt, x + 2, y + 2)
         setC(c or C.ink, 0.9)
         love.graphics.print(txt, x, y)
     end
-    label("CAM 01", pad + math.floor(W * 0.03), pad)
+    label(("CAM %02d"):format(cam or 1), pad + math.floor(W * 0.03), y0 + pad)
     local clock = os.date("%m/%d/%Y  %H:%M:%S")
-    label(clock, W - pad - math.floor(W * 0.03) - f:getWidth(clock), pad)
+    label(clock, W - pad - math.floor(W * 0.03) - f:getWidth(clock), y0 + pad)
     local blink = (not anim) or (math.floor(love.timer.getTime() * 1.6) % 2 == 0)
     if blink then
-        local rx, ry = pad + math.floor(W * 0.03), H - pad - f:getHeight()
+        local rx, ry = pad + math.floor(W * 0.03), y0 + ch - pad - f:getHeight()
         local rr = math.floor(f:getHeight() * 0.32)
         setC(C.rec, 0.95)
         love.graphics.circle("fill", rx + rr, ry + f:getHeight() * 0.5, rr)
@@ -109,7 +117,7 @@ end
 -- each corner; the bezel sloping in to the tube (dark above, catching the
 -- light below); a recessed control strip with its channel buttons, a
 -- maker's plate and the power light.
-local function drawCase(game, L, s)
+local function drawCase(game, L, s, cam, cams)
     local c, op, sc, st = L.case, L.opening, L.screen, L.strip
     local fl = math.floor
     local r  = fl(18 * s)
@@ -198,25 +206,37 @@ local function drawCase(game, L, s)
     love.graphics.rectangle("fill", st.x, st.y + 1, st.w, st.h - 1, fl(5 * s))
     local fonts = game and game.fonts or {}
     local lf = fonts.xs or fonts.micro or fonts.sm
-    -- The channel buttons: raised keys with their label on the key, the
-    -- first one lit (the channel on the screen).
+    -- The switcher: a lit display of the channel on screen out of how many
+    -- cameras the House has, then the keys that walk them (one channel of
+    -- many; the player is one room among them).
     local bh = fl(st.h * 0.66)
-    local bw = lf and math.max(fl(bh * 1.9), lf:getWidth("CH4") + fl(bh * 0.8)) or fl(bh * 1.9)
     local by = st.y + fl((st.h - bh) / 2)
-    for i = 0, 3 do
-        local bx = st.x + fl(st.h * 0.35) + i * (bw + fl(bh * 0.35))
+    local x  = st.x + fl(st.h * 0.35)
+    if lf then
+        love.graphics.setFont(lf)
+        local txt = ("CH %02d/%02d"):format(cam or 1, cams or 1)
+        local dw  = lf:getWidth("CH 00/00") + fl(bh * 0.9)
         setC(C.case_lo)
-        love.graphics.rectangle("fill", bx, by + 2, bw, bh, fl(3 * s))
+        love.graphics.rectangle("fill", x - 1, by - 1, dw + 2, bh + 2, fl(2 * s))
+        setC(C.lcd)
+        love.graphics.rectangle("fill", x, by, dw, bh, fl(2 * s))
+        setC(C.led, 0.95)
+        love.graphics.print(txt, x + fl((dw - lf:getWidth(txt)) / 2), by + fl((bh - lf:getHeight()) / 2))
+        x = x + dw + fl(bh * 0.5)
+    end
+    for _, t in ipairs({ "CH-", "CH+", "SEQ", "QUAD" }) do
+        local bw = lf and (lf:getWidth(t) + fl(bh * 0.9)) or fl(bh * 1.9)
+        setC(C.case_lo)
+        love.graphics.rectangle("fill", x, by + 2, bw, bh, fl(3 * s))
         setC(C.button)
-        love.graphics.rectangle("fill", bx, by, bw, bh, fl(3 * s))
+        love.graphics.rectangle("fill", x, by, bw, bh, fl(3 * s))
         setC(C.case_hi, 0.35)
-        love.graphics.line(bx + 3, by + 1, bx + bw - 3, by + 1)
+        love.graphics.line(x + 3, by + 1, x + bw - 3, by + 1)
         if lf then
-            love.graphics.setFont(lf)
-            local t = "CH" .. (i + 1)
-            if i == 0 then setC(C.led, 0.9) else setC(C.label, 0.75) end
-            love.graphics.print(t, bx + fl((bw - lf:getWidth(t)) / 2), by + fl((bh - lf:getHeight()) / 2))
+            setC(C.label, 0.8)
+            love.graphics.print(t, x + fl((bw - lf:getWidth(t)) / 2), by + fl((bh - lf:getHeight()) / 2))
         end
+        x = x + bw + fl(bh * 0.3)
     end
     if lf then
         love.graphics.setFont(lf)
@@ -242,12 +262,17 @@ local function drawCase(game, L, s)
 end
 
 -- Draw the monitor with drawPicture(W, H) on its screen. drawPicture draws
--- the full frame as it would without the monitor; it is captured whole.
-function CrtMonitor.draw(game, W, H, drawPicture)
+-- the full frame as it would without the monitor; it is captured whole
+-- and the middle band (L.crop) is what the wider tube shows.
+-- opts = { cam = this camera's number, cams = how many the House has }.
+function CrtMonitor.draw(game, W, H, drawPicture, opts)
+    opts = opts or {}
     local s    = (game and game.ui_scale) or 1
     local L    = CrtMonitor.layout(W, H)
     local anim = Motion.at("shine", Motion.HIGH)
-    drawCase(game, L, s)
+    local cam, cams = opts.cam or 1, opts.cams or 1
+    drawCase(game, L, s, cam, cams)
+    local crop = L.crop
 
     local shader = ShaderRegistry.get and ShaderRegistry.get("crt")
     local canvas = shader and ScratchCanvas.acquire(W, H)
@@ -256,9 +281,10 @@ function CrtMonitor.draw(game, W, H, drawPicture)
         -- Headless or no shader: the picture, plain, in the tube's rect.
         love.graphics.push("all")
         love.graphics.translate(sc.x, sc.y)
-        love.graphics.scale(sc.w / W, sc.h / H)
+        love.graphics.scale(sc.w / W, sc.h / crop.h)
+        love.graphics.translate(0, -crop.y)
         drawPicture(W, H)
-        drawOverlay(game, W, H, anim)
+        drawOverlay(game, W, H, anim, crop, cam)
         love.graphics.pop()
         return L
     end
@@ -269,7 +295,7 @@ function CrtMonitor.draw(game, W, H, drawPicture)
     love.graphics.setScissor()
     love.graphics.clear(0, 0, 0, 1)
     drawPicture(W, H)
-    drawOverlay(game, W, H, anim)
+    drawOverlay(game, W, H, anim, crop, cam)
     love.graphics.pop()
 
     love.graphics.push("all")
@@ -278,8 +304,15 @@ function CrtMonitor.draw(game, W, H, drawPicture)
     pcall(shader.send, shader, "u_res", { sc.w, sc.h })
     pcall(shader.send, shader, "u_curve", CURVE)
     pcall(shader.send, shader, "u_anim", anim and 1 or 0)
+    pcall(shader.send, shader, "u_rect", { 0, crop.y / H, 1, crop.h / H })
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(canvas, sc.x, sc.y, 0, sc.w / W, sc.h / H)
+    -- The tube's band of the picture (one quad, re-aimed each frame).
+    if CrtMonitor._quad then
+        CrtMonitor._quad:setViewport(0, crop.y, W, crop.h, W, H)
+    else
+        CrtMonitor._quad = love.graphics.newQuad(0, crop.y, W, crop.h, W, H)
+    end
+    love.graphics.draw(canvas, CrtMonitor._quad, sc.x, sc.y, 0, sc.w / W, sc.h / crop.h)
     love.graphics.pop()
     ScratchCanvas.release()
     return L
