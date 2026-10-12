@@ -606,6 +606,18 @@ do
             c.ok(again, MODULES[key] .. " draws a second frame: " .. tostring(err2))
         end
     end
+    -- The shove's room phase, the room before the shove: it plays on the
+    -- House's security monitor (views/CrtMonitor).
+    local sv = built.shove and built.shove.view
+    local rv = built.shove and built.shove._roomView and built.shove:_roomView()
+    if sv and sv.beginRoomCount and rv then
+        sv:beginRoomCount(rv, {}, {})
+        sv.room_lights = "on"
+        local drew, err = pcall(function() sv:_drawRoomCount(1600, 900) end)
+        c.ok(drew, "the shove's room count draws through the security monitor: " .. tostring(err))
+    else
+        c.ok(false, "the shove view has a room view to draw the count with")
+    end
 end
 
 -- ── save: one file, versioned, with a backup ────────────────────────────

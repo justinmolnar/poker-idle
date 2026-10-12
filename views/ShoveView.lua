@@ -23,6 +23,7 @@
 -- R3 chip. SPACE during animation calls :skip() to fast-forward.
 
 local Theme                  = require("views.Theme")
+local CrtMonitor = require("views.CrtMonitor")
 local HoldPress = require("services.HoldPress")
 local Format = require("utils.format")
 local Easing                 = require("utils.easing")
@@ -1419,75 +1420,80 @@ function ShoveView:_drawRoomCount(W, H)
         level = RoomLighting.fixtureLevel(RoomLights.fixture, self.phase_t - R.lights_on_at)
     end
 
-    local lit  = self.room_lit
-    local sil  = R.silhouette
-    local counted = self.room_id_set
-    self.room_view:drawScene(W, H, {
-        fixture = level,
-        -- Things still to be counted are dark shapes; counted ones, and
-        -- the room's own flavor, are themselves.
-        item_tint = function(obj) if counted[obj.id] and not lit[obj.id] then return sil end end,
-    })
-    self._room_fixture_level = level
+    -- The House watches the room through its security camera: the picture
+    -- (the room and the count's flashes) plays on a CRT monitor
+    -- (views/CrtMonitor). The counter and the House's line stay crisp on top.
+    CrtMonitor.draw(self.game, W, H, function()
+        local lit  = self.room_lit
+        local sil  = R.silhouette
+        local counted = self.room_id_set
+        self.room_view:drawScene(W, H, {
+            fixture = level,
+            -- Things still to be counted are dark shapes; counted ones, and
+            -- the room's own flavor, are themselves.
+            item_tint = function(obj) if counted[obj.id] and not lit[obj.id] then return sil end end,
+        })
+        self._room_fixture_level = level
 
-    -- This frame's rects, by id, in room space; the overlay draws under
-    -- the same transform the room did. Items the layout does not place
-    -- have no rect: they still count, nothing lights.
-    local rects = {}
-    for _, r in ipairs(self.room_view._hit_rects or {}) do
-        rects[r.obj.id] = rects[r.obj.id] or r
-    end
-    local view = self.room_view._view or { cx = W * 0.5, cy = H * 0.5, zoom = 1 }
-    love.graphics.push()
-    love.graphics.translate(view.cx, view.cy + (view.dy or 0))
-    love.graphics.scale(view.zoom, view.zoom)
-    love.graphics.translate(-view.cx, -view.cy)
-    local loader = self.game.sprite_loader
-    local halo = R.halo
-    local now  = love.timer.getTime()
-    local k = 0
-    for id, on in pairs(lit) do
-        local r = on and rects[id]
-        if r and loader then
-            k = k + 1
-            local o = r.obj
-            local sprite = loader:itemArt(self.room_view.catalog_by_id[id], "room", o,
-                { corrupted = self.game.state and self.game.state:isCorrupted(id) })
-            if sprite then
-                local p  = Motion.pop("cinematics", Pop.progress("room_item:" .. id, R.flash_secs))
-                -- The glow is the item's moment, then it settles: gone
-                -- after glow_secs, so the room ends up lit, not on fire.
-                local age = now - (self.room_lit_at[id] or now)
-                local g = 1 - math.min(1, age / halo.glow_secs)
-                g = g * g   -- snaps in, settles fast
-                if g <= 0 and p <= 0 then goto continue end
-                local sc = Pop.scale(p, 1, 0.18)
-                local cxr, cyr = r.x + r.w * 0.5, r.y + r.h * 0.5
-                local sx = r.w / sprite:getWidth() * sc
-                local sy = r.h / sprite:getHeight() * sc
-                if o.flip_x then sx = -sx end
-                local ox, oy = sprite:getWidth() * 0.5, sprite:getHeight() * 0.5
-                love.graphics.setBlendMode("add")
-                -- Glow in the sprite's own shape, breathing; each item a
-                -- little out of step with the next.
-                local pulse = math.sin((now / halo.pulse_secs + k * 0.37) * 2 * math.pi)
-                local hc = halo.color
-                love.graphics.setColor(hc[1], hc[2], hc[3],
-                    (halo.alpha + halo.pulse * pulse) * g + p * halo.flash_alpha)
-                for _, d in ipairs(halo.offsets) do
-                    love.graphics.draw(sprite, cxr + d[1] * s / view.zoom, cyr + d[2] * s / view.zoom, 0, sx, sy, ox, oy)
-                end
-                -- The flash: the sprite itself, white, as its turn comes.
-                if p > 0 then
-                    love.graphics.setColor(1, 1, 1, p)
-                    love.graphics.draw(sprite, cxr, cyr, 0, sx, sy, ox, oy)
-                end
-                love.graphics.setBlendMode("alpha")
-            end
+        -- This frame's rects, by id, in room space; the overlay draws under
+        -- the same transform the room did. Items the layout does not place
+        -- have no rect: they still count, nothing lights.
+        local rects = {}
+        for _, r in ipairs(self.room_view._hit_rects or {}) do
+            rects[r.obj.id] = rects[r.obj.id] or r
         end
-        ::continue::
-    end
-    love.graphics.pop()
+        local view = self.room_view._view or { cx = W * 0.5, cy = H * 0.5, zoom = 1 }
+        love.graphics.push()
+        love.graphics.translate(view.cx, view.cy + (view.dy or 0))
+        love.graphics.scale(view.zoom, view.zoom)
+        love.graphics.translate(-view.cx, -view.cy)
+        local loader = self.game.sprite_loader
+        local halo = R.halo
+        local now  = love.timer.getTime()
+        local k = 0
+        for id, on in pairs(lit) do
+            local r = on and rects[id]
+            if r and loader then
+                k = k + 1
+                local o = r.obj
+                local sprite = loader:itemArt(self.room_view.catalog_by_id[id], "room", o,
+                    { corrupted = self.game.state and self.game.state:isCorrupted(id) })
+                if sprite then
+                    local p  = Motion.pop("cinematics", Pop.progress("room_item:" .. id, R.flash_secs))
+                    -- The glow is the item's moment, then it settles: gone
+                    -- after glow_secs, so the room ends up lit, not on fire.
+                    local age = now - (self.room_lit_at[id] or now)
+                    local g = 1 - math.min(1, age / halo.glow_secs)
+                    g = g * g   -- snaps in, settles fast
+                    if g <= 0 and p <= 0 then goto continue end
+                    local sc = Pop.scale(p, 1, 0.18)
+                    local cxr, cyr = r.x + r.w * 0.5, r.y + r.h * 0.5
+                    local sx = r.w / sprite:getWidth() * sc
+                    local sy = r.h / sprite:getHeight() * sc
+                    if o.flip_x then sx = -sx end
+                    local ox, oy = sprite:getWidth() * 0.5, sprite:getHeight() * 0.5
+                    love.graphics.setBlendMode("add")
+                    -- Glow in the sprite's own shape, breathing; each item a
+                    -- little out of step with the next.
+                    local pulse = math.sin((now / halo.pulse_secs + k * 0.37) * 2 * math.pi)
+                    local hc = halo.color
+                    love.graphics.setColor(hc[1], hc[2], hc[3],
+                        (halo.alpha + halo.pulse * pulse) * g + p * halo.flash_alpha)
+                    for _, d in ipairs(halo.offsets) do
+                        love.graphics.draw(sprite, cxr + d[1] * s / view.zoom, cyr + d[2] * s / view.zoom, 0, sx, sy, ox, oy)
+                    end
+                    -- The flash: the sprite itself, white, as its turn comes.
+                    if p > 0 then
+                        love.graphics.setColor(1, 1, 1, p)
+                        love.graphics.draw(sprite, cxr, cyr, 0, sx, sy, ox, oy)
+                    end
+                    love.graphics.setBlendMode("alpha")
+                end
+            end
+            ::continue::
+        end
+        love.graphics.pop()
+    end)
 
     -- The counter once the lights are on, and through the dark after.
     if self.room_lights ~= "off" then drawCounter() end
