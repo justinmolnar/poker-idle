@@ -97,6 +97,13 @@ for _, beat in ipairs(Story.beats) do
         end
     end
 end
+-- The asides page like any line.
+for k, aside in pairs(Story.asides or {}) do
+    for part in (tostring(aside.text) .. "{page}"):gmatch("(.-){page}") do
+        local lines = HintView.wrapLines(part, font, text_w)
+        if real_love then c.ok(#lines <= per, "aside " .. k .. (": a page fits the box (%d lines)"):format(#lines)) end
+    end
+end
 c.ok(n_lines > 60, "the beats were read (" .. n_lines .. " lines)")
 print(("tallest page: %d lines (%s)"):format(worst, tostring(worst_id)))
 

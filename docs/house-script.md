@@ -31,6 +31,15 @@ voice/static bed plays while the text is arriving, and the music he pipes in
 CUTS while any bubble of his is up (pre-speakers). Silence when the words
 stop. A click mid-type completes the block; the next click advances.
 
+## Asides
+
+A line the director prepends to the NEXT beat that plays, once
+(`data/story.lua` `asides`). **music**: the arrival's last line hands the
+jazz over ("Play nice and I'll put something on for you…"), the music starts
+when it is clicked through, and the first beat after that opens with "One
+thing. I can't play the music and talk at the same time…" — the music has
+just cut under him. Never on a replay or in the beat browser.
+
 ## Beat mechanics
 
 Beats play ONE at a time, in script order. Triggers ARM the moment they pass

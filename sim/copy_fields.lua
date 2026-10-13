@@ -46,6 +46,7 @@ for _, beat in ipairs(Story.beats) do
     end
 end
 for k, v in pairs(Story.shove) do add("story shove:" .. k, v.text, "story") end
+for k, v in pairs(Story.asides or {}) do add("story aside:" .. k, v.text, "story") end
 
 for _, it in ipairs(Catalog) do
     add("catalog " .. it.id .. " effect", it.effect_text, "rule", it, "base")

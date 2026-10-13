@@ -259,6 +259,19 @@ end
 -- Compile a beat's lines onto a timeline. t advances only through timed
 -- holds; clicks and waits pin it, so every line is placed at the moment
 -- the previous one released.
+-- An aside due on this beat: the music one, the first beat he speaks
+-- after the arrival gave the jazz (the music has just cut under him).
+-- Never on a transient beat (a replay, the browser) and never twice.
+function StoryDirector:_asideFor(beat)
+    local state  = self.game.state
+    local asides = self.story and self.story.asides
+    if not (asides and asides.music and state and state.story_seen) or beat.transient then return nil end
+    if beat.id == "arrival" or not state.story_seen.arrival then return nil end
+    if state.story_seen["_aside:music"] then return nil end
+    state.story_seen["_aside:music"] = true
+    return asides.music
+end
+
 function StoryDirector:_start(beat, ctx)
     -- A line with `grant` acts the moment it lands (before its wait is
     -- asked, so a wait on what the grant makes possible can pass).
@@ -268,6 +281,11 @@ function StoryDirector:_start(beat, ctx)
         end
     end }
     local t  = 0
+    local aside = self:_asideFor(beat)
+    if aside then
+        tl:say(0, { beat = beat.id, index = 0, text = aside.text })
+        tl:hold(0, 0)
+    end
     for i, line in ipairs(beat.lines) do
         t = t + (line.delay or 0)
         if line.show then tl:wait(t, line.show) end
