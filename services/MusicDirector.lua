@@ -388,11 +388,12 @@ function MusicDirector.update(dt, game)
     -- (main.lua sets it 0 off the grind; this is belt over that).
     _strain_t = (screen == "grind") and SoundService.getStrain() or 0
 
-    -- The music is his to give: nothing plays until the arrival has been
-    -- heard through (its last line hands the jazz over). A fresh game is
-    -- the House's voice and the room; the music starts when he stops.
+    -- The music is his to give: nothing plays until the gift has been
+    -- heard (data/story.lua asides.gift: the first time he stops with
+    -- nothing queued, he hands the jazz over; the click through it is
+    -- where the music starts).
     local st = game.state
-    if not (st and st.story_seen and st.story_seen.arrival) then want = false end
+    if not (st and st.story_seen and st.story_seen.music_gift) then want = false end
 
     -- One channel on the intercom: pre-speakers, the House HAVING THE
     -- FLOOR cuts the music — any bubble on screen, not just the

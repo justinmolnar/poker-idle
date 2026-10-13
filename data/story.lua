@@ -125,10 +125,6 @@ return {
                   force  = true,
                   cue    = "Deal",
                   wait   = { kind = "hands_played", min = 1 } },
-                -- The music is his to give: the intercom is silent until
-                -- this line is clicked through, then the jazz starts
-                -- (services/MusicDirector waits on story_seen.arrival).
-                { text = "Play nice and I'll put something on for you. It seems to settle the others when they first get here.{page}Jazz." },
             },
         },
 
@@ -611,10 +607,16 @@ return {
         },
     },
 
-    -- Asides: a line the director prepends to the NEXT beat that plays,
-    -- once (controllers/StoryDirector). `music`: the first time he speaks
-    -- after the jazz started, the music has just cut under him.
+    -- Asides (controllers/StoryDirector):
+    --   gift   the music is his to give. The intercom is silent until the
+    --          first time he has NOTHING QUEUED after a beat ends (the
+    --          opening's run of beats is over, the player is about to
+    --          get the floor): he goes straight on into this line, and the
+    --          click through it is the release — the jazz starts.
+    --   music  the first beat he speaks after that opens with this line,
+    --          once: the music has just cut under him.
     asides = {
+        gift  = { text = "Play nice and I'll put something on for you. It seems to settle the others when they first get here.{page}Jazz." },
         music = { text = "One thing. I can't play the music and talk at the same time. One speaker.{page}Buy your own if you don't like it." },
     },
 

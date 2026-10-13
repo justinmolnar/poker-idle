@@ -260,16 +260,39 @@ end
 -- holds; clicks and waits pin it, so every line is placed at the moment
 -- the previous one released.
 -- An aside due on this beat: the music one, the first beat he speaks
--- after the arrival gave the jazz (the music has just cut under him).
--- Never on a transient beat (a replay, the browser) and never twice.
+-- after the jazz was given (the music has just cut under him). Never on
+-- a transient beat (a replay, the browser) and never twice.
 function StoryDirector:_asideFor(beat)
     local state  = self.game.state
     local asides = self.story and self.story.asides
     if not (asides and asides.music and state and state.story_seen) or beat.transient then return nil end
-    if beat.id == "arrival" or not state.story_seen.arrival then return nil end
+    if beat.id == "music_gift" or not state.story_seen.music_gift then return nil end
     if state.story_seen["_aside:music"] then return nil end
     state.story_seen["_aside:music"] = true
     return asides.music
+end
+
+-- Is the gift due now: the beat that just ended was the player's, the
+-- arrival has been heard, the jazz not yet given, and NOTHING is armed
+-- to follow on this screen — he is about to stop for the first time.
+-- No timer: a gap only exists because nothing is queued, and the music
+-- fills it from the click that ends the gift line.
+function StoryDirector:_giftDue(ended)
+    local state  = self.game.state
+    local asides = self.story and self.story.asides
+    local ctx    = self._last_ctx
+    if not (asides and asides.gift and state and state.story_seen and ctx) then return false end
+    if ended.transient or not state.story_seen.arrival or state.story_seen.music_gift then return false end
+    if ctx.screen ~= "grind" then return false end
+    -- Arm first: the beat that follows this one may have come true this
+    -- very tick (the hand that ended the arrival's wait is the hand the
+    -- first-hand beat reads), and the scan runs every 0.15 s.
+    self:_armTriggers(ctx)
+    local armed = state.story_armed or {}
+    for _, b in ipairs(self.story.beats) do
+        if armed[b.id] and not state.story_seen[b.id] and b.screen == ctx.screen then return false end
+    end
+    return true
 end
 
 function StoryDirector:_start(beat, ctx)
@@ -414,13 +437,20 @@ function StoryDirector:_finish()
         if state.story_seen  then state.story_seen[self.beat.id] = true end
         if state.story_armed then state.story_armed[self.beat.id] = nil end
     end
-    local transient = self.beat and self.beat.transient
+    local ended = self.beat or {}
+    local transient = ended.transient
     self.beat     = nil
     self.timeline = nil
     self._paused  = false
     self._anchor_missing_t = 0
     -- A transient beat (a replay, the browser) is not the player's progress.
     if self.save and not transient then self.save() end
+    -- The gift: straight on from the beat that ends the opening, the box
+    -- never going empty; its own id, so it is heard once and recorded.
+    if not self._browse and self:_giftDue(ended) then
+        self:_start({ id = "music_gift", screen = "grind", lines = { { text = self.story.asides.gift.text } } },
+                    self._last_ctx or {})
+    end
 end
 
 return StoryDirector

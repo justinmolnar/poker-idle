@@ -33,12 +33,14 @@ stop. A click mid-type completes the block; the next click advances.
 
 ## Asides
 
-A line the director prepends to the NEXT beat that plays, once
-(`data/story.lua` `asides`). **music**: the arrival's last line hands the
-jazz over ("Play nice and I'll put something on for you…"), the music starts
-when it is clicked through, and the first beat after that opens with "One
-thing. I can't play the music and talk at the same time…" — the music has
-just cut under him. Never on a replay or in the beat browser.
+`data/story.lua` `asides`, placed by the director, each once. **gift**: the
+first time a beat ends with NOTHING armed to follow it on the grind (the
+opening's run is over, the player is about to get the floor) he goes straight
+on into "Play nice and I'll put something on for you… Jazz."; the click
+through it is the release, and the music starts (it is silent until then).
+**music**: the first beat that starts after that opens with "One thing. I
+can't play the music and talk at the same time…" — the music has just cut
+under him. Never on a replay or in the beat browser.
 
 ## Beat mechanics
 
