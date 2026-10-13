@@ -121,6 +121,11 @@ for i, beat in ipairs(beats) do
         local guard = 0
         while bb._driver and guard < 400 do frame(); guard = guard + 1 end
         assert(not bb._driver, "the stage never finished building (" .. tostring(bb.recipe and bb.recipe.desc) .. ")")
+        -- The stage is built from nothing: no tables carried over from the last one.
+        local want = #(bb.recipe.tables or {})
+        if not bb.recipe.shove and not bb.recipe.over_focus then
+            assert(g.grind.pool:count() == want, ("%d tables on stage, the recipe has %d"):format(g.grind.pool:count(), want))
+        end
         assert(g.story.beat ~= nil and g.story.beat.id == beat.id, "the beat is not on stage")
         local seen = {}
         local steps = 0

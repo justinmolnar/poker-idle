@@ -132,6 +132,9 @@ function BeatBrowser:buildStage()
     if g.story.beat then g.story:reset() end
     g.state:wipeAll()
     resetAll(g)
+    -- The pool keeps its own tables: a wiped state leaves them standing,
+    -- and every stage after the first was built on top of the last.
+    if g.grind then g.grind:invalidateEffects(); g.grind:reloadPool() end
     self.recipe  = Stages.forBeat(beat)
     self._hooked = {}
     self.built   = Stages.apply(self.recipe, g)
