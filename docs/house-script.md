@@ -10,6 +10,12 @@ Review tool: `tools/story_editor.html` (open from file://, pick the repo) lists
 every beat by its trigger and exports a JSON change list to apply here and in
 `data/story.lua`.
 
+In the game (dev builds): **F9** opens the beat browser — every beat on a
+stage built for it, in the game's own skin: ←/→ a line, ↑/↓ a beat, a panel
+with the trigger, the line's fields, which targets are lit and which are
+missing, the box's lines and pages; N/B take a note per line/beat into
+`tools/story_notes.json`. The game is parked meanwhile and nothing saves.
+
 Supporting surfaces, also in his voice:
 - `data/glossary.lua` — the written-down versions of every lesson (the desk
   under his poster). Exposure = the beat that taught it has played.

@@ -83,7 +83,13 @@ function StoryDirector:isHoldingClick()
 end
 
 function StoryDirector:anchorGraceElapsed()
-    return self._anchor_missing_t >= ANCHOR_GRACE
+    return self._anchor_missing_t >= self:_grace()
+end
+
+-- The beat browser (controllers/BeatBrowser) plays beats with no grace:
+-- a line with a missing target draws at once, so the gap is visible.
+function StoryDirector:_grace()
+    return (self._browse and self._browse.grace) or ANCHOR_GRACE
 end
 
 -- The current line, when it demands an action (force + wait) and the beat
@@ -117,6 +123,7 @@ function StoryDirector:reset()
     self._timer   = 0
     self._paused  = false
     self._anchor_missing_t = 0
+    self._browse  = nil
 end
 
 -- ── Tick ──────────────────────────────────────────────────────────────
@@ -130,6 +137,12 @@ function StoryDirector:update(dt, ctx, blocked)
     if not (state and state.story_seen) then return end
 
     self._last_ctx = ctx   -- for a line said outside the script (sayOnce)
+    -- Browsing (the beat browser): the beat on stage is walked by hand —
+    -- nothing arms, nothing starts, its clock does not run.
+    if self._browse then
+        if self.beat then self:_drive(0, ctx) end
+        return
+    end
     self._timer = self._timer + (dt or 0)
     if self._timer >= CHECK_INTERVAL then
         self._timer = 0
@@ -182,6 +195,9 @@ end
 -- lands does not count, the player has to make it after reading.
 function StoryDirector:_blockedFn(ctx)
     local rules = self.rules
+    -- Browsing: every wait holds until the browser passes it, so a forced
+    -- line stays up to be looked at and the walk never runs ahead.
+    if self._browse then return function() return true end end
     return function(cond)
         if cond and cond.fresh_inner then
             local ok = rules:check(cond.fresh_inner, ctx)
@@ -212,7 +228,7 @@ function StoryDirector:_drive(dt, ctx)
     local line = tl:line()
     if not paused and line and line.anchor and not self:_anyFresh(fresh, line.anchor) then
         self._anchor_missing_t = self._anchor_missing_t + (dt or 0)
-        if self._anchor_missing_t < ANCHOR_GRACE then paused = true end
+        if self._anchor_missing_t < self:_grace() then paused = true end
     elseif not paused then
         self._anchor_missing_t = 0
     end
@@ -310,6 +326,56 @@ function StoryDirector:replay(step)
     return src.id
 end
 
+-- The beat browser: play beat `index` as a transient copy, by hand. Every
+-- wait holds until stepLine passes it, a missing target draws at once
+-- (no grace), nothing arms or starts on its own (update), and nothing is
+-- recorded. reset() ends browsing.
+function StoryDirector:playBeat(index, opts)
+    local beats = self.story and self.story.beats
+    local src = beats and beats[index]
+    if not src then return nil end
+    self._browse = { grace = 0 }
+    local beat = {}
+    for k, v in pairs(src) do beat[k] = v end
+    beat.transient = true
+    self.beat, self.timeline = nil, nil
+    self:_start(beat, self._last_ctx or {})
+    self:_settle()
+    return src.id
+end
+
+-- After a step: a wait met before any line has been said since the step
+-- is a `show` (it precedes its line) and is passed, so one step is one
+-- line; a wait met with a line up is that line's own and stops the walk.
+function StoryDirector:_settle()
+    local tl = self.timeline
+    if not tl then return end
+    local blocked = self:_blockedFn(self._last_ctx or {})
+    local guard = 0
+    while tl:isWaiting() and tl:line() == nil and guard < 20 do
+        guard = guard + 1
+        tl:passWait()
+        tl:update(0, blocked)
+    end
+    if tl:isDone() then self:_finish() end
+end
+
+-- One line forward: pass the hold or the wait the line sits on and
+-- settle on the next. Returns false when the beat has ended.
+function StoryDirector:stepLine(step)
+    local tl = self.timeline
+    if not (self._browse and tl) then return false end
+    if step and step < 0 then return false end   -- backwards is the browser's (it replays)
+    local blocked = self:_blockedFn(self._last_ctx or {})
+    if tl:isHolding() then tl:advance()
+    elseif tl:isWaiting() then tl:passWait()
+    else return false end
+    tl:setLine(nil)
+    tl:update(0, blocked)
+    self:_settle()
+    return self.beat ~= nil
+end
+
 -- One line outside the script: an item's house_line when it is clicked
 -- in the room. Said on the current screen, held a few seconds, and never
 -- recorded (no id in story_seen). Nothing while a beat is up.
@@ -330,11 +396,13 @@ function StoryDirector:_finish()
         if state.story_seen  then state.story_seen[self.beat.id] = true end
         if state.story_armed then state.story_armed[self.beat.id] = nil end
     end
+    local transient = self.beat and self.beat.transient
     self.beat     = nil
     self.timeline = nil
     self._paused  = false
     self._anchor_missing_t = 0
-    if self.save then self.save() end
+    -- A transient beat (a replay, the browser) is not the player's progress.
+    if self.save and not transient then self.save() end
 end
 
 return StoryDirector

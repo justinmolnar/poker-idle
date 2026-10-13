@@ -2253,6 +2253,7 @@ function GrindView:_buildRailComponents()
     local banked = { type = "column", anchor = "cell:chips", children = { chips } }
     local anti
     if state.shove_r2_won then
+        local count_h = fonts.md:getBaseline()   -- the count's glyphs; the NEXT row under it
         local achips = railStat({ icon = "achip", value = "", h = count_h, valign = "top",
             value_color = Theme.currency.achip,
             w = glyph_w + reserveW(fonts.md, R.reserve.chips) }, face_bottom)

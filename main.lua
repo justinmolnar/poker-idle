@@ -55,6 +55,9 @@ local Perf            = require("services.Perf")
 -- stand-in and leave the module out (build-tools/demo_cut.py).
 local Profiler        = Constants.FEATURES.DEV_HOTKEYS and require("services.Profiler")
                         or { update = function() end }
+-- The beat browser (F9) is dev tooling too: nil in shipped builds, and the
+-- module is left out of them.
+local BeatBrowser     = Constants.FEATURES.DEV_HOTKEYS and require("controllers.BeatBrowser") or nil
 
 local Theme         = require("views.Theme")
 local ThemeData     = require("data.theme")
@@ -586,6 +589,11 @@ local function buildGame()
         if not storyUnblocked() or g.story:isPaused() then return nil end
         return g.story:currentLine()
     end
+    -- The beat browser walks the line itself: the story's click and key
+    -- handling stand aside while it is up.
+    local function browsing()
+        return g.beat_browser ~= nil and g.beat_browser:active()
+    end
     -- A click (or SPACE) mid-typewriter completes the block instead of
     -- advancing past it; the next one advances. On a forced line neither
     -- applies — the wait owns the release — so the click just dies here.
@@ -602,6 +610,7 @@ local function buildGame()
         -- Left clicks only: a right-click goes through to the board (the
         -- cursor switches, which the first_cursors line itself teaches).
         if b and b ~= 1 then return false end
+        if browsing() then return false end
         local line = storyVisibleLine()
         if not line then return false end
         local forced = g.story:forcedLine()
@@ -624,7 +633,7 @@ local function buildGame()
         storyAdvance)
     g.input_dispatcher:on("keypressed",
         function(key)
-            return key ~= "escape" and storyVisibleLine() ~= nil
+            return key ~= "escape" and storyVisibleLine() ~= nil and not browsing()
         end,
         function(key)
             if key == "space" then storyAdvance() end
@@ -662,6 +671,7 @@ local function buildGame()
         d:on("textinput",     nil, function(text)        sm:textinput(text)         end)
         d:on("wheelmoved",    nil, function(x, y)        sm:wheelmoved(x, y)        end)
     else
+        g.beat_browser = BeatBrowser and BeatBrowser:new(g) or nil
         g.input_controller = require("controllers.InputController"):new(g)
         g.input_controller:wire()
     end
@@ -839,7 +849,10 @@ function love.update(dt)
         -- A `pause` beat with a line up stops the simulation (states read
         -- this and hand their models dt = 0). Not while a menu is up: the
         -- beat's own clock is stopped then, and so is everything else.
-        Game.sim_frozen = (not blocked) and Game.story:freezesGame() or false
+        -- The beat browser's stage stands still.
+        local browsing = Game.beat_browser ~= nil and Game.beat_browser:active()
+        Game.sim_frozen = browsing or ((not blocked) and Game.story:freezesGame() or false)
+        if browsing then Game.beat_browser:update(dt) end
         if not blocked then
             Game.hints.paused = Game.story:isActive()
             Game.hints:update(dt, ctx)
@@ -1152,6 +1165,7 @@ function love.draw()
     -- frame pays whatever the board.
     Perf.exit("draw")
     if Game.debug and Game.debug.perf then drawPerfHud() end
+    if Game.beat_browser then Game.beat_browser:draw() end
     Perf.enter("blit")
     love.graphics.setCanvas()
 

@@ -32,6 +32,15 @@ function InputController:wire()
 
     -- ── keypressed ────────────────────────────────────────────────────────
 
+    -- The beat browser (controllers/BeatBrowser): F9 in and out; while it
+    -- is up, every key is its (the arrows walk, N/B take a note).
+    local function browsing() return game.beat_browser ~= nil and game.beat_browser:active() end
+    dispatcher:on("keypressed",
+        function(key) return key == "f9" and game.beat_browser ~= nil end,
+        function() game.beat_browser:toggle() end)
+    dispatcher:on("keypressed", browsing, function(key) game.beat_browser:keypressed(key) end)
+    dispatcher:on("textinput", browsing, function(text) game.beat_browser:textinput(text) end)
+
     -- F8 / Shift+F8: play the next / previous story beat, whatever its
     -- trigger (StoryDirector:replay), to check every line's copy, split,
     -- highlight and cue in place.

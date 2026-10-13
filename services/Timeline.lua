@@ -133,6 +133,15 @@ function Timeline:skip(wait_fn)
     end
 end
 
+-- The host passes the blocking wait itself (the beat browser walking a
+-- forced line): the wait is consumed as if its condition had passed.
+function Timeline:passWait()
+    if not self.waiting then return false end
+    self.waiting = nil
+    self.idx = self.idx + 1
+    return true
+end
+
 function Timeline:isHolding() return self.holding end
 function Timeline:holdId()    return self.hold_id end
 function Timeline:isWaiting() return self.waiting ~= nil end

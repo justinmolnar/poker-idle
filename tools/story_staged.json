@@ -1,6 +1,6 @@
 {
  "version": 1,
- "saved_at": "2026-09-07T15:06:01.834Z",
+ "saved_at": "2026-10-13T16:44:37.274Z",
  "edits": {
   "beats": {
    "arrival": {
@@ -571,6 +571,48 @@
    },
    "credits": {
     "status": "delete"
+   },
+   "first_hand_lost": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "Looks like you {c:lost:lost} that one. Luckily it was only a {dyn:first_hand_tier}.",
+      "note": "to both the win and loss, can we add the money value after the glyph. {dyn} for $x.xx",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 2,
+      "text": "Payouts come in many sizes.\n{l:stack} {l:large} {l:medium} {l:small} {w:small} {w:medium} {w:large} {w:stack}\nKeep playing.",
+      "note": "",
+      "deleted": false
+     }
+    ]
+   },
+   "first_hand_won": {
+    "work": [
+     {
+      "kind": "orig",
+      "index": 1,
+      "text": "Looks like you {c:won:won} your first hand. We're going to get along just fine.{page}You can see the size of the win here. It was a {dyn:first_hand_tier}.",
+      "note": "to both the win and loss, can we add the money value after the glyph. {dyn} for $x.xx",
+      "deleted": false
+     },
+     {
+      "kind": "orig",
+      "index": 2,
+      "text": "Payouts come in many sizes.\nLosses: {l:stack} {l:large} {l:medium} {l:small}\nAnd Wins: {w:small} {w:medium} {w:large} {w:stack}",
+      "note": "",
+      "deleted": false
+     },
+     {
+      "kind": "new",
+      "nid": "nmv6wvcc20",
+      "text": "",
+      "note": ""
+     }
+    ]
    }
   },
   "shove": {
