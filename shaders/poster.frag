@@ -83,6 +83,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 p) {
     c = mix(c, graded, u_warm);
 
     // The windows: lit, a pane cross, a halo on the wall around them.
+    float win = 0.0;
     for (int i = 0; i < 2; i++) {
         vec4 r = u_win[i];
         if (r.z <= 0.0) continue;
@@ -90,6 +91,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 p) {
         if (rel.x >= 0.0 && rel.x <= 1.0 && rel.y >= 0.0 && rel.y <= 1.0) {
             float cross = (abs(rel.x - 0.5) < 0.05 || abs(rel.y - 0.5) < 0.05) ? 1.0 : 0.0;
             c = mix(WINDOW, PANE, cross);
+            win = 1.0 - cross;
         } else {
             vec2 d = max(abs(rel - 0.5) - 0.5, 0.0) * r.zw / u_crop.zw * u_cells / 6.0;
             float halo = exp(-dot(d, d) * 1.5) * 0.35;
@@ -101,9 +103,11 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 p) {
     float d = (bayer(cell) - 0.5) * 0.5 / u_levels;
     c = floor(c * u_levels + d + 0.5) / u_levels;
 
-    // The paper.
+    // The paper, and the room's light: the game is dark, so the print is
+    // a print on a dim wall, not a lit screen — brought down overall, the
+    // corners more so. The windows keep their light (they are the light).
     vec2 v = cuv - 0.5;
-    c *= 1.0 - 0.30 * dot(v, v);
+    c *= (1.0 - 0.34 * dot(v, v)) * mix(0.72, 1.0, win);
 
     return vec4(c, 1.0) * color;
 }
