@@ -209,12 +209,16 @@ end
 
 -- ── Walking ───────────────────────────────────────────────────────────
 
+-- A line's pages come first: the arrow turns them the way a click does
+-- in the game, and only past the last page moves to the next line.
 function BeatBrowser:step(dir)
     local g = self.game
     if self._driver then return end
     local beats = self:beats()
     local i = self:lineIndex() or 1
+    local view = g.story_view
     if dir > 0 then
+        if view and view.nextPage and view:nextPage() then return end
         if g.story.beat == nil or not g.story:stepLine(1) then
             self:gotoBeat(self.beat_i + 1, 1)
             return
@@ -222,6 +226,7 @@ function BeatBrowser:step(dir)
         if g.story.beat == nil then self:gotoBeat(self.beat_i + 1, 1); return end
         self:_runHooks()
     else
+        if view and view.prevPage and view:prevPage() then return end
         if i <= 1 then
             local prev = ((self.beat_i - 2) % #beats) + 1
             self:gotoBeat(prev, #beats[prev].lines)
@@ -425,7 +430,10 @@ function BeatBrowser:draw()
         if src.delay then f[#f + 1] = "delay " .. tostring(src.delay) end
         if src.grant then f[#f + 1] = "grant " .. tostring(src.grant) end
     end
-    row(("line %d/%d   %s"):format(li or 0, #beat.lines, table.concat(f, " | ")))
+    local pg, pgs = 1, 1
+    if self.game.story_view and self.game.story_view.pageInfo then pg, pgs = self.game.story_view:pageInfo() end
+    row(("line %d/%d%s   %s"):format(li or 0, #beat.lines,
+        pgs > 1 and ("  page %d/%d"):format(pg, pgs) or "", table.concat(f, " | ")))
     local names = anchorList(src and src.anchor)
     if #names == 0 then
         row("anchors: none", D.hud_dim)

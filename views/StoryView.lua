@@ -240,6 +240,22 @@ function StoryView:nextPage()
     return true
 end
 
+-- The page before, for the beat browser's walk back: true when it turned.
+function StoryView:prevPage()
+    local rv = self._reveal
+    if not (rv and rv.pages and rv.page > 1) then return false end
+    rv.page = rv.page - 1
+    self:_startPage(rv)
+    return true
+end
+
+-- Where the block is in its pages: page, count (1, 1 for a one-page block).
+function StoryView:pageInfo()
+    local rv = self._reveal
+    if not (rv and rv.pages) then return 1, 1 end
+    return rv.page or 1, #rv.pages
+end
+
 -- True while the current block is mid-typewriter — the "speaking"
 -- window. main.lua feeds this to RadioVoice; the speaker rattles on it.
 function StoryView:isTyping()
