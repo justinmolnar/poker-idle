@@ -285,6 +285,7 @@ local function elementWidth(el, font, m)
     end
     if el.kind == "key"  then return font:getWidth(el.s) + 2 end
     if el.kind == "icon" and el.token == "table" then return math.floor(m.ink * 1.5) + m.gap end
+    if el.kind == "icon" and el.token == "ko"    then return Icons.koWidth(m.size) + m.gap end
     if el.kind == "icon" then return m.size + m.gap end
     if el.kind == "item" then return m.size + m.gap end
     if el.kind == "table" then

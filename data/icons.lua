@@ -23,9 +23,6 @@ return {
     -- (views/IconText). Procedural fallbacks in Icons.drawFlame / drawTilt.
     heater = { sprite = "ui/icons/heater", tint = nil },
     tilt   = { sprite = "ui/icons/tilt",   tint = nil },
-    -- The knockout mark ({ko} in copy, the table's KO float). Procedural
-    -- fallback in Icons.drawKo.
-    ko     = { sprite = "ui/icons/ko",     tint = nil },
 
     -- Top-bar jargon cells (icon hooks; silent until art lands).
     focus = { sprite = "ui/icons/focus", tint = "fg.heading" },
