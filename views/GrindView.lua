@@ -1015,32 +1015,27 @@ function GrindView:_buildRateTooltipUncached(br)
     return rows
 end
 
--- The upgrade tooltip: NEXT LEVEL and the stakes it moves, in ladder order.
--- How much follows it in the same tooltip (_upgradeInfoRows), and the
--- board shows the change on each table while the button is hovered.
+-- The upgrade tooltip: the stakes the next level moves, as stake pills
+-- ({s:…}, IconText), in ladder order — the line is built from the board,
+-- and reads like it. How much follows it in the same tooltip
+-- (_upgradeInfoRows), and the board shows the change on each table while
+-- the button is hovered.
 function GrindView:_upgradeNextRows(up)
-    local names = {}
+    local pills = {}
     for _, stake in ipairs(Stakes) do
         if stakeVisible(self, stake) then
             for _, g in ipairs(GameTypes) do
                 if self:_stakePreview(up, stake, g) then
-                    names[#names + 1] = stake.display_name or stake.id
+                    pills[#pills + 1] = "{s:" .. stake.id .. "}"
                     break
                 end
             end
         end
     end
-    if #names == 0 then
+    if #pills == 0 then
         return { { text = "The next level changes nothing at your stakes.", style = "sm", color_token = "muted" } }
     end
-    -- One sentence: what the next level does, and where.
-    local where = names[#names]
-    if #names > 1 then
-        where = table.concat(names, ", ", 1, #names - 1) .. " and " .. where
-    end
-    local str = (up.tooltip_metric == "win_chance")
-        and ("Your next level raises your {c:chance:odds} at " .. where .. ".")
-        or  ("Your next level means more {w:stack} and fewer {l:stack} at " .. where .. ".")
+    local str = "Next level affects " .. table.concat(pills, " ") .. "."
     local row = _blurbRow(self, str)
     row.say = str
     return { row }

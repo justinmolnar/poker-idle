@@ -85,6 +85,10 @@ local OUTCOME = { w = "win", l = "loss" }
 -- Table pills by id (data/terms.lua `tables`).
 local TABLE_PILLS = {}
 for _, t in ipairs(require("data.terms").tables or {}) do TABLE_PILLS[t.id] = t end
+-- A stake as the same pill ({s:s001} → NL2): the felt tab with the stake's
+-- name, where copy names the stake a thing lands at.
+local STAKE_PILLS = {}
+for _, st in ipairs(require("data.stakes")) do STAKE_PILLS[st.id] = st.display_name or st.id end
 
 -- Meanings whose words wear a glyph in front.
 local WORD_GLYPH = { heat = "heater", tilt = "tilt" }
@@ -196,6 +200,8 @@ local function parseUncached(str, pills)
         elseif token:match("^t:[%w_]+$") and TABLE_PILLS[token:sub(3)] then
             local t = TABLE_PILLS[token:sub(3)]
             els[#els + 1] = { kind = "table", s = t.code, token = t.id }
+        elseif token:match("^s:[%w_]+$") and STAKE_PILLS[token:sub(3)] then
+            els[#els + 1] = { kind = "table", s = STAKE_PILLS[token:sub(3)], token = token }
         elseif token:match("^item:[%w_]+$") then
             -- A catalog item's art at text height ({item:mirror}).
             els[#els + 1] = { kind = "item", id = token:sub(6) }

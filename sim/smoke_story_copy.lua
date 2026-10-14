@@ -48,7 +48,7 @@ end
 local KNOWN = { chip = true, achip = true, page = true, arrow = true, table = true, ko = true }
 local function tokensOk(text)
     for tok in text:gmatch("{([^}]*)}") do
-        if not (KNOWN[tok] or tok:match("^[cwlkt]:") or tok:match("^dyn:") or tok:match("^item:")) then
+        if not (KNOWN[tok] or tok:match("^[cwlkts]:") or tok:match("^dyn:") or tok:match("^item:")) then
             return false, tok
         end
     end
