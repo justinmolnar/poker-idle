@@ -82,29 +82,30 @@ return {
     -- the player sees. These items live ONLY here: each is its identity's
     -- ninth item, never a repeat of one. The cursor box is priced, not
     -- stickered, so "this is automation" is visible from the jump; the
-    -- vase reads "???" through Act 1; the corkboard is the stats intro
+    -- vase reads "???" through Act 1; the Sticky Note is the stats intro
     -- until it is rewritten. `shelf_of` names the identity each card
     -- introduces (the lint checks one per shelf).
     { id = "value_buys", title = "Value Buys", label = "VALUE BUYS", tab = { "sem:chip" },
       items = {
-          "corkboard", "starter_gift_box", "energy_drink", "fight_night_poster",
+          "yellow_sticky_note", "starter_gift_box", "energy_drink", "fight_night_poster",
           "chrome_toaster", "bonsai", "prize_vase", "box_of_mice",
       },
       shelf_of = {
-          corkboard = "stats", starter_gift_box = "rack", fight_night_poster = "hu",
+          yellow_sticky_note = "stats", starter_gift_box = "rack", fight_night_poster = "hu",
           energy_drink = "zoom", bonsai = "six_max", prize_vase = "ko",
           chrome_toaster = "mental", box_of_mice = "cursors",
       } },
 
     -- The numbers, each on a condition the player arranges: the gaps on
     -- the board, the table in your hand, the hands you pick yourself, how
-    -- many table types. The Corkboard (the intro) is the one flat card.
-    -- The Sticky Note leads: the one board question a first run can ask.
+    -- many table types. The Sticky Note is the intro (Value Buys): the
+    -- one board question a first run can ask. The Corkboard leads here,
+    -- the one flat card, the plain +5% the rest are conditions on.
     -- The Pillow (one isolated table) and the Hook (many lanes) are Act 2
     -- builds and sit late.
     { id = "stats", title = "Memberships & Vouchers", label = "STATS", tab = { "paper:sticker_counting" },
       items = {
-          "yellow_sticky_note", "stack_of_books", "lava_lamp", "tally_book",
+          "corkboard", "stack_of_books", "lava_lamp", "tally_book",
           "throw_pillow", "wall_hook", "nightstand",
       } },
 

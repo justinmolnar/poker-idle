@@ -114,7 +114,7 @@ return {
     catalog_priority = {
         "fight_night_poster",
         "mirror",
-        "corkboard",
+        "yellow_sticky_note",
         "energy_drink",
         "starter_gift_box",
     },

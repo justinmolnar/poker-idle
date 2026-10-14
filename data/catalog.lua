@@ -258,26 +258,32 @@ local items = {
         },
     },
     {
+        -- The Stats shelf's one flat card: the plain number every other
+        -- card on the shelf is a condition on. Not the first card in the
+        -- book (that is the Sticky Note), so it waits for a wider board.
         id          = "corkboard",
         name        = "Corkboard",
-        effect_text = "+5% {c:chance:odds}, and +1% per item you own, up to +10%.",
+        effect_text = "+5% {c:chance:odds}.",
         description = "Pins, notes, one photo of a beach.",
         sprite      = "corkboard",
         phase       = "demo",
-        cost_chip     = 1,
+        cost_chip   = 2,
+        unlock      = {
+            kind      = "total_hands_at_4plus",
+            threshold = 100,
+            text      = "hands at 4+ tables",
+        },
         position    = { x = 240, y = 220 },
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "win_chance_shift", amount = 0.05 },
-            { kind = "odds_per_item", value = 0.01, cap = 0.10 },
         },
         corrupt = {
             cost_achip = 2,
             effects = {
                 { kind = "win_chance_shift", amount = 0.10 },
-                { kind = "odds_per_item", value = 0.01, cap = 0.20 },
             },
-            effect_text = "+10% {c:chance:odds}, and +1% per item you own, up to +20%.",
+            effect_text = "+10% {c:chance:odds}.",
         },
     },
     {
@@ -332,8 +338,8 @@ local items = {
         sprite      = "starter_gift_box",
         phase       = "demo",
         cost_chip   = 1,
-        -- at the Corkboard, two cards to the left, and the 2-{chip} buy clears it.
-        requires    = "corkboard",
+        -- at the Sticky Note, two cards to the left, and the 1-{chip} buy clears it.
+        requires    = "yellow_sticky_note",
         position    = { x = 360, y = 220 },
         unlock = {
             kind      = "has_shoved",
@@ -405,15 +411,10 @@ local items = {
         description = "A pad of yellow notes. Sticks to anything.",
         sprite      = "yellow_sticky_note",
         phase       = "demo",
-        -- The Stats shelf's first card and its Act 1 taster: the one
+        -- The first card in the book (Value Buys, the Stats intro): the one
         -- question a partial board asks from the first run (fill the gap,
-        -- or leave it for the odds beside it), priced to be bought early.
-        cost_chip   = 2,
-        unlock      = {
-            kind      = "total_hands_at_4plus",
-            threshold = 100,
-            text      = "hands at 4+ tables",
-        },
+        -- or leave it for the odds beside it). One chip, no gate.
+        cost_chip   = 1,
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "odds_per_empty_adjacent", value = 0.05 },

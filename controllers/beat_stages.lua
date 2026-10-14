@@ -41,7 +41,7 @@ local BASE = {
               upgrades = {}, tab = "zoom", desc = "grind: two NL2 Zoom tables, $50" },
     room  = { screen = "room", bankroll = 50, tables = {},
               flags = { has_shoved = true, hu_unlocked = true, catalog_seen = true },
-              owned = { "corkboard", "energy_drink", "starter_gift_box" },
+              owned = { "yellow_sticky_note", "energy_drink", "starter_gift_box" },
               desc = "room: three things owned" },
     shove = { bankroll = 50, tables = {}, flags = { has_shoved = true, hu_unlocked = true, catalog_seen = true },
               chips = 3, shove = { outcomes = { false, false, false }, to = "result", chips = 3 },

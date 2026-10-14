@@ -15,9 +15,9 @@ package.path = "./?.lua;" .. package.path
 
 -- The beats, by design. Anything not listed is not an Act 1 item.
 local BEAT = {
-    energy_drink = 1, corkboard = 1, fight_night_poster = 1, starter_gift_box = 1, mirror = 1, box_of_mice = 1,
+    energy_drink = 1, yellow_sticky_note = 1, fight_night_poster = 1, starter_gift_box = 1, mirror = 1, box_of_mice = 1,
     compact_fridge = 1,
-    yellow_sticky_note = 2, stack_of_books = 2, bottle_of_wine = 2, handheld = 2, lava_lamp = 2, house_cat = 2,
+    corkboard = 2, stack_of_books = 2, bottle_of_wine = 2, handheld = 2, lava_lamp = 2, house_cat = 2,
     desk = 2, chrome_toaster = 2, rebuy_sticky_note = 2, ring_binder = 2,
     dogs_playing_poker = 3, trophy_shelf = 3, dusty_console = 3, washing_machine = 3,
     hybrid_console = 3, candle = 3, pencil_holder = 3, gaming_chair = 3,

@@ -32,8 +32,8 @@ return function(T)
         local d1 = odds(c, "hu", "s001") - odds(base, "hu", "s001")
         local d2 = odds(c, "six_max", "s002") - odds(base, "six_max", "s002")
         local d3 = odds(c, "six_max", "s004") - odds(base, "six_max", "s004")
-        check("item:corkboard", "odds", math.abs(d1 - 0.06) < 1e-9 and math.abs(d2 - 0.06) < 1e-9,
-            ("+5%% odds at every table and +1%% per item owned (the Corkboard alone: +6%%): measured %s at NL2 Heads-Up, %s at NL10 6-Max (%s at a naked NL10K 6-Max, clamped)"):format(pct(d1), pct(d2), pct(d3)))
+        check("item:corkboard", "odds", math.abs(d1 - 0.05) < 1e-9 and math.abs(d2 - 0.05) < 1e-9,
+            ("+5%% odds at every table: measured %s at NL2 Heads-Up, %s at NL10 6-Max (%s at a naked NL10K 6-Max, clamped)"):format(pct(d1), pct(d2), pct(d3)))
     end
 
     if wanted("item:wall_hook") then
