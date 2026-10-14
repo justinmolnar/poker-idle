@@ -1,4 +1,9 @@
 {
- "version": 1,
- "beats": {}
+  "beats": {
+    "arrival": {
+      "lines": [],
+      "note": ""
+    }
+  },
+  "version": 1
 }

@@ -173,7 +173,7 @@ print(("  %d line(s) with a missing target, of %d"):format(gaps, #report))
 
 -- notes
 bb:gotoBeat(1, 1)
-bb:_beginEdit("line"); bb:textinput("a note"); bb:_endEdit()
+bb:_beginEdit("line"); bb:textinput("a note"); bb:keypressed("return")
 c.eq(bb.notes.beats[beats[1].id].lines["1"], "a note", "a line note is kept")
 bb:_loadNotes()
 c.eq(bb.notes.beats[beats[1].id] and bb.notes.beats[beats[1].id].lines["1"], "a note", "and read back from the file")
