@@ -34,8 +34,8 @@ for _, dir in ipairs({ "views", "states", "controllers" }) do
 end
 local all_src = table.concat(SRC, "\n")
 -- Names built from an index or a key at runtime, by prefix.
-local FAMILIES = { "ev:", "stack_pct:", "stack:", "table:", "add_table:", "add_table_chip:", "add_table_ev:",
-                   "gtype:", "buy_runup_", "info:", "shove:cheat_", "catalog:", "deck:", "cell:", "chip_badge:",
+local FAMILIES = { "ev:", "stack_pct:", "stack:", "table:", "table_close:", "add_table:", "add_table_chip:", "add_table_ev:", "cash_out_type",
+                   "gtype:", "buy_runup_", "shove:cheat_", "catalog:", "deck:", "cell:", "chip_badge:",
                    "room:", "btn:", "rebuy:" }
 local function registered(name)
     if all_src:find('"' .. name .. '"', 1, true) then return true end
@@ -45,7 +45,7 @@ local function registered(name)
     return false
 end
 
-local KNOWN = { chip = true, achip = true, page = true, arrow = true, table = true }
+local KNOWN = { chip = true, achip = true, page = true, arrow = true, table = true, ko = true }
 local function tokensOk(text)
     for tok in text:gmatch("{([^}]*)}") do
         if not (KNOWN[tok] or tok:match("^[cwlkt]:") or tok:match("^dyn:") or tok:match("^item:")) then

@@ -2071,6 +2071,8 @@ function ShoveView:_drawHeadline(W)
     if not self.house_line then return end
     local story = self.game.story
     if story and story.isActive and story:isActive() then return end
+    -- The beat browser's stage: the beat is the only line on it.
+    if self.game.beat_browser and self.game.beat_browser:active() then return end
     StoryView.drawLine(self.game, self.house_line, r)
 end
 

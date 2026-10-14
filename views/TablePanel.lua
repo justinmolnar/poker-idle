@@ -742,6 +742,8 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
                     (can_remove or pending_close) and Theme.border.strong or Theme.border.soft,
                     hovered, press, not can_remove, 2),
             headerLabel)
+        -- The story points at the X's (focus_overload: close a table).
+        Anchors.set("table_close:" .. idx, rb_x, rb_y, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE)
     end
     if can_remove then
         local hb = hbNew(tbl, hit_boxes)

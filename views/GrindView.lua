@@ -578,6 +578,7 @@ function GrindView:_buildTablesTabComponents()
                 -- warn-tints the same way while any of its closes are still
                 -- queued behind a live hand.
                 { id = "cash_out_type" .. suffix, label = "X",
+                  anchor = "cash_out_type" .. suffix,    -- the story points at the X's (focus_overload)
                   tint_token = Theme.fg.heading,
                   fill_token = (pending > 0) and Theme.border.strong or nil,
                   disabled = none,
@@ -1015,8 +1016,8 @@ function GrindView:_buildRateTooltipUncached(br)
 end
 
 -- The upgrade tooltip: NEXT LEVEL and the stakes it moves, in ladder order.
--- How much is the "i" beside the button (_upgradeInfoRows) and the board,
--- which shows the change on each table while the button is hovered.
+-- How much follows it in the same tooltip (_upgradeInfoRows), and the
+-- board shows the change on each table while the button is hovered.
 function GrindView:_upgradeNextRows(up)
     local names = {}
     for _, stake in ipairs(Stakes) do
@@ -1042,11 +1043,12 @@ function GrindView:_upgradeNextRows(up)
         or  ("Your next level means more {w:stack} and fewer {l:stack} at " .. where .. ".")
     local row = _blurbRow(self, str)
     row.say = str
-    return { row, { text = "Hover the i for the numbers.", style = "sm", color_token = "muted" } }
+    return { row }
 end
 
--- The "i" beside Sharper Reads and Pot Control: the full breakdown of the
--- next level, a table of the stakes it moves by the open game types, each
+-- Sharper Reads and Pot Control: the full breakdown of the next level
+-- (it follows the sentence in the row's hover tooltip), a table of the
+-- stakes it moves by the open game types, each
 -- cell "now {arrow} next". Sharper Reads: the odds. Pot Control: the stack
 -- win. Memoised per display revision.
 local _info_memo = Memo.new("upgrade_info")
@@ -1178,9 +1180,9 @@ function GrindView:_upgradeInfoRowsUncached(up)
         end
     end
     if #win_rows == 0 then
-        return { { text = "The next level changes nothing at your stakes.", style = "sm", color_token = "muted" } }
+        return {}   -- the sentence above the grid has said it changes nothing
     end
-    local rows = { { text = "YOUR NEXT LEVEL", style = "sm", color_token = "muted" } }
+    local rows = {}
     if sharper then
         rows[#rows + 1] = gridRow(self.game, "ODDS", cols, win_rows)
     else
@@ -1232,7 +1234,10 @@ function GrindView:_buildRangeTooltipUncached(up)
         if self.controller:getRunUpgradeLevel(up.id) >= self.controller:getRunUpgradeMaxLevel(up) then
             rows[#rows + 1] = { text = "MAX", style = "sm", color_token = "muted" }
         else
+            -- The sentence, then the numbers: the grid of the stakes it
+            -- moves by game type (it used to sit behind an "i").
             for _, r in ipairs(self:_upgradeNextRows(up)) do rows[#rows + 1] = r end
+            for _, r in ipairs(self:_upgradeInfoRows(up)) do rows[#rows + 1] = r end
         end
     end
 
@@ -1357,19 +1362,6 @@ function GrindView:_buildUpgradesTabComponents()
                     local total, deal_muted = self.controller:typeCursorState(nil, nil)
                     up_no_cursors = total > 0 and deal_muted >= total
                 end
-            end
-
-            -- Sharper Reads and Pot Control: an "i" whose hover is the full
-            -- next-level breakdown (the button's own tooltip names the stakes).
-            if up.tooltip_metric and RANGE_TOOLTIP[up.tooltip_metric] then
-                up_actions = up_actions or {}
-                local view = self
-                up_actions[#up_actions + 1] = {
-                    id = "info:" .. up.id, label = "i", anchor = "info:" .. up.id,
-                    hover_only = true,
-                    tint_token = Theme.fg.heading,
-                    tooltip_fn = function() return view:_upgradeInfoRows(up) end,
-                }
             end
 
             components[#components + 1] = {
@@ -1624,7 +1616,7 @@ function GrindView:update(dt)
                         labels    = false,
                         within    = within,
                     })
-                    self.game.floating_text.emit("KO", pos[1], pos[2],
+                    self.game.floating_text.emit("{ko}", pos[1], pos[2],
                         { color_token = "error", lifetime = 1.2,
                           fit_table = tbl })
                 end
@@ -3747,7 +3739,6 @@ function GrindView:cancelDrag()
 end
 
 function GrindView:_handleSidebarButton(id)
-    if id:match("^info:") then return end   -- the upgrade "i": hover only
     ClickFlash.press("button", id)
     -- The rail.
     if id == "nav:settings" then if self.game.openSettings   then self.game.openSettings()   end return end

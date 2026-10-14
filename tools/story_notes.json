@@ -1,7 +1,152 @@
 {
   "beats": {
+    "act2": {
+      "lines": {
+        "1": "Oh well = I forgot, we have a couple house rules in play. I can't remember if there are others."
+      },
+      "note": ""
+    },
+    "act2_decks": {
+      "lines": {
+        "1": "this one too, probably just a glitch in this debug tool for shove beats."
+      },
+      "note": ""
+    },
     "arrival": {
-      "lines": [],
+      "lines": {
+        "5": "Click on the table to deal."
+      },
+      "note": ""
+    },
+    "catalog_browse": {
+      "lines": {
+        "1": "The Catalog. Browse all you like, but you can only make purchases after a SHOVE."
+      },
+      "note": ""
+    },
+    "first_catalog": {
+      "lines": {
+        "2": "buy it, not buy it once (we already just said that on the last slide that it doesn't go away)",
+        "3": "But they usually tell you why."
+      },
+      "note": ""
+    },
+    "first_chip": {
+      "lines": {
+        "2": "along with the other highlights, highlight the text over the chip stack on the table that says +x.xx {w:stack}",
+        "6": "unreleated to the beat -- there shouldn't be 2 sepereate hovers on the readouts. consolidate to one tooltip",
+        "8": "I dont think we're enforcing the player to have a zoom and HU at this point. they could've just closed the zoom or closed the HU or something."
+      },
+      "note": ""
+    },
+    "first_corruption": {
+      "lines": {
+        "1": "this beat starts as one text, them before i can read it it swaps to another?"
+      },
+      "note": ""
+    },
+    "first_cursors": {
+      "lines": {
+        "1": "Ah, you got the box of mice, exellent. The cursors can deal for you if you're tired of doing it yourself.",
+        "4": "these 3 can be a single slide. right click a table, table button, or cursor upgrade button to stop them dealing at that table, those tables, or all tables respectively (all 3 focuses)"
+      },
+      "note": ""
+    },
+    "first_hand_lost": {
+      "lines": {
+        "1": "needs a line break. line 2 right now is ONLY the glyph and looks weird",
+        "2": "Losses: x x x x, and Wins: x x x x"
+      },
+      "note": ""
+    },
+    "first_hand_won": {
+      "lines": {
+        "2": "this line should be extracted and played after both win or lose as its own beat. with the other line notes"
+      },
+      "note": ""
+    },
+    "first_heat": {
+      "lines": {
+        "1": "This isn't a correct explination of the feature. doesn't tell me that the next (auto dealt) hand also wins"
+      },
+      "note": ""
+    },
+    "first_tilt": {
+      "lines": {
+        "1": "This hand? what if i'm not on a hand? does it auto deal? what does it mean a hands gone?"
+      },
+      "note": ""
+    },
+    "first_tournament": {
+      "lines": {
+        "3": "I feel like knockout should have its own ether KO icon, or color or something. thats a descriptive word that we can improve ux on"
+      },
+      "note": ""
+    },
+    "flyer_lands": {
+      "lines": {
+        "1": "this one also starts as another but i think its just a glitch. it starts as \"looks like you banked 3\" or something, same as the other i mentioned it switching"
+      },
+      "note": ""
+    },
+    "focus_overload": {
+      "lines": {
+        "1": "focus the full focus/table section, but just the focus half. also it doesn't explain anything really. I need more info"
+      },
+      "note": ""
+    },
+    "second_table": {
+      "lines": {
+        "1": "dont call it the duel. Its Heads up.",
+        "2": "this can be put on the last slide, doesn't need its own slide"
+      },
+      "note": ""
+    },
+    "sharper_reads": {
+      "lines": {
+        "2": "hover pot control",
+        "3": "Hovering lets you know what things do. Use it if you're lost. I also want to axe the \"i\" and put the table just in the tooltip itself I think"
+      },
+      "note": ""
+    },
+    "shove_walkthrough": {
+      "lines": {
+        "1": "the highlight looks a bit strange here. no highlight I think.",
+        "2": "The bar is small and it doesn't really make sense in this context. we're highlighting a whole equation and mentioning a bar. Mention the equation not the bar (dont explain it yet)"
+      },
+      "note": ""
+    },
+    "six_max_open": {
+      "lines": {
+        "2": "add a line about its identity. IDK how but we need something about how it wants to be interacted with"
+      },
+      "note": ""
+    },
+    "stake_ladder": {
+      "lines": {
+        "1": "remove the last sentence, consolidate this and the next slide into 1"
+      },
+      "note": ""
+    },
+    "the_loop": {
+      "lines": {
+        "1": "thats a run = Run it back.",
+        "2": "make sure we're only showing the highlight on the upgrades that actualyl exist (i dont own cursors yet)"
+      },
+      "note": ""
+    },
+    "the_pitch": {
+      "lines": {
+        "6": "we dont need to explain this. cut."
+      },
+      "note": ""
+    },
+    "the_room": {
+      "lines": {
+        "1": "Cozy. Everything you bought from the catalog, delivered as promised. These never reset.",
+        "2": "Remember the SHOVE equation? It's ITEMS in your room, multiplied by your BANKROLL. That's why it was 0%, You didn't own anything yet.",
+        "3": "every table pays one isn't true. nearly every table pays more then one."
+      },
       "note": ""
     }
   },

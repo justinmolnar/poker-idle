@@ -120,7 +120,7 @@ return {
                   wait   = { kind = "tables_open", min = 1 } },
                 { text = "The 2 dollars is on the table. You want it back, you cash out. But we've got poker to play.",
                   anchor = { "stack:1", "cell:tied" } },
-                { text = "Deal.",
+                { text = "Click on the table to deal.",
                   anchor = "table:1",
                   force  = true,
                   cue    = "Deal",
@@ -136,9 +136,8 @@ return {
             screen  = "grind",
             trigger = { kind = "first_hand", result = "lost" },
             lines = {
-                { text = "Looks like you {c:lost:lost} that one. Luckily it was only a {dyn:first_hand_tier}.",
+                { text = "Looks like you {c:lost:lost} that one.\nLuckily it was only {dyn:first_hand_amount} {dyn:first_hand_tier}.",
                   anchor = "stack:1" },
-                { text = "Payouts come in many sizes.\n{l:stack} {l:large} {l:medium} {l:small} {w:small} {w:medium} {w:large} {w:stack}\nKeep playing." },
             },
         },
         {
@@ -146,9 +145,20 @@ return {
             screen  = "grind",
             trigger = { kind = "first_hand", result = "won" },
             lines = {
-                { text = "Looks like you {c:won:won} your first hand. We're going to get along just fine.{page}You can see the size of the win here. It was a {dyn:first_hand_tier}.",
+                { text = "Looks like you {c:won:won} your first hand. We're going to get along just fine.{page}You can see the size of the win here. It was {dyn:first_hand_amount} {dyn:first_hand_tier}.",
                   anchor = "stack:1" },
-                { text = "Payouts come in many sizes.\n{l:stack} {l:large} {l:medium} {l:small} {w:small} {w:medium} {w:large} {w:stack}\nKeep playing." },
+            },
+        },
+
+        -- A1c. The sizes, after either first hand: arms with them (a hand
+        -- has resolved) and plays after whichever of the two fired, in
+        -- script order.
+        {
+            id      = "payout_sizes",
+            screen  = "grind",
+            trigger = { kind = "hands_played", min = 1 },
+            lines = {
+                { text = "Payouts come in many sizes.\nLosses: {l:small} {l:medium} {l:large} {l:stack}\nWins: {w:small} {w:medium} {w:large} {w:stack}" },
             },
         },
 
@@ -183,15 +193,15 @@ return {
                   force  = true,
                   cue    = "Buy Sharper Reads",
                   wait   = { kind = "run_upgrades_owned", min = 1 } },
-                { text = "That'll improve your {c:chance:odds} of winning. Hover it.",
-                  anchor = "buy_runup_sharper_reads",
+                { text = "That'll improve your {c:chance:odds} of winning. Hover {c:upgrade:Pot_Control}.",
+                  anchor = "buy_runup_pot_control",
                   force  = true,
-                  cue    = "Hover Sharper Reads",
+                  cue    = "Hover Pot Control",
                   wait_fresh = true,
-                  wait   = { kind = "hovering", anchor = "buy_runup_sharper_reads" } },
+                  wait   = { kind = "hovering", anchor = "buy_runup_pot_control" } },
                 -- Said with the hover's tooltip held up (StoryDirector).
-                { text = "That's the next level: the stakes it moves. The tables it helps light up on the board, and the i beside it has the numbers.",
-                  anchor = { "buy_runup_sharper_reads", "info:sharper_reads" } },
+                { text = "Hovering lets you know what things do. Use it if you're lost.",
+                  anchor = "buy_runup_pot_control" },
                 { text = "You'll want to keep an eye on the {c:upgrade:upgrade_rack}, you won't have a chance in hell at the higher stakes without it.{page}The players get better at every stake.",
                   anchor = "buy_runup_sharper_reads" },
             },
@@ -205,9 +215,7 @@ return {
             screen  = "grind",
             trigger = { kind = "hu_unlocked" },
             lines = {
-                { text = "Look at you, a second buy-in already. The duel just opened. Heads-Up. One opponent, whole stacks, both ways.",
-                  anchor = "gtype:hu" },
-                { text = "Sit down.",
+                { text = "Look at you, a second buy-in already. Heads-Up just opened. One opponent, whole stacks, both ways.{page}Sit down.",
                   anchor = { "gtype:hu", "add_table:s001:hu" },
                   show   = { kind = "can_afford_stake", stake = "s001" },
                   force  = true,
@@ -228,7 +236,7 @@ return {
                 { text = "You rinsed him. got his whole stack {w:stack}.",
                   anchor = "stack:banked" },
                 { text = "It came with a {chip}. Real gold, I weigh them myself. Win a {w:stack} at a table and it pays one.",
-                  anchor = { "cell:chips", "chip_badge:banked" } },
+                  anchor = { "cell:chips", "chip_badge:banked", "stack:banked" } },
                 -- The border on the felt (the panel that paid), the border on
                 -- its button, and the +{chip} badge on that button. A {chip}
                 -- pays once per stake and game per run (chip_denied agrees).
@@ -247,7 +255,7 @@ return {
                   wait   = { kind = "hovering", anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } } },
                 { text = "What a table makes an hour, and its {c:chance:odds} at every pot size. The gold {w:stack} is the one that pays.",
                   anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } },
-                { text = "Now compare your rooms. Zoom's gold number sits at {dyn:stack_odds_zoom} a hand. The duel runs {dyn:stack_odds_hu}.",
+                { text = "Zoom's gold number currently sits at {dyn:stack_odds_zoom} a hand. Heads-Up runs {dyn:stack_odds_hu}.",
                   anchor = { "stack_pct:1", "stack_pct:2", "stack_pct:3", "stack_pct:4" } },
                 { text = "Zoom players rarely go all in. Until you get better at reeling them in at least.",
                   anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } },
@@ -271,8 +279,6 @@ return {
                   anchor = "btn:shove" },
                 { text = "Whenever you're ready. No rush. I'm always here. If you feel like you've stalled out, it's usually a good idea to hold SHOVE.",
                   anchor = "btn:shove" },
-                { text = "Hold it down. It fills, then it goes. A click does nothing.",
-                  anchor = "btn:shove" },
             },
         },
 
@@ -286,12 +292,11 @@ return {
             trigger = { kind = "shove_phase", phase = "buildup" },
             lines = {
                 { text = "Everything you've got, in one pile. I'll match it if you win and you can walk right out. I love this part.",
-                  anchor = "shove:pot",
                   show   = { kind = "shove_pot_landed" } },
-                { text = "This bar is your shot at beating me. I'm pretty good though.",
+                { text = "That equation's your shot at beating me. Don't worry about the numbers yet, I'll walk you through them later.",
                   anchor = "shove:readout",
                   show   = { kind = "shove_phase", phase = "running" } },
-                { text = "...Am I reading that right? 0%? Bad luck.",
+                { text = "I'm pretty good though. ...Am I reading that right? 0%? Bad luck.",
                   anchor = "shove:readout" },
             },
         },
@@ -338,9 +343,9 @@ return {
                   force  = true,
                   cue    = "Open the catalog",
                   wait   = { kind = "catalog_open" } },
-                { text = "Buy it once, and it'll be delivered right to your room.",
+                { text = "Buy it, and it'll be delivered right to your room.",
                   anchor = "catalog:book" },
-                { text = "That stamp's the price. Stickered ones aren't ready yet.",
+                { text = "That stamp's the price. Stickered ones aren't ready yet. But they usually tell you why.",
                   anchor = { "catalog:price:first", "catalog:sticker:first" },
                   show   = { kind = "catalog_open" } },
                 { text = "Close it when you're done and we'll set you back up. How fun.", anchor = "catalog:book" },
@@ -356,7 +361,7 @@ return {
             screen  = "grind",
             trigger = { kind = "has_shoved" },
             lines = {
-                { text = "Same loan, same terms. That's a run.",
+                { text = "Same loan, same terms. Run it back.",
                   anchor = "cell:bankroll" },
                 { text = "Your {c:upgrade:upgrades} went with it. Those reset.",
                   -- Every row on the rack, whichever the player has bought.
@@ -378,10 +383,10 @@ return {
                         { kind = "has_shoved" },
                         { kind = "screen", name = "room" } },
             lines = {
-                { text = "Everything you bought from the catalog, delivered as promised. These never reset.",
+                { text = "Cozy. Everything you bought from the catalog, delivered as promised. These never reset.",
                   anchor = "room:items" },
-                { text = "Your shot on the SHOVE: items in your room, multiplied by your total bankroll." },
-                { text = "So it's about {chip} now. Every table pays one. Collect, then shove. You'll get it. Next time.",
+                { text = "Remember the SHOVE equation? It's ITEMS in your room, multiplied by your BANKROLL.{page}That's why it was 0%. You didn't own anything yet." },
+                { text = "So it's about {chip} now. Every table pays at least one. Higher stakes pay more. Collect, then shove. You'll get it. Next time.",
                   anchor = "room:play" },
             },
         },
@@ -401,8 +406,7 @@ return {
                         { kind = "catalog_open" } },
             -- No anchor: the book is the whole screen.
             lines = {
-                { text = "Browse all you like." },
-                { text = "You buy after a shove. Not before." },
+                { text = "The Catalog. Browse all you like, but you can only make purchases after a SHOVE." },
             },
         },
 
@@ -416,7 +420,7 @@ return {
             pause   = true,
             trigger = { kind = "total_heaters", min = 1 },
             lines = {
-                { text = "This table's {c:heat:on_fire}. A {c:heat:heater}: if it was already on a hand, that one {c:won:wins}, and the next hand is dealt for you.{page}Guaranteed win. Fire's your friend.",
+                { text = "That table's on a {c:heat:heater}. If it's mid-hand, that hand {c:won:wins} now. The next hand is dealt for you, and it {c:won:wins} too.{page}Fire's your friend.",
                   anchor = "table:heater" },
             },
         },
@@ -429,7 +433,7 @@ return {
             pause   = true,
             trigger = { kind = "total_tilts", min = 1 },
             lines = {
-                { text = "That table's on {c:tilt:tilt}. This hand's gone and so's the next. Happens at every table sooner or later. Ride it out.",
+                { text = "That table's on {c:tilt:tilt}. If it's mid-hand, that hand's {c:lost:lost}. The next hand is dealt for you, and it's {c:lost:lost} too.{page}Happens at every table sooner or later. Ride it out.",
                   anchor = "table:tilt" },
             },
         },
@@ -443,7 +447,7 @@ return {
             lines = {
                 { text = "The long game. Slow hands, five stacks on the table, and the fattest pots in the room when one finally lands.",
                   anchor = "gtype:six_max" },
-                { text = "With so many players these take forever. Maybe you can speed them up somehow.",
+                { text = "This one's big and slow, like a tank. It drips between the big ones, so leave it running.{page}MOST things that help a table help this one the most. Hell, even things that hurt most tables can help at 6-Max.",
                   anchor = "gtype:six_max" },
             },
         },
@@ -456,7 +460,7 @@ return {
                   anchor = "gtype:ko" },
                 { text = "The blinds climb as it goes, and you sit some hands out while the rest of them play. Your {c:upgrade:upgrades} set your odds in it.",
                   anchor = "gtype:ko" },
-                { text = "Each player it knocks out is a knockout. Top three cash. Win it outright for the {chip}.{page}They have their place. Knockouts can improve your other tables.",
+                { text = "Each player it knocks out is a {ko}. Top three cash. Win it outright for the {chip}.{page}They have their place. A {ko} can improve your other tables.",
                   anchor = "gtype:ko" },
             },
         },
@@ -468,14 +472,10 @@ return {
             screen  = "grind",
             trigger = { kind = "owns_item", id = "box_of_mice" },
             lines = {
-                { text = "Look at you, management. The {c:upgrade:cursors} deal for you now. Buy them here, and their {c:upgrade:upgrades}.",
+                { text = "Ah, you got the box of mice, excellent. The cursors can deal for you if you're tired of doing it yourself.",
                   anchor = { "buy_runup_cursor", "buy_runup_cursor_speed" } },
-                { text = "Right click a table to stop them dealing there.",
-                  anchor = "table:1" },
-                { text = "Right click a table button to stop them at ALL of that type.",
-                  anchor = "add_table:open" },
-                { text = "Right click {c:upgrade:Cursor} to stop them everywhere. Right click again to start them.",
-                  anchor = "buy_runup_cursor" },
+                { text = "Right click a table, a table button, or the {c:upgrade:Cursor} upgrade to stop them dealing at that table, those tables, or all tables.{page}Right click again to start them.",
+                  anchor = { "table:1", "add_table:open", "buy_runup_cursor" } },
             },
         },
 
@@ -492,10 +492,8 @@ return {
             -- opened with "NL10's open" to a player holding $4.
             recheck = true,
             lines = {
-                { text = "NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better. Worth an {c:upgrade:upgrade} or two first.",
-                  anchor = "add_table:s002:zoom" },
-                { text = "The number's {c:lost:red}. I wouldn't recommend playing here until you get a few more {c:upgrade:upgrades} first",
-                  anchor = { "add_table_ev:s002:zoom", "add_table_ev:s002:hu" } },
+                { text = "NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better.{page}The number's {c:lost:red}. I wouldn't recommend playing here until you get a few more {c:upgrade:upgrades} first.",
+                  anchor = { "add_table:s002:zoom", "add_table_ev:s002:zoom", "add_table_ev:s002:hu" } },
             },
         },
         {
@@ -523,8 +521,15 @@ return {
             screen  = "grind",
             trigger = { kind = "focus_overloaded" },
             lines = {
-                { text = "Easy, tiger. You can't focus on that many tables at once.{page}ALL your tables play {dyn:focus_penalty_pct} slower for each table above your focus cap. Adds up fast.",
-                  anchor = { "cell:focus", "buy_runup_focus" } },
+                -- The focus cell, and every X that closes a table (the
+                -- panels' and the rows'): closing one is the other way out.
+                { text = "Easy, tiger. FOCUS is how many tables you can keep up with. Up to {dyn:focus_cap}, they all play at full speed.{page}Every table past that slows ALL of them by {dyn:focus_penalty_pct}. Adds up fast.{page}Raise it with {c:upgrade:Focus} on the rack, or close a table.",
+                  anchor = { "cell:focus",
+                             "table_close:1", "table_close:2", "table_close:3", "table_close:4",
+                             "table_close:5", "table_close:6", "table_close:7", "table_close:8",
+                             "cash_out_type:s001:zoom", "cash_out_type:s001:hu",
+                             "cash_out_type:s002:zoom", "cash_out_type:s002:hu",
+                             "cash_out_type:s003:zoom", "cash_out_type:s003:hu" } },
             },
         },
         {
@@ -548,7 +553,7 @@ return {
             sound   = "house_stinger",
             trigger = { kind = "act2_unlocked" },
             lines = {
-                { text = "I hope the undertow didn't catch you off guard. Oh well." },
+                { text = "I hope the undertow didn't catch you off guard.{page}I forgot, we have a couple house rules in play. I can't remember if there are others." },
                 -- The three Act 2 stakes, on the zoom rows: 6-max may still
                 -- be behind its catalog key here, but zoom is always open
                 -- and these rows open with this very beat.

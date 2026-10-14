@@ -72,6 +72,20 @@ local HANDLERS = {
         local side = (st.first_hand_delta > 0) and "w" or "l"
         return "{" .. side .. ":" .. (st.first_hand_tier or "small") .. "}"
     end, fallback = "{w:small}" },
+    -- The first hand's money, as the readout shows money ("$0.43"): the
+    -- loss or the win, whichever it was.
+    first_hand_amount = { fn = function(g)
+        local st = g.state
+        if not st or st.first_hand_delta == nil then return nil end
+        return Format.money(math.abs(st.first_hand_delta))
+    end, fallback = "a little" },
+    -- The live focus capacity: how many tables play at full speed.
+    focus_cap = { fn = function(g)
+        local grind = g.grind
+        if not (grind and grind.currentFocusCapacity) then return nil end
+        local n = grind:currentFocusCapacity()
+        return NUMBER_WORDS[n - 1] or tostring(n)
+    end, fallback = "four" },
     -- The focus penalty per table over capacity, as a percentage.
     focus_penalty_pct = { fn = function()
         local p = Constants.GAMEPLAY.FOCUS_BASE_PENALTY or 0

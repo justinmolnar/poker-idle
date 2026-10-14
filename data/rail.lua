@@ -38,7 +38,7 @@ return {
         bankroll = "Your bankroll: the money you play with.",
         banked   = "Yours to keep. Spend them in the catalog, after a shove.",
         -- FOCUS: the first line, then the numbers the builder formats.
-        focus    = "FOCUS is how fast every table plays.",
+        focus    = "FOCUS is how many tables you can keep up with.",
         focus_ok = "Stays 100%% at or under %d tables.",
         focus_pen = "Each table over drops it %.0f%% (floor %.0f%%).",
         focus_cap = "Hard cap: %d tables.",

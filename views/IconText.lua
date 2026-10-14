@@ -191,7 +191,7 @@ local function parseUncached(str, pills)
             els[#els + 1] = { kind = "tint", s = word, color = tint, cat = cat, glyph = WORD_GLYPH[cat] }
         elseif key then
             els[#els + 1] = { kind = "key", s = key }
-        elseif token == "chip" or token == "achip" or token == "arrow" or token == "table" then
+        elseif token == "chip" or token == "achip" or token == "arrow" or token == "table" or token == "ko" then
             els[#els + 1] = { kind = "icon", token = token }
         elseif token:match("^t:[%w_]+$") and TABLE_PILLS[token:sub(3)] then
             local t = TABLE_PILLS[token:sub(3)]
@@ -395,6 +395,7 @@ local function drawElement(game, el, x, y, font, m, color, alpha)
     elseif el.kind == "icon" then
         if el.token == "chip" then Icons.drawChip(game, x, y, m.size, alpha)
         elseif el.token == "achip" then Icons.drawAntiChip(game, x, y, m.size, alpha)
+        elseif el.token == "ko" then Icons.drawKo(game, x, y, m.size, alpha)
         elseif el.token == "table" then drawTabletop(x, y + m.ink_y, math.floor(m.ink * 1.5), m.ink, alpha)
         else drawArrow(x, y, m.size, color, alpha) end
     elseif el.kind == "table" then

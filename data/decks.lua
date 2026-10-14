@@ -345,7 +345,7 @@ local Decks = {
             text    = "{k:First_place}: {t:any} catches a {c:heat:heater}.",
             effects = { { kind = "proc", proc = "circuit_pro_final" } },
         },
-        bonus       = { text = "Each {k:knockout} reaches {n} more table", per_level = 1 },
+        bonus       = { text = "Each {ko} reaches {n} more table", per_level = 1 },
         flavor_text = "The tournament pays the room.",
         unlock = {
             kind      = "total_ko_wins",

@@ -107,7 +107,7 @@ return {
         term = "Knockouts",
         beat = "first_tournament",
         words = { "knockout", "knockouts" },
-        text = "Each player a tournament knocks out is a knockout. Some things in the catalog fire on each one, at a table adjacent to the tournament.",
+        text = "Each player a tournament knocks out is a {ko}. Some things in the catalog fire on each one, at a table adjacent to the tournament.",
     },
     {
         id   = "stakes",

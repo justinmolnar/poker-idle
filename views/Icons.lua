@@ -154,4 +154,31 @@ function Icons.drawTilt(game, x, y, size, alpha)
     end
 end
 
+-- The knockout mark ({ko} in copy; the table's KO float; the catalog's
+-- knockout lines): the sprite when it ships, else a small plate in the
+-- error red with "KO" cut out of it — the same mark everywhere it is said.
+function Icons.drawKo(game, x, y, size, alpha)
+    local spec  = IconData.ko
+    local atlas = spec and spriteReady(game, spec.sprite)
+    if atlas then
+        SpriteRenderer.draw(atlas, spec.sprite, x, y, size, size, resolveTint(spec.tint))
+        return
+    end
+    local s = size
+    local r = math.max(1, math.floor(s * 0.18))
+    Theme.setColor(Theme.status.error, alpha)
+    love.graphics.rectangle("fill", x, y, s, s, r)
+    -- "K" and "O" as strokes, so the mark reads at any size.
+    local t = math.max(1, math.floor(s * 0.14))
+    local px, py, pw, ph = x + math.floor(s * 0.14), y + math.floor(s * 0.2), math.floor(s * 0.32), math.floor(s * 0.6)
+    Theme.setColor(Theme.paper.page_light, alpha)
+    love.graphics.rectangle("fill", px, py, t, ph)                                  -- K stem
+    love.graphics.polygon("fill", px + t, py + math.floor(ph / 2), px + pw, py, px + pw, py + t, px + t + t, py + math.floor(ph / 2) + 1)
+    love.graphics.polygon("fill", px + t, py + math.floor(ph / 2), px + pw, py + ph, px + pw, py + ph - t, px + t + t, py + math.floor(ph / 2) - 1)
+    local ox, ow = x + math.floor(s * 0.54), math.floor(s * 0.32)
+    love.graphics.setLineWidth(t)
+    love.graphics.rectangle("line", ox + t / 2, py + t / 2, ow - t, ph - t, math.floor(ow * 0.3))   -- O
+    love.graphics.setLineWidth(1)
+end
+
 return Icons

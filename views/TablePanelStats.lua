@@ -886,7 +886,8 @@ local function breakdownFromStats(controller, stats)
     return lines
 end
 
-local function buildEvBreakdownLines(tbl, controller)
+local buildEvBreakdownLines   -- below; the readout's one tooltip joins it with the bar's legend
+local function evBreakdownOnly(tbl, controller)
     local lines = breakdownFromStats(controller,
         controller and controller:tableDebugStats(tbl))
     -- What is acting on this table from where it sits (the header's item
@@ -898,6 +899,19 @@ local function buildEvBreakdownLines(tbl, controller)
         for i = 1, n do
             lines[#lines + 1] = row(tbl._mods[i].tip, "sm", "good")
         end
+    end
+    return lines
+end
+
+-- The readout's ONE tooltip, wherever on it the pointer rests: the
+-- breakdown (what the table makes and why), then the bar's legend (each
+-- outcome's chance). It used to be two hovers side by side.
+buildEvBreakdownLines = function(tbl, controller)
+    local lines = evBreakdownOnly(tbl, controller) or {}
+    local legend = TablePanelStats.barLegendLines and TablePanelStats.barLegendLines(tbl, controller)
+    if legend then
+        if #lines > 0 then lines[#lines + 1] = row("", "xs") end
+        for _, l in ipairs(legend) do lines[#lines + 1] = l end
     end
     return lines
 end
@@ -1117,22 +1131,12 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
             hb = {}
             hit_boxes[#hit_boxes + 1] = hb
         end
-        local num_w = bx and (bx - tx - m.gap) or drawn_w
+        -- One box over the whole readout, numbers and bar: one tooltip.
         hb.x, hb.y = tx - pad, ty - pad
-        hb.w, hb.h = num_w + pad * 2, m.text_h + pad * 2
+        hb.w, hb.h = drawn_w + pad * 2, m.text_h + pad * 2
         hb.tooltip_fn   = buildEvBreakdownLines
         hb.tooltip_arg1 = tbl
         hb.tooltip_arg2 = controller
-        -- The bar names its segments: each tier and its chance.
-        if bx then
-            local hb2
-            if alloc then hb2 = alloc(tbl, hit_boxes) else hb2 = {}; hit_boxes[#hit_boxes + 1] = hb2 end
-            hb2.x, hb2.y = bx - 1, ty - pad
-            hb2.w, hb2.h = m.bar_w + pad + 1, m.text_h + pad * 2
-            hb2.tooltip_fn   = TablePanelStats.barLegendLines
-            hb2.tooltip_arg1 = tbl
-            hb2.tooltip_arg2 = controller
-        end
     end
 end
 

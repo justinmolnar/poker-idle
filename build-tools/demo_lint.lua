@@ -146,8 +146,8 @@ for _, dir in ipairs({ "views", "states", "controllers" }) do
     for _, f in ipairs(luaFiles(dir)) do src[#src + 1] = readfile(f) or "" end
 end
 local all_src = table.concat(src, "\n")
-local FAMILIES = { "ev:", "stack_pct:", "stack:", "table:", "add_table:", "add_table_chip:", "add_table_ev:",
-                   "gtype:", "buy_runup_", "info:", "shove:cheat_", "catalog:", "deck:", "cell:", "chip_badge:",
+local FAMILIES = { "ev:", "stack_pct:", "stack:", "table:", "table_close:", "add_table:", "add_table_chip:", "add_table_ev:", "cash_out_type",
+                   "gtype:", "buy_runup_", "shove:cheat_", "catalog:", "deck:", "cell:", "chip_badge:",
                    "room:", "btn:", "rebuy:" }
 local function registered(name)
     if all_src:find('"' .. name .. '"', 1, true) then return true end
