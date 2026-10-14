@@ -107,7 +107,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 p) {
     // a print on a dim wall, not a lit screen — brought down overall, the
     // corners more so. The windows keep their light (they are the light).
     vec2 v = cuv - 0.5;
-    c *= (1.0 - 0.34 * dot(v, v)) * mix(0.72, 1.0, win);
+    c *= (1.0 - 0.34 * dot(v, v)) * mix(0.72, 0.86, win);   // the windows a little less dim than the wall
 
     return vec4(c, 1.0) * color;
 }
