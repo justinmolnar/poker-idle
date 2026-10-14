@@ -1015,30 +1015,20 @@ function GrindView:_buildRateTooltipUncached(br)
     return rows
 end
 
--- The upgrade tooltip: the stakes the next level moves, as stake pills
--- ({s:…}, IconText), in ladder order — the line is built from the board,
--- and reads like it. How much follows it in the same tooltip
--- (_upgradeInfoRows), and the board shows the change on each table while
--- the button is hovered.
+-- The upgrade tooltip's heading: the grid under it (_upgradeInfoRows) is
+-- the whole story, each cell now {arrow} next at a stake and game, so the
+-- line only says what the grid is. The one case with no grid says so.
 function GrindView:_upgradeNextRows(up)
-    local pills = {}
     for _, stake in ipairs(Stakes) do
         if stakeVisible(self, stake) then
             for _, g in ipairs(GameTypes) do
                 if self:_stakePreview(up, stake, g) then
-                    pills[#pills + 1] = "{s:" .. stake.id .. "}"
-                    break
+                    return { _blurbRow(self, "Your next level, now {arrow} next:") }
                 end
             end
         end
     end
-    if #pills == 0 then
-        return { { text = "The next level changes nothing at your stakes.", style = "sm", color_token = "muted" } }
-    end
-    local str = "Next level affects " .. table.concat(pills, " ") .. "."
-    local row = _blurbRow(self, str)
-    row.say = str
-    return { row }
+    return { { text = "The next level changes nothing at your stakes.", style = "sm", color_token = "muted" } }
 end
 
 -- Sharper Reads and Pot Control: the full breakdown of the next level
