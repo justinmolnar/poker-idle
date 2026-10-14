@@ -424,6 +424,8 @@ on a shelf. Recorded verbatim as they stood when cut.
             effect_text = "A table {c:lost:busts}: 120% of its buy-in comes back.",
         },
     },
+    -- (Back on the rack 2026-10-14 with a new effect: start each run with
+    -- 1 level of Sharper Reads and Pot Control. The entry below is the old one.)
     {
         id          = "calculator",
         name        = "Calculator",

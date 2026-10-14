@@ -388,6 +388,11 @@ Effects.kinds = {
         value_shape = "number $, e.g. 5 to start with $7 instead of $2",
         affects     = "ctx.start_bankroll_add",
     },
+    start_upgrade_levels = {
+        description = "Calculator: each run starts with this many levels of the named run upgrades already bought (GameState:applyStartingPerks sets run_upgrade_levels; the max of owners per upgrade).",
+        value_shape = "value = levels, upgrades = { upgrade ids }, e.g. 1 / { \"sharper_reads\", \"pot_control\" }",
+        affects     = "ctx.start_upgrade_levels",
+    },
     start_table_count = {
         description = "Number of NL2 6-max tables auto-opened at run start (free).",
         value_shape = "integer, e.g. 1 to start with one table already seated",

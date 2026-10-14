@@ -526,31 +526,32 @@ local items = {
         },
     },
     {
+        -- A head start on the rack: the Desk's idea for the upgrades. The
+        -- first buy of every run is already made.
         id          = "calculator",
         name        = "Calculator",
-        retired = true,
-        effect_text = "{c:upgrade:Sharper_Reads}, {c:upgrade:Pot_Control} and {c:upgrade:Cursor_Speed} +15%.",
+        effect_text = "Start each run with 1 level of {c:upgrade:Sharper_Reads} and {c:upgrade:Pot_Control}.",
         see_also    = { "runup:sharper_reads", "runup:pot_control" },
         description = "Solar. Works under the desk lamp.",
         sprite      = "calculator",
-        phase       = "mid",
-        cost_chip     = 8,
+        phase       = "demo",
+        cost_chip   = 5,
         position    = { x = 180, y = 200 },
         unlock = {
             kind      = "total_upgrade_levels",
-            threshold = 130,
+            threshold = 15,
             text      = "{c:upgrade:upgrade} levels bought",
         },
         effects     = {
             { kind = "shove_rate_add" },
-            { kind = "run_upgrade_strength_mult", value = 0.15 },
+            { kind = "start_upgrade_levels", value = 1, upgrades = { "sharper_reads", "pot_control" } },
         },
         corrupt = {
             cost_achip = 4,
             effects = {
-                { kind = "run_upgrade_strength_mult", value = 1.5 },
+                { kind = "start_upgrade_levels", value = 3, upgrades = { "sharper_reads", "pot_control" } },
             },
-            effect_text = "{c:upgrade:Sharper_Reads}, {c:upgrade:Pot_Control} and {c:upgrade:Cursor_Speed} +150%.",
+            effect_text = "Start each run with 3 levels of {c:upgrade:Sharper_Reads} and {c:upgrade:Pot_Control}.",
         },
     },
     {

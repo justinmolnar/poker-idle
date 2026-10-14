@@ -162,6 +162,7 @@ local EXPECT = {
     run_upgrade_bonus_levels  = function(e) return { "+" .. trim(e.value) } end,
     ko_targets_add            = function(e) return { "+" .. trim(e.value) } end,
     start_table_count         = function(e) return { trim(e.value) } end,
+    start_upgrade_levels      = function(e) return { trim(e.value) } end,
     win_tier_shift            = function(e, where, text)
         local f = fraction(e.chance)
         if not f then err(where, ("chance %s is not a printable fraction"):format(tostring(e.chance)), text) end

@@ -2607,9 +2607,19 @@ function GrindController:quickReset()
     self:invalidateEffects()
     -- Run-start perks are silent: they land while the player is between
     -- screens (the deck modal, the reset), which is nowhere to hear them.
-    state:applyStartingPerks(self.ctx)
+    self:_perksLanded(state:applyStartingPerks(self.ctx))
     state.perks_pending = nil
     self:reloadPool()
+end
+
+-- The rollup folds the rack's levels in (GameState:computeEffects), and
+-- the perks run after it: a perk that put levels on the rack (the
+-- Calculator) needs the rollup again, or the run would play its first
+-- hands at level 0 with level 1 showing.
+function GrindController:_perksLanded(fired)
+    for _, k in ipairs(fired or {}) do
+        if k == "start_upgrade_levels" then self:invalidateEffects(); return end
+    end
 end
 
 -- Throw away every live Table and rebuild from the records on the state.
@@ -2646,7 +2656,7 @@ function GrindController:applyPendingPerks()
     if not state.perks_pending then return false end
     state.perks_pending = nil
     self:invalidateEffects()
-    state:applyStartingPerks(self.ctx)
+    self:_perksLanded(state:applyStartingPerks(self.ctx))
     self:reloadPool()
     return true
 end

@@ -842,6 +842,7 @@ end
 --   ctx.start_bankroll_add  — added to the fresh INITIAL_BANKROLL (flat $)
 --   ctx.start_bankroll_pct  — additive % on the post-add bankroll (Lucky Coin)
 --   ctx.start_table_count   — N s001:six_max tables auto-seeded (free)
+--   ctx.start_upgrade_levels — { upgrade id = levels } already on the rack (Calculator)
 --   ctx.loss_recycle_pct    — % of LAST run's losses seeded back (Dishwasher)
 --
 -- Order: flat add applies first, then the percentage multiplies the result.
@@ -900,6 +901,16 @@ function GameState:applyStartingPerks(ctx)
         self.tables[#self.tables + 1] = { stake_id = "s001", game_type_id = gid }
     end
     if (ctx.start_table_count or 0) > 0 then fired[#fired + 1] = "start_table_count" end
+    -- Calculator: the first levels of the named upgrades are already
+    -- bought. Granted, not purchased: no counter moves, no money leaves.
+    local granted = false
+    for id, n in pairs(ctx.start_upgrade_levels or {}) do
+        if (self.run_upgrade_levels[id] or 0) < n then
+            self.run_upgrade_levels[id] = n
+            granted = true
+        end
+    end
+    if granted then fired[#fired + 1] = "start_upgrade_levels" end
     return fired
 end
 

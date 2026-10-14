@@ -448,6 +448,15 @@ function PokerEffects.registerAll(reg)
     reg:register("start_bankroll_add", function(e, ctx)
         ctx.start_bankroll_add = (ctx.start_bankroll_add or 0) + e.value
     end)
+    -- Calculator (2026-10-14): the run starts with these levels of these
+    -- upgrades already on the rack (applyStartingPerks).
+    reg:register("start_upgrade_levels", function(e, ctx)
+        local t = ctx.start_upgrade_levels or {}
+        ctx.start_upgrade_levels = t
+        for _, id in ipairs(e.upgrades or {}) do
+            t[id] = math.max(t[id] or 0, e.value or 0)
+        end
+    end)
     reg:register("start_table_count", function(e, ctx)
         ctx.start_table_count = (ctx.start_table_count or 0) + e.value
     end)

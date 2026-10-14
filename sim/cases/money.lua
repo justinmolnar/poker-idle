@@ -52,6 +52,22 @@ return function(T)
             ("the run opens with one more table seated: %s (a NL2 cash game)"):format(
                 seeded and (seeded.stake_id .. ":" .. tostring(seeded.game_type_id)) or "none"))
     end
+    if wanted("item:calculator") then
+        local w = T.world(); w:own("calculator")
+        w.state:applyStartingPerks(w.ctrl.ctx)
+        local lv = w.state.run_upgrade_levels
+        check("item:calculator", "start", (lv.sharper_reads or 0) == 1 and (lv.pot_control or 0) == 1 and (lv.focus or 0) == 0,
+            ("the run opens with Sharper Reads %d, Pot Control %d, Focus %d (want 1, 1, 0)"):format(
+                lv.sharper_reads or 0, lv.pot_control or 0, lv.focus or 0))
+        -- Through the reset itself: the levels are on the rack AND in the
+        -- rollup (the controller folds them in after the perks land).
+        local w2 = T.world(); w2:own("calculator")
+        w2.ctrl:quickReset()
+        local l2 = w2.ctrl:getRunUpgradeLevel("sharper_reads")
+        local rev_ok = (w2.ctrl.ctx ~= nil)
+        check("item:calculator", "reset", l2 == 1 and rev_ok,
+            ("after a reset the controller reads Sharper Reads at level %d (want 1)"):format(l2))
+    end
     if wanted("item:cereal_shelf") then
         local w = T.world({ bankroll = 100 }); w:own("cereal_shelf")
         w.state.last_run_biggest_pot_t1 = 42

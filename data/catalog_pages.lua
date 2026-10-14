@@ -112,12 +112,12 @@ return {
     -- The run and the rack: what a run starts with (the Gift Box is the
     -- intro) and what the upgrades cost and reach. (Stash Box, Rubber Duck
     -- and Electric Kettle were cut to fit: docs/retired-item-effects.md.
-    -- The Calculator came back the same day when the intro stopped being a
-    -- repeat and the shelf had eight again.)
+    -- The Calculator is the head start: the run's first rack levels
+    -- already bought.)
     { id = "rack", title = "Desk & Stationery", label = "THE RACK", tab = { "sem:upgrade" },
       items = {
           "compact_fridge", "desk", "rebuy_sticky_note", "ring_binder",
-          "second_monitor", "bookshelf", "cereal_shelf",
+          "calculator", "second_monitor", "bookshelf", "cereal_shelf",
       } },
 
     -- THE TABLES, together, in the order a run opens them.
