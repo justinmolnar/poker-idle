@@ -726,10 +726,10 @@ local function previewText(metric, now, nxt)
     local st1 = wc1 * ((nxt.win_dist or {}).stack or 0)
     local sl0 = (1 - wc0) * ((now.loss_dist or {}).stack or 0)
     local sl1 = (1 - wc1) * ((nxt.loss_dist or {}).stack or 0)
-    local short = "Stack win " .. pctStr(st0) .. " {arrow} " .. pctStr(st1)
+    local short = "{w:stack} " .. pctStr(st0) .. " {arrow} " .. pctStr(st1)
     local text = short
     if math.abs(sl1 - sl0) > 5e-4 then
-        text = short .. "   loss " .. pctStr(sl0) .. " {arrow} " .. pctStr(sl1)
+        text = short .. "   {l:stack} " .. pctStr(sl0) .. " {arrow} " .. pctStr(sl1)
     end
     return { text = text, short = short, color = Theme.sem.chip, now = now, next = nxt, focus = "stack" }
 end
@@ -1059,7 +1059,7 @@ local CELL_PAD_X, CELL_PAD_Y = 8, 3
 local function gridRow(game, title, cols, rows_)
     local function layout(f)
         local lh = f:getHeight() + CELL_PAD_Y * 2
-        local w0 = f:getWidth(title)
+        local w0 = IconText.measure(title, f)   -- the corner may be a glyph ({w:stack})
         for _, r in ipairs(rows_) do w0 = math.max(w0, f:getWidth(r.name)) end
         local cw = { w0 + CELL_PAD_X * 2 }
         for ci, c in ipairs(cols) do
@@ -1094,8 +1094,7 @@ local function gridRow(game, title, cols, rows_)
             end
             -- the corner and the stake names
             love.graphics.setFont(f)
-            Theme.setColor(Theme.fg.muted)
-            love.graphics.print(title, x + CELL_PAD_X, y + CELL_PAD_Y)
+            IconText.draw(game, title, x + CELL_PAD_X, y + CELL_PAD_Y, f, Theme.fg.muted, 1)
             Theme.setColor(Theme.fg.heading)
             for ri, r in ipairs(rows_) do
                 love.graphics.print(r.name, x + CELL_PAD_X, y + lh * ri + CELL_PAD_Y)
@@ -1181,7 +1180,7 @@ function GrindView:_upgradeInfoRowsUncached(up)
     if sharper then
         rows[#rows + 1] = gridRow(self.game, "ODDS", cols, win_rows)
     else
-        rows[#rows + 1] = gridRow(self.game, "STACK WINS", cols, win_rows)
+        rows[#rows + 1] = gridRow(self.game, "{w:stack} WINS", cols, win_rows)
     end
     if has_ko then
         rows[#rows + 1] = _blurbRow(self, "{t:ko}: your chance of finishing 1st.")
