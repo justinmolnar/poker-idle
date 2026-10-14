@@ -52,6 +52,28 @@ return function(T)
             ("the readout shows +%.1f%% at the table with two empties and +%.1f%% at the corner with one (the 6-Max)"):format(d_h * 100, d_a * 100))
     end
 
+    -- Comfort Bed: odds per table under the focus cap, at every table.
+    if wanted("item:comfort_bed") then
+        local w = T.world()
+        local a = w:open("s001", "hu", { 0, 0 })
+        w:open("s001", "hu", { 0, 2 })
+        w:own("comfort_bed"); w:tick(0.05)
+        local base  = OM.resolvedOutcome(T.ctxOf({}), H.Lookups.findById(H.GameTypes, "hu"), H.Lookups.findById(H.Stakes, "s001"))
+        local cap   = w.ctrl:currentFocusCapacity()
+        local slack = cap - 2
+        local want  = math.min(0.01 * slack, 0.10)
+        local shown = w.ctrl:tableStats(a)
+        local d = shown and (shown.win_chance - base) or -1
+        check("item:comfort_bed", "odds", slack > 0 and math.abs(d - want) < 1e-6,
+            ("2 tables under a cap of %d: the readout shows +%.1f%% (want +%.1f%%)"):format(cap, d * 100, want * 100))
+        for i = 1, slack do w:open("s001", "hu", { 2, (i - 1) % 3 }) end
+        w:tick(0.05)
+        local full = w.ctrl:tableStats(a)
+        local d2 = full and (full.win_chance - base) or -1
+        check("item:comfort_bed", "at cap", math.abs(d2) < 1e-6,
+            ("at the cap (%d of %d) it adds nothing: +%.1f%%"):format(w.ctrl.pool:count(), cap, d2 * 100))
+    end
+
     if wanted("item:throw_pillow") then
         local w = T.world()
         local lone = w:open("s001", "hu", { 0, 0 })

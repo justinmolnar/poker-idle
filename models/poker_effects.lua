@@ -252,6 +252,13 @@ function PokerEffects.registerAll(reg)
         ctx.odds_per_item = (ctx.odds_per_item or 0) + (e.value or 0)
         ctx.odds_per_item_cap = math.max(ctx.odds_per_item_cap or 0, e.cap or 0)
     end)
+    -- Comfort Bed (2026-10-14): this much more win chance at every table
+    -- per table under the focus cap, up to cap (the controller keeps
+    -- ctx.focus_slack live; OutcomeMath.tableWinChanceBonus adds it).
+    reg:register("odds_per_focus_slack", function(e, ctx)
+        ctx.odds_per_focus_slack = (ctx.odds_per_focus_slack or 0) + (e.value or 0)
+        ctx.odds_per_focus_slack_cap = math.max(ctx.odds_per_focus_slack_cap or 0, e.cap or 0)
+    end)
     -- Wall Clock (2026-10-05): a table deals faster the longer it has been
     -- open this run: 1 + value per minute, up to cap (Table:paceParts, on
     -- t._age_min stamped by the controller).

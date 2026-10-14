@@ -122,6 +122,7 @@ local EXPECT = {
     held_pace                 = function(e) return { "×" .. trim(e.value) } end,
     manual_hand_mult          = function(e) return { "×" .. trim(e.value) } end,
     odds_per_item             = function(e) return { signedPct(e.value), signedPct(e.cap) } end,
+    odds_per_focus_slack      = function(e) return { signedPct(e.value), signedPct(e.cap) } end,
     age_pace                  = function(e) return { signedPct(e.value), "×" .. trim(e.cap) } end,
     zoom_tilt_pace            = function(e) return { "×" .. trim(e.value) } end,
     manual_combo              = function(e) return { "×" .. trim(1 + e.value), "×" .. trim(e.cap) } end,

@@ -961,12 +961,14 @@ end
 GrindController.LIVE_BUMP_SECS = 1.0
 -- The live fields and their gates, so a new one cannot quietly become a
 -- 20 Hz rebuild: hands_per_second (Framed Diploma), heater_count (Desk
--- Speakers), hu_table_count (the Mirror), lanes_seated (Wall Hook).
+-- Speakers), hu_table_count (the Mirror), lanes_seated (Wall Hook),
+-- focus_slack (the Comfort Bed: tables under the focus cap).
 GrindController.LIVE_CTX_FIELDS = {
     hands_per_second = "odds_per_hand_per_second",
     heater_count     = "odds_per_heater",
     hu_table_count   = "stack_odds_per_hu_table",
     lanes_seated     = "odds_per_lane_seated",
+    focus_slack      = "odds_per_focus_slack",
 }
 function GrindController:_setCtxField(key, value, gate)
     local ctx = self.ctx
@@ -1276,7 +1278,10 @@ function GrindController:update(dt)
         -- Printer's count below, so a table opening or closing moves every
         -- table's pace the same frame.
         local focus_pace = self:currentFocusMult()
-        local overcap    = self.pool:count() > self:currentFocusCapacity()
+        local focus_cap  = self:currentFocusCapacity()
+        local overcap    = self.pool:count() > focus_cap
+        -- The room under the cap (the Comfort Bed pays odds per table of it).
+        self:_setCtxField("focus_slack", math.max(0, focus_cap - self.pool:count()), "odds_per_focus_slack")
         for _, t in ipairs(self.pool.tables) do
             t._focus_pace = focus_pace
             -- A tournament prices the Corrupted Gaming Chair into its own

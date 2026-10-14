@@ -380,28 +380,6 @@ local items = {
         },
     },
     {
-        -- Takes no thought: the tank is the quiet neighbour, for everything
-        -- on this shelf that reads empty spaces.
-        id          = "comfort_bed",
-        name        = "Comfort Bed",
-        retired = true,
-        effect_text = "A {t:6m} counts as an empty space.",
-        description = "Restful memory-foam bed. Nothing to think about.",
-        sprite      = "comfort_bed",
-        phase       = "demo",
-        cost_chip     = 7,
-        position    = { x = 440, y = 220 },
-        effects     = {
-            { kind = "shove_rate_add" },
-            { kind = "six_max_counts_empty" },
-        },
-        unlock = {
-            kind      = "total_stack_losses",
-            threshold = 110,
-            text      = "{l:stack} {c:lost:losses} taken",
-        },
-    },
-    {
         -- Elbow room: a gap beside a table is worth odds there. Gaps are
         -- the cells the board's shape leaves open; where they sit is the
         -- player's to arrange.
@@ -418,6 +396,28 @@ local items = {
         effects     = {
             { kind = "shove_rate_add" },
             { kind = "odds_per_empty_adjacent", value = 0.05 },
+        },
+    },
+    {
+        -- Room to think: every table under the focus cap is worth odds at
+        -- all of them. The cap grows with Focus; staying under it is the
+        -- choice (the focus beat teaches the other side of it).
+        id          = "comfort_bed",
+        name        = "Comfort Bed",
+        effect_text = "+1% {c:chance:odds} per table under your {c:upgrade:FOCUS} cap, up to +10%.",
+        description = "Restful memory-foam bed. Nothing to think about.",
+        sprite      = "comfort_bed",
+        phase       = "demo",
+        cost_chip   = 4,
+        position    = { x = 440, y = 220 },
+        unlock = {
+            kind      = "shove_count",
+            threshold = 2,
+            text      = "shoves made",
+        },
+        effects     = {
+            { kind = "shove_rate_add" },
+            { kind = "odds_per_focus_slack", value = 0.01, cap = 0.10 },
         },
     },
     {

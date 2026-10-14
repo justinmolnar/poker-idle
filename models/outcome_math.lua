@@ -701,6 +701,18 @@ end
 -- stamps _held. `hand_mult` is the Tally Book's multiplier for the NEXT
 -- hand: the deal passes what it stamped, the readout what the streak
 -- would give (GrindController projects it).
+-- The Comfort Bed: so much per table under the focus cap, up to its cap,
+-- at every table (the controller keeps ctx.focus_slack live).
+function OutcomeMath.focusSlackBonus(ctx)
+    local per = ctx and ctx.odds_per_focus_slack or 0
+    local slack = ctx and ctx.focus_slack or 0
+    if per <= 0 or slack <= 0 then return 0 end
+    local add = per * slack
+    local cap = ctx.odds_per_focus_slack_cap or 0
+    if cap > 0 then add = math.min(add, cap) end
+    return add
+end
+
 function OutcomeMath.tableWinChanceBonus(ctx, tbl)
     if not (ctx and tbl) then return 0 end
     local bonus = 0
@@ -708,6 +720,7 @@ function OutcomeMath.tableWinChanceBonus(ctx, tbl)
         bonus = bonus + ctx.odds_per_empty_adjacent * tbl._empty_adjacent
     end
     if ctx.held_odds and tbl._held then bonus = bonus + ctx.held_odds end
+    bonus = bonus + OutcomeMath.focusSlackBonus(ctx)
 
     -- The Red Rug: whoever sits in the board's top-left cell plays a
     -- little better. Slot 0 is the packed (row 0, col 0) cell.

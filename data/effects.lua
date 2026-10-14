@@ -144,6 +144,11 @@ Effects.kinds = {
         value_shape = "value = fraction per item, cap = the most it adds, e.g. 0.01 / 0.10",
         affects     = "ctx.odds_per_item",
     },
+    odds_per_focus_slack = {
+        description = "Comfort Bed: this much more win chance at every table per table UNDER the focus cap (cap - open tables, the controller keeps ctx.focus_slack live), up to cap (OutcomeMath.tableWinChanceBonus).",
+        value_shape = "value = fraction per table under the cap, cap = the most it adds, e.g. 0.01 / 0.10",
+        affects     = "ctx.odds_per_focus_slack",
+    },
     age_pace = {
         description = "Wall Clock: a table deals faster the longer it has been open this run, 1 + value per minute up to cap (Table:paceParts, t._age_min).",
         value_shape = "value = pace per minute, cap = the most, e.g. 0.10 / 2.0",

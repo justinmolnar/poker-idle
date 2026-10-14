@@ -105,8 +105,8 @@ return {
     -- builds and sit late.
     { id = "stats", title = "Memberships & Vouchers", label = "STATS", tab = { "paper:sticker_counting" },
       items = {
-          "corkboard", "stack_of_books", "lava_lamp", "tally_book",
-          "throw_pillow", "wall_hook", "nightstand",
+          "corkboard", "stack_of_books", "lava_lamp", "comfort_bed",
+          "tally_book", "throw_pillow", "wall_hook", "nightstand",
       } },
 
     -- The run and the rack: what a run starts with (the Gift Box is the

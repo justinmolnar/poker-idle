@@ -9,6 +9,7 @@
 --   Throw Pillow        x1.5 winnings with nothing on any side
 --   Receipt Printer     Zoom: +pace per Zoom neighbour
 --   Mirror              Heads-Up: +stack odds per Heads-Up table open
+--   Comfort Bed         +odds per table under the focus cap (every table)
 --   (a pending tier-up) the next win here lands a size up
 --
 -- Only what changes with the board, never per hand: a streak or a live
@@ -50,10 +51,12 @@ function TableMods.stamp(tbl, ctx)
     local hu = (tbl.game_type_id == "hu" and (ctx.stack_odds_per_hu_table or 0) > 0)
                and math.min(31, ctx.hu_table_count or 0) or 0
     local tier = tbl._next_win_tier_up and true or false
+    local slack = (ctx.odds_per_focus_slack or 0) > 0 and math.min(15, ctx.focus_slack or 0) or 0
     if sticky then sig = sig + ea end
     if pillow then sig = sig + 8 end
     sig = sig + 16 * zn + 128 * hu
     if tier then sig = sig + 8192 end
+    sig = sig + 16384 * slack
     if sig == tbl._mods_sig then return tbl._mods_n or 0, sig end
 
     local function add(kind, item, text, tip)
@@ -86,6 +89,15 @@ function TableMods.stamp(tbl, ctx)
         add("mirror", id, pct(ctx.stack_odds_per_hu_table * hu),
             string.format("%s: %s stack odds here (%d Heads-Up table%s open)", nameFor(id) or "Heads-Up",
                 pct(ctx.stack_odds_per_hu_table * hu), hu, hu == 1 and "" or "s"))
+    end
+    if slack > 0 then
+        local id  = item("odds_per_focus_slack")
+        local add_ = ctx.odds_per_focus_slack * slack
+        local cap = ctx.odds_per_focus_slack_cap or 0
+        if cap > 0 then add_ = math.min(add_, cap) end
+        add("bed", id, pct(add_),
+            string.format("%s: %s odds (%d table%s under your FOCUS cap)", nameFor(id) or "Under the cap",
+                pct(add_), slack, slack == 1 and "" or "s"))
     end
     if tier then
         add("tier_up", nil, "next win up", "The next win here lands a size up.")

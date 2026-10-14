@@ -1036,6 +1036,8 @@ stays. **Ids, names, sprites and unlock gates stayed.** Verbatim:
             effect_text = "2 in 5 chance: {l:large} {arrow} {l:stack}.",
         },
     },
+    -- (Back on the Stats shelf 2026-10-14 with a new effect: +1% odds per
+    -- table under the focus cap, up to +10%. The entry below is the old one.)
     {
         id          = "comfort_bed",
         refactor      = true,   -- flagged for refactor (designer tag); the book washes it red
