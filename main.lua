@@ -704,8 +704,10 @@ function love.load()
     local n = Game.sprite_loader:preload(
         require("models.sprite_manifest").onScreenAtBoot(), "cards/")
     print("[SpriteLoader] Preloaded " .. n .. " sprites; the rest load on first draw")
-    -- Bake THE HOUSE's wall portrait (procedural, views/HouseArt) into
-    -- the sprite pool so the room draws it like any other wall item.
+    -- Bake THE HOUSE's wall portrait (views/HouseArt: the photo through
+    -- the poster shader, so that shader compiles first) into the sprite
+    -- pool so the room draws it like any other wall item.
+    ShaderRegistry.loadFromFile("poster", "shaders/poster.frag")
     require("views.HouseArt").bake(Game.sprite_loader)
 
     -- Compile shaders at boot. ShaderRegistry caches by name; compile

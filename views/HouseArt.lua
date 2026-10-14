@@ -27,6 +27,7 @@
 
 local Theme = require("views.Theme")
 local Decal = require("services.Decal")
+local ShaderRegistry = require("services.ShaderRegistry")
 
 local HouseArt = {}
 
@@ -328,7 +329,60 @@ local PORTRAIT_ZOOM = 1.4
 -- the chimney smoke and the sun edges the frame. A poster, not a window.
 local STILL_T = 25
 
+-- The print: a photograph of the house (assets/sprites/house/photo.png)
+-- through shaders/poster.frag — chunky pixels, a few colours, the golden
+-- hour, the windows lit. The grind's poster and the room's wall print
+-- both draw it; the procedural landscape below stands in where the photo
+-- or the shader is not there (headless, a refusing GPU).
+local PHOTO       = "assets/sprites/house/photo.png"
+local PHOTO_CELLS = 96                       -- art pixels across the print
+local PHOTO_WIN   = { { 0.197, 0.621, 0.092, 0.187 }, { 0.694, 0.621, 0.091, 0.187 } }
+local PHOTO_ROOF  = { 0.03, 0.15, 0.94, 0.31 }
+local PHOTO_AT    = { 0.50, 0.52 }           -- the house's centre in the photo
+local _photo, _photo_tried = nil, false
+local function photo()
+    if _photo or _photo_tried then return _photo end
+    _photo_tried = true
+    if not (love and love.graphics and love.graphics.newImage and love.filesystem
+            and love.filesystem.getInfo and love.filesystem.getInfo(PHOTO)) then return nil end
+    local ok, img = pcall(love.graphics.newImage, PHOTO)
+    if ok and img and img.setFilter then
+        img:setFilter("linear", "linear")
+        _photo = img
+    end
+    return _photo
+end
+
+-- The photo as the print, into (x, y, w, h): the photo cropped to the
+-- quad's shape about the house, sampled on PHOTO_CELLS art pixels across
+-- (fewer when the quad is small: the wall print is a few dozen pixels).
+local function paintPhoto(img, x, y, w, h)
+    local iw, ih = img:getDimensions()
+    local qa, pa = w / h, iw / ih
+    local cw, ch = 1, 1
+    if qa > pa then ch = pa / qa else cw = qa / pa end
+    local cx = math.max(0, math.min(1 - cw, PHOTO_AT[1] - cw * 0.5))
+    local cy = math.max(0, math.min(1 - ch, PHOTO_AT[2] - ch * 0.5))
+    local cells = math.max(12, math.min(PHOTO_CELLS, math.floor(w / 1.5)))
+    local sh = ShaderRegistry.apply("poster", {
+        u_cells  = { cells, math.max(8, math.floor(cells * h / w)) },
+        u_levels = 7,
+        u_warm   = 1,
+        u_crop   = { cx, cy, cw, ch },
+        u_roof   = PHOTO_ROOF,
+    })
+    if sh then pcall(sh.send, sh, "u_win", PHOTO_WIN[1], PHOTO_WIN[2]) end
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(img, x, y, 0, w / iw, h / ih)
+    ShaderRegistry.apply(nil)
+end
+
 function HouseArt.paintPortrait(x, y, w, h, t)
+    local img = photo()
+    if img and ShaderRegistry.has and ShaderRegistry.has("poster") then
+        paintPhoto(img, x, y, w, h)
+        return
+    end
     t = t or STILL_T
     local vw, vh = w * PORTRAIT_ZOOM, h * PORTRAIT_ZOOM
     local vx = x + w * 0.52 - vw * 0.66   -- house centre → window 0.52

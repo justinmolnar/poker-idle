@@ -24,6 +24,11 @@ CARDS
 covers: assets/sprites/cards/
   TODO: the card fronts and backs — author, source, licence.
 
+THE HOUSE'S PORTRAIT
+covers: assets/sprites/house/
+  The photograph the print is made from (assets/sprites/house/photo.png) —
+  TODO: photographer and licence.
+
 FONT
   Thin Sans (assets/fonts/Thin Sans.ttf) — TODO: author and licence.
 
