@@ -236,11 +236,14 @@ end
 
 function BeatBrowser:keypressed(key)
     if self.editing then
+        local shift = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
         if key == "escape" then self:_endEdit()
-        elseif key == "return" or key == "kpenter" then self.edit_buf = self.edit_buf .. "\n"
+        elseif key == "return" or key == "kpenter" then
+            if shift then self.edit_buf = self.edit_buf .. "\n" else self:_endEdit() end
         elseif key == "backspace" then
             local b = self.edit_buf
-            self.edit_buf = b:sub(1, (utf8 and utf8.offset(b, -1) or #b) - 1)
+            local off = utf8 and utf8.offset(b, -1) or #b
+            self.edit_buf = off and b:sub(1, off - 1) or ""
         end
         return true
     end
@@ -322,6 +325,9 @@ function BeatBrowser:_beginEdit(kind)
     local t, k = self:_noteSlot(kind)
     self.editing  = kind
     self.edit_buf = t[k] or ""
+    -- Text events are off until asked for on LÖVE 12 (SDL3); 11 has them
+    -- on. Asked for either way, for the typing.
+    if love.keyboard and love.keyboard.setTextInput then love.keyboard.setTextInput(true) end
 end
 
 function BeatBrowser:_endEdit()
@@ -329,6 +335,7 @@ function BeatBrowser:_endEdit()
     local text = self.edit_buf:gsub("%s+$", "")
     t[k] = (text ~= "") and text or nil
     self.editing, self.edit_buf = nil, ""
+    if love.keyboard and love.keyboard.setTextInput then love.keyboard.setTextInput(false) end
     self:_saveNotes()
 end
 
@@ -439,10 +446,14 @@ function BeatBrowser:draw()
     local nb = self.notes.beats[beat.id]
     local beat_note = nb and nb.note
     local line_note = nb and nb.lines and nb.lines[tostring(li or 1)]
-    if self.editing == "beat" then row("beat note (typing, Esc saves): " .. self.edit_buf .. "_", D.hud_hot)
-    elseif beat_note then row("beat note: " .. beat_note, D.hud_hot) end
-    if self.editing == "line" then row("line note (typing, Esc saves): " .. self.edit_buf .. "_", D.hud_hot)
-    elseif line_note then row("line note: " .. line_note, D.hud_hot) end
+    if beat_note and self.editing ~= "beat" then row("beat note: " .. beat_note, D.hud_hot) end
+    if line_note and self.editing ~= "line" then row("line note: " .. line_note, D.hud_hot) end
+    if self.editing then
+        local caret = (math.floor(love.timer.getTime() * 2) % 2 == 0) and "|" or " "
+        row("TYPING the " .. self.editing .. " note — Enter saves, Shift+Enter breaks a line, Esc saves", D.hud_warn)
+        row("> " .. self.edit_buf .. caret, D.hud_text)
+        rows[#rows].box = true
+    end
     row("[←/→] line   [↑/↓] beat   [Home/End]   [R] rebuild   [N] line note   [B] beat note   [F9/Esc] back", D.hud_dim)
 
     local pad = fl(8 * s)
@@ -450,7 +461,7 @@ function BeatBrowser:draw()
     local lh  = font:getHeight()
     local lines = {}
     for _, r in ipairs(rows) do
-        for _, l in ipairs(wrap(font, r[1], w - pad * 2)) do lines[#lines + 1] = { l, r[2] } end
+        for _, l in ipairs(wrap(font, r[1], w - pad * 2)) do lines[#lines + 1] = { l, r[2], r.box } end
     end
     local h = pad * 2 + #lines * lh
     local x, y = fl(8 * s), fl(8 * s)
@@ -461,6 +472,10 @@ function BeatBrowser:draw()
     love.graphics.setFont(font)
     local cy = y + pad
     for _, l in ipairs(lines) do
+        if l[3] then   -- the note being typed: a lit field behind it
+            love.graphics.setColor(D.hud_hot[1], D.hud_hot[2], D.hud_hot[3], 0.18)
+            love.graphics.rectangle("fill", x + pad - 2, cy - 1, w - pad * 2 + 4, lh + 2)
+        end
         love.graphics.setColor(l[2])
         love.graphics.print(l[1], x + pad, cy)
         cy = cy + lh
