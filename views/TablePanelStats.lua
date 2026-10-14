@@ -132,144 +132,121 @@ end
 -- looks like, the expected per-hand $ value, and the focus penalty
 -- when applicable. Rebuilt from the same pool stats the EV readout
 -- below the panel uses.
+-- The cash readout's tooltip: the stake and the headline, then one grid
+-- of the four tiers by outcome — each cell the chance PER HAND of that
+-- outcome (the bar's own segments, in the bar's colours), under the win
+-- and loss totals and their average sizes. One place for every number;
+-- nothing is said twice.
+local TIER_LABEL = { small = "Small", medium = "Medium", large = "Large", stack = "Stack" }
 local function buildCashOverviewRenderRow(header, bb, ev_dollars, ev_bb, win_chance, win_avg_dollars, win_dist, loss_avg_dollars, loss_dist)
-    local present_win = {}
+    local wc = win_chance or 0
+    local lc = 1 - wc
+    local cells = {}
     for _, k in ipairs(TIER_ORDER) do
-        local p = (win_dist and win_dist[k]) or 0
-        if p >= 0.0005 then present_win[#present_win + 1] = { tier = k, pct = fmtPctClean(p) } end
+        cells[#cells + 1] = {
+            tier = k,
+            win  = string.format("%.1f%%", wc * ((win_dist  and win_dist[k])  or 0) * 100),
+            loss = string.format("%.1f%%", lc * ((loss_dist and loss_dist[k]) or 0) * 100),
+        }
     end
-    local present_loss = {}
-    for _, k in ipairs(TIER_ORDER) do
-        local p = (loss_dist and loss_dist[k]) or 0
-        if p >= 0.0005 then present_loss[#present_loss + 1] = { tier = k, pct = fmtPctClean(p) } end
-    end
+    local win_hdr  = string.format("WINS %s",   fmtPctClean(wc))
+    local loss_hdr = string.format("LOSSES %s", fmtPctClean(lc))
+    local win_avg  = string.format("avg %s", fmtMoney(win_avg_dollars))
+    local loss_avg = string.format("avg %s", fmtMoney(loss_avg_dollars))
+    local bb_str   = string.format("  (1 bb = %s)", fmtMoney(bb))
+    local ev1      = string.format("Expected: %s/hand", fmtMoneySigned(ev_dollars))
+    local ev2      = string.format("(%+.1f bb/h)", ev_bb)
+    local COL_GAP  = 18
 
-    local loss_chance = 1.0 - (win_chance or 0)
-    local function mixWidth(present, fonts)
+    -- The grid's columns, from the fonts: the names, then two outcome
+    -- columns each wide enough for its header, its average, or a glyph
+    -- and the widest number.
+    local function columns(fonts)
         local f_sm = fonts.sm
-        local r = TierGlyph.radius(f_sm:getHeight())
-        local SEG_GAP = 12
-        local w = 0
-        for _, seg in ipairs(present) do
-            w = w + TierGlyph.width(seg.tier, r) + 3 + f_sm:getWidth(seg.pct) + SEG_GAP
+        local r    = TierGlyph.radius(f_sm:getHeight())
+        local name_w, num_w, glyph_w = f_sm:getWidth("Per hand"), 0, 0
+        for _, c in ipairs(cells) do
+            name_w  = math.max(name_w, f_sm:getWidth(TIER_LABEL[c.tier]))
+            num_w   = math.max(num_w, f_sm:getWidth(c.win), f_sm:getWidth(c.loss))
+            glyph_w = math.max(glyph_w, TierGlyph.width(c.tier, r))
         end
-        return w
-    end
-
-    local function drawMixRow(x, y, present, outcome, fonts)
-        local f_sm = fonts.sm
-        local fh = f_sm:getHeight()
-        local r = TierGlyph.radius(fh)
-        local SEG_GAP = 12
-        local text_y = y
-        local text_center_y = y + math.floor(fh * 0.5)
-        local gx = x
-        love.graphics.setFont(f_sm)
-        for _, seg in ipairs(present) do
-            local gw = TierGlyph.width(seg.tier, r)
-            -- Centre the shape on the text line: its base sits half the
-            -- shape's extra height below the middle.
-            local baseline = text_center_y + math.floor((TierGlyph.height(seg.tier, r) - r * 2) * 0.5)
-            TierGlyph.draw(gx + gw / 2, baseline, seg.tier, r, outcome)
-            Theme.setColor(TierGlyph.color(seg.tier, outcome))
-            love.graphics.print(seg.pct, gx + gw + 3, text_y)
-            gx = gx + gw + 3 + f_sm:getWidth(seg.pct) + SEG_GAP
-        end
-    end
-
-    local function calcWidth(fonts)
-        local f_md = fonts.md or fonts.sm
-        local f_sm = fonts.sm
-        local title_w = f_md:getWidth(header) + f_sm:getWidth(string.format("  (1 bb = %s)", fmtMoney(bb)))
-        local ev1 = string.format("Expected: %s/hand", fmtMoneySigned(ev_dollars))
-        local ev2 = string.format("(%+.1f bb/h)", ev_bb)
-        local ev_w = f_md:getWidth(ev1) + f_md:getWidth(ev2) + 8
-
-        local win_hdr = string.format("Odds: %s · Avg winnings: %s", fmtPctClean(win_chance), fmtMoney(win_avg_dollars))
-        local win_w = math.max(f_sm:getWidth(win_hdr), mixWidth(present_win, fonts))
-
-        local loss_hdr = string.format("Loss Rate: %s · Avg Loss: %s", fmtPctClean(loss_chance), fmtMoney(loss_avg_dollars))
-        local loss_w = math.max(f_sm:getWidth(loss_hdr), mixWidth(present_loss, fonts))
-
-        return math.max(260, title_w, ev_w, win_w, loss_w)
+        local cell_w = math.max(glyph_w + 4 + num_w,
+                                f_sm:getWidth(win_hdr), f_sm:getWidth(loss_hdr),
+                                f_sm:getWidth(win_avg), f_sm:getWidth(loss_avg))
+        return name_w, cell_w, num_w, r
     end
 
     local function measure(fonts)
-        local f_md = fonts.md or fonts.sm
-        local f_sm = fonts.sm
-        local fh_md = f_md:getHeight()
-        local fh_sm = f_sm:getHeight()
-
-        local win_h = fh_sm + (#present_win > 0 and (fh_sm + 2) or 0)
-        local loss_h = fh_sm + (#present_loss > 0 and (fh_sm + 2) or 0)
-
-        local total_h = fh_md + fh_md + 6 + win_h + 8 + loss_h
-        local w = calcWidth(fonts)
-        return w, total_h
+        local f_md, f_sm = fonts.md or fonts.sm, fonts.sm
+        local fh_md, fh_sm = f_md:getHeight(), f_sm:getHeight()
+        local name_w, cell_w = columns(fonts)
+        local grid_w  = name_w + COL_GAP + cell_w + COL_GAP + cell_w
+        local title_w = f_md:getWidth(header) + f_sm:getWidth(bb_str)
+        local ev_w    = f_md:getWidth(ev1) + 6 + f_md:getWidth(ev2)
+        local h = (fh_md + 2) + (fh_md + 8)              -- title, Expected
+                + (fh_sm + 2) + (fh_sm + 6)              -- WINS/LOSSES, avg
+                + #cells * (fh_sm + 3)                   -- the tiers
+        return math.max(260, title_w, ev_w, grid_w), h
     end
 
     local function render(x, y, fonts)
-        local f_md = fonts.md or fonts.sm
-        local f_sm = fonts.sm
-        local fh_md = f_md:getHeight()
-        local fh_sm = f_sm:getHeight()
-
+        local f_md, f_sm = fonts.md or fonts.sm, fonts.sm
+        local fh_md, fh_sm = f_md:getHeight(), f_sm:getHeight()
         local cy = y
 
-        -- 1. TITLE & BLIND RATE ON SAME LINE (PERFECT BASELINE ALIGNMENT)
+        -- The stake, and the blind beside it.
         love.graphics.setFont(f_md)
         Theme.setColor(Theme.fg.heading)
         love.graphics.print(header, x, cy)
-        local hw = f_md:getWidth(header)
-
         love.graphics.setFont(f_sm)
         Theme.setColor(Theme.fg.muted)
-        local offset_y = math.max(0, math.floor((fh_md - fh_sm) * 0.35))
-        love.graphics.print(string.format("  (1 bb = %s)", fmtMoney(bb)), x + hw, cy + offset_y)
+        love.graphics.print(bb_str, x + f_md:getWidth(header), cy + math.max(0, math.floor((fh_md - fh_sm) * 0.35)))
         cy = cy + fh_md + 2
 
-        -- 2. EXPECTED EV (HEADLINE RIGHT BELOW TITLE)
-        local ev_color_token = (ev_bb > 0.05) and "good"
-                            or (ev_bb < -0.05) and "error"
-                            or "muted"
-        local ev_c = (ev_color_token == "good" and Theme.sem.won)
-                  or (ev_color_token == "error" and Theme.sem.lost)
-                  or Theme.fg.muted
-
+        -- The headline.
+        local ev_c = (ev_bb > 0.05) and Theme.sem.won or (ev_bb < -0.05) and Theme.sem.lost or Theme.fg.muted
         love.graphics.setFont(f_md)
         Theme.setColor(ev_c)
-        local ev1 = string.format("Expected: %s/hand", fmtMoneySigned(ev_dollars))
-        local ev2 = string.format("(%+.1f bb/h)", ev_bb)
         love.graphics.print(ev1, x, cy)
-        local ev1_w = f_md:getWidth(ev1)
         Theme.setColor(ev_c, 0.8)
-        love.graphics.print(ev2, x + ev1_w + 6, cy)
-        cy = cy + fh_md + 6
+        love.graphics.print(ev2, x + f_md:getWidth(ev1) + 6, cy)
+        cy = cy + fh_md + 8
 
-        -- 3. WIN SECTION (Header on line 1, Chip icons on line 2)
+        -- The grid. Numbers right-aligned in their column, the glyph just
+        -- left of the number in the outcome's colour.
+        local name_w, cell_w, num_w, r = columns(fonts)
+        local win_x  = x + name_w + COL_GAP
+        local loss_x = win_x + cell_w + COL_GAP
         love.graphics.setFont(f_sm)
+        Theme.setColor(Theme.fg.muted)
+        love.graphics.print("Per hand", x, cy)
         Theme.setColor(Theme.sem.won)
-        local win_hdr_str = string.format("Odds: %s · Avg winnings: %s", fmtPctClean(win_chance), fmtMoney(win_avg_dollars))
-        love.graphics.print(win_hdr_str, x, cy)
-        cy = cy + fh_sm + 2
-
-        if #present_win > 0 then
-            drawMixRow(x, cy, present_win, "win", fonts)
-            cy = cy + fh_sm + 2
-        end
-
-        cy = cy + 8 -- DISTINCT GAP BETWEEN WIN GROUP AND LOSS GROUP
-
-        -- 4. LOSS SECTION (Header on line 1, Chip icons on line 2)
-        love.graphics.setFont(f_sm)
+        love.graphics.print(win_hdr, win_x + cell_w - f_sm:getWidth(win_hdr), cy)
         Theme.setColor(Theme.sem.lost)
-        local loss_hdr_str = string.format("Loss Rate: %s · Avg Loss: %s", fmtPctClean(loss_chance), fmtMoney(loss_avg_dollars))
-        love.graphics.print(loss_hdr_str, x, cy)
+        love.graphics.print(loss_hdr, loss_x + cell_w - f_sm:getWidth(loss_hdr), cy)
         cy = cy + fh_sm + 2
+        Theme.setColor(Theme.sem.won, 0.7)
+        love.graphics.print(win_avg, win_x + cell_w - f_sm:getWidth(win_avg), cy)
+        Theme.setColor(Theme.sem.lost, 0.7)
+        love.graphics.print(loss_avg, loss_x + cell_w - f_sm:getWidth(loss_avg), cy)
+        cy = cy + fh_sm + 6
 
-        if #present_loss > 0 then
-            drawMixRow(x, cy, present_loss, "loss", fonts)
-            cy = cy + fh_sm + 2
+        local mid = math.floor(fh_sm * 0.5)
+        local function cell(cx, tier, str, outcome)
+            local gw = TierGlyph.width(tier, r)
+            local num_x = cx + cell_w - f_sm:getWidth(str)
+            local gx = cx + cell_w - num_w - 4 - gw
+            local baseline = cy + mid + math.floor((TierGlyph.height(tier, r) - r * 2) * 0.5)
+            TierGlyph.draw(gx + gw / 2, baseline, tier, r, outcome)
+            Theme.setColor(TierGlyph.color(tier, outcome))
+            love.graphics.print(str, num_x, cy)
+        end
+        for _, c in ipairs(cells) do
+            Theme.setColor(Theme.fg.heading)
+            love.graphics.print(TIER_LABEL[c.tier], x, cy)
+            cell(win_x,  c.tier, c.win,  "win")
+            cell(loss_x, c.tier, c.loss, "loss")
+            cy = cy + fh_sm + 3
         end
     end
 
@@ -886,8 +863,7 @@ local function breakdownFromStats(controller, stats)
     return lines
 end
 
-local buildEvBreakdownLines   -- below; the readout's one tooltip joins it with the bar's legend
-local function evBreakdownOnly(tbl, controller)
+local function buildEvBreakdownLines(tbl, controller)
     local lines = breakdownFromStats(controller,
         controller and controller:tableDebugStats(tbl))
     -- What is acting on this table from where it sits (the header's item
@@ -899,19 +875,6 @@ local function evBreakdownOnly(tbl, controller)
         for i = 1, n do
             lines[#lines + 1] = row(tbl._mods[i].tip, "sm", "good")
         end
-    end
-    return lines
-end
-
--- The readout's ONE tooltip, wherever on it the pointer rests: the
--- breakdown (what the table makes and why), then the bar's legend (each
--- outcome's chance). It used to be two hovers side by side.
-buildEvBreakdownLines = function(tbl, controller)
-    local lines = evBreakdownOnly(tbl, controller) or {}
-    local legend = TablePanelStats.barLegendLines and TablePanelStats.barLegendLines(tbl, controller)
-    if legend then
-        if #lines > 0 then lines[#lines + 1] = row("", "xs") end
-        for _, l in ipairs(legend) do lines[#lines + 1] = l end
     end
     return lines
 end
@@ -1131,7 +1094,8 @@ function TablePanelStats.drawEvReadout(tbl, ev, controller, fonts, hit_boxes, an
             hb = {}
             hit_boxes[#hit_boxes + 1] = hb
         end
-        -- One box over the whole readout, numbers and bar: one tooltip.
+        -- One box over the whole readout, numbers and bar: one tooltip
+        -- (its grid carries the bar's numbers).
         hb.x, hb.y = tx - pad, ty - pad
         hb.w, hb.h = drawn_w + pad * 2, m.text_h + pad * 2
         hb.tooltip_fn   = buildEvBreakdownLines
