@@ -1658,11 +1658,16 @@ function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_s
         t.h_up, t.stick, t.top, t.pad = h_up, stick, top, pad
         t.hov = HoverSvc.rest("button", t.key,
             not turning and mx >= x and mx < x + w and my >= t.y and my < t.y + h, 0)
+        -- The tab hangs past the book's edge, over whatever the book is
+        -- drawn on (the grind's rack): it is paper there too, so the
+        -- surface under the pointer is the tab, never a refusal beneath it.
+        ClickSurfaces.add("paper", x, t.y, w, h)
         if t.hov then
             local tip = ("%s: %d items"):format(t.label, t.count)
             if t.ready > 0 then tip = tip .. (", %d to peel"):format(t.ready) end
             if (t.buyable or 0) > 0 then tip = tip .. (", %d to buy"):format(t.buyable) end
             TooltipSvc.set(tip, mx, my)
+            require("services.CursorIntent").mark("point")   -- a click turns to it
         end
         self._tabs[#self._tabs + 1] = t
         off = off + w + gap

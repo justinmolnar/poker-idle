@@ -154,7 +154,7 @@ return {
     -- Tournaments: the Act 2 table, the support. The vase (the intro) and
     -- everything that chains off it; the knockout items hand things to the
     -- tournament's block, the poster brings a busted neighbour back.
-    { id = "ko", title = "Awards & Trophy Wall", label = "TOURNAMENTS", tab = { "gtype:ko" },
+    { id = "ko", title = "Awards & Trophy Wall", label = "KO", tab = { "gtype:ko" },
       items = {
           "medical_poster", "first_aid_kit", "hot_bath", "fresh_towel",
           "box_of_tissues", "rubber_duck", "shower_head", "window",
