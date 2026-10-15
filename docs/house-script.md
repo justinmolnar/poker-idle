@@ -146,7 +146,7 @@ the same way, climbing from 0, with no line.
 |---|---|---|
 | Three! Look at you. So here's your answer. | `cell:chips` | click |
 | There's only one way out of here. Straight through the {c:chip:door}. | `btn:shove` | click |
-| But first, you gotta get past me. One hand, everything you have goes in. No need to cash out, I'll do it for you. Winner takes all. | `btn:shove` | click |
+| But first, you gotta get past me. One hand, everything you have goes in. No need to cash out your tables, I'll do it for you. Winner takes all. | `btn:shove` | click |
 | {c:won:Win}, and you walk out with the lot. {c:lost:Lose}, and you keep the {chip}. I'll set you back up with the 2 dollar loan. No harm done. | `btn:shove` | click |
 | Whenever you're ready. No rush. I'm always here. If you feel like you've stalled out, it's usually a good idea to hold SHOVE. | `btn:shove` | click |
 
