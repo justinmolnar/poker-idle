@@ -385,7 +385,7 @@ return {
             lines = {
                 { text = "Cozy. Everything you bought from the catalog, delivered as promised. These never reset.",
                   anchor = "room:items" },
-                { text = "Remember the SHOVE equation? It's ITEMS in your room, multiplied by your BANKROLL.{page}That's why it was 0%. You didn't own anything yet." },
+                { text = "Remember the SHOVE equation? It's ITEMS in your room, multiplied by your BANKROLL, tables included.{page}That's why it was 0%. You didn't own anything yet." },
                 { text = "So it's about {chip} now. Every table pays at least one. Higher stakes pay more. Collect, then shove. You'll get it. Next time.",
                   anchor = "room:play" },
             },

@@ -211,7 +211,7 @@ Fixed slots; an empty text is a silent slot.
 | block | anchor | hold |
 |---|---|---|
 | Cozy. Everything you bought from the catalog, delivered as promised. These never reset. | `room:items` | click |
-| Remember the SHOVE equation? It's ITEMS in your room, multiplied by your BANKROLL. That's why it was 0%. You didn't own anything yet. | | click |
+| Remember the SHOVE equation? It's ITEMS in your room, multiplied by your BANKROLL, tables included. That's why it was 0%. You didn't own anything yet. | | click |
 | So it's about {chip} now. Every table pays at least one. Higher stakes pay more. Collect, then shove. You'll get it. Next time. | `room:play` | click |
 
 ### `catalog_browse` — grind. **PAUSE.** Trigger: on the grind, the catalog open (the read-only book from the desk).
