@@ -273,7 +273,7 @@ return {
             lines = {
                 { text = "Three! Look at you. So here's your answer.", anchor = "cell:chips" },
                 { text = "There's only one way out of here. Straight through the {c:chip:door}.", anchor = "btn:shove" },
-                { text = "But first, you gotta get past me. One hand, everything you have goes in. No need to cash out your tables, I'll do it for you. Winner takes all.",
+                { text = "But first, you gotta get past me. One hand, everything you have goes in.{page}No need to cash out your tables, I'll do it for you. Winner takes all.",
                   anchor = "btn:shove" },
                 { text = "{c:won:Win}, and you walk out with the lot. {c:lost:Lose}, and you keep the {chip}. I'll set you back up with the 2 dollar loan. No harm done.",
                   anchor = "btn:shove" },
