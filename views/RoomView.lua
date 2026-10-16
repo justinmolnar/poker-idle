@@ -32,6 +32,19 @@ if Constants.FEATURES.DEV_HOTKEYS then
 else
     LayersPanel = setmetatable({}, { __index = function() return function() return false end end })
 end
+-- The editor's sense of space (views/RoomEditorSpace: what the hand lands
+-- on, fit, clashes, the home a drop writes), the same way: dev tooling,
+-- loaded on first touch, every call answering nil without it.
+local EditorSpace
+if Constants.FEATURES.DEV_HOTKEYS then
+    EditorSpace = setmetatable({}, { __index = function(t, k)
+        local m = require("views.RoomEditorSpace")
+        setmetatable(t, { __index = m })
+        return m[k]
+    end })
+else
+    EditorSpace = setmetatable({}, { __index = function() return function() return nil end end })
+end
 
 -- The editor autosaves a draft next to the game's saves (DRAFT_FILE) so a
 -- crash or a closed window loses seconds, not the session. The draft
@@ -432,6 +445,15 @@ function RoomView:new(game)
         snap_options     = { 1.0, 0.5, 0.25, 0.125 },
         snap_idx         = 4,          -- current grid snap option (defaults to 0.125)
         picked_item      = nil,
+        -- The editor's space (views/RoomEditorSpace): a drop over a face
+        -- parents the thing and sets its height from the surfaces data;
+        -- the nudge is the hand's height above that rest, kept across a
+        -- pick-up; `o` turns the automation off, Shift+click skips it once.
+        auto_surface     = true,
+        active_z_nudge   = 0,
+        _hand_fit        = nil,
+        _audit_marks     = nil,
+        _audit_until     = 0,
         list_scroll      = 0,          -- item-browser scroll offset (px)
         _list_rows       = {},         -- built each draw; consumed by mousepressed
         _list_rect       = nil,        -- browser viewport rect (hit-test + wheel)
@@ -934,7 +956,19 @@ function RoomView:draw(full_screen, opts)
     if not render_list or self._render_rev ~= owned_rev then
         self._render_rev = cacheable and owned_rev or nil
         local resolve_set = self:_resolveSet(owned_set)
-        self._resolved = RoomPlacement.resolveAll(self.placed, resolve_set)
+        -- While a thing is in the hand, its children resolve against where
+        -- it is going (a synthetic entry at the mouse), so they ride along.
+        local resolve_list = self.placed
+        if self.editor_mode and self.picked_item then
+            local hmx, hmy = love.mouse.getPosition()
+            local hzx, hzy = self:_unzoom(hmx, hmy, cx, cy)
+            local hgx, hgy = screenToGrid(hzx, hzy, cx, cy, tw, th)
+            local hstep = self.snap_options[self.snap_idx] or 0.125
+            hgx = math.floor(hgx / hstep + 0.5) * hstep
+            hgy = math.floor(hgy / hstep + 0.5) * hstep
+            resolve_list = EditorSpace.placedWithHand(self, hgx, hgy) or self.placed
+        end
+        self._resolved = RoomPlacement.resolveAll(resolve_list, resolve_set)
         render_list = {}
         for _, obj in ipairs(self.placed) do
             local r = self._resolved[obj]
@@ -1176,8 +1210,12 @@ function RoomView:draw(full_screen, opts)
         love.graphics.translate(cx, cy)
         love.graphics.scale(zoom, zoom)
         love.graphics.translate(-cx, -cy)
-        -- Hover preview tile highlighting
-        if gx >= 0 and gx + self.active_w <= self.room_size and gy >= 0 and gy + self.active_h <= self.room_size then
+        -- Hover preview: the hand's fit (its foot on the parent's face, the
+        -- overlaps) from the editor's space, else the plain footprint diamond.
+        local fit = EditorSpace.handFit(self, gx, gy)
+        if fit then
+            EditorSpace.drawPreview(self, fit, cx, cy, tw, th, s)
+        elseif gx >= 0 and gx + self.active_w <= self.room_size and gy >= 0 and gy + self.active_h <= self.room_size then
             local tx1, ty1 = gridToScreen(gx, gy, cx, cy, tw, th)
             local tx2, ty2 = gridToScreen(gx + self.active_w, gy, cx, cy, tw, th)
             local tx3, ty3 = gridToScreen(gx + self.active_w, gy + self.active_h, cx, cy, tw, th)
@@ -1188,6 +1226,8 @@ function RoomView:draw(full_screen, opts)
             love.graphics.polygon("fill", tx1, ty1, tx2, ty2, tx3, ty3, tx4, ty4)
             Theme.setColor(Theme.status.good, 0.8)
             love.graphics.polygon("line", tx1, ty1, tx2, ty2, tx3, ty3, tx4, ty4)
+        end
+        if gx >= 0 and gx + self.active_w <= self.room_size and gy >= 0 and gy + self.active_h <= self.room_size then
 
             -- Draw placement preview block (sprite or fallback box)
             local pv_anim = self.active_anim_room
@@ -1235,15 +1275,16 @@ function RoomView:draw(full_screen, opts)
                 end
                 
                 local px = sx + (self.active_dx or 0) * s
-                local py = sy - self.active_z * s
+                local py = sy - (fit and fit.z or self.active_z) * s
                 
                 love.graphics.setColor(1, 1, 1, 0.60)
                 love.graphics.draw(sprite, px, py, 0, draw_scale_x, draw_scale_y, ox, oy)
             else
                 local preview_c = { 0.92, 0.72, 0.32, 0.50 } -- translucent amber
-                drawIsoBox(gx, gy, self.active_w, self.active_h, self.active_z, self.active_sh, preview_c, tw, th, cx, cy, s, self.active_scale, self.active_flip_x)
+                drawIsoBox(gx, gy, self.active_w, self.active_h, fit and fit.z or self.active_z, self.active_sh, preview_c, tw, th, cx, cy, s, self.active_scale, self.active_flip_x)
             end
         end
+        EditorSpace.drawMarks(self, cx, cy, tw, th, s)
         love.graphics.pop()
 
         if not self.hide_editor_hud then
@@ -1894,10 +1935,16 @@ function RoomView:mousepressed(x, y, button)
 
         if gx >= 0 and gx + self.active_w <= self.room_size and gy >= 0 and gy + self.active_h <= self.room_size then
             do
-                -- Place active item (Shift+Click stacks on top of furniture!)
+                -- Place the active item. Over another item's top face the
+                -- drop parents it there at the face's height (the editor's
+                -- space); Shift+click places plainly, at the hand's own
+                -- height, with no parenting.
                 local active_spec = self.placeable[self.selected_idx]
                 if active_spec then
-                    local auto_z = self.active_z
+                    local shift = love.keyboard and (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift"))
+                    local fit = (not shift) and self.auto_surface and EditorSpace.handFit(self, gx, gy) or nil
+                    local auto_z = fit and fit.z or self.active_z
+                    local layer  = fit and fit.layer or (self.active_layer or 0)
 
                     -- Catalog items are one per room (the id is what the
                     -- game owns), so placing again moves it. Flavor sprites
@@ -1907,7 +1954,7 @@ function RoomView:mousepressed(x, y, button)
                     local is_catalog = self.catalog_by_id[active_spec.id] ~= nil
                     local sprite_name = active_spec.sprite or active_spec.id
                     local placement = { gx = gx, gy = gy, z_offset = auto_z, dx = self.active_dx or 0,
-                                        layer = self.active_layer or 0, align = self.active_align,
+                                        layer = layer, align = self.active_align,
                                         flip_x = self.active_flip_x, scale = self.active_scale }
                     -- An entry that already exists (in hand, or the one
                     -- REPLACE moves) keeps its homes: the placement goes to
@@ -1922,10 +1969,13 @@ function RoomView:mousepressed(x, y, button)
                     end
                     if target then
                         if self.picked_item then table.insert(self.placed, target) end
-                        self:_writePlacement(target, placement)
+                        if not EditorSpace.applyDrop(self, target, placement, fit) then
+                            self:_writePlacement(target, placement)
+                        end
                         self.picked_item = nil
                         self.sel_placed  = target
-                        print(string.format("[room-editor] Placed %s at (%.3f, %.3f, Z=%d)", target.id, gx, gy, auto_z))
+                        print(string.format("[room-editor] Placed %s at (%.3f, %.3f, Z=%d)%s", target.id, gx, gy, auto_z,
+                            fit and fit.parent and (" on " .. fit.parent.item.obj.id) or ""))
                         return true
                     end
                     if self.picked_item then
@@ -1958,7 +2008,7 @@ function RoomView:mousepressed(x, y, button)
                         h         = self.active_h,
                         z_offset  = auto_z,
                         dx        = self.active_dx or 0,
-                        layer     = self.active_layer or 0,
+                        layer     = layer,
                         sh        = self.active_sh,
                         color     = { self.active_color[1], self.active_color[2], self.active_color[3] },
                         scale     = self.active_scale,
@@ -1972,7 +2022,9 @@ function RoomView:mousepressed(x, y, button)
                         homes     = self.picked_item and self.picked_item.homes or nil,
                     })
                     self.sel_placed = self.placed[#self.placed]
-                    print(string.format("[room-editor] Placed %s at (%.3f, %.3f, Z=%d)", place_id, gx, gy, auto_z))
+                    EditorSpace.applyDrop(self, self.placed[#self.placed], placement, fit)
+                    print(string.format("[room-editor] Placed %s at (%.3f, %.3f, Z=%d)%s", place_id, gx, gy, auto_z,
+                        fit and fit.parent and (" on " .. fit.parent.item.obj.id) or ""))
                     self.picked_item = nil -- successfully placed, clear picked state
                 end
             end
@@ -2093,11 +2145,28 @@ function RoomView:keypressed(key)
     -- keys repeat while held in the editor (RoomState turns that on).
     local shift = love.keyboard and (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift"))
     local coarse = shift and 8 or 1
+    -- Over another item's top face the height keys move the hand's
+    -- nudge above that face instead (the rest height is the surfaces').
     if key == "7" then
-        self.active_z = self.active_z - 4 * coarse   -- below 0 sinks into the floor
+        if not EditorSpace.nudgeZ(self, -4 * coarse) then
+            self.active_z = self.active_z - 4 * coarse   -- below 0 sinks into the floor
+        end
         return true
     elseif key == "8" then
-        self.active_z = self.active_z + 4 * coarse
+        if not EditorSpace.nudgeZ(self, 4 * coarse) then
+            self.active_z = self.active_z + 4 * coarse
+        end
+        return true
+    end
+
+    -- The editor's space: `o` turns the automatic parenting and height
+    -- off and on; `c` lists every clash in the room (and marks them).
+    if key == "o" then
+        self.auto_surface = not self.auto_surface
+        print("[room-editor] auto surface " .. (self.auto_surface and "ON" or "OFF"))
+        return true
+    elseif key == "c" then
+        EditorSpace.audit(self, "key")
         return true
     end
 
@@ -2300,8 +2369,8 @@ function RoomView:keypressed(key)
         -- Applies to the thing in hand: the held item, or the preview
         -- that lands on the next placement.
         local px_step = 1 * coarse
-        if key == "up"    then self.active_z  = self.active_z + px_step end
-        if key == "down"  then self.active_z  = self.active_z - px_step end   -- may go below 0
+        if key == "up"   and not EditorSpace.nudgeZ(self, px_step)  then self.active_z = self.active_z + px_step end
+        if key == "down" and not EditorSpace.nudgeZ(self, -px_step) then self.active_z = self.active_z - px_step end   -- may go below 0
         if key == "left"  then self.active_dx = (self.active_dx or 0) - px_step end
         if key == "right" then self.active_dx = (self.active_dx or 0) + px_step end
         print(string.format("[room-editor] height %d px, sideways %d px", self.active_z, self.active_dx or 0))
@@ -2340,6 +2409,7 @@ end
 function RoomView:syncActiveParams()
     local active_spec = self.placeable[self.selected_idx]
     if not active_spec then return end
+    self.active_z_nudge = 0
     
     local found = false
     for _, o in ipairs(self.placed) do
@@ -2473,6 +2543,7 @@ function RoomView:_grabPlaced(obj)
     }
     local r = self._resolved and self._resolved[obj]
     local res = r and r.fields or obj
+    EditorSpace.onGrab(self, obj, r)
     self.active_w         = obj.w
     self.active_h         = obj.h
     self.active_sh        = obj.sh
@@ -2976,6 +3047,7 @@ loadLightsDraft = function()
 end
 
 function RoomView:serializeLayout()
+    EditorSpace.audit(self, "export")   -- the clashes, listed; never a block
     local output_str = self:layoutString()
 
     print("---------------- COPY FROM LINE BELOW ----------------")
@@ -3018,5 +3090,10 @@ function RoomView:serializeLayout()
         end
     end
 end
+
+-- For views/RoomEditorSpace (the editor's space), which draws under the
+-- same projection and reads the same sprite bottoms.
+RoomView.gridToScreen    = gridToScreen
+RoomView.getSpriteBottom = getSpriteBottom
 
 return RoomView

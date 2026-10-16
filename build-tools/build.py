@@ -64,7 +64,7 @@ DISCOVERY_PREFIXES = ("assets/audio/items/", "assets/audio/room/", "assets/audio
                       "assets/audio/radio/", "assets/audio/music/", "assets/audio/layers/",
                       "assets/audio/ui/")
 LOVEJS_CANDIDATES = [os.path.join(TOOLS, "node_modules", "love.js", "index.js")]
-SUITES = ["sim/test_everything.lua", "sim/smoke_views.lua", "sim/smoke_boot.lua", "sim/smoke_bar.lua",
+SUITES = ["sim/test_everything.lua", "sim/smoke_views.lua", "sim/smoke_boot.lua", "sim/smoke_room_space.lua", "sim/smoke_bar.lua",
           "sim/smoke_ui.lua", "sim/smoke_storybox.lua", "sim/smoke_demo_end.lua", "sim/smoke_settings.lua", "sim/smoke_tooltip.lua",
           "sim/lint_copy.lua", "sim/lint_terms.lua", "sim/lint_catalog_economy.lua", "sim/iconize_check.lua",
           "sim/smoke_story_copy.lua"]

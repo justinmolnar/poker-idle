@@ -626,6 +626,38 @@ do
         c.ok(false, "the room state has a room view to test strays with")
     end
 
+    -- The editor's space (views/RoomEditorSpace through the proxy): pick a
+    -- placed thing up, draw with it in the hand (its fit, the preview on a
+    -- face, the children resolving against the hand), put it down with a
+    -- click (the drop writes a home or the base), audit the room. None of
+    -- it may error, and the thing must be back in the room afterwards.
+    if rs and rs.placed and #rs.placed > 0 then
+        local view = rs
+        view.editor_mode = true
+        local drew, err = pcall(function() built.room:draw() end)
+        c.ok(drew, "the room draws in editor mode: " .. tostring(err))
+        local target
+        for _, o in ipairs(view.placed) do if o.homes then target = o; break end end
+        target = target or view.placed[1]
+        local n_before = #view.placed
+        local grabbed, gerr = pcall(function() view:_grabPlaced(target) end)
+        c.ok(grabbed and view.picked_item ~= nil, "the editor picks a placed thing up: " .. tostring(gerr))
+        local d2, e2 = pcall(function() built.room:draw(); built.room:draw() end)
+        c.ok(d2, "the room draws with a thing in the hand: " .. tostring(e2))
+        local W, H = love.graphics.getDimensions()
+        local pressed, perr = pcall(function() return view:mousepressed(W / 2, H / 2, 1) end)
+        c.ok(pressed, "a click puts it down: " .. tostring(perr))
+        c.ok(#view.placed == n_before and view.picked_item == nil,
+             ("the thing is back in the room (%d of %d placed, hand %s)"):format(#view.placed, n_before, tostring(view.picked_item)))
+        local audited, aerr = pcall(function() return view:keypressed("c") end)
+        c.ok(audited, "the clash audit runs: " .. tostring(aerr))
+        local d3, e3 = pcall(function() built.room:draw() end)
+        c.ok(d3, "the room draws with audit marks up: " .. tostring(e3))
+        pcall(function() view:keypressed("o"); view:keypressed("o") end)
+        view.editor_mode = false
+        view._render_list, view._render_rev = nil, nil
+    end
+
     -- The shove's room phase, the room before the shove: it plays on the
     -- House's security monitor (views/CrtMonitor).
     local sv = built.shove and built.shove.view
