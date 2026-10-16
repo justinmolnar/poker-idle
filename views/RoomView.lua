@@ -1203,7 +1203,7 @@ function RoomView:draw(full_screen, opts)
     local mx, my = love.mouse.getPosition()
     local gx, gy = self:_pointerGrid(mx, my, cx, cy, tw, th)
 
-    local active_spec = self.placeable[self.selected_idx]
+    local active_spec = self:_activeSpec()
 
     if self.editor_mode and active_spec then
         love.graphics.push()
@@ -1984,7 +1984,7 @@ function RoomView:_placeAt(gx, gy, insert_idx)
                 -- drop parents it there at the face's height (the editor's
                 -- space); Shift+click places plainly, at the hand's own
                 -- height, with no parenting.
-                local active_spec = self.placeable[self.selected_idx]
+                local active_spec = self:_activeSpec()
                 if active_spec then
                     local shift = love.keyboard and (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift"))
                     local fit = (not shift) and self.auto_surface and EditorSpace.handFit(self, gx, gy) or nil
@@ -2563,6 +2563,19 @@ end
 -- Pick a placed entry up into the hand (Alt+click, or the layers panel).
 -- The hand takes the item's placement as resolved under the current
 -- anchors; putting it down writes that home (or the base).
+-- What the hand holds: the thing picked up out of the room (its own id
+-- and sprite, even when no browser row names it — the House's poster is
+-- baked art under a layout-only id), else the browser's selected row.
+-- Before this the hand previewed and placed whatever row happened to be
+-- selected (the pack's "Room" picture) when nothing matched.
+function RoomView:_activeSpec()
+    local p = self.picked_item
+    if p then
+        return { id = p.id, sprite = p.sprite or p.id, name = p.id, fps = p.fps, frame = p.frame, anim_room = p.anim_room }
+    end
+    return self.placeable[self.selected_idx]
+end
+
 function RoomView:_grabPlaced(obj)
     if self.picked_item or obj.locked then return end
     local idx
