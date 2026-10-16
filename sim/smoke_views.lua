@@ -658,6 +658,100 @@ do
         view._render_list, view._render_rev = nil, nil
     end
 
+    -- SPACE mode, headless: faces drawn at rest, the CLASHES tab, and the
+    -- drag — press on a placed thing, move past the threshold (it goes
+    -- into the hand), release in the room (it lands back at its old draw
+    -- position); a release at (-1,-1) and Esc put it back untouched; a
+    -- row dragged from the browser into the room lands a copy.
+    if rs and rs.placed and #rs.placed > 0 then
+        local view = rs
+        view.editor_mode, view.space_mode = true, true
+        local W, H = love.graphics.getDimensions()
+        local d1, e1 = pcall(function() built.room:draw(); built.room:draw() end)
+        c.ok(d1, "the room draws in SPACE mode: " .. tostring(e1))
+        view.panel_tab = "clashes"
+        local d2, e2 = pcall(function() built.room:draw() end)
+        c.ok(d2, "the CLASHES tab draws: " .. tostring(e2))
+        view.panel_tab = "layers"
+        pcall(function() view:keypressed("c") end)
+        c.ok(view.panel_tab == "clashes", "C jumps to the CLASHES tab")
+        view.panel_tab = "layers"
+        pcall(function() built.room:draw() end)
+        -- a placed thing whose drawn rect sits in the room, off the chrome
+        local s = g.ui_scale or 1
+        local pick
+        for _, r in ipairs(view._hit_rects or {}) do
+            local cx_, cy_ = r.x + r.w / 2, r.y + r.h / 2
+            if cx_ > 300 * s and cx_ < W - 320 * s and cy_ > 100 * s and cy_ < H - 60 * s and not r.obj.locked then
+                pick = { obj = r.obj, x = cx_, y = cy_ }; break
+            end
+        end
+        c.ok(pick ~= nil, "a placed thing is drawn inside the room to drag")
+        if pick then
+            local n_before = #view.placed
+            local orig_idx
+            for i, o in ipairs(view.placed) do if o == pick.obj then orig_idx = i end end
+            -- press, a small move, then real moves
+            local ok1, er1 = pcall(function() view:mousepressed(pick.x, pick.y, 1) end)
+            c.ok(ok1 and view._space_drag ~= nil and view.picked_item == nil and #view.placed == n_before,
+                 "a press arms a drag and moves nothing: " .. tostring(er1))
+            pcall(function() view:mousemoved(pick.x + 2, pick.y + 2) end)
+            c.ok(view.picked_item == nil, "two pixels is still a click")
+            pcall(function() view:mousemoved(pick.x + 8, pick.y + 8); view:mousemoved(pick.x + 16, pick.y + 10); view:mousemoved(pick.x + 24, pick.y + 12) end)
+            c.ok(view.picked_item ~= nil, "past the threshold the thing is in the hand")
+            local d3, e3 = pcall(function() built.room:draw(); built.room:draw() end)
+            c.ok(d3, "the room draws mid-drag: " .. tostring(e3))
+            local ok2, er2 = pcall(function() view:mousereleased(pick.x + 24, pick.y + 12, 1) end)
+            c.ok(ok2 and #view.placed == n_before and view.picked_item == nil and view._space_drag == nil,
+                 ("the release drops it (%d of %d placed, hand %s): %s"):format(#view.placed, n_before, tostring(view.picked_item), tostring(er2)))
+            -- cancel by a release at (-1,-1): the same table at the same index
+            pcall(function() built.room:draw() end)
+            local obj = pick.obj
+            local idx_before
+            for i, o in ipairs(view.placed) do if o == obj then idx_before = i end end
+            pcall(function()
+                view:mousepressed(pick.x, pick.y, 1)
+                view:mousemoved(pick.x + 10, pick.y + 10); view:mousemoved(pick.x + 20, pick.y + 14)
+                view:mousereleased(-1, -1, 1)
+            end)
+            c.ok(view.picked_item == nil and view.placed[idx_before] == obj,
+                 "a release at (-1,-1) puts the thing back at its index")
+            -- cancel by Esc (a frame first: the hit rects are rebuilt by the draw)
+            pcall(function()
+                built.room:draw()
+                view:mousepressed(pick.x, pick.y, 1)
+                view:mousemoved(pick.x + 10, pick.y + 10); view:mousemoved(pick.x + 20, pick.y + 14)
+                view:keypressed("escape")
+            end)
+            c.ok(view.editor_mode and view.picked_item == nil and view.placed[idx_before] == obj,
+                 "Esc mid-drag puts it back and stays in the editor")
+            -- a click (no move) selects
+            pcall(function() built.room:draw(); view:mousepressed(pick.x, pick.y, 1); view:mousereleased(pick.x, pick.y, 1) end)
+            c.ok(view.sel_placed == obj and #view.placed == n_before, "a click on a thing selects it")
+        end
+        -- a row from the browser into the room
+        pcall(function() built.room:draw() end)
+        local row
+        for _, r in ipairs(view._list_rows or {}) do if r.kind ~= "group" and r.y and r.y > 0 then row = r; break end end
+        if row then
+            local n_before = #view.placed
+            local okb, erb = pcall(function()
+                view:mousepressed(40 * s, row.y + row.h / 2, 1)
+                view:mousemoved(120 * s, row.y + row.h / 2)
+                view:mousemoved(400 * s, H / 2)
+                view:mousemoved(W / 2, H / 2)
+                built.room:draw()
+                view:mousereleased(W / 2, H / 2, 1)
+            end)
+            c.ok(okb and view.picked_item == nil and view._space_drag == nil, "a browser row dragged into the room lands: " .. tostring(erb))
+            while #view.placed > n_before do table.remove(view.placed) end
+        else
+            c.ok(false, "the browser has an item row to drag")
+        end
+        view.space_mode, view.editor_mode = false, false
+        view._render_list, view._render_rev = nil, nil
+    end
+
     -- The shove's room phase, the room before the shove: it plays on the
     -- House's security monitor (views/CrtMonitor).
     local sv = built.shove and built.shove.view

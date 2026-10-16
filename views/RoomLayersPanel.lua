@@ -67,8 +67,8 @@ function Panel.draw(view, W, H)
     -- tabs
     local pad = fl(8 * s)
     local tab_h = fl(24 * s)
-    local tab_w = fl((R.w - pad * 3) * 0.5)
-    for i, tab in ipairs{ { "layers", "LAYERS" }, { "light", "LIGHT" } } do
+    local tab_w = fl((R.w - pad * 4) / 3)
+    for i, tab in ipairs{ { "layers", "LAYERS" }, { "light", "LIGHT" }, { "clashes", "CLASHES" } } do
         local tx = R.x + pad + (i - 1) * (tab_w + pad)
         local rect = { x = tx, y = R.y + pad, w = tab_w, h = tab_h }
         local on = (view.panel_tab or "layers") == tab[1]
@@ -78,10 +78,71 @@ function Panel.draw(view, W, H)
     end
     local cy = R.y + pad + tab_h + pad
 
+    view._space_hover_clash = nil
     if (view.panel_tab or "layers") == "layers" then
         Panel._drawLayers(view, R, cy, mx, my)
+    elseif view.panel_tab == "clashes" then
+        view._layer_list = nil   -- the layers list's scrollbar must not hit-test here
+        Panel._drawClashes(view, R, cy, mx, my)
     else
+        view._layer_list = nil
         Panel._drawLight(view, R, cy, mx, my)
+    end
+end
+
+-- The CLASHES tab: one row per clash the space model sees right now
+-- (views/RoomEditorSpace frame): hovering a row lights both things in the
+-- room; a click on a name selects that thing, a second click grabs it.
+function Panel._drawClashes(view, R, y0, mx, my)
+    local game  = view.game
+    local s     = game.ui_scale or 1
+    local fonts = game.fonts
+    local sm    = fonts.sm
+    local pad   = fl(8 * s)
+    local ctls  = view._panel_ctls
+    local function ctl(rect, fn) ctls[#ctls + 1] = { rect = rect, fn = fn } end
+    local ES = require("views.RoomEditorSpace")
+    local clashes = ES.clashesNow(view)
+    local cy = y0
+    love.graphics.setFont(sm)
+    Theme.setColor(Theme.fg.muted)
+    love.graphics.print(string.format("CLASHES  (%d)", #clashes), R.x + pad, cy)
+    cy = cy + sm:getHeight() + fl(6 * s)
+    if #clashes == 0 then
+        Theme.setColor(Theme.fg.faint)
+        love.graphics.print(view.space_mode and "nothing crosses anything" or "turn SPACE on in the room row", R.x + pad, cy)
+        return
+    end
+    local row_h = fl(22 * s)
+    local half  = fl((R.w - pad * 2) / 2)
+    for i, cl in ipairs(clashes) do
+        local ry = cy + (i - 1) * row_h
+        if ry + row_h > R.y + R.h - pad then break end
+        local row = { x = R.x, y = ry, w = R.w, h = row_h }
+        local hov = inRect(row, mx, my)
+        if hov then
+            view._space_hover_clash = cl
+            Theme.setColor(Theme.bg.widget_hover, 0.5)
+            love.graphics.rectangle("fill", row.x, row.y, row.w, row.h)
+        end
+        local a, b = cl.a.item.obj, cl.b.item.obj
+        local la = { x = R.x + pad, y = ry, w = half, h = row_h }
+        local lb = { x = R.x + pad + half, y = ry, w = half, h = row_h }
+        if hov then view.hover_placed = inRect(lb, mx, my) and b or a end
+        local function nameOf(o) return o.id:match("([^/]+)$") or o.id end
+        Theme.setColor(view.sel_placed == a and Theme.status.warn or Theme.fg.primary)
+        love.graphics.print(trim(sm, nameOf(a), half - fl(4 * s)), la.x, ry + fl(3 * s))
+        Theme.setColor(view.sel_placed == b and Theme.status.warn or Theme.fg.primary)
+        love.graphics.print(trim(sm, nameOf(b), half - fl(40 * s)), lb.x, ry + fl(3 * s))
+        Theme.setColor(Theme.fg.muted)
+        local kind = cl.kind == "overlap" and (cl.a.wall and "wall" or "overlap") or (cl.kind == "wall" and "into" or "hangs")
+        love.graphics.print(kind, R.x + R.w - pad - sm:getWidth(kind), ry + fl(3 * s))
+        local function pick(o)
+            return function()
+                if view.sel_placed == o then view:_grabPlaced(o) else view.sel_placed = o end
+            end
+        end
+        ctl(la, pick(a)); ctl(lb, pick(b))
     end
 end
 

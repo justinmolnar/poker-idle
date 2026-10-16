@@ -451,6 +451,9 @@ function RoomView:new(game)
         -- pick-up; `o` turns the automation off, Shift+click skips it once.
         auto_surface     = true,
         active_z_nudge   = 0,
+        space_mode       = false,      -- SPACE: faces drawn at rest, drag and drop, the clashes tab
+        _space_drag      = nil,
+        _space_frame     = nil,
         _hand_fit        = nil,
         _audit_marks     = nil,
         _audit_until     = 0,
@@ -961,11 +964,7 @@ function RoomView:draw(full_screen, opts)
         local resolve_list = self.placed
         if self.editor_mode and self.picked_item then
             local hmx, hmy = love.mouse.getPosition()
-            local hzx, hzy = self:_unzoom(hmx, hmy, cx, cy)
-            local hgx, hgy = screenToGrid(hzx, hzy, cx, cy, tw, th)
-            local hstep = self.snap_options[self.snap_idx] or 0.125
-            hgx = math.floor(hgx / hstep + 0.5) * hstep
-            hgy = math.floor(hgy / hstep + 0.5) * hstep
+            local hgx, hgy = self:_pointerGrid(hmx, hmy, cx, cy, tw, th)
             resolve_list = EditorSpace.placedWithHand(self, hgx, hgy) or self.placed
         end
         self._resolved = RoomPlacement.resolveAll(resolve_list, resolve_set)
@@ -1197,11 +1196,7 @@ function RoomView:draw(full_screen, opts)
 
     -- 6. Editor overlay: Selected active item preview + cursor grid position
     local mx, my = love.mouse.getPosition()
-    local zmx, zmy = self:_unzoom(mx, my, cx, cy)
-    local gx, gy = screenToGrid(zmx, zmy, cx, cy, tw, th)
-    local step = self.snap_options[self.snap_idx] or 0.125
-    gx = math.floor(gx / step + 0.5) * step
-    gy = math.floor(gy / step + 0.5) * step
+    local gx, gy = self:_pointerGrid(mx, my, cx, cy, tw, th)
 
     local active_spec = self.placeable[self.selected_idx]
 
@@ -1210,6 +1205,10 @@ function RoomView:draw(full_screen, opts)
         love.graphics.translate(cx, cy)
         love.graphics.scale(zoom, zoom)
         love.graphics.translate(-cx, -cy)
+        -- SPACE: the room's faces, feet and walls at rest, under the hand.
+        if self.space_mode and not self.hide_editor_hud then
+            EditorSpace.drawSpace(self, cx, cy, tw, th, s)
+        end
         -- Hover preview: the hand's fit (its foot on the parent's face, the
         -- overlaps) from the editor's space, else the plain footprint diamond.
         local fit = EditorSpace.handFit(self, gx, gy)
@@ -1419,6 +1418,7 @@ function RoomView:draw(full_screen, opts)
                 function() self.wall_courses = math.min(Tiles.max_courses, self.wall_courses + 1) end)
             toggle("FLIP FLOOR", self.floor_flip, function() self.floor_flip = not self.floor_flip end)
             toggle("FLIP WALLS", self.wall_flip, function() self.wall_flip = not self.wall_flip end)
+            toggle("SPACE", self.space_mode, function() self.space_mode = not self.space_mode end)
 
             -- ── Left Sidebar Panel for Asset Browser (100% Dedicated Full Height)
             local sidebar_w = fl(280 * s)
@@ -1621,6 +1621,8 @@ function RoomView:draw(full_screen, opts)
             end
             local mode_str = self.mode == "replace" and "REPLACE (M): click moves the existing copy" or "PLACE (M): click adds a copy"
             local sb_msg = string.format("%s | [%s] | LAYER %d (Z/X) | %s | Frame: , . | FPS: - = | Anim: V | [H] Controls | Enter: Export", mode_str, active_tab_str, self.active_layer or 0, anim_str)
+            local space_msg = EditorSpace.statusText(self)
+            if space_msg then sb_msg = space_msg .. " | " .. sb_msg end
             love.graphics.print(sb_msg, fl(12 * s), sb_y + fl(4 * s))
             local off = {}
             for id in pairs(self.anchors_off or {}) do off[#off + 1] = id end
@@ -1630,6 +1632,9 @@ function RoomView:draw(full_screen, opts)
                 right_msg = "PARENT: click the item " .. self.parent_pick.id .. " sits on"
             elseif #off > 0 then
                 right_msg = "WITHOUT: " .. table.concat(off, ", ")
+            end
+            if not right_msg then
+                right_msg = EditorSpace.statusRight(self)
             end
             if right_msg then
                 Theme.setColor(Theme.status.warn)
@@ -1656,7 +1661,7 @@ function RoomView:draw(full_screen, opts)
     -- Render Top-Right Non-Modal Instructions Panel (Hidable with H)
     if self.editor_mode and self.show_help_overlay then
         local pw = fl(270 * s)
-        local ph = fl(405 * s)
+        local ph = fl(418 * s)
         local px = W - pw - fl(16 * s)
         local py = TOP_BAR_H + fl(12 * s)
 
@@ -1688,7 +1693,8 @@ function RoomView:draw(full_screen, opts)
         love.graphics.print("• G : Grid step   D : Clone   Z / X : Layer down / up", px + fl(10 * s), iy); iy = iy + ilh
         love.graphics.print("• LAYERS: hover lights, click selects, again grabs, drag reorders", px + fl(10 * s), iy); iy = iy + ilh
         love.graphics.print("• Selection: Delete, Ctrl+D copy, Ctrl+Home/End front/back", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• PARENT: pick what it sits on; ANCHORS: tick off to see the room without", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
+        love.graphics.print("• PARENT: pick what it sits on; ANCHORS: tick off to see the room without", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• SPACE (room row): drag things; a drop on a top parents; C: the CLASHES tab", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
 
         Theme.setColor(Theme.status.warn)
         love.graphics.print("TRANSFORMS & STYLING", px + fl(10 * s), iy); iy = iy + ilh
@@ -1892,6 +1898,7 @@ function RoomView:mousepressed(x, y, button)
                     elseif not self.picked_item then
                         self.selected_idx = row.idx
                         self:syncActiveParams()
+                        EditorSpace.beginBrowserDrag(self, row.idx, x, y)
                     end
                     return true
                 end
@@ -1908,13 +1915,7 @@ function RoomView:mousepressed(x, y, button)
     -- where the tiles actually rendered.
     local tw, th = tileMetrics(s)
 
-    local zx, zy = self:_unzoom(x, y, cx, cy)
-    local gx, gy = screenToGrid(zx, zy, cx, cy, tw, th)
-    local click_gx, click_gy = gx, gy
-
-    local step = self.snap_options[self.snap_idx] or 0.125
-    gx = math.floor(gx / step + 0.5) * step
-    gy = math.floor(gy / step + 0.5) * step
+    local gx, gy, zx, zy, click_gx, click_gy = self:_pointerGrid(x, y, cx, cy, tw, th)
 
     -- Left click
     if button == 1 then
@@ -1932,7 +1933,45 @@ function RoomView:mousepressed(x, y, button)
             self:_grabPlaced(hit_obj)
             return true
         end
+        -- SPACE: a press on a thing arms a drag (a click selects it);
+        -- the release decides. With SPACE off the press places, as always.
+        if self.space_mode and hit_obj and not self.picked_item and EditorSpace.beginDrag(self, hit_obj, x, y) then
+            return true
+        end
 
+        return self:_placeAt(gx, gy)
+    end
+
+    -- Right click
+    if button == 2 then
+        if self.picked_item then
+            -- Re-insert the picked item back at its original coordinates and specs
+            table.insert(self.placed, self.picked_item)
+            print("[room-editor] Cancelled edit, returned " .. self.picked_item.id .. " to grid")
+            self.picked_item = nil
+            self:syncActiveParams() -- restore current tool parameters
+        elseif love.keyboard.isDown("lalt", "ralt") then
+            -- Alt+right-click deletes what the mouse is on
+            local o = self:_hitItem(zx, zy, click_gx, click_gy)
+            for i = #self.placed, 1, -1 do
+                if self.placed[i] == o then
+                    print("[room-editor] Deleted object: " .. o.id)
+                    table.remove(self.placed, i)
+                    break
+                end
+            end
+        end
+        return true
+    end
+
+    return false
+end
+
+-- Place the active item (the hand, or the selected one) at a grid point:
+-- the click's placement, also the drop of a SPACE drag (`insert_idx` puts
+-- a dragged thing back at its old draw position).
+function RoomView:_placeAt(gx, gy, insert_idx)
+    if not self.editor_mode then return false end
         if gx >= 0 and gx + self.active_w <= self.room_size and gy >= 0 and gy + self.active_h <= self.room_size then
             do
                 -- Place the active item. Over another item's top face the
@@ -1945,6 +1984,7 @@ function RoomView:mousepressed(x, y, button)
                     local fit = (not shift) and self.auto_surface and EditorSpace.handFit(self, gx, gy) or nil
                     local auto_z = fit and fit.z or self.active_z
                     local layer  = fit and fit.layer or (self.active_layer or 0)
+                    if fit and fit.gx then gx, gy = fit.gx, fit.gy end   -- a wall thing snaps to its line
 
                     -- Catalog items are one per room (the id is what the
                     -- game owns), so placing again moves it. Flavor sprites
@@ -1968,7 +2008,7 @@ function RoomView:mousepressed(x, y, button)
                         end
                     end
                     if target then
-                        if self.picked_item then table.insert(self.placed, target) end
+                        if self.picked_item then table.insert(self.placed, insert_idx or (#self.placed + 1), target) end
                         if not EditorSpace.applyDrop(self, target, placement, fit) then
                             self:_writePlacement(target, placement)
                         end
@@ -2029,32 +2069,27 @@ function RoomView:mousepressed(x, y, button)
                 end
             end
         end
-        return true
-    end
+    return true
+end
 
-    -- Right click
-    if button == 2 then
-        if self.picked_item then
-            -- Re-insert the picked item back at its original coordinates and specs
-            table.insert(self.placed, self.picked_item)
-            print("[room-editor] Cancelled edit, returned " .. self.picked_item.id .. " to grid")
-            self.picked_item = nil
-            self:syncActiveParams() -- restore current tool parameters
-        elseif love.keyboard.isDown("lalt", "ralt") then
-            -- Alt+right-click deletes what the mouse is on
-            local o = self:_hitItem(zx, zy, click_gx, click_gy)
-            for i = #self.placed, 1, -1 do
-                if self.placed[i] == o then
-                    print("[room-editor] Deleted object: " .. o.id)
-                    table.remove(self.placed, i)
-                    break
-                end
-            end
-        end
-        return true
+-- The pointer's grid point, snapped, plus the room-space point and the raw
+-- grid point: the one conversion the hover, the hand's resolve and the
+-- click all share.
+function RoomView:_pointerGrid(x, y, cx, cy, tw, th)
+    if not cx then
+        local W, H = love.graphics.getDimensions()
+        local s = self.game.ui_scale or 1
+        cx, cy = getCenter(W, H, s, self.full_screen)
+        cx, cy = math.floor(cx + 0.5), math.floor(cy + 0.5)
+        tw, th = tileMetrics(s)
     end
-
-    return false
+    local zx, zy = self:_unzoom(x, y, cx, cy)
+    local gx, gy = screenToGrid(zx, zy, cx, cy, tw, th)
+    local raw_gx, raw_gy = gx, gy
+    local step = self.snap_options[self.snap_idx] or 0.125
+    gx = math.floor(gx / step + 0.5) * step
+    gy = math.floor(gy / step + 0.5) * step
+    return gx, gy, zx, zy, raw_gx, raw_gy
 end
 
 -- ─── Keyboard Input Routing ───
@@ -2076,6 +2111,7 @@ function RoomView:keypressed(key)
             self.show_help_overlay = false
             return true
         end
+        if EditorSpace.cancelDrag(self) then return true end
         if self.picked_item then
             -- Restore the picked item before exiting
             table.insert(self.placed, self.picked_item)
@@ -2166,7 +2202,8 @@ function RoomView:keypressed(key)
         print("[room-editor] auto surface " .. (self.auto_surface and "ON" or "OFF"))
         return true
     elseif key == "c" then
-        EditorSpace.audit(self, "key")
+        self.panel_tab = "clashes"
+        self.hide_editor_hud = false
         return true
     end
 
@@ -2831,6 +2868,7 @@ function RoomView:wheelmoved(dy)
 end
 
 function RoomView:mousemoved(x, y)
+    if EditorSpace.dragMoved(self, x, y) then return true end
     local d = self._bar_drag
     if d then
         local b = self._list_bar
@@ -2842,6 +2880,7 @@ function RoomView:mousemoved(x, y)
 end
 
 function RoomView:mousereleased(x, y, button)
+    if EditorSpace.dragReleased(self, x, y, button) then return true end
     if self._bar_drag then self._bar_drag = nil; return true end
     if LayersPanel.mousereleased(self, x, y, button) then return true end
     return false
