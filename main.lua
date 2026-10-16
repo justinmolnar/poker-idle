@@ -526,6 +526,10 @@ local function buildGame()
     end
     g.state_machine:register("title",   TitleState:new(g))
     g.state_machine:register("room",    RoomState:new(g))
+    if Constants.FEATURES.DEV_HOTKEYS then
+        -- the room's build-mode editor: dev tooling, a cut module
+        g.state_machine:register("room_build", require("states.RoomBuildState"):new(g))
+    end
 
     -- The one place the game is written. The pool is the truth about the
     -- board while the player is on it; in the shove the pool has been
@@ -735,7 +739,14 @@ function love.load()
 
     do local M, m, r = love.getVersion(); print(("[main] LÖVE %d.%d.%d, audio device switching %s"):format(M, m, r, (love.audio and love.audio.setPlaybackDevice) and "ON" or "OFF (needs LÖVE 12)")) end
     print("[main] " .. Constants.TITLE .. " booted. Active state: " .. tostring(Game.state_machine:current()))
-    -- Dev: POKER_SHOT=<what> in the environment boots straight to a screen,
+    -- The centre of a screen polygon { x1,y1, ... } (the dev shot's aim).
+function RoomSpace_centroid_screen(pts)
+    local sx, sy, n = 0, 0, #pts / 2
+    for i = 1, #pts, 2 do sx, sy = sx + pts[i], sy + pts[i + 1] end
+    return sx / n, sy / n
+end
+
+-- Dev: POKER_SHOT=<what> in the environment boots straight to a screen,
     -- writes shot_<what>.png to the save directory a few frames later, and
     -- quits — a frame of the real renderer, to look at from a terminal.
     -- "room_editor" is the room's designer; "room_space" its SPACE mode.
@@ -801,7 +812,32 @@ function love.update(dt)
     local shot = Game._shot
     if shot then
         shot.frame = shot.frame + 1
-        if shot.frame == 2 and (shot.what == "room_editor" or shot.what == "room_space" or shot.what == "room_drag") then
+        if shot.frame == 2 and shot.what == "build" then
+            Game.state_machine:switch("room_build")
+            local bs = Game.state_machine.states.room_build
+            if bs and bs.view then bs.view.zoom = tonumber(os.getenv("POKER_SHOT_ZOOM") or "") or bs.view.zoom end
+        elseif shot.frame == 4 and shot.what == "build" and os.getenv("POKER_SHOT_FROM") then
+            -- pick POKER_SHOT_FROM up and carry it over POKER_SHOT_TO's top (or +40,+20)
+            local bs = Game.state_machine.states.room_build
+            local v = bs and bs.view
+            local from = v and v:placedById(os.getenv("POKER_SHOT_FROM"))
+            local fr = v and v:frame()
+            if v and from and fr then
+                local d = fr.by_obj[from]
+                local sx, sy
+                if d and d.foot_s then sx, sy = RoomSpace_centroid_screen(d.foot_s) end
+                if d and d.face_s then sx, sy = RoomSpace_centroid_screen(d.face_s) end
+                if sx then
+                    v:mousepressed(sx, sy, 1); v:mousemoved(sx + 6, sy + 6)
+                    local to = os.getenv("POKER_SHOT_TO") and v:placedById(os.getenv("POKER_SHOT_TO"))
+                    local td = to and fr.by_obj[to]
+                    local tx, ty = sx + 40, sy + 20
+                    if td and td.face_s then tx, ty = RoomSpace_centroid_screen(td.face_s) end
+                    v:mousemoved(tx, ty)
+                    love.mouse.setPosition(tx, ty)
+                end
+            end
+        elseif shot.frame == 2 and (shot.what == "room_editor" or shot.what == "room_space" or shot.what == "room_drag") then
             Game.state_machine:switch("room")
             local rs = Game.state_machine.states.room
             local rv = rs and rs.room_view
@@ -825,6 +861,33 @@ function love.update(dt)
                     shot.drag = { x = cx_ + 40, y = cy_ + 20 }
                     break
                 end
+            end
+        elseif shot.frame == 5 and shot.what == "build" and os.getenv("POKER_SHOT_FROM") then
+            -- POKER_SHOT_DUMP=1 prints the hand's fit; POKER_SHOT_DROP=1 lets go
+            local bs = Game.state_machine.states.room_build
+            local v = bs and bs.view
+            if v and v.hand then
+                local mx, my = love.mouse.getPosition()
+                v:updateHand(mx, my)
+                local fit, h, t = v.fit, v.hand, v.target
+                if os.getenv("POKER_SHOT_DUMP") then
+                    local RoomSpaceD = require("models.room_space")
+                    local fr = v:frame()
+                    local ghost = false
+                    for _, d in ipairs(fr.descs) do if d.item.obj.id == h.id then ghost = true end end
+                    local fx, fy
+                    if fit.foot then fx, fy = RoomSpaceD.centroid(fit.foot) end
+                    local tf = t and t.desc.face
+                    print(("[dump] off %.2f,%.2f  foot centre %s,%s  ghost in descs %s  target face %s  elev %s  E_hand %.1f"):format(
+                        h.off and h.off.gx or 0, h.off and h.off.gy or 0, tostring(fx), tostring(fy), tostring(ghost),
+                        tf and table.concat((function() local o = {} for i = 1, #tf do o[i] = ("%.2f"):format(tf[i]) end return o end)(), " ") or "-",
+                        tostring(t and t.elev), RoomSpaceD.floorElev({ z_offset = h.z, w = h.w, h = h.h, align = h.align, scale = h.scale })))
+                    print(("[dump] hand %s at %.2f,%.2f z %s  mouse %d,%d  target %s  fit %s parent %s overlaps %d"):format(
+                        h.id, h.gx or -1, h.gy or -1, tostring(h.z), mx, my,
+                        t and (t.kind .. ":" .. t.desc.item.obj.id) or "-",
+                        fit and fit.status or "-", fit and fit.parent and fit.parent.item.obj.id or "-", fit and #fit.overlaps or -1))
+                end
+                if os.getenv("POKER_SHOT_DROP") then v:mousereleased(mx, my, 1) end
             end
         elseif shot.frame == 5 and shot.what == "room_space" and os.getenv("POKER_SHOT_DUMP") then
             local rv = Game.state_machine.states.room.room_view

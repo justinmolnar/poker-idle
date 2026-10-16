@@ -249,6 +249,39 @@ function RoomSpace.nudgeInside(inner, outer, max_shift, tol)
     return sx, sy
 end
 
+-- The smallest shift that moves `a` OUT of `b` (both convex quads): the
+-- least-overlap axis of the separating axis test, pointed away from b.
+-- Nil when they do not overlap.
+function RoomSpace.separate(a, b)
+    local best_d, bnx, bny = math.huge, 0, 0
+    local ax, ay = RoomSpace.centroid(a)
+    local bx, by = RoomSpace.centroid(b)
+    for _, poly in ipairs({ a, b }) do
+        local n = #poly / 2
+        for i = 1, n do
+            local j = (i % n) + 1
+            local ex, ey = poly[j * 2 - 1] - poly[i * 2 - 1], poly[j * 2] - poly[i * 2]
+            local len = math.sqrt(ex * ex + ey * ey)
+            if len > 0 then
+                local nx, ny = -ey / len, ex / len
+                local alo, ahi, blo, bhi = math.huge, -math.huge, math.huge, -math.huge
+                for k = 1, #a, 2 do local d = a[k] * nx + a[k + 1] * ny; if d < alo then alo = d end; if d > ahi then ahi = d end end
+                for k = 1, #b, 2 do local d = b[k] * nx + b[k + 1] * ny; if d < blo then blo = d end; if d > bhi then bhi = d end end
+                local overlap = math.min(ahi - blo, bhi - alo)
+                if overlap <= 0 then return nil end
+                if overlap < best_d then
+                    best_d = overlap
+                    -- away from b's centre
+                    if (ax - bx) * nx + (ay - by) * ny < 0 then nx, ny = -nx, -ny end
+                    bnx, bny = nx, ny
+                end
+            end
+        end
+    end
+    if best_d == math.huge then return nil end
+    return bnx * (best_d + 1e-4), bny * (best_d + 1e-4)
+end
+
 -- Separating axis test; touching edges do not count as overlap.
 local function project(poly, nx, ny)
     local lo, hi = math.huge, -math.huge

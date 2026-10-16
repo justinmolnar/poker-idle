@@ -312,4 +312,18 @@ do
     c.ok(sx2 and near(sx2, 0.2, 1e-6), "the winding does not matter")
 end
 
+-- 12. the smallest push that separates two feet
+do
+    local a = { 2, 2, 3, 2, 3, 3, 2, 3 }                  -- a unit square at 2,2
+    local b = { 2.8, 2, 3.8, 2, 3.8, 3, 2.8, 3 }          -- the same, 0.8 to the right: 0.2 overlap
+    local dx, dy = RS.separate(a, b)
+    c.ok(dx and dx < 0 and near(dx, -0.2, 1e-3) and near(dy, 0, 1e-6), ("a overlapping b by 0.2 on the right is pushed 0.2 left (%s, %s)"):format(tostring(dx), tostring(dy)))
+    local dx2, dy2 = RS.separate(b, a)
+    c.ok(dx2 and near(dx2, 0.2, 1e-3), "...and b is pushed right")
+    local dx3, dy3 = RS.separate(a, { 2, 2.9, 3, 2.9, 3, 3.9, 2, 3.9 })
+    c.ok(dx3 and near(dx3, 0, 1e-6) and near(dy3, -0.1, 1e-3), "overlap along y pushes along y")
+    c.ok(RS.separate(a, { 3.5, 2, 4.5, 2, 4.5, 3, 3.5, 3 }) == nil, "feet apart need no push")
+    c.ok(RS.separate(a, { 3, 2, 4, 2, 4, 3, 3, 3 }) == nil, "feet touching need no push")
+end
+
 if c.report("smoke_room_space") > 0 then os.exit(1) end

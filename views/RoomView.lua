@@ -954,7 +954,7 @@ function RoomView:draw(full_screen, opts)
     -- a standing bug source for a dev-only screen whose frame budget does
     -- not matter. So the editor always re-solves, and play — where the room
     -- is a static set of owned things — solves once.
-    local cacheable   = not self.editor_mode
+    local cacheable   = not (self.editor_mode or self.build_mode)
     local render_list = cacheable and self._render_list or nil
     if not render_list or self._render_rev ~= owned_rev then
         self._render_rev = cacheable and owned_rev or nil
@@ -962,7 +962,12 @@ function RoomView:draw(full_screen, opts)
         -- While a thing is in the hand, its children resolve against where
         -- it is going (a synthetic entry at the mouse), so they ride along.
         local resolve_list = self.placed
-        if self.editor_mode and self.picked_item then
+        if opts.hand_entry then
+            -- the build editor's hand: its children resolve against it
+            resolve_list = {}
+            for i, o in ipairs(self.placed) do resolve_list[i] = o end
+            resolve_list[#resolve_list + 1] = opts.hand_entry
+        elseif self.editor_mode and self.picked_item then
             local hmx, hmy = love.mouse.getPosition()
             local hgx, hgy = self:_pointerGrid(hmx, hmy, cx, cy, tw, th)
             resolve_list = EditorSpace.placedWithHand(self, hgx, hgy) or self.placed
@@ -973,7 +978,7 @@ function RoomView:draw(full_screen, opts)
             local r = self._resolved[obj]
             local fields = r.fields
             local show
-            if self.editor_mode then
+            if self.editor_mode or self.build_mode then
                 -- the eye in the layers panel; an anchor ticked off is gone
                 show = not obj.hidden and not (self.anchors_off and self.anchors_off[obj.id])
             else
@@ -2636,7 +2641,7 @@ end
 -- everything in the room, minus the anchors ticked off.
 function RoomView:_resolveSet(owned_set)
     local set = {}
-    if self.editor_mode then
+    if self.editor_mode or self.build_mode then
         for _, o in ipairs(self.placed) do set[o.id] = true end
         if self.picked_item then set[self.picked_item.id] = true end
         for id in pairs(self.anchors_off or {}) do set[id] = nil end
@@ -3141,6 +3146,9 @@ end
 -- For views/RoomEditorSpace (the editor's space), which draws under the
 -- same projection and reads the same sprite bottoms.
 RoomView.gridToScreen    = gridToScreen
+RoomView.screenToGrid    = screenToGrid
+RoomView.tileMetrics     = tileMetrics
+RoomView.getCenter       = getCenter
 RoomView.getSpriteBottom = getSpriteBottom
 
 return RoomView

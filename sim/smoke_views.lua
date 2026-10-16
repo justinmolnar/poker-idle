@@ -680,9 +680,16 @@ do
         -- a placed thing whose drawn rect sits in the room, off the chrome
         local s = g.ui_scale or 1
         local pick
+        local function covered(x, y, me)
+            for _, o in ipairs(view._hit_rects or {}) do
+                if o ~= me and x >= o.x and x < o.x + o.w and y >= o.y and y < o.y + o.h then return true end
+            end
+            return false
+        end
         for _, r in ipairs(view._hit_rects or {}) do
             local cx_, cy_ = r.x + r.w / 2, r.y + r.h / 2
-            if cx_ > 300 * s and cx_ < W - 320 * s and cy_ > 100 * s and cy_ < H - 60 * s and not r.obj.locked then
+            if cx_ > 300 * s and cx_ < W - 320 * s and cy_ > 100 * s and cy_ < H - 60 * s and not r.obj.locked
+               and not covered(cx_, cy_, r) then
                 pick = { obj = r.obj, x = cx_, y = cy_ }; break
             end
         end
@@ -777,6 +784,173 @@ do
         end
         view.space_mode, view.editor_mode = false, false
         view._render_list, view._render_rev = nil, nil
+    end
+
+    -- BUILD, the room's build-mode editor (states/RoomBuildState +
+    -- views/RoomBuildView through the dev proxy): it draws over the room
+    -- state's view; a placed thing dragged by its drawn body and carried
+    -- to the centre of the desk's top ON SCREEN lands homed on the desk;
+    -- a thing pushed into a neighbour on the floor is slid out of it; Esc
+    -- puts a drag back; undo restores the room; the shelf lists things.
+    if rs and rs.placed and #rs.placed > 0 then
+        local RoomSpaceM = require("models.room_space")
+        local ESM = require("views.RoomEditorSpace")
+        -- the surfaces resolve through the loader's aliases and animation
+        -- paths: a real loader's index (decoded headless, as smoke_boot
+        -- does) lent to the stub for the block, so the desk has a top
+        local af = io.open("assets/sprites/aliases.json", "rb")
+        local aliases = af and require("lib.json").decode(af:read("*a")).aliases or nil
+        if af then af:close() end
+        c.ok(aliases ~= nil and aliases.desk ~= nil, "the sprite aliases for the surfaces")
+        g.sprite_loader.aliases = aliases
+        local made, bs = pcall(function() return require("states.RoomBuildState"):new(g) end)
+        c.ok(made, "RoomBuildState builds: " .. tostring(bs))
+        if made then
+            g.state_machine.states.room_build = bs
+            g.state_machine.current = function() return "room_build" end
+            local ok_e, err_e = pcall(function() bs:enter() end)
+            c.ok(ok_e and bs.view ~= nil, "BUILD enters over the room's view: " .. tostring(err_e))
+            local view = bs.view
+            local d1, e1 = pcall(function() bs:draw(); bs:draw() end)
+            c.ok(d1, "BUILD draws two frames: " .. tostring(e1))
+            c.ok((view._shelf_count or 0) > 0, ("the shelf lists %d catalog things"):format(view._shelf_count or 0))
+            local fr = view:frame()
+            c.ok(fr ~= nil and #fr.descs > 0, "the frame describes the room's things")
+            local function descOf(id)
+                for _, d in ipairs(fr.descs) do if d.item.obj.id == id then return d end end
+            end
+            -- a drawn body's centre ON SCREEN (the hit rects are in room space)
+            local function bodyOf(obj)
+                local m = view:metrics()
+                for _, r in ipairs(rs._hit_rects or {}) do
+                    if r.obj == obj then
+                        local x, y = r.x + r.w / 2, r.y + r.h / 2
+                        return { x = m.cx + (x - m.cx) * m.zoom, y = m.cy + m.dy + (y - m.cy) * m.zoom }
+                    end
+                end
+            end
+            local desk, calc = descOf("desk"), descOf("calculator")
+            c.ok(desk and desk.face_s and calc ~= nil, "the desk has a drawn top face and the calculator is placed")
+            if desk and desk.face_s and calc then
+                local function centre(pts)
+                    local sx, sy, n = 0, 0, #pts / 2
+                    for i = 1, #pts, 2 do sx, sy = sx + pts[i], sy + pts[i + 1] end
+                    return sx / n, sy / n
+                end
+                -- the pick in SCREEN space: the centre of the desk's drawn top is the desk's top
+                local tx, ty = centre(desk.face_s)
+                local p = view:pick(tx, ty)
+                c.ok(p and p.kind == "top" and p.desc == desk, "hovering the centre of the desk's drawn top picks the desk's top")
+                -- the calculator's drawn body: its hit rect's centre
+                local body = bodyOf(calc.item.obj)
+                c.ok(body ~= nil, "the calculator is drawn somewhere to grab")
+                if body then
+                    local n_before = #rs.placed
+                    local ok_p, err_p = pcall(function()
+                        view:mousepressed(body.x, body.y, 1)
+                        view:mousemoved(body.x + 2, body.y + 2)
+                    end)
+                    c.ok(ok_p and view.hand == nil and #rs.placed == n_before, "a press and two pixels is still a click: " .. tostring(err_p))
+                    local ok_m, err_m = pcall(function()
+                        view:mousemoved(body.x + 12, body.y + 8)
+                        view:mousemoved(tx, ty)
+                        view:updateHand(tx, ty)
+                    end)
+                    c.ok(ok_m and view.hand ~= nil and view.hand.id == "calculator", "past four pixels the calculator is in the hand: " .. tostring(err_m))
+                    c.ok(view.fit and view.fit.parent and view.fit.parent.item.obj.id == "desk",
+                         "carried over the desk's top it fits ON the desk (" .. tostring(view.fit and view.fit.status) .. ")")
+                    c.ok(view.fit and view.fit.parent and view.fit.parent.item.obj.id == "desk" and view.hand.z ~= 0,
+                         "...standing at the desk's height (z " .. tostring(view.hand.z) .. ")")
+                    local ok_r, err_r = pcall(function() view:mousereleased(tx, ty, 1) end)
+                    c.ok(ok_r and view.hand == nil and #rs.placed == n_before, "the release drops it: " .. tostring(err_r))
+                    local obj = calc.item.obj
+                    c.ok(obj.homes and obj.homes[1] and obj.homes[1].on == "desk",
+                         "the calculator's first home is the desk (" .. tostring(obj.homes and obj.homes[1] and obj.homes[1].on) .. ")")
+                    local d2, e2 = pcall(function() bs:draw(); bs:draw() end)
+                    c.ok(d2, "the room draws with it on the desk: " .. tostring(e2))
+                    local rr = rs._resolved and rs._resolved[obj]
+                    c.ok(rr and rr.home == 1, "...and it resolves through that home")
+                    -- undo puts the room back as it was before the drag
+                    local ok_u = pcall(function() view:undoStep() end)
+                    c.ok(ok_u and #view.undo == 0, "Ctrl+Z undoes the drop")
+                    local back
+                    for _, o in ipairs(rs.placed) do if o.id == "calculator" then back = o end end
+                    c.ok(back and not (back.homes and back.homes[1] and back.homes[1].on == "desk"),
+                         "...and the calculator is off the desk again")
+                    pcall(function() bs:draw() end)
+                end
+                -- Esc puts a drag back where it came from
+                local first = rs.placed[1]
+                local body2 = bodyOf(first)
+                if body2 and not first.locked then
+                    local n_before = #rs.placed
+                    pcall(function() view:mousepressed(body2.x, body2.y, 1); view:mousemoved(body2.x + 20, body2.y + 20) end)
+                    c.ok(view.hand ~= nil, "the first thing is in the hand")
+                    pcall(function() view:keypressed("escape") end)
+                    c.ok(view.hand == nil and rs.placed[1] == first and #rs.placed == n_before, "Esc puts it back at its old index")
+                end
+            end
+            -- the floor refuses: a hand pushed into a floor neighbour slides out of it
+            local a
+            for _, d in ipairs(view:frame().descs) do
+                if d.foot and d.face and not d.wall and d.E == 0 and d.item.f.gx >= 1 and d.item.f.gy >= 1 then a = d; break end
+            end
+            if a then
+                local obj = a.item.obj
+                local body = bodyOf(obj)
+                local b
+                for _, d in ipairs(view:frame().descs) do
+                    if d ~= a and d.foot and not d.wall and d.E == 0 and d.item.obj.id ~= obj.id
+                       and not RoomSpaceM.isDescendant(ESM.items(rs), d.item.obj.id, obj.id) then b = d; break end
+                end
+                if body and b and not obj.locked then
+                    pcall(function() view:mousepressed(body.x, body.y, 1); view:mousemoved(body.x + 20, body.y + 20) end)
+                    if view.hand then
+                        local bcx, bcy = RoomSpaceM.centroid(b.foot)
+                        -- aim the hand's origin at b's centre: cursor = centre - offset, on the floor
+                        local sx, sy = view:toScreen(bcx - view.hand.off.gx, bcy - view.hand.off.gy, 0)
+                        pcall(function() view:mousemoved(sx, sy); view:updateHand(sx, sy) end)
+                        local crosses = false
+                        for _, d in ipairs(view.fit and view.fit.overlaps or {}) do if d.item.obj == b.item.obj then crosses = true end end
+                        c.ok(not crosses, ("%s pushed into %s slides out of it (status %s)"):format(obj.id, b.item.obj.id, tostring(view.fit and view.fit.status)))
+                        pcall(function() view:keypressed("escape") end)
+                    end
+                end
+            end
+            -- a thumbnail dragged off the shelf (one not yet in the room, so
+            -- it is new) lands in the room; undo takes it back out
+            pcall(function() bs:draw() end)
+            local placed_ids = {}
+            for _, o in ipairs(rs.placed) do placed_ids[o.id] = true end
+            local cell
+            for _, r in ipairs(view._shelf_cells or {}) do
+                if not placed_ids[r.spec.id] then cell = r; break end
+            end
+            c.ok(cell ~= nil, "the shelf has a thumbnail of something not yet placed")
+            if cell then
+                local n_before = #rs.placed
+                local m = view:metrics()
+                local fx, fy = view:toScreen(2.5, 2.5, 0, m)
+                local ok_s, err_s = pcall(function()
+                    view:mousepressed(cell.x + cell.w / 2, cell.y + cell.h / 2, 1)
+                    view:mousemoved(cell.x + cell.w / 2, cell.y - 20)
+                    view:mousemoved(fx, fy)
+                    view:updateHand(fx, fy)
+                end)
+                c.ok(ok_s and view.hand ~= nil and view.hand.kind == "new", "a thumbnail off the shelf is a new thing in the hand: " .. tostring(err_s))
+                local ok_d, err_d = pcall(function() view:mousereleased(fx, fy, 1) end)
+                c.ok(ok_d and view.hand == nil and #rs.placed == n_before + 1, ("dropped in the room it is placed (%d -> %d): %s"):format(n_before, #rs.placed, tostring(err_d)))
+                local d4, e4 = pcall(function() bs:draw() end)
+                c.ok(d4, "the room draws with the new thing: " .. tostring(e4))
+                pcall(function() view:undoStep() end)
+                c.ok(#rs.placed == n_before, "undo takes it back out")
+            end
+            pcall(function() bs:exit() end)
+            c.ok(not rs.build_mode, "leaving BUILD clears the view's build flag")
+            g.state_machine.states.room_build = nil
+            rs._render_list, rs._render_rev = nil, nil
+        end
+        g.sprite_loader.aliases, g.sprite_loader.animation_paths = nil, nil
     end
 
     -- The shove's room phase, the room before the shove: it plays on the
