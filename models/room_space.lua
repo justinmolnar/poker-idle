@@ -212,6 +212,43 @@ function RoomSpace.polyInside(inner, outer, tol)
     return true
 end
 
+-- The smallest shift (dx, dy) that moves `inner` inside `outer` (both
+-- convex quads), or nil when it is already inside or would take more
+-- than `max_shift`: for every edge of the outer quad, how far the inner
+-- quad sticks out past it, pushed back along the edge's inward normal.
+function RoomSpace.nudgeInside(inner, outer, max_shift, tol)
+    tol = tol or 0
+    local n = #outer / 2
+    -- the outer quad's winding, so the normals point inward
+    local area = 0
+    for i = 1, n do
+        local j = (i % n) + 1
+        area = area + outer[i * 2 - 1] * outer[j * 2] - outer[j * 2 - 1] * outer[i * 2]
+    end
+    local sgn = area >= 0 and 1 or -1
+    local sx, sy = 0, 0
+    for i = 1, n do
+        local j = (i % n) + 1
+        local ax, ay = outer[i * 2 - 1], outer[i * 2]
+        local bx, by = outer[j * 2 - 1], outer[j * 2]
+        local ex, ey = bx - ax, by - ay
+        local len = math.sqrt(ex * ex + ey * ey)
+        if len > 0 then
+            -- inward normal
+            local nx, ny = -ey / len * sgn, ex / len * sgn
+            local worst = 0
+            for k = 1, #inner, 2 do
+                local depth = (inner[k] - ax) * nx + (inner[k + 1] - ay) * ny   -- > 0 inside
+                if depth < -tol and -depth > worst then worst = -depth end
+            end
+            if worst > 0 then sx, sy = sx + nx * worst, sy + ny * worst end
+        end
+    end
+    if sx == 0 and sy == 0 then return nil end
+    if math.sqrt(sx * sx + sy * sy) > (max_shift or math.huge) then return nil end
+    return sx, sy
+end
+
 -- Separating axis test; touching edges do not count as overlap.
 local function project(poly, nx, ny)
     local lo, hi = math.huge, -math.huge

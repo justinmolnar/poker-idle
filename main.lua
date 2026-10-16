@@ -801,13 +801,30 @@ function love.update(dt)
     local shot = Game._shot
     if shot then
         shot.frame = shot.frame + 1
-        if shot.frame == 2 and (shot.what == "room_editor" or shot.what == "room_space") then
+        if shot.frame == 2 and (shot.what == "room_editor" or shot.what == "room_space" or shot.what == "room_drag") then
             Game.state_machine:switch("room")
             local rs = Game.state_machine.states.room
             local rv = rs and rs.room_view
             if rv then
                 rv.editor_mode = true
-                rv.space_mode  = (shot.what == "room_space")
+                rv.space_mode  = (shot.what ~= "room_editor")
+                rv.zoom = tonumber(os.getenv("POKER_SHOT_ZOOM") or "") or rv.zoom   -- the designer's Ctrl+wheel
+            end
+        elseif shot.frame == 4 and shot.what == "room_drag" then
+            -- pick up the first thing drawn inside the room and carry it a
+            -- little, so the frame shows the hand mid-drag
+            local rv = Game.state_machine.states.room.room_view
+            local s = Game.ui_scale or 1
+            local W, H = love.graphics.getDimensions()
+            for _, r in ipairs(rv._hit_rects or {}) do
+                local cx_, cy_ = r.x + r.w / 2, r.y + r.h / 2
+                if cx_ > 300 * s and cx_ < W - 320 * s and cy_ > 100 * s and cy_ < H - 60 * s and not r.obj.locked then
+                    rv:mousepressed(cx_, cy_, 1)
+                    rv:mousemoved(cx_ + 10, cy_ + 6); rv:mousemoved(cx_ + 40, cy_ + 20)
+                    love.mouse.setPosition(cx_ + 40, cy_ + 20)
+                    shot.drag = { x = cx_ + 40, y = cy_ + 20 }
+                    break
+                end
             end
         elseif shot.frame == 5 and shot.what == "room_space" and os.getenv("POKER_SHOT_DUMP") then
             local rv = Game.state_machine.states.room.room_view

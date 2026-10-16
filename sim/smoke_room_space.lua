@@ -299,4 +299,17 @@ do
     c.ok(wf3.status == wf2.status and #wf3.overlaps == #wf2.overlaps, "fit with pre-described items agrees")
 end
 
+-- 11. snapping a foot inside a top
+do
+    local outer = { 2, 2, 4, 2, 4, 4, 2, 4 }            -- a 2x2 square, T R B L order
+    local inner = { 1.8, 2.5, 2.8, 2.5, 2.8, 3.5, 1.8, 3.5 }   -- sticks out 0.2 on the left
+    local sx, sy = RS.nudgeInside(inner, outer, 0.25)
+    c.ok(sx and near(sx, 0.2, 1e-6) and near(sy, 0, 1e-6), ("a foot 0.2 off the left edge snaps 0.2 right (%s, %s)"):format(tostring(sx), tostring(sy)))
+    c.ok(RS.nudgeInside({ 2.5, 2.5, 3.5, 2.5, 3.5, 3.5, 2.5, 3.5 }, outer, 0.25) == nil, "a foot inside needs no snap")
+    c.ok(RS.nudgeInside({ 1.0, 2.5, 2.0, 2.5, 2.0, 3.5, 1.0, 3.5 }, outer, 0.25) == nil, "a foot a whole cell off is past the snap")
+    local rev = { 2, 2, 2, 4, 4, 4, 4, 2 }               -- the same square wound the other way
+    local sx2, sy2 = RS.nudgeInside(inner, rev, 0.25)
+    c.ok(sx2 and near(sx2, 0.2, 1e-6), "the winding does not matter")
+end
+
 if c.report("smoke_room_space") > 0 then os.exit(1) end

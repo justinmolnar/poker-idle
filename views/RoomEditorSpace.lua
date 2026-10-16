@@ -28,6 +28,7 @@ local Theme         = require("views.Theme")
 local ES = {}
 
 ES.MARK_SECS = 6
+ES.SNAP_CELLS = 0.25   -- how far a foot snaps inside a top it nearly sits on
 
 -- ── The model's callbacks, over the editor's loader ────────────────────
 
@@ -109,8 +110,23 @@ function ES.handFit(view, gx, gy)
     local hand = ES.handFields(view, gx, gy)
     local items = ES.items(view, hand.id)
     local auto = view.auto_surface ~= false
-    local fit = RoomSpace.fit(hand, items, ES.ctx(view),
-        { room_size = view.room_size, auto_z = auto, z_nudge = view.active_z_nudge or 0 })
+    local opts = { room_size = view.room_size, auto_z = auto, z_nudge = view.active_z_nudge or 0 }
+    local fit = RoomSpace.fit(hand, items, ES.ctx(view), opts)
+    -- Nearly on a top: the foot snaps inside it (within a quarter cell), so
+    -- landing a small thing on a shelf is not pixel work.
+    if fit.status == "overhang" and fit.parent and fit.foot and auto then
+        local sx, sy = RoomSpace.nudgeInside(fit.foot, fit.parent.face, ES.SNAP_CELLS, RoomSpace.INSIDE_TOL)
+        if sx then
+            local moved = {}
+            for k, v in pairs(hand) do moved[k] = v end
+            moved.gx, moved.gy = hand.gx + sx, hand.gy + sy
+            local again = RoomSpace.fit(moved, items, ES.ctx(view), opts)
+            if again.status == "on" then
+                fit = again
+                fit.gx, fit.gy = moved.gx, moved.gy
+            end
+        end
+    end
     if not (fit.parent and auto) then fit.z = view.active_z or 0 end
     fit.layer = view.active_layer or 0
     if fit.parent and auto then
@@ -160,14 +176,26 @@ function ES.drawPreview(view, fit, cx, cy, tw, th, s)
         end
         return
     end
-    -- the parent's top face, then the hand's foot on it
+    -- the top it is over, lit; then the hand's foot: a shadow on its
+    -- plane with the front corner marked, so what is being aimed is seen
+    love.graphics.setLineWidth(math.max(1, math.floor(2 * s)))
     if fit.face and fit.parent then
-        drawPoly(fit.face, fit.parent.F, Theme.fg.heading, 0.10, 0.7, cx, cy, tw, th, s, g2s)
+        drawPoly(fit.face, fit.parent.F, fit.status == "on" and Theme.sem.chip or Theme.status.warn, 0.28, 1.0, cx, cy, tw, th, s, g2s)
     end
-    if fit.foot then drawPoly(fit.foot, E, token, 0.25, 0.9, cx, cy, tw, th, s, g2s) end
+    if fit.foot then
+        local pts = toScreen(fit.foot, E, cx, cy, tw, th, s, g2s)
+        Theme.setColor({ 0, 0, 0 }, 0.5)
+        love.graphics.polygon("fill", pts)
+        Theme.setColor(token, 0.35)
+        love.graphics.polygon("fill", pts)
+        Theme.setColor(token, 1.0)
+        love.graphics.polygon("line", pts)
+        love.graphics.circle("fill", pts[5], pts[6], math.max(2, 3 * s))   -- the front corner
+    end
     for _, d in ipairs(fit.overlaps) do
-        if d.foot then drawPoly(d.foot, d.E, Theme.status.error, 0.15, 0.8, cx, cy, tw, th, s, g2s) end
+        if d.foot then drawPoly(d.foot, d.E, Theme.status.error, 0.2, 0.9, cx, cy, tw, th, s, g2s) end
     end
+    love.graphics.setLineWidth(1)
 end
 
 function ES.drawMarks(view, cx, cy, tw, th, s)
@@ -465,9 +493,15 @@ function ES.dragMoved(view, x, y)
             d.orig_obj, d.orig_idx = d.obj, idx
             view:_grabPlaced(d.obj)
             d.started = view.picked_item ~= nil
-            -- a wall thing: where on it the mouse took hold, from the press
-            -- point (the frame's pointer may lag it)
-            if d.started then view:_pointerGrid(d.x0, d.y0) end
+            if d.started then
+                -- where on the thing the mouse took hold: the thing's grid
+                -- origin against the press point, so nothing jumps
+                local g = view._grab_res
+                local _, _, _, _, rgx, rgy = view:_pointerGrid(d.x0, d.y0)
+                if g and rgx then d.off = { gx = g.gx - rgx, gy = g.gy - rgy } end
+                -- a wall thing: the same, on its wall
+                view:_pointerGrid(d.x0, d.y0)
+            end
         else
             local s = view.game and view.game.ui_scale or 1
             if x >= 280 * s then d.started = true end
@@ -517,20 +551,35 @@ end
 -- took hold (dt, dz) so it does not jump; then the thing slides along and
 -- up the wall under the mouse. The height keys move dz. Returns the
 -- snapped grid point for the hand, or nil when this does not apply.
-function ES.handGrid(view, zx, zy, cx, cy, tw, th, step)
+-- Where the hand's grid origin is for this pointer, in SPACE mode:
+--   a wall thing in a drag      on its wall, where it was grabbed (dt, dz)
+--   a floor thing in a drag     where it was grabbed: origin = pointer + the
+--                               offset recorded at the press
+--   otherwise                   its foot's centre under the cursor
+-- Nil with SPACE off (the old editor's "origin at the pointer's cell").
+function ES.handGrid(view, zx, zy, cx, cy, tw, th, step, raw_gx, raw_gy)
+    if not view.space_mode then return nil end
     local d = view._space_drag
-    if not (d and d.started) then return nil end
+    local w, h = view.active_w or 1, view.active_h or 1
+    local function snap(v) return math.floor(v / step + 0.5) * step end
+    local started = d and d.started
     local align = view.active_align
-    if align ~= "left_wall" and align ~= "right_wall" then return nil end
     local g = view._grab_res
-    if d.kind == "placed" and not (g and g.on_wall) then return nil end
+    local on_wall = started and (align == "left_wall" or align == "right_wall")
+                    and not (d.kind == "placed" and not (g and g.on_wall))
+    if not on_wall then
+        if raw_gx == nil then return nil end
+        if started and d.off then
+            return snap(raw_gx + d.off.gx), snap(raw_gy + d.off.gy)
+        end
+        return snap(raw_gx - w / 2), snap(raw_gy - h / 2)
+    end
     local plane = (align == "left_wall") and "back" or "side"
     local k = tw / RoomSpace.TW
     local ax, ay = (zx - cx) / k, (zy - cy) / k
     local t, z
     if plane == "back" then t, z = ax / (RoomSpace.TW / 2), ax / 2 - ay
     else t, z = -ax / (RoomSpace.TW / 2), -ax / 2 - ay end
-    local w, h = view.active_w or 1, view.active_h or 1
     if not d.wall then
         local anchor_t
         if g and d.kind == "placed" then

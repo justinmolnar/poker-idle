@@ -1212,6 +1212,7 @@ function RoomView:draw(full_screen, opts)
         -- Hover preview: the hand's fit (its foot on the parent's face, the
         -- overlaps) from the editor's space, else the plain footprint diamond.
         local fit = EditorSpace.handFit(self, gx, gy)
+        if fit and fit.gx then gx, gy = fit.gx, fit.gy end   -- snapped onto a top, or a wall's line
         if fit then
             EditorSpace.drawPreview(self, fit, cx, cy, tw, th, s)
         elseif gx >= 0 and gx + self.active_w <= self.room_size and gy >= 0 and gy + self.active_h <= self.room_size then
@@ -1276,7 +1277,7 @@ function RoomView:draw(full_screen, opts)
                 local px = sx + (self.active_dx or 0) * s
                 local py = sy - (fit and fit.z or self.active_z) * s
                 
-                love.graphics.setColor(1, 1, 1, 0.60)
+                love.graphics.setColor(1, 1, 1, self.space_mode and 1.0 or 0.60)
                 love.graphics.draw(sprite, px, py, 0, draw_scale_x, draw_scale_y, ox, oy)
             else
                 local preview_c = { 0.92, 0.72, 0.32, 0.50 } -- translucent amber
@@ -2089,8 +2090,8 @@ function RoomView:_pointerGrid(x, y, cx, cy, tw, th)
     local step = self.snap_options[self.snap_idx] or 0.125
     gx = math.floor(gx / step + 0.5) * step
     gy = math.floor(gy / step + 0.5) * step
-    -- a wall thing being dragged reads the pointer on its wall instead
-    local wgx, wgy = EditorSpace.handGrid(self, zx, zy, cx, cy, tw, th, step)
+    -- SPACE: the hand follows where it was grabbed (and a wall thing its wall)
+    local wgx, wgy = EditorSpace.handGrid(self, zx, zy, cx, cy, tw, th, step, raw_gx, raw_gy)
     if wgx then gx, gy = wgx, wgy end
     return gx, gy, zx, zy, raw_gx, raw_gy
 end
