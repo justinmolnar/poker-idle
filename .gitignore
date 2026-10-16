@@ -45,3 +45,4 @@ tools/__pycache__/
 tools/room_editor/shots/
 tools/room_editor/sprite_index.cache.json
 tools/room_editor/draft.json
+tools/room_editor/__pycache__/
