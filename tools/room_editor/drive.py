@@ -14,6 +14,10 @@ top is homed on it, nothing vanishes, the Lua parses.
 Dev tooling: needs `pip install playwright` (uses the installed Chrome).
 """
 import os, sys, time, json, subprocess, argparse
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -62,7 +66,7 @@ class Session:
         return self.ev("(() => { const d = editor.descOf(%s); return d ? editor.centreOf(d, %s) : null; })()" % (json.dumps(id), json.dumps(which)))
 
     def hand_draw(self):
-        return self.ev("(() => { const h = editor.frame && editor.frame.handDesc; if (!h) return null; return { x: h.draw.x, y: h.draw.y, w: h.draw.w, h: h.draw.h, id: h.obj.id, status: editor.hand.fit && editor.hand.fit.status, target: editor.target && (editor.target.kind === 'top' ? editor.target.desc.obj.id : editor.target.plane), overlaps: editor.hand.fit ? editor.hand.fit.overlaps.map(d => d.obj.id) : [] }; })()")
+        return self.ev("(() => { const h = editor.frame && editor.frame.handDesc; if (!h) return null; return { x: h.draw.x, y: h.draw.y, w: h.draw.w, h: h.draw.h, id: h.obj.id, status: editor.hand.fit && editor.hand.fit.status, target: editor.target && (editor.target.kind === 'top' ? editor.target.desc.obj.id : editor.target.plane), overlaps: editor.hand.fit ? editor.hand.fit.overlaps.map(d => d.obj.id) : [], against: editor.hand.fit && editor.hand.fit.against ? editor.hand.fit.against.obj.id : null, wallKind: editor.hand.wallKind, align: editor.hand.f.align, flip: editor.hand.f.flip_x, layer: editor.hand.f.layer || 0 }; })()")
 
     def redraw(self):
         self.ev("editor.dirty()")
@@ -251,6 +255,95 @@ def run(page, out, only=None):
             S.ok(n_after >= n_before, "dropped in the room it is placed (%d -> %d)" % (n_before, n_after))
         page.fill("#filter", "")
         page.wait_for_timeout(100)
+
+    # ── bumping: the chair (homed on the desk) carried into the bed stops at it
+    if want("bump"):
+        print("[bump] gaming_chair into comfort_bed")
+        frm = S.body_point("gaming_chair")
+        to = S.ev("(() => { const d = editor.descOf('comfort_bed'); const [gx, gy] = editor.centroid(d.foot); return editor.roomToScreen(...editor.gridElevToRoom(gx, gy, 0)); })()")
+        if frm:
+            hand = S.drag(frm, to, "chair_into_bed", release=False)
+            S.ok(hand and (hand["against"] == "comfort_bed" or "comfort_bed" in hand["overlaps"]), "the chair meets the bed on the floor (against %s, crossing %s)" % (hand and hand["against"], hand and hand["overlaps"]))
+            page.keyboard.press("Escape"); page.mouse.up(); S.redraw()
+        print("[bump] prize_vase into the desk")
+        frm = S.body_point("prize_vase")
+        to = S.ev("(() => { const d = editor.descOf('desk'); const [gx, gy] = editor.centroid(d.foot); return editor.roomToScreen(...editor.gridElevToRoom(gx, gy, 0)); })()")
+        if frm:
+            # aimed at the desk's foot centre the pointer is over the desk's pixels, so the top is the target;
+            # with Shift the desk's top is still the target but neighbours are ignored — so aim beside the desk's foot instead
+            to2 = S.ev("editor.roomToScreen(...editor.gridElevToRoom(1.1, 2.0, 0))")
+            hand = S.drag(frm, to2, "vase_beside_desk", release=False)
+            S.ok(hand and hand["target"] is None and (hand["against"] == "desk" or "desk" in hand["overlaps"] or hand["overlaps"] == []), "beside the desk the vase is on the floor and meets the desk or sits clear (against %s, crossing %s)" % (hand and hand["against"], hand and hand["overlaps"]))
+            page.keyboard.press("Escape"); page.mouse.up(); S.redraw()
+
+    # ── wall things: a poster off the shelf is a wall thing on the wall it is pointed at;
+    #    one carried to the other wall mirrors and changes wall
+    if want("poster"):
+        print("[poster] Poster_1 off the shelf onto the back wall")
+        page.fill("#filter", "Poster_1")
+        page.wait_for_timeout(100)
+        cell = page.query_selector(".cell")
+        S.ok(cell is not None, "the filter finds Poster_1")
+        if cell:
+            box = cell.bounding_box()
+            to = S.to_page(S.ev("editor.roomToScreen(...editor.gridElevToRoom(3.5, 0, 50))"))
+            n_before = S.ev("editor.placed.length")
+            page.mouse.move(box["x"] + 30, box["y"] + 30); page.mouse.down()
+            page.mouse.move(box["x"] + 40, box["y"] + 20); page.mouse.move(to[0], to[1], steps=10)
+            page.wait_for_timeout(60); S.redraw()
+            hand = S.hand_draw()
+            S.shot("poster_carry")
+            S.ok(hand and hand["wallKind"] and hand["target"] == "back", "off the shelf the poster is a wall thing on the back wall (%s, %s)" % (hand and hand["wallKind"], hand and hand["target"]))
+            page.mouse.up(); S.redraw()
+            S.shot("poster_dropped")
+            S.ok(S.ev("editor.placed.length") == n_before + 1, "dropped, it is placed")
+            pid = S.ev("editor.placed[editor.placed.length - 1].id")
+            d = S.desc(pid)
+            S.ok(d and d["f"]["align"] == "left_wall" and abs(d["f"]["gy"]) < 0.01 and d["f"]["flip_x"], "...on the gy=0 wall, mirrored for it (align %s, flip %s)" % (d and d["f"]["align"], d and d["f"]["flip_x"]))
+            S.ok(d and hand and near(d["draw"]["x"], hand["x"], 1.5) and near(d["draw"]["y"], hand["y"], 1.5), "drawn where the hand showed it")
+            # now to the side wall: it changes wall and un-mirrors
+            frm = S.body_point(pid)
+            to = S.ev("editor.roomToScreen(...editor.gridElevToRoom(0, 3.5, 50))")
+            if frm:
+                hand = S.drag(frm, to, "poster_to_side")
+                d = S.desc(pid)
+                S.shot("poster_on_side")
+                S.ok(d and d["f"]["align"] == "right_wall" and abs(d["f"]["gx"]) < 0.01 and not d["f"]["flip_x"], "carried to the side wall it is on the gx=0 wall, mirrored back (align %s, flip %s)" % (d and d["f"]["align"], d and d["f"]["flip_x"]))
+                S.ok(d and hand and near(d["draw"]["x"], hand["x"], 1.5) and near(d["draw"]["y"], hand["y"], 1.5), "drawn where the hand showed it")
+        page.fill("#filter", "")
+        page.wait_for_timeout(100)
+        print("[poster] dogs_playing_poker from the side wall to the back wall")
+        before = S.desc("dogs_playing_poker")
+        frm = S.body_point("dogs_playing_poker")
+        to = S.ev("editor.roomToScreen(...editor.gridElevToRoom(2.0, 0, 55))")
+        if frm and before:
+            hand = S.drag(frm, to, "dogs_to_back")
+            d = S.desc("dogs_playing_poker")
+            S.ok(d and d["f"]["align"] == "left_wall" and d["f"]["flip_x"] != before["f"]["flip_x"], "the dogs poster changes wall and mirrors (align %s, flip %s -> %s)" % (d and d["f"]["align"], before["f"]["flip_x"], d and d["f"]["flip_x"]))
+            S.ok(d and 1 <= d["f"]["gx"] <= 3 and 40 <= d["f"]["z_offset"] <= 70, "...where it was carried along and up the wall (gx %.2f, z %s)" % ((d or {"f": {"gx": -1}})["f"]["gx"], d and d["f"]["z_offset"]))
+
+    # ── layers: Z while dragging raises the layer; the panel's buttons too
+    if want("layer"):
+        print("[layer] prize_vase up two layers while dragging")
+        before = S.desc("prize_vase")
+        frm = S.body_point("prize_vase")
+        to = S.ev("editor.roomToScreen(...editor.gridElevToRoom(2.0, 3.0, 0))")
+        if frm and before:
+            m = page.mouse
+            x0, y0 = S.to_page(frm); x1, y1 = S.to_page(to)
+            m.move(x0, y0); m.down(); m.move(x0 + 8, y0 + 6); m.move(x1, y1, steps=8)
+            page.wait_for_timeout(40); S.redraw()
+            h0 = S.hand_draw()
+            page.keyboard.press("z"); page.keyboard.press("z"); page.wait_for_timeout(40); S.redraw()
+            hand = S.hand_draw()
+            S.ok(h0 and hand and hand["layer"] == h0["layer"] + 2, "two Z presses: layer %s -> %s" % (h0 and h0["layer"], hand and hand["layer"]))
+            m.up(); S.redraw()
+            d = S.desc("prize_vase")
+            S.ok(d and hand and d["f"]["layer"] == hand["layer"], "dropped, the layer is kept (%s)" % (d and d["f"]["layer"]))
+            page.mouse.click(*S.to_page(S.body_point("prize_vase") or to)); S.redraw()
+            page.click("#p_layer_dn"); S.redraw()
+            d = S.desc("prize_vase")
+            S.ok(d and hand and d["f"]["layer"] == hand["layer"] - 1, "the panel's Layer - lowers it (%s)" % (d and d["f"]["layer"]))
 
     # ── undo
     if want("undo"):

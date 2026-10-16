@@ -224,8 +224,35 @@ function wallPlaneOf(f, entry) {
   if (Math.abs(fr.ax) <= WALL_TOL) return 'side';
   return null;
 }
-function isWallKind(f, entry) {   // a wall thing by its align, wherever it is
-  return (f.align === 'left_wall' || f.align === 'right_wall') && !(entry && entry.v === 'face');
+// A wall thing: a thing that hangs on a wall rather than standing on the
+// floor. By the user's say (obj.wall), else by its align, else by what
+// the kit's folder says the sprite is (posters, windows, doors, clocks,
+// the AC, the corkboard, the Switch, a mirror). Never a thing with a top.
+const WALL_FOLDERS = /\/(Poster|Windows|Doors|Clock_Ani)\//;
+const WALL_KEYS = /(Office\/AC$|Office\/Corkboard|Consoles\/Nintendo_Switch|Office\/Blueprint|Mirror|Office\/Sticky|Sticky_Note)/;
+function wallSprite(key) { return !!key && (WALL_FOLDERS.test(key) || WALL_KEYS.test(key)); }
+function isWallKind(f, entry, sk, obj) {
+  if (entry && entry.v === 'face') return false;
+  if (obj && obj.wall === false) return false;
+  if (obj && obj.wall === true) return true;
+  if (f.align === 'left_wall' || f.align === 'right_wall') return true;
+  return wallSprite(sk && sk.key);
+}
+// Which level a thing's foot is on, for who it can bump into: the highest
+// top under its foot's centre that it is not well below (the laptop on
+// the bed, homed or not), else the floor.
+function levelKey(d, descs) {
+  if (d.wallKind) return 'wall:' + (d.plane || 'none');
+  if (!d.foot) return 'floor';
+  const [cx, cy] = centroid(d.foot);
+  let best = null;
+  for (const p of descs) {
+    if (p === d || p.isHand || !p.face || p.wallKind) continue;
+    if (d.E < p.F - 8 || d.E > p.F + 30) continue;   // its base near the top (hand-tuned heights ride high)
+    if (!pointInPoly(p.face, cx, cy, 0.25)) continue;
+    if (!best || p.F > best.F) best = p;
+  }
+  return best ? 'on:' + best.obj.id : 'floor';
 }
 function wallRect(f, entry, geom, plane) {
   plane = plane || wallPlaneOf(f, entry);
@@ -382,8 +409,8 @@ function describe(o, f) {
   const entry = surfaceFor(sk);
   const geom = geomFor(sk, entry);
   const d = { obj: o, f, sk, entry, geom, E: floorElev(f), F: faceElev(f, entry) };
-  d.wallKind = isWallKind(f, entry);
-  d.plane = wallPlaneOf(f, entry);
+  d.wallKind = isWallKind(f, entry, sk, o);
+  d.plane = d.wallKind ? wallPlaneOf(f, entry) : null;
   d.foot = d.wallKind ? null : (geom ? footPoly(f, entry, geom) : footPoly(f, null, null));
   d.face = (entry && geom) ? facePoly(f, entry, geom) : null;
   d.wall = d.plane ? wallRect(f, entry, geom, d.plane) : null;
@@ -412,6 +439,7 @@ function buildFrame() {
   // descendants of the hand ride with it and are never targets
   function isDesc(id, anc) { let cur = onOf[id], g = 0; while (cur && g++ < 64) { if (cur === anc) return true; cur = onOf[cur]; } return false; }
   for (const d of descs) d.ridesHand = !!(E.hand && !d.isHand && isDesc(d.obj.id, E.hand.id));
+  for (const d of descs) d.level = levelKey(d, descs);
   // the game's sort: layer, then depth, then z
   const order = descs.slice().sort((a, b) => {
     const la = a.f.layer || 0, lb = b.f.layer || 0;
@@ -453,7 +481,7 @@ function clashes(descs) {
       const related = a.on === b.obj.id || b.on === a.obj.id;
       if (related) continue;
       if (a.foot && b.foot) {
-        if (Math.abs(a.E - b.E) < LEVEL_EPS && polysOverlap(a.foot, b.foot)) out.push({ a, b, kind: 'overlap' });
+        if (a.level === b.level && polysOverlap(a.foot, b.foot)) out.push({ a, b, kind: 'overlap' });
       } else if (a.wall && b.wall) {
         if (a.wall.plane === b.wall.plane && rectsOverlap(a.wall, b.wall)) out.push({ a, b, kind: 'overlap' });
       }
@@ -511,7 +539,7 @@ function beginGrab(d, sx, sy) {
   E.hand = {
     kind: 'placed', entry: o, origIdx: idx, id: o.id, f,
     off: { x: ax - cx, y: (ay - (f.z_offset || 0)) - cy },   // anchor DRAW point (with z) relative to the pointer
-    satOn: d.on, zNudge: 0, wallKind: d.wallKind, plane: d.plane || (f.align === 'left_wall' ? 'back' : 'side'),
+    satOn: d.on, zNudge: 0, wallKind: d.wallKind, plane: d.plane || (f.align === 'left_wall' ? 'back' : f.align === 'right_wall' ? 'side' : (fr.ay <= fr.ax ? 'back' : 'side')),
     sk: d.sk, entrySurf: d.entry, geom: d.geom,
   };
   if (d.on) {
@@ -540,8 +568,10 @@ function beginNew(spec, sx, sy) {
               sh: 16, color: [1, 1, 1], frame: spec.frame || undefined };
   const sk = spriteKeyFor({ id: spec.id, sprite: spec.sprite, frame: f.frame });
   const entry = surfaceFor(sk);
+  const wk = isWallKind(f, entry, sk, null);
+  if (wk) { f.align = 'left_wall'; f.flip_x = true; f.z_offset = 40; }
   E.hand = { kind: 'new', spec, id: spec.id, f, off: { x: 0, y: 0 }, satOn: null, zNudge: 0,
-             wallKind: false, plane: 'back', sk, entrySurf: entry, geom: geomFor(sk, entry) };
+             wallKind: wk, plane: 'back', sk, entrySurf: entry, geom: geomFor(sk, entry) };
   E.sel = null;
   pushUndo();
   snapshotPending = true;
@@ -564,7 +594,7 @@ function updateHand(sx, sy) {
   if (h.wallKind) {
     // on a wall: slide along it and up it
     let plane = wallUnder(sx, sy) || h.plane;
-    h.plane = plane;
+    if (plane !== h.plane) { f.flip_x = !f.flip_x; h.plane = plane; }   // the other wall: the art mirrors
     f.align = plane === 'back' ? 'left_wall' : 'right_wall';
     let t, z;
     if (plane === 'back') { t = ax / (TW / 2); z = ax / 2 - ay; }
@@ -624,7 +654,6 @@ function updateHand(sx, sy) {
   }
   if (!parent) {
     f.z_offset = h.zNudge;
-    if (h.kind === 'placed' && h.origLayer != null) f.layer = h.origLayer;
     placeAt(0, 0.5);
     f.gx = Math.max(0, Math.min(n - (f.w || 1), f.gx));
     f.gy = Math.max(0, Math.min(n - (f.h || 1), f.gy));
@@ -632,9 +661,9 @@ function updateHand(sx, sy) {
   // feet refuse to cross: slide out of a neighbour on this level, by up
   // to three quarters of a cell (further than that it just shows red);
   // on a top never off it; Shift held ignores neighbours altogether
-  const myE = floorElev(f);
-  const others = keys.shift ? [] : fr.descs.filter(d => !d.isHand && !d.ridesHand && d.foot && d !== parent && Math.abs(d.E - myE) < LEVEL_EPS);
-  fit.level = fr.descs.filter(d => !d.isHand && !d.ridesHand && d.foot && d !== parent && Math.abs(d.E - myE) < LEVEL_EPS);
+  const myLevel = parent ? 'on:' + parent.obj.id : 'floor';
+  fit.level = fr.descs.filter(d => !d.isHand && !d.ridesHand && d.foot && d !== parent && d.level === myLevel);
+  const others = keys.shift ? [] : fit.level;
   fit.against = null;
   let slid = 0;
   for (let k = 0; k < 4; k++) {
@@ -692,6 +721,7 @@ function dropHand() {
   }
   E.placed.splice(Math.min(h.origIdx, E.placed.length), 0, entry);
   entry.w = h.f.w || 1; entry.h = h.f.h || 1;
+  if (h.wallKind) entry.wall = true; else if (wallSprite(h.sk && h.sk.key)) entry.wall = false; else delete entry.wall;
   const world = { gx: h.f.gx, gy: h.f.gy, z_offset: Math.round(h.f.z_offset || 0), dx: h.f.dx || 0, layer: h.f.layer || 0,
                   align: h.f.align || null, flip_x: !!h.f.flip_x, scale: h.f.scale || 1, w: entry.w, h: entry.h };
   const res = resolveAll(E.placed);
@@ -904,8 +934,12 @@ function drawRoom() {
     ctx.scale(r.flip ? -r.sc : r.sc, r.sc);
     if (d.isHand) ctx.globalAlpha = 1; else if (d.ridesHand) ctx.globalAlpha = 0.9;
     ctx.drawImage(r.cv, -r.ox, -r.oy);
-    if (inClash.has(d) && !d.isHand) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = 'rgba(230,80,70,0.35)'; ctx.fillRect(-r.ox, -r.oy, r.cw, r.ch); }
     ctx.restore();
+  }
+  // clashes at rest: the feet (or wall rectangles) that cross, in red
+  if (!E.hand) for (const d of inClash) {
+    if (d.foot) drawPoly(gridPolyToRoom(d.foot, d.E), COL.bad + '0.10)', COL.bad + '0.8)');
+    else if (d.wall) drawPoly(wallRectToRoom(d.wall), COL.bad + '0.10)', COL.bad + '0.8)');
   }
   // F: the whole space model at rest — every foot, top and wall rectangle
   if (E.showSpace) for (const d of fr.descs) {
@@ -916,7 +950,7 @@ function drawRoom() {
   }
   // the overlay: hover, selection, the hand's foot and target
   const hov = E.hover && !E.hand ? fr.byObj.get(E.hover) : null;
-  if (hov) outline(hov, COL.hover, 1.5);
+  if (hov) { outline(hov, COL.hover, 1.5); if (hov.foot) drawPoly(gridPolyToRoom(hov.foot, hov.E), null, COL.foot + '0.7)'); if (hov.face) drawPoly(gridPolyToRoom(hov.face, hov.F), COL.face + '0.08)', COL.face + '0.6)'); if (hov.wall) drawPoly(wallRectToRoom(hov.wall), null, COL.wall + '0.8)'); }
   const sel = E.sel ? fr.byObj.get(E.sel) : null;
   if (sel) { outline(sel, COL.sel, 2); if (sel.face) drawPoly(gridPolyToRoom(sel.face, sel.F), COL.face + '0.12)', COL.face + '0.8)'); if (sel.foot) drawPoly(gridPolyToRoom(sel.foot, sel.E), null, COL.foot + '0.8)'); if (sel.wall) drawPoly(wallRectToRoom(sel.wall), COL.wall + '0.12)', COL.wall + '0.8)'); }
   if (E.hand && E.hand.fit) {
@@ -958,7 +992,7 @@ function renderHud() {
   if (!el || !fr) return;
   const n = fr.clashes.length;
   el.innerHTML = `<b>${E.placed.length}</b> things · <span class="${n ? 'bad' : ''}">${n} clash${n === 1 ? '' : 'es'}</span> · snap <b>${E.snap ? 'ON' : 'off'}</b> (G, hold Alt) · zoom ${E.view.zoom.toFixed(2)}`
-    + (E.hand ? ` · <b>${E.hand.id}</b> ${E.target ? (E.target.kind === 'top' ? 'onto ' + E.target.desc.obj.id : 'on the ' + E.target.plane + ' wall') : 'on the floor'}${E.hand.fit && E.hand.fit.against ? ' · against <b>' + E.hand.fit.against.obj.id + '</b>' : ''}${E.hand.fit && E.hand.fit.overlaps.length ? ' <span class="bad">crossing ' + E.hand.fit.overlaps.map(d => d.obj.id).join(', ') + '</span>' : ''}${keys.shift ? ' · <b>free</b> (Shift)' : ''}` : '')
+    + (E.hand ? ` · <b>${E.hand.id}</b> ${E.target ? (E.target.kind === 'top' ? 'onto ' + E.target.desc.obj.id : 'on the ' + E.target.plane + ' wall') : 'on the floor'} · layer ${E.hand.f.layer || 0} (Z/X)${E.hand.wallKind ? '' : ' · W: make it a wall thing'}${E.hand.fit && E.hand.fit.against ? ' · against <b>' + E.hand.fit.against.obj.id + '</b>' : ''}${E.hand.fit && E.hand.fit.overlaps.length ? ' <span class="bad">crossing ' + E.hand.fit.overlaps.map(d => d.obj.id).join(', ') + '</span>' : ''}${keys.shift ? ' · <b>free</b> (Shift)' : ''}` : '')
     + (E.hover && !E.hand ? ` · ${E.hover.id}` : '');
 }
 
@@ -978,11 +1012,14 @@ function renderProps() {
     ['align', `<select id=p_align>${['center', 'left_wall', 'right_wall'].map(a => `<option ${(f.align || 'center') === a ? 'selected' : ''}>${a}</option>`).join('')}</select>`],
     ['size', `w ${num('w', o.w || 1, 1)} h ${num('h', o.h || 1, 1)}`],
     ['locked', `<input type=checkbox id=p_locked ${o.locked ? 'checked' : ''}>`],
+    ['wall thing', `<input type=checkbox id=p_wall ${d && d.wallKind ? 'checked' : ''}> <span class=muted>${d && d.wallKind ? (d.plane ? 'on the ' + d.plane + ' wall' : 'off the wall line') : 'stands on the floor'}</span>`],
   ];
   if (o.homes && o.homes.length) rows.push(['homes', o.homes.map((h, i) => `${i + 1}. ${h.on}${d && d.res.home === i + 1 ? ' <b>(active)</b>' : ''}`).join('<br>')]);
   if (o.hidden_when) rows.push(['hidden when', o.hidden_when.join(', ')]);
   el.innerHTML = rows.map(([k, v]) => `<div class=row><span class=k>${k}</span><span class=v>${v}</span></div>`).join('')
-    + `<div class=row><button id=p_del>Delete</button> <button id=p_dup>Duplicate</button> <button id=p_front>Bring to front</button></div>`;
+    + `<div class=row><button id=p_layer_dn title="X">Layer −</button> <button id=p_layer_up title="Z">Layer +</button> <button id=p_front>Draw last</button> <button id=p_back>Draw first</button></div>`
+    + `<div class=row><button id=p_del>Delete</button> <button id=p_dup>Duplicate</button></div>`
+    + `<div class="row muted">Drag it to move. R flip · 7/8 height · ←→ nudge · [ ] frame · Shift+wheel scale</div>`;
   function num(name, v, step) { return `<input type=number step=${step} id=p_${name} value="${Number(v).toFixed(step < 1 ? 2 : 0)}">`; }
   for (const name of ['z_offset', 'dx', 'layer', 'scale', 'frame', 'w', 'h']) {
     const inp = $('#p_' + name); if (!inp) continue;
@@ -996,6 +1033,19 @@ function renderProps() {
   $('#p_flip').onchange = () => edit(x => writeWorld(x, { flip_x: $('#p_flip').checked }));
   $('#p_align').onchange = () => edit(x => { const a = $('#p_align').value; writeWorld(x, { align: a === 'center' ? null : a }); });
   $('#p_locked').onchange = () => edit(x => { x.locked = $('#p_locked').checked || undefined; });
+  $('#p_wall').onchange = () => edit(x => {
+    const on = $('#p_wall').checked;
+    const r = resolveAll(E.placed).get(x).fields;
+    if (on) {
+      const fr2 = frameOf(r);
+      const back = fr2.ay <= fr2.ax;
+      x.wall = true;
+      writeWorld(x, back ? { align: 'left_wall', gy: 0, gx: r.gx } : { align: 'right_wall', gx: 0, gy: r.gy });
+    } else { x.wall = false; writeWorld(x, { align: null }); }
+  });
+  $('#p_layer_up').onclick = () => edit(x => writeWorld(x, { layer: (resolveAll(E.placed).get(x).fields.layer || 0) + 1 }));
+  $('#p_layer_dn').onclick = () => edit(x => writeWorld(x, { layer: (resolveAll(E.placed).get(x).fields.layer || 0) - 1 }));
+  $('#p_back').onclick = () => edit(x => { E.placed = E.placed.filter(y => y !== x); E.placed.unshift(x); });
   $('#p_del').onclick = deleteSel; $('#p_dup').onclick = duplicateSel;
   $('#p_front').onclick = () => edit(x => { E.placed = E.placed.filter(y => y !== x); E.placed.push(x); });
 }
@@ -1139,6 +1189,13 @@ function onKey(ev) {
   if (E.hand) {
     const h = E.hand;
     if (ev.key === 'r' || ev.key === 'R') h.f.flip_x = !h.f.flip_x;
+    else if (ev.key === 'z') h.f.layer = (h.f.layer || 0) + 1;
+    else if (ev.key === 'x') h.f.layer = (h.f.layer || 0) - 1;
+    else if (ev.key === 'w' || ev.key === 'W') {
+      h.wallKind = !h.wallKind;
+      if (h.wallKind) { h.plane = wallUnder(mouse.x, mouse.y) || h.plane || 'back'; h.f.align = h.plane === 'back' ? 'left_wall' : 'right_wall'; if (!h.f.z_offset) h.f.z_offset = 40; }
+      else { h.f.align = null; h.f.z_offset = 0; }
+    }
     else if (ev.key === '7') h.zNudge -= 4; else if (ev.key === '8') h.zNudge += 4;
     else if (ev.key === '[') h.f.frame = Math.max(1, (h.f.frame || 1) - 1); else if (ev.key === ']') h.f.frame = (h.f.frame || 1) + 1;
     else if (ev.key === 'ArrowLeft') h.f.dx = (h.f.dx || 0) - 1; else if (ev.key === 'ArrowRight') h.f.dx = (h.f.dx || 0) + 1;
@@ -1192,7 +1249,7 @@ async function boot() {
     E.placed.push({ id, sprite: info.sprite || ((id.match(/^(.*)_\d+$/) || [])[1]) || undefined, gx: info.gx || 0, gy: info.gy || 0, w: info.w || 1, h: info.h || 1,
       z_offset: info.z_offset || 0, dx: info.dx || 0, layer: info.layer || 0, sh: info.sh || 16, color: info.color || [1, 1, 1], scale: info.scale == null ? 1 : info.scale,
       flip_x: !!info.flip_x, align: info.align && info.align !== 'center' ? info.align : null, anim_room: info.anim_room, fps: info.fps, frame: info.frame, shader: info.shader,
-      hidden_when: info.hidden_when, homes: info.homes });
+      hidden_when: info.hidden_when, homes: info.homes, wall: info.wall });
   }
   // a draft from a previous session in this browser
   try {
