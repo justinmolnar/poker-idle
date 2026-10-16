@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Room editor</title>
+<style>
+  :root { --bg:#141311; --chrome:#201d19; --line:#3a342d; --fg:#e6dcc8; --muted:#9a8f7c; --gold:#f0c350; --bad:#e65a50; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.35 system-ui, "Segoe UI", sans-serif; }
+  #app { display: grid; grid-template-columns: 300px 1fr 290px; grid-template-rows: 40px 1fr 26px; height: 100%; }
+  #top { grid-column: 1 / 4; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: var(--chrome); border-bottom: 1px solid var(--line); }
+  #top .title { font-weight: 600; color: var(--gold); margin-right: 8px; }
+  #top button, #props button { background: #2d2823; color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+  #top button:hover, #props button:hover { background: #3a332c; }
+  #hud { margin-left: auto; color: var(--muted); white-space: nowrap; }
+  #hud b { color: var(--fg); }
+  .bad { color: var(--bad); }
+  #left { border-right: 1px solid var(--line); background: var(--chrome); display: flex; flex-direction: column; min-height: 0; }
+  #filter { margin: 8px; padding: 6px 8px; background: #15130f; color: var(--fg); border: 1px solid var(--line); border-radius: 4px; }
+  #shelf { overflow-y: auto; flex: 1; padding: 0 6px 12px; }
+  .ghead { padding: 6px 4px; color: var(--gold); cursor: pointer; user-select: none; font-weight: 600; }
+  .ggrid { display: grid; grid-template-columns: repeat(auto-fill, 66px); gap: 4px; }
+  .cell { width: 66px; height: 80px; background: #15130f; border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; align-items: center; cursor: grab; user-select: none; }
+  .cell:hover { border-color: var(--gold); }
+  .cell.placed { border-color: #5b7a4b; }
+  .cell canvas { width: 56px; height: 56px; margin-top: 3px; image-rendering: pixelated; }
+  .cell .lab { font-size: 10px; color: var(--muted); max-width: 62px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #center { position: relative; min-width: 0; min-height: 0; }
+  #room { width: 100%; height: 100%; display: block; cursor: default; }
+  #right { border-left: 1px solid var(--line); background: var(--chrome); padding: 10px; overflow-y: auto; }
+  #props .row { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px solid #2a2520; align-items: center; }
+  #props .k { width: 70px; color: var(--muted); }
+  #props .v { flex: 1; }
+  #props input[type=number] { width: 70px; background: #15130f; color: var(--fg); border: 1px solid var(--line); border-radius: 3px; padding: 2px 4px; }
+  #props select { background: #15130f; color: var(--fg); border: 1px solid var(--line); }
+  .muted { color: var(--muted); }
+  #bottom { grid-column: 1 / 4; padding: 4px 10px; background: var(--chrome); border-top: 1px solid var(--line); color: var(--muted); white-space: nowrap; overflow: hidden; }
+  #help { position: absolute; left: 12px; top: 12px; background: rgba(20,18,15,0.95); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; max-width: 520px; }
+  #help h3 { margin: 0 0 6px; color: var(--gold); }
+  #help li { margin: 2px 0; }
+  .hidden { display: none !important; }
+  #draftbar { position: absolute; right: 12px; top: 12px; background: #3a2f1a; border: 1px solid var(--gold); border-radius: 6px; padding: 8px 12px; }
+  #exportbox { position: absolute; left: 12px; bottom: 12px; width: 60%; height: 50%; background: #0f0e0c; color: var(--fg); border: 1px solid var(--line); font: 11px/1.3 Consolas, monospace; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <span class="title">ROOM EDITOR</span>
+    <button id="save" title="Ctrl+S: writes data/room_layout.lua">Save</button>
+    <button id="undo" title="Ctrl+Z">Undo</button>
+    <button id="redo" title="Ctrl+Y">Redo</button>
+    <button id="snap" title="G">Snap</button>
+    <button id="fit">Fit</button>
+    <button id="export" title="show the Lua">Lua</button>
+    <button id="helpbtn">Keys (H)</button>
+    <span id="hud"></span>
+  </div>
+  <div id="left">
+    <input id="filter" placeholder="filter the shelf…">
+    <div id="shelf"></div>
+  </div>
+  <div id="center">
+    <canvas id="room"></canvas>
+    <div id="help" class="hidden">
+      <h3>Build mode</h3>
+      <ul>
+        <li><b>Drag</b> a thumbnail off the shelf, or any thing in the room by its pixels. Release to drop. Right-click or Esc cancels.</li>
+        <li><b>Over a top</b> (desk, shelf, fridge…) it lights and the thing stands on it; the drop parents it there. Off a top it sits on the floor.</li>
+        <li><b>Snap</b> (G, or hold Alt for free): half cells on the floor, quarter cells on tops; walls slide in quarter cells and 4 px.</li>
+        <li><b>Feet refuse to cross</b>: pushed into a neighbour a thing slides along it until they touch; still crossing shows red.</li>
+        <li><b>Wall things</b> (posters, clocks) ride the wall you point at, along and up it.</li>
+        <li><b>Click</b> selects: the panel on the right edits it. Delete, Ctrl+D copy, R flip, Z / X layer, 7 / 8 height, ← → pixel nudge, [ ] frame, Shift+wheel scale.</li>
+        <li>While dragging: R flips, 7 / 8 lift and lower, ← → nudge, [ ] frame.</li>
+        <li><b>Wheel</b> zooms at the pointer; middle-drag, right-drag or Space+drag pans; Fit recentres.</li>
+        <li><b>Save</b> (Ctrl+S) writes data/room_layout.lua; <b>Lua</b> shows it. Undo is Ctrl+Z / Ctrl+Y.</li>
+      </ul>
+    </div>
+    <div id="draftbar" class="hidden">Unsaved changes from last time. <button id="draft_yes">Restore</button> <button id="draft_no">Discard</button></div>
+    <textarea id="exportbox" class="hidden" readonly></textarea>
+  </div>
+  <div id="right"><div id="props"></div></div>
+  <div id="bottom"><span id="status">loading…</span></div>
+</div>
+<script src="/editor.js"></script>
+</body>
+</html>

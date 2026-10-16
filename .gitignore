@@ -42,3 +42,6 @@ assets/audio/raw/
 # Room surfaces review sheets (tools/room_surfaces.py output; the json is tracked)
 tools/surfaces/review/
 tools/__pycache__/
+tools/room_editor/shots/
+tools/room_editor/sprite_index.cache.json
+tools/room_editor/draft.json

@@ -163,30 +163,39 @@ local function excluded(self, d)
     return RoomSpace.isDescendant(h.items or {}, d.item.obj.id, h.id)
 end
 
--- What is under the pointer ON SCREEN: the highest top whose drawn face
--- holds the point, else a wall rectangle, else the sprite the old pixel
--- test finds (for selecting faceless things).
+-- What is under the pointer ON SCREEN: the thing whose drawn pixel is
+-- there (the last drawn wins, as the eye sees it), and on that thing
+-- whether the point is on its top face, its wall rectangle or its body.
+-- Over no pixel at all, the last-drawn face or wall rectangle holding the
+-- point. Never the hand or anything riding on it.
 function Build:pick(sx, sy)
     local fr = self:frame()
     if not fr then return nil end
-    local best
-    for _, d in ipairs(fr.descs) do
-        if d.face_s and not excluded(self, d) and RoomSpace.pointInPoly(d.face_s, sx, sy, 0) then
-            if not best or d.F > best.F then best = d end
-        end
-    end
-    if best then return { desc = best, kind = "top", elev = best.F } end
-    for _, d in ipairs(fr.descs) do
-        if d.wall_s and not excluded(self, d) and RoomSpace.pointInPoly(d.wall_s, sx, sy, 0) then
-            return { desc = d, kind = "wall" }
-        end
-    end
     local m = self:metrics()
     local zx = m.cx + (sx - m.cx) / m.zoom
     local zy = m.cy + (sy - m.cy - m.dy) / m.zoom
     local obj = self.rv:_hitItem(zx, zy)
-    if obj and not (self.hand and obj.id == self.hand.id) then
-        return { obj = obj, desc = fr.by_obj[obj], kind = "body" }
+    local d = obj and fr.by_obj[obj] or nil
+    if obj and not (d and excluded(self, d)) and not (self.hand and obj.id == self.hand.id) then
+        if d and d.face_s and RoomSpace.pointInPoly(d.face_s, sx, sy, 0) then
+            return { desc = d, obj = obj, kind = "top", elev = d.F }
+        end
+        if d and d.wall_s and RoomSpace.pointInPoly(d.wall_s, sx, sy, 0) then
+            return { desc = d, obj = obj, kind = "wall" }
+        end
+        return { desc = d, obj = obj, kind = "body" }
+    end
+    local order = self.rv._draw_order or {}
+    for i = #order, 1, -1 do
+        local od = fr.by_obj[order[i]]
+        if od and not excluded(self, od) then
+            if od.face_s and RoomSpace.pointInPoly(od.face_s, sx, sy, 0) then
+                return { desc = od, obj = od.item.obj, kind = "top", elev = od.F }
+            end
+            if od.wall_s and RoomSpace.pointInPoly(od.wall_s, sx, sy, 0) then
+                return { desc = od, obj = od.item.obj, kind = "wall" }
+            end
+        end
     end
     return nil
 end

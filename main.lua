@@ -825,14 +825,37 @@ function love.update(dt)
             if v and from and fr then
                 local d = fr.by_obj[from]
                 local sx, sy
-                if d and d.foot_s then sx, sy = RoomSpace_centroid_screen(d.foot_s) end
-                if d and d.face_s then sx, sy = RoomSpace_centroid_screen(d.face_s) end
+                -- press on the centre of its drawn body (what the eye grabs)
+                do
+                    local rvv = Game.state_machine.states.room.room_view
+                    local mm = v:metrics()
+                    for _, r in ipairs(rvv._hit_rects or {}) do
+                        if r.obj == from then
+                            local x, y = r.x + r.w / 2, r.y + r.h / 2
+                            sx, sy = mm.cx + (x - mm.cx) * mm.zoom, mm.cy + mm.dy + (y - mm.cy) * mm.zoom
+                        end
+                    end
+                end
+                if not sx and d and d.foot_s then sx, sy = RoomSpace_centroid_screen(d.foot_s) end
+                if not sx and d and d.wall_s then sx, sy = RoomSpace_centroid_screen(d.wall_s) end
                 if sx then
                     v:mousepressed(sx, sy, 1); v:mousemoved(sx + 6, sy + 6)
                     local to = os.getenv("POKER_SHOT_TO") and v:placedById(os.getenv("POKER_SHOT_TO"))
                     local td = to and fr.by_obj[to]
                     local tx, ty = sx + 40, sy + 20
-                    if td and td.face_s then tx, ty = RoomSpace_centroid_screen(td.face_s) end
+                    if td and td.face_s then tx, ty = RoomSpace_centroid_screen(td.face_s)
+                    elseif td and td.wall_s then tx, ty = RoomSpace_centroid_screen(td.wall_s)
+                    elseif to then
+                        -- a faceless thing: the centre of its drawn body
+                        local rvv = Game.state_machine.states.room.room_view
+                        local mm = v:metrics()
+                        for _, r in ipairs(rvv._hit_rects or {}) do
+                            if r.obj == to then
+                                local x, y = r.x + r.w / 2, r.y + r.h / 2
+                                tx, ty = mm.cx + (x - mm.cx) * mm.zoom, mm.cy + mm.dy + (y - mm.cy) * mm.zoom
+                            end
+                        end
+                    end
                     v:mousemoved(tx, ty)
                     love.mouse.setPosition(tx, ty)
                 end
