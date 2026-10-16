@@ -58,8 +58,7 @@ KEEP_DECKS   = {"standard"}
 CUT_MODULES  = ["views/RoomLayersPanel.lua", "views/ShoveDebugOverlay.lua",
                 "services/Profiler.lua", "controllers/InputController.lua",
                 "states/CreditsState.lua",
-                "controllers/BeatBrowser.lua", "controllers/beat_stages.lua",
-                "views/RoomEditorSpace.lua", "views/RoomBuildView.lua", "states/RoomBuildState.lua"]
+                "controllers/BeatBrowser.lua", "controllers/beat_stages.lua"]
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PRICE_LUA = r"""

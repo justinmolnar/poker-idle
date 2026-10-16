@@ -282,8 +282,7 @@ print(("  %d sound files checked"):format(n_sounds))
 print("modules")
 local cut_modules = { "views.RoomLayersPanel", "views.ShoveDebugOverlay", "services.Profiler",
                       "controllers.InputController", "states.CreditsState",
-                      "controllers.BeatBrowser", "controllers.beat_stages", "views.RoomEditorSpace",
-                      "views.RoomBuildView", "states.RoomBuildState" }
+                      "controllers.BeatBrowser", "controllers.beat_stages" }
 for _, m in ipairs(cut_modules) do
     ok(not exists(m:gsub("%.", "/") .. ".lua"), m .. " is still on the stage")
 end

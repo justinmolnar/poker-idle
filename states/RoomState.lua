@@ -373,14 +373,6 @@ end
 
 function RoomState:keypressed(key)
     if SettingsModal.route(self, "keypressed", key) then return end
-    -- F3: the room's designer. Shift+F3: the in-game build-mode state
-    -- (dev builds), superseded by tools/room_editor (the browser editor).
-    if key == "f3" and Constants.FEATURES.DEV_HOTKEYS and self.room_view and not self.room_view.editor_mode
-       and (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift"))
-       and self.game.state_machine.states.room_build then
-        self.game.state_machine:switch("room_build")
-        return
-    end
     if self.room_view and self.room_view:keypressed(key) then
         return
     end
