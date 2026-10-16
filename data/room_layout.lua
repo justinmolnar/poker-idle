@@ -11,7 +11,7 @@ return {
         view = { zoom = 2.10, dy = -0.03 },
     },
     ["TinyHouse_0.17(@Pixel_Salvaje)/Computer/OldPC_B_Tile"] = { gx = 1.125, gy = 2.000, w = 1, h = 1, z_offset = 3, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70, flip_x = true, dx = -8, layer = 1, homes = { { on = "desk", u = -0.500, v = -0.500, z_offset = 54, w = 1, h = 1, dx = 7, layer = 1, scale = 0.60, f = 3 } } },
-    bookshelf            = { gx = 0.500, gy = 0.000, w = 2, h = 1, z_offset = 9, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70, flip_x = true, frame = 2, dx = 4 },
+    bookshelf            = { gx = 0.500, gy = 0.000, w = 2, h = 1, z_offset = 9, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70, flip_x = true, dx = 4 },
     box_of_mice          = { gx = 3.500, gy = 2.000, w = 1, h = 1, z_offset = 23, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.80, flip_x = true, align = "left_wall", dx = -9, homes = { { on = "compact_fridge", u = -0.000, v = -1.000, z_offset = -13, w = 1, h = 1, dx = 24, align = "right_wall", layer = 0, scale = 0.80, f = 3 } } },
     calculator           = { gx = 0.000, gy = 0.500, w = 1, h = 1, z_offset = 31, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.70, flip_x = true, dx = -5, layer = 1, homes = { { on = "TinyHouse_0.17(@Pixel_Salvaje)/Computer/OldPC_B_Tile", u = -1.000, v = 0.000, z_offset = -4, w = 1, h = 1, dx = 5, layer = 1, scale = 0.70, f = 3 } } },
     cereal_shelf         = { gx = 4.000, gy = 0.500, w = 1, h = 1, z_offset = 12, sh = 16, color = { 1.00, 1.00, 1.00 }, scale = 0.60, flip_x = true, dx = 5, homes = { { on = "bookshelf", u = -0.500, v = 0.500, z_offset = 32, w = 1, h = 1, dx = 13, layer = 0, scale = 0.60, f = 3 } } },
