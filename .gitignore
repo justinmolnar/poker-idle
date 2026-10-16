@@ -38,3 +38,7 @@ assets/audio/room/raw/
 tools/node_modules/
 tools/package-lock.json
 assets/audio/raw/
+
+# Room surfaces review sheets (tools/room_surfaces.py output; the json is tracked)
+tools/surfaces/review/
+tools/__pycache__/

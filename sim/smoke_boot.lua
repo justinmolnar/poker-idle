@@ -479,6 +479,67 @@ if #missing > 0 then
         #missing, table.concat(missing, ", ")))
 end
 
+-- --- The room's surfaces (data/room_surfaces.lua) ------------------------
+-- Generated from the kit by tools/room_surfaces.py: every placed item in
+-- data/room_layout.lua must resolve (through the real loader's aliases and
+-- animation groups, the way services/RoomSurfaces reads it) to an entry
+-- that has been reviewed, every entry must name a sprite that exists, and
+-- every corner must lie inside its sprite.
+do
+    local RS = require("services.RoomSurfaces")
+    local sdata
+    good, err = pcall(function() sdata = require("data.room_surfaces") end)
+    ok(good, "data/room_surfaces.lua loads: " .. tostring(err))
+    sdata = sdata or {}
+    RS.load(sdata)
+    ok(sdata.__meta and sdata.__meta.format == "room-surfaces/1",
+       "room_surfaces __meta.format is " .. tostring(sdata.__meta and sdata.__meta.format))
+    local Layout = require("data.room_layout")
+    local placed, with_face, explicit_none, bad = 0, 0, 0, {}
+    for id, info in pairs(Layout) do
+        if id ~= "__meta" and type(info) == "table" then
+            placed = placed + 1
+            local obj = { id = id, sprite = info.sprite, frame = info.frame }
+            local name = obj.sprite or id
+            local file_key = RS.keyFor(sl, name, obj.frame)
+            if not sl.paths[file_key] and not sl.paths[name] then
+                if not KNOWN_GAPS[name] and not KNOWN_GAPS[id] then
+                    bad[#bad + 1] = id .. " (no sprite file " .. tostring(file_key) .. ")"
+                end
+            else
+                local e = RS.entryFor(sl, obj)
+                if not e then
+                    bad[#bad + 1] = id .. " (no surfaces entry for " .. tostring(file_key) .. ")"
+                elseif e.v == "face" then with_face = with_face + 1
+                else explicit_none = explicit_none + 1 end
+            end
+        end
+    end
+    ok(#bad == 0, "room_layout items without a reviewed surface: " .. table.concat(bad, ", "))
+    print(string.format("[smoke] %d layout items: %d with a surface, %d explicitly none", placed, with_face, explicit_none))
+    local stale, outside, n = {}, {}, 0
+    for key, e in pairs(sdata) do
+        if key ~= "__meta" then
+            n = n + 1
+            if not sl.paths[key] then stale[#stale + 1] = key end
+            local function inside(c, cell)
+                if not c then return true end
+                for i = 1, 8, 2 do
+                    if c[i] < 0 or c[i] >= cell[1] or c[i + 1] < 0 or c[i + 1] >= cell[2] then return false end
+                end
+                return true
+            end
+            if not (inside(e.face, e.cell) and inside(e.foot, e.cell)) then outside[#outside + 1] = key end
+            for ci, c in ipairs(e.cells or {}) do
+                if not (inside(c.face, c.cell) and inside(c.foot, c.cell)) then outside[#outside + 1] = key .. "#" .. ci end
+            end
+        end
+    end
+    ok(#stale == 0, #stale .. " surfaces entries name a missing sprite: " .. table.concat(stale, ", ", 1, math.min(#stale, 5)))
+    ok(#outside == 0, #outside .. " surfaces entries have a corner outside the sprite: " .. table.concat(outside, ", ", 1, math.min(#outside, 5)))
+    ok(n == (sdata.__meta and sdata.__meta.count or -1), "room_surfaces count matches its __meta")
+end
+
 local n
 good, err = pcall(function() n = sl:preload(wanted, "cards/") end)
 ok(good, "SpriteLoader:preload: " .. tostring(err))

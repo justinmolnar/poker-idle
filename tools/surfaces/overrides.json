@@ -1,0 +1,123 @@
+{
+  "_doc": "Hand decisions from reading tools/surfaces/review/page_NN.png, by sprite key (the path under assets/sprites, no extension). Exactly one of: \"surface\": \"none\" | \"seed\": [x, y] (flood the top face from this pixel) | \"pick\": n (take runner-up n from the sheet) | \"face\": {\"T\": [x,y], \"L\": [x,y], \"B\": [x,y], \"R\": [x,y]}. Optional: \"footprint\": \"none\" | {T,L,B,R}, \"height_px\": n, \"cell\": n (a strip cell, 1-based), \"apply_to_group\": true, \"note\". Sprite pixel space, origin top-left.",
+  "overrides": {
+    "TinyHouse_0.17(@Pixel_Salvaje)/Computer/OldPC_A_Tile": {
+      "face": {
+        "T": [
+          42,
+          5
+        ],
+        "L": [
+          17,
+          15
+        ],
+        "B": [
+          25,
+          23
+        ],
+        "R": [
+          53,
+          12
+        ]
+      },
+      "note": "the CRT's top, typed from the zoom"
+    },
+    "TinyHouse_0.17(@Pixel_Salvaje)/Computer/OldPC_B_Tile": {
+      "face": {
+        "T": [
+          42,
+          5
+        ],
+        "L": [
+          17,
+          15
+        ],
+        "B": [
+          25,
+          23
+        ],
+        "R": [
+          53,
+          12
+        ]
+      },
+      "note": "the CRT's top, typed from the zoom"
+    },
+    "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/Box_2": {
+      "face": {
+        "T": [
+          16,
+          1
+        ],
+        "L": [
+          3,
+          9
+        ],
+        "B": [
+          16,
+          16
+        ],
+        "R": [
+          29,
+          9
+        ]
+      },
+      "note": "the carton's top, typed from the zoom"
+    },
+    "TinyHouse_0.17(@Pixel_Salvaje)/Carpets/Carpet_13": {
+      "face": "silhouette",
+      "note": "a patterned carpet is all top"
+    },
+    "TinyHouse_0.17(@Pixel_Salvaje)/Consoles/NES": {
+      "face": {
+        "T": [
+          46,
+          16
+        ],
+        "L": [
+          28,
+          24
+        ],
+        "B": [
+          46,
+          33
+        ],
+        "R": [
+          62,
+          25
+        ]
+      },
+      "note": "the console's top, typed from the zoom"
+    },
+    "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/TrashBin_Closed": {
+      "accept": true,
+      "note": "the lid"
+    },
+    "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/TrashBin_Open": {
+      "surface": "none",
+      "note": "open bin"
+    },
+    "TinyHouse_0.17(@Pixel_Salvaje)/Office/Copy_Machine_White_Ani/Copy_Machine_7": {
+      "surface": "none",
+      "note": "lid open"
+    },
+    "TinyHouse_0.17(@Pixel_Salvaje)/Office/Copy_Machine_White_Ani/Copy_Machine_8": {
+      "seed": [
+        62,
+        51
+      ],
+      "note": "same machine as Copy_Machine_1, darker"
+    },
+    "TinyHouse_0.17(@Pixel_Salvaje)/Office/Copy_Machine_White_Ani/Copy_Machine_9": {
+      "surface": "none",
+      "note": "lid open"
+    },
+    "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/TeaPot": {
+      "surface": "none"
+    },
+    "TinyHouse_0.17(@Pixel_Salvaje)/Office/Long_Rack": {
+      "surface": "none",
+      "note": "a wall rack"
+    }
+  }
+}

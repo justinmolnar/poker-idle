@@ -1,0 +1,4 @@
+# Dev-only: tools/room_surfaces.py (the room surfaces detector). Nothing at
+# runtime needs these; the generated data/room_surfaces.lua is tracked.
+Pillow>=10
+numpy>=1.26

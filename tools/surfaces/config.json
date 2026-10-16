@@ -1,0 +1,125 @@
+{
+  "_doc": "tools/room_surfaces.py config for the TinyHouse kit. Thresholds override the script's DEFAULTS; no_surface_globs name sprites that are never a surface (fnmatch on the sprite key); expect pins verdicts for --check: [verdict] or [verdict, min_height, max_height].",
+  "folders": [
+    "TinyHouse_0.17(@Pixel_Salvaje)"
+  ],
+  "skip_globs": [
+    "*/Floor_Wall_Tiles_*/*",
+    "*/Room",
+    "*/@Pixel_Salvaje",
+    "*/Books/Books_Title"
+  ],
+  "no_surface_globs": [
+    "*/Poster/*",
+    "*/Windows/*",
+    "*/Doors/*",
+    "*/Televisions_TV/*",
+    "*/Chairs/*",
+    "*/Cat_Ani/*",
+    "*/Plants/*",
+    "*/Lamp/*",
+    "*/LavaLamp_Ani/*",
+    "*_Doors/*Door_*",
+    "*_Drawers/*Door_*",
+    "*_Drawers/*Drawer_*",
+    "*_Doors/*Drawer_*",
+    "*/Office/Sticky_Note*",
+    "*/Office/Paper_*",
+    "*/Office/Photos_*",
+    "*/Office/Diploma",
+    "*/Office/Blueprint",
+    "*/Office/Board_*",
+    "*/Office/Corkboard_*",
+    "*/Office/Glass_Wall",
+    "*/Office/Whiteboard_*",
+    "*/Office/Picture_Frame",
+    "*/Office/Rolled_Papers",
+    "*/Office/Ruler",
+    "*/Office/Headset",
+    "*/Office/Projector_Ani*",
+    "*/Japanese_Room/Japanese_Canvas*",
+    "*/Japanese_Room/Japanese_Door_*",
+    "*/Japanese_Room/Japanese_Closet",
+    "*/Japanese_Room/Wall_*",
+    "*/Japanese_Room/Japanese_Lamp",
+    "*/Japanese_Room/Japanese_Plant",
+    "*/Japanese_Room/Japanese_Tori*",
+    "*/Japanese_Room/Candle",
+    "*/Japanese_Room/Bonsai",
+    "*/Japanese_Room/Japanese_Tea",
+    "*/Bathroom/Hanging_Towel",
+    "*/Bathroom/Hanger",
+    "*/Bathroom/Duck",
+    "*/Bathroom/Toilet_Paper",
+    "*/Bathroom/Mirror",
+    "*/Bathroom/Bath_window",
+    "*/WC_Ani/Wc_Back_*",
+    "*/WC_Tap_Ani/Wc_Tap_1(Drawer*",
+    "*/WC_Tap_Ani/Wc_Tap_2",
+    "*/WC_Tap_Ani/Wc_Tap_3",
+    "*/Kitchen/Rack",
+    "*/Kitchen/Rag",
+    "*/Kitchen/Cereals",
+    "*/Kitchen/Kitchen_Window",
+    "*/Kitchen/Kitchen_Tiles",
+    "*/Kitchen/Wall_Protection",
+    "*/Sink_Ani/*",
+    "*/Kitchen/Sink",
+    "*/Computer/*Screen*",
+    "*/Computer/*Imac*",
+    "*/Computer/BendedScreen*",
+    "*/Consoles/Playstation_5",
+    "*/Consoles/Wii",
+    "*/Consoles/Gameboy*",
+    "*/Books/Book_Green",
+    "*/Books/Book_Small_*",
+    "*/Books/Book_Big_*",
+    "*/Present/Present_7",
+    "*/Present/Present_100_B",
+    "*/Office/Trash_Empty",
+    "*/Office/Water_Dispense*",
+    "*/Living Roon/AirCC_Tile",
+    "*/Living Roon/AC",
+    "*/Clock_Ani/*"
+  ],
+  "expect": {
+    "TinyHouse_0.17(@Pixel_Salvaje)/Desks/Desk_1_Tile": [
+      "face",
+      20,
+      60
+    ],
+    "TinyHouse_0.17(@Pixel_Salvaje)/Microwave/Microwave_5_Tile": [
+      "face",
+      8,
+      30
+    ],
+    "TinyHouse_0.17(@Pixel_Salvaje)/Bedroom/Night_Table_Tile": [
+      "face"
+    ],
+    "TinyHouse_0.17(@Pixel_Salvaje)/Books/Books_Pile": [
+      "face"
+    ],
+    "TinyHouse_0.17(@Pixel_Salvaje)/Office/Sticky_Note_1": [
+      "none"
+    ],
+    "TinyHouse_0.17(@Pixel_Salvaje)/Chairs/Gaming Chair/GChair_9_A": [
+      "none"
+    ],
+    "TinyHouse_0.17(@Pixel_Salvaje)/Plants/Plant_1": [
+      "none"
+    ],
+    "TinyHouse_0.17(@Pixel_Salvaje)/Doors/Door_2_Brown": [
+      "none"
+    ],
+    "TinyHouse_0.17(@Pixel_Salvaje)/Kitchen/Oven": [
+      "face",
+      20,
+      80
+    ],
+    "TinyHouse_0.17(@Pixel_Salvaje)/Bedroom/Bed_D_4": [
+      "face",
+      5,
+      40
+    ]
+  }
+}
