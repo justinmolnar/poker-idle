@@ -250,6 +250,16 @@ function rectsOverlap(a, b, eps = 1e-6) {
 function footPoly(f, entry, geom) {
   if (entry && entry.foot && geom) return cornersToPoly(f, geom, entry.foot, floorElev(f));
   const w = f.w || 1, h = f.h || 1;
+  if (entry && entry.bbox && geom) {
+    // no detected foot (a duck, a headset): a square under the sprite as
+    // wide as its silhouette, never wider than its cell, centred where
+    // the sprite's bottom middle lands on the floor
+    const bw = (entry.bbox[2] + 1 - entry.bbox[0]) * (f.scale || 1);
+    const side = Math.min(Math.max(bw / TW, 0.15), Math.max(w, h));
+    const [cx, cy] = spriteToGrid(f, geom, geom.cell_w / 2 + (f.dx || 0) * 0, geom.bottom - diffY(f), floorElev(f));
+    const hs = side / 2;
+    return [cx - hs, cy - hs, cx + hs, cy - hs, cx + hs, cy + hs, cx - hs, cy + hs];
+  }
   return [f.gx, f.gy, f.gx + w, f.gy, f.gx + w, f.gy + h, f.gx, f.gy + h];
 }
 function facePoly(f, entry, geom) {
@@ -347,7 +357,7 @@ function restZ(parentF, parentEntry, childF) {
 const E = window.editor = {
   placed: [], meta: {}, view: { zoom: 2, x: 0, y: 0 }, snap: true,
   hand: null, press: null, sel: null, hover: null, undo: [], redo: [],
-  frame: null, status: '', clashes: [], ready: false, pan: null, target: null,
+  frame: null, status: '', clashes: [], ready: false, pan: null, target: null, showSpace: false,
 };
 D.catalogById = {};
 let canvas, ctx, needDraw = true;
@@ -619,10 +629,13 @@ function updateHand(sx, sy) {
     f.gx = Math.max(0, Math.min(n - (f.w || 1), f.gx));
     f.gy = Math.max(0, Math.min(n - (f.h || 1), f.gy));
   }
-  // feet refuse to cross: slide out of a neighbour on this level, up to a
-  // cell and a half; on a top never off it
+  // feet refuse to cross: slide out of a neighbour on this level, by up
+  // to three quarters of a cell (further than that it just shows red);
+  // on a top never off it; Shift held ignores neighbours altogether
   const myE = floorElev(f);
-  const others = fr.descs.filter(d => !d.isHand && !d.ridesHand && d.foot && d !== parent && Math.abs(d.E - myE) < LEVEL_EPS);
+  const others = keys.shift ? [] : fr.descs.filter(d => !d.isHand && !d.ridesHand && d.foot && d !== parent && Math.abs(d.E - myE) < LEVEL_EPS);
+  fit.level = fr.descs.filter(d => !d.isHand && !d.ridesHand && d.foot && d !== parent && Math.abs(d.E - myE) < LEVEL_EPS);
+  fit.against = null;
   let slid = 0;
   for (let k = 0; k < 4; k++) {
     const ft = foot();
@@ -631,7 +644,8 @@ function updateHand(sx, sy) {
     const sep = separate(ft, hit.foot);
     if (!sep) break;
     const len = Math.hypot(sep[0], sep[1]);
-    if (slid + len > 1.5) break;
+    if (slid + len > 0.75) break;
+    fit.against = hit;
     const ogx = f.gx, ogy = f.gy;
     f.gx += sep[0]; f.gy += sep[1];
     if (!parent) {
@@ -893,6 +907,13 @@ function drawRoom() {
     if (inClash.has(d) && !d.isHand) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = 'rgba(230,80,70,0.35)'; ctx.fillRect(-r.ox, -r.oy, r.cw, r.ch); }
     ctx.restore();
   }
+  // F: the whole space model at rest — every foot, top and wall rectangle
+  if (E.showSpace) for (const d of fr.descs) {
+    if (d.isHand) continue;
+    if (d.foot) drawPoly(gridPolyToRoom(d.foot, d.E), COL.foot + '0.08)', COL.foot + '0.7)');
+    if (d.face) drawPoly(gridPolyToRoom(d.face, d.F), COL.face + '0.10)', COL.face + '0.8)');
+    if (d.wall) drawPoly(wallRectToRoom(d.wall), COL.wall + '0.10)', COL.wall + '0.8)');
+  }
   // the overlay: hover, selection, the hand's foot and target
   const hov = E.hover && !E.hand ? fr.byObj.get(E.hover) : null;
   if (hov) outline(hov, COL.hover, 1.5);
@@ -910,6 +931,8 @@ function drawRoom() {
       // the drop line: from the foot's centre down to the floor
       if (floorElev(h.f) > 1) { const [cgx, cgy] = centroid(fit.foot); const [tx, ty] = gridElevToRoom(cgx, cgy, floorElev(h.f)); const [bx, by] = gridElevToRoom(cgx, cgy, 0); ctx.strokeStyle = col + '0.7)'; ctx.setLineDash([3 / Z, 3 / Z]); ctx.lineWidth = 1 / Z; ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]); }
     }
+    for (const d of (fit.level || [])) if (d.foot) drawPoly(gridPolyToRoom(d.foot, d.E), null, COL.foot + '0.35)');
+    if (fit.against && fit.against.foot) drawPoly(gridPolyToRoom(fit.against.foot, fit.against.E), COL.foot + '0.18)', COL.foot + '1)', 2 / Z);
     for (const d of fit.overlaps) if (d.foot) drawPoly(gridPolyToRoom(d.foot, d.E), COL.bad + '0.2)', COL.bad + '0.9)');
     if (fr.handDesc) outline(fr.handDesc, bad ? COL.bad + '1)' : 'rgba(255,255,255,0.7)', 1.5);
   }
@@ -935,7 +958,7 @@ function renderHud() {
   if (!el || !fr) return;
   const n = fr.clashes.length;
   el.innerHTML = `<b>${E.placed.length}</b> things · <span class="${n ? 'bad' : ''}">${n} clash${n === 1 ? '' : 'es'}</span> · snap <b>${E.snap ? 'ON' : 'off'}</b> (G, hold Alt) · zoom ${E.view.zoom.toFixed(2)}`
-    + (E.hand ? ` · <b>${E.hand.id}</b> ${E.target ? (E.target.kind === 'top' ? 'onto ' + E.target.desc.obj.id : 'on the ' + E.target.plane + ' wall') : 'on the floor'}${E.hand.fit && E.hand.fit.overlaps.length ? ' <span class="bad">crossing ' + E.hand.fit.overlaps.map(d => d.obj.id).join(', ') + '</span>' : ''}` : '')
+    + (E.hand ? ` · <b>${E.hand.id}</b> ${E.target ? (E.target.kind === 'top' ? 'onto ' + E.target.desc.obj.id : 'on the ' + E.target.plane + ' wall') : 'on the floor'}${E.hand.fit && E.hand.fit.against ? ' · against <b>' + E.hand.fit.against.obj.id + '</b>' : ''}${E.hand.fit && E.hand.fit.overlaps.length ? ' <span class="bad">crossing ' + E.hand.fit.overlaps.map(d => d.obj.id).join(', ') + '</span>' : ''}${keys.shift ? ' · <b>free</b> (Shift)' : ''}` : '')
     + (E.hover && !E.hand ? ` · ${E.hover.id}` : '');
 }
 
@@ -1040,7 +1063,7 @@ function thumb(cv, s) {
 
 // ── Input ──────────────────────────────────────────────────────────────
 
-const keys = { alt: false, space: false };
+const keys = { alt: false, space: false, shift: false };
 let mouse = { x: 0, y: 0 };
 
 function onDown(ev) {
@@ -1102,6 +1125,8 @@ function onKey(ev) {
   if (tag === 'input' || tag === 'select' || tag === 'textarea') { if (ev.key === 'Escape') ev.target.blur(); return; }
   const ctrl = ev.ctrlKey || ev.metaKey;
   if (ev.key === 'Alt') { keys.alt = true; ev.preventDefault(); if (E.hand) { updateHand(mouse.x, mouse.y); dirty(); } return; }
+  if (ev.key === 'Shift') { keys.shift = true; if (E.hand) { updateHand(mouse.x, mouse.y); dirty(); } return; }
+  if (ev.key === 'f' || ev.key === 'F') { E.showSpace = !E.showSpace; dirty(); return; }
   if (ev.key === ' ') { keys.space = true; ev.preventDefault(); return; }
   if (ev.key === 'Escape') { if (E.hand) cancelHand(); else { E.sel = null; renderProps(); dirty(); } return; }
   if (ctrl && ev.key.toLowerCase() === 'z') { ev.preventDefault(); undoStep(); renderProps(); return; }
@@ -1136,6 +1161,7 @@ function onKey(ev) {
 }
 function onKeyUp(ev) {
   if (ev.key === 'Alt') { keys.alt = false; if (E.hand) { updateHand(mouse.x, mouse.y); dirty(); } }
+  if (ev.key === 'Shift') { keys.shift = false; if (E.hand) { updateHand(mouse.x, mouse.y); dirty(); } }
   if (ev.key === ' ') keys.space = false;
 }
 
