@@ -237,8 +237,9 @@ end
 function ES.onGrab(view, obj, r)
     view.active_z_nudge = 0
     local f = r and r.fields or obj
+    local entry = ES.ctx(view).entryFor(f, obj)
     view._grab_res = { gx = f.gx, gy = f.gy, w = f.w or 1, h = f.h or 1, align = f.align,
-                       z_offset = f.z_offset or 0, on_wall = RoomSpace.wallPlaneOf(f) }
+                       z_offset = f.z_offset or 0, on_wall = RoomSpace.wallPlaneOf(f, entry) }
     if not (r and r.home and r.home > 0 and obj.homes and obj.homes[r.home]) then return end
     local h = obj.homes[r.home]
     local res_all = view._resolved
@@ -357,19 +358,25 @@ function ES.drawSpace(view, cx, cy, tw, th, s)
     local in_clash = {}
     for _, cl in ipairs(fr.clashes) do in_clash[cl.a] = true; in_clash[cl.b] = true end
     local hov = view._space_hover_clash
+    local room = view.room_size or 5
+    local function inRoom(poly)
+        local x, y = RoomSpace.centroid(poly)
+        return x >= -0.5 and y >= -0.5 and x <= room + 0.5 and y <= room + 0.5
+    end
+    love.graphics.setLineWidth(math.max(1, math.floor(2 * s)))
     for _, d in ipairs(fr.descs) do
         local hot = hov and (hov.a == d or hov.b == d)
         local bad = in_clash[d]
         if d.wall then
-            local token = hot and Theme.status.warn or (bad and Theme.status.error or Theme.fg.heading)
-            drawWall(d.wall, token, hot and 0.25 or (bad and 0.12 or 0.04), hot and 0.95 or 0.55, cx, cy, tw, th, s, g2s)
-        else
-            if d.foot then
-                local token = hot and Theme.status.warn or (bad and Theme.status.error or Theme.status.good)
-                drawPoly(d.foot, d.E, token, hot and 0.25 or (bad and 0.12 or 0.05), hot and 0.95 or 0.45, cx, cy, tw, th, s, g2s)
-            end
+            -- the wall things, in the tilt blue; red when they cross
+            local token = hot and Theme.status.warn or (bad and Theme.status.error or Theme.sem.tilt)
+            drawWall(d.wall, token, hot and 0.35 or (bad and 0.22 or 0.10), hot and 1.0 or 0.85, cx, cy, tw, th, s, g2s)
+        elseif d.foot and inRoom(d.foot) then
+            -- the foot in green, the top face in the chip's gold
+            local token = hot and Theme.status.warn or (bad and Theme.status.error or Theme.status.good)
+            drawPoly(d.foot, d.E, token, hot and 0.35 or (bad and 0.22 or 0.10), hot and 1.0 or 0.8, cx, cy, tw, th, s, g2s)
             if d.face then
-                drawPoly(d.face, d.F, hot and Theme.status.warn or Theme.fg.heading, hot and 0.15 or 0.03, hot and 0.9 or 0.35, cx, cy, tw, th, s, g2s)
+                drawPoly(d.face, d.F, hot and Theme.status.warn or Theme.sem.chip, hot and 0.25 or 0.12, hot and 1.0 or 0.9, cx, cy, tw, th, s, g2s)
             end
         end
         -- the tick to the parent it sits on
@@ -386,16 +393,15 @@ function ES.drawSpace(view, cx, cy, tw, th, s)
                     local len = math.sqrt(dxp * dxp + dyp * dyp)
                     if len > 1 then
                         local k = math.min(1, (12 * s) / len)
-                        Theme.setColor(Theme.fg.heading, 0.7)
-                        love.graphics.setLineWidth(2)
+                        Theme.setColor(Theme.fg.heading, 0.9)
                         love.graphics.line(sx1, sy1, sx1 + dxp * k, sy1 + dyp * k)
-                        love.graphics.setLineWidth(1)
                     end
                     break
                 end
             end
         end
     end
+    love.graphics.setLineWidth(1)
 end
 
 -- The status bar's words for the mode, and the right slot's nudge.

@@ -735,6 +735,13 @@ function love.load()
 
     do local M, m, r = love.getVersion(); print(("[main] LÖVE %d.%d.%d, audio device switching %s"):format(M, m, r, (love.audio and love.audio.setPlaybackDevice) and "ON" or "OFF (needs LÖVE 12)")) end
     print("[main] " .. Constants.TITLE .. " booted. Active state: " .. tostring(Game.state_machine:current()))
+    -- Dev: POKER_SHOT=<what> in the environment boots straight to a screen,
+    -- writes shot_<what>.png to the save directory a few frames later, and
+    -- quits — a frame of the real renderer, to look at from a terminal.
+    -- "room_editor" is the room's designer; "room_space" its SPACE mode.
+    if Constants.FEATURES.DEV_HOTKEYS and os.getenv and os.getenv("POKER_SHOT") then
+        Game._shot = { what = os.getenv("POKER_SHOT"), frame = 0 }
+    end
     -- Text diagnostics: every layer between a glyph and the screen.
     pcall(function()
         local ww, wh = _realDimensions()
@@ -790,6 +797,37 @@ local function resolveCursor()
 end
 
 function love.update(dt)
+    -- The dev screenshot (POKER_SHOT, love.load): a few frames in, capture, quit.
+    local shot = Game._shot
+    if shot then
+        shot.frame = shot.frame + 1
+        if shot.frame == 2 and (shot.what == "room_editor" or shot.what == "room_space") then
+            Game.state_machine:switch("room")
+            local rs = Game.state_machine.states.room
+            local rv = rs and rs.room_view
+            if rv then
+                rv.editor_mode = true
+                rv.space_mode  = (shot.what == "room_space")
+            end
+        elseif shot.frame == 5 and shot.what == "room_space" and os.getenv("POKER_SHOT_DUMP") then
+            local rv = Game.state_machine.states.room.room_view
+            local ES = require("views.RoomEditorSpace")
+            local fr = ES.frame(rv)
+            for _, d in ipairs(fr.descs) do
+                local f = d.f
+                print(("[dump] %-22s gx %.2f gy %.2f w %d h %d al %-10s z %4d sc %.2f E %6.1f F %6s entry %-5s foot %s wall %s"):format(
+                    d.item.obj.id, f.gx, f.gy, f.w or 1, f.h or 1, tostring(f.align), f.z_offset or 0, f.scale or 1, d.E, tostring(d.F),
+                    d.entry and d.entry.v or "-", d.foot and ("%.2f,%.2f"):format(d.foot[1], d.foot[2]) or "-",
+                    d.wall and ("%s %.2f..%.2f %.0f..%.0f"):format(d.wall.plane, d.wall.t0, d.wall.t1, d.wall.z0, d.wall.z1) or "-"))
+            end
+            for _, cl in ipairs(fr.clashes) do print("[dump] clash " .. ES.clashWords(cl)) end
+        elseif shot.frame == 6 then
+            love.graphics.captureScreenshot("shot_" .. shot.what .. ".png")
+            print("[main] shot written: " .. love.filesystem.getSaveDirectory() .. "/shot_" .. shot.what .. ".png")
+        elseif shot.frame == 8 then
+            love.event.quit()
+        end
+    end
     -- The frame cap (Settings; desktop): sleeps out the rest of the last
     -- frame's budget before this one starts. Nothing when off.
     Display.frameWait()

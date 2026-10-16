@@ -75,8 +75,12 @@ end
 -- own slope (1/2), so a sprite's silhouette box maps to an axis-aligned
 -- rectangle [t0, t1] x [z0, z1] on the plane.
 
-function RoomSpace.wallPlaneOf(f)
+-- `entry` (the surfaces entry, optional): a thing with a top FACE is a
+-- floor thing however it is aligned — a box pushed against the wall has
+-- its anchor on the line too.
+function RoomSpace.wallPlaneOf(f, entry)
     if f.align ~= "left_wall" and f.align ~= "right_wall" then return nil end
+    if entry and entry.v == "face" then return nil end
     local fr = RoomPlacement.frameOf(f)
     if math.abs(fr.ay) <= RoomSpace.WALL_TOL then return "back" end
     if math.abs(fr.ax) <= RoomSpace.WALL_TOL then return "side" end
@@ -89,7 +93,7 @@ end
 --   back: X = (t − ax)·32, Y = (t − ax)·16 − z     → t = ax + X/32, z = X/2 − Y
 --   side: X = −(t − ay)·32, Y = (t − ay)·16 − z    → t = ay − X/32, z = −X/2 − Y
 function RoomSpace.wallRect(f, entry, geom)
-    local plane = RoomSpace.wallPlaneOf(f)
+    local plane = RoomSpace.wallPlaneOf(f, entry)
     if not (plane and geom) then return nil end
     local bb = (entry and entry.bbox) or { 0, 0, geom.cell_w - 1, geom.bottom - 1 }
     local fr = RoomPlacement.frameOf(f)
@@ -152,7 +156,7 @@ end
 
 -- The footprint on its plane: the surfaces' foot, else the w x h rectangle.
 function RoomSpace.footPoly(f, entry, geom)
-    if RoomSpace.wallPlaneOf(f) then return nil end     -- a wall thing has no floor foot
+    if RoomSpace.wallPlaneOf(f, entry) then return nil end     -- a wall thing has no floor foot
     if entry and entry.foot and geom then
         return cornersToPoly(f, geom, entry.foot, RoomSpace.floorElev(f))
     end
@@ -325,7 +329,8 @@ function RoomSpace.fit(hand_f, items, ctx, opts)
     -- line, its rectangle is checked against the others on that plane,
     -- and nothing parents (z stays the hand's own).
     local plane, fr
-    if hand_f.align == "left_wall" or hand_f.align == "right_wall" then
+    local hand_entry = ctx.entryFor and ctx.entryFor(hand_f, { id = hand_f.id, sprite = hand_f.sprite, frame = hand_f.frame }) or nil
+    if (hand_f.align == "left_wall" or hand_f.align == "right_wall") and not (hand_entry and hand_entry.v == "face") then
         -- within reach of a wall line it snaps there (opts.wall_snap cells)
         fr = RoomPlacement.frameOf(hand_f)
         local snap = opts.wall_snap or 0.5

@@ -1694,7 +1694,7 @@ function RoomView:draw(full_screen, opts)
         love.graphics.print("• LAYERS: hover lights, click selects, again grabs, drag reorders", px + fl(10 * s), iy); iy = iy + ilh
         love.graphics.print("• Selection: Delete, Ctrl+D copy, Ctrl+Home/End front/back", px + fl(10 * s), iy); iy = iy + ilh
         love.graphics.print("• PARENT: pick what it sits on; ANCHORS: tick off to see the room without", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• SPACE (room row): drag things; a drop on a top parents; C: the CLASHES tab", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
+        love.graphics.print("• Space / SPACE button: drag things; a drop on a top parents; C: CLASHES", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
 
         Theme.setColor(Theme.status.warn)
         love.graphics.print("TRANSFORMS & STYLING", px + fl(10 * s), iy); iy = iy + ilh
@@ -2200,7 +2200,11 @@ function RoomView:keypressed(key)
 
     -- The editor's space: `o` turns the automatic parenting and height
     -- off and on; `c` lists every clash in the room (and marks them).
-    if key == "o" then
+    if key == "space" then
+        self.space_mode = not self.space_mode
+        print("[room-editor] SPACE " .. (self.space_mode and "ON" or "OFF"))
+        return true
+    elseif key == "o" then
         self.auto_surface = not self.auto_surface
         print("[room-editor] auto surface " .. (self.auto_surface and "ON" or "OFF"))
         return true
