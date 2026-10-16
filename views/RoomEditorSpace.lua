@@ -236,6 +236,9 @@ end
 -- above the rest height it was, so putting it back changes nothing.
 function ES.onGrab(view, obj, r)
     view.active_z_nudge = 0
+    local f = r and r.fields or obj
+    view._grab_res = { gx = f.gx, gy = f.gy, w = f.w or 1, h = f.h or 1, align = f.align,
+                       z_offset = f.z_offset or 0, on_wall = RoomSpace.wallPlaneOf(f) }
     if not (r and r.home and r.home > 0 and obj.homes and obj.homes[r.home]) then return end
     local h = obj.homes[r.home]
     local res_all = view._resolved
@@ -253,6 +256,11 @@ end
 
 -- The height keys while the hand is over a face: they move the nudge.
 function ES.nudgeZ(view, delta)
+    local d = view._space_drag
+    if d and d.started and d.wall then
+        d.wall.dz = d.wall.dz - delta
+        return true
+    end
     local fit = view._hand_fit
     if not (fit and fit.parent and view.auto_surface ~= false) then return false end
     view.active_z_nudge = (view.active_z_nudge or 0) + delta
@@ -400,6 +408,10 @@ end
 function ES.statusRight(view)
     local fit = view._hand_fit
     local d = view._space_drag
+    if d and d.started and d.wall then
+        return string.format("%s %d px up the %s wall", view.picked_item and view.picked_item.id or "hand",
+            view.active_z or 0, d.wall.plane)
+    end
     if fit and fit.parent and (view.active_z_nudge or 0) ~= 0 and (view.picked_item or (d and d.started)) then
         return string.format("%s %+d px above %s", view.picked_item and view.picked_item.id or "hand",
             view.active_z_nudge, fit.parent.item.obj.id)
@@ -427,6 +439,7 @@ end
 
 function ES.beginBrowserDrag(view, idx, x, y)
     if not view.space_mode or view.picked_item then return false end
+    view._grab_res = nil
     view._space_drag = { kind = "browser", idx = idx, x0 = x, y0 = y, moved = false, started = false }
     return true
 end
@@ -446,6 +459,9 @@ function ES.dragMoved(view, x, y)
             d.orig_obj, d.orig_idx = d.obj, idx
             view:_grabPlaced(d.obj)
             d.started = view.picked_item ~= nil
+            -- a wall thing: where on it the mouse took hold, from the press
+            -- point (the frame's pointer may lag it)
+            if d.started then view:_pointerGrid(d.x0, d.y0) end
         else
             local s = view.game and view.game.ui_scale or 1
             if x >= 280 * s then d.started = true end
@@ -480,9 +496,49 @@ function ES.dragReleased(view, x, y, button)
         ES.cancelDrag(view, d)
         return true
     end
+    view._space_drag = d                    -- the wall drag's pointer mapping still applies
     local gx, gy = view:_pointerGrid(x, y)
+    view._space_drag = nil
     view:_placeAt(gx, gy, d.orig_idx)
     return true
+end
+
+-- ── A wall thing dragged on its wall ───────────────────────────────────
+--
+-- While a thing that lives on a wall is dragged, the pointer is read on
+-- the wall's plane, not the floor: along the wall (t, in cells) and up it
+-- (z, in art px). The first frame records where on the thing the mouse
+-- took hold (dt, dz) so it does not jump; then the thing slides along and
+-- up the wall under the mouse. The height keys move dz. Returns the
+-- snapped grid point for the hand, or nil when this does not apply.
+function ES.handGrid(view, zx, zy, cx, cy, tw, th, step)
+    local d = view._space_drag
+    if not (d and d.started) then return nil end
+    local align = view.active_align
+    if align ~= "left_wall" and align ~= "right_wall" then return nil end
+    local g = view._grab_res
+    if d.kind == "placed" and not (g and g.on_wall) then return nil end
+    local plane = (align == "left_wall") and "back" or "side"
+    local k = tw / RoomSpace.TW
+    local ax, ay = (zx - cx) / k, (zy - cy) / k
+    local t, z
+    if plane == "back" then t, z = ax / (RoomSpace.TW / 2), ax / 2 - ay
+    else t, z = -ax / (RoomSpace.TW / 2), -ax / 2 - ay end
+    local w, h = view.active_w or 1, view.active_h or 1
+    if not d.wall then
+        local anchor_t
+        if g and d.kind == "placed" then
+            anchor_t = (plane == "back") and (g.gx + g.w / 2) or (g.gy + g.h / 2)
+        else
+            anchor_t = t
+        end
+        d.wall = { plane = plane, dt = t - anchor_t, dz = z - (view.active_z or 0) }
+    end
+    local at = t - d.wall.dt
+    at = math.floor(at / step + 0.5) * step
+    view.active_z = math.floor(z - d.wall.dz + 0.5)
+    if plane == "back" then return at - w / 2, 0 end
+    return 0, at - h / 2
 end
 
 -- Put a dragged thing back exactly where it was: the original table at

@@ -2089,6 +2089,9 @@ function RoomView:_pointerGrid(x, y, cx, cy, tw, th)
     local step = self.snap_options[self.snap_idx] or 0.125
     gx = math.floor(gx / step + 0.5) * step
     gy = math.floor(gy / step + 0.5) * step
+    -- a wall thing being dragged reads the pointer on its wall instead
+    local wgx, wgy = EditorSpace.handGrid(self, zx, zy, cx, cy, tw, th, step)
+    if wgx then gx, gy = wgx, wgy end
     return gx, gy, zx, zy, raw_gx, raw_gy
 end
 

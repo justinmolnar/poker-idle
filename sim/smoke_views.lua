@@ -729,6 +729,33 @@ do
             pcall(function() built.room:draw(); view:mousepressed(pick.x, pick.y, 1); view:mousereleased(pick.x, pick.y, 1) end)
             c.ok(view.sel_placed == obj and #view.placed == n_before, "a click on a thing selects it")
         end
+        -- a wall thing dragged along its wall lands on the wall line
+        pcall(function() built.room:draw() end)
+        local wall_pick
+        for _, r in ipairs(view._hit_rects or {}) do
+            local o = r.obj
+            local rr = view._resolved and view._resolved[o]
+            local f = rr and rr.fields
+            local cx_, cy_ = r.x + r.w / 2, r.y + r.h / 2
+            if f and f.align == "left_wall" and math.abs(f.gy) < 0.01 and not o.locked and not o.homes
+               and cx_ > 300 * s and cx_ < W - 320 * s and cy_ > 100 * s and cy_ < H - 60 * s then
+                wall_pick = { obj = o, x = cx_, y = cy_ }; break
+            end
+        end
+        if wall_pick then
+            local okw, erw = pcall(function()
+                view:mousepressed(wall_pick.x, wall_pick.y, 1)
+                view:mousemoved(wall_pick.x + 10, wall_pick.y + 6); view:mousemoved(wall_pick.x + 30, wall_pick.y + 10)
+                built.room:draw()
+                view:mousereleased(wall_pick.x + 30, wall_pick.y + 10, 1)
+            end)
+            local o = wall_pick.obj
+            c.ok(okw and view.picked_item == nil and o.align == "left_wall" and math.abs((o.gy or 0)) < 0.01,
+                 ("a wall thing dragged along its wall stays on the line (gy %s, align %s): %s"):format(tostring(o.gy), tostring(o.align), tostring(erw)))
+        else
+            print("[smoke] no unhomed left_wall thing in the room to drag; skipped")
+        end
+
         -- a row from the browser into the room
         pcall(function() built.room:draw() end)
         local row
