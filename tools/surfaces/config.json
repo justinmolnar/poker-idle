@@ -79,8 +79,9 @@
     "*/Office/Trash_Empty",
     "*/Office/Water_Dispense*",
     "*/Living Roon/AirCC_Tile",
-    "*/Living Roon/AC",
-    "*/Clock_Ani/*"
+    "*/Office/AC",
+    "*/Clock_Ani/*",
+    "*/Consoles/Nintendo_Switch"
   ],
   "expect": {
     "TinyHouse_0.17(@Pixel_Salvaje)/Desks/Desk_1_Tile": [

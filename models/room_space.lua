@@ -40,6 +40,8 @@ local RoomSpace = {}
 RoomSpace.TW, RoomSpace.TH = 64, 32
 RoomSpace.LEVEL_EPS  = 8      -- art px: two planes this close are "the same level"
 RoomSpace.INSIDE_TOL = 0.03   -- grid units: pixel-derived corners are noisy
+RoomSpace.WALL_TOL   = 0.125  -- grid: an anchor this close to a wall line is on the wall
+RoomSpace.WALL_TOUCH = 0.15   -- grid: a floor foot this close to the line touches the wall
 
 -- ── Projection ──────────────────────────────────────────────────────────
 
@@ -58,6 +60,64 @@ function RoomSpace.diffY(f)
     if f.align == "right_wall" then return h * 8 end
     return (w + h) * 8
 end
+
+-- ── Walls ───────────────────────────────────────────────────────────────
+--
+-- A wall-mounted thing lives on a WALL PLANE, not the floor. "left_wall"
+-- is the gy = 0 wall (it runs down-right on screen, the screen's right;
+-- the kit's Wall_R tile), "right_wall" the gx = 0 wall (down-left, the
+-- screen's left). The align alone does not say a thing is on a wall (a
+-- pillow can be left_wall-aligned on a bed), and a child's resolved align
+-- can name the other wall after its parent's mirror, so the plane is
+-- read from the RESOLVED ANCHOR: on the gy = 0 line → back, on gx = 0 →
+-- side. Along the wall the coordinate is t (gx on the back wall, gy on
+-- the side wall), up it z in art px. The kit shears wall art at the wall's
+-- own slope (1/2), so a sprite's silhouette box maps to an axis-aligned
+-- rectangle [t0, t1] x [z0, z1] on the plane.
+
+function RoomSpace.wallPlaneOf(f)
+    if f.align ~= "left_wall" and f.align ~= "right_wall" then return nil end
+    local fr = RoomPlacement.frameOf(f)
+    if math.abs(fr.ay) <= RoomSpace.WALL_TOL then return "back" end
+    if math.abs(fr.ax) <= RoomSpace.WALL_TOL then return "side" end
+    return nil
+end
+
+-- The sprite's silhouette box (entry.bbox = { l, t, r, b }, inclusive px;
+-- the whole cell without it) on its wall plane. The pixel → art offsets
+-- are the ones spriteToGrid uses; on the plane a point (t, z) sits at
+--   back: X = (t − ax)·32, Y = (t − ax)·16 − z     → t = ax + X/32, z = X/2 − Y
+--   side: X = −(t − ay)·32, Y = (t − ay)·16 − z    → t = ay − X/32, z = −X/2 − Y
+function RoomSpace.wallRect(f, entry, geom)
+    local plane = RoomSpace.wallPlaneOf(f)
+    if not (plane and geom) then return nil end
+    local bb = (entry and entry.bbox) or { 0, 0, geom.cell_w - 1, geom.bottom - 1 }
+    local fr = RoomPlacement.frameOf(f)
+    local sc, hf = f.scale or 1, (f.flip_x and -1 or 1)
+    local HW = RoomSpace.TW / 2
+    local oy = geom.bottom - RoomSpace.diffY(f)
+    local xa = (f.dx or 0) + (bb[1]     - geom.cell_w / 2) * sc * hf
+    local xb = (f.dx or 0) + (bb[3] + 1 - geom.cell_w / 2) * sc * hf
+    if xa > xb then xa, xb = xb, xa end
+    local ya = -(f.z_offset or 0) + (bb[2]     - oy) * sc
+    local yb = -(f.z_offset or 0) + (bb[4] + 1 - oy) * sc
+    local r = { plane = plane }
+    if plane == "back" then
+        r.t0, r.t1 = fr.ax + xa / HW, fr.ax + xb / HW
+        r.z1, r.z0 = xa / 2 - ya, xb / 2 - yb
+    else
+        r.t0, r.t1 = fr.ay - xb / HW, fr.ay - xa / HW
+        r.z1, r.z0 = -xb / 2 - ya, -xa / 2 - yb
+    end
+    if r.z0 > r.z1 then r.z0, r.z1 = r.z1, r.z0 end
+    return r
+end
+
+local function rectsOverlap(a, b, eps)
+    eps = eps or 1e-6
+    return a.t0 < b.t1 - eps and b.t0 < a.t1 - eps and a.z0 < b.z1 - eps and b.z0 < a.z1 - eps
+end
+RoomSpace.rectsOverlap = rectsOverlap
 
 function RoomSpace.floorElev(f)
     return (f.z_offset or 0) + RoomSpace.diffY(f) * (1 - (f.scale or 1))
@@ -92,6 +152,7 @@ end
 
 -- The footprint on its plane: the surfaces' foot, else the w x h rectangle.
 function RoomSpace.footPoly(f, entry, geom)
+    if RoomSpace.wallPlaneOf(f) then return nil end     -- a wall thing has no floor foot
     if entry and entry.foot and geom then
         return cornersToPoly(f, geom, entry.foot, RoomSpace.floorElev(f))
     end
@@ -187,6 +248,7 @@ function RoomSpace.describe(item, ctx)
     d.F    = RoomSpace.faceElev(f, entry)
     d.foot = RoomSpace.footPoly(f, entry, geom)
     d.face = RoomSpace.facePoly(f, entry, geom)
+    d.wall = RoomSpace.wallRect(f, entry, geom)
     return d
 end
 
@@ -212,7 +274,7 @@ end
 -- Does `child` (a description) sit on `parent`'s face: its plane is the
 -- face's plane and its foot's centroid lies inside the face.
 function RoomSpace.sitsOn(child_d, parent_d)
-    if not parent_d.face then return false end
+    if not (parent_d.face and child_d.foot) then return false end
     if not sameLevel(child_d.E, parent_d.F) then return false end
     local cx, cy = RoomSpace.centroid(child_d.foot)
     return RoomSpace.pointInPoly(parent_d.face, cx, cy, RoomSpace.INSIDE_TOL)
@@ -235,7 +297,7 @@ end
 function RoomSpace.parentAt(descs, gx, gy)
     local best
     for _, d in ipairs(descs) do
-        if d.face and RoomSpace.pointInPoly(d.face, gx, gy, RoomSpace.INSIDE_TOL) then
+        if d.face and not d.wall and RoomSpace.pointInPoly(d.face, gx, gy, RoomSpace.INSIDE_TOL) then
             if not best or d.F > best.F then best = d end
         end
     end
@@ -252,12 +314,42 @@ end
 --           overlaps = { desc, ... } }.
 function RoomSpace.fit(hand_f, items, ctx, opts)
     opts = opts or {}
-    local descs = RoomSpace.describeAll(items, ctx)
+    local descs = opts.descs or RoomSpace.describeAll(items, ctx)
     local w, h = hand_f.w or 1, hand_f.h or 1
     local fit = { overlaps = {}, z = hand_f.z_offset or 0 }
     if opts.room_size and (hand_f.gx < 0 or hand_f.gy < 0
        or hand_f.gx + w > opts.room_size or hand_f.gy + h > opts.room_size) then
         fit.status = "off_room"
+    end
+    -- A wall thing: it slides along its wall. The drop snaps to the wall
+    -- line, its rectangle is checked against the others on that plane,
+    -- and nothing parents (z stays the hand's own).
+    local plane, fr
+    if hand_f.align == "left_wall" or hand_f.align == "right_wall" then
+        -- within reach of a wall line it snaps there (opts.wall_snap cells)
+        fr = RoomPlacement.frameOf(hand_f)
+        local snap = opts.wall_snap or 0.5
+        local prefer_back = hand_f.align == "left_wall"
+        if prefer_back and math.abs(fr.ay) <= snap then plane = "back"
+        elseif (not prefer_back) and math.abs(fr.ax) <= snap then plane = "side"
+        elseif math.abs(fr.ay) <= snap then plane = "back"
+        elseif math.abs(fr.ax) <= snap then plane = "side" end
+    end
+    if plane then
+        local snapped = {}
+        for k, v in pairs(hand_f) do snapped[k] = v end
+        if plane == "back" then snapped.gy = hand_f.gy - fr.ay else snapped.gx = hand_f.gx - fr.ax end
+        local hd = RoomSpace.describe({ obj = { id = hand_f.id, sprite = hand_f.sprite, frame = hand_f.frame }, f = snapped }, ctx)
+        fit.status = fit.status or "wall"
+        fit.plane, fit.wall, fit.gx, fit.gy = plane, hd.wall, snapped.gx, snapped.gy
+        if opts.wall_height and hd.wall and hd.wall.z1 > opts.wall_height then fit.over_wall = true end
+        for _, d in ipairs(descs) do
+            if hd.wall and d.wall and d.wall.plane == plane and d.item.obj.id ~= hand_f.id
+               and rectsOverlap(d.wall, hd.wall) then
+                fit.overlaps[#fit.overlaps + 1] = d
+            end
+        end
+        return fit
     end
     -- the hand's own geometry, first at its own z (the plan view does not
     -- depend on z), then re-levelled onto the parent
@@ -281,18 +373,42 @@ function RoomSpace.fit(hand_f, items, ctx, opts)
     lifted.z_offset = fit.z
     local E = RoomSpace.floorElev(lifted)
     for _, d in ipairs(descs) do
-        if d ~= parent and sameLevel(d.E, E) and RoomSpace.polysOverlap(d.foot, hd.foot) then
+        if d ~= parent and d.foot and d.item.obj.id ~= hand_f.id and sameLevel(d.E, E)
+           and RoomSpace.polysOverlap(d.foot, hd.foot) then
             fit.overlaps[#fit.overlaps + 1] = d
         end
     end
     return fit
 end
 
+-- A wall thing against a faced floor thing: the foot touches the wall
+-- line, they share a stretch along it, and the floor thing's body (E to
+-- F) reaches into the wall thing's height.
+function RoomSpace.wallHits(wd, fd)
+    local wall = wd.wall
+    if not (wall and fd.foot and fd.F) then return false end
+    local lo, hi, near = math.huge, -math.huge, math.huge
+    for i = 1, #fd.foot, 2 do
+        local along = (wall.plane == "back") and fd.foot[i] or fd.foot[i + 1]
+        local off   = (wall.plane == "back") and fd.foot[i + 1] or fd.foot[i]
+        if along < lo then lo = along end
+        if along > hi then hi = along end
+        if off < near then near = off end
+    end
+    if near > RoomSpace.WALL_TOUCH then return false end
+    if not (lo < wall.t1 - 1e-6 and wall.t0 < hi - 1e-6) then return false end
+    return fd.E < wall.z1 and fd.F > wall.z0
+end
+
 -- Every clash in the room: two feet on one level that cross (neither
 -- homed on the other), and a child on a face that hangs off it.
 -- Returns { { a = desc, b = desc, kind = "overlap"|"overhang" }, ... }.
-function RoomSpace.clashes(items, ctx)
-    local descs = RoomSpace.describeAll(items, ctx)
+-- Kinds: "overlap" (two feet on one level, or two wall rectangles on one
+-- plane), "overhang" (a child on a face that hangs off it), "wall" (a wall
+-- thing a floor thing's body runs into). Things homed on each other are
+-- exempt from overlap (a note on a corkboard covers it by design).
+function RoomSpace.clashes(items, ctx, descs)
+    descs = descs or RoomSpace.describeAll(items, ctx)
     local by_id = {}
     for _, d in ipairs(descs) do by_id[d.item.obj.id] = d end
     local out = {}
@@ -301,12 +417,24 @@ function RoomSpace.clashes(items, ctx)
         for j = i + 1, #descs do
             local b = descs[j]
             local related = a.item.on == b.item.obj.id or b.item.on == a.item.obj.id
-            if not related and sameLevel(a.E, b.E) and RoomSpace.polysOverlap(a.foot, b.foot) then
-                out[#out + 1] = { a = a, b = b, kind = "overlap" }
+            if not related then
+                if a.foot and b.foot then
+                    if sameLevel(a.E, b.E) and RoomSpace.polysOverlap(a.foot, b.foot) then
+                        out[#out + 1] = { a = a, b = b, kind = "overlap" }
+                    end
+                elseif a.wall and b.wall then
+                    if a.wall.plane == b.wall.plane and rectsOverlap(a.wall, b.wall) then
+                        out[#out + 1] = { a = a, b = b, kind = "overlap" }
+                    end
+                elseif a.wall and b.foot then
+                    if RoomSpace.wallHits(a, b) then out[#out + 1] = { a = b, b = a, kind = "wall" } end
+                elseif b.wall and a.foot then
+                    if RoomSpace.wallHits(b, a) then out[#out + 1] = { a = a, b = b, kind = "wall" } end
+                end
             end
         end
         local p = a.item.on and by_id[a.item.on]
-        if p and p.face and sameLevel(a.E, p.F)
+        if p and p.face and a.foot and sameLevel(a.E, p.F)
            and not RoomSpace.polyInside(a.foot, p.face, RoomSpace.INSIDE_TOL) then
             out[#out + 1] = { a = a, b = p, kind = "overhang" }
         end

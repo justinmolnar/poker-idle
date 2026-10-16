@@ -36,6 +36,8 @@ HEADER = """-- data/room_surfaces.lua
 --   v     "face" | "none"          src  "auto" | "override" | "filter"
 --   face  { Tx,Ty, Lx,Ly, Bx,By, Rx,Ry }   foot the same, on the floor
 --   height  face.B to the bottom row, px   cell { w, h }
+--   bbox  { l, t, r, b }  the silhouette's box, inclusive px (a wall
+--         thing's rectangle on its wall comes from it)
 --
 -- Reader: services/RoomSurfaces.lua. Checked by sim/smoke_boot.lua.
 """
@@ -51,6 +53,8 @@ def entry(e):
     parts = ["v = %s" % lua_str(v), "src = %s" % lua_str(e.get("src", "auto")),
              "score = %.3f" % float(e.get("score", 0)), "bottom = %d" % int(e.get("bottom") or 0),
              "cell = { %d, %d }" % tuple(e["cell"])]
+    if e.get("bbox"):
+        parts.append("bbox = { %d, %d, %d, %d }" % tuple(e["bbox"]))
     if v == "face" and e.get("face"):
         parts.append("height = %d" % int(e["height"]))
         parts.append("face = " + corners(e["face"]))

@@ -451,6 +451,7 @@ def _analyse_once(arr, cfg, tol):
     if sil is None:
         return res
     res["bottom"] = sil.bot + 1
+    res["bbox"] = [int(sil.left), int(sil.top), int(sil.right), int(sil.bot)]   # inclusive px
     idx = quantize(arr, sil.mask, tol)
     comps = components(idx, cfg["min_area_px"])
     sil.largest_area = max([c["area"] for c in comps] or [1])
@@ -642,6 +643,7 @@ def _pt(p): return [int(p[0]), int(p[1])]
 def entry_json(res):
     e = {"v": res["verdict"], "src": res.get("source", "auto"), "score": round(float(res["score"]), 3),
          "cell": res["cell"], "bottom": res["bottom"]}
+    if res.get("bbox"): e["bbox"] = res["bbox"]
     if res.get("why"): e["why"] = res["why"]
     if res.get("face"):
         e["face"] = {k: _pt(res["face"][k]) for k in ("T", "L", "B", "R")}

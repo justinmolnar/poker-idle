@@ -529,7 +529,10 @@ do
                 end
                 return true
             end
-            if not (inside(e.face, e.cell) and inside(e.foot, e.cell)) then outside[#outside + 1] = key end
+            local function bboxIn(bb, cell)
+                return (not bb) or (bb[1] >= 0 and bb[2] >= 0 and bb[3] < cell[1] and bb[4] < cell[2] and bb[1] <= bb[3] and bb[2] <= bb[4])
+            end
+            if not (inside(e.face, e.cell) and inside(e.foot, e.cell) and bboxIn(e.bbox, e.cell)) then outside[#outside + 1] = key end
             for ci, c in ipairs(e.cells or {}) do
                 if not (inside(c.face, c.cell) and inside(c.foot, c.cell)) then outside[#outside + 1] = key .. "#" .. ci end
             end

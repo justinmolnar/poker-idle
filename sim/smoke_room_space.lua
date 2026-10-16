@@ -224,4 +224,79 @@ do
     end
 end
 
+-- 10. the wall model
+do
+    local function copy(t) local o = {} for k, v in pairs(t) do o[k] = v end return o end
+    local POSTER = { v = "none", bottom = 49, cell = { 64, 64 }, bbox = { 8, 10, 55, 48 } }
+    local CLOCK  = { v = "none", bottom = 49, cell = { 64, 64 }, bbox = { 20, 14, 43, 40 } }
+    local wctx = { entryFor = function(f, obj) return (obj and obj.entry) or f.entry end,
+                   geomFor  = function(f, entry) return { cell_w = entry.cell[1], bottom = entry.bottom } end }
+    -- which wall
+    c.ok(RS.wallPlaneOf({ align = "left_wall", gx = 3, gy = 0, w = 1, h = 1 }) == "back", "left_wall on gy = 0 is the back wall")
+    c.ok(RS.wallPlaneOf({ align = "right_wall", gx = 0, gy = 3, w = 1, h = 1 }) == "side", "right_wall on gx = 0 is the side wall")
+    c.ok(RS.wallPlaneOf({ align = "left_wall", gx = 3, gy = 1, w = 1, h = 1 }) == nil, "left_wall off the line is not on a wall")
+    c.ok(RS.wallPlaneOf({ gx = 0, gy = 0, w = 1, h = 1 }) == nil, "a centred thing is never on a wall")
+    -- the rectangle
+    local pf = { align = "left_wall", gx = 3, gy = 0, w = 1, h = 1, scale = 1, z_offset = 40, dx = 0, entry = POSTER }
+    local geom = { cell_w = 64, bottom = 49 }
+    local r = RS.wallRect(pf, POSTER, geom)
+    c.ok(r and r.plane == "back" and near(r.t0, 2.75, 0.01) and near(r.t1, 4.25, 0.01) and near(r.z0, 44, 0.01) and near(r.z1, 59, 0.01),
+         ("a poster on the back wall: t %.2f..%.2f z %.1f..%.1f (want 2.75..4.25, 44..59)"):format(r.t0, r.t1, r.z0, r.z1))
+    local pff = copy(pf); pff.flip_x = true
+    local rf = RS.wallRect(pff, POSTER, geom)
+    c.ok(near(rf.t0, r.t0, 0.01) and near(rf.t1, r.t1, 0.01) and near(rf.z0, r.z0, 0.01) and near(rf.z1, r.z1, 0.01), "flipped: the same rectangle")
+    local pfs = copy(pf); pfs.scale = 0.5
+    local rs2 = RS.wallRect(pfs, POSTER, geom)
+    c.ok(near(rs2.t1 - rs2.t0, 0.75, 0.01) and near(rs2.z1 - rs2.z0, 7.5, 0.01), ("scale 0.5 halves it: %.2f wide, %.1f tall"):format(rs2.t1 - rs2.t0, rs2.z1 - rs2.z0))
+    local sf = { align = "right_wall", gx = 0, gy = 3, w = 1, h = 1, scale = 1, z_offset = 40, dx = 0, entry = POSTER }
+    local rsd = RS.wallRect(sf, POSTER, geom)
+    c.ok(rsd.plane == "side" and near(rsd.t0, 2.75, 0.01) and near(rsd.t1, 4.25, 0.01) and near(rsd.z0, 44, 0.01) and near(rsd.z1, 59, 0.01),
+         ("the side-wall mirror: t %.2f..%.2f z %.1f..%.1f"):format(rsd.t0, rsd.t1, rsd.z0, rsd.z1))
+    -- a wall thing has no floor foot
+    local pd = RS.describe({ obj = { id = "poster", entry = POSTER }, f = pf }, wctx)
+    c.ok(pd.foot == nil and pd.wall ~= nil, "a wall thing describes with a wall rectangle and no floor foot")
+    -- clashes on the wall
+    local poster = { obj = { id = "poster", entry = POSTER }, f = pf }
+    local beside = { obj = { id = "clock", entry = CLOCK }, f = copy(pf) }; beside.f.gx = 5; beside.f.entry = CLOCK
+    local above  = { obj = { id = "clock", entry = CLOCK }, f = copy(pf) }; above.f.z_offset = 70; above.f.entry = CLOCK
+    local onit   = { obj = { id = "clock", entry = CLOCK }, f = copy(pf) }; onit.f.gx = 3.5; onit.f.entry = CLOCK
+    c.ok(#RS.clashes({ poster, beside }, wctx) == 0, "a clock beside the poster: no clash")
+    c.ok(#RS.clashes({ poster, above }, wctx) == 0, "a clock above the poster: no clash")
+    local on_cl = RS.clashes({ poster, onit }, wctx)
+    c.ok(#on_cl == 1 and on_cl[1].kind == "overlap", "a clock over the poster: one overlap")
+    local note = { obj = { id = "note", entry = CLOCK }, on = "poster", f = copy(onit.f) }
+    c.ok(#RS.clashes({ poster, note }, wctx) == 0, "a note homed on the poster: no clash")
+    -- a poster over a desk
+    -- a 2x2 desk whose foot is its cell diamond (oy = 128 - 32 = 96: T 64, L/R 96, B 128)
+    local DESK = { v = "face", height = 40, bottom = 128, cell = { 128, 128 },
+                   face = { 64, 24, 0, 56, 64, 88, 128, 56 }, foot = { 64, 64, 0, 96, 64, 128, 128, 96 } }
+    local desk = { obj = { id = "desk", entry = DESK }, f = { gx = 2, gy = 0, w = 2, h = 2, scale = 1, z_offset = 0, dx = 0 } }
+    c.ok(#RS.clashes({ poster, desk }, wctx) == 0, "a poster whose bottom clears the desk's top: no clash")
+    local low = { obj = { id = "poster", entry = POSTER }, f = copy(pf) }; low.f.z_offset = 30
+    local lc = RS.clashes({ low, desk }, wctx)
+    c.ok(#lc == 1 and lc[1].kind == "wall", "a poster that reaches into the desk: one wall clash")
+    local desk_off = { obj = { id = "desk", entry = DESK }, f = copy(desk.f) }; desk_off.f.gy = 1
+    c.ok(#RS.clashes({ low, desk_off }, wctx) == 0, "the same desk off the wall: no clash")
+    local plant = { obj = { id = "plant" }, f = { gx = 3, gy = 0, w = 1, h = 1, z_offset = 0 } }
+    c.ok(#RS.clashes({ low, plant }, wctx) == 0, "a faceless plant under a low poster: no clash")
+    -- fit for a wall hand
+    local hand = copy(pf); hand.id = "hand"; hand.gy = 0.25; hand.gx = 3.5
+    local wf = RS.fit(hand, { poster }, wctx, { room_size = 6 })
+    c.ok(wf.status == "wall" and wf.gy == 0 and #wf.overlaps == 1, ("a wall hand snaps to the line and overlaps the poster (%s, gy %s, %d)"):format(tostring(wf.status), tostring(wf.gy), #wf.overlaps))
+    hand.gx = 5
+    local wf2 = RS.fit(hand, { poster }, wctx, { room_size = 6 })
+    c.ok(wf2.status == "wall" and #wf2.overlaps == 0, "beside it: no overlaps")
+    -- a floor hand never parents onto a wall thing with a face
+    local SHELF = { v = "face", height = 6, bottom = 49, cell = { 64, 64 }, bbox = { 8, 20, 55, 48 },
+                    face = { 32, 20, 8, 30, 32, 40, 55, 30 }, foot = { 32, 26, 8, 36, 32, 46, 55, 36 } }
+    local shelf = { obj = { id = "shelf", entry = SHELF }, f = { align = "left_wall", gx = 3, gy = 0, w = 1, h = 1, scale = 1, z_offset = 40, dx = 0 } }
+    local cup = { id = "cup", gx = 3.2, gy = 0.2, w = 1, h = 1, scale = 1, z_offset = 0, dx = 0, entry = ENTRY }
+    local cf = RS.fit(cup, { shelf }, wctx, { room_size = 6 })
+    c.ok(cf.parent == nil, "a floor hand over a wall shelf: no parent")
+    -- opts.descs gives the same answer
+    local descs = RS.describeAll({ poster }, wctx)
+    local wf3 = RS.fit(hand, { poster }, wctx, { room_size = 6, descs = descs })
+    c.ok(wf3.status == wf2.status and #wf3.overlaps == #wf2.overlaps, "fit with pre-described items agrees")
+end
+
 if c.report("smoke_room_space") > 0 then os.exit(1) end
