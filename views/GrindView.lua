@@ -2646,6 +2646,24 @@ function GrindView:_drawCenterGrid(W, H)
         if c < 0 or c >= cols or r < 0 or r >= rows then return nil end
         return TableGrid.pack(r, c)
     end
+    -- Which cell does the HELD PANEL cover most? The table is held by its
+    -- header, so the mouse sits at its top edge and the panel hangs
+    -- below; what the player sees is the panel over a cell, not the
+    -- pointer, so the cell is the one its rectangle overlaps most. Nil
+    -- when it covers none.
+    local function slotUnderRect(x, y, w, h)
+        local best, best_area = nil, 0
+        for r = 0, rows - 1 do
+            for c = 0, cols - 1 do
+                local s = TableGrid.pack(r, c)
+                local cx, cy = cellXY(s)
+                local ow = math.min(x + w, cx + pw) - math.max(x, cx)
+                local oh = math.min(y + h, cy + ph) - math.max(y, cy)
+                if ow > 0 and oh > 0 and ow * oh > best_area then best, best_area = s, ow * oh end
+            end
+        end
+        return best
+    end
 
     -- Empty cells: holes the player left, and the unused corner of a
     -- board that grew for one more table. Drawn first so panels and the
@@ -2687,7 +2705,11 @@ function GrindView:_drawCenterGrid(W, H)
         -- the cursor slides to the held table's cell. Model slots are
         -- untouched until the drop, so hit-box idx values stay correct.
         local mx, my = love.mouse.getPosition()
-        dragging.drop_slot = slotAtPoint(mx, my)
+        if dragging.px and dragging.py then
+            dragging.drop_slot = slotUnderRect(dragging.px, dragging.py, pw, ph)
+        else
+            dragging.drop_slot = slotAtPoint(mx, my)   -- the first frame, before the hold has a position
+        end
         held_slot = tables[held_i].slot
         if dragging.drop_slot and dragging.drop_slot ~= held_slot then
             for _, t in ipairs(tables) do
