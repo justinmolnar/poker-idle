@@ -483,25 +483,29 @@ function GrindView:_buildTablesTabComponents()
             local cant_afford  = state.bankroll < (stake.buy_in or 0)
             local disabled     = full or cant_afford
             local affordable   = not disabled   -- can open this table right now
+            -- The row reads out (its $/h, its odds bar, its hover breakdown)
+            -- for a table you can open now AND for one you already have
+            -- open: the readout is the table's, not the button's. A row
+            -- out of reach with nothing open says its buy-in and nothing else.
+            local open_now     = self.controller:typeCursorState(stake.id, gtype_id)
+            local readout      = affordable or open_now > 0
 
             -- The row's odds bar and, while a previewing upgrade is hovered,
             -- its next level.
-            -- Only for a table you can open now: a row out of reach says its
-            -- buy-in and nothing else.
-            local row_ev   = (affordable and gtype_obj) and self.controller:evStats(stake, gtype_obj) or nil
+            local row_ev   = (readout and gtype_obj) and self.controller:evStats(stake, gtype_obj) or nil
             local row_stats = row_ev and row_ev.pool or nil
             local prev_up  = row_stats and self._preview_up and Lookups.findById(RunUpgrades, self._preview_up)
             local row_next = prev_up and self:_stakePreview(prev_up, stake, gtype_obj) or nil
             local row_pv   = row_next and GrindView.previewText(prev_up.tooltip_metric, row_stats, row_next) or nil
-            -- $/h EV — only when the table can actually be opened. The
+            -- $/h EV — when the table can be opened or is open. The
             -- bb-normalized value stays the color threshold so good/bad
             -- doesn't shift with stake size; bb/h itself is tooltip-only.
             local sub_left, sub_right, sub_color
             -- A full board is said once above the list; a row keeps its
-            -- buy-in and, when the bankroll covers it, its $/h.
+            -- buy-in and, when it reads out, its $/h.
             do
                 sub_right = "buy-in " .. Format.price(stake.buy_in or 0)
-                if not cant_afford then
+                if readout then
                     local ev = TablePanelStats.evPerHand(self.controller, stake, gtype_obj)
                     if ev then
                         -- Rolls like the per-table readouts (read this frame
@@ -625,8 +629,8 @@ function GrindView:_buildTablesTabComponents()
                 pad_trim     = row_stats and (row_bar_h + 3) or nil,
                 -- Gold/Purple trim once this (stake, type) has banked its bounty this run
                 border_color = border_color,
-                -- EV breakdown tooltip only when the table can be opened.
-                tooltip  = affordable
+                -- EV breakdown tooltip when the table can be opened or is open.
+                tooltip  = readout
                            and TablePanelStats.breakdownLinesFor(self.controller, stake, gtype_obj)
                            or nil,
                 lines = {
