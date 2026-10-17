@@ -57,7 +57,7 @@ sits on an already placed item; NEW = needs a floor cell.
 | corkboard | Corkboard | Office/Corkboard_2 | keep | placed | "one photo of a beach": the captive's corkboard. Stats intro. |
 | starter_gift_box | Starter Gift Box | Present/Present_100 | keep | placed | Rack intro. |
 | energy_drink | Energy Drink | Kitchen/Cola | keep | placed | Zoom intro. |
-| fight_night_poster | Fight Night Poster | Poster/Poster_5 | share:frame (dogs_playing_poker) | wall | HU intro. |
+| gaming_poster | Gaming Poster | Poster/Poster_5 | share:frame (dogs_playing_poker) | wall | HU intro. |
 | bonsai | Bonsai | Japanese_Room/Bonsai | share:plant (desk_plant) | home (on the desk) | 6-Max intro. |
 | prize_vase | Prize Vase | Japanese_Room/Japanese_Vase | keep | placed | Tournaments intro. Not bathroom, but it is the trophy; the WC (Bathroom/WC_Ani, animated) is the pointed alternative if you want the intro to be the first fixture of a bathroom the room does not have. |
 | nightstand | **Chrome Toaster** | Kitchen/Toaster_Ani | swap with chrome_toaster | swap | Mental intro must be kitchen: this id becomes the toaster ("Rebuy: 1 in 2 the table catches a heater. Two slots. One setting. Pops without warning."). The two ids swap name, sprite, sound file and room entry; zero new assets. |
@@ -183,13 +183,13 @@ piece is about getting knocked out and getting back in.
 
 ## Sounds still to find (27)
 
-Fight Night Poster (`fight_night_poster`), Tally Book (`cutting_board`), Bonsai (`bonsai`), House Cat (`house_cat`), Candle (`candle`), Trophy Shelf (`trophy_shelf`), Dusty Console (`dusty_console`), Handheld (`handheld`), Red Rug (`red_rug`), Dish Soap (`dish_soap`), Bottle of Wine (`rolled_vouchers`), Desk Lamp (`desk_lamp`), Telephone (`telephone`), Old Keyboard (`old_keyboard`), Medical Poster (`medical_poster`), Hybrid Console (`framed_diploma`), Washing Machine (`washing_machine`), Floor Plant (`floor_plant`), Gas Stove (`gas_stove`), Cast Iron Pan (`cast_iron_pan`), Hot Bath (`curved_monitor`), Fresh Towel (`tower_upgrade`), Replay TV (`copy_machine`), Shower Head (`high_roller_pass`), Box of Tissues (`shredder`), Kitchen Bin (`waste_basket`), Cleaning Robot (`cleaning_robot`)
+Gaming Poster (`gaming_poster`), Tally Book (`cutting_board`), Bonsai (`bonsai`), House Cat (`house_cat`), Candle (`candle`), Trophy Shelf (`trophy_shelf`), Dusty Console (`dusty_console`), Handheld (`handheld`), Red Rug (`red_rug`), Dish Soap (`dish_soap`), Bottle of Wine (`rolled_vouchers`), Desk Lamp (`desk_lamp`), Telephone (`telephone`), Old Keyboard (`old_keyboard`), Medical Poster (`medical_poster`), Hybrid Console (`framed_diploma`), Washing Machine (`washing_machine`), Floor Plant (`floor_plant`), Gas Stove (`gas_stove`), Cast Iron Pan (`cast_iron_pan`), Hot Bath (`curved_monitor`), Fresh Towel (`tower_upgrade`), Replay TV (`copy_machine`), Shower Head (`high_roller_pass`), Box of Tissues (`shredder`), Kitchen Bin (`waste_basket`), Cleaning Robot (`cleaning_robot`)
 
 In `assets/audio/items/unassigned/`: the five files whose items became something else (beep, glass tap, paper rip, shredder, card draw), kept for reuse.
 
 ## Room cells still to place (26)
 
-Fight Night Poster (`fight_night_poster`), Tally Book (`cutting_board`), Bonsai (`bonsai`), House Cat (`house_cat`), Candle (`candle`), Trophy Shelf (`trophy_shelf`), Dusty Console (`dusty_console`), Handheld (`handheld`), Red Rug (`red_rug`), Dish Soap (`dish_soap`), Desk Lamp (`desk_lamp`), Telephone (`telephone`), Old Keyboard (`old_keyboard`), Medical Poster (`medical_poster`), Washing Machine (`washing_machine`), Floor Plant (`floor_plant`), Gas Stove (`gas_stove`), Cast Iron Pan (`cast_iron_pan`), Hot Bath (`curved_monitor`), Fresh Towel (`tower_upgrade`), Replay TV (`copy_machine`), Shower Head (`high_roller_pass`), Window (`window`), Blackout Curtains (`blackout_curtains`), Kitchen Bin (`waste_basket`), Cleaning Robot (`cleaning_robot`)
+Gaming Poster (`gaming_poster`), Tally Book (`cutting_board`), Bonsai (`bonsai`), House Cat (`house_cat`), Candle (`candle`), Trophy Shelf (`trophy_shelf`), Dusty Console (`dusty_console`), Handheld (`handheld`), Red Rug (`red_rug`), Dish Soap (`dish_soap`), Desk Lamp (`desk_lamp`), Telephone (`telephone`), Old Keyboard (`old_keyboard`), Medical Poster (`medical_poster`), Washing Machine (`washing_machine`), Floor Plant (`floor_plant`), Gas Stove (`gas_stove`), Cast Iron Pan (`cast_iron_pan`), Hot Bath (`curved_monitor`), Fresh Towel (`tower_upgrade`), Replay TV (`copy_machine`), Shower Head (`high_roller_pass`), Window (`window`), Blackout Curtains (`blackout_curtains`), Kitchen Bin (`waste_basket`), Cleaning Robot (`cleaning_robot`)
 
 The cells that moved with a reskin (Nightstand/Toaster swap, Duck, Kettle, Beige Tower) are tuned for the old sprite and want a pass in the room editor.
 

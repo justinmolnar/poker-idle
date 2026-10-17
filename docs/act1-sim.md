@@ -6,7 +6,7 @@
 
 The designer's own Act 1 banks 4, then 7-9, then 15 a run, takes about an hour, and then
 keeps paying 15 a run for as long as it takes. The steady 15 is the load-bearing number:
-it is 1+2+3 on Heads-Up doubled by the Fight Night Poster plus 1+2 on Zoom, so reproducing
+it is 1+2+3 on Heads-Up doubled by the Gaming Poster plus 1+2 on Zoom, so reproducing
 it means the bounty model, the stake ladder and the Poster are all behaving.
 
 | shove | designer | sim (median) | |
@@ -34,7 +34,7 @@ designer's. Act 1 timings below are conditional on the policy as written.
 
 | # | at | run | tables | {chip} | r1 | result | bought |
 |---|---|---|---|---|---|---|---|
-| 1 | 6 min | 5.4 min | 3 | 4 | 0.0% | lost | fight_night_poster, mirror |
+| 1 | 6 min | 5.4 min | 3 | 4 | 0.0% | lost | gaming_poster, mirror |
 | 2 | 17 min | 10.6 min | 6 | 15 | 6.5% | lost | corkboard, energy_drink, starter_gift_box, yellow_sticky_note, compact_fridge, stack_of_books, house_cat |
 | 3 | 27 min | 8.7 min | 6 | 15 | 27.8% | lost | handheld, bottle_of_wine, chrome_toaster, lava_lamp, desk |
 | 4 | 35 min | 7.8 min | 6 | 15 | 43.6% | lost | rebuy_sticky_note, dogs_playing_poker, ring_binder |

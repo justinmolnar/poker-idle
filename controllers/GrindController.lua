@@ -2368,7 +2368,7 @@ function GrindController:bountyAward(stake_id, gtype_id, opts)
     local stake = Lookups.findById(Stakes,stake_id)
     if not stake then return 0 end
     local mult  = (self.ctx and self.ctx.chip_award_mult) or 1
-    -- Per-game-type multiplier (Fight Night: HU bounties pay double).
+    -- Per-game-type multiplier (Gaming Poster: HU bounties pay double).
     local gmults = self.ctx and self.ctx.bounty_gtype_mult
     if gtype_id and gmults and gmults[gtype_id] then
         mult = mult * gmults[gtype_id]

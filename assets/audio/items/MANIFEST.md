@@ -141,7 +141,7 @@ Picked in the audition (`tools/audition_sounds.py`) and processed by `tools/plac
 | `desk_lamp.ogg` | a lamp switch, click | [StandardLamp-Switch.flac](https://freesound.org/people/Mindloop/sounds/253659/) | Mindloop | 253659 | 0.00–0.06s | CC0 |
 | `dish_soap.ogg` | a squeeze bottle, short | [squirting soap_1-2.aif](https://freesound.org/people/acrober/sounds/86143/) | acrober | 86143 | 0.15–0.42s | CC0 |
 | `dusty_console.ogg` | a quick blow of air, like blowing into a game cartridge or on a mic | [Blowing - Dji-Mic3](https://freesound.org/people/Sadiquecat/sounds/831946/) | Sadiquecat | 831946 | whole | CC0 |
-| `fight_night_poster.ogg` | a boxing bell: one bright ring-bell strike (any single bell ding that reads as the round bell) | [Boxing Bell/Trip Gong](https://freesound.org/people/friendlyjoe/sounds/871008/) | friendlyjoe | 871008 | 0.56–1.11s | CC0 |
+| `gaming_poster.ogg` | a boxing bell: one bright ring-bell strike (any single bell ding that reads as the round bell) | [Boxing Bell/Trip Gong](https://freesound.org/people/friendlyjoe/sounds/871008/) | friendlyjoe | 871008 | 0.56–1.11s | CC0 |
 | `floor_plant.ogg` | big leaves, brushed | [Rustling Plants](https://freesound.org/people/georgesavic/sounds/593472/) | georgesavic | 593472 | 0.01–0.42s | CC0 |
 | `fresh_towel.ogg` | a towel snap: a towel whipped so it cracks | [Whip Crack.m4a](https://freesound.org/people/SciFiSounds/sounds/529925/) | SciFiSounds | 529925 | whole | CC0 |
 | `gas_stove.ogg` | an igniter click | [Lighter 01](https://freesound.org/people/Dreadwolf910/sounds/607516/) | Dreadwolf910 | 607516 | 0.01–0.04s | CC0 |

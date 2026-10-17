@@ -87,11 +87,11 @@ return {
     -- introduces (the lint checks one per shelf).
     { id = "value_buys", title = "Value Buys", label = "VALUE BUYS", tab = { "sem:chip" },
       items = {
-          "yellow_sticky_note", "starter_gift_box", "energy_drink", "fight_night_poster",
+          "yellow_sticky_note", "starter_gift_box", "energy_drink", "gaming_poster",
           "chrome_toaster", "bonsai", "prize_vase", "box_of_mice",
       },
       shelf_of = {
-          yellow_sticky_note = "stats", starter_gift_box = "rack", fight_night_poster = "hu",
+          yellow_sticky_note = "stats", starter_gift_box = "rack", gaming_poster = "hu",
           energy_drink = "zoom", bonsai = "six_max", prize_vase = "ko",
           chrome_toaster = "mental", box_of_mice = "cursors",
       } },

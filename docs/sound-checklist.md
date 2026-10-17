@@ -75,7 +75,7 @@ file; nothing shares. 73 of the 73 live items are in (credited in the
 folder's MANIFEST). Ids are the display names in snake case since 2026-09-12
 (save version 3); the rows below carry the live ids.
 
-- [x] `fight_night_poster` | Fight Night Poster | a bell, one strike | count only (Freesound CC0, items/MANIFEST)
+- [x] `gaming_poster` | Gaming Poster | a bell, one strike | count only (Freesound CC0, items/MANIFEST)
 - [x] `tally_book` | Tally Book | a pencil scratch, one stroke | count only (Freesound CC0, items/MANIFEST)
 - [x] `bonsai` | Bonsai | leaves brushed, a snip | count only (Freesound CC0, items/MANIFEST)
 - [x] `house_cat` | House Cat | one short meow | 1 in 50 hands won, a random table's next win bumps (Freesound CC0, items/MANIFEST)
@@ -143,7 +143,7 @@ Every item is placed once, in the room editor, into `data/room_layout.lua`
 no entry, so they do not appear in the room when owned and the shove's count
 skips past them. Rechecked 2026-09-17, live ids.
 
-- [ ] `fight_night_poster` | Fight Night Poster
+- [ ] `gaming_poster` | Gaming Poster
 - [ ] `tally_book` | Tally Book
 - [ ] `bonsai` | Bonsai
 - [ ] `house_cat` | House Cat

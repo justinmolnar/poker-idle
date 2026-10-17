@@ -636,7 +636,7 @@ local function median(t)
 end
 
 -- The designer's own Act 1, as reported: about an hour, banking 4, then
--- 7-9, then 15 a run (1+2+3 on Heads-Up doubled by the Fight Night Poster,
+-- 7-9, then 15 a run (1+2+3 on Heads-Up doubled by the Gaming Poster,
 -- plus 1+2 on Zoom). The sim has to reproduce this before anything else it
 -- prints is worth reading.
 local OBSERVED = { chips = { 4, 8, 15, 15, 15 }, minutes = 60 }
@@ -686,7 +686,7 @@ local function run()
     w("")
     w("The designer's own Act 1 banks 4, then 7-9, then 15 a run, takes about an hour, and then")
     w("keeps paying 15 a run for as long as it takes. The steady 15 is the load-bearing number:")
-    w("it is 1+2+3 on Heads-Up doubled by the Fight Night Poster plus 1+2 on Zoom, so reproducing")
+    w("it is 1+2+3 on Heads-Up doubled by the Gaming Poster plus 1+2 on Zoom, so reproducing")
     w("it means the bounty model, the stake ladder and the Poster are all behaving.")
     w("")
     w("| shove | designer | sim (median) | |")

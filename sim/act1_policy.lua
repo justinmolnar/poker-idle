@@ -25,7 +25,7 @@ return {
     -- ─── The board ──────────────────────────────────────────────────────
     -- Lanes are opened in this order, each as soon as it is affordable
     -- without stranding the run. This is the T1-T3 Heads-Up sweep plus the
-    -- T1-T2 Zoom sweep: 1+2+3 doubled by the Fight Night Poster, plus 1+2.
+    -- T1-T2 Zoom sweep: 1+2+3 doubled by the Gaming Poster, plus 1+2.
     -- Zoom leads. A run restarts on exactly one s001 buy-in ($2 =
     -- INITIAL_BANKROLL = one s001 stack), so the first table is opened with
     -- the last dollar and busting it bricks the run. Heads-Up is the swingy
@@ -112,7 +112,7 @@ return {
     -- effect matters more than their 1% — the Poster doubles the chip
     -- engine, the Mirror feeds it.
     catalog_priority = {
-        "fight_night_poster",
+        "gaming_poster",
         "mirror",
         "yellow_sticky_note",
         "energy_drink",

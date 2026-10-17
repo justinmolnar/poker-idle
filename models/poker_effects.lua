@@ -767,7 +767,7 @@ function PokerEffects.registerAll(reg)
         ctx.six_max_unlocked = true
     end)
 
-    -- Per-game-type bounty multiplier (Fight Night: HU bounties pay
+    -- Per-game-type bounty multiplier (Gaming Poster: HU bounties pay
     -- double). Consumed by GrindController:bountyAward.
     reg:register("bounty_gtype_mult", function(e, ctx)
         ctx.bounty_gtype_mult = ctx.bounty_gtype_mult or {}

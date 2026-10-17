@@ -14,7 +14,7 @@ once, no refunds.
 
 | act | stakes | game types | ceiling per run | runs | banked over the act |
 |---|---|---|---|---|---|
-| Act 1 | T1-T3 | Zoom, Heads-Up, 6-Max (bought: Bonsai) | 18 (24 with Fight Night) | ~5 | ~100 |
+| Act 1 | T1-T3 | Zoom, Heads-Up, 6-Max (bought: Bonsai) | 18 (24 with the Gaming Poster) | ~5 | ~100 |
 | Act 2 | T1-T6 | + tournaments | 84 | ~6 | ~450 |
 | Act 3 | T1-T9 | 4 | 180 | | finishes the book |
 
@@ -97,14 +97,14 @@ items in the act and the Zoom shelf none; Heat & Tilt had one Act 1 card; Bonsai
 ## What changed on 2026-09-07
 
 - Every price set from the tiers; the book went from 879 to 805 (Act 1 230, Act 2 575), and the then-current `sim/run.lua` cleared Act 1 in 4 runs at 48% shove (target 4-5 at 40%; that sim has since been replaced by `sim/act1.lua`).
-- Chains re-rooted onto their shelf: Mirror now needs the Fight Night
+- Chains re-rooted onto their shelf: Mirror now needs the Gaming Poster
   Poster (was Wall Hanger, on Stats); Fire Extinguisher needs the Bonsai
   (was Microwave Oven, on Mental); Microwave Oven needs the Nightstand (was
   Bonsai). The 6-Max shelf lists the fire chain root first.
 - Six naked cards got gates: Wall Hanger (50 hands), Yellow Sticky Note
   (100 hands at 4+ tables), Lava Lamp (400 hands won), Cutting Board (1200
   hands won), Trophy Shelf (150 stacks), Washing Machine (4000 Zoom hands).
-- Fight Night Poster's gate read a `lifetime_*` counter that only accrues
+- Gaming Poster's gate read a `lifetime_*` counter that only accrues
   in Act 2; it now reads `total_chips_banked` so the Act 1 intro can open.
 - `Balance.ACT1_ITEM_COUNT`, `ITEMS_AT_WIN` and `CatalogLoader.chipsPerRun`
   are gone (stale, circular); the count is derived.

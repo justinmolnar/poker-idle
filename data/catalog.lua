@@ -106,7 +106,7 @@
 -- The book is 711 {chip}: the Act 1 shelves (no `act = 2`) 117, priced per
 -- beat (the catalog after shove 1: 1-2; after 2: 2-5; after 3: 5-7; after 4:
 -- 7-9), and the Act 2 shelves 594 (data/balance.lua CATALOG_CHIP_BUDGET). Income per run:
--- a T1-T3 sweep banks 18 (24 with Fight Night), a T1-T6 sweep 84, so Act 1's
+-- a T1-T3 sweep banks 18 (24 with the Gaming Poster), a T1-T6 sweep 84, so Act 1's
 -- five runs bank ~100 and Act 2's six ~450; Act 3 (180 a run) finishes the
 -- book. Prices come from role tiers and read as a ladder down each shelf
 -- (data/catalog_pages.lua rules 5-8); `lua sim/lint_catalog_economy.lua`
@@ -188,7 +188,7 @@ local items = {
         -- never a wall (page one's own Gift Box teaches the slip first), and it
         -- keeps the first post-shove catalog down to ONE ready-to-peel
         -- (the Gift Box). The old hu_unlocked gate was long-met by then.
-        requires    = "fight_night_poster",
+        requires    = "gaming_poster",
         position    = { x = 160, y = 220 },
         effects     = {
             { kind = "shove_rate_add" },
@@ -205,12 +205,13 @@ local items = {
     {
         -- The {chip} economy's signpost: appears the moment the first
         -- bounty banks, and says out loud what the numbers already made
-        -- true — Heads-Up is the chip mode.
-        id          = "fight_night_poster",
-        name        = "Fight Night Poster",
+        -- true — Heads-Up is the chip mode. A gaming poster: two players,
+        -- one screen (the kit's Poster_16, the controller glyphs).
+        id          = "gaming_poster",
+        name        = "Gaming Poster",
         effect_text = "{t:hu} {c:chip:bounties} pay ×2 {chip}.",
-        description = "A duel draws a crowd. The crowd pays.",
-        sprite      = "fight_night_poster",
+        description = "Player two has entered the game. The crowd pays.",
+        sprite      = "gaming_poster",
         phase       = "demo",
         cost_chip   = 2,
         unlock = {

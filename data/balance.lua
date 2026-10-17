@@ -25,7 +25,7 @@ Balance.T3_MULT                = 3
 
 -- The catalog's {chip} budget: what the Act 1 shelves (no `act = 2`) and
 -- the Act 2 shelves sum to after CatalogLoader.deriveAll, ±tol. The whole
--- book is 780. Income per run: Act 1 banks 18 (24 with Fight Night), Act 2
+-- book is 780. Income per run: Act 1 banks 18 (24 with the Gaming Poster), Act 2
 -- 84, Act 3 180. `lua sim/lint_catalog_economy.lua` checks the sums; the
 -- Act 1 item count is derived from the catalog (CatalogLoader.act1Count),
 -- never authored here.

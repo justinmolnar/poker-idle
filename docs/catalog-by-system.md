@@ -46,7 +46,7 @@ and `data/effects.lua`.
 | Dusty Console | `dusty_console` | 5 | 1 | +3% win chance at Heads-Up |
 | Electric Kettle | `electric_kettle` | 11 | 2 | Busted tables refund 30% of buy-in |
 | Energy Drink | `energy_drink` | 3 | 1 | Every 25 hands anywhere, a Zoom table catches a heater |
-| Fight Night Poster | `fight_night_poster` | 4 | 1 | Heads-Up bounties pay double {chip} |
+| Gaming Poster | `gaming_poster` | 4 | 1 | Heads-Up bounties pay double {chip} |
 | Fire Extinguisher | `fire_extinguisher` | 24 | 2 | Tilt on an already-tilted 6-max heats the adjacent table |
 | First Aid Kit | `first_aid_kit` | 16 | 2 | Knockout: 10% pays out your biggest buy-in |
 | Framed Diploma | `framed_diploma` | 18 | 2 | Every 100 hands won, every table rolls heat / tilt / nothing |
@@ -138,7 +138,7 @@ Stack-triggered procs below are HU items without naming it.
 |---|---|---|
 | Mirror | Stat | +10% win chance at HU |
 | Dusty Console | Stat | +3% win chance at HU |
-| Fight Night Poster | Economy | `bounty_gtype_mult` HU bounties pay 2x {chip} (corrupt 4x) |
+| Gaming Poster | Economy | `bounty_gtype_mult` HU bounties pay 2x {chip} (corrupt 4x) |
 | Wall Hanger | Stat | Stack wins pay 1.2x |
 | Pencil Holder | Economy | +1 {chip} per Stack win (corrupt +4) |
 | Dogs Playing Poker | Proc `dogs_playing_poker_high` | Stack win: 25% self heater (corrupt 35%) |
@@ -310,7 +310,7 @@ Cleaning Robot off Gaming Keyboard.
 
 | Item | Effect | Corrupt |
 |---|---|---|
-| Fight Night Poster | HU bounties pay 2x {chip} | 4x |
+| Gaming Poster | HU bounties pay 2x {chip} | 4x |
 | Pencil Holder | +1 {chip} on every Stack win | +4 |
 | Tip Jar | `chip_award_mult` 1.50 on all bounties | 4.0 |
 | Bonsai | Opens the 6-max bounty ladder by opening the mode | |
@@ -364,7 +364,7 @@ A second cut, for tuning: what kind of moment an item waits for.
 
 | Shape | Items |
 |---|---|
-| Always on (no trigger) | Corkboard, Yellow Sticky Note, Space Heater, Wall Hanger, Stack of Books, Lava Lamp, Chrome Toaster, Throw Pillow, Comfort Bed, Mirror, Dusty Console, Headset, Handheld, Desk Plant, Desk Speakers, Red Rug, Fight Night Poster, Pencil Holder, Tip Jar, Calculator, Ring Binder, Bookshelf, Rebuy Sticky Note, Electric Kettle, Second Monitor, Laminated Blueprint, Whiteboard, High Roller Pass, all cursor flags |
+| Always on (no trigger) | Corkboard, Yellow Sticky Note, Space Heater, Wall Hanger, Stack of Books, Lava Lamp, Chrome Toaster, Throw Pillow, Comfort Bed, Mirror, Dusty Console, Headset, Handheld, Desk Plant, Desk Speakers, Red Rug, Gaming Poster, Pencil Holder, Tip Jar, Calculator, Ring Binder, Bookshelf, Rebuy Sticky Note, Electric Kettle, Second Monitor, Laminated Blueprint, Whiteboard, High Roller Pass, all cursor flags |
 | Once per run | Rubber Duck, Compact Fridge, Starter Gift Box, Stash Box, Cereal Shelf, Desk |
 | Hand counter | Energy Drink (25 played), House Cat (50 won), Wall Clock (100 won), Framed Diploma (100 won) |
 | Stack win | Dogs Playing Poker, Gaming Chair, Candle, Receipt Printer, Cleaning Robot, Pencil Holder |

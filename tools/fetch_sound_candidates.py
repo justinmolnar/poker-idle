@@ -41,7 +41,7 @@ PER_QUERY = int(os.environ.get("FETCH_PER_QUERY", "0"))
 # slot, what it is for, live target, (min s, max s), queries in order of preference
 SLOTS = [
     # ── items (assets/audio/items/<id>.ogg) ──────────────────────────────
-    ("fight_night_poster", "a boxing bell: one bright ring-bell strike (any single bell ding that reads as the round bell)", "items/fight_night_poster.ogg", (0.3, 6), ["boxing bell", "boxing ring bell", "ring bell ding", "fight bell", "round bell", "bell knockout", "service bell", "desk bell", "school bell single"]),
+    ("gaming_poster", "a boxing bell: one bright ring-bell strike (any single bell ding that reads as the round bell)", "items/gaming_poster.ogg", (0.3, 6), ["boxing bell", "boxing ring bell", "ring bell ding", "fight bell", "round bell", "bell knockout", "service bell", "desk bell", "school bell single"]),
     ("tally_book", "a pencil scratch, one stroke", "items/tally_book.ogg", (0.1, 2), ["pencil scratch", "pencil writing short"]),
     ("bonsai", "leaves brushed, a snip", "items/bonsai.ogg", (0.1, 2), ["scissors snip", "pruning shears cut", "leaves rustle short"]),
     ("house_cat", "one short meow", "items/house_cat.ogg", (0.2, 2), ["cat meow", "kitten meow"]),

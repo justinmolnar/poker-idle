@@ -1,6 +1,6 @@
 -- sim/cases/money.lua
 --
--- Money that is not a hand: bounties (Fight Night, Pencil Holder, Tip
+-- Money that is not a hand: bounties (Gaming Poster, Pencil Holder, Tip
 -- Jar), the run's opening (Starter Gift Box, Desk, Cereal Shelf), prices
 -- (Rebuy Sticky Note, Ring Binder), and the two keys (Bonsai, Ultra).
 return function(T)
@@ -9,12 +9,12 @@ return function(T)
     local function stake(id) return H.Lookups.findById(H.Stakes, id) end
 
     -- ── bounties ──────────────────────────────────────────────────────
-    if wanted("item:fight_night_poster") then
+    if wanted("item:gaming_poster") then
         local w = T.world()
         local base_hu, base_zoom = w.ctrl:bountyAward("s001", "hu"), w.ctrl:bountyAward("s001", "zoom")
-        w:own("fight_night_poster")
+        w:own("gaming_poster")
         local hu, zoom = w.ctrl:bountyAward("s001", "hu"), w.ctrl:bountyAward("s001", "zoom")
-        check("item:fight_night_poster", "bounty", hu == base_hu * 2 and zoom == base_zoom,
+        check("item:gaming_poster", "bounty", hu == base_hu * 2 and zoom == base_zoom,
             ("a NL2 Heads-Up bounty pays %d with the poster (%d without); Zoom's stays %d"):format(hu, base_hu, zoom))
     end
     if wanted("item:pencil_holder") then

@@ -767,7 +767,7 @@ Effects.kinds = {
         affects     = "ctx.six_max_unlocked",
     },
     bounty_gtype_mult = {
-        description = "Per-game-type bounty multiplier (Fight Night: Heads-Up bounties pay double). GrindController:bountyAward multiplies by the entry for the table's game type.",
+        description = "Per-game-type bounty multiplier (Gaming Poster: Heads-Up bounties pay double). GrindController:bountyAward multiplies by the entry for the table's game type.",
         value_shape = "{ value = number, gtype = id }",
         affects     = "ctx.bounty_gtype_mult[gtype] (multiplicative)",
     },

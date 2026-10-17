@@ -42,7 +42,7 @@ const A = {
   // For AOE (no `pick`) targets: fraction of the other tables inside the radius on a real board.
   AOE_FRACTION: { 1: 0.5, 2: 0.8 },
   // Chips banked per 20-minute run, by act (sim/run.lua:34-57 + data/catalog.lua header).
-  CHIPS_PER_RUN: { act1: 18, act1_fight_night: 24, act2: 84 },
+  CHIPS_PER_RUN: { act1: 18, act1_gaming_poster: 24, act2: 84 },
   // Reference boards: what a player is actually running when an item fires.
   BOARDS: {
     act1: { fill: "naked",  overhead: 1.5, bankroll: 20,
