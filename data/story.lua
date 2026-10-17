@@ -562,7 +562,7 @@ return {
             lines = {
                 -- The focus cell, and every X that closes a table (the
                 -- panels' and the rows'): closing one is the other way out.
-                { text = "Easy, tiger. FOCUS is how many tables you can keep up with. Up to {dyn:focus_cap}, they all play at full speed.{page}Every table past that slows ALL of them by {dyn:focus_penalty_pct}. Adds up fast.{page}Raise it with {c:upgrade:Focus} on the rack, or close a table.",
+                { text = "Easy, tiger. FOCUS is how many tables you can keep up with. Right now that's {dyn:focus_cap}. Past it, every table slows all of them. More FOCUS, more tables.{page}Each one over costs {dyn:focus_penalty_pct}. Adds up fast. Raise it with {c:upgrade:Focus} on the rack, or close a table.",
                   anchor = { "cell:focus",
                              "table_close:1", "table_close:2", "table_close:3", "table_close:4",
                              "table_close:5", "table_close:6", "table_close:7", "table_close:8",
