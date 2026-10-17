@@ -137,7 +137,7 @@ local TERMS     = "Only the deck in play levels. The rest keep their bonuses. Le
 -- says the demo ends here, where the rest is, and that the felt stays open.
 -- The sticker is the title's, so it is the same sticker peeled twice.
 local DEMO_HEADLINE = "THAT'S THE DEMO."
-local DEMO_BODY     = "Thanks for playing. Mail order decks, the bigger stakes, the tournament room and the rest of the House are in the full game."
+local DEMO_BODY     = "Thanks for playing. In the full game, this flyer would've unlocked the decks. Mail order decks, higher stakes, more table types, and much more."
 local DEMO_FOOT     = "Stay as long as you like. The tables are open, but there's nothing more to unlock."
 local DEMO_STICKER  = { "WISHLIST", "on Steam" }
 local DEMO_UTM      = "utm_source=demo&utm_medium=flyer"

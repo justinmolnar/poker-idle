@@ -280,7 +280,7 @@ the voice doc's treason section); all he does is notice.
 | The mid stakes are open now. Bring money. | `add_table:s004:zoom`, `add_table:s005:zoom`, `add_table:s006:zoom` | click |
 
 ### `flyer_lands` — shove. Trigger: the deck flyer has landed on the felt.
-| I have a new flyer for you, check it out. | `deck:flyer` | **FORCE** wait: the flyer open |
+| I have a new flyer for you. Decks, this time. Check it out. | `deck:flyer` | **FORCE** wait: the flyer open |
 
 ### `act2_decks` — shove. Trigger: the deck flyer open.
 | You can only run one at a time, its bonus levels up as you play. Reach level 5 for the Capstone bonus effect. | `deck:tile:1` | click |

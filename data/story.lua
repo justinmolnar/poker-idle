@@ -608,7 +608,7 @@ return {
             screen  = "shove",
             trigger = { kind = "deck_flyer_landed" },
             lines = {
-                { text = "I have a new flyer for you, check it out.",
+                { text = "I have a new flyer for you. Decks, this time. Check it out.",
                   anchor = "deck:flyer",
                   force  = true,
                   cue    = "Open the flyer",
