@@ -561,9 +561,15 @@ statDraw = function(comp, px, pw, p, y, game)
     return h
 end
 -- A stat is not clickable; hovering it shows its tooltip and nothing else.
+-- A centred stat (the rail's earn rate over the wider bankroll) draws its
+-- value in the middle of its SLOT, so the hover covers the slot: hovering
+-- the stat's own width from the slot's left took only the number's left
+-- half and missed the "/min".
 local function _hitStat(comp, panel_x, panel_w, p, cursor_y, h, cx, cy)
+    local hit_w = statW(comp, comp.__game)
+    if comp.align == "center" then hit_w = math.max(hit_w, panel_w - p * 2) end
     if (comp.tooltip or comp.tooltip_fn) and cy >= cursor_y and cy < cursor_y + h
-       and cx >= panel_x + p and cx < panel_x + p + statW(comp, comp.__game) then
+       and cx >= panel_x + p and cx < panel_x + p + hit_w then
         hoverTooltip(comp)
     end
     return nil
