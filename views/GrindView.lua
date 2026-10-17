@@ -287,6 +287,9 @@ function GrindView:_buildPanels()
     -- right sidebar, drawn and hit-tested by the same Panel +
     -- ComponentRenderer path. The row spreads inside whatever width that is.
     self.rail = Panel:new(0, H - RAIL_H, W - RIGHT_W, RAIL_H)
+    -- The quick-reset overlay straddles the SHOVE button's top edge, half
+    -- of it above the rail: the rail's clip lets that half draw.
+    self.rail.scissor_pad_top = math.ceil(RAIL_BTN_H * 0.5)
     self._side_panels = { self.left_panel, self.right_panel }
     self.rail:registerTab({
         id       = "rail",
@@ -931,8 +934,9 @@ function GrindView:_buildRateTooltipUncached(br)
         local tbl   = gr.tbl
         local stake = Lookups.findById(Stakes, tbl.stake_id)
         local gtype = Lookups.findById(GameTypes, tbl.game_type_id)
-        local label = ((stake and stake.display_name) or tbl.stake_id or "?") .. " · "
-                      .. ((gtype and gtype.short) or tbl.game_type_id or "?")
+        local pill  = ({ zoom = "{t:zoom}", hu = "{t:hu}", six_max = "{t:6m}", ko = "{t:ko}" })[tbl.game_type_id]
+                      or ((gtype and gtype.short) or tbl.game_type_id or "?")
+        local label = pill .. " " .. ((stake and stake.display_name) or tbl.stake_id or "?")
         if gr.n > 1 then label = label .. " ×" .. gr.n end
         local ev = (gr.hpm > 0) and (gr.ev_w / gr.hpm) or 0
         local tok = (gr.rate > 0.005 and "good") or (gr.rate < -0.005 and "error") or "muted"
@@ -966,19 +970,32 @@ function GrindView:_buildRateTooltipUncached(br)
     -- breathes; the trace is read live.
     rows[#rows + 1] = { style = "sm", color_token = "muted",
         text = string.format(R.tooltips.rate_graph, minutesText(br.run_elapsed)) }
+    -- Drawn: the zero line across the middle band; the trace filled
+    -- against zero, won-green where it is above and lost-red where it
+    -- is below, the line in the same colours segment by segment; the
+    -- top and bottom values at the left edge; "start" and "now" under
+    -- the ends; the last value at the right end, in its colour.
     local s   = self.game.ui_scale or 1
     local TK  = RateTicker
-    local W   = math.max(40, math.floor((TK.w or 180) * s))
-    local H   = math.max(12, math.floor((TK.h or 36) * s))
+    local f_h = (self.game.fonts.xs or self.game.fonts.sm):getHeight()
+    local W   = math.max(40, math.floor((TK.w or 180) * s * 1.4))
+    local GH  = math.max(24, math.floor((TK.h or 36) * s * 1.6))   -- the plot
+    local H   = GH + f_h + 2                                        -- plus the axis labels
     local state_ref = self.game.state
+    local R_labels = R.tooltips
     rows[#rows + 1] = {
         measure = function(_) return W, H end,
         render  = function(x, y, fonts)
             local rt = state_ref.run_rate_trace
             local n  = rt and (#rt.b - 1) or 0      -- finished buckets only
-            Theme.setColor(Theme.border.default, TK.baseline_alpha or 0.18)
+            local f  = fonts and (fonts.xs or fonts.sm)
+            Theme.setColor(Theme.border.default, 0.5)
             if n < 2 then
-                love.graphics.rectangle("fill", x, y + H - 1, W, 1)
+                love.graphics.rectangle("fill", x, y + GH - 1, W, 1)
+                if f then
+                    love.graphics.setFont(f); Theme.setColor(Theme.fg.muted)
+                    love.graphics.print(R_labels.rate_idle, x, y + GH + 2)
+                end
                 return
             end
             local pts = rateGraphPoints(rt, n)
@@ -989,31 +1006,47 @@ function GrindView:_buildRateTooltipUncached(br)
                 if r > hi then hi = r end
             end
             if hi - lo < 1e-9 then hi = lo + 1 end
-            local function py(r) return y + (H - 1) * (hi - r) / (hi - lo) end
-            local zero = math.floor(py(0) + 0.5)
-            love.graphics.rectangle("fill", x, zero, W, 1)
-            local line = _graph_line
-            local k = 0
-            for i = 1, n do
-                line[k + 1] = x + (W - 1) * (i - 1) / (n - 1)
-                line[k + 2] = py(pts[i])
-                k = k + 2
+            local function py(r) return y + (GH - 1) * (hi - r) / (hi - lo) end
+            local function px(i) return x + (W - 1) * (i - 1) / (n - 1) end
+            local zero = py(0)
+            -- the fill: each segment as a quad down to the zero line,
+            -- split where it crosses zero so each piece has one colour
+            local function fillSeg(x1, v1, x2, v2)
+                if (v1 >= 0) ~= (v2 >= 0) and v1 ~= v2 then
+                    local t = v1 / (v1 - v2)
+                    local xm = x1 + (x2 - x1) * t
+                    fillSeg(x1, v1, xm, 0); fillSeg(xm, 0, x2, v2)
+                    return
+                end
+                local up = (v1 + v2) >= 0
+                Theme.setColor(up and Theme.sem.won or Theme.sem.lost, 0.28)
+                love.graphics.polygon("fill", x1, zero, x1, py(v1), x2, py(v2), x2, zero)
+                Theme.setColor(up and Theme.sem.won or Theme.sem.lost)
+                love.graphics.setLineWidth((TK.line_w or 1.5) * s)
+                love.graphics.line(x1, py(v1), x2, py(v2))
+                love.graphics.setLineWidth(1)
             end
-            for i = #line, k + 1, -1 do line[i] = nil end
-            local last = pts[n]
-            Theme.setColor(last >= 0 and Theme.sem.won or Theme.sem.lost)
-            love.graphics.setLineWidth((TK.line_w or 1.5) * s)
             love.graphics.setLineJoin("bevel")
-            love.graphics.line(line)
-            love.graphics.setLineWidth(1)
-            local f = fonts and (fonts.xs or fonts.sm)
+            for i = 1, n - 1 do fillSeg(px(i), pts[i], px(i + 1), pts[i + 1]) end
+            -- the zero line over the fill, and the frame's bottom
+            Theme.setColor(Theme.fg.muted, 0.7)
+            love.graphics.rectangle("fill", x, math.floor(zero + 0.5), W, 1)
             if f then
                 love.graphics.setFont(f)
+                -- the top and bottom values, at the left
                 Theme.setColor(Theme.fg.muted)
                 love.graphics.print(rateGraphLabel(hi), x + 2, y)
-                if lo < 0 then
-                    love.graphics.print(rateGraphLabel(lo), x + 2, y + H - f:getHeight())
-                end
+                if lo < 0 then love.graphics.print(rateGraphLabel(lo), x + 2, y + GH - f_h) end
+                -- start … now, under the plot; the last value at the right, in its colour
+                love.graphics.print(R_labels.rate_start, x, y + GH + 2)
+                local now_w = f:getWidth(R_labels.rate_now)
+                love.graphics.print(R_labels.rate_now, x + W - now_w, y + GH + 2)
+                local last = pts[n]
+                local lt = TablePanelStats.rateLabel(last, "/min")
+                Theme.setColor(last >= 0 and Theme.sem.won or Theme.sem.lost)
+                local lw = IconText.measure(lt, f)
+                local ly = math.max(y, math.min(y + GH - f_h, py(last) - f_h / 2))
+                IconText.draw(self.game, lt, x + W - lw - now_w - 6, ly, f, last >= 0 and Theme.sem.won or Theme.sem.lost)
             end
         end,
     }

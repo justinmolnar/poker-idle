@@ -50,13 +50,16 @@ return {
         deck_click  = "Click to see your decks",
         -- The earn rate over the bankroll: the lede, one line per table
         -- (the builder formats the numbers), the run's actual, the graph.
-        rate_lede  = "What your tables should earn a minute, dealt at the pace you're dealing them.",
-        rate_table = "%s   %s a hand, %d a minute: %s/min",
-        rate_focus = "FOCUS x%.2f speed on all of it.",
-        rate_run   = "This run so far: %s over %s on the felt, %s/min.",
+        rate_lede  = "What your tables should earn a minute, at the pace you're dealing them.",
+        -- the table (its game pill and stake), its hands, its rate
+        rate_table = "%s  %s a hand × %d a minute = %s/min",
+        rate_focus = "FOCUS ×%.2f speed on all of it.",
+        rate_run   = "This run: %s in %s, %s/min.",
         rate_last  = "Last run: %s/min.",
         rate_idle  = "Nothing dealt lately. Deal something.",
-        rate_graph = "This run, $/min (%s):",
+        rate_graph = "$/min over this run (%s)",
+        rate_start = "start",
+        rate_now   = "now",
     },
 
     -- The widest value each readout must hold: its slot is sized to this
