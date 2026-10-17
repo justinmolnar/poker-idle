@@ -25,11 +25,12 @@ Balance.T3_MULT                = 3
 
 -- The catalog's {chip} budget: what the Act 1 shelves (no `act = 2`) and
 -- the Act 2 shelves sum to after CatalogLoader.deriveAll, ±tol. The whole
--- book is 780. Income per run: Act 1 banks 18 (24 with the Gaming Poster), Act 2
--- 84, Act 3 180. `lua sim/lint_catalog_economy.lua` checks the sums; the
--- Act 1 item count is derived from the catalog (CatalogLoader.act1Count),
--- never authored here.
-Balance.CATALOG_CHIP_BUDGET    = { act1 = 117, act2 = 594, tol = 6 }
+-- book is 720 (Act 1 took the Comfort Bed and the Calculator back on
+-- 2026-10-15, +9). Income per run: Act 1 banks 18 (24 with the Gaming
+-- Poster), Act 2 84, Act 3 180. `lua sim/lint_catalog_economy.lua` checks
+-- the sums; the Act 1 item count is derived from the catalog
+-- (CatalogLoader.act1Count), never authored here.
+Balance.CATALOG_CHIP_BUDGET    = { act1 = 126, act2 = 594, tol = 6 }
 -- The Act 1 shelves' prices, scaled together (CatalogLoader.itemCost). At
 -- 1.0 the prices in data/catalog.lua are what the player pays: since
 -- 2026-10-05 they are written per beat (the catalog after shove 1: 1-2;
