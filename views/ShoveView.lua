@@ -49,7 +49,6 @@ local ItemFoley              = require("services.ItemFoley")
 local RoomLighting           = require("views.RoomLighting")
 local RoomLights             = require("data.room_lights")
 local ChipFlight             = require("views.ChipFlight")
-local Confetti               = require("services.Confetti")
 local RollingValue           = require("services.RollingValue")
 local IconText               = require("views.IconText")
 local AnchorRegistry         = require("services.AnchorRegistry")
@@ -653,11 +652,13 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     if r.outcomes[1] then
         light(t, "player")
         add(t + 0.60, showChip(1), chipSound(1))
+        -- The pot comes down to the player: to the spot at the bottom of
+        -- the felt where their stack waited before the buildup flew it in,
+        -- and it stays there, theirs, through the hold and the panic.
         potTo(t + 1.00, "player", "chip_land_you")
-        add(t + 1.30, function() self:_confetti() end)
         -- No line on a win. The won-hold is the House being SILENT because
         -- it is losing; that silence is what the panic then breaks. The
-        -- confetti and the pot flying to the player are the headline.
+        -- pot sitting with the player is the headline.
     else
         light(t, "dealer")
         add(t + 0.60, showChip(1), chipSound(1))
@@ -673,41 +674,53 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
     if r.outcomes[1] then
         -- ── The panic ─────────────────────────────────────────────────
         -- The player just WON a runout, and the felt says so: their cards
-        -- lit, the pot flying to them, confetti. Hold there. The House's
-        -- silence is the beat: it has nothing to say because it is
-        -- losing. Then the player clicks, and it finds something.
+        -- lit, the pot down with them. Hold there. The House's silence is
+        -- the beat: it has nothing to say because it is losing. Then the
+        -- player clicks, and it finds something.
         --
-        -- This used to be RUNOUT_PAUSE + CHEAT_PAUSE of nothing, then a
-        -- card. Three seconds of a still screen, which read as a hang.
-        -- The timing slot is the same; it is no longer empty.
+        -- This is the game's big moment — the player did it and the
+        -- dealer cheats it away — so it is played whole: the first time,
+        -- nothing from the won-hold to the end of the take can be skipped
+        -- (no cue, no fast-forward; the hold's CONTINUE still continues).
+        local take_secs = (Style.pot.take_secs or 1)
+        local gs = self.game and self.game.state
+        local first_undertow = not (gs and gs.hints_seen and gs.hints_seen.undertow_seen)
         t = t + 1.2
         hold(t, "won")
-        t = t + 0.0
+        local t_no_skip_from = t
         say(t + 0.10, "panic_wait")
         say(t + 0.95, "panic_won")
-        -- The pile stops. The flight the win started is cleared mid-air
-        -- and the pot is simply gone: the House has it.
-        add(t + 1.60, function() FlightSystem.clear(); self.pot_gone = true end)
         say(t + 1.90, "panic_no")
-        -- Card 6 comes out of the slot and lands on BASE. The readout's
-        -- catalog term is buried and the bar drains.
+        -- The undertow: card 6 comes out of the slot and lands on BASE
+        -- with the stinger under it, the felt flashing and shaking at
+        -- the impact. The readout's catalog term is buried and the bar
+        -- drains.
         add(t + 2.50, startAnim("board_6", "cheat_card_dealt"), "cheat_card_dealt")
-        -- The first cheat card: the House's stinger under it.
-        add(t + 2.50, NOOP, "house_stinger")
-        say(t + 3.10, "panic_new_card")
-        t = t + 3.70
+        add(t + 2.50, function() self:_impact() end, "house_stinger")
+        -- Then the pot leaves the player: up from their spot to the House,
+        -- slowly. He speaks only once it is his.
+        potTo(t + 3.30, "house", "chip_land_pot")
+        say(t + 3.30 + take_secs + 0.40, "panic_new_card")
+        t = t + 3.30 + take_secs + 1.0
+        if first_undertow then
+            self.no_skip = { from = t_no_skip_from, to = t }
+            add(t, function()
+                if gs and gs.hints_seen then gs.hints_seen.undertow_seen = true end
+                self.no_skip = nil
+            end)
+        end
 
         add(t, showChip(2), chipSound(2))
         if r.outcomes[2] then
             light(t + 0.05, "player")
-            add(t + 0.40, function() self:_confetti() end)
-            -- Twice. The House is past surprise and into spite.
+            -- Twice. The House is past surprise and into spite. The second
+            -- undertow lands the way the first did: stinger, flash, shake.
             t = t + 1.2
             hold(t, "won")
             say(t + 0.10, "panic_again")
-            add(t + 1.20, function() FlightSystem.clear(); self.pot_gone = true end)
             say(t + 1.50, "panic_no_more")
             add(t + 2.20, startAnim("board_7", "cheat_card_dealt"), "cheat_card_dealt")
+            add(t + 2.20, function() self:_impact() end, "house_stinger")
             t = t + 3.20
 
             add(t, showChip(3), chipSound(3))
@@ -718,8 +731,6 @@ function ShoveView:onGauntletBegin(milestone, chips_banked)
                 -- the screen are buried. Then credits, over the pile.
                 light(t + 0.05, "player")
                 potTo(t + 0.10, "player", "chip_land_you")
-                add(t + 0.40, function() self:_confetti() end)
-                add(t + 0.90, function() self:_confetti() end)
                 t_settle = t + 1.0
                 t = self:_scheduleEnding(t, add, say)
             else
@@ -852,11 +863,6 @@ function ShoveView:_dealExtra(i)
             local level = math.min(3, math.floor((i - 8) / Style.ending.degrade_every))
             local name = level <= 0 and "cheat_card_dealt" or ("deck_card_degraded_" .. level)
             self.game.sounds.playNamed(name, { pitch = pitch })
-        end
-        local k = i - 7
-        if i <= (E.confetti_first or 17) or k % (E.confetti_every or 5) == 0 then
-            Confetti.burst({ math.floor(x + CARD_W / 2), math.floor(y + CARD_H / 2) },
-                           E.confetti_count or 14, { duration = 1.2 })
         end
     end
     if self._land_now then land(); return end
@@ -1040,6 +1046,9 @@ function ShoveView:skip()
     end
     if self.phase == "hold" then self:advance(); return end
     if not self.timeline then return end
+    -- The first undertow plays whole: no fast-forward from the won-hold
+    -- to the end of the take.
+    if self:_noSkipNow() then return end
     -- Fire remaining events, sounds suppressed, up to and INCLUDING the
     -- next hold, then stop there. A skip lands the player on the next
     -- thing worth reading, never past it. During the ending the remaining
@@ -1995,10 +2004,16 @@ end
 -- time, so it is the one phrase. Nothing on a hold (CONTINUE is the
 -- control), under the catalog or the flyer, or while the House is
 -- talking (the box takes the click). Muted, pulsing like the box's own cue.
+function ShoveView:_noSkipNow()
+    local ns = self.no_skip
+    return ns ~= nil and self.elapsed >= ns.from and self.elapsed < ns.to
+end
+
 function ShoveView:skipCue()
     if self.phase == "room" or self.phase == "buildup" then
         return "click to skip"
     elseif self.phase == "running" and self.timeline and self.elapsed < self.total_duration then
+        if self:_noSkipNow() then return nil end
         return "click to skip"
     end
     return nil
@@ -2119,7 +2134,10 @@ end
 -- Chips are the ones the buildup poured in, so the pile that leaves is the
 -- pile that arrived.
 function ShoveView:_potTo(who)
-    if self.pot_gone or not self.buildup_chips then return end
+    if not self.buildup_chips then return end
+    -- Gone for good (taken by the House, or already flown somewhere the
+    -- caller is not sending it from): nothing to fly.
+    if self.pot_gone and not self.pot_at_player then return end
     local W = love.graphics.getWidth()
     local denoms = self._pot_indices
     if not denoms or #denoms ~= #self.buildup_chips then
@@ -2127,14 +2145,26 @@ function ShoveView:_potTo(who)
         for i, c in ipairs(self.buildup_chips) do denoms[i] = c.denom_idx end
         self._pot_indices = denoms
     end
-    local px, py = self:_potPos()
-    local src = { px, py - math.floor(CARD_H * 0.3) }
-    -- On a loss the pile is pushed UP and off the top of the felt, toward
-    -- the dealer: it is taken, slowly. On a win it comes down to the
-    -- player's cards.
-    local dest = (who == "player")
-        and { math.floor(tableCenterX(W)), Y_PLAYER_HOLE + math.floor(CARD_H / 2) }
-        or  { math.floor(tableCenterX(W)), -CARD_H }
+    -- From the pile on the felt, or from the player's spot once it came
+    -- down to them.
+    local src
+    if self.pot_at_player then
+        local sx, sy = self:_playerSpot()
+        src = { sx, sy - math.floor(CARD_H * 0.2) }
+    else
+        local px, py = self:_potPos()
+        src = { px, py - math.floor(CARD_H * 0.3) }
+    end
+    -- To the House: pushed UP and off the top of the felt, toward the
+    -- dealer: taken, slowly. To the player: down to the spot their stack
+    -- waited at before the buildup flew it in, where it then sits.
+    local dest
+    if who == "player" then
+        local sx, sy = self:_playerSpot()
+        dest = { sx, sy }
+    else
+        dest = { math.floor(tableCenterX(W)), -CARD_H }
+    end
     local cfg = Style.pot
     ChipFlight.flyChipsList(src, dest, denoms, {
         max_per_event = #denoms,
@@ -2143,19 +2173,65 @@ function ShoveView:_potTo(who)
         arc_height    = cfg.take_arc,
         arrival_sound = (who == "player") and "chip_land_you" or nil,
     })
-    self.pot_gone = true
+    self.pot_gone      = true
+    self.pot_at_player = (who == "player") or nil
 end
 
-function ShoveView:_confetti()
-    local W = love.graphics.getWidth()
-    Confetti.burst({ math.floor(tableCenterX(W)), Y_PLAYER_HOLE + math.floor(CARD_H / 2) },
-                   40, { duration = 1.6 })
+-- The won pot, resting at the player's spot once its flight has landed
+-- (the flight draws itself until then). Drawn as the buildup's waiting
+-- stack was: the chips are back where they started.
+function ShoveView:_drawPotAtPlayer()
+    if not self.pot_at_player or FlightSystem.count() > 0 then return end
+    local denoms = self._pot_indices
+    if not denoms then return end
+    local sx, sy = self:_playerSpot()
+    Chips.drawStack(sx, sy, denoms, { align = "center" })
+end
+
+-- The undertow's impact: the felt flashes white and shakes for a moment
+-- (the shake only at Motion's High and up). Read by draw.
+function ShoveView:_impact()
+    self.impact_t = love.timer.getTime()
+end
+
+-- The spot at the bottom of the felt where the player's stack waited
+-- before the buildup flew it in: where a won pot comes back to.
+function ShoveView:_playerSpot()
+    local W, H = love.graphics.getDimensions()
+    return math.floor(tableCenterX(W)), math.floor(H * 0.85)
 end
 
 -- The felt's dust: the table green (a fixed colour; the shove's felt does
 -- not change with the stake).
 local SHOVE_FELT_SURFACE = { tint = { 0.20, 0.42, 0.28 } }
+-- The table, with the undertow's impact around it: for a moment after the
+-- card lands the whole table shakes (a decaying jolt, Motion High and up)
+-- and the felt flashes white. The won pot resting with the player draws
+-- over it.
 function ShoveView:draw()
+    local IMPACT_SECS, SHAKE_PX = 0.45, 9
+    local p = self.impact_t and ((love.timer.getTime() - self.impact_t) / IMPACT_SECS) or 1
+    local shaking = p < 1 and Motion.level("cinematics") > Motion.MEDIUM
+    love.graphics.push()
+    if shaking then
+        local k = (1 - p) * (1 - p) * SHAKE_PX
+        love.graphics.translate(math.floor((math.random() * 2 - 1) * k + 0.5),
+                                math.floor((math.random() * 2 - 1) * k + 0.5))
+    end
+    self:_drawInner()
+    if self.phase ~= "room" then self:_drawPotAtPlayer() end
+    love.graphics.pop()
+    if p < 1 and self.phase ~= "room" then
+        local a = 0.55 * math.max(0, 1 - p * 2.2)
+        if a > 0 then
+            local W, H = love.graphics.getDimensions()
+            Theme.setColor(Theme.fg.heading, a)
+            love.graphics.rectangle("fill", 0, 0, W, H)
+        end
+    end
+end
+
+function ShoveView:_drawInner()
     self:_ensureFonts()
 
     local W, H = love.graphics.getDimensions()
@@ -2327,7 +2403,7 @@ function ShoveView:draw()
         end
     end
 
-    -- In-flight chips and confetti. FlightSystem is drawn in exactly one
+    -- In-flight chips and cards. FlightSystem is drawn in exactly one
     -- other place, the grind view; without this line a flight emitted here
     -- ticks invisibly and pops into existence back on the grind.
     --

@@ -306,9 +306,6 @@ return {
         flight_secs    = 0.55,   -- from the top of the screen to the felt
         flight_arc     = 120,
         spread_rows    = 12,     -- cards up to this index land on the board row, outward
-        confetti_first = 17,     -- every landing bursts up to this index...
-        confetti_every = 5,      -- ...then every Nth
-        confetti_count = 14,
         curtain_secs   = 2.6,    -- silence over the pile before credits
         max_angle      = 0.6,    -- radians, cards landing off the board row
         deal_pitch     = { from = 1.0, to = 1.6 },   -- the flood rises as it speeds up

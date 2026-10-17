@@ -8,7 +8,7 @@
 --
 -- Levels, applied to every group:
 --   4 Full    as authored
---   3 High    the flourishes go: shake, confetti, sparkles, ripples, tumble,
+--   3 High    the flourishes go: shake, sparkles, ripples, tumble,
 --             scatters, glow loops. Flights and turns stay.
 --   2 Medium  flights and turns shortened (×SCALE_MEDIUM, no stagger);
 --             nothing loops (idle shine, pulses, breathing, animated art);
@@ -36,7 +36,7 @@ Motion.FADE_SECS = 0.15
 
 Motion.GROUPS = {
     { id = "cards",      label = "Cards",      desc = "Card flights and turns" },
-    { id = "chips",      label = "Chips",      desc = "Chip flights, piles, bursts, confetti" },
+    { id = "chips",      label = "Chips",      desc = "Chip flights, piles, bursts" },
     { id = "tables",     label = "Tables",     desc = "Lift, shake, pulses, tilt, fire, punches" },
     { id = "cursors",    label = "Cursors",    desc = "The cursors (hidden at None; they still deal)" },
     { id = "paper",      label = "Paper",      desc = "Catalog and pamphlet throws, page turns, receipt" },
