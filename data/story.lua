@@ -426,6 +426,29 @@ return {
             },
         },
 
+        -- Tables move. Said the first time it matters: a board item is
+        -- owned (one whose rule reads neighbours, empties or the hand) and
+        -- there are two tables to arrange. The first line is forced on the
+        -- header strips and waits for a whole pick-up-and-put-down (the
+        -- counter ticks on the drop), so no line sits under the hold.
+        {
+            id      = "move_tables",
+            screen  = "grind",
+            trigger = { kind = "all",
+                        { kind = "screen", name = "grind" },
+                        { kind = "owns_board_item" },
+                        { kind = "tables_open", min = 2 } },
+            lines = {
+                { text = "Some tables and items benefit from where they are on the grid, you can pick them up by holding over the chrome bar.",
+                  anchor = { "table_bar:1", "table_bar:2", "table_bar:3", "table_bar:4" },
+                  force  = true,
+                  cue    = "Pick up a table",
+                  wait   = { kind = "total_table_moves", min = 1 } },
+                { text = "Held tables still deal and can be placed in any grid spot available.",
+                  anchor = { "table:1", "table:2", "table:3", "table:4" } },
+            },
+        },
+
         -- Heat is a mechanic, not an item: the beat fires the first time
         -- ANY table catches a heater, from whatever source (lifetime
         -- total_heaters, tallied in GrindController). The tables freeze
@@ -508,7 +531,7 @@ return {
             -- opened with "NL10's open" to a player holding $4.
             recheck = true,
             lines = {
-                { text = "NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better.{page}The number's {c:lost:red}. I wouldn't recommend playing here until you get a few more {c:upgrade:upgrades} first.",
+                { text = "NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better.{page}The number's {c:lost:red}. I wouldn't recommend playing here until you get a few more {c:upgrade:upgrades} first, unless you know what you're doing.",
                   anchor = { "add_table:s002:zoom", "add_table_ev:s002:zoom", "add_table_ev:s002:hu" } },
             },
         },

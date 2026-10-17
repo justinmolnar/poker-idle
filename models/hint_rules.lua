@@ -81,6 +81,7 @@ function HintRules.registerAll(reg)
     stateField(reg, "chips_this_run",        "chips_this_run")
     stateField(reg, "total_denied_stacks",   "total_denied_stacks")
     stateField(reg, "total_heaters",         "total_heaters")
+    stateField(reg, "total_table_moves",     "total_table_moves")   -- story: move_tables
     stateField(reg, "total_tilts",           "total_tilts")   -- story: first_tilt
     stateField(reg, "total_cursor_deals",    "total_cursor_deals")
     stateField(reg, "bankroll",              "bankroll")
@@ -187,6 +188,23 @@ function HintRules.registerAll(reg)
     end)
 
     -- ── Catalog ──────────────────────────────────────────────────────
+    -- Owns a BOARD item: one whose rule reads where tables sit or which
+    -- one is in the hand (`board = true` in data/catalog.lua). The story
+    -- explains picking tables up the first time it would matter.
+    local board_items
+    reg:register("owns_board_item", function(_cond, ctx)
+        local owned = ctx.state and ctx.state.owned_items
+        if not owned then return false end
+        if not board_items then
+            board_items = {}
+            for _, it in ipairs(require("data.catalog")) do if it.board then board_items[it.id] = true end end
+        end
+        for _, id in ipairs(owned) do
+            if board_items[id] then return true end
+        end
+        return false
+    end)
+
     -- Owns at least cond.min catalog items (default 1): the first purchase.
     reg:register("items_owned", function(cond, ctx)
         local owned = ctx.state and ctx.state.owned_items

@@ -53,6 +53,10 @@
 --                                           -- data/room_layout.lua
 --     effects     = { { kind = "...", value = ... }, ... }
 --     -- optional flags:
+--     board            = bool,    -- the rule reads where tables sit on the
+--                                 -- board or which one is in the hand
+--                                 -- (adjacent, empty beside, held): the
+--                                 -- story's move_tables beat waits for one
 --     hidden           = bool,    -- never shown in catalog UI
 --     granted_at_start = bool,    -- auto-granted at game start
 --     removed_by       = "<id>",  -- entry's effects suppressed when remover is owned
@@ -183,6 +187,7 @@ local items = {
         description = "A nice big one. You should see yourself. And yourself.",
         sprite      = "mirror",
         phase       = "demo",
+        board       = true,
         cost_chip     = 2,
         -- Heads-Up intro on page one, resolved by that 4-{chip} purchase —
         -- never a wall (page one's own Gift Box teaches the slip first), and it
@@ -244,6 +249,7 @@ local items = {
         description = "Tastes terrible. Works fine.",
         sprite      = "energy_drink",
         phase       = "demo",
+        board       = true,
         cost_chip     = 1,
         position    = { x = 200, y = 220 },
         effects     = {
@@ -367,6 +373,7 @@ local items = {
         description = "Soothing to watch. Hypnotic, almost.",
         sprite      = "lava_lamp",
         phase       = "demo",
+        board       = true,
         cost_chip   = 4,
         unlock      = {
             kind      = "total_hands_won",
@@ -390,6 +397,7 @@ local items = {
         description = "A pad of yellow notes. Sticks to anything.",
         sprite      = "yellow_sticky_note",
         phase       = "demo",
+        board       = true,
         -- The first card in the book (Value Buys, the Stats intro): the one
         -- question a partial board asks from the first run (fill the gap,
         -- or leave it for the odds beside it). One chip, no gate.
@@ -744,6 +752,7 @@ local items = {
         description = "Ergonomic. Overload hurts less.",
         sprite      = "gaming_chair",
         phase       = "mid",
+        board       = true,
         cost_chip     = 6,
         unlock = {
             kind      = "total_stacks",

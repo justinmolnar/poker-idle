@@ -826,6 +826,8 @@ local function drawHeader(tbl, x, y, w, fonts, hit_boxes, idx, can_remove, curso
     local hb = hbNew(tbl, hit_boxes)
     hb.x, hb.y, hb.w, hb.h = x, y, w, HEADER_H
     hb.action, hb.idx, hb.table_id = "drag_table", idx, tbl._id
+    -- The header strip by name, for story marks (move_tables: "hold over the chrome bar").
+    Anchors.set("table_bar:" .. idx, x, y, w, HEADER_H)
 end
 
 local function drawOpponentSeat(opp, opp_idx, tbl, x, y, w, h, sl, fonts, sizes,

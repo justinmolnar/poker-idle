@@ -34,7 +34,7 @@ for _, dir in ipairs({ "views", "states", "controllers" }) do
 end
 local all_src = table.concat(SRC, "\n")
 -- Names built from an index or a key at runtime, by prefix.
-local FAMILIES = { "ev:", "stack_pct:", "stack:", "table:", "table_close:", "add_table:", "add_table_chip:", "add_table_ev:", "cash_out_type",
+local FAMILIES = { "ev:", "stack_pct:", "stack:", "table:", "table_bar:", "table_close:", "add_table:", "add_table_chip:", "add_table_ev:", "cash_out_type",
                    "gtype:", "buy_runup_", "shove:cheat_", "catalog:", "deck:", "cell:", "chip_badge:",
                    "room:", "btn:", "rebuy:" }
 local function registered(name)

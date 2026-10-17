@@ -3909,6 +3909,9 @@ function GrindView:mousereleased(x, y, b)
         return
     end
     if d.drop_slot then self.controller:moveTableToSlot(d.table_id, d.drop_slot) end
+    -- Picked up and put down, wherever it landed (story: move_tables).
+    local st = self.game.state
+    if st then st.total_table_moves = (st.total_table_moves or 0) + 1 end
     self:_settleDrag(d)
 end
 

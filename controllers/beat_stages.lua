@@ -75,6 +75,8 @@ Stages.BY_ID = {
                         desc = "one table, the first hand won" },
     the_room        = { screen = "room", desc = "room: three things owned" },
     catalog_browse  = { at_line = { [1] = "open_catalog" }, desc = "grind: the book open to read" },
+    move_tables     = { tables = { { "s001", "zoom" }, { "s001", "hu" } }, owned = { "yellow_sticky_note" },
+                        desc = "grind: two tables, a board item owned" },
     first_heat      = { statuses = { { 1, "heater" } }, desc = "table 1 on fire" },
     first_tilt      = { statuses = { { 1, "tilt" } }, desc = "table 1 on tilt" },
     six_max_open    = { flags = { six_max_unlocked = true }, tables = { { "s001", "zoom" }, { "s001", "six_max" } }, tab = "six_max",

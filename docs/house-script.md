@@ -224,6 +224,12 @@ Fixed slots; an empty text is a silent slot.
 
 ## Rooms and tools, as they first exist
 
+### `move_tables` — grind. Trigger: a board item owned, two tables open.
+| block | anchor | hold |
+|---|---|---|
+| Some tables and items benefit from where they are on the grid, you can pick them up by holding over the chrome bar. | `table_bar:1`…`table_bar:4` | **FORCE** wait: a table picked up and put down |
+| Held tables still deal and can be placed in any grid spot available. | `table:1`…`table:4` | click |
+
 ### `first_heat` — grind. **PAUSE.** Trigger: total_heaters ≥ 1.
 | That table's on a {c:heat:heater}. If it's mid-hand, that hand {c:won:wins} now. The next hand is dealt for you, and it {c:won:wins} too. Fire's your friend. | `table:heater` | click |
 
@@ -248,7 +254,7 @@ The right-click controls: views/GrindView:_rightClick.
 ## Reactive lessons (first time the situation exists)
 
 ### `stake_ladder` — grind. Trigger: can afford NL10.
-| NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better. The number's {c:lost:red}. I wouldn't recommend playing here until you get a few more {c:upgrade:upgrades} first. | `add_table:s002:zoom`, `add_table_ev:s002:*` (the $/h readout) | click |
+| NL10's open. That's {dyn:stake_mult_s002} times the money, but the players are better. The number's {c:lost:red}. I wouldn't recommend playing here until you get a few more {c:upgrade:upgrades} first, unless you know what you're doing. | `add_table:s002:zoom`, `add_table_ev:s002:*` (the $/h readout) | click |
 
 ### `first_bust` — grind. Trigger: any table busted.
 | So much for knowing what you're doing I guess, you {c:lost:lost} your whole stack at this table. | `rebuy:any` | click |

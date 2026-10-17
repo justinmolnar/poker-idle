@@ -155,6 +155,7 @@ function GameState:new(saved)
     instance.total_ko_wins          = 0   -- tournaments finished 1st
     instance.total_tilts             = 0   -- fresh tilt statuses suffered, lifetime
     instance.total_heaters           = 0   -- fresh heaters caught, lifetime (story: first_heat)
+    instance.total_table_moves       = 0   -- tables picked up and put down, lifetime (story: move_tables)
     instance.total_cursor_deals      = 0   -- DEAL clicks made by cursors, lifetime (cursor item gates)
     instance.cursor_defaults         = {}  -- the cursor DEAL / REBUY settings, for tables opened later
     instance.total_hands_by_gtype    = {}  -- game_type_id → hands resolved there
@@ -382,6 +383,7 @@ function GameState:wipeAll()
     self.total_ko_wins          = 0
     self.total_tilts             = 0
     self.total_heaters           = 0
+    self.total_table_moves       = 0
     self.total_cursor_deals      = 0
     self.total_hands_by_gtype    = {}
     self.last_run_money_lost     = 0
@@ -504,7 +506,7 @@ GameState.META_KEYS = {
     "total_busts", "total_stack_losses", "total_stacks", "total_rebuys",
     "total_upgrade_levels", "total_hands_overwhelmed", "total_hands_at_4plus",
     "total_chips_banked", "total_ko_wins", "total_tilts", "total_heaters",
-    "total_cursor_deals", "total_hands_by_gtype", "total_money_won",
+    "total_table_moves", "total_cursor_deals", "total_hands_by_gtype", "total_money_won",
     -- the cursor DEAL / REBUY settings, for tables opened later
     "cursor_defaults",
     -- what the last run left behind, for the starting perks
