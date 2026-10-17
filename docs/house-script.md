@@ -137,7 +137,7 @@ the same way, climbing from 0, with no line.
 | You can also see how many {chip} you'll earn for a {w:stack} here. Higher stakes, better {c:won:payouts}. | every `add_table_chip:*` badge on the strip | click |
 | Get 3 {chip}, and you'll get your first answer. | `cell:chips`, `chip_badge:banked` | click |
 | While we're here, hover the readout under a table. Go on, don't keep me waiting. | `ev:1..4` | **FORCE** wait: hovering a readout |
-| What a table makes an hour, and its {c:chance:odds} at every pot size. The gold {w:stack} is the one that pays. | `ev:1..4` | click |
+| What a table makes an hour, and its {c:chance:odds} at every pot size. The gold {w:stack} is the one that pays. | `ev:1`…`ev:4`, `add_table_ev:<stake>:<gtype>` (every add-table row that reads out) | click |
 | Zoom's gold number currently sits at {dyn:stack_odds_zoom} a hand. Heads-Up runs {dyn:stack_odds_hu}. | `stack_pct:1..4` | click |
 | Zoom players rarely go all in. Until you get better at reeling them in at least. | `ev:1..4` | click |
 

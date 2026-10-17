@@ -255,8 +255,13 @@ return {
                   force  = true,
                   cue    = "Hover a readout",
                   wait   = { kind = "hovering", anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } } },
+                -- The readout under every table, and the same readout on
+                -- every add-table row that shows one (a table you can open,
+                -- or have open).
                 { text = "What a table makes an hour, and its {c:chance:odds} at every pot size. The gold {w:stack} is the one that pays.",
-                  anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } },
+                  anchor = { "ev:1", "ev:2", "ev:3", "ev:4",
+                             "add_table_ev:s001:zoom", "add_table_ev:s002:zoom", "add_table_ev:s003:zoom",
+                             "add_table_ev:s001:hu",   "add_table_ev:s002:hu",   "add_table_ev:s003:hu" } },
                 { text = "Zoom's gold number currently sits at {dyn:stack_odds_zoom} a hand. Heads-Up runs {dyn:stack_odds_hu}.",
                   anchor = { "stack_pct:1", "stack_pct:2", "stack_pct:3", "stack_pct:4" } },
                 { text = "Zoom players rarely go all in. Until you get better at reeling them in at least.",
