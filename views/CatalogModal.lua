@@ -917,16 +917,6 @@ local function drawItemCard(self, item, owned, state, x, y, w, h, fonts, forcing
     love.graphics.setFont(fonts.sm)   -- measured in sm; print in sm, not whatever was left set
     local tw_c = fonts.sm:getWidth(cost_text)
     love.graphics.print(cost_text, cx_stamp - tw_c * 0.5, cy_stamp - fonts.sm:getHeight() * 0.5)
-    -- How far off: under the ring, for an open card the balance does not
-    -- reach. The card the player most wants to notice is the one they
-    -- are banking toward.
-    if for_sale and (state.chips or 0) < (item.cost_chip or 0) then
-        local more = ("%d more"):format((item.cost_chip or 0) - (state.chips or 0))
-        love.graphics.setFont(fonts.xs)
-        Theme.setColor(Theme.paper.ink_faint)
-        love.graphics.print(more, cx_stamp - fonts.xs:getWidth(more) * 0.5, cy_stamp + r_stamp + fl(4 * s))
-    end
-
     -- The corruption's own ring, the same size, UNDER the printed one (no
     -- room beside it): the {achip} price while it is on offer, OWN once paid.
     if is_corruptible or is_corrupted then
