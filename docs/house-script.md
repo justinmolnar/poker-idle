@@ -197,7 +197,7 @@ Fixed slots; an empty text is a silent slot.
 |---|---|---|
 | Before you head back, have a look at the catalog. Anything in here you keep. | `catalog:book` | **FORCE** wait: catalog open |
 | Buy it, and it'll be delivered right to your room. | `catalog:book` | click |
-| That stamp's the price. Stickered ones aren't ready yet. But they usually tell you why. | `catalog:price:first`, `catalog:sticker:first` | show: catalog open → click |
+| The stamp's the price, in {chip}. Stickered ones aren't ready yet. But they usually tell you why. | `catalog:price:first`, `catalog:sticker:first` | show: catalog open → click |
 | Close it when you're done and we'll set you back up. How fun. | `catalog:book` | click |
 
 ### `first_purchase` — shove. Trigger: the first item owned.

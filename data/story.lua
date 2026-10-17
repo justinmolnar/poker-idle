@@ -345,7 +345,7 @@ return {
                   wait   = { kind = "catalog_open" } },
                 { text = "Buy it, and it'll be delivered right to your room.",
                   anchor = "catalog:book" },
-                { text = "That stamp's the price. Stickered ones aren't ready yet. But they usually tell you why.",
+                { text = "The stamp's the price, in {chip}. Stickered ones aren't ready yet. But they usually tell you why.",
                   anchor = { "catalog:price:first", "catalog:sticker:first" },
                   show   = { kind = "catalog_open" } },
                 { text = "Close it when you're done and we'll set you back up. How fun.", anchor = "catalog:book" },
