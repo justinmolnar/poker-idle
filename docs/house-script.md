@@ -120,6 +120,7 @@ the same way, climbing from 0, with no line.
 | You can afford {c:upgrade:Sharper_Reads}. Grab it. | `buy_runup_sharper_reads` | show: affordable → **FORCE** wait: run_upgrades_owned ≥ 1 |
 | That'll improve your {c:chance:odds} of winning. Hover {c:upgrade:Pot_Control}. | `buy_runup_pot_control` | **FORCE** wait: a fresh hover of Pot Control (the mouse has to leave and come back) |
 | Hovering lets you know what things do. Use it if you're lost. *(said with the hover's tooltip held up)* | `buy_runup_pot_control` | click |
+| I'm keeping notes. If you forget what anything does, use this button to see them. | `btn:help` | click |
 | You'll want to keep an eye on the {c:upgrade:upgrade_rack}, you won't have a chance in hell at the higher stakes without it. The players get better at every stake. | `buy_runup_sharper_reads` | click |
 
 ### `second_table` — grind. Trigger: hu_unlocked (2nd buy-in was in hand).
@@ -139,7 +140,6 @@ the same way, climbing from 0, with no line.
 | What a table makes an hour, and its {c:chance:odds} at every pot size. The gold {w:stack} is the one that pays. | `ev:1..4` | click |
 | Zoom's gold number currently sits at {dyn:stack_odds_zoom} a hand. Heads-Up runs {dyn:stack_odds_hu}. | `stack_pct:1..4` | click |
 | Zoom players rarely go all in. Until you get better at reeling them in at least. | `ev:1..4` | click |
-| In case you forget anything, I'm keeping notes. | `btn:help` | click |
 
 ### `the_pitch` — grind. Trigger: chips_this_run ≥ 3. Deliberately NOT forced.
 | block | anchor | hold |

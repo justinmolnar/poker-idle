@@ -202,6 +202,8 @@ return {
                 -- Said with the hover's tooltip held up (StoryDirector).
                 { text = "Hovering lets you know what things do. Use it if you're lost.",
                   anchor = "buy_runup_pot_control" },
+                { text = "I'm keeping notes. If you forget what anything does, use this button to see them.",
+                  anchor = "btn:help" },
                 { text = "You'll want to keep an eye on the {c:upgrade:upgrade_rack}, you won't have a chance in hell at the higher stakes without it.{page}The players get better at every stake.",
                   anchor = "buy_runup_sharper_reads" },
             },
@@ -259,8 +261,6 @@ return {
                   anchor = { "stack_pct:1", "stack_pct:2", "stack_pct:3", "stack_pct:4" } },
                 { text = "Zoom players rarely go all in. Until you get better at reeling them in at least.",
                   anchor = { "ev:1", "ev:2", "ev:3", "ev:4" } },
-                { text = "In case you forget anything, I'm keeping notes.",
-                  anchor = "btn:help" },
             },
         },
 
