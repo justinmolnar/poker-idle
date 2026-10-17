@@ -81,13 +81,19 @@ for _ = 1, 4 do frame() end
 for _, id in ipairs({ "pot_control", "sharper_reads" }) do
     local up = Lookups.findById(RunUpgrades, id)
     local rows = view:_buildRangeTooltipUncached(up)
-    local header, names, pct = false, false, false
+    -- The heading names the grid ("Your next level, now -> next:"); the
+    -- grid names the stakes it moves, each cell now -> next.
+    local header, names, cells = false, false, false
     for _, r in ipairs(rows or {}) do
         if type(r) == "table" and r.say and r.say:find("^Your next level") then header = true end
-        if type(r) == "table" and r.say and r.say:find("NL") then names = true end
-        if type(r) == "table" and r.text and r.text:find("%%") then pct = true end
+        if type(r) == "table" and r.grid then
+            for _, gr in ipairs(r.grid.rows) do
+                if (gr.name or ""):find("NL") then names = true end
+                for _, cell in ipairs(gr.cells or {}) do if tostring(cell):find("{arrow}") then cells = true end end
+            end
+        end
     end
-    c.ok(header and names and not pct, id .. "'s tooltip names the stakes the next level moves, no numbers")
+    c.ok(header and names and cells, id .. "'s tooltip heads a grid of the stakes the next level moves, now -> next")
     local info = view:_upgradeInfoRowsUncached(up)
     local grids = 0
     for _, r in ipairs(info or {}) do
@@ -123,7 +129,7 @@ local with, stack_text = 0, true
 for _, t in ipairs(w:tables()) do
     if t._preview then
         with = with + 1
-        if not (t._preview.text or ""):find("^Stack win") then stack_text = false end
+        if not (t._preview.text or ""):find("^{w:stack}") then stack_text = false end
     end
 end
 c.ok(with > 0, "hovering Pot Control previews on the tables it moves (" .. with .. ")")

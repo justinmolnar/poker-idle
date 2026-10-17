@@ -832,6 +832,7 @@ end
 local function _blurbRow(view, str)
     local f = view.game.fonts.sm
     return {
+        say     = str,   -- what it draws, readable (sim/smoke_bar)
         measure = function(_) return IconText.measure(str, f), f:getHeight() end,
         render  = function(x, y, _) IconText.draw(view.game, str, x, y, f, Theme.fg.heading) end,
     }
@@ -1062,6 +1063,7 @@ local function gridRow(game, title, cols, rows_)
         return cw, W, lh
     end
     return {
+        grid    = { title = title, cols = cols, rows = rows_ },   -- readable (sim/smoke_bar)
         measure = function(fonts)
             local _, W, lh = layout(fonts.sm)
             return W, lh * (#rows_ + 1)
