@@ -173,7 +173,7 @@ return {
                         { kind = "hands_played", min = 1 },
                         { kind = "bankroll",     min = 0.001 } },
             lines = {
-                { text = "See that. A table only holds its buy-in. {c:won:Win} past full and the rest ends up in the bankroll. Yours to spend how you see fit.",
+                { text = "A table only holds its buy-in. {c:won:Win} past full and the rest ends up in the bankroll. Yours to spend how you see fit.",
                   anchor = { "stack:1", "cell:bankroll" } },
             },
         },

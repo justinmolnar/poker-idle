@@ -112,7 +112,7 @@ the same way, climbing from 0, with no line.
 | Payouts come in many sizes. ⏎ Losses: {l:small} {l:medium} {l:large} {l:stack} ⏎ Wins: {w:small} {w:medium} {w:large} {w:stack} | | click |
 
 ### `first_payout` — grind. Trigger: hands_played ≥ 1, bankroll > 0.
-| See that. A table only holds its buy-in. {c:won:Win} past full and the rest ends up in the bankroll. Yours to spend how you see fit. | `stack:1`, `cell:bankroll` | click |
+| A table only holds its buy-in. {c:won:Win} past full and the rest ends up in the bankroll. Yours to spend how you see fit. | `stack:1`, `cell:bankroll` | click |
 
 ### `sharper_reads` — grind. Trigger: can afford Sharper Reads (strand-safe).
 | block | anchor | hold |
