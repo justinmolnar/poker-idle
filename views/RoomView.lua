@@ -15,6 +15,7 @@ local RoomLighting   = require("views.RoomLighting")
 local RoomLights     = require("data.room_lights")
 local ShoveDecor     = require("views.ShoveDecor")
 local RoomPlacement  = require("models.room_placement")
+local RoomVariants   = require("models.room_variants")
 local Scrollbar      = require("views.Scrollbar")
 local LIGHTS_DRAFT   = "room_lights_draft.lua"
 local Constants      = require("data.constants")
@@ -413,6 +414,7 @@ function RoomView:new(game)
         -- anchors ticked off in the panel are treated as not owned, and the
         -- room reflows; placements written go to whichever home is active.
         anchors_off      = {},
+        variant          = nil,        -- N: the room variant on screen (an index into the anchors' Gray code)
         parent_pick      = nil,        -- a child waiting for a click on its parent
         sel_placed       = nil,        -- the layers panel's selection (a placed entry)
         hover_placed     = nil,        -- the row under the mouse, lit in the room
@@ -1587,6 +1589,10 @@ function RoomView:draw(full_screen, opts)
             local right_msg
             if self.parent_pick then
                 right_msg = "PARENT: click the item " .. self.parent_pick.id .. " sits on"
+            elseif self.variant then
+                local anchors = RoomVariants.anchors(self.placed, function(id) return self.catalog_by_id[id] ~= nil end)
+                right_msg = string.format("VARIANT %d / %d (N next, Shift+N back, Ctrl+N all on) · WITHOUT: %s",
+                    self.variant + 1, math.floor(RoomVariants.count(anchors)), #off > 0 and table.concat(off, ", ") or "nothing")
             elseif #off > 0 then
                 right_msg = "WITHOUT: " .. table.concat(off, ", ")
             end
@@ -1615,7 +1621,7 @@ function RoomView:draw(full_screen, opts)
     -- Render Top-Right Non-Modal Instructions Panel (Hidable with H)
     if self.editor_mode and self.show_help_overlay then
         local pw = fl(270 * s)
-        local ph = fl(405 * s)
+        local ph = fl(418 * s)
         local px = W - pw - fl(16 * s)
         local py = TOP_BAR_H + fl(12 * s)
 
@@ -1647,7 +1653,8 @@ function RoomView:draw(full_screen, opts)
         love.graphics.print("• G : Grid step   D : Clone   Z / X : Layer down / up", px + fl(10 * s), iy); iy = iy + ilh
         love.graphics.print("• LAYERS: hover lights, click selects, again grabs, drag reorders", px + fl(10 * s), iy); iy = iy + ilh
         love.graphics.print("• Selection: Delete, Ctrl+D copy, Ctrl+Home/End front/back", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• PARENT: pick what it sits on; ANCHORS: tick off to see the room without", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
+        love.graphics.print("• PARENT: pick what it sits on; ANCHORS: tick off to see the room without", px + fl(10 * s), iy); iy = iy + ilh
+        love.graphics.print("• N / Shift+N : next / previous room variant (one anchor on or off per step)   Ctrl+N : all on", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
 
         Theme.setColor(Theme.status.warn)
         love.graphics.print("TRANSFORMS & STYLING", px + fl(10 * s), iy); iy = iy + ilh
@@ -2055,6 +2062,23 @@ function RoomView:keypressed(key)
     end
 
     -- Mode: place / move
+    -- Room variants: every way the anchors (what other things sit on) can
+    -- be owned or not, to look at one by one. N steps to the next (one
+    -- anchor flips), Shift+N back, Ctrl+N puts everything back.
+    if key == "n" then
+        local ctrl  = love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl")
+        local shift = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+        local anchors = RoomVariants.anchors(self.placed, function(id) return self.catalog_by_id[id] ~= nil end)
+        local n = math.floor(RoomVariants.count(anchors))
+        if ctrl or n <= 1 then
+            self.variant, self.anchors_off = nil, {}
+            return true
+        end
+        self.variant = ((self.variant or 0) + (shift and -1 or 1)) % n
+        self.anchors_off = RoomVariants.offSet(anchors, self.variant)
+        return true
+    end
+
     if key == "m" then
         self.mode = self.mode == "place" and "replace" or "place"
         print("[room-editor] Mode: " .. self.mode:upper())
