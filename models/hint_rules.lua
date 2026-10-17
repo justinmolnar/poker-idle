@@ -187,6 +187,12 @@ function HintRules.registerAll(reg)
     end)
 
     -- ── Catalog ──────────────────────────────────────────────────────
+    -- Owns at least cond.min catalog items (default 1): the first purchase.
+    reg:register("items_owned", function(cond, ctx)
+        local owned = ctx.state and ctx.state.owned_items
+        return owned ~= nil and #owned >= (cond.min or 1)
+    end)
+
     -- Owns the catalog item cond.id. Generic: the id is a parameter, so
     -- this is one kind rather than one kind per item.
     reg:register("owns_item", function(cond, ctx)

@@ -414,7 +414,9 @@ function RoomView:new(game)
         -- anchors ticked off in the panel are treated as not owned, and the
         -- room reflows; placements written go to whichever home is active.
         anchors_off      = {},
-        variant          = nil,        -- N: the room variant on screen (an index into the anchors' Gray code)
+        case_idx         = nil,        -- N: the case on screen (an index into RoomVariants.cases)
+        cases            = nil,        -- the case list, built on first N, rebuilt by Ctrl+N
+        cases_seen       = {},         -- labels looked at this session
         parent_pick      = nil,        -- a child waiting for a click on its parent
         sel_placed       = nil,        -- the layers panel's selection (a placed entry)
         hover_placed     = nil,        -- the row under the mouse, lit in the room
@@ -1589,10 +1591,12 @@ function RoomView:draw(full_screen, opts)
             local right_msg
             if self.parent_pick then
                 right_msg = "PARENT: click the item " .. self.parent_pick.id .. " sits on"
-            elseif self.variant then
-                local anchors = RoomVariants.anchors(self.placed, function(id) return self.catalog_by_id[id] ~= nil end)
-                right_msg = string.format("VARIANT %d / %d (N next, Shift+N back, Ctrl+N all on) · WITHOUT: %s",
-                    self.variant + 1, math.floor(RoomVariants.count(anchors)), #off > 0 and table.concat(off, ", ") or "nothing")
+            elseif self.case_idx and self.cases then
+                local case = self.cases[self.case_idx]
+                local seen = 0
+                for _ in pairs(self.cases_seen) do seen = seen + 1 end
+                right_msg = string.format("CASE %d / %d: %s · WITHOUT: %s · seen %d of %d · N next, Shift+N back, Ctrl+N reset",
+                    self.case_idx, #self.cases, case.label, RoomVariants.offWords(case), seen, #self.cases)
             elseif #off > 0 then
                 right_msg = "WITHOUT: " .. table.concat(off, ", ")
             end
@@ -1654,7 +1658,7 @@ function RoomView:draw(full_screen, opts)
         love.graphics.print("• LAYERS: hover lights, click selects, again grabs, drag reorders", px + fl(10 * s), iy); iy = iy + ilh
         love.graphics.print("• Selection: Delete, Ctrl+D copy, Ctrl+Home/End front/back", px + fl(10 * s), iy); iy = iy + ilh
         love.graphics.print("• PARENT: pick what it sits on; ANCHORS: tick off to see the room without", px + fl(10 * s), iy); iy = iy + ilh
-        love.graphics.print("• N / Shift+N : next / previous room variant (one anchor on or off per step)   Ctrl+N : all on", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
+        love.graphics.print("• N / Shift+N : next / previous CASE (each place a homed thing can land)   Ctrl+N : reset the list", px + fl(10 * s), iy); iy = iy + ilh + fl(4 * s)
 
         Theme.setColor(Theme.status.warn)
         love.graphics.print("TRANSFORMS & STYLING", px + fl(10 * s), iy); iy = iy + ilh
@@ -2062,20 +2066,28 @@ function RoomView:keypressed(key)
     end
 
     -- Mode: place / move
-    -- Room variants: every way the anchors (what other things sit on) can
-    -- be owned or not, to look at one by one. N steps to the next (one
-    -- anchor flips), Shift+N back, Ctrl+N puts everything back.
+    -- The room's cases: every place a homed thing can land, one at a
+    -- time, in order (models/room_variants). N shows the next case: the
+    -- anchors it needs absent go off, the thing it is about is selected
+    -- (lit in the room and the layers panel), the status bar says which
+    -- case of how many and what is without. Shift+N goes back. Ctrl+N
+    -- rebuilds the list (after placing) and puts everything back.
     if key == "n" then
         local ctrl  = love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl")
         local shift = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
-        local anchors = RoomVariants.anchors(self.placed, function(id) return self.catalog_by_id[id] ~= nil end)
-        local n = math.floor(RoomVariants.count(anchors))
-        if ctrl or n <= 1 then
-            self.variant, self.anchors_off = nil, {}
+        if ctrl then
+            self.case_idx, self.cases, self.anchors_off = nil, nil, {}
             return true
         end
-        self.variant = ((self.variant or 0) + (shift and -1 or 1)) % n
-        self.anchors_off = RoomVariants.offSet(anchors, self.variant)
+        self.cases = self.cases or RoomVariants.cases(self.placed, self.catalog_by_id)
+        local n = #self.cases
+        self.case_idx = ((self.case_idx or 0) + (shift and -1 or 1) - 1) % n + 1
+        local case = self.cases[self.case_idx]
+        self.anchors_off = {}
+        for id in pairs(case.off) do self.anchors_off[id] = true end
+        self.cases_seen[case.label] = true
+        self.sel_placed = nil
+        for _, o in ipairs(self.placed) do if o.id == case.item then self.sel_placed = o end end
         return true
     end
 

@@ -34,6 +34,7 @@ local Pop          = require("services.Pop")
 local RollingValue = require("services.RollingValue")
 local Decal        = require("services.Decal")
 local TooltipSvc   = require("services.Tooltip")
+local Anchors      = require("services.AnchorRegistry")
 
 local Motion       = require("services.Motion")
 local ShaderRegistry = require("services.ShaderRegistry")
@@ -634,8 +635,12 @@ function CatalogReceipt:draw(layer, ctx)
         -- Generous AABB over the visible sliver (the tilt is small).
         self._stub_rect = { x = x - fl(6 * s), y = y - fl(6 * s),
                             w = (tuck_l - x) + fl(8 * s), h = ph + fl(12 * s) }
+        -- The story's "catalog:manifest": the stub while tucked, the paper
+        -- while out (first_purchase points at it).
+        Anchors.set("catalog:manifest", self._stub_rect.x, self._stub_rect.y, self._stub_rect.w, self._stub_rect.h)
     else
         self._paper_rect = { x = x, y = y, w = pw, h = ph + teeth_h }
+        Anchors.set("catalog:manifest", x, y, pw, ph + teeth_h)
         if hover_row then
             TooltipSvc.set(CatalogReceipt.itemCard(game, hover_row.item, hover_row.corrupted), mx, my)
         end

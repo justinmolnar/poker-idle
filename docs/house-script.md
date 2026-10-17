@@ -200,6 +200,11 @@ Fixed slots; an empty text is a silent slot.
 | That stamp's the price. Stickered ones aren't ready yet. But they usually tell you why. | `catalog:price:first`, `catalog:sticker:first` | show: catalog open → click |
 | Close it when you're done and we'll set you back up. How fun. | `catalog:book` | click |
 
+### `first_purchase` — shove. Trigger: the first item owned.
+| block | anchor | hold |
+|---|---|---|
+| Added to the manifest. | `catalog:manifest` | click |
+
 ### `the_loop` — grind. Trigger: has_shoved (the moment the felt is back; no table needed).
 | block | anchor | hold |
 |---|---|---|

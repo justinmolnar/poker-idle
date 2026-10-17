@@ -69,6 +69,7 @@ Stages.BY_ID = {
     shove_result    = { desc = "shove: the result hold" },
     house_cheats    = { shove = { outcomes = { true, false, false }, to = "result" }, desc = "shove: R1 won, the cheat card dealt" },
     first_catalog   = { at_line = { [2] = "open_catalog" }, desc = "shove: the book landed; open from line 2" },
+    first_purchase  = { owned = { "energy_drink" }, at_line = { [1] = "open_catalog" }, desc = "shove: the book open, the first thing bought" },
     the_loop        = { upgrades = { sharper_reads = 1, pot_control = 1, focus = 1 }, desc = "after the first shove, the rack bought into" },
     payout_sizes    = { tables = { { "s001", "zoom" } }, first_hand_delta = 0.5, flags = { has_shoved = false },
                         desc = "one table, the first hand won" },

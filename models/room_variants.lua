@@ -1,52 +1,81 @@
 -- models/room_variants.lua
 --
--- The room's VARIANTS: every way the player can own or not own the
--- things other things sit on. A placed entry homes on an ANCHOR (its
--- parent: the desk, the fridge, the book stack); which anchors are owned
--- decides where everything lands, so a layout is only right if every
--- item has a sane place under every combination of owned anchors.
+-- The room's CASES: every place a homed thing can land, one case each,
+-- in a fixed order the designer walks with N. A placed entry homes on
+-- ANCHORS (its parents, in order of preference); the first owned one
+-- wins, and its own spot is the fallback. So for a thing with homes
+-- { desk, PC } the cases are: on the desk (everything owned); on the PC
+-- (desk not owned); on its own spot (neither owned). Case 1 is the room
+-- with everything owned.
 --
--- Pure. Anchors are the parents named by homes that are CATALOG items
--- (a flavour anchor is the room itself and is always there). Variant i
--- (0-based, of 2^n) follows a Gray code, so stepping to the next one
--- flips exactly one anchor — the designer can watch a single thing come
--- or go, and look at it.
-
-local RoomPlacement = require("models.room_placement")
+-- Cases nobody can reach are left out: a state needs some parent NOT
+-- owned, and that is impossible when the thing itself (transitively)
+-- requires that parent in the catalog, or when that parent is flavour
+-- (the room's own furniture, always there).
+--
+-- Pure. `catalog_by_id` says what is a catalog item and what requires
+-- what. A case: { label, item (id or nil), home (index or 0), off (set of
+-- anchor ids not owned) }.
 
 local RoomVariants = {}
 
--- The catalog anchors, sorted: the parents any home names that are
--- catalog items (is_catalog(id) says). Flavour parents are not variables.
-function RoomVariants.anchors(placed, is_catalog)
-    local out = {}
-    for _, id in ipairs(RoomPlacement.anchorIds(placed)) do
-        if is_catalog(id) then out[#out + 1] = id end
+-- Everything `id` requires, transitively (its catalog chain).
+local function requiresOf(catalog_by_id, id)
+    local out, cur, guard = {}, catalog_by_id[id], 0
+    while cur and cur.requires and guard < 32 do
+        out[cur.requires] = true
+        cur = catalog_by_id[cur.requires]
+        guard = guard + 1
     end
     return out
 end
 
-function RoomVariants.count(anchors)
-    return 2 ^ #anchors
-end
-
--- The anchors OFF in variant i: bit b of the Gray code of i.
-function RoomVariants.offSet(anchors, i)
-    local g = i ~ (i >> 1)
-    local off = {}
-    for b = 1, #anchors do
-        if (g >> (b - 1)) & 1 == 1 then off[anchors[b]] = true end
+function RoomVariants.cases(placed, catalog_by_id)
+    local by_id = {}
+    for _, o in ipairs(placed) do by_id[o.id] = by_id[o.id] or o end
+    local ids = {}
+    for _, o in ipairs(placed) do ids[#ids + 1] = o.id end
+    table.sort(ids)
+    local cases = { { label = "everything owned", item = nil, home = 0, off = {} } }
+    for _, id in ipairs(ids) do
+        local o = by_id[id]
+        local homes = o.homes or {}
+        if #homes > 0 then
+            local needs = requiresOf(catalog_by_id, id)
+            local before = {}      -- the placed parents of the homes above this one, which must be absent
+            local reachable = true
+            for j, h in ipairs(homes) do
+                local parent = h.on and by_id[h.on]
+                if parent then
+                    if reachable then
+                        local off = {}
+                        for pid in pairs(before) do off[pid] = true end
+                        cases[#cases + 1] = { label = string.format("%s on %s (home %d of %d)", id, parent.id, j, #homes),
+                                              item = id, home = j, off = off }
+                    end
+                    -- states past this one need this parent absent
+                    if not catalog_by_id[parent.id] then reachable = false      -- flavour: always there
+                    elseif needs[parent.id] then reachable = false              -- the thing cannot exist without it
+                    else before[parent.id] = true end
+                end
+            end
+            if reachable then
+                local off = {}
+                for pid in pairs(before) do off[pid] = true end
+                cases[#cases + 1] = { label = string.format("%s on its own spot (no parent owned)", id),
+                                      item = id, home = 0, off = off }
+            end
+        end
     end
-    return off
+    return cases
 end
 
--- Variant i as words: the anchors off, sorted.
-function RoomVariants.offList(anchors, i)
-    local off = RoomVariants.offSet(anchors, i)
+-- The anchors a case leaves out, as words.
+function RoomVariants.offWords(case)
     local list = {}
-    for id in pairs(off) do list[#list + 1] = id end
+    for id in pairs(case.off) do list[#list + 1] = id end
     table.sort(list)
-    return list
+    return #list > 0 and table.concat(list, ", ") or "nothing"
 end
 
 return RoomVariants

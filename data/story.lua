@@ -352,6 +352,17 @@ return {
             },
         },
 
+        -- The first thing bought went on the manifest, the receipt
+        -- tucked behind the book's left page. One line, pointed at it.
+        {
+            id      = "first_purchase",
+            screen  = "shove",
+            trigger = { kind = "items_owned", min = 1 },
+            lines = {
+                { text = "Added to the manifest.", anchor = "catalog:manifest" },
+            },
+        },
+
         -- A9. Back on the grind after the first shove, the moment the felt
         -- is back (no table needs to be open). "Run" is said for the first
         -- time here, when it is true. The last line sends the player to the
