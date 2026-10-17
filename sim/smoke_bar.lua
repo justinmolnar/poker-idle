@@ -219,7 +219,13 @@ do
     for _, comp in ipairs(view:_buildTablesTabComponents() or {}) do
         for _, line in ipairs(comp.lines or {}) do if line.bar then bars = bars + 1 end end
     end
-    c.eq(bars, 0, "no add-table row shows a bar when none can be afforded")
+    -- With nothing affordable, the only rows that read out are the ones
+    -- with a table of theirs already open (the readout is the table's).
+    local open_rows = 0
+    for _, stake in ipairs(require("data.stakes")) do
+        if (view.controller:typeCursorState(stake.id, view.selected_gtype)) > 0 then open_rows = open_rows + 1 end
+    end
+    c.eq(bars, open_rows, "when none can be afforded, only rows with a table open show a bar (" .. open_rows .. " open)")
     -- The bar fits into the row's padding: a row is as tall with it as
     -- without (the list does not grow a scrollbar for it).
     local CR = require("views.ComponentRenderer")
