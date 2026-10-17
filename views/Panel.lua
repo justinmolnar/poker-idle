@@ -339,7 +339,10 @@ function Panel:draw(game)
     if not active_tab or not active_tab.build then return end
 
     local s = self.scroll[self.active_tab_id]
-    love.graphics.setScissor(self.x, self.content_y, self.w, self.content_h)
+    -- scissor_pad_top: pixels the content may draw ABOVE the panel (the
+    -- rail's quick-reset overlay straddles the SHOVE button's top edge).
+    local pad_top = self.scissor_pad_top or 0
+    love.graphics.setScissor(self.x, self.content_y - pad_top, self.w, self.content_h + pad_top)
     love.graphics.push()
     love.graphics.translate(0, self.content_y - (s and s.scroll_y or 0))
     local comps = self:_components(game, active_tab)
