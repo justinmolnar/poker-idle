@@ -264,7 +264,7 @@ The right-click controls: views/GrindView:_rightClick.
 | You {c:won:won} another {w:stack} but no {chip}. This table type's already {c:chip:paid} its {chip}. Each stake and game pays once per run. Climb. | `chip_badge:banked` | click |
 
 ### `focus_overload` — grind. Trigger: focus overloaded.
-| Easy, tiger. FOCUS is how many tables you can keep up with. Right now that's {dyn:focus_cap}. Past it, every table slows all of them. More FOCUS, more tables. Each one over costs {dyn:focus_penalty_pct}. Adds up fast. Raise it with {c:upgrade:Focus} on the rack, or close a table. | `cell:focus`, every table's X (`table_close:N`), every row's X (`cash_out_type:*`) | click |
+| Easy, tiger. FOCUS is how many tables you can keep up with. Right now that's {dyn:focus_cap}. Past it, every table slows all of them. More FOCUS, more tables. Each one over costs {dyn:focus_penalty_pct}. Adds up fast. Raise it with {c:upgrade:Focus} on the rack, or close a table. The X on a table closes it after the hand. Click it again and it closes now, and forfeits the pot. The X on a row closes every table of that stake and game. | `cell:focus`, every table's X (`table_close:N`), every row's X (`cash_out_type:*`) | click |
 
 ### `first_corruption` — shove. Trigger: catalog open, a CORRUPTED item exists.
 Corruption and {achip} are NOT HIS and get no tutorialization anywhere (see
