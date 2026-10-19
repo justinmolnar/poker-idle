@@ -319,7 +319,7 @@ function CatalogModal:_pages()
     -- title = nil and draw a bare header band, because a department running
     -- for three pages is what a catalog looks like — repeating the name on
     -- every page (or worse, "cont.") is noise.
-    local function addLeaves(title, list, dept)
+    local function addLeaves(title, list, dept, dark)
         local units = 0
         for _, it in ipairs(list) do units = units + math.min(it.slots or 1, LEAF_SLOTS) end
         if units == 0 then return end
@@ -333,7 +333,7 @@ function CatalogModal:_pages()
             -- The first leaf also carries the department itself (id, tab
             -- colours) so the index tabs can find where each shelf starts.
             pages[#pages + 1] = { title = (emitted == 1) and title or nil, items = leaf,
-                                  dept = (emitted == 1) and dept or nil }
+                                  dept = (emitted == 1) and dept or nil, dark = dark }
             units       = units - used
             leaves_left = math.max(1, leaves_left - 1)
             target      = math.ceil(units / leaves_left)
@@ -354,15 +354,24 @@ function CatalogModal:_pages()
     -- An id may sit on two departments: Value Buys repeats one card from
     -- every other shelf (data/catalog_pages.lua rule 4). `placed` only
     -- keeps authored ids out of the "&c." leftovers.
+    -- A shelf with nothing on it the player owns or has unlocked is dark:
+    -- its tab, its heading and every card read "???" — the shelf's name
+    -- and its cards would be the spoiler. It lights the moment one card on
+    -- it opens (its unlock met and its prerequisite owned).
     local placed = {}
     for _, dept in ipairs(CatalogPages) do
-        local list = {}
+        local list, dark = {}, true
         for _, id in ipairs(dept.items) do
             local it = byId[id]
             placed[id] = true                       -- authored → never a leftover
-            if it and visible(it) then list[#list + 1] = it end
+            if it and visible(it) then
+                list[#list + 1] = it
+                if owned[it.id] or (reqMet(owned, it) and catalogUnlocked(self.game, it, state)) then
+                    dark = false
+                end
+            end
         end
-        addLeaves(dept.title, list, dept)
+        addLeaves(dark and "???" or dept.title, list, dept, dark)
     end
 
     -- Catch-all for any visible item the author forgot to place.
@@ -1592,7 +1601,7 @@ function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_s
     for leaf_i, pg in ipairs(pages) do
         if pg.dept and pg.dept.tab then
             local dept  = pg.dept
-            local label = dept.label or (dept.title or ""):upper()
+            local label = pg.dark and "???" or dept.label or (dept.title or ""):upper()
             local ready, buyable, count, last = 0, 0, 0, leaf_i
             for k = leaf_i, #pages do
                 if k > leaf_i and pages[k].dept then break end
@@ -1609,8 +1618,8 @@ function CatalogModal:_layoutTabs(pages, owned, state, idx, old, progress, max_s
             local glued = math.min(last, leaf_i + 1)
             row[#row + 1] = { leaf = glued, spread = math.ceil(leaf_i / 2), id = dept.id, key = key,
                               label = label, tw = xs:getWidth(label), ready = ready, buyable = buyable, count = count,
-                              c1 = Theme.tabColor(dept.tab[1]),
-                              c2 = dept.tab[2] and Theme.tabColor(dept.tab[2]) or nil }
+                              c1 = Theme.tabColor(pg.dark and "paper:page" or dept.tab[1]),
+                              c2 = (not pg.dark) and dept.tab[2] and Theme.tabColor(dept.tab[2]) or nil }
         end
     end
 
@@ -1742,9 +1751,20 @@ local function drawLeaf(self, page, page_num, owned, state, fonts, forcing, x, y
         if units + sp > LEAF_SLOTS then break end   -- guard; :_pages pre-fits
         units = units + sp
         local ch = card_h * sp + gapc * (sp - 1)
-        Poke.draw(CARD_KEY[item.id], x + pad + cw * 0.5, cy + ch, drawItemCard,
-                  self, item, owned, state, x + pad, cy, cw, ch, fonts, forcing,
-            CATALOG_ORD[item.id] or 0, sp >= 3)
+        if page.dark then
+            -- A dark shelf's card: its place on the page, nothing of it.
+            Theme.setColor(Theme.paper.ink, 0.10)
+            love.graphics.rectangle("fill", x + pad, cy, cw, ch)
+            Theme.setColor(Theme.paper.ink, 0.30)
+            love.graphics.rectangle("line", x + pad, cy, cw, ch)
+            love.graphics.setFont(fonts.md)
+            Theme.setColor(Theme.paper.ink_faint)
+            love.graphics.printf("???", x + pad, cy + fl((ch - fonts.md:getHeight()) / 2), cw, "center")
+        else
+            Poke.draw(CARD_KEY[item.id], x + pad + cw * 0.5, cy + ch, drawItemCard,
+                      self, item, owned, state, x + pad, cy, cw, ch, fonts, forcing,
+                CATALOG_ORD[item.id] or 0, sp >= 3)
+        end
         cy = cy + ch + gapc
     end
 
