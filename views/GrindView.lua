@@ -2700,10 +2700,13 @@ function GrindView:_drawCenterGrid(W, H)
 
     -- Empty cells: holes the player left, and the unused corner of a
     -- board that grew for one more table. Drawn first so panels and the
-    -- held drag panel sit above them.
+    -- held drag panel sit above them. The held table's own cell is empty
+    -- while it is in the hand.
     do
         local occupied = {}
-        for _, t in ipairs(tables) do occupied[t.slot or 0] = true end
+        for i, t in ipairs(tables) do
+            if i ~= held_i then occupied[t.slot or 0] = true end
+        end
         for r = 0, rows - 1 do
             for c = 0, cols - 1 do
                 local s = TableGrid.pack(r, c)
@@ -3662,7 +3665,9 @@ function GrindView:railH() return RAIL_H end
 
 -- The rail component under a point, by id ("shove", "nav:room", …), or nil.
 function GrindView:chromeHit(x, y)
-    if not self.rail or y < self.rail.y then return nil end
+    -- The quick-reset overlay pokes scissor_pad_top above the rail and
+    -- clicks there too.
+    if not self.rail or y < self.rail.y - (self.rail.scissor_pad_top or 0) then return nil end
     local comps = self.rail:getComponents()
     if not comps then return nil end
     local hit = CR.hitTest(comps, self.rail.x, self.rail.w, x, self.rail:toContentY(y), self.game)
