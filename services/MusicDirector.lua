@@ -78,6 +78,9 @@ local STRAIN_CRUSH  = 6       -- extra sample-hold length at strain 1
 -- ── State ──────────────────────────────────────────────────────────────
 local _init      = false
 local _playlist  = {}     -- shuffled file paths
+local _folder    = {}     -- the same paths in folder (name) order
+local _gift_was  = nil    -- music_gift heard last frame (nil before the first)
+local _from_top  = false  -- the next un-cut starts the track at 0:00, no rejoin
 local _pl_i      = 0
 local _dec       = nil    -- current track's Decoder
 local _src       = nil    -- current track's QueueableSource
@@ -164,6 +167,8 @@ local function scan()
             _playlist[#_playlist + 1] = DIR .. "/" .. name
         end
     end
+    table.sort(_playlist)
+    for i, p in ipairs(_playlist) do _folder[i] = p end
     shuffle()
 end
 
@@ -227,6 +232,19 @@ local function nextTrack()
     if not ok then _dec, _src = nil, nil; return end
     _pos = 0
     _lp, _hp, _hp2, _hold_v, _hold_n = { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 }, 0
+end
+
+-- The gift: the click through the House's jazz line is where the music
+-- starts — the first file in the folder (name order), at 0:00. Every
+-- later cut rejoins ahead as usual. The rest of the lap is shuffled.
+local function startFromTop()
+    for i, p in ipairs(_folder) do _playlist[i] = p end
+    for i = #_playlist, 3, -1 do
+        local j = 1 + rand(i - 1)
+        _playlist[i], _playlist[j] = _playlist[j], _playlist[i]
+    end
+    _pl_i, _cut_at, _from_top = 0, nil, true
+    nextTrack()
 end
 
 -- ── DSP ────────────────────────────────────────────────────────────────
@@ -324,7 +342,10 @@ function MusicDirector.update(dt, game)
         local ok = pcall(scan)
         if ok and #_playlist > 0 then
             loadStatic()
-            nextTrack()
+            -- Before the gift nothing is opened at all: the first track
+            -- starts at the gift's click (startFromTop), not at launch.
+            local seen = game and game.state and game.state.story_seen
+            if seen and seen.music_gift then nextTrack() end
             -- The House gets the first word: on a fresh boot/new game his
             -- opening bubble lands within a couple of frames, so hold the
             -- music back rather than blipping one frame of jazz first.
@@ -355,6 +376,13 @@ function MusicDirector.update(dt, game)
             _threaded, _thread = false, nil
             nextTrack()
         end
+    end
+
+    if game and #_playlist > 0 then
+        local seen = game.state and game.state.story_seen
+        local gift = (seen and seen.music_gift) and true or false
+        if _gift_was == false and gift then startFromTop() end
+        _gift_was = gift
     end
 
     if not (_src and game) then return end
@@ -439,7 +467,10 @@ function MusicDirector.update(dt, game)
         local silent = now - _cut_at
         _cut_at = nil
         local target = _pos / _rate + silent
-        if _threaded then
+        if _from_top then
+            -- The gift's first play: from 0:00, the broadcast starts now.
+            _from_top = false
+        elseif _threaded then
             _ctl:push({ cmd = "seek", pos = target })
             _pos = math.floor(target * _rate)
         else
@@ -448,6 +479,7 @@ function MusicDirector.update(dt, game)
         end
     end
 
+    _from_top = false
     pcall(function() _src:setVolume(volume()) end)
 
     -- The strain slows the music with the tables: the pitch eases toward
