@@ -136,9 +136,9 @@ local TERMS     = "Only the deck in play levels. The rest keep their bonuses. Le
 -- the player was about to get — and the spread, instead of the roster,
 -- says the demo ends here, where the rest is, and that the felt stays open.
 -- The sticker is the title's, so it is the same sticker peeled twice.
-local DEMO_HEADLINE = "THAT'S THE DEMO."
-local DEMO_BODY     = "Thanks for playing. In the full game, this flyer would've unlocked the decks. Mail order decks, higher stakes, more table types, and much more."
-local DEMO_FOOT     = "Stay as long as you like. The tables are open, but there's nothing more to unlock."
+local DEMO_HEADLINE = "END OF DEMO"
+local DEMO_BODY     = "This is the end of the demo. Continue playing as long as you want, no new content will unlock."
+local DEMO_MORE     = "The full game has much more to offer. This flyer unlocks the \"decks\". There's also more stakes, tables, items, and that's only the beginning."
 local DEMO_STICKER  = { "WISHLIST", "on Steam" }
 local DEMO_UTM      = "utm_source=demo&utm_medium=flyer"
 
@@ -671,8 +671,9 @@ function DeckFlyer:_drawColumnLeaf(lx, ly, lw, lh, fonts, s)
                fonts, s, Decks.isUnlocked(state, detail, self.game.unlock_rules))
 end
 
--- The demo's page, across the open spread: the imprint, the headline, the
--- body, the WISHLIST sticker (when there is a store page), the foot.
+-- The demo's page, across the open spread: the imprint, the headline, that
+-- the demo ends here, what the full game has, the WISHLIST sticker (when
+-- there is a store page).
 function DeckFlyer:_drawDemoPage(sx, sy, sw, lh, fonts, s, mx, my)
     local fl  = math.floor
     local tw  = fl(sw * 0.62)
@@ -683,10 +684,13 @@ function DeckFlyer:_drawDemoPage(sx, sy, sw, lh, fonts, s, mx, my)
     love.graphics.printf(IMPRINT, sx, y, sw, "center")
     y = y + fonts.sm:getHeight() + fl(10 * s)
     col(P.heading)
-    love.graphics.setFont(fonts.lg)
+    local head = fonts.xl or fonts.lg
+    love.graphics.setFont(head)
     love.graphics.printf(DEMO_HEADLINE, sx, y, sw, "center")
-    y = y + fonts.lg:getHeight() + fl(18 * s)
+    y = y + head:getHeight() + fl(26 * s)
     y = iconWrapCentered(self.game, DEMO_BODY, tx, y, tw, fonts.md, P.primary, _alpha)
+    y = y + fl(18 * s)
+    y = iconWrapCentered(self.game, DEMO_MORE, tx, y, tw, fonts.md, P.primary, _alpha)
     y = y + fl(26 * s)
 
     self._demo_sticker = nil
@@ -705,9 +709,7 @@ function DeckFlyer:_drawDemoPage(sx, sy, sw, lh, fonts, s, mx, my)
         if mx >= x and mx < x + w and my >= y and my < y + h then
             require("services.CursorIntent").mark("point")
         end
-        y = y + h + fl(26 * s)
     end
-    iconWrapCentered(self.game, DEMO_FOOT, tx, y, tw, fonts.sm, P.muted, _alpha)
 end
 
 function DeckFlyer:draw()
